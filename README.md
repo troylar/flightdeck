@@ -242,6 +242,7 @@ Publishing freezes a checklist as a numbered version, with who, when and why. Ru
 A process is one page, with its checklist in the middle:
 
 - **Read it** the way a run shows it, or switch on **Markdown** to see and copy the source.
+- **See its shape** with **Flight plan**: phases as waypoints from start to landing, gates as checkpoints, tracks as parallel lanes, linked processes as connecting flights, and, from that version's own runs and skills, typical times, the steps covered by skills (autopilot) and the steps that go off-script most (turbulence). Choose a phase to jump to it in the checklist.
 - **Edit** it in place: the Markdown beside a live check (what blocks publishing, and what's just a tip) and a preview, updated as you type. **Done** takes you back; **Publish** appears when the draft has changes.
 - **Look back**: pick any version from the version list or the Versions panel. An older version shows with a way back to the current one and **Restore as draft**.
 - **How runs go**: typical time per phase, the steps that go off-script most, and who has held each role.

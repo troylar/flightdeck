@@ -918,6 +918,17 @@
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
     'toggle-md': function () { state.showMd = !state.showMd; state.focus = '[data-act="toggle-md"]'; render(); },
+    /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
+    flight: function (id) { state.flight = id === 'plan'; state.focus = '[data-act="flight"][data-id="' + (state.flight ? 'plan' : 'list') + '"]'; render(); },
+    'flight-phase': function (id) {
+      var want = /^\d+$/.test(id) ? 'cl-ph-' + id : 'cl-h';
+      state.flight = false; state.showMd = false; state.focus = want;
+      render();
+      var el = document.getElementById(want) || document.getElementById('cl-h');
+      if (!el) return;
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
+    },
     'copy-map': function () { var pre = document.getElementById('map-source'); copyText(pre ? pre.textContent : '', pre, 'Copied.'); },
     'restore-draft': function (id, b) {
       var p = currentProcess(), v = p && p.all.filter(function (x) { return x.folder === id; })[0];

@@ -24,7 +24,7 @@ The team owns this code. Leave it easier to change than you found it.
 |---|---|---|
 | `src/core/` | `util`, `types`, `jira`, `map`, `publish`, `run`: every rule | Pure functions. No DOM, no files. Every rule has a test. |
 | `src/storage/` | `fs` (folder access), `repo` (load, save, publish, conflicts, cache) | One writer per file, always. |
-| `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `run`, `pages`, `overlays`), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
+| `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `run`, `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
 | `src/page.html` | Styles, color tokens, page shell | Light and dark tokens; no external resources. |
 | `build.py` | Joins `src/` into `dist/flightdeck.html` | Order is fixed in `CORE` and `APP` at the top. |
 | `example-folder/` | A complete team folder, built into the app as examples | Synthetic people only. Its `AGENTS.md` is the contract for working **in a team folder**; its `.flightdeck/skills/` are the Flightdeck skills for AI assistants that every new team folder gets (`flightdeck skills --to <dir>` installs them anywhere else). |

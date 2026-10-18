@@ -6,6 +6,10 @@
 
 Organized step types.
 
+### New
+
+- **See a process as a flight plan** (Processes). On a process page, switch the checklist to Flight plan to see its shape at a glance: phases from start to landing, gates as checkpoints, tracks side by side and linked processes. With runs of that version, it shows each phase's usual time and the step that most often goes off-script. It marks steps covered by skills built from that version. Choose a phase to go to it. *Where:* A process page, the Checklist | Flight plan switch.
+
 ### Improved
 
 - **Step types in groups, with tags** (Step types). Step types are listed in groups, like processes and skills, with a tag filter. Give a team type a group and tags in its form; built-ins are grouped as General, Tools and Automation. Reorganizing a type never marks a process or a skill as changed. *Where:* Step types.

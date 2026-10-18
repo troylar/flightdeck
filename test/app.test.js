@@ -138,6 +138,24 @@ rule('App: Fill in checks evidence against the fields being saved, so switching 
   assert.strictEqual(app.run().json.steps.close.values[key], 'Done');
 });
 
+rule('App: a process shows as a flight plan, and choosing a phase in it goes back to that phase in the checklist', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  assert.ok(/class="ph"/.test(app.html()) && !/class="fp"/.test(app.html()), 'the checklist first');
+  app.click('flight', 'plan'); await app.tick();
+  assert.ok(/<ol class="fp"/.test(app.html()) && /data-act="flight" data-id="plan" aria-pressed="true"/.test(app.html()), 'the flight plan');
+  assert.ok(/No runs of this version yet\./.test(app.html()) && !/Typically/.test(app.html()) && /<b>Connecting<\/b>/.test(app.html()), 'the current version has no runs of its own yet; its linked check-in shows');
+  const v1 = /data-act="view-version" data-id="(v1-[^"]+)"/.exec(app.html())[1];
+  app.click('view-version', v1); await app.tick();
+  assert.ok(/<ol class="fp"/.test(app.html()) && /Typically/.test(app.html()) && /From \d+ runs of v1;/.test(app.html()), 'v1, which the example runs used, shows their times');
+  app.click('flight', 'list'); await app.tick();
+  assert.ok(/class="ph"/.test(app.html()) && !/class="fp"/.test(app.html()), 'and back');
+  app.click('flight', 'plan'); await app.tick();
+  app.click('flight-phase', '1'); await app.tick();
+  assert.ok(/<h3 id="cl-ph-1" tabindex="-1">/.test(app.html()) && !/class="fp"/.test(app.html()) && /data-act="flight" data-id="list" aria-pressed="true"/.test(app.html()), 'a phase opens the checklist at that phase');
+});
+
 rule('App: the sections switch from the top bar, and Home never opens a run by itself', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-casey'); await app.tick();

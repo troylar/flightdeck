@@ -287,6 +287,121 @@ rule('Process page: insights in their own tab; Jira in Settings, step types on t
   assert.ok(/change\.request/.test(types) && /step-types\/bad\.json/.test(types), 'team types and their errors are on Step types');
 });
 
+/* A process page's checklist panel for a process built around the example release. */
+function flightSetup(extra) {
+  const { r, ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest;
+  const p = Object.assign({ id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: null, draftChanged: false }, extra || {});
+  ctx.processes = () => [p, { id: 'check-in', title: 'Developer check-in' }];
+  ctx.data.runs = []; state.processId = 'release'; state.flight = true; state.mapVer = null;
+  return { r, ctx, state, p, latest };
+}
+/* A finished run of pub with one step done differently. */
+function flightRun(pub, id, step) {
+  const H = require('./harness');
+  const r = R.create(pub, { title: 'R', details: { ticket: 'ABC-1', commit: 'a1', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id });
+  H.completeRun(PF, r, NOW);
+  if (step) R.differently(r, R.mapOf(r), step, 'Did it another way', 'person-casey', NOW);
+  return r;
+}
+const skillOf = (name, steps, implementsV, s, errors) => ({ skill: { name, steps, implements: implementsV, process: 'release' }, status: { s }, errors: errors || [] });
+
+rule('Flight plan: the Checklist | Flight plan switch shows the same version as a vertical route from Start to Landed', () => {
+  const { ctx, state, p } = flightSetup();
+  let html = V.checklistPanel(ctx, p);
+  assert.ok(/data-act="flight" data-id="list" aria-pressed="false">Checklist</.test(html) && /data-act="flight" data-id="plan" aria-pressed="true">Flight plan</.test(html), 'a two-way switch');
+  assert.ok(/<ol class="fp" aria-label="Flight plan">/.test(html) && />Start</.test(html) && />Landed</.test(html), 'an ordered route');
+  assert.strictEqual((html.match(/data-act="flight-phase"/g) || []).length, 3, 'one button per phase');
+  assert.ok(/aria-label="Phase 2 of 3, Deploy, Read-Do, 4 steps, then gate Deployed. Show it in the checklist"/.test(html), 'each phase says where it is and what follows');
+  assert.ok(/Phase 1 · Do-Confirm/.test(html) && /6 steps · 4 must-do/.test(html), 'mode, steps and must-dos');
+  assert.ok(!/data-act="toggle-md"/.test(html) && !/class="ph"/.test(html), 'the checklist itself is not shown');
+  state.flight = false; html = V.checklistPanel(ctx, p);
+  assert.ok(/data-act="flight" data-id="list" aria-pressed="true"/.test(html) && /<h3 id="cl-ph-1" tabindex="-1">Deploy/.test(html) && !/class="fp"/.test(html), 'Checklist has an anchor per phase');
+});
+
+rule('Flight plan: named gates are checkpoints with owner and what they approve; tracks are lanes; a linked process is a connecting flight', () => {
+  const { ctx, p } = flightSetup();
+  const html = V.checklistPanel(ctx, p);
+  assert.ok(/<div class="fp-gate"><span class="fp-gate-t">/.test(html) && /<span class="sr">Gate: <\/span>Ready to deploy/.test(html), 'a named gate, read as a gate');
+  assert.ok(/Owner @release-lead/.test(html) && /Approves deploy of <code>\^commit<\/code> to \^environment/.test(html), 'owner and what it approves');
+  assert.ok(/<ul class="fp-lanes" aria-label="Parallel tracks"><li class="fp-lane"><b>Product checks<\/b><span class="small">@qa<\/span><span class="small">2 steps<\/span>/.test(html), 'tracks as lanes');
+  assert.ok(/<b>Connecting<\/b> Developer check-in/.test(html), 'a run.process step names the process it starts');
+  assert.ok(/fp-gate implicit/.test(html) && /then a check that the phase is done/.test(html), 'a phase without a named gate ends with a plain check');
+  assert.ok(!/Autopilot|Turbulence|Typically/.test(html) && /No runs of this version yet\./.test(html), 'no skills, no runs: nothing claimed, and it says why');
+});
+
+rule('Flight plan: autopilot only for valid skills built from the version shown; skills behind say so; broken ones claim nothing', () => {
+  const { ctx, p, latest } = flightSetup();
+  const v = latest.info.version;
+  p.skills = [skillOf('release-deploy', ['jenkins', 'approve'], v, 'current'), skillOf('release-notes', null, v, 'current'),
+    skillOf('old-deploy', ['merge'], v - 1, 'update'), skillOf('old-notes', ['result'], v - 1, 'unaffected'),
+    skillOf('broken-one', ['pods'], v, 'current', ['broken-one.json: needs a "name"']), skillOf('lost-one', ['pods'], v, 'missing')];
+  let html = V.checklistPanel(ctx, p);
+  assert.ok(/<b>Autopilot<\/b> release-deploy covers 2 steps/.test(html), 'per-phase coverage');
+  assert.ok(/<b>Autopilot<\/b> release-notes covers the whole process/.test(html), 'a whole-process skill at the start');
+  assert.ok(/fp-stale[^>]*>.*?old-deploy needs an update/.test(html) && /old-notes follows v0/.test(html), 'skills behind the version use the status words');
+  assert.ok(!/broken-one|lost-one/.test(html), 'a broken or unmatched registration never claims coverage');
+  assert.strictEqual((html.match(/Autopilot/g) || []).length, 2);
+  const older = Object.assign({}, latest, { folder: 'v0-old', info: Object.assign({}, latest.info, { version: v - 1, folder: 'v0-old' }) });
+  p.all = [latest, older]; ctx.state.mapVer = 'v0-old';
+  html = V.checklistPanel(ctx, p);
+  assert.ok(/<b>Autopilot<\/b> old-deploy covers 1 step/.test(html) && !/release-deploy|needs an update|follows v/.test(html), 'an older version: only the skills built from it');
+  p.draft = { file: 'release.md', md: latest.md }; p.draftChanged = true; ctx.state.mapVer = null;
+  html = V.checklistPanel(ctx, p);
+  assert.ok(/The draft/.test(html) && !/Autopilot|needs an update|follows v/.test(html), 'a draft: no skill is built from it');
+});
+
+rule('Flight plan: times and turbulence come only from runs of the version shown, each phase keeps its own top deviation, and the footnote names the version', () => {
+  const { ctx, p, latest } = flightSetup();
+  const older = Object.assign({}, latest, { folder: 'v0-old', info: Object.assign({}, latest.info, { version: 0, folder: 'v0-old' }) });
+  const mine = ['fp1', 'fp2', 'fp3'].map(id => flightRun(latest, id)), theirs = flightRun(older, 'fp0', 'merge');
+  // Ten steps in the first two phases go off-script more than any step in the third, so a global top ten would hide it.
+  mine.forEach(r => { const m = R.mapOf(r); ['approved', 'tests', 'flags', 'rollback', 'notes', 'announce', 'merge', 'jenkins', 'approve', 'pods'].forEach(id => R.differently(r, m, id, 'again', 'person-casey', NOW)); });
+  R.differently(mine[0], R.mapOf(mine[0]), 'smoke', 'x', 'person-casey', NOW);
+  assert.ok(R.analytics(mine, 'release').steps.every(c => c.id !== 'smoke'), 'set-up: the third phase is outside the top ten');
+  ctx.data.runs = mine.concat(theirs);
+  let html = V.checklistPanel(ctx, p);
+  assert.ok(/Typically under a minute/.test(html) && /From 3 runs of v1; paused time isn.t counted\./.test(html), 'numbers say which version they come from');
+  assert.strictEqual((html.match(/<b>Turbulence<\/b>/g) || []).length, 3, 'every phase with deviations keeps its own, past the global top ten');
+  assert.ok(/off-script 3 times/.test(html) && !/off-script 4 times/.test(html), 'the older run\'s deviation is not added');
+  p.draft = { file: 'release.md', md: latest.md.replace('Approve the deploy in Jenkins', 'Approve it') }; p.draftChanged = true;
+  html = V.checklistPanel(ctx, p);
+  assert.ok(!/Typically|Turbulence/.test(html) && /No runs of this version yet\./.test(html), 'a draft shows no history');
+  p.draft = null; p.draftChanged = false; ctx.data.runs = [theirs];
+  html = V.checklistPanel(ctx, p);
+  assert.ok(!/Typically|Turbulence/.test(html) && /No runs of this version yet\./.test(html), 'only another version has runs: none shown');
+});
+
+rule('Flight plan: two phases with the same title show their own typical times', () => {
+  const md = ['---', 'process: rv', 'title: RV', 'owner: person-avery', '---', '', '## Review · READ-DO {#r1}', '- [ ] {confirm} A {#a}', '', '## Review · READ-DO {#r2}', '- [ ] {confirm} B {#b}'].join('\n');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'rv000001' }), pub = P.verify(b.folder, b.files);
+  const t0 = Date.parse(NOW), at = m => new Date(t0 + m * 60000).toISOString();
+  const r = R.create(pub, { title: 'R', details: {}, roles: {}, by: 'person-casey', session: 'me', now: NOW, id: 'rv1' }), map = R.mapOf(r);
+  R.done(r, map, 'a', 'person-casey', at(1)); R.pass(r, map, 0, 'person-casey', at(5));
+  R.done(r, map, 'b', 'person-casey', at(10)); R.pass(r, map, 1, 'person-casey', at(65));
+  const { ctx, p } = flightSetup({ id: 'rv', title: 'RV', latest: pub, all: [pub] });
+  ctx.data.runs = [r];
+  const html = V.checklistPanel(ctx, p);
+  assert.ok(/Typically 5 min/.test(html) && /Typically 1 h</.test(html) && !/Typically 33 min/.test(html), 'not pooled by title');
+});
+
+rule('Flight plan: titles from the checklist are escaped, long unbroken names can wrap, and a draft with no phases says how to start one', () => {
+  const long = 'x'.repeat(80);
+  const md = ['---', 'process: odd', 'title: ' + long, 'owner: person-avery', 'roles: a', 'context: ' + long, '---', '', '## <img src=x onerror=alert(1)>' + long + ' · READ-DO {#one}', '### Track: <b>lane</b>' + long + ' @a {#t}', '- [ ] {confirm} Step <i>x</i> {#s1}', '', '## Gate: <script>bad()</script>' + long + ' · owner @a {#g}', '  approves: <u>it</u>'].join('\n');
+  const { ctx, p } = flightSetup({ id: 'odd', title: long, latest: null, all: [], draft: { file: 'odd.md', md }, draftChanged: true });
+  let html = V.checklistPanel(ctx, p);
+  assert.ok(!/<img|<script|<b>lane|<u>it/.test(html), 'nothing from the file is raw HTML');
+  assert.ok(/&lt;img src=x onerror=alert\(1\)&gt;/.test(html) && /&lt;script&gt;bad\(\)&lt;\/script&gt;/.test(html) && /&lt;b&gt;lane&lt;\/b&gt;/.test(html), 'shown as text');
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  ['.mapview .fp > li {', '.fp-name {', '.fp-go {', '.fp-gate {', '.mapview .fp-lane {'].forEach(sel => {
+    const rule = css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+    assert.ok(/overflow-wrap: anywhere/.test(rule), sel + ' lets a long unbroken name wrap');
+  });
+  p.draft.md = ['---', 'process: odd', 'title: Odd', '---', ''].join('\n');
+  html = V.checklistPanel(ctx, p);
+  assert.ok(/Add a phase to see the flight plan\./.test(html) && !/class="fp"/.test(html));
+});
+
 rule('P1: a javascript: link written into a run file is never rendered as a link, anywhere', () => {
   const { ctx, state } = setup(r => {
     const raw = JSON.parse(JSON.stringify(r));
