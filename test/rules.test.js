@@ -603,6 +603,23 @@ rule('Schedule: clock times are read in the run\'s time zone, so every viewer se
   assert.strictEqual(R.schedule(r, R.mapOf(r), Date.parse(NOW))[0].ms, Date.parse(NOW) + 7200000, 'a gate can be due after the start');
 });
 
+rule('Team step types: group and tags organize them, and never count as a change to a version', () => {
+  const T = PF.types;
+  const def = { id: 'change.request', label: 'Change request', group: 'Releases / Approvals', tags: ['cab', '#Prod'], fields: {}, record: [] };
+  assert.strictEqual(T.checkCustom(def).length, 0, T.checkCustom(def).join('; '));
+  const t = T.customType(def);
+  assert.strictEqual(JSON.stringify([t.group, t.tags]), JSON.stringify([['Releases', 'Approvals'], ['cab', 'prod']]));
+  assert.strictEqual(JSON.stringify(T.groupOf(t)), JSON.stringify(['Releases', 'Approvals']));
+  assert.strictEqual(T.groupOf(T.get('jenkins.job'))[0], 'Tools', 'built-ins are grouped too');
+  const moved = T.customType(Object.assign({}, def, { group: 'Elsewhere', tags: ['other'] }));
+  assert.strictEqual(JSON.stringify(T.freeze(['change.request'], { 'change.request': t })), JSON.stringify(T.freeze(['change.request'], { 'change.request': moved })), 'reorganizing never changes what is frozen');
+  assert.ok(T.checkCustom(Object.assign({}, def, { group: 5 })).some(e => /"group"/.test(e)) && T.checkCustom(Object.assign({}, def, { tags: 'cab' })).some(e => /"tags"/.test(e)), 'bad values are explained');
+  const long = 'a'.repeat(39) + '/' + 'b'.repeat(40);
+  assert.ok(T.checkCustom(Object.assign({}, def, { group: long })).some(e => /"group"/.test(e)), 'group length is checked as written (with " / "), so a saved form never becomes invalid');
+  assert.ok(T.checkCustom(Object.assign({}, def, { tags: ['a,b'] })).some(e => /"tags"/.test(e)), 'a tag with a comma is refused');
+  assert.strictEqual(JSON.stringify(T.customType(Object.assign({}, def, { tags: ['##Prod'] })).tags), JSON.stringify(['prod']), '"#" prefixes are dropped the same way in files and the form');
+});
+
 rule('Team step types: options only on choices; a bad file never stops the folder; choices with capitals work', () => {
   assert.ok(PF.types.checkCustom({ id: 'x.y', label: 'X', fields: { a: { label: 'A', kind: 'text', options: 'bad' } } }).some(e => /only a choice/.test(e)));
   const t = PF.types.customType({ id: 'risk.call', label: 'Risk', fields: { level: { label: 'Level', kind: 'choice', options: ['Low', 'High'] } }, record: [{ name: 'call', label: 'Call', kind: 'choice', options: ['Go', 'No go'] }] });

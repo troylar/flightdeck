@@ -1,5 +1,26 @@
 [
   {
+    "version": "1.11.0",
+    "date": "2026-10-18",
+    "headline": "Organized step types",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Step types",
+        "title": "Step types in groups, with tags",
+        "now": "Step types are listed in groups, like processes and skills, with a tag filter. Give a team type a group and tags in its form; built-ins are grouped as General, Tools and Automation. Reorganizing a type never marks a process or a skill as changed.",
+        "where": "Step types."
+      },
+      {
+        "kind": "fixed",
+        "area": "Step types",
+        "title": "Clearer while a step type saves",
+        "now": "While Keep mine saves, the conflict shows Saving… instead of buttons that would do nothing, and Cancel and Discard my changes leave keyboard focus somewhere useful.",
+        "where": "Step types, and the draft editor."
+      }
+    ]
+  },
+  {
     "version": "1.10.0",
     "date": "2026-10-18",
     "headline": "Clear sections, and templates and step types you manage in the app",

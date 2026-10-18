@@ -19,6 +19,8 @@ Read `AGENTS.md` in this team folder first, then *Team step types* in the checkl
   "label": "Change request",
   "icon": "doc",
   "hint": "A change request the change board approves before production work.",
+  "group": "Releases / Approvals",
+  "tags": ["cab", "production"],
   "fields": {
     "system": { "label": "Change system", "kind": "text", "required": true }
   },
@@ -30,6 +32,7 @@ Read `AGENTS.md` in this team folder first, then *Team step types* in the checkl
 
 - `id`: lowercase letters, numbers, dashes and dots, like `change.request`; not a built-in type's id. The file name is exactly `<id>.json`.
 - `label` (up to 40 characters) and `hint` (up to 120): what people see.
+- `group` (optional): where it sits on the Step types page, levels separated by `/`, up to 80 characters. `tags` (optional): up to 10 short words. Both only organize; they never change a published version.
 - `icon`: one of check, chat, people, fork, doc, hourglass, cursor, gear, merge, ticket, terminal, script, spark, pipeline, nest.
 - `fields`: what a checklist can say about the step. Kinds: `text`, `url`, `code`, `message`, `list`, `choice` (with `options`, a list of short names). `"required": true` means "usually filled in" (a tip, never a blocker). At most 30.
 - `record`: evidence people can record when they check the step. Kinds: `text`, `url`, `choice` (with `options`); `"long": true` for a multi-line box. Names must be unique and can't be `evidence`, start with `jf-` or `rd-`, or be a built-in JavaScript name like `constructor`. At most 20. A checklist makes evidence required with `require: <name>` or `require: all`.

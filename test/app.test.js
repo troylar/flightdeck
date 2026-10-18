@@ -401,6 +401,40 @@ rule('App: publishing freezes the step types as saved, even when a type save fin
   assert.ok(pub, 'the new version froze the saved label');
 });
 
+rule('App: step types are grouped and filtered by tag; a type saves its group and tags', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick();
+  assert.ok(/data-group="Tools"/.test(app.html()) && /data-group="Automation"/.test(app.html()), 'built-ins in groups');
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  app.input('tf-group', 'Releases / Approvals'); app.input('tf-tags', 'cab, prod'); await app.tick(300);
+  app.submit('type-form'); await app.tick(120);
+  const def = JSON.parse(app.fs.files['step-types/change.request.json'].t);
+  assert.strictEqual(JSON.stringify([def.group, def.tags]), JSON.stringify(['Releases / Approvals', ['cab', 'prod']]));
+  assert.ok(/data-group="Releases \/ Approvals"/.test(app.html()) && /data-act="tag" data-id="cab"/.test(app.html()), 'grouped and taggable');
+  app.click('tag', 'cab'); await app.tick();
+  assert.ok(/change\.request/.test(app.html()) && !/data-id="jenkins.job"/.test(app.html()), 'the tag filter narrows the list');
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(/Production release/.test(app.html()) && !/aria-pressed="true">#cab/.test(app.html()), 'a tag picked on Step types never filters Processes');
+  app.click('nav', 'types'); await app.tick();
+  assert.ok(/data-act="tag" data-id="cab" aria-pressed="true"/.test(app.html()), 'and Step types keeps its own filter');
+});
+
+rule('App: while a step type saves, its conflict choices wait, so Take theirs never silently does nothing', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('edit-type', 'change.request'); await app.tick(40);
+  const path = 'step-types/change.request.json';
+  app.input('tf-label', 'Mine'); await app.tick(300);
+  await app.fs.write(path, app.fs.files[path].t.replace(/"label": "[^"]*"/, '"label": "Theirs"'));
+  app.submit('type-form'); await app.tick(60);
+  assert.ok(/data-act="type-take-theirs"/.test(app.html()), 'conflict shown');
+  const write = app.fs.write.bind(app.fs), g = gate();
+  app.fs.write = (p, t) => p === path ? g.p.then(() => write(p, t)) : write(p, t);
+  app.click('type-keep-mine'); await app.tick(5);
+  assert.ok(!/data-act="type-take-theirs"/.test(app.html()) && />Saving…</.test(app.html()), 'no Take theirs while saving, and the Save button says so');
+  g.open(); await app.tick(80);
+  assert.ok(/"label": "Mine"/.test(app.fs.files[path].t));
+});
+
 rule('App: a row added to a step type while it saves stays in the form', async () => {
   const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
   app.click('nav', 'types'); await app.tick(); app.click('edit-type', 'change.request'); await app.tick(40);

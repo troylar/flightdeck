@@ -126,12 +126,14 @@ A team can add its own types as `step-types/<id>.json` in the team folder. The f
   "label": "Change request",
   "icon": "doc",
   "hint": "A change request the change board approves before production work.",
+  "group": "Releases / Approvals",
+  "tags": ["cab", "production"],
   "fields": { "system": { "label": "Change system", "kind": "text", "required": true } },
   "record": [ { "name": "number", "label": "Change number", "kind": "text" } ]
 }
 ```
 
-Field kinds are `text`, `url`, `code`, `message`, `list` and `choice` (with `options`); evidence kinds are `text`, `url` and `choice`. Publishing freezes the type into the publication, so a later edit to the file never changes an old version. A broken file is listed on the process page and its type can't be used.
+Field kinds are `text`, `url`, `code`, `message`, `list` and `choice` (with `options`); evidence kinds are `text`, `url` and `choice`. `group` (optional, up to 80 characters, levels separated by `/`) and `tags` (optional, up to 10 short words) only organize the Step types page; they're never frozen into a version, so changing them doesn't change any process or skill. Publishing freezes the type into the publication, so a later edit to the file never changes an old version. A broken file is listed on the process page and its type can't be used.
 
 ## Jira workflows
 
