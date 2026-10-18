@@ -1,0 +1,12 @@
+{
+  "kind": "plan",
+  "id": "plan-release-2026-10-24",
+  "process": "release",
+  "version": 1,
+  "title": "Release 2026.10.24",
+  "details": { "ticket": "ABC-4801", "environment": "production" },
+  "roles": { "release-lead": "person-blake", "qa": "person-morgan", "backend": "person-casey" },
+  "note": "Rotation: Blake leads this one, and Morgan takes QA for the first time.",
+  "by": "AI assistant",
+  "created": "2026-10-17T13:00:00Z"
+}

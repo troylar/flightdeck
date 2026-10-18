@@ -1,0 +1,454 @@
+[
+  {
+    "version": "1.10.0",
+    "date": "2026-10-18",
+    "headline": "Clear sections, and templates and step types you manage in the app",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Navigation",
+        "title": "Six clear sections",
+        "before": "Home showed everything at once: the run you were recording, setup, every run and the library.",
+        "now": "The top bar has Home, Runs, Processes, Skills, Step types and Settings, and always shows where you are. Home lists only what needs you, each with one button; nothing opens on its own.",
+        "where": "The top bar."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "One page for each process: read, edit and version its checklist",
+        "now": "A process is one page with its checklist in the middle. Read it, show its Markdown to copy, or choose Edit to change the draft in place, checked and previewed as you type; saving stops and shows both if the draft changed since you opened it. Pick an older version to look back or restore it. How runs go has typical times and who has held each role.",
+        "where": "Processes → a process."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "Start a new process",
+        "now": "New process asks for an ID, title, group, tags, run details, roles and owner, then starts a draft checklist in maps/drafts/ and opens it for editing.",
+        "where": "Processes → New process."
+      },
+      {
+        "kind": "new",
+        "area": "Step types",
+        "title": "See every step type, and create your own",
+        "now": "Step types lists every built-in and team type: what it's for and how many checklists use it, with its fields and evidence one click away. New step type builds one from rows of fields and evidence, checked as you go, with the checklist line and the file it will save. Edit a team type, or start one from a built-in. Your AI assistant does the same from a description with flightdeck-new-step-type.",
+        "where": "Step types."
+      },
+      {
+        "kind": "improved",
+        "area": "Skills",
+        "title": "A clear Skills page, and a page for each skill",
+        "before": "Skills was a list mixed with processes, and clicking one opened its process.",
+        "now": "Skills shows the skills that need an update, the signed-off processes with no skill yet (each with Copy brief), and every skill by group and tag. Open a skill to see what changed under it and copy its update brief. The process page is shorter too: run times and who has held each role moved to How runs go.",
+        "where": "Skills, and Processes → a process."
+      },
+      {
+        "kind": "new",
+        "area": "Appearance",
+        "title": "Light, dark, or match this computer",
+        "now": "A button in the top bar steps through Match this computer, Light and Dark, and Settings has the same choice. Each browser remembers its own.",
+        "where": "The top bar, and Settings → Appearance."
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Always know which run you're in",
+        "now": "On a run, a slim bar under the top bar keeps its name, process and version, where it is and how far it's got in view as you scroll, and the browser tab is named after the run, so several open runs are easy to tell apart.",
+        "where": "Any run."
+      },
+      {
+        "kind": "new",
+        "area": "Settings",
+        "title": "One place for the team folder and setup",
+        "now": "Settings has the team folder (open, change, start new, examples), the people list, Jira workflows, keyboard shortcuts, and the version.",
+        "where": "Settings."
+      },
+      {
+        "kind": "improved",
+        "area": "Processes",
+        "title": "Checklists, not maps",
+        "now": "What a process's written-down steps are called is now a checklist everywhere: the process page, the editor, the docs and the skills for your AI assistant. Team folders and files are unchanged.",
+        "where": "Everywhere."
+      },
+      {
+        "kind": "fixed",
+        "area": "Skills",
+        "title": "The right words after copying a brief",
+        "now": "Copying a skill brief says to paste it to your LLM, and gate approvals in the checklist preview show as formatted text."
+      },
+      {
+        "kind": "improved",
+        "area": "Skills",
+        "title": "Skills for any AI assistant, installed anywhere",
+        "now": "The bundled skills are plain SKILL.md files that any assistant that supports skills can use. They now go in .flightdeck/skills/ in the team folder, and flightdeck skills --to <folder> installs them anywhere else, such as your assistant's own skills folder or another repo. The old -map skill names are gone; use the -checklist ones.",
+        "where": "flightdeck skills, and Settings → Start a new team folder."
+      },
+      {
+        "kind": "improved",
+        "area": "Skills",
+        "title": "A skill's source, wherever it lives",
+        "now": "A skill's page shows where its source is (a repo, a shared folder or a local path) as Source, and briefs ask for that path or link when you register a skill. The location field in skills/<name>.json is unchanged.",
+        "where": "Skills → a skill."
+      }
+    ]
+  },
+  {
+    "version": "1.9.1",
+    "date": "2026-10-18",
+    "headline": "A README worth reading",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Docs",
+        "title": "A full guide on the package page",
+        "now": "The README now walks through the loop from map to skill, a sixty-second tour of the examples, every feature, the map syntax with an example that publishes as written, process-to-skill traceability end to end, the command line, the team folder, the skills for your AI assistant, how Flightdeck stays safe, upgrading from Preflight, and an FAQ.",
+        "where": "The package page on npm."
+      }
+    ]
+  },
+  {
+    "version": "1.9.0",
+    "date": "2026-10-18",
+    "headline": "Process-to-skill traceability, values that flow through a run, and a hierarchy for everything",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Name",
+        "title": "Preflight is now Flightdeck",
+        "before": "The app was called Preflight, in preflight.html, with AI assistant skills named preflight-*.",
+        "now": "It's Flightdeck: flightdeck.html, with AI assistant skills named flightdeck-*. Team folders, runs and versions carry over. A browser keeps examples and your name per file, so flightdeck.html starts those fresh; flightdeck install also updates an existing preflight.html, so people who open it keep everything.",
+        "where": "Everywhere."
+      },
+      {
+        "kind": "new",
+        "area": "Install",
+        "title": "Install with npm",
+        "now": "npm install -g @troylar/flightdeck, then flightdeck open to try it, flightdeck install <team folder> to put the app there, and flightdeck skills <team folder> to add the skills for your AI assistant. No dependencies, nothing runs on install, no network.",
+        "where": "A terminal."
+      },
+      {
+        "kind": "new",
+        "area": "Skills",
+        "title": "See which skills implement each process",
+        "now": "Each process page lists the skills built from it: where each lives (any repo or folder), its own version, the process version it follows, and the steps it covers or the whole process. The map marks covered steps.",
+        "where": "Skills, on a process page; Home → Skills."
+      },
+      {
+        "kind": "new",
+        "area": "Skills",
+        "title": "Know when a process change affects a skill",
+        "now": "When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your LLM.",
+        "where": "Copy update brief, on a skill."
+      },
+      {
+        "kind": "new",
+        "area": "Skills",
+        "title": "Prove a version, then turn it into a skill",
+        "now": "Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an LLM needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant.",
+        "where": "Ready for a skill?, on a process page."
+      },
+      {
+        "kind": "new",
+        "area": "Library",
+        "title": "Organize processes and skills in a hierarchy, with tags",
+        "now": "Maps and skills say group: (like Engineering / Releases) and tags:. Home shows processes and skills as foldable trees, filtered by tag.",
+        "where": "Home → Processes and Skills."
+      },
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Let a step set a run detail",
+        "now": "A step can say sets: tag. Checking it asks for the tag and saves it as a run detail, so every later ^tag (commands, messages, Jira fields) uses it. The start form leaves it out and says which step fills it in. Correcting it later sends the steps that used the old value back for a re-check.",
+        "where": "sets: in a map; the example release's merge step sets the release tag."
+      }
+    ]
+  },
+  {
+    "version": "1.8.0",
+    "date": "2026-10-17",
+    "headline": "Pause, parallel tracks, times, child runs, Jira fields and run history",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Pause and resume a run",
+        "now": "The recorder can pause a run and say what it's waiting for. While it's paused, steps and gates can't change and timers stop; Resume picks up where it left off, and paused time never counts in durations.",
+        "where": "Pause, in the recorder bar of a run."
+      },
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Work in parallel tracks",
+        "now": "A phase can split into tracks, each with its own role, shown side by side. Every track finishes before the phase's gate.",
+        "where": "### Track: Name @role {#id} in a map."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Scheduled times and a day timeline",
+        "now": "Steps and gates can have a clock time (at: or due:) or a due time after the run starts (after:). Each shows a badge, the Day timeline lists them in order, and the recorder's window says when one is coming up or late.",
+        "where": "Day timeline, under the run's headline."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Run another process from a step",
+        "now": "A {run.process} step starts a linked run of another process, passing on the details it names. The parent step is checked when that run completes, or blocked if it stops, and the child links back to its parent.",
+        "where": "Start the run, on the step."
+      },
+      {
+        "kind": "new",
+        "area": "Jira",
+        "title": "Check transitions against your real Jira workflow",
+        "now": "jira/workflows.json in the team folder lists each issue type's statuses, transitions and the fields each transition requires. Maps can't publish a transition the workflow doesn't have, and a transition step asks for its required fields, with a hint for each and the value filled in from the run where the file says where it comes from.",
+        "where": "A Jira transition step; the process page shows the workflows."
+      },
+      {
+        "kind": "new",
+        "area": "Step types",
+        "title": "Add the team's own step types",
+        "now": "Each step-types/<id>.json in the team folder is a step type with its own fields and evidence, checked as strictly as a map and frozen into each publication.",
+        "where": "Team setup, on any process page."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "See how runs go and who has done each role",
+        "now": "Each process page shows outcomes, the typical time per phase, the steps that most often get blocked or done differently, and a grid of who has held each role and when.",
+        "where": "How runs go, on a process page."
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Phase headers stay in view",
+        "now": "While you scroll through a phase, its header stays pinned under the top bar with the phase's progress, so you always know where you are.",
+        "where": "Any run."
+      },
+      {
+        "kind": "improved",
+        "area": "Performance",
+        "title": "Redraw only what changed",
+        "before": "Every change redrew the whole screen.",
+        "now": "Only the parts of the screen that changed are redrawn, so focus, the caret and anything you're typing stay exactly where they were."
+      },
+      {
+        "kind": "improved",
+        "area": "Getting started",
+        "title": "Examples that show everything",
+        "now": "The examples now come with a month of team history: earlier releases (one stopped early) behind the analytics and role grid, a release whose check-in ran as a linked child run with its Jira fields filled in, an incident in progress split into tracks, and a sprint start that's paused, with its meeting time coming up.",
+        "where": "Home → Try the examples (Reset examples to see them in a browser that already has the old ones)."
+      },
+      {
+        "kind": "fixed",
+        "area": "Saving",
+        "title": "Fewer leftover save receipts and copies",
+        "now": "A save receipt that matches the current run is cleaned up instead of being shown as a conflict copy, and removing a copy also removes identical receipts."
+      }
+    ]
+  },
+  {
+    "version": "1.7.0",
+    "date": "2026-10-17",
+    "headline": "See what's new, and know when a newer copy is waiting",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Updates",
+        "title": "Read what changed in each version",
+        "now": "What's new in the top bar shows the version you're on and the full release history: search it, filter by new, improved or fixed and by area, and see before and after for each change. A dot appears when there's a release you haven't seen, and a short notice appears once after an update.",
+        "where": "What's new, in the top bar."
+      },
+      {
+        "kind": "new",
+        "area": "Updates",
+        "title": "Know when a newer Flightdeck is in the team folder",
+        "now": "If someone saves a newer flightdeck.html at the top of the team folder, older copies say so in the top bar, so everyone can switch to it.",
+        "where": "The top bar, after opening or refreshing the team folder."
+      }
+    ]
+  },
+  {
+    "version": "1.6.0",
+    "date": "2026-10-17",
+    "headline": "Every save survives, on one computer or many",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Saving",
+        "title": "Keep both versions when two windows save at once",
+        "before": "Two windows or computers saving the same run at the same moment could replace each other's change without a warning.",
+        "now": "Windows on one computer save a run one at a time. Across browsers and computers, each save first leaves its own receipt; a save that another one replaced shows up in the run as a conflict copy to compare and keep.",
+        "where": "The panel at the top of a run, when it has other versions."
+      },
+      {
+        "kind": "improved",
+        "area": "Saving",
+        "title": "Give each window its own files",
+        "now": "Notes, history, plan decisions and screenshots are written by each window to its own files, so a duplicated tab or a second window can never overwrite them."
+      },
+      {
+        "kind": "fixed",
+        "area": "Saving",
+        "title": "Keep the newest change through slow refreshes and failed saves",
+        "now": "A refresh never brings back an older version of a run over a change you just made, a save still in progress, or one that failed. Try again always saves your newest change."
+      },
+      {
+        "kind": "fixed",
+        "area": "Notes",
+        "title": "Keep what you're still typing",
+        "now": "Finishing one note clears only that note. Text typed while it saved, other steps' drafts and their screenshots stay. Notes over 2,000 characters are refused with a message instead of being cut short."
+      }
+    ]
+  },
+  {
+    "version": "1.5.0",
+    "date": "2026-10-17",
+    "headline": "AI assistant skills for writing and improving maps",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "AI assistant",
+        "title": "Write, review and improve maps with your AI assistant",
+        "now": "Every team folder carries six skills for your AI assistant: write a new map, edit one, review one, learn from recent runs, plan a run and summarize the folder. A checker in the skills judges published versions and plan decisions exactly as Flightdeck does.",
+        "where": "Open the team folder with your AI assistant and ask for a skill by name, such as flightdeck-status."
+      },
+      {
+        "kind": "improved",
+        "area": "Getting started",
+        "title": "Start a new team folder with everything in it",
+        "now": "Start a new team folder adds you to people.json, a starter map, the guide for AI assistants and the Flightdeck skills. It refuses a folder that isn't empty.",
+        "where": "Home → Get started."
+      }
+    ]
+  },
+  {
+    "version": "1.4.0",
+    "date": "2026-10-17",
+    "headline": "Finish runs well, recover safely, and work faster",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Finish a run with follow-ups and map changes",
+        "now": "End run opens a short finish: add follow-ups with an owner and Jira ticket, review suggested map changes from \"did it differently\" answers and map-change notes, then choose the outcome. The receipt includes all of it, and follow-ups from the last 30 days show on Home.",
+        "where": "End run in any run you're recording."
+      },
+      {
+        "kind": "new",
+        "area": "Recovery",
+        "title": "Compare and keep conflict copies in the app",
+        "before": "Conflict copies had to be compared by hand in the folder.",
+        "now": "A run with other versions shows a panel to compare each one, keep it (the current version is saved beside it first) or delete it. Nothing is merged without you choosing.",
+        "where": "The panel at the top of a run."
+      },
+      {
+        "kind": "new",
+        "area": "Getting started",
+        "title": "Choose how to begin",
+        "now": "Home offers three paths: try the examples, open your team folder (with the OneDrive tip to keep it on this device), or start a new team folder."
+      },
+      {
+        "kind": "improved",
+        "area": "Solo runs",
+        "title": "Run a checklist on your own",
+        "now": "Starting a run asks On my own or With others. Solo runs hide roles and screen sharing, and confirming a phase is one click."
+      },
+      {
+        "kind": "improved",
+        "area": "Performance",
+        "title": "Refresh only what's open",
+        "now": "While a run is open, Flightdeck rereads just that run every few seconds. Published versions and finished runs are remembered, so large team folders stay quick."
+      },
+      {
+        "kind": "improved",
+        "area": "Accessibility",
+        "title": "Easier with a keyboard and screen reader",
+        "now": "Single-key shortcuts can be turned off, dialogs return focus when closed, errors appear next to their field, form fields have stronger borders, and messages are announced.",
+        "where": "Press ? for keyboard help and the shortcut switch."
+      }
+    ]
+  },
+  {
+    "version": "1.3.0",
+    "date": "2026-10-17",
+    "headline": "Fill in values as they become known",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Fill in or correct a step's values mid-run",
+        "now": "Some values aren't known until the middle of a release. The recorder can fill in a step's details and evidence before or after checking it; each change is logged with its old value, and the map's own value stays visible.",
+        "where": "Fill in, on any step."
+      },
+      {
+        "kind": "improved",
+        "area": "Checklists",
+        "title": "Describe a step with only what's known",
+        "before": "A step type's usual fields were required before a map could publish.",
+        "now": "A step can name only what's known; a missing usual field is a tip, not an error. Evidence is required only where the map says require: or evidence:."
+      }
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "date": "2026-10-17",
+    "headline": "Clearer headings and runs for one",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Look",
+        "title": "The same headings on every computer",
+        "now": "Headings use a built-in typeface, so Windows and Mac show the same thing, and code-style text is used only for commands, values and times."
+      },
+      {
+        "kind": "new",
+        "area": "Solo runs",
+        "title": "Runs for one person",
+        "now": "A run with nobody but you assigned drops the team wording, and a map can say runs: solo to skip assigning roles."
+      }
+    ]
+  },
+  {
+    "version": "1.1.0",
+    "date": "2026-10-17",
+    "headline": "Step types that fit the work",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Step types",
+        "title": "Jenkins, pull request and Jira steps",
+        "now": "New step types for a Jenkins job, a Bitbucket pull request and a Jira issue, each with the fields that matter to it."
+      },
+      {
+        "kind": "new",
+        "area": "Evidence",
+        "title": "Record evidence when you check a step",
+        "now": "Steps can record a build number, a pull request link, a decision or a review verdict. It shows on the step and on the receipt."
+      }
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "date": "2026-10-17",
+    "headline": "Flightdeck",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Versioned process maps",
+        "now": "Write a process as a checklist map with phases and gates, publish it as a numbered version, and see every version with its change note and differences."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Run a checklist together",
+        "now": "One person records while others follow along and add notes and screenshots. Gates approve exactly what they say, and changing a detail like the commit sends tied steps back for a re-check."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Timers, deadlines and a receipt",
+        "now": "Start a step to time it, copy a deadline from the real tool to see a countdown, and copy a receipt into Jira when you're done."
+      }
+    ]
+  }
+]

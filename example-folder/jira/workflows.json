@@ -1,0 +1,28 @@
+{
+  "Story": {
+    "statuses": ["To Do", "In Progress", "In Review", "Done"],
+    "transitions": [
+      { "from": "To Do", "to": "In Progress", "fields": [] },
+      { "from": "In Progress", "to": "In Review", "fields": [
+        { "name": "Reviewer", "hint": "The person reviewing the pull request", "source": "role:reviewer" },
+        { "name": "Pull request", "hint": "The pull request link from the review step" }
+      ] },
+      { "from": "In Review", "to": "In Progress", "fields": [] },
+      { "from": "*", "to": "Done", "fields": [
+        { "name": "Resolution", "hint": "Usually Done; Won't Do if the story was dropped", "options": ["Done", "Won't Do", "Duplicate"] }
+      ] }
+    ]
+  },
+  "Release": {
+    "statuses": ["Open", "Approved", "Deploying", "Done"],
+    "transitions": [
+      { "from": "Open", "to": "Approved", "fields": [] },
+      { "from": "Approved", "to": "Deploying", "fields": [] },
+      { "from": "Deploying", "to": "Done", "fields": [
+        { "name": "Deployed commit", "hint": "The commit now running in production", "source": "detail:commit" },
+        { "name": "Fix version", "hint": "The release name on the board, like 2026.10.16" },
+        { "name": "Resolution", "hint": "Released, unless the release was rolled back", "options": ["Released", "Rolled back"] }
+      ] }
+    ]
+  }
+}

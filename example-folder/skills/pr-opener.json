@@ -1,0 +1,16 @@
+{
+  "name": "pr-opener",
+  "version": "2.1.0",
+  "location": "https://bitbucket.example.com/projects/WA/repos/web-app/browse/skills/pr-opener",
+  "implements": "check-in@1",
+  "steps": [
+    "approve",
+    "move-story"
+  ],
+  "group": "Engineering / Code",
+  "tags": [
+    "git",
+    "jira"
+  ],
+  "description": "Opens the pull request with the story linked, and moves the story to In Review."
+}

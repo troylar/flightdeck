@@ -1,0 +1,221 @@
+{
+  "format": "preflight-run/2",
+  "id": "fixture1",
+  "process": "check-in",
+  "version": 1,
+  "folder": "v1-fixture1",
+  "mapHash": "579a1ec0",
+  "title": "Check-in fixture",
+  "category": "Code",
+  "snapshot": "---\nprocess: check-in\ntitle: Check in code\ncategory: Code\nowner: person-avery\ncontext: branch, commit, story\nroles: author, reviewer\n---\n\n## Before the pull request · DO-CONFIRM {#before-pr}\n- [!] {run.command} Branch rebased onto master ^commit @author {#rebase}\n  command: git fetch origin && git rebase origin/master\n  where: Your repository\n- [!] {run.command} Full test gate green after the rebase ^commit @author {#gate}\n  command: ./test/run.sh\n  expected: Every test passes\n- [!] {confirm} No secrets, real names or customer data in the diff @author {#secrets}\n- [ ] {confirm} Files committed by path, not with add-all @author {#by-path}\n- [~] {confirm} Jira key in the commit message ^story @author {#jira-key}\n\n## Gate: Ready for review · owner @author {#ready-review}\n  approves: review of `^commit` on ^branch\n\n## Review · READ-DO {#review}\n- [!] {bitbucket.pr} Review and approve the pull request @reviewer {#approve}\n  action: review\n  repo: web-app\n  from: ^branch\n  to: master\n  > Look for tests that cover the new behavior and for unrelated changes.\n- [ ] {jira.issue} Move the story to In Review ^story @author {#move-story}\n  action: transition\n  issue: ^story\n  status: In Review\n",
+  "types": {
+    "bitbucket.pr": {
+      "id": "bitbucket.pr",
+      "label": "Pull request",
+      "icon": "merge",
+      "hint": "Open, review or merge a Bitbucket pull request.",
+      "fields": {
+        "action": {
+          "label": "Action",
+          "kind": "choice",
+          "options": [
+            "open",
+            "review",
+            "merge"
+          ],
+          "required": true
+        },
+        "repo": {
+          "label": "Repository",
+          "kind": "text",
+          "required": true
+        },
+        "from": {
+          "label": "From branch",
+          "kind": "text"
+        },
+        "to": {
+          "label": "Into branch",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "pr",
+          "label": "Pull request link",
+          "kind": "url"
+        },
+        {
+          "name": "mergeCommit",
+          "label": "Merge commit",
+          "kind": "text",
+          "when": {
+            "action": "merge"
+          }
+        }
+      ],
+      "version": 2
+    },
+    "confirm": {
+      "id": "confirm",
+      "label": "Confirm",
+      "icon": "check",
+      "hint": "Check that something is true.",
+      "fields": {
+        "where": {
+          "label": "Where to check",
+          "kind": "text"
+        },
+        "looks": {
+          "label": "True when",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "jira.issue": {
+      "id": "jira.issue",
+      "label": "Jira",
+      "icon": "ticket",
+      "hint": "Create or change a Jira issue by hand.",
+      "fields": {
+        "action": {
+          "label": "Action",
+          "kind": "choice",
+          "options": [
+            "create",
+            "update",
+            "transition",
+            "assign",
+            "link"
+          ],
+          "required": true
+        },
+        "issue": {
+          "label": "Issue",
+          "kind": "text",
+          "requiredUnless": {
+            "action": "create"
+          }
+        },
+        "project": {
+          "label": "Project",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "create"
+          }
+        },
+        "issueType": {
+          "label": "Issue type",
+          "kind": "text"
+        },
+        "status": {
+          "label": "Move to",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "transition"
+          }
+        },
+        "assignee": {
+          "label": "Assign to",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "assign"
+          }
+        },
+        "linkTo": {
+          "label": "Link to",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "link"
+          }
+        },
+        "set": {
+          "label": "Fields to set",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "key",
+          "label": "Issue key",
+          "kind": "text",
+          "when": {
+            "action": "create"
+          }
+        }
+      ],
+      "version": 2
+    },
+    "run.command": {
+      "id": "run.command",
+      "label": "Run a command",
+      "icon": "terminal",
+      "hint": "Shown as text to copy. Flightdeck never runs it.",
+      "fields": {
+        "command": {
+          "label": "Command",
+          "kind": "code",
+          "required": true
+        },
+        "where": {
+          "label": "Where",
+          "kind": "text"
+        },
+        "expected": {
+          "label": "Expected result",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "result",
+          "label": "What you saw",
+          "kind": "text",
+          "long": true
+        }
+      ],
+      "version": 2
+    }
+  },
+  "details": {
+    "branch": "feature/x",
+    "commit": "abc1234",
+    "story": "ABC-1"
+  },
+  "roles": {
+    "author": "person-casey",
+    "reviewer": "person-blake"
+  },
+  "recorder": {
+    "person": "person-casey",
+    "session": "s1"
+  },
+  "state": "running",
+  "created": "2026-10-17T12:00:00.000Z",
+  "createdBy": "person-casey",
+  "steps": {
+    "rebase": {
+      "s": "done",
+      "by": "person-casey",
+      "at": "2026-10-17T12:05:00.000Z"
+    },
+    "approved": {
+      "s": "done",
+      "by": "person-blake",
+      "at": "2026-10-17T12:10:00.000Z"
+    }
+  },
+  "gates": {},
+  "log": [
+    {
+      "at": "2026-10-17T12:00:00.000Z",
+      "by": "person-casey",
+      "what": "Started the run"
+    }
+  ],
+  "ended": null,
+  "rev": 3,
+  "tz": ""
+}

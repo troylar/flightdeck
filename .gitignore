@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.tgz
+node_modules/
+# Review notes from development: kept locally, never committed
+docs/.*.md

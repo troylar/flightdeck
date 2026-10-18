@@ -1,0 +1,11 @@
+{
+  "name": "release-notes",
+  "version": "1.0.3",
+  "location": "https://bitbucket.example.com/projects/WA/repos/team-skills/browse/release-notes",
+  "implements": "release@1",
+  "group": "Engineering / Releases",
+  "tags": [
+    "docs"
+  ],
+  "description": "Drafts release notes from the merged tickets."
+}

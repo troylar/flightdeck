@@ -1,0 +1,45 @@
+{
+  "name": "@troylar/flightdeck",
+  "version": "1.10.0",
+  "description": "Offline team process checklists in one HTML file. Run and prove a checklist, then give your AI assistant a brief to build a skill. Track which process version each skill follows.",
+  "license": "MIT",
+  "keywords": [
+    "checklist",
+    "process",
+    "runbook",
+    "sop",
+    "agent-skills",
+    "ai-assistant",
+    "offline"
+  ],
+  "bin": {
+    "flightdeck": "bin/flightdeck.js"
+  },
+  "files": [
+    "dist/flightdeck.html",
+    "dist/FONT-LICENSE.txt",
+    "bin/flightdeck.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "python3 build.py",
+    "test": "bash test/run.sh",
+    "prepublishOnly": "bash test/run.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/troylar/flightdeck.git"
+  },
+  "homepage": "https://github.com/troylar/flightdeck#readme",
+  "bugs": {
+    "url": "https://github.com/troylar/flightdeck/issues"
+  }
+}

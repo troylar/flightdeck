@@ -1,0 +1,14 @@
+{
+  "id": "change.request",
+  "label": "Change request",
+  "icon": "doc",
+  "hint": "A change request the change board approves before production work.",
+  "fields": {
+    "system": { "label": "Change system", "kind": "text", "required": true },
+    "window": { "label": "Approved window", "kind": "text" }
+  },
+  "record": [
+    { "name": "number", "label": "Change number", "kind": "text" },
+    { "name": "link", "label": "Change link", "kind": "url" }
+  ]
+}

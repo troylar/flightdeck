@@ -1,0 +1,16 @@
+{
+  "name": "release-deploy",
+  "version": "0.4.0",
+  "location": "~/skills/release-deploy",
+  "implements": "release@1",
+  "steps": [
+    "merge",
+    "jenkins"
+  ],
+  "group": "Engineering / Releases",
+  "tags": [
+    "deploy",
+    "production"
+  ],
+  "description": "Merges the release branch and starts the production deploy job, stopping for the Jenkins approval."
+}
