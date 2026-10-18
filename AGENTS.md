@@ -22,13 +22,19 @@ The team owns this code. Leave it easier to change than you found it.
 
 | Path | What it is | Rule |
 |---|---|---|
+<<<<<<< HEAD
+| `src/core/` | `util`, `types`, `jira`, `map`, `outline` (the builder's line-preserving edits of a draft), `publish`, `run`: every rule | Pure functions. No DOM, no files. Every rule has a test. |
+||||||| 9004b37
+| `src/core/` | `util`, `types`, `jira`, `map`, `publish`, `run`: every rule | Pure functions. No DOM, no files. Every rule has a test. |
+=======
 | `src/core/` | `util`, `types`, `jira`, `map`, `publish`, `run`, `fixes` (suggested fixes), `skills`: every rule | Pure functions. No DOM, no files. Every rule has a test. |
+>>>>>>> origin/main
 | `src/storage/` | `fs` (folder access), `repo` (load, save, publish, conflicts, cache) | One writer per file, always. |
-| `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `run`, `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
+| `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `builder` (the draft editor's outline builder), `run`, `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
 | `src/page.html` | Styles, color tokens, page shell | Light and dark tokens; no external resources. |
 | `build.py` | Joins `src/` into `dist/flightdeck.html` | Order is fixed in `CORE` and `APP` at the top. |
 | `example-folder/` | A complete team folder, built into the app as examples | Synthetic people only. Its `AGENTS.md` is the contract for working **in a team folder**; its `.flightdeck/skills/` are the Flightdeck skills for AI assistants that every new team folder gets (`flightdeck skills --to <dir>` installs them anywhere else). |
-| `test/` | `rules`, `folder`, `sync`, `views`, `checker` and `app` tests, `fixtures/`, `run.sh` | `sync.test.js` simulates two computers on a delayed OneDrive. |
+| `test/` | `rules`, `outline`, `folder`, `sync`, `views`, `checker` and `app` tests, `fixtures/`, `run.sh` | `sync.test.js` simulates two computers on a delayed OneDrive. |
 | `tools/type-table.js` | Writes the step-type table in `docs/map-format.md` | A test fails if docs and code disagree. |
 | `docs/` | `design.md` (the spec), `map-format.md`, `onedrive.md` | Update them in the same change as the code. |
 
