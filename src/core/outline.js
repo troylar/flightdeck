@@ -41,7 +41,7 @@ PF.outline = (function () {
      up, past another line, marks that step or gate as odd, and the builder won't move or change it. */
   function parse(text) {
     var src = String(text == null ? '' : text);
-    var o = { lines: src.split('\n'), cr: /\r\n/.test(src) ? '\r' : '', front: null, phases: [], steps: [], questions: -1, unsupported: '', ids: {} };
+    var o = { lines: src.split('\n'), cr: /\r\n/.test(src) ? '\r' : '', front: null, phases: [], steps: [], questions: -1, unsupported: '', ids: Object.create(null) };
     if (/\r(?!\n)/.test(src)) o.unsupported = 'it uses old Mac line endings.';
     var L = o.lines.map(bare), n = L.length, i = 0, m;
     if (L[0] && L[0].trim() === '---') {
@@ -60,7 +60,7 @@ PF.outline = (function () {
         step = null;
         if (!phase || gate) continue;
         var th = takeId(m[1]), tr = tokens(th.rest, '@');
-        track = { id: th.id, title: tr.rest, roles: tr.list, line: i, index: phase.tracks.length };
+        track = { id: th.id, idSuffix: th.suffix, pre: /^###\s+Track:\s*/i.exec(line)[0], title: tr.rest, roles: tr.list, line: i, index: phase.tracks.length, phase: phase };
         phase.tracks.push(track);
         continue;
       }
@@ -109,13 +109,15 @@ PF.outline = (function () {
       if (o.questions > p.line && o.questions < next) next = o.questions;
       var e = next; while (e > p.line + 1 && blank(o.lines[e - 1])) e--;
       p.regionEnd = next; p.contentEnd = e;
+      /* A track runs to the next track, else to the gate or the end of the phase. */
+      p.tracks.forEach(function (t, j) { t.end = j + 1 < p.tracks.length ? p.tracks[j + 1].line : p.gate ? p.gate.line : e; });
     });
-    var count = {};
+    var count = Object.create(null);
     L.forEach(function (l) { var x = ANY_ID.exec(l); if (x) { var id = x[1].toLowerCase(); o.ids[id] = true; } });
     o.phases.forEach(function (p) { if (p.id) o.ids[p.id + '-confirm'] = true; });
     o.steps.forEach(function (s) { if (s.id) count[s.id] = (count[s.id] || 0) + 1; });
     o.steps.forEach(function (s) { s.key = s.id && count[s.id] === 1 ? s.id : '#' + s.index; });
-    var pc = {};
+    var pc = Object.create(null);
     o.phases.forEach(function (p) { if (p.id) pc[p.id] = (pc[p.id] || 0) + 1; });
     o.phases.forEach(function (p) { p.key = p.id && pc[p.id] === 1 ? p.id : '#' + p.index; });
     /* The safety net: if this reading and map.js ever disagree on the steps, the builder doesn't edit at all. */
@@ -132,6 +134,13 @@ PF.outline = (function () {
     var a = parse(oldText), b = parse(newText), ph = kind === 'phase', A = ph ? a.phases : a.steps, B = ph ? b.phases : b.steps;
     var by = function (L, k) { for (var x = 0; x < L.length; x++) if (L[x].key === String(k)) return x; return -1; };
     var i = by(A, key), from = -1, to = -1, o = op.op; if (i < 0) return null;
+    /* Several steps left or moved at once: a step with an ID is that ID; one without is found by what it says. */
+    if (!ph && (o === 'deleteTrack' || o === 'deletePhase')) {
+      var s0 = A[i]; if (s0.id && s0.key === s0.id) return stepBy(b, s0.id) ? s0.id : null;
+      var sig = function (x) { return json([x.text, x.type, x.fields, x.must, x.planned]); }, nth = A.slice(0, i).filter(function (x) { return sig(x) === sig(s0); }).length;
+      var hits = B.filter(function (x) { return sig(x) === sig(s0); });
+      return hits[nth] ? hits[nth].key : null;
+    }
     if (!ph && o === 'movePhase') {
       /* Two phases swap places, and their steps with them. */
       var pi = by(a.phases, op.phase), pj = pi + (op.dir === 'up' || op.dir < 0 ? -1 : 1);
@@ -140,9 +149,9 @@ PF.outline = (function () {
       i += s.phase === x ? y.steps.length : s.phase === y ? -x.steps.length : 0;
       return B[i] ? B[i].key : null;
     }
-    if (ph ? o === 'movePhase' || o === 'addPhase' : o === 'move' || o === 'moveTo' || o === 'add' || o === 'delete') {
-      if (o !== 'add' && o !== 'addPhase') from = by(A, ph ? op.phase : op.step);
-      if (o !== 'delete') for (var k = 0; k < B.length; k++) if (B[k].line === at) to = k;
+    if (ph ? o === 'movePhase' || o === 'addPhase' || o === 'deletePhase' : o === 'move' || o === 'moveTo' || o === 'add' || o === 'delete' || o === 'addTrack') {
+      if (o !== 'add' && o !== 'addPhase' && o !== 'addTrack') from = by(A, ph ? op.phase : op.step);
+      if (o !== 'delete' && o !== 'deletePhase') for (var k = 0; k < B.length; k++) if (B[k].line === at) to = k;
     }
     if (i === from) return to >= 0 ? B[to].key : null;
     /* Everything else keeps its order: take out the one that left, put in the one that arrived. */
@@ -152,13 +161,18 @@ PF.outline = (function () {
 
   /* A new ID from the text, unique in the whole file (automatic gate IDs included). A phase's ID also gives its automatic
      gate one (<id>-confirm), so that one must be free too. */
-  function newId(o, text, fallback, phase) {
-    var base = U.slug(text, 24).replace(/-+$/, '');
+  /* own: the ID of the part being renamed, which is free for it to keep. */
+  function newId(o, text, fallback, phase, own) {
+    /* At most 24 characters, cut at a word where the slug is longer. */
+    var whole = U.slug(text, 200), base = U.slug(text, 24).replace(/-+$/, '');
+    if (whole.length > 24 && whole.charAt(24) !== '-' && base.lastIndexOf('-') > 8) base = base.slice(0, base.lastIndexOf('-'));
     if (!base || base === 'x' || !/^[a-z0-9]/.test(base)) base = fallback;
+    var used = function (x) { return !!o.ids[x] && x !== own && !(phase && own && x === own + '-confirm'); };
     var id = base, k = 2;
-    while (o.ids[id] || (phase && o.ids[id + '-confirm'])) id = base + '-' + (k++);
+    while (used(id) || (phase && used(id + '-confirm'))) id = base + '-' + (k++);
     return id;
   }
+  function swapId(suffix, id) { return suffix ? suffix.replace(/\{#[^}]*\}/, '{#' + id + '}') : ' {#' + id + '}'; }
 
   /* ---------- the safety net: what the parser reads, before and after ---------- */
   /* Where each phase and step came from rides along unenumerated, so the comparison skips it and compares every other key,
@@ -274,7 +288,7 @@ PF.outline = (function () {
     var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
     if (s.odd) return { error: ERR.odd };
     var p = s.parts, lines = o.lines.slice(), cr = crOf(o, s.line), first = function (q) { lines[s.line] = q.pre + q.typePart + q.rest + q.idSuffix + cr; };
-    var q = { pre: p.pre, typePart: p.typePart, rest: p.rest, idSuffix: p.idSuffix }, at = s.line;
+    var q = { pre: p.pre, typePart: p.typePart, rest: p.rest, idSuffix: p.idSuffix }, at = s.line, reid = '';
     var expect = function () { /* changes the "before" signature of the step */ };
     if ('text' in set) {
       var t = lineValue(set.text);
@@ -285,8 +299,10 @@ PF.outline = (function () {
       var toks = [];
       p.rest.replace(/([@^])([\w-]+)/g, function (_, c, n) { toks.push(c + n); return ''; });
       q.rest = t + (toks.length ? ' ' + toks.join(' ') : '');
+      /* reid: a part added in this window and never saved takes its ID from its first real text (app.js decides when). */
+      if (set.reid) { var nid = newId(o, t, 'step', false, s.id); if (nid !== s.id) { q.idSuffix = swapId(p.idSuffix, nid); reid = nid; } }
       first(q);
-      expect = function (st) { st.text = t; };
+      expect = function (st) { st.text = t; if (reid) st.id = reid; };
     } else if ('mark' in set) {
       if ([' ', '!', '~'].indexOf(set.mark) < 0) return { error: 'Choose Step, Must-do or Automation planned.' };
       q.pre = p.pre.slice(0, 3) + set.mark + p.pre.slice(4);
@@ -326,13 +342,15 @@ PF.outline = (function () {
       expect = function (st) { if (v) st.fields[f] = v; else delete st.fields[f]; };
     } else return { error: ERR.gone };
     var line = s.line + 1;
-    return done(o, text, lines, function (A) {
+    var res = done(o, text, lines, function (A) {
       var x = null;
       A.phases.forEach(function (ph) { ph.steps.forEach(function (st) { if (st._line === line) x = st; }); });
       if (!x) return false;
       expect(x);
       /* Lines below it may have shifted (a field added or removed); only the order matters for the comparison. */
     }, at);
+    if (!res.error) res.id = reid || s.id;
+    return res;
   }
 
   function addStep(text, to, step) {
@@ -384,10 +402,11 @@ PF.outline = (function () {
     var o = g.o, t = lineValue(ph && ph.title), mode = (ph && ph.mode) || '', bad = checkTitle(t, 'phase');
     if (bad) return { error: bad };
     if (mode && MODES.indexOf(mode) < 0) return { error: 'Choose READ-DO or DO-CONFIRM.' };
-    var prev = after != null && after !== '' ? phaseBy(o, after) : o.phases[o.phases.length - 1];
-    if (after != null && after !== '' && !prev) return { error: ERR.gone };
+    var first = !!(ph && ph.first), prev = first ? null : after != null && after !== '' ? phaseBy(o, after) : o.phases[o.phases.length - 1];
+    if (!first && after != null && after !== '' && !prev) return { error: ERR.gone };
     var at;
-    if (prev) at = prev.contentEnd;
+    if (first && o.phases.length) at = o.phases[0].line;
+    else if (prev) at = prev.contentEnd;
     else {
       var stop = o.questions >= 0 ? o.questions : o.lines.length, from = o.front ? o.front.end : 0;
       at = stop; while (at > from && blank(o.lines[at - 1])) at--;
@@ -409,12 +428,15 @@ PF.outline = (function () {
     if (bad) return { error: bad };
     if (mode && MODES.indexOf(mode) < 0) return { error: 'Choose READ-DO or DO-CONFIRM.' };
     if (t === p.title && mode === p.mode) return { text: text, at: p.line, same: true };
-    var lines = o.lines.slice(); lines[p.line] = phaseLine(t, mode, p.idSuffix) + crOf(o, p.line);
-    return done(o, text, lines, function (A) {
-      var x = A.phases[p.index]; x.title = t; x.mode = mode;
+    var nid = set.reid && 'title' in set ? newId(o, t, 'phase', true, p.id) : p.id;
+    var lines = o.lines.slice(); lines[p.line] = phaseLine(t, mode, nid !== p.id ? swapId(p.idSuffix, nid) : p.idSuffix) + crOf(o, p.line);
+    var res = done(o, text, lines, function (A) {
+      var x = A.phases[p.index]; x.title = t; x.mode = mode; x.id = nid;
       /* Without a named gate, the phase ends with "Confirm <its name>", which follows a rename. */
-      if (x.gate.implicit) x.gate.title = 'Confirm ' + t;
+      if (x.gate.implicit) { x.gate.title = 'Confirm ' + t; x.gate.id = nid ? nid + '-confirm' : ''; }
     }, p.line);
+    if (!res.error) res.id = nid;
+    return res;
   }
   /* Phases change places as whole blocks; the blank lines between them stay where they are. */
   function movePhase(text, key, dir) {
@@ -441,14 +463,14 @@ PF.outline = (function () {
     if (gt) {
       if (gt.odd) return { error: ERR.odd };
       if (t === gt.title && owner === gt.owner && ap === gt.approves) return { text: text, at: gt.line, same: true };
-      at = gt.line; id = gt.id;
+      at = gt.line; id = set.reid && 'title' in set ? newId(o, t, 'gate', false, gt.id) : gt.id;
       if (ap !== gt.approves) {
         if (gt.approvesLine >= 0) {
           if (!ap) lines.splice(gt.approvesLine, 1);
           else { var am = /^(\s{2,}approves:)(\s*)/.exec(bare(lines[gt.approvesLine])); lines[gt.approvesLine] = am[1] + (am[2] || ' ') + ap + crOf(o, gt.approvesLine); }
         } else lines.splice(gt.line + 1, 0, '  approves: ' + ap + crOf(o, gt.line));
       }
-      if (t !== gt.title || owner !== gt.owner) lines[gt.line] = '## Gate: ' + t + (owner ? ' · owner @' + owner : '') + gt.idSuffix + crOf(o, gt.line);
+      if (t !== gt.title || owner !== gt.owner || id !== gt.id) lines[gt.line] = '## Gate: ' + t + (owner ? ' · owner @' + owner : '') + (id !== gt.id ? swapId(gt.idSuffix, id) : gt.idSuffix) + crOf(o, gt.line);
     } else {
       id = newId(o, t, 'gate');
       var blockLines = ['## Gate: ' + t + (owner ? ' · owner @' + owner : '') + ' {#' + id + '}' + o.cr].concat(ap ? ['  approves: ' + ap + o.cr] : []);
@@ -456,11 +478,216 @@ PF.outline = (function () {
       lines.splice.apply(lines, [p.contentEnd, 0].concat(block));
       at = p.contentEnd + block.indexOf(blockLines[0]);
     }
-    return done(o, text, lines, function (A, B) {
+    var res = done(o, text, lines, function (A, B) {
       var x = A.phases[p.index], y = B.phases[p.index];
       if (!x || !y || y.gate.implicit || y.gate.id !== id || y.gate.title !== t || (y.gate.owner || '') !== owner || y.gate.approves !== ap) return false;
       x.gate = y.gate = null;
     }, at);
+    if (!res.error) res.id = id;
+    return res;
+  }
+
+  /* Without its gate, a phase ends with its automatic check again. */
+  function removeGate(text, key) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, p = phaseBy(o, key); if (!p) return { error: ERR.gone };
+    var gt = p.gate; if (!gt) return { error: 'This phase has no gate to remove.' };
+    if (gt.odd) return { error: ERR.odd };
+    var auto = p.id ? p.id + '-confirm' : '';
+    if (auto && o.lines.some(function (l, i) { var x = ANY_ID.exec(bare(l)); return i !== gt.line && x && x[1].toLowerCase() === auto; })) return { error: 'Its automatic check would take the ID ' + auto + ', which something else already uses. Remove the gate in Markdown.' };
+    var lines = o.lines.slice(), at = gt.line;
+    lines.splice(gt.line, gt.end - gt.line);
+    /* The blank line that set it apart goes too, so no double gap is left behind. */
+    if (at > 0 && blank(lines[at - 1]) && (at >= lines.length || blank(lines[at]))) { lines.splice(at - 1, 1); at--; }
+    return done(o, text, lines, function (A, B) {
+      var y = B.phases[p.index]; if (!y || !y.gate.implicit) return false;
+      A.phases[p.index].gate = y.gate = null;
+    }, p.line);
+  }
+  /* A phase goes with everything in it: its steps, lanes, gate and the lines between them. */
+  function deletePhase(text, key) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, p = phaseBy(o, key); if (!p) return { error: ERR.gone };
+    var lines = o.lines.slice(), start = p.line, end = p.regionEnd, keep = [];
+    /* The last phase in the file takes the blank lines above it too, and the file keeps its final line break. */
+    if (end === o.lines.length) {
+      var floor = o.front ? o.front.end : 0;
+      while (start > floor && blank(o.lines[start - 1])) start--;
+      if (o.lines[o.lines.length - 1] === '') keep = [''];
+    }
+    lines.splice.apply(lines, [start, end - start].concat(keep));
+    var res = done(o, text, lines, function (A) { A.phases.splice(p.index, 1); }, start);
+    if (!res.error) res.steps = p.steps.length;
+    return res;
+  }
+
+  /* ---------- tracks: parallel lanes ---------- */
+  function trackAt(o, key, k) { var ph = phaseBy(o, key); return ph && k != null && k !== '' && ph.tracks[+k] || null; }
+  function checkLane(t) {
+    if (!t) return 'Give the lane a name.';
+    if (/@[\w-]/.test(t) || /\{#/.test(t)) return 'Use a plain name for the lane, without @ or an ID. Choose who works it in its form.';
+    return '';
+  }
+  function frontRoles(o) { return o.front ? M.parse(o.lines.slice(o.front.start, o.front.end).join('\n')).meta.roles : []; }
+  /* A role the checks would reject as unlisted goes into the front matter's roles: line, or a new one. Called after every
+     other line change, since a new line here moves everything below it. Returns the lines it added, or -1. */
+  function declareRole(o, lines, role) {
+    if (!role || frontRoles(o).indexOf(role) >= 0) return 0;
+    if (!o.front || o.front.end < 2 || bare(o.lines[o.front.end - 1]).trim() !== '---') return -1;
+    for (var i = o.front.start + 1; i < o.front.end - 1; i++) {
+      var m = /^roles:(\s*)(.*?)\s*$/.exec(bare(lines[i]));
+      if (m) { lines[i] = 'roles:' + (m[1] || ' ') + (m[2] ? m[2].replace(/,\s*$/, '') + ', ' : '') + role + crOf(o, i); return 0; }
+    }
+    lines.splice(o.front.end - 1, 0, 'roles: ' + role + o.cr);
+    return 1;
+  }
+  var NO_FRONT = 'The checklist has no front matter to list the lane\'s role in. Add it in Markdown first.';
+  /* A step's first line with roles of its own added, so it keeps the people it had from its lane. */
+  function withRoles(o, s, roles) { var p = s.parts; return p.pre + p.typePart + p.rest.replace(/\s+$/, '') + roles.map(function (r) { return ' @' + r; }).join('') + p.idSuffix + crOf(o, s.line); }
+
+  /* A new lane, its heading and a first step, goes before another lane or after the phase's last steps: anywhere else, the
+     steps below it would join it. */
+  function addTrack(text, to, tr) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    to = to || {}; tr = tr || {};
+    var o = g.o, ph = phaseBy(o, to.phase); if (!ph) return { error: ERR.gone };
+    var t = lineValue(tr.title), role = String(tr.role || ''), st = lineValue(tr.text), ty = String(tr.type || 'confirm'), bad = checkLane(t);
+    if (bad) return { error: bad };
+    if (role && !/^[\w-]+$/.test(role)) return { error: 'Choose a role for the lane.' };
+    if (!st) return { error: 'Say what the lane\'s first step is.' };
+    if (/[@^][\w-]/.test(st) || /\{#/.test(st) || TYPE_RE.test(st + ' x') || !/^[a-z][\w.-]*$/i.test(ty)) return { error: 'Write the step as plain text. Choose roles and run details after adding it.' };
+    var before = to.before == null || to.before === '' ? -1 : +to.before;
+    if (!(before >= -1 && before < ph.tracks.length)) return { error: ERR.gone };
+    var at = before >= 0 ? ph.tracks[before].line : anchorOf(o, { phase: ph.key, track: ph.tracks.length - 1, where: 'end' }).at;
+    var tid = newId(o, t, 'lane'); o.ids[tid] = true;
+    var sid = newId(o, st, 'step'), lines = o.lines.slice(), listed = !role || frontRoles(o).indexOf(role) >= 0;
+    lines.splice(at, 0, '### Track: ' + t + (role ? ' @' + role : '') + ' {#' + tid + '}' + o.cr, '- [ ] {' + ty + '} ' + st + ' {#' + sid + '}' + o.cr);
+    var shift = declareRole(o, lines, role); if (shift < 0) return { error: NO_FRONT };
+    var k = before >= 0 ? before : ph.tracks.length, want = ph.index, stepLine = at + shift + 2, own = role ? [role] : [];
+    var res = done(o, text, lines, function (A, B) {
+      if (!listed) A.meta.roles = A.meta.roles.concat([role]);
+      var y = B.phases[want], tk = y && y.tracks.splice(k, 1)[0], z = pull(B, stepLine), s1 = z && z.step;
+      if (!tk || json(tk) !== json([tid, t, own])) return false;
+      return !!s1 && z.phase === want && s1.id === sid && s1.text === st && s1.type === ty && s1.track === tid && json(s1.roles) === json(own) && !s1.must && !s1.planned &&
+        !s1.binds.length && !s1.note && !(s1.shots || []).length && !Object.keys(s1.fields).length;
+    }, stepLine - 1);
+    if (!res.error) { res.id = tid; res.step = sid; res.track = k; res.phase = ph.key; }
+    return res;
+  }
+  /* Rename a lane or change who works it: { title } | { role } (one role, or '' for none). Its steps without a role of their
+     own follow the lane's. */
+  function editTrack(text, key, k, set) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, tr = trackAt(o, key, k); if (!tr) return { error: ERR.gone };
+    var t = 'title' in set ? lineValue(set.title) : tr.title, roles = 'role' in set ? (set.role ? [String(set.role)] : []) : tr.roles, bad = 'title' in set ? checkLane(t) : '';
+    if (bad) return { error: bad };
+    if (roles.some(function (r) { return !/^[\w-]+$/.test(r); })) return { error: 'Choose a role for the lane.' };
+    var tid = set.reid && 'title' in set && tr.id ? newId(o, t, 'lane', false, tr.id) : tr.id;
+    if (t === tr.title && json(roles) === json(tr.roles) && tid === tr.id) return { text: text, at: tr.line, same: true };
+    var lines = o.lines.slice(), ph = tr.phase, role = 'role' in set ? roles[0] || '' : '', listed = !role || frontRoles(o).indexOf(role) >= 0;
+    lines[tr.line] = tr.pre + t + roles.map(function (r) { return ' @' + r; }).join('') + (tid !== tr.id ? swapId(tr.idSuffix, tid) : tr.idSuffix) + crOf(o, tr.line);
+    var shift = declareRole(o, lines, role); if (shift < 0) return { error: NO_FRONT };
+    var mine = ph.steps.filter(function (s) { return s.track === tr.index; }), heirs = mine.filter(function (s) { return !s.parts.roles.length; }).map(function (s) { return s.line + 1; });
+    var res = done(o, text, lines, function (A) {
+      if (!listed) A.meta.roles = A.meta.roles.concat([role]);
+      var x = A.phases[ph.index]; x.tracks[tr.index] = [tid, t, roles];
+      x.steps.forEach(function (st) { if (heirs.indexOf(st._line) >= 0) st.roles = roles.slice(); });
+      mine.forEach(function (s) { x.steps.forEach(function (st) { if (st._line === s.line + 1) st.track = tid; }); });
+    }, tr.line + shift);
+    if (!res.error) res.id = tid;
+    return res;
+  }
+  /* Delete a lane. how.steps === 'keep' moves its steps up into the phase, after the steps before any lane, each keeping the
+     lane's role as its own; otherwise they go with it. */
+  function deleteTrack(text, key, k, how) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, tr = trackAt(o, key, k); if (!tr) return { error: ERR.gone };
+    var ph = tr.phase, keep = !!(how && how.steps === 'keep'), steps = ph.steps.filter(function (s) { return s.track === tr.index; });
+    if (steps.some(function (s) { return s.odd; })) return { error: ERR.odd };
+    var lines = o.lines.slice(), cuts = [{ at: tr.line, n: 1 }], moved = [];
+    steps.forEach(function (s) {
+      var first = !s.parts.roles.length && tr.roles.length ? withRoles(o, s, tr.roles) : o.lines[s.line];
+      if (keep && tr.index === 0) { lines[s.line] = first; return; }
+      if (keep) moved = moved.concat([first], o.lines.slice(s.line + 1, s.end));
+      cuts.push({ at: s.line, n: s.end - s.line });
+    });
+    cuts.sort(function (a, b) { return b.at - a.at; }).forEach(function (c) { lines.splice(c.at, c.n); });
+    /* Before the first lane, which is above every line just taken out, so the place hasn't moved. */
+    var dest = moved.length ? anchorOf(o, { phase: ph.key, track: -1, where: 'end' }).at : tr.line;
+    if (moved.length) lines.splice.apply(lines, [dest, 0].concat(moved));
+    var gone = steps.map(function (s) { return s.line + 1; }), lead = ph.steps.filter(function (s) { return s.track === -1; }).length;
+    var res = done(o, text, lines, function (A) {
+      var x = A.phases[ph.index]; x.tracks.splice(tr.index, 1);
+      var mine = x.steps.filter(function (st) { return gone.indexOf(st._line) >= 0; });
+      x.steps = x.steps.filter(function (st) { return gone.indexOf(st._line) < 0; });
+      if (keep) { mine.forEach(function (st) { st.track = ''; }); x.steps.splice.apply(x.steps, [lead, 0].concat(mine)); }
+    }, dest);
+    if (!res.error) res.steps = steps.length;
+    return res;
+  }
+
+  /* ---------- where a new part can go ---------- */
+  function short(s) { s = String(s || '').replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim(); return s.length > 48 ? s.slice(0, 46).replace(/\s+\S*$/, '') + '…' : s; }
+  function quote(s) { return '“' + short(s) + '”'; }
+  /* Whether something new put at line L would take an indented line (a separated field or note, past a comment) that
+     map.js gives to the step above: such a place is never offered, since the edit would be refused anyway. */
+  function captures(o, L) {
+    for (var k = L; k < o.lines.length; k++) {
+      var l = bare(o.lines[k]);
+      if (!l.trim()) continue;
+      if (/^\s/.test(l)) return true;
+      if (STEP_RE.test(l) || /^#{2,3}\s/.test(l)) return false;
+    }
+    return false;
+  }
+  /* Every place a part of a kind ('step', 'lanes', 'gate', 'phase') can be added without changing what anything else means,
+     in outline order. Each has the id the builder's drop slots use, the line it would go at, where it is in words ("after
+     “Run smoke tests”, inside QA") and a full name for screen readers ("Deploy, QA lane, after Run smoke tests, position 3
+     of 5"). */
+  function places(text, kind, parsed) {
+    var o = parsed || parse(text), out = []; if (o.unsupported) return out;
+    var add = function (id, line, where, spoken) { if (!captures(o, line)) out.push({ id: id, line: line, where: where, spoken: spoken }); };
+    if (kind === 'phase') {
+      var n = o.phases.length + 1;
+      if (!o.phases.length) add('phase:^', o.lines.length, 'as the first phase', 'Phases, the first one, position 1 of 1');
+      else add('phase:^', o.phases[0].line, 'first, before ' + quote(o.phases[0].title), 'Phases, first, before ' + short(o.phases[0].title) + ', position 1 of ' + n);
+      o.phases.forEach(function (p, i) { add('phase:' + p.key, p.contentEnd, 'after ' + quote(p.title), 'Phases, after ' + short(p.title) + ', position ' + (i + 2) + ' of ' + n); });
+      return out;
+    }
+    o.phases.forEach(function (ph) {
+      var name = short(ph.title) || 'Untitled phase';
+      if (kind === 'gate') { if (!ph.gate) add('gate:' + ph.key, ph.contentEnd, 'at the end of ' + name, name + ', closing gate'); return; }
+      if (kind === 'lanes') {
+        var m = ph.tracks.length + 1, last = ph.tracks[m - 2], lane = function (t) { return short(t.title) || 'Untitled'; };
+        ph.tracks.forEach(function (t, k) { add('lane:' + ph.key + ':' + k, t.line, 'before the ' + lane(t) + ' lane, in ' + name, name + ', lanes, before ' + lane(t) + ', position ' + (k + 1) + ' of ' + m); });
+        add('lane:' + ph.key + ':end', anchorOf(o, { phase: ph.key, track: m - 2, where: 'end' }).at, last ? 'after the ' + lane(last) + ' lane, in ' + name : 'at the end of ' + name,
+          name + ', lanes, ' + (last ? 'after ' + lane(last) : 'the first lane') + ', position ' + m + ' of ' + m);
+        return;
+      }
+      [-1].concat(ph.tracks.map(function (t) { return t.index; })).forEach(function (gi) {
+        var steps = ph.steps.filter(function (s) { return s.track === gi; });
+        /* Like the outline: the steps before the first lane are a group only when there are some, or no lanes. */
+        if (gi < 0 && !steps.length && ph.tracks.length) return;
+        var tr = gi >= 0 ? ph.tracks[gi] : null, inside = tr ? short(tr.title) || 'Untitled' : name, where = name + (tr ? ', ' + inside + ' lane' : ''), m = steps.length + 1;
+        var say = function (i) { return (i ? 'after ' + quote(steps[i - 1].text) + ', inside ' : 'first, inside ') + inside; };
+        var spoken = function (i) { return where + ', ' + (i ? 'after ' + short(steps[i - 1].text) : 'at the start') + ', position ' + (i + 1) + ' of ' + m; };
+        steps.forEach(function (s, i) { add('before:' + s.key, s.line, say(i), spoken(i)); });
+        add('end:' + ph.key + ':' + gi, anchorOf(o, { phase: ph.key, track: gi, where: 'end' }).at, say(steps.length), spoken(steps.length));
+      });
+    });
+    return out;
+  }
+  /* The place nearest what's selected (just after a selected step, at the end of a selected phase or lane), else the first. */
+  function nearest(text, kind, sel) {
+    var list = places(text, kind); if (!list.length) return null;
+    var o = parse(text), ref = -1, p = sel && phaseBy(o, sel.key), s = sel && sel.kind === 'step' && stepBy(o, sel.key);
+    if (s) ref = s.end;
+    else if (p && sel.kind === 'track' && p.tracks[+sel.track]) ref = p.tracks[+sel.track].end;
+    else if (p) ref = p.contentEnd;
+    if (ref < 0) return list[0].id;
+    var best = list[0], bd = Infinity;
+    list.forEach(function (x) { var d = x.line >= ref ? x.line - ref : (ref - x.line) * 2 + 1; if (d < bd) { bd = d; best = x; } });
+    return best.id;
   }
 
   /* ---------- what changed: a line diff, for "Changed lines" and the tests ---------- */
@@ -497,14 +724,24 @@ PF.outline = (function () {
       case 'edit': return editStep(text, op.step, op.set || {});
       case 'add': return addStep(text, op.to || {}, op);
       case 'delete': return deleteStep(text, op.step);
-      case 'addPhase': return addPhase(text, op.after, op);
+      case 'addPhase':
+        var ph = addPhase(text, op.after, op); if (ph.error || ph.same || !op.step) return ph;
+        /* With its first step, as one change. */
+        var st = addStep(ph.text, { phase: ph.id, where: 'end' }, op.step); if (st.error) return st;
+        return { text: st.text, at: ph.at, id: ph.id, step: st.id };
       case 'editPhase': return editPhase(text, op.phase, op.set || {});
       case 'movePhase': return movePhase(text, op.phase, op.dir === 'up' || op.dir < 0 ? -1 : 1);
       case 'gate': return setGate(text, op.phase, op.set || {});
+      case 'removeGate': return removeGate(text, op.phase);
+      case 'deletePhase': return deletePhase(text, op.phase);
+      case 'addTrack': return addTrack(text, op.to || {}, op);
+      case 'editTrack': return editTrack(text, op.phase, op.track, op.set || {});
+      case 'deleteTrack': return deleteTrack(text, op.phase, op.track, op);
     }
     return { error: 'Nothing to do.' };
   }
 
   return { MODES: MODES, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
-    addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
+    addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
+    addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
 })();

@@ -20,8 +20,10 @@ function changes(a, b) {
 function ok(res) { assert.ok(res && !res.error, res && res.error); return res.text; }
 /* Nothing new is wrong, and every ID is still there. */
 function healthy(before, after, msg) {
-  const b0 = blockers(before);
-  blockers(after).forEach(b => assert.ok(b0.includes(b) || /has no steps/.test(b), (msg || '') + ' new blocker: ' + b));
+  /* Lines the parser doesn't understand are named by line number, which moves when lines are added above them. */
+  const plain = t => blockers(t).map(b => b.replace(/^Line \d+: /, ''));
+  const b0 = plain(before);
+  plain(after).forEach(b => assert.ok(b0.includes(b) || /has no steps/.test(b), (msg || '') + ' new blocker: ' + b));
   errors(after).forEach(e => assert.ok(errors(before).includes(e), (msg || '') + ' new parse error: ' + e));
 }
 const sorted = a => a.slice().sort();
@@ -339,6 +341,223 @@ rule('Builder: the line diff finds the changed lines and leaves equal ones alone
   same(O.diff('a\nb\nc', 'a\nB\nc'), { added: [1], removed: [1] });
   same(O.diff('a\nb', 'a\nb'), { added: [], removed: [] });
   same(O.diff('a\nc', 'a\nb\nc'), { added: [1], removed: [] });
+});
+
+/* ---------- the parts box: lanes, gates, phases and where new parts can go ---------- */
+const LANES = [
+  '---', 'process: lanes', 'title: Lanes', 'roles: lead, qa', 'context: commit', '---', '',
+  '## Build · READ-DO {#build}',
+  '- [ ] {confirm} Compile {#compile}',
+  '### Track: Web @lead {#web}',
+  '- [ ] {confirm} Bundle the app {#bundle}',
+  '  where: CI',
+  '- [ ] {confirm} Own role @qa {#own}',
+  '<!-- a comment inside the Web lane -->',
+  '### Track: Docs @qa {#docs}',
+  '- [ ] {confirm} Write the notes {#notes}',
+  '  > A note on the step',
+  '',
+  '## Gate: Built · owner @lead {#built}',
+  '  approves: `^commit`',
+  '',
+  '## Ship · DO-CONFIRM {#ship}',
+  '- [!] {confirm} Ship it {#ship-it}',
+  ''
+].join('\n');
+
+rule('Parts: a new lane is its heading and one first step, at the end of a phase or before another lane, with its role', () => {
+  const end = O.addTrack(RELEASE, { phase: 'deploy' }, { title: 'Smoke checks', role: 'qa', text: 'Run the smoke tests' });
+  same(changes(RELEASE, ok(end)), { removed: [], added: ['### Track: Smoke checks @qa {#smoke-checks}', '- [ ] {confirm} Run the smoke tests {#run-the-smoke-tests}'] });
+  assert.ok(/expect: 10m\n### Track: Smoke checks/.test(end.text), 'after the last step, before the gate');
+  const x = M.findStep(M.parse(end.text), 'run-the-smoke-tests');
+  assert.ok(x.phase.id === 'deploy' && x.step.track === 'smoke-checks' && x.step.roles[0] === 'qa', 'the step is in the lane and works as its role');
+  assert.strictEqual(end.id, 'smoke-checks'); assert.strictEqual(end.track, 0);
+  healthy(RELEASE, end.text);
+  same(sorted(ids(end.text)), sorted(ids(RELEASE).concat(['run-the-smoke-tests'])), 'every other ID kept');
+  const mid = ok(O.addTrack(LANES, { phase: 'build', before: 1 }, { title: 'Tests', role: 'qa', text: 'Run the tests' }));
+  same(M.parse(mid).phases[0].tracks.map(t => t.id), ['web', 'tests', 'docs']);
+  assert.ok(/<!-- a comment inside the Web lane -->\n### Track: Tests @qa \{#tests\}\n- \[ \] \{confirm\} Run the tests \{#run-the-tests\}\n### Track: Docs/.test(mid), 'between lanes; the comment stays');
+  same(M.parse(mid).phases[0].steps.map(s => [s.id, s.track]), [['compile', ''], ['bundle', 'web'], ['own', 'web'], ['run-the-tests', 'tests'], ['notes', 'docs']], 'no other step changed lanes');
+  assert.ok(O.addTrack(RELEASE, { phase: 'deploy' }, { title: 'Lane @qa', text: 'x' }).error, 'a role goes in its own box');
+  assert.ok(O.addTrack(RELEASE, { phase: 'deploy' }, { title: 'Lane' }).error, 'a lane needs a first step');
+  assert.ok(O.addTrack(RELEASE, { phase: 'deploy', before: 3 }, { title: 'Lane', text: 'x' }).error, 'a lane that isn\'t there');
+});
+
+rule('Parts: a lane\'s role that isn\'t listed yet is added to roles in the front matter, so the checks pass', () => {
+  const t = ok(O.addTrack(RELEASE, { phase: 'deploy' }, { title: 'Docs', role: 'writer', text: 'Update the docs' }));
+  same(changes(RELEASE, t).removed, ['roles: release-lead, qa, backend']);
+  assert.ok(lines(t).includes('roles: release-lead, qa, backend, writer'));
+  same(blockers(t), blockers(RELEASE), 'no new blocker');
+  const none = LANES.replace('roles: lead, qa\n', '');
+  const n = ok(O.addTrack(none, { phase: 'ship' }, { title: 'Ops', role: 'ops', text: 'Watch it' }));
+  assert.ok(/context: commit\nroles: ops\n---/.test(n), 'a new roles line before the end of the front matter');
+  assert.strictEqual(M.findStep(M.parse(n), 'watch-it').step.track, 'ops');
+  assert.ok(/no front matter/.test(O.addTrack('## P · READ-DO {#p}\n- [ ] {confirm} A {#a}\n', { phase: 'p' }, { title: 'L', role: 'x', text: 'y' }).error), 'nowhere to list it');
+  assert.ok(!O.addTrack('## P · READ-DO {#p}\n- [ ] {confirm} A {#a}\n', { phase: 'p' }, { title: 'L', text: 'y' }).error, 'a lane without a role needs no front matter');
+});
+
+rule('Parts: renaming a lane or changing its role changes its heading; its steps without a role of their own follow it', () => {
+  const ren = ok(O.editTrack(LANES, 'build', 0, { title: 'Website' }));
+  same(changes(LANES, ren), { removed: ['### Track: Web @lead {#web}'], added: ['### Track: Website @lead {#web}'] });
+  const role = ok(O.editTrack(LANES, 'build', 0, { role: 'qa' }));
+  same(changes(LANES, role), { removed: ['### Track: Web @lead {#web}'], added: ['### Track: Web @qa {#web}'] });
+  const st = M.parse(role).phases[0].steps;
+  same([st[1].roles, st[2].roles], [['qa'], ['qa']], 'Bundle follows the lane; Own already said @qa');
+  const none = ok(O.editTrack(LANES, 'build', 0, { role: '' }));
+  assert.ok(lines(none).includes('### Track: Web {#web}'));
+  const newRole = ok(O.editTrack(LANES, 'build', 1, { role: 'writer' }));
+  assert.ok(lines(newRole).includes('roles: lead, qa, writer') && lines(newRole).includes('### Track: Docs @writer {#docs}'));
+  assert.ok(O.editTrack(LANES, 'build', 0, { title: '' }).error);
+  assert.ok(O.editTrack(LANES, 'build', 0, { title: 'Web' }).same, 'the same name changes nothing');
+  assert.ok(O.editTrack(LANES, 'build', 5, { title: 'X' }).error);
+});
+
+rule('Parts: deleting a lane either moves its steps up into the phase, keeping who works them, or deletes them with it', () => {
+  const keep0 = ok(O.deleteTrack(LANES, 'build', 0, { steps: 'keep' }));
+  same(changes(LANES, keep0), { removed: ['### Track: Web @lead {#web}', '- [ ] {confirm} Bundle the app {#bundle}'], added: ['- [ ] {confirm} Bundle the app @lead {#bundle}'] });
+  same(M.parse(keep0).phases[0].steps.map(s => [s.id, s.track, s.roles]), [['compile', '', []], ['bundle', '', ['lead']], ['own', '', ['qa']], ['notes', 'docs', ['qa']]]);
+  const keep1 = ok(O.deleteTrack(LANES, 'build', 1, { steps: 'keep' }));
+  same(M.parse(keep1).phases[0].steps.map(s => [s.id, s.track, s.roles]), [['compile', '', []], ['notes', '', ['qa']], ['bundle', 'web', ['lead']], ['own', 'web', ['qa']]], 'up into the phase, before the first lane');
+  assert.ok(/- \[ \] \{confirm\} Compile \{#compile\}\n- \[ \] \{confirm\} Write the notes @qa \{#notes\}\n  > A note on the step\n### Track: Web/.test(keep1), 'with its note');
+  assert.strictEqual(M.parse(keep1).phases[0].steps[1].note, 'A note on the step');
+  const del = ok(O.deleteTrack(LANES, 'build', 0, {}));
+  same(changes(LANES, del), { removed: ['### Track: Web @lead {#web}', '- [ ] {confirm} Bundle the app {#bundle}', '  where: CI', '- [ ] {confirm} Own role @qa {#own}'], added: [] });
+  assert.ok(lines(del).includes('<!-- a comment inside the Web lane -->'), 'a comment isn\'t a step; it stays');
+  assert.strictEqual(O.deleteTrack(LANES, 'build', 0, {}).steps, 2);
+  healthy(LANES, del); healthy(LANES, keep1);
+});
+
+rule('Parts: a lane whose heading has a note under it isn\'t deleted, because the note would go to another step', () => {
+  const md = LANES.replace('### Track: Docs @qa {#docs}', '### Track: Docs @qa {#docs}\n  > An orphaned note');
+  assert.ok(/would also change what other lines mean/.test(O.deleteTrack(md, 'build', 1, { steps: 'keep' }).error));
+  const odd = LANES.replace('- [ ] {confirm} Own role @qa {#own}', '- [ ] {confirm} Own role @qa {#own}\n<!-- split -->\n  where: far');
+  assert.ok(/Edit it in Markdown/.test(O.deleteTrack(odd, 'build', 0, {}).error), 'a step whose lines are split up');
+});
+
+rule('Parts: a gate is added only to a phase without one, and removing one leaves the phase ending with its automatic check', () => {
+  const add = ok(O.setGate(RELEASE, 'verify', { title: 'Release done', owner: 'release-lead' }));
+  assert.ok(/status: Done\n\n## Gate: Release done · owner @release-lead \{#release-done\}\n$/.test(add));
+  const rm = ok(O.removeGate(RELEASE, 'prep'));
+  same(changes(RELEASE, rm).added, []);
+  same(changes(RELEASE, rm).removed, ['## Gate: Ready to deploy · owner @release-lead {#ready}', '  approves: deploy of `^commit` to ^environment', '']);
+  assert.ok(M.parse(rm).phases[0].gate.implicit && /verified\.\n\n## Deploy/.test(rm), 'one blank line between the phases');
+  const last = ok(O.removeGate(LANES, 'build'));
+  assert.ok(/A note on the step\n\n## Ship/.test(last));
+  assert.ok(O.removeGate(RELEASE, 'verify').error, 'no gate to remove');
+  const clash = RELEASE.replace('{#rollback}', '{#prep-confirm}');
+  assert.ok(/prep-confirm/.test(O.removeGate(clash, 'prep').error), 'its automatic ID is taken');
+  same(sorted(ids(rm)), sorted(ids(RELEASE)));
+});
+
+rule('Parts: deleting a phase takes its steps, lanes and gate, and leaves one blank line between its neighbors', () => {
+  const mid = ok(O.deletePhase(RELEASE, 'deploy'));
+  same(M.parse(mid).phases.map(p => p.id), ['prep', 'verify']);
+  assert.ok(/to \^environment\n\n## Verify in production/.test(mid));
+  same(ids(mid), ids(RELEASE).filter(x => !['merge', 'jenkins', 'approve', 'pods'].includes(x)));
+  assert.strictEqual(O.deletePhase(RELEASE, 'deploy').steps, 4);
+  const last = ok(O.deletePhase(RELEASE, 'verify'));
+  assert.ok(last.endsWith('  approves: `^commit` running in ^environment\n'), 'the file ends as it did, with one line break');
+  const q = ok(O.deletePhase(RELEASE + '\n## Questions\n- Who approves?\n', 'verify'));
+  assert.ok(/running in \^environment\n\n## Questions\n- Who approves\?\n$/.test(q), 'a Questions section stays');
+  const only = ok(O.deletePhase('---\nprocess: a\ntitle: A\n---\n\n## P · READ-DO {#p}\n- [ ] {confirm} A {#a}\n', 'p'));
+  assert.strictEqual(only, '---\nprocess: a\ntitle: A\n---\n');
+  assert.ok(O.deletePhase(RELEASE, 'nope').error);
+});
+
+rule('Parts: a phase can be added first, before every other phase', () => {
+  const t = ok(O.addPhase(RELEASE, null, { title: 'Get ready', mode: 'READ-DO', first: true }));
+  same(M.parse(t).phases.map(p => p.id), ['get-ready', 'prep', 'deploy', 'verify']);
+  assert.ok(/roles: release-lead, qa, backend\n---\n\n## Get ready · READ-DO \{#get-ready\}\n\n## Before production changes/.test(t));
+  const empty = ok(O.addPhase('---\nprocess: a\ntitle: A\n---\n', null, { title: 'One', mode: 'READ-DO', first: true }));
+  assert.ok(/---\n\n## One · READ-DO \{#one\}\n$/.test(empty), empty);
+});
+
+rule('Parts: a part added in this window takes its ID from its first real text; nothing else ever changes an ID', () => {
+  const add = O.addStep(RELEASE, { after: 'flags' }, { text: 'New step' });
+  const t = ok(O.editStep(add.text, 'new-step', { text: 'Check the dashboards', reid: true }));
+  assert.strictEqual(O.editStep(add.text, 'new-step', { text: 'Check the dashboards', reid: true }).id, 'check-the-dashboards');
+  same(changes(RELEASE, t).added, ['- [ ] {confirm} Check the dashboards {#check-the-dashboards}']);
+  assert.strictEqual(O.editStep(add.text, 'new-step', { text: 'Check the dashboards' }).id, 'new-step', 'without reid the ID stays');
+  assert.strictEqual(O.editStep(add.text, 'new-step', { text: 'Approved', reid: true }).id, 'approved-2', 'still unique');
+  const ph = O.addPhase(RELEASE, null, { title: 'New phase', mode: 'READ-DO' });
+  const pr = O.editPhase(ph.text, 'new-phase', { title: 'Watch', reid: true });
+  assert.strictEqual(pr.id, 'watch'); assert.strictEqual(M.parse(pr.text).phases[3].gate.id, 'watch-confirm', 'its automatic gate follows');
+  const g = O.setGate(RELEASE, 'verify', { title: 'New gate' }), gr = O.setGate(g.text, 'verify', { title: 'Release done', reid: true });
+  assert.strictEqual(gr.id, 'release-done');
+  const tr = O.addTrack(RELEASE, { phase: 'deploy' }, { title: 'New lane', role: 'qa', text: 'First step in this lane' });
+  const trr = O.editTrack(tr.text, 'deploy', 0, { title: 'Smoke', reid: true });
+  assert.strictEqual(trr.id, 'smoke-2');
+  assert.strictEqual(M.findStep(M.parse(trr.text), 'first-step-in-this-lane').step.track, 'smoke-2', 'its steps follow the new ID');
+});
+
+rule('Parts: each kind of part has its own places, named in words for the preview and for screen readers', () => {
+  const step = O.places(RELEASE, 'step'), at = id => step.find(x => x.id === id);
+  assert.strictEqual(at('before:jenkins').where, 'after “Merge the release branch to master”, inside Deploy');
+  assert.strictEqual(at('before:jenkins').spoken, 'Deploy, after Merge the release branch to master, position 2 of 5');
+  assert.strictEqual(at('before:smoke').spoken, 'Verify in production, Product checks lane, at the start, position 1 of 3');
+  assert.strictEqual(at('end:verify:1').where, 'after “Close the release ticket”, inside Wrap-up');
+  assert.ok(!at('end:verify:-1'), 'no group of its own before the first lane when it has no steps');
+  same(O.places(RELEASE, 'gate').map(x => x.id), ['gate:verify'], 'only a phase without a gate');
+  same(O.places(RELEASE, 'lanes').map(x => x.id), ['lane:prep:end', 'lane:deploy:end', 'lane:verify:0', 'lane:verify:1', 'lane:verify:end'], 'lanes only where no other step would join them');
+  same(O.places(RELEASE, 'phase').map(x => x.spoken), ['Phases, first, before Before production changes, position 1 of 4', 'Phases, after Before production changes, position 2 of 4', 'Phases, after Deploy, position 3 of 4', 'Phases, after Verify in production, position 4 of 4']);
+  same(O.places(ok(O.setGate(RELEASE, 'verify', { title: 'Done' })), 'gate'), [], 'every phase has a gate: nowhere for another');
+  same(O.places('', 'step'), [], 'no phases: nowhere for a step');
+  same(O.places('', 'phase').map(x => x.id), ['phase:^']);
+  assert.strictEqual(O.nearest(RELEASE, 'step', { kind: 'step', key: 'flags' }), 'before:rollback', 'just after the selected step');
+  assert.strictEqual(O.nearest(RELEASE, 'step', { kind: 'step', key: 'pods' }), 'end:deploy:-1');
+  assert.strictEqual(O.nearest(RELEASE, 'lanes', { kind: 'track', key: 'verify', track: 0 }), 'lane:verify:1');
+  assert.strictEqual(O.nearest(RELEASE, 'gate', null), 'gate:verify');
+  assert.strictEqual(O.nearest(RELEASE, 'phase', { kind: 'phase', key: 'deploy' }), 'phase:deploy');
+});
+
+/* The op a part makes at a place, as app.js builds it. */
+function placeOp(kind, id) {
+  const [k, a, b] = id.split(':');
+  if (kind === 'step') return k === 'before' ? { op: 'add', to: { before: a }, text: 'New step' } : { op: 'add', to: { phase: a, track: +b, where: 'end' }, text: 'New step' };
+  if (kind === 'lanes') return { op: 'addTrack', to: { phase: a, before: b === 'end' ? null : +b }, title: 'New lane', role: 'lane-role', text: 'First step in this lane' };
+  if (kind === 'gate') return { op: 'gate', phase: a, set: { title: 'New gate' } };
+  return { op: 'addPhase', after: a === '^' ? null : a, first: a === '^', title: 'New phase', mode: 'READ-DO' };
+}
+rule('Parts: every place offered for every part, in every example and an awkward draft, takes the part without changing anything else', () => {
+  const drafts = MAPS.map(n => [n, example('maps/drafts/' + n + '.md')]).concat([['odd', ODD], ['lanes', LANES], ['lanes-crlf', LANES.replace(/\n/g, '\r\n')]]);
+  drafts.forEach(([name, md]) => ['step', 'lanes', 'gate', 'phase'].forEach(kind => O.places(md, kind).forEach(pl => {
+    const r = O.apply(md, placeOp(kind, pl.id));
+    assert.ok(!r.error, name + ' ' + pl.id + ': ' + r.error);
+    healthy(md, r.text, name + ' ' + pl.id);
+    assert.ok(ids(md).every(x => ids(r.text).includes(x)), name + ' ' + pl.id + ': every ID kept');
+    if (/crlf/.test(name)) assert.ok(!/[^\r]\n/.test(r.text), name + ' ' + pl.id + ': still CRLF');
+  })));
+});
+
+rule('Parts: the new operations keep CRLF line endings, comments and unicode names, and refuse what would change other lines', () => {
+  const crlf = LANES.replace(/\n/g, '\r\n');
+  let t = crlf;
+  t = ok(O.addTrack(t, { phase: 'ship' }, { title: 'Prüfung ✓ 日本', role: 'qa', text: 'Überprüfen' }));
+  t = ok(O.editTrack(t, 'build', 1, { title: 'Docs and notes' }));
+  t = ok(O.deleteTrack(t, 'build', 0, { steps: 'keep' }));
+  t = ok(O.removeGate(t, 'build'));
+  t = ok(O.addPhase(t, null, { title: 'Zero', mode: 'READ-DO', first: true }));
+  t = ok(O.deletePhase(t, 'zero'));
+  assert.ok(!/[^\r]\n/.test(t), 'every line still ends in CRLF');
+  assert.ok(t.includes('<!-- a comment inside the Web lane -->\r\n'), 'the comment is kept');
+  const tr = M.parse(t).phases[1].tracks[0];
+  same([tr.title, tr.id], ['Prüfung ✓ 日本', 'pr-fung'], 'a unicode name, an ID from the letters it can use');
+  assert.strictEqual(O.addTrack(LANES, { phase: 'ship' }, { title: '日本', text: 'ステップ' }).id, 'lane', 'no usable letters: a plain ID');
+  const fields = ['## P · READ-DO {#p}', '- [ ] {confirm} A {#a}', '<!-- c -->', '  where: orphaned', ''].join('\n');
+  assert.ok(/change what other lines mean/.test(O.addTrack(fields, { phase: 'p' }, { title: 'M', text: 'C' }).error), 'a lane between a step and its separated field is refused');
+});
+
+rule('Parts: a place that would take a separated field or note is never offered', () => {
+  const md = ['---', 'process: f', 'title: F', '---', '## P · READ-DO {#p}', '- [ ] {confirm} A {#a}', '<!-- c -->', '  where: orphaned', '', '## Q · READ-DO {#q}', '- [ ] {confirm} B {#b}', ''].join('\n');
+  assert.ok(!O.places(md, 'step').some(x => x.id === 'end:p:-1'), 'not after A');
+  assert.ok(!O.places(md, 'lanes').some(x => x.id === 'lane:p:end'), 'no lane after A');
+  assert.ok(O.places(md, 'step').some(x => x.id === 'before:a') && O.places(md, 'gate').some(x => x.id === 'gate:p'), 'the safe places stay (a gate goes after the field)');
+});
+
+rule('Builder: a step whose ID is a name objects already have (constructor) keeps it as its key', () => {
+  const md = '## P · READ-DO {#p}\n- [ ] {confirm} Build it {#constructor}\n- [ ] {confirm} Check it {#tostring}\n';
+  same(O.parse(md).steps.map(s => s.key), ['constructor', 'tostring']);
+  assert.strictEqual(O.addStep(md, { phase: 'p' }, { text: 'Constructor' }).id, 'constructor-2', 'and it counts as taken');
 });
 
 run();

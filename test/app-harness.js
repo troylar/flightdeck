@@ -40,6 +40,13 @@ function boot(opts) {
   Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { els[id].value = ''; }); } });
   appEl.querySelectorAll = sel => /input|textarea|select/.test(sel) ? [...inputs].map(id => els[id]) : [];
   appEl.contains = el => !!el && inputs.has(el.id);
+  /* Where the app asked focus to go: renders look up their focus target with querySelector. */
+  const asked = [];
+  /* The builder's properties form, as far as the phone sheet needs it: a node under the screen that can be marked. */
+  appEl.children = [];
+  const formAttrs = {};
+  const form = { closest: () => null, contains: () => false, querySelector: () => null, parentNode: appEl, setAttribute(k, v) { formAttrs[k] = v; }, removeAttribute(k) { delete formAttrs[k]; }, hasAttribute: k => k in formAttrs };
+  appEl.querySelector = sel => { asked.push(sel); return sel === '.ob-form' && /class="panel stack ob-form"/.test(appEl._html) ? form : null; };
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
   const storage = () => ({ getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
@@ -49,8 +56,10 @@ function boot(opts) {
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
+  const bodyClasses = new Set();
+  document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
-    innerWidth: 1400, scrollY: 0, scrollTo() {}, matchMedia: () => ({ matches: false }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
+    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: !!opts.narrow && /max-width/.test(q) }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
   const ctx = vm.createContext({
@@ -76,6 +85,16 @@ function boot(opts) {
   app = {
     PF, store, session, fs: null, tick,
     html: () => els.app.innerHTML,
+    // The last place a render tried to put focus (a selector or an element id), ignoring the app's own lookups by class.
+    focused: () => asked.filter(x => x && x[0] !== '.').pop() || null,
+    live: () => els.live.textContent || '',
+    bodyClasses: () => [...bodyClasses],
+    // Whether the top bar is inert, and the form marked as a dialog (the phone's properties sheet).
+    topInert: () => els.top.hasAttribute('inert'), formModal: () => formAttrs.role === 'dialog',
+    // Change the window across the phone breakpoint, as resizing or rotating does.
+    setNarrow(v) { opts.narrow = v; (winListeners.resize || []).forEach(fn => fn()); },
+    // Whether leaving the page now would ask first (beforeunload).
+    leaveWarns() { let warned = false; (winListeners.beforeunload || []).forEach(fn => fn({ preventDefault() { warned = true; }, set returnValue(v) { warned = true; } })); return warned; },
     top: () => els.top.innerHTML,
     overlay: () => els.overlay.innerHTML,
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
@@ -108,6 +127,10 @@ function boot(opts) {
     selected() { const m = /<li class="step sel"[^>]*id="step-([\w-]+)"/.exec(els.app.innerHTML); return m ? m[1] : null; },
     change(id, files) { (listeners.change || []).forEach(fn => fn({ target: { id, files, value: '' } })); },
     select(id, value) { const el = get(id); el.value = value; (listeners.change || []).forEach(fn => fn({ target: el })); },
+    // Turn a checkbox or switch on or off, as a click on it would.
+    check(id, on) { const el = get(id); el.type = 'checkbox'; el.checked = !!on; (listeners.change || []).forEach(fn => fn({ target: el })); },
+    // Fire any document event the app listens for (drag and drop, mouseover) with a stand-in event.
+    fire(type, ev) { (listeners[type] || []).forEach(fn => fn(Object.assign({ preventDefault() {}, dataTransfer: { setData() {}, effectAllowed: '', dropEffect: '' } }, ev))); },
     choose(personId) { (listeners.change || []).forEach(fn => fn({ target: { id: 'me', value: personId } })); },
     focus() { (winListeners.focus || []).forEach(fn => fn()); },
     // One beat of the app's timers (countdowns, the tab title, refreshes), as a second passing would trigger.
