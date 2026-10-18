@@ -23,6 +23,7 @@ It prints, as JSON and exactly as Flightdeck judges them: every published versio
    - conflict copies: any `runs/*/*/run*.json` other than `run.json` (two versions of one run)
    - version clashes: two complete publications with the same `v<N>` for one process
    - publications still syncing or damaged: a version folder missing `map.md`, `types.json` or `publication.json`, or missing a screenshot listed under `images` in `publication.json`
+   - unusable publications: versions the checker reports as `unusable` (written by a newer Flightdeck, or edited with syntax or step types it doesn't know), with its reason; Flightdeck won't run them
    - drafts that won't publish: a `## Questions…` section, missing IDs or types
    - broken team files from the checker's `teamFiles` (a step type whose file name doesn't match its id, unreadable JSON, a workflow without statuses)
 2. **Checklists:** one row per process: newest published version, publisher and date (from `publication.json`), whether the draft has unpublished changes (compare the draft with the newest `map.md`), and the last run date.

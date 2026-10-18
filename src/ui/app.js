@@ -77,9 +77,9 @@
     now: function () { return Date.now(); },
     get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
     run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
-    recording: function (r) { return !!r && !!state.me && !r.ended && r.recorder.person === state.me && r.recorder.session === SESSION; },
+    recording: function (r) { return !!r && !!state.me && !r.ended && !r._unrunnable && r.recorder.person === state.me && r.recorder.session === SESSION; },
     /* Who may resolve conflict copies: the recorder's window while it runs; once it has ended, whoever recorded or ended it. */
-    canRecover: function (r) { return !!r && !!state.me && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
+    canRecover: function (r) { return !!r && !!state.me && !r._unrunnable && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
     processTitle: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.title : id; },
     processes: function () { return processes(); },
     get fsKey() { return fsKey(); },
@@ -186,10 +186,12 @@
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
-    function entry(id) { return by[id] = by[id] || { id: id, title: id, category: 'Other', latest: null, all: [], clashes: [], broken: [], draft: null, draftChanged: false, lastRun: null, staleSkills: 0, skills: [], group: [], tags: [] }; }
+    function entry(id) { return by[id] = by[id] || { id: id, title: id, category: 'Other', latest: null, all: [], clashes: [], broken: [], taken: [], draft: null, draftChanged: false, lastRun: null, staleSkills: 0, skills: [], group: [], tags: [] }; }
     data.processes.forEach(function (p) {
       var e = entry(p.process); e.latest = p.index.latest; e.all = p.index.all; e.clashes = p.index.clashes;
       e.broken = p.pubs.filter(function (x) { return !x.ok; });
+      /* Every version number in use, including ones still syncing or unusable here, so publishing never reuses one. */
+      e.taken = p.pubs.map(function (x) { return { version: PF.publish.versionOf(x.folder) || 0 }; });
       if (e.latest) { e.title = e.latest.map.meta.title || e.id; e.category = e.latest.map.meta.category || 'Other'; e.group = e.latest.map.meta.group; e.tags = e.latest.map.meta.tags; }
     });
     data.drafts.forEach(function (d) {
@@ -678,7 +680,8 @@
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
     var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
-    var child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs } });
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs } }); }
+    catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, { process: child.process, id: child.id, inputs: inputs }, state.me, new Date().toISOString()); }
     catch (err) { say(err.message, 'warn'); render(); return; }
@@ -942,6 +945,8 @@
     if (g !== gen) { say('That didn\'t happen: the folder changed while it was in progress.', 'warn'); render(); return Promise.resolve(false); }
     var r = null; for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) r = data.runs[i];
     if (!r) return Promise.resolve(false);
+    /* A run on a version this copy can't fully read is view-only for everyone here: no recording, take over or recovery. */
+    if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return Promise.resolve(false); }
     /* While a copy is being kept or restored, nothing else may change the run; the person is told to wait. */
     if (state.recovering && !opts.recovery) { say('Wait until the copy is kept, then try again.', 'warn'); render(); return Promise.resolve(false); }
     /* Recovery applies only to the exact contents it backed up: same object and same contents. */
@@ -1181,6 +1186,7 @@
     'plan-from-run': function (key) {
       var r = data.runs.filter(function (x) { return x.process + '/' + x.id === key; })[0], p = r && processes().filter(function (x) { return x.id === r.process; })[0];
       if (!r || !p || !p.latest || !state.me) return;
+      if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return; }
       var made = Object.assign({}, M.setBy(R.mapOf(r)), M.setBy(p.latest.map)), details = {}, roles = {};
       Object.keys(r.details || {}).forEach(function (f) { if (!Object.prototype.hasOwnProperty.call(made, f) && r.details[f]) details[f] = String(r.details[f]); });
       Object.keys(r.roles || {}).forEach(function (ro) { if (r.roles[ro]) roles[ro] = r.roles[ro]; });
@@ -1219,7 +1225,7 @@
         return Promise.all([pfs.read(draftPath), repo.loadStepTypes(pfs)]).then(function (got) {
           var f = got[0];
           if (!f || f.text !== shown) return { changed: true };
-          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.all.map(function (x) { return x.info; }), now: new Date().toISOString() });
+          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString() });
         });
       }).then(function (res) {
         if (pg !== gen) return;
@@ -1461,6 +1467,8 @@
     return queued(function () { return getCopy(fs, cur); }).then(function (c) {
       if (g !== gen) return;
       if (!c) { say('That copy can\'t be read.', 'bad'); return; }
+      /* Keeping it would save only what this copy understands of it, erasing the rest. */
+      if (c._unrunnable) { say(c._unrunnable + ' That copy can only be read here, so it wasn\'t kept.', 'warn'); return; }
       text = snapshot(cur);
       return repo.keepDisplaced(fs, cur, WRITER).then(function (where) {
         if (g !== gen) return false;
@@ -1544,7 +1552,9 @@
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    var r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows });
+    /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows }); }
+    catch (err) { say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me;
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */

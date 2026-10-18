@@ -28,7 +28,7 @@ This is a careful manual review. **Flightdeck's own checks on the process page a
    - a track (`### Track:`) outside a phase, after its gate, with no steps, or naming an unknown role
    - `at:` or `due:` not a time like `15:00`; `after:` not a duration
    - `sets:` naming a detail that isn't in `context`
-   - a `{run.process}` step without `process:`, running its own process, or carrying a detail it doesn't have
+   - a `{run.process}` step running its own process, or carrying a detail it doesn't have
    - with `jira/workflows.json` present: a transition to a status the issue type doesn't have or no transition reaches
    - a step type that isn't built in and has no valid `step-types/<id>.json`
    - a `## Questions…` section still present; a line Flightdeck can't parse
@@ -40,7 +40,7 @@ This is a careful manual review. **Flightdeck's own checks on the process page a
    - a gate that approves something important without `owner` or `approves:`
    - a one-person routine without `runs: solo`, or team wording in a solo checklist
    - tracks for work that is really one after another; times on steps that have no real clock
-   - a `{run.process}` that names a process with no published version yet (it publishes, but can't start the child)
+   - a `{run.process}` without `process:` (only a tip: it publishes, but the recorder has to fill in which process to start), or one that names a process with no published version yet (it publishes, but can't start the child)
    - secrets, tokens, customer data or real credentials anywhere
 3. **Tips:** usual fields left out (fine if the value varies per run), missing `>` notes on tricky steps.
 

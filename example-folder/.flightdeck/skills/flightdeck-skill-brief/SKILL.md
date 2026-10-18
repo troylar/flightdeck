@@ -7,7 +7,7 @@ Read-only: don't create, edit or delete files. The only command you may run is t
 
 Reference: `../_flightdeck/map-format.md` (relative to this skill's folder). Read it before you start.
 
-Write the brief an LLM needs to create or update a skill from a Flightdeck process. **Do not change any file**; the person (or the next step) builds the skill and registers it.
+Write the brief an AI assistant needs to create or update a skill from a Flightdeck process. **Do not change any file**; the person (or the next step) builds the skill and registers it.
 
 Target (a process ID to create a skill from, or a skill name to update): the user's request
 
@@ -17,7 +17,7 @@ Read `AGENTS.md` in this team folder first, especially *Skills built from proces
 
 If the skills were installed somewhere other than `.flightdeck/skills`, run the `_flightdeck/check_folder.py` next to this skill's folder instead, with the team folder as its argument.
 
-Its `publications` section judges every published version exactly as Flightdeck does: complete, damaged or still syncing, the current version per process, and versions published twice at once (clashes). Use only versions it reports as complete.
+Its `publications` section judges every published version exactly as Flightdeck does: complete, damaged, still syncing or unusable (written by a newer Flightdeck, or edited with syntax or step types it doesn't know), the current version per process, and versions published twice at once (clashes). Use only versions it reports as complete.
 
 ## To create a skill from a process
 

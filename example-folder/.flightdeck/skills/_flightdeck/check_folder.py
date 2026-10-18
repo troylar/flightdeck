@@ -4,8 +4,9 @@
     python <skills folder>/_flightdeck/check_folder.py [team-folder]   (default: the current folder)
 
 Prints JSON:
-  publications: every version folder per process, with status "complete", "syncing" or "damaged" and why,
-                which complete version is current, and any version-number clashes.
+  publications: every version folder per process, with status "complete", "syncing", "damaged" or "unusable" and why,
+                which complete version is current, and any version-number clashes. "unusable" means the app can't
+                run it: written by a newer Flightdeck, or edited by hand with syntax or step types it doesn't know.
   plans:        each planned run with status "pending", "decided" (accepted/declined) or "ambiguous", and why.
   conflicts:    runs that have competing copies next to run.json.
 
@@ -83,6 +84,275 @@ def js_json(v):
     return "{" + ",".join(js_string(k) + ":" + js_json(v[k]) for k in js_keys(v)) + "}"
 
 
+# What the app knows about step types, for the same "can this copy run it" check as Flightdeck's PF.publish.unrunnable.
+# Only what that check reads: field kinds and choices, and the names of the evidence each type records.
+# test/checker.test.js fails if these differ from src/core/types.js.
+PUBLICATION_FORMAT = "preflight-publication/1"
+TYPES_VERSION = 2
+NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
+COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note"]},
+          "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
+BUILTIN = {
+    "confirm": {"fields": {"where": {"kind": "text"}, "looks": {"kind": "text"}}, "record": []},
+    "communicate": {"fields": {"channel": {"kind": "text"}, "audience": {"kind": "text"}, "message": {"kind": "message"}}, "record": [{"name": "sent"}]},
+    "meeting": {"fields": {"attendees": {"kind": "text"}, "agenda": {"kind": "url"}, "join": {"kind": "url"}, "outcome": {"kind": "text"}}, "record": [{"name": "outcome"}]},
+    "decide": {"fields": {"options": {"kind": "list"}, "decider": {"kind": "text"}, "criteria": {"kind": "text"}}, "record": [{"name": "decision"}, {"name": "why"}]},
+    "review": {"fields": {"document": {"kind": "url"}, "focus": {"kind": "text"}}, "record": [{"name": "verdict"}, {"name": "comments"}]},
+    "wait": {"fields": {"for": {"kind": "text"}, "contact": {"kind": "text"}}, "record": [{"name": "arrived"}]},
+    "ui.action": {"fields": {"system": {"kind": "text"}, "page": {"kind": "url"}}, "record": [{"name": "reference"}]},
+    "jenkins.job": {"fields": {"job": {"kind": "text"}, "page": {"kind": "url"}, "parameters": {"kind": "code"}, "stage": {"kind": "text"}}, "record": [{"name": "build"}, {"name": "buildLink"}]},
+    "bitbucket.pr": {"fields": {"action": {"kind": "choice", "options": ["open", "review", "merge"]}, "repo": {"kind": "text"}, "from": {"kind": "text"}, "to": {"kind": "text"}},
+                     "record": [{"name": "pr"}, {"name": "mergeCommit"}]},
+    "jira.issue": {"fields": {"action": {"kind": "choice", "options": ["create", "update", "transition", "assign", "link"]}, "issue": {"kind": "text"}, "project": {"kind": "text"},
+                              "issueType": {"kind": "text"}, "status": {"kind": "text"}, "assignee": {"kind": "text"}, "linkTo": {"kind": "text"}, "set": {"kind": "text"}},
+                   "record": [{"name": "key"}]},
+    "run.process": {"fields": {"process": {"kind": "text"}, "carry": {"kind": "text"}}, "record": []},
+    "run.command": {"fields": {"command": {"kind": "code"}, "where": {"kind": "text"}, "expected": {"kind": "text"}}, "record": [{"name": "result"}]},
+    "run.script": {"fields": {"script": {"kind": "code"}, "args": {"kind": "code"}, "where": {"kind": "text"}, "expected": {"kind": "text"}}, "record": [{"name": "result"}]},
+    "run.skill": {"fields": {"skill": {"kind": "text"}, "inputs": {"kind": "text"}, "expected": {"kind": "text"}}, "record": [{"name": "output"}]},
+    "ci.gate": {"fields": {"pipeline": {"kind": "text"}, "page": {"kind": "url"}}, "record": [{"name": "run"}, {"name": "runLink"}]},
+}
+
+# The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
+# JavaScript's \w is ASCII, so W spells it out.
+W = r"[A-Za-z0-9_]"
+ID_RE = re.compile(r"\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$", re.I)
+
+
+def js_str(v):
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return js_number(float(v))
+    if isinstance(v, list):
+        return ",".join(js_str(x) for x in v)
+    if isinstance(v, dict):
+        return "[object Object]"
+    return str(v)
+
+
+def take_id(s):
+    m = ID_RE.search(s)
+    return (m.group(1).lower(), s[:m.start()]) if m else ("", s)
+
+
+def tokens(s, ch):
+    out = []
+    rest = re.sub(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]"), lambda m: out.append(m.group(1)) or "", s)
+    return out, rest.strip()
+
+
+def parse_map(md):
+    lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    errors, steps = [], []
+    i, phase, step, gate, track, questions = 0, None, None, None, None, False
+
+    def err(n, msg):
+        errors.append({"line": n + 1, "msg": msg})
+
+    if lines[0] and lines[0].strip() == "---":
+        i = 1
+        while i < len(lines) and lines[i].strip() != "---":
+            if not re.match(r"^(%s|-)+:\s*(.*)$" % W, lines[i]) and lines[i].strip():
+                err(i, "Front matter line isn't \"key: value\".")
+            i += 1
+        i += 1
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i += 1
+            continue
+        m = re.match(r"^###\s+Track:\s*(.+?)\s*$", line, re.I)
+        if m:
+            step = None
+            if not phase or gate:
+                err(i, "A track must be inside a phase, before its gate.")
+            else:
+                track = {"id": take_id(m.group(1))[0]}
+            i += 1
+            continue
+        m = re.match(r"^##\s+(.+?)\s*$", line)
+        if m:
+            step, gate, track = None, None, None
+            head = take_id(m.group(1))[1]
+            if re.match(r"^questions(?![A-Za-z0-9_])", head, re.I):
+                questions, phase = True, None
+            else:
+                g = re.match(r"^Gate:\s*(.+)$", head, re.I)
+                if g:
+                    if not phase:
+                        err(i, "A gate must come after a phase.")
+                    elif phase["gate"]:
+                        err(i, "Phase \"%s\" already has a gate." % phase["title"])
+                    else:
+                        for part in re.split(r"\s+·\s+", g.group(1))[1:]:
+                            if not re.match(r"^owner\s+@(%s|-)+$" % W, part.strip(), re.I):
+                                err(i, "Gate option not understood: \"%s\"." % part)
+                        gate = {"kind": "gate"}
+                        phase["gate"] = gate
+                else:
+                    pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
+                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None}
+            i += 1
+            continue
+        if questions:
+            i += 1
+            continue
+        m = re.match(r"^- \[( |!|~)\]\s+(.+)$", line)
+        if m:
+            if not phase or gate:
+                err(i, "A step must be inside a phase, before its gate.")
+            else:
+                body = take_id(m.group(2))[1]
+                typ, t2 = "", body
+                tm = re.match(r"^\{([a-zA-Z](?:%s|[.-])*)\}\s+(.*)$" % W, t2)
+                if tm:
+                    typ, t2 = tm.group(1), tm.group(2)
+                rest = tokens(tokens(t2, "@")[1], "^")[1]
+                step = {"type": typ, "text": rest, "fields": {}}
+                steps.append(step)
+            i += 1
+            continue
+        m = re.match(r"^\s{2,}>\s?(.*)$", line)
+        if m:
+            if not (step or gate):
+                err(i, "A note must follow a step or a gate.")
+            i += 1
+            continue
+        m = step and re.match(r"^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$", line)
+        if m:
+            if not re.match(r"^images/(%s|[./-])+$" % W, m.group(2)) or ".." in m.group(2):
+                err(i, "Screenshots must be under images/: \"%s\"." % m.group(2))
+            i += 1
+            continue
+        m = re.match(r"^\s{2,}((?:%s|-)+):\s*(.*)$" % W, line)
+        if m:
+            name = m.group(1)
+            if gate and name in ("approves", "at", "due", "after"):
+                i += 1
+                continue
+            if step:
+                # JavaScript ignores a field named __proto__: it sets the object's prototype instead of a key.
+                if name != "__proto__":
+                    step["fields"][name] = m.group(2).strip()
+                i += 1
+                continue
+        err(i, "Not understood, so it was skipped: \"%s\"" % line.strip()[:60])
+        i += 1
+    return {"errors": errors, "steps": steps, "questions": questions}
+
+
+def js_list(s):
+    return [x.strip() for x in js_str(s).split(",") if x.strip()]
+
+
+def js_duration(s):
+    m = re.match(r"^\s*(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?\s*$", js_str(s), re.I)
+    return bool(m and (m.group(1) or m.group(2) or m.group(3)))
+
+
+def js_concat(o, key):
+    """A property as JavaScript's string concatenation writes it, missing ones as "undefined"."""
+    if not isinstance(o, dict) or key not in o:
+        return "undefined"
+    return "null" if o[key] is None else js_str(o[key])
+
+
+def field_errors(type_def, fields):
+    """The errors (not tips) of the app's PF.types.checkFields. Raises ValueError where that function would throw."""
+    own = type_def.get("fields") if isinstance(type_def, dict) else None
+    if isinstance(own, dict) and any(v is None for v in own.values()):
+        raise ValueError("a field definition is null")
+    errors = []
+    tid = js_concat(type_def, "id")
+    for f in js_keys(fields):
+        d = own.get(f) if isinstance(own, dict) and f in own else None
+        if not isinstance(d, (dict, list)):
+            d = COMMON.get(f)
+        if not isinstance(d, dict):
+            if d is None:
+                errors.append("has a field \"%s\" that {%s} doesn't use." % (f, tid))
+            continue
+        v, kind = fields[f], d.get("kind")
+        if kind == "choice":
+            opts = js_list(fields.get(d["optionsFrom"])) if d.get("optionsFrom") else (d.get("options") or [])
+            opts = opts if isinstance(opts, list) else []
+            if not any(js_str(o).lower() == v.strip().lower() for o in opts):
+                errors.append("\"%s\" should be one of: %s." % (f, ", ".join(js_str(o) for o in opts)))
+        if kind == "time" and not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v.strip()):
+            errors.append("\"%s\" should be a time like 15:00." % f)
+        if kind == "duration" and f == "after" and not js_duration(v):
+            errors.append("\"after\" should be a duration like 2h or 30m.")
+        if kind == "list" and len(js_list(v)) < 2:
+            errors.append("\"%s\" needs at least two choices, separated by commas." % f)
+        if kind == "require":
+            record = (type_def.get("record") if isinstance(type_def, dict) else None) or []
+            if not isinstance(record, list) or any(r is None for r in record):
+                raise ValueError("record isn't a list of evidence")
+            names = [js_str(r.get("name")) if isinstance(r, dict) else "" for r in record]
+            for n in js_list(v):
+                if n != "all" and n not in names:
+                    errors.append("\"require\" names \"%s\", which {%s} doesn't record. It records: %s." % (n, tid, ", ".join(names) or "nothing (use \"evidence:\" instead)"))
+    return errors
+
+
+TYPE_KEYS = {"id", "label", "icon", "hint", "fields", "record", "version", "custom", "group", "tags"}
+FIELD_KEYS = {"label", "kind", "required", "requiredWhen", "requiredUnless", "options"}
+RECORD_KEYS = {"name", "label", "kind", "long", "optionsFrom", "options", "when"}
+KNOWN_KINDS = {"text", "url", "code", "message", "list", "choice", "duration", "deadline", "require", "time", "sets"}
+RECORD_KINDS = {"text", "url", "choice"}
+
+
+def understood(d):
+    """The app's PF.types.understood: a frozen step type uses only the type version, properties and kinds this copy knows."""
+    if not isinstance(d, dict) or not set(d) <= TYPE_KEYS:
+        return False
+    v = d.get("version")
+    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v > TYPES_VERSION):
+        return False
+    fields = d.get("fields")
+    if fields is not None and (not isinstance(fields, dict) or not all(
+            isinstance(f, dict) and set(f) <= FIELD_KEYS and isinstance(f.get("kind"), str) and f.get("kind") in KNOWN_KINDS for f in fields.values())):
+        return False
+    record = d.get("record")
+    if record is not None and (not isinstance(record, list) or not all(
+            isinstance(r, dict) and set(r) <= RECORD_KEYS and isinstance(r.get("kind"), str) and r.get("kind") in RECORD_KINDS for r in record)):
+        return False
+    return True
+
+
+def unrunnable(md, types):
+    """Why this copy of Flightdeck can't run a published checklist, or "" if it can. Same order and words as the app."""
+    parsed = parse_map(md)
+    if parsed["errors"]:
+        e = parsed["errors"][0]
+        return "%s Line %d: %s" % (NEWER, e["line"], e["msg"])
+    if parsed["questions"]:
+        return "It has a \"Questions\" section, so steps after it would be skipped. Publish it again without one."
+    for s in parsed["steps"]:
+        label = "Step \"%s\"" % s["text"][:40]
+        if not s["type"]:
+            return label + " has no step type, so it can't be run. Publish the checklist again."
+        d = types.get(s["type"])
+        frozen = isinstance(d, (dict, list))
+        if not frozen:
+            d = dict(BUILTIN[s["type"]], id=s["type"]) if s["type"] in BUILTIN else None
+        if d is None:
+            return label + " uses the step type {%s}, which this copy of Flightdeck doesn't have and this version doesn't include. Update Flightdeck, or publish the checklist again." % s["type"]
+        # Built-in types are this copy's own; only a type frozen into the version can hold something it doesn't know.
+        if frozen and not understood(d):
+            return "%s %s has a step type this copy can't read." % (NEWER, label)
+        try:
+            bad = field_errors(d, s["fields"])
+        except ValueError:
+            return "%s %s has a step type this copy can't read." % (NEWER, label)
+        if bad:
+            return "%s %s %s" % (NEWER, label, bad[0])
+    return ""
+
+
 def read_text(path):
     try:
         with open(path, "rb") as f:
@@ -101,6 +371,8 @@ def check_publication(folder, name):
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
         return "damaged", "publication.json isn't a publication record", None
+    if info.get("format") != PUBLICATION_FORMAT:
+        return "unusable", NEWER, info
     if files["map.md"] is None or files["types.json"] is None:
         return "syncing", "some files haven't arrived", info
     if text_hash(files["map.md"]) != info.get("mapHash") or text_hash(files["types.json"]) != info.get("typesHash"):
@@ -108,6 +380,19 @@ def check_publication(folder, name):
     m = re.match(r"^v(\d+)-[a-z0-9]+$", name)
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
+    try:
+        types = json.loads(files["types.json"])
+    except ValueError:
+        return "damaged", "types.json is unreadable", info
+    if not isinstance(types, dict):
+        return "damaged", "types.json doesn't hold step types", info
+    try:
+        why = unrunnable(files["map.md"], types)
+    except (TypeError, AttributeError, KeyError, ValueError):
+        # A hand-written types.json can hold anything; the app reports a type it can't read rather than failing.
+        why = NEWER + " A step type in it can't be read."
+    if why:
+        return "unusable", why, info
     for src, want in (info.get("images") or {}).items():
         path = os.path.join(folder, *src.split("/"))
         if not os.path.isfile(path):
