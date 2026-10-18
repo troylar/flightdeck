@@ -933,12 +933,20 @@
     return { name: TF_NAMES[k[1]], item: 'type:' + k[1], value: String(def[k[1]] == null ? '' : def[k[1]]) };
   }
   function typeTl(f) { return f.tl || (f.tl = TL.create()); }
-  /* A step-type box holding text not added yet (a tag, an option), or null. */
+  /* An option typed and not added yet belongs to its row: it's kept when the row closes and drawn again when it opens. */
+  function keepOptDrafts(f) {
+    var d = f.optDraft = f.optDraft || {};
+    f.def.fields.map(function (r) { return 'f:' + r.k; }).concat(f.def.record.map(function (r) { return 'r:' + r.k; })).forEach(function (key) {
+      if (f.open !== key) return; var p = key.split(':'), el = document.getElementById('tf-' + p[0] + '-' + p[1] + '-optadd'); if (el) d[key] = String(el.value || '');
+    });
+  }
+  /* A step-type box holding text not added yet (a tag, an option, also in a closed row), or null; a closed row is opened. */
   function typePendingBox(f) {
-    var ids = ['tf-tagadd'];
-    f.def.fields.forEach(function (r) { ids.push('tf-f-' + r.k + '-optadd'); }); f.def.record.forEach(function (r) { ids.push('tf-r-' + r.k + '-optadd'); });
-    for (var i = 0; i < ids.length; i++) { var el = document.getElementById(ids[i]); if (el && String(el.value || '').trim()) return ids[i]; }
-    return null;
+    keepOptDrafts(f);
+    var el = document.getElementById('tf-tagadd'); if (el && String(el.value || '').trim()) return 'tf-tagadd';
+    var d = f.optDraft || {}, keys = Object.keys(d).filter(function (k) { return String(d[k]).trim(); });
+    if (!keys.length) return null;
+    f.open = keys[0]; var p = keys[0].split(':'); return 'tf-' + p[0] + '-' + p[1] + '-optadd';
   }
   /* The step-type editor is a page of its own, like the draft editor: the app's top bar hides while it's open. */
   /* The phone preview sheet exists only below 800 px: on a wider screen it's closed before anything is drawn, so the page
@@ -1742,7 +1750,7 @@
     'type-save': function () { var f = state.typeForm; if (f && f.leaving) f.closeAfterSave = true; readTypeForm(); saveType(); },
     'tf-id-edit': function () { var f = state.typeForm; if (!f || f.existing) return; f.idEdit = true; state.focus = 'tf-id'; render(); },
     'tf-open': function (id) {
-      var f = state.typeForm; if (!f) return; readTypeForm();
+      var f = state.typeForm; if (!f) return; readTypeForm(); keepOptDrafts(f);
       f.open = f.open === id ? null : id;
       var p = String(id).split(':');
       state.focus = f.open ? 'tf-' + p[0] + '-' + p[1] + '-label' : '[data-act="tf-open"][data-id="' + cssEsc(id) + '"]'; render();
@@ -1756,7 +1764,7 @@
       if (!v) { state.focus = '#' + box; render(); return; }
       var dup = false;
       typeChange('new option', function (d) { var r = rowOf(d, p); if (!r) return null; var o = String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (o.indexOf(v) >= 0) { dup = true; return null; } r.options = o.concat(v.slice(0, 40)).join('\n'); return v; }, [rowItem(p)], '#' + box);
-      if (dup) { say('"' + v + '" is already an option.', 'warn'); render(); } else { state.clearInputs = box; render(); }
+      if (dup) { say('"' + v + '" is already an option.', 'warn'); render(); } else { var f0 = state.typeForm; if (f0 && f0.optDraft) delete f0.optDraft[id]; state.clearInputs = box; render(); }
     },
     'tf-opt-del': function (id) {
       var p = String(id).split(':'), j = +p[2];

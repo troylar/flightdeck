@@ -2557,4 +2557,21 @@ rule('App: step-type Undo and Redo never lose text typed in Add an option or Add
   assert.ok(!/data-act="tf-open" data-id="f:/.test(app.html()), 'with the boxes empty, Undo works');
 });
 
+rule('App: text typed in Add an option and not added survives closing and reopening its field', async () => {
+  const app = await newTypeOn();
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
+  app.set(box, 'Ask QA before continuing');
+  app.click('tf-open', 'f:' + k); await app.tick();
+  assert.ok(!new RegExp('id="' + box + '"').test(app.html()), 'set-up: the field is closed, its box gone');
+  app.el(box).value = '';  // a closed field's box is gone from the page, and its text with it
+  app.click('tf-open', 'f:' + k); await app.tick();
+  assert.ok(new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'drawn again with the text');
+  app.el(box).value = 'Ask QA before continuing';  // the box as drawn now
+  app.click('tf-open', 'f:' + k); await app.tick();
+  app.el(box).value = '';
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(/Add or clear what you typed/.test(app.html()) && new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'Undo waits, and opens the field to show it');
+});
+
 run();
