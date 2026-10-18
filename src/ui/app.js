@@ -54,7 +54,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}
+    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -489,6 +489,8 @@
     });
     state.clearInputs = null;
     syncBound();
+    /* The draft editor's text is only there in Markdown mode; in the builder, focus goes to the editor's heading instead. */
+    if (state.focus === 'draft-editor' && !document.getElementById('draft-editor')) state.focus = 'ed-h';
     var target = state.focus ? document.getElementById(state.focus) || app.querySelector(state.focus) || topEl.querySelector(state.focus) : focusKey ? app.querySelector(focusKey) || topEl.querySelector(focusKey) : null;
     /* The page someone was on went away (its skill was removed): focus goes to the way back, next to the message saying so. */
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
@@ -727,7 +729,8 @@
       /* Only a read that started after the editor's own save or Take theirs counts, so an older copy still in memory or
          an older read finishing late never undoes it. A later read is the folder as it is, whatever it holds. */
       var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || !p.draft || (data.readSeq || 0) <= (ed.after || 0)) return;
-      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; }
+      /* Undo steps were taken against the old text; one applied now would bring it back over the newer draft. */
+      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; ed.undo = null; }
     });
   }
   function currentProcess() { var id = state.processId; return processes().filter(function (x) { return x.id === id; })[0] || null; }
@@ -762,7 +765,7 @@
         return;
       }
       /* Saved: the editor now starts from what was saved. Anything typed while it saved stays, as unsaved changes. */
-      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; }
+      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.undo = null; }
       else setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted });
       if (g !== gen) return;
       if (opts.replace && here) { state.mapVer = null; state.focus = 'cl-h'; }
@@ -770,6 +773,119 @@
       return load(true);
     }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message, 'bad'); render(); });
   }
+  /* ---------- the outline builder ---------- */
+  /* No builder edits while a restore replaces the draft (the same rule as typing, where the editor isn't even shown). */
+  function builderBlocked(p) { if (state.draftSaving[edKey(p.id)] !== 'restore') return false; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return true; }
+  /* Apply one outline operation to the editor's current text. The result is unsaved, like typing: Save draft, conflicts
+     and checks work exactly as they do for the Markdown. Returns the operation's result, or null if nothing changed. */
+  /* field: the input the value came from, so a refusal shows next to it. */
+  function builderEdit(op, field) {
+    var p = currentProcess(); if (!p || builderBlocked(p)) return null;
+    var ed = openEditor(p), cur = ed.text != null ? ed.text : ed.base, res = PF.outline.apply(cur, op);
+    if (res.error) {
+      if (field) { state.fieldErr = { id: 'ob', msg: res.error, field: field }; state.focus = '#' + field; say(null); } else say(res.error, 'warn');
+      render(); return null;
+    }
+    if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
+    if (res.same) return res;
+    /* Undo steps belong to the text they were taken from: once the editor starts from another draft, they're dropped. */
+    if (ed.undoBase !== ed.base) ed.undo = null;
+    ed.undoBase = ed.base;
+    /* Each Undo step keeps what was selected and being added then, so undoing puts those back with the text. */
+    var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; };
+    (ed.undo = ed.undo || []).push({ text: cur, sel: snap(state.obSel), add: snap(state.obAdd) }); if (ed.undo.length > 50) ed.undo.shift();
+    ed.text = res.text; state.planFormReset = true; say(null);
+    /* A step or phase without a unique ID is known by its place, so what's selected or being added to follows the change. */
+    var F = function (kind, key) { return PF.outline.follow(cur, res.text, op, res.at, kind, key); };
+    var sl = state.obSel; if (sl && sl.pid === p.id) { var nk = F(sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
+    var ad = state.obAdd;
+    if (ad && ad.pid === p.id) {
+      if (ad.after != null) ad.after = F(ad.kind === 'phase' ? 'phase' : 'step', ad.after);
+      if (ad.phase != null) ad.phase = F('phase', ad.phase);
+      if (ad.kind === 'step' && ad.after == null && ad.phase == null) state.obAdd = null;
+    }
+    return res;
+  }
+  function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; }
+  function builderMoveStep(key, dir, from) {
+    var res = builderEdit({ op: 'move', step: key, dir: dir }); if (!res) return;
+    /* A step without a unique ID is known by its place, so the selection follows it to its new place. */
+    var p = currentProcess(), nk = PF.outline.keyAt(openEditor(p).text, res.at) || key;
+    state.focus = from === 'row' ? '[data-act="ob-sel"][data-id="' + cssEsc(nk) + '"]' : '[data-act="ob-move"][data-dir="' + (dir < 0 ? 'up' : 'down') + '"]';
+    render();
+  }
+  /* A role or run detail button turns it on or off for the selected step, from what the text says now. */
+  function builderToggle(kind, name) {
+    var s = state.obSel, p = currentProcess(); if (!s || s.kind !== 'step' || !p) return;
+    var ed = openEditor(p), step = PF.outline.parse(ed.text != null ? ed.text : ed.base).steps.filter(function (x) { return x.key === s.key; })[0]; if (!step) return;
+    var set = {}; set[kind] = name; set.on = (kind === 'role' ? step.parts.roles : step.parts.binds).indexOf(name) < 0;
+    if (builderEdit({ op: 'edit', step: s.key, set: set })) { state.focus = '[data-act="ob-' + kind + '"][data-id="' + cssEsc(name) + '"]'; render(); }
+  }
+  /* The side form's controls: which one changed says what to change. */
+  function builderField(id, value) {
+    var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
+    var refocus = '#' + id, res = null;
+    if (s.kind === 'step') {
+      var set = id === 'ob-text' ? { text: value } : id === 'ob-mark' ? { mark: value === 'must' ? '!' : value === 'planned' ? '~' : ' ' } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
+      if (!set) return;
+      res = builderEdit({ op: 'edit', step: s.key, set: set }, id);
+    } else {
+      if (id === 'ob-ph-title') res = builderEdit({ op: 'editPhase', phase: s.key, set: { title: value } }, id);
+      else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
+      else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
+        /* Leaving the "name a gate" box empty adds nothing. */
+        var ed = openEditor(cp), ph = PF.outline.parse(ed.text != null ? ed.text : ed.base).phases.filter(function (x) { return x.key === s.key; })[0];
+        if (ph && !ph.gate && !String(value).trim()) return;
+        var g = {}; g[id === 'ob-g-title' ? 'title' : id === 'ob-g-owner' ? 'owner' : 'approves'] = value;
+        res = builderEdit({ op: 'gate', phase: s.key, set: g }, id);
+      } else return;
+    }
+    if (res) { state.focus = refocus; render(); }
+  }
+  /* Dragging a step: the row lifts, the slots open, and the slot under the pointer says where it will land. The keyboard
+     does the same with Alt+Up / Alt+Down, and the side form has Move up / Move down. */
+  var drag = null;
+  function dragClear() {
+    drag = null;
+    if (document.body && document.body.classList) document.body.classList.remove('ob-dragging');
+    Array.prototype.forEach.call(document.querySelectorAll('.ob-step.lifted, .ob-slot.over'), function (el) { el.classList.remove('lifted'); el.classList.remove('over'); });
+  }
+  function dropSlotOf(t) {
+    if (!t || !t.closest) return null;
+    var slot = t.closest('[data-ob-drop]'); if (slot) return slot;
+    var row = t.closest('[data-ob-step]');
+    return row && row.previousElementSibling && row.previousElementSibling.hasAttribute('data-ob-drop') ? row.previousElementSibling : null;
+  }
+  document.addEventListener('dragstart', function (e) {
+    var row = e.target && e.target.closest && e.target.closest('[data-ob-step]'); if (!row) return;
+    dragClear(); drag = row.getAttribute('data-ob-step');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', drag); } catch (err) { /* older browsers */ }
+    row.classList.add('lifted');
+    /* Opening the slots after the browser has taken its picture of the row keeps the drag from being cancelled. */
+    setTimeout(function () { if (drag && document.body.classList) document.body.classList.add('ob-dragging'); }, 0);
+  });
+  document.addEventListener('dragover', function (e) {
+    if (!drag) return;
+    var slot = dropSlotOf(e.target); if (!slot) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) { /* older browsers */ }
+    if (slot.classList.contains('over')) return;
+    Array.prototype.forEach.call(document.querySelectorAll('.ob-slot.over'), function (el) { el.classList.remove('over'); });
+    slot.classList.add('over');
+  });
+  document.addEventListener('drop', function (e) {
+    if (!drag) return;
+    var slot = dropSlotOf(e.target), key = drag; dragClear();
+    if (!slot) return;
+    e.preventDefault();
+    var d = slot.getAttribute('data-ob-drop'), m = /^before:(.+)$/.exec(d) || null, to;
+    if (m) to = { before: m[1] };
+    else { var parts = /^end:(.+):(-?\d+)$/.exec(d); if (!parts) return; to = { phase: parts[1], track: +parts[2], where: 'end' }; }
+    var res = builderEdit({ op: 'moveTo', step: key, to: to }); if (!res) return;
+    var nk = PF.outline.keyAt(openEditor(currentProcess()).text, res.at) || key;
+    state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(nk) + '"]'; render();
+  });
+  document.addEventListener('dragend', function () { if (drag) dragClear(); });
   /* The step-type form's inputs → its state, read in one place so typing, choosing and saving all agree. */
   function readTypeForm() {
     var f = state.typeForm; if (!f) return;
@@ -968,6 +1084,47 @@
     },
     'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.'); },
     'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted }); state.planFormReset = true; render(); },
+    /* ---------- the outline builder: every change is an operation on the editor's text (PF.outline) ---------- */
+    'ed-mode': function (id) {
+      state.builder = id !== 'markdown'; lsSet('builder', state.builder);
+      state.focus = '[data-act="ed-mode"][data-id="' + (state.builder ? 'builder' : 'markdown') + '"]'; render();
+    },
+    'ob-sel': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-move': function (id, b) { builderMoveStep(id, b && b.dataset.dir === 'up' ? -1 : 1, b && b.dataset.from === 'key' ? 'row' : 'button'); },
+    'ob-ph-move': function (id, b) {
+      var up = b && b.dataset.dir === 'up', res = builderEdit({ op: 'movePhase', phase: id, dir: up ? -1 : 1 }); if (!res) return;
+      var ed = openEditor(currentProcess()), nk = PF.outline.keyAt(ed.text != null ? ed.text : ed.base, res.at, 'phase') || id;
+      state.focus = b && b.dataset.from === 'key' ? '[data-act="ob-sel-phase"][data-id="' + cssEsc(nk) + '"]' : '[data-act="ob-ph-move"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
+    },
+    'ob-role': function (id) { builderToggle('role', id); },
+    'ob-bind': function (id) { builderToggle('bind', id); },
+    'ob-del': function (id) {
+      var res = builderEdit({ op: 'delete', step: id }); if (!res) return;
+      state.obSel = null; say('Step deleted. Undo brings it back.', 'good'); state.focus = '[data-act="ob-undo"]'; render();
+    },
+    'ob-add': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.obAdd = { pid: p.id, kind: 'step', phase: id, track: b && b.dataset.track != null ? +b.dataset.track : -1 }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
+    'ob-add-after': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); state.obAdd = { pid: p.id, kind: 'step', after: id }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
+    'ob-add-phase': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); state.obAdd = { pid: p.id, kind: 'phase', after: id || null }; state.planFormReset = true; state.focus = 'ob-new-title'; render(); },
+    'ob-add-cancel': function () { var a = state.obAdd; state.obAdd = null; obClearErr(); state.focus = a && a.kind === 'phase' ? '[data-act="ob-add-phase"]' : a && a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : a ? '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]' : 'ed-h'; render(); },
+    'ob-add-go': function () {
+      var a = state.obAdd, p = currentProcess(); if (!a || !p || a.pid !== p.id) return;
+      if (a.kind === 'phase') {
+        var pr = builderEdit({ op: 'addPhase', after: a.after, title: val('ob-new-title'), mode: val('ob-new-mode') || 'READ-DO' }, 'ob-new-title'); if (!pr) return;
+        /* A phase needs a step: the new phase opens with its "add a step" box ready. */
+        state.obSel = { pid: p.id, kind: 'phase', key: pr.id }; state.obAdd = { pid: p.id, kind: 'step', phase: pr.id, track: -1 }; state.focus = 'ob-new-text'; render(); return;
+      }
+      var to = a.after != null ? { after: a.after } : { phase: a.phase, track: a.track, where: 'end' };
+      var res = builderEdit({ op: 'add', to: to, text: val('ob-new-text'), type: val('ob-new-type') || 'confirm' }, 'ob-new-text'); if (!res) return;
+      state.obAdd = null; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-text'; render();
+    },
+    'ob-commit': function (id, t) { if (t && t.id) builderField(t.id, t.value); },
+    'ob-undo': function () {
+      var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.undo || !ed.undo.length) return;
+      if (builderBlocked(p)) return;
+      if (ed.undoBase !== ed.base) { ed.undo = null; say('The draft changed in the folder since then, so there\'s nothing to undo.', 'warn'); render(); return; }
+      var u = ed.undo.pop(); ed.text = u.text; state.obSel = u.sel; state.obAdd = u.add; obClearErr(); state.planFormReset = true; state.focus = ed.undo.length ? '[data-act="ob-undo"]' : 'ed-h'; say('Undone.', 'good'); render();
+    },
     'open-skill': function (id) { state.view = 'skill'; state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     'new-process': function () { state.view = 'new-process'; state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
@@ -1378,7 +1535,7 @@
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */
     if (e.target.id === 'draft-editor') {
       var p = currentProcess(); if (!p) return;
-      openEditor(p).text = e.target.value; scheduleRender();
+      var ed = openEditor(p); ed.text = e.target.value; ed.undo = null; scheduleRender();
     }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { readTypeForm(); scheduleRender(); }
   });
@@ -1392,6 +1549,7 @@
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { readTypeForm(); render(); }
+    if (/^ob-(text|mark|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
     /* In Fill in, changing a choice (like a Jira action) redraws the form so the fields that choice needs appear. */
     if (/^fld-/.test(e.target.id || '') && state.pick && state.pick.kind === 'fields') {
@@ -1427,6 +1585,17 @@
       var act = t.dataset.enter;
       if (act === 'save-edit') ACTIONS['save-edit'](); else if (act === 'block') ACTIONS.block(t.dataset.id, t); else if (ACTIONS[act]) ACTIONS[act](t.dataset.id, t);
       return;
+    }
+    /* In the outline builder, Alt+Up / Alt+Down move the focused step or phase. Never while typing in a field. */
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !typing && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && state.view === 'process' && state.ptab === 'edit' && state.builder && !state.overlay) {
+      var obr = t && t.closest && t.closest('[data-ob-step], [data-ob-phase]');
+      if (obr) {
+        e.preventDefault();
+        var dir = e.key === 'ArrowUp' ? 'up' : 'down';
+        if (obr.dataset.obStep != null) ACTIONS['ob-move'](obr.dataset.obStep, { dataset: { dir: dir, from: 'key' } });
+        else ACTIONS['ob-ph-move'](obr.dataset.obPhase, { dataset: { dir: dir, from: 'key' } });
+        return;
+      }
     }
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === '?') { openOverlay({ html: function () { return V.help(ctx); } }); return; }

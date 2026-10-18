@@ -70,6 +70,8 @@ function boot(opts) {
     }
   });
   vm.runInContext(script('pf-app'), ctx);
+  /* The scope an input sits in, read from the page as drawn now: the nearest data-scope before it. */
+  const scopeOf = id => { const h = els.app.innerHTML, at = h.indexOf('id="' + id + '"'); if (at < 0) return null; const m = h.slice(0, at).match(/data-scope="([^"]*)"/g); return m ? { dataset: { scope: m[m.length - 1].slice(12, -1) } } : null; };
   const tick = (n = 20) => new Promise(res => { let i = 0; (function loop() { if (i++ >= n) return res(); setTimeout(loop, 0); })(); });
   app = {
     PF, store, session, fs: null, tick,
@@ -95,8 +97,13 @@ function boot(opts) {
     submit(id) { const el = get(id); (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} })); },
     input(id, value) { const el = get(id); el.value = value; (listeners.input || []).forEach(fn => fn({ target: el })); },
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
+    // Like set(), for an input inside one data-scope element with no other scope opened before it closes (the builder's
+    // side form): the app then sees which form it belongs to, as closest() does in a browser.
+    setScoped(id, value) { this.set(id, value); get(id).closest = sel => sel === '[data-scope]' ? scopeOf(id) : null; return this; },
     draft(id) { return els[id] ? els[id].value : ''; },
     click(act, id, data) { const btn = { dataset: Object.assign({ act, id }, data || {}), disabled: false, classList: { contains: () => false } }; (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} })); },
+    // A key pressed on an element (a stand-in with dataset and closest), with modifier keys such as { altKey: true }.
+    keyOn(k, mods, target) { (listeners.keydown || []).forEach(fn => fn(Object.assign({ key: k, target: target || document.body, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false }, mods || {}))); },
     key(k) { (listeners.keydown || []).forEach(fn => fn({ key: k, target: document.body, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false })); },
     selected() { const m = /<li class="step sel"[^>]*id="step-([\w-]+)"/.exec(els.app.innerHTML); return m ? m[1] : null; },
     change(id, files) { (listeners.change || []).forEach(fn => fn({ target: { id, files, value: '' } })); },

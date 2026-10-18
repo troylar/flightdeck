@@ -5,8 +5,9 @@ const assert = require('assert');
 const { rule, run } = require('./harness');
 const { boot, gate, bus, locks } = require('./app-harness');
 
+// The draft-editor tests below type into the Markdown, so this browser remembers choosing Markdown over the builder.
 async function recordingRelease() {
-  const app = boot();
+  const app = boot({ localStore: { 'preflight:builder': 'false' } });
   await app.tick(60);
   app.choose('person-casey'); await app.tick();
   app.click('open-run', app.run().key); await app.tick();
@@ -161,6 +162,156 @@ rule('App: the sections switch from the top bar, and Home never opens a run by i
   app.choose('person-casey'); await app.tick();
   assert.ok(/Needs you/.test(app.html()) && !/id="phase-/.test(app.html()), 'Home lists, it doesn\'t open');
   for (const s of ['runs', 'processes', 'skills', 'types', 'settings', 'home']) { app.click('nav', s); await app.tick(); assert.ok(new RegExp('data-id="' + s + '" aria-current="page"').test(app.top()), s); }
+});
+
+/* A focused step row in the builder, as the keyboard handler sees it. */
+const rowOf = key => ({ tagName: 'BUTTON', dataset: { act: 'ob-sel', id: key }, closest: sel => /data-ob-step/.test(sel) ? { dataset: { obStep: key } } : null });
+const idsOf = (PF, t) => JSON.parse(JSON.stringify(PF.map.steps(PF.map.parse(t)).map(x => x.step.id)));
+/* The lines one text has and the other doesn't, counted (a moved line is in both, so it cancels out). */
+function lineDelta(a, b) {
+  const count = t => t.split('\n').reduce((m, l) => (m[l] = (m[l] || 0) + 1, m), {});
+  const A = count(a), B = count(b), gone = [], added = [];
+  Object.keys(A).forEach(l => { for (let i = (B[l] || 0); i < A[l]; i++) gone.push(l); });
+  Object.keys(B).forEach(l => { for (let i = (A[l] || 0); i < B[l]; i++) added.push(l); });
+  return { gone: gone.sort(), added: added.sort() };
+}
+
+rule('App: the draft builder moves, edits, adds and deletes steps and adds a phase; the saved Markdown changes only those lines and keeps every ID', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const path = 'maps/drafts/release.md', original = app.fs.files[path].t, PF = app.PF;
+  assert.ok(/class="ob" id="ob"/.test(app.html()) && /data-act="ed-mode" data-id="builder" aria-pressed="true"/.test(app.html()), 'the builder is the default');
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/id="ob-text"/.test(app.html()), 'selecting a step opens its form');
+  app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
+  app.keyOn('ArrowUp', { altKey: true }, rowOf('rollback')); await app.tick();
+  app.keyOn('ArrowUp', { altKey: false }, rowOf('rollback')); await app.tick();
+  app.select('ob-fld-where', 'The values file'); await app.tick();
+  app.click('ob-role', 'qa'); await app.tick();
+  app.click('ob-add-after', 'flags'); await app.tick();
+  app.set('ob-new-text', 'Check the dashboards'); app.click('ob-add-go'); await app.tick();
+  assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="check-the-dashboards">/.test(app.html()), 'the new step is selected');
+  app.click('ob-del', 'announce'); await app.tick();
+  app.click('ob-add-phase'); await app.tick();
+  app.set('ob-new-title', 'Watch the metrics'); app.select('ob-new-mode', 'DO-CONFIRM'); app.click('ob-add-go'); await app.tick();
+  assert.ok(/id="ob-new-text"/.test(app.html()), 'a new phase opens with its add-a-step box');
+  app.set('ob-new-text', 'Error rate is flat'); app.click('ob-add-go'); await app.tick();
+  assert.ok(/Unsaved changes/.test(app.html()), 'builder edits are unsaved, like typing');
+  assert.strictEqual(app.fs.files[path].t, original, 'nothing written yet');
+  app.click('save-draft'); await app.tick(80);
+  const saved = app.fs.files[path].t;
+  const announce = original.split('\n').filter(l => /\{#announce\}|channel: #team-releases|Starting the production release/.test(l)).slice(0, 3);
+  const d = lineDelta(original, saved);
+  assert.deepStrictEqual(d.gone, ['- [!] {confirm} Feature flags set in the deploy values ^environment @backend {#flags}'].concat(announce).sort(), 'gone: Announce, and the old Flags line');
+  assert.deepStrictEqual(d.added, ['', '## Watch the metrics · DO-CONFIRM {#watch-the-metrics}', '- [ ] {confirm} Check the dashboards {#check-the-dashboards}', '- [ ] {confirm} Error rate is flat {#error-rate-is-flat}',
+    '- [!] {confirm} Feature flags set in the deploy values ^environment @backend @qa {#flags}', '  where: The values file'].sort(), 'added: only what was asked for');
+  const was = idsOf(PF, original), now = idsOf(PF, saved);
+  assert.deepStrictEqual(now.slice(0, 5), ['approved', 'flags', 'check-the-dashboards', 'rollback', 'tests'], 'moved by button and by Alt+Up, and not by a bare arrow');
+  assert.deepStrictEqual(now.filter(x => was.includes(x)).sort(), was.filter(x => x !== 'announce').sort(), 'every other ID kept');
+  assert.ok(!/Unsaved changes/.test(app.html()), 'saved');
+});
+
+rule('App: the builder\'s Undo puts back the last change, and the Markdown view lists the lines changed', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-del', 'rollback'); await app.tick();
+  assert.ok(!/data-ob-step="rollback"/.test(app.html()) && /Step deleted/.test(app.html()));
+  app.click('ob-undo'); await app.tick();
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved changes/.test(app.html()), 'back, and nothing left unsaved');
+  app.click('ob-sel-phase', 'verify'); await app.tick();
+  app.set('ob-ph-title', 'Verify it'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.strictEqual(app.store['preflight:builder'], 'false', 'the choice is remembered in this browser');
+  assert.ok(/id="draft-editor"/.test(app.html()) && /Changed lines · 1 new or changed, 1 removed/.test(app.html()) && /<code>## Verify it · READ-DO \{#verify\}<\/code>/.test(app.html()));
+  app.click('ed-mode', 'builder'); await app.tick();
+  assert.ok(/id="ob"/.test(app.html()));
+});
+
+/* The builder open on the release draft, as Casey. */
+async function builderOn() {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  return app;
+}
+
+rule('App: once the editor follows a newer draft from the folder, Undo can\'t bring back the older text over it', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.select('ob-mark', 'step'); await app.tick();
+  app.select('ob-mark', 'must'); await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()), 'set-up: back to the saved text, with two Undo steps');
+  const theirs = original.replace('title: Production release', 'title: Theirs');
+  await app.fs.write(path, theirs);
+  app.focus(); await app.tick(80);
+  assert.ok(/data-act="ob-undo" disabled/.test(app.html()), 'nothing to undo against their version');
+  app.click('ob-undo'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, theirs, 'their change is still on disk');
+});
+
+rule('App: the builder\'s side form shows the step as the folder has it now, and keeps typing when nothing underneath changed', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.setScoped('ob-text', 'Half typed');
+  /* A change elsewhere in the draft leaves what's being typed alone. */
+  await app.fs.write(path, original.replace('title: Production release', 'title: Theirs'));
+  app.focus(); await app.tick(80);
+  assert.strictEqual(app.draft('ob-text'), 'Half typed', 'still there');
+  /* A change to this step replaces the box's old value with the new text. */
+  await app.fs.write(path, original.replace('title: Production release', 'title: Theirs').replace('Feature flags set in the deploy values', 'Flags set by them'));
+  app.focus(); await app.tick(80);
+  assert.ok(/id="ob-text" maxlength="200" data-enter="ob-commit" value="Flags set by them"/.test(app.html()), 'drawn from the new text');
+  assert.notStrictEqual(app.draft('ob-text'), 'Half typed', 'the old value isn\'t carried over');
+});
+
+rule('App: moving a phase without an ID keeps it selected, so the next change goes to that phase', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, ['---', 'process: release', 'title: Production release', '---', '', '## First · READ-DO', '- [ ] {confirm} One {#one}', '', '## Second · READ-DO', '- [ ] {confirm} Two {#two}', ''].join('\n'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel-phase', '#0'); await app.tick();
+  app.click('ob-ph-move', '#0', { dir: 'down' }); await app.tick();
+  assert.ok(/<li class="ob-phase sel"><div class="ob-ph-head"><div class="fp-eye">Phase 2/.test(app.html()), 'the moved phase is still the selected one');
+  app.set('ob-ph-title', 'First, renamed'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'First, renamed', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const t = app.fs.files[path].t;
+  assert.ok(/## Second · READ-DO\n- \[ \] \{confirm\} Two \{#two\}\n\n## First, renamed · READ-DO\n- \[ \] \{confirm\} One \{#one\}/.test(t), t);
+});
+
+rule('App: Undo puts the selection back with the text, so a phase without an ID stays the one selected', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, ['---', 'process: release', 'title: Production release', '---', '', '## First · READ-DO', '- [ ] {confirm} One {#one}', '', '## Second · READ-DO', '- [ ] {confirm} Two {#two}', ''].join('\n'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel-phase', '#0'); await app.tick();
+  app.click('ob-ph-move', '#0', { dir: 'down' }); await app.tick();
+  app.click('ob-undo'); await app.tick();
+  assert.ok(/<li class="ob-phase sel"><div class="ob-ph-head"><div class="fp-eye">Phase 1/.test(app.html()), 'First is selected again, back in first place');
+  app.set('ob-ph-title', 'First, renamed'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'First, renamed', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const t = app.fs.files[path].t;
+  assert.ok(/## First, renamed · READ-DO\n- \[ \] \{confirm\} One \{#one\}\n\n## Second · READ-DO/.test(t), t);
+});
+
+rule('App: a value the builder refuses shows why next to its box, marked invalid for screen readers', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.set('ob-text', 'Ask @qa'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-text', value: 'Ask @qa', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
+  assert.ok(/<input id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text">/.test(app.html()), 'the box is marked');
+  assert.ok(/<p class="ferr" id="ferr-ob-text" role="alert">Choose roles and run details with their buttons/.test(app.html()), 'the reason is next to it');
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(!/aria-invalid="true"/.test(app.html()), 'gone once another step is selected');
+});
+
+rule('App: a builder edit saved over someone else\'s change is stopped like any other; keep mine saves the builder\'s text', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-sel', 'pods'); await app.tick();
+  app.select('ob-mark', 'step'); await app.tick();
+  await app.fs.write(path, original.replace('title: Production release', 'title: Theirs'));
+  app.click('save-draft'); await app.tick(60);
+  assert.ok(/Someone else changed this draft/.test(app.html()) && /title: Theirs/.test(app.fs.files[path].t), 'stopped, theirs kept');
+  app.click('draft-keep-mine'); await app.tick(80);
+  assert.ok(/- \[ \] \{run\.command\} New pods stay up/.test(app.fs.files[path].t), 'mine saved');
 });
 
 rule('App: a draft saved over someone else\'s change is stopped and shows both; keep mine or take theirs', async () => {
@@ -528,7 +679,7 @@ rule('App: a new process starts a draft and opens it for editing', async () => {
   app.submit('new-process-form'); await app.tick(120);
   const md = app.fs.files['maps/drafts/code-review.md'];
   assert.ok(md && /process: code-review/.test(md.t) && /group: Engineering \/ Code/.test(md.t) && /owner: person-casey/.test(md.t));
-  assert.ok(/id="draft-editor"/.test(app.html()), 'opened in the editor');
+  assert.ok(/id="ed-h"/.test(app.html()) && /class="ob" id="ob"/.test(app.html()), 'opened in the editor, in the builder');
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
   app.set('np-id', 'code-review'); app.set('np-title', 'Again'); app.submit('new-process-form'); await app.tick(60);
   assert.ok(/already a process called/.test(app.html()), 'never over an existing one');

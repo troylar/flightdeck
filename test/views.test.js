@@ -289,12 +289,67 @@ rule('Process page: one page; the checklist shows in place with its Markdown on 
   state.ptab = 'edit';
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md.replace('## Deploy', '## Deploy · NOPE') };
   html = V.process(ctx);
-  assert.ok(/id="draft-editor"/.test(html) && /Unsaved changes/.test(html) && /Preview/.test(html));
+  assert.ok(/class="ob" id="ob"/.test(html) && !/id="draft-editor"/.test(html) && /Unsaved changes/.test(html) && /Preview/.test(html), 'the builder by default');
+  state.builder = false; html = V.process(ctx);
+  assert.ok(/id="draft-editor"/.test(html) && /Unsaved changes/.test(html) && /Preview/.test(html) && /Changed lines · 1 new or changed, 1 removed/.test(html), 'Markdown on request, with the lines changed');
   state.editor.text = 'not a map';
   assert.ok(/Won.t publish yet/.test(V.process(ctx)), 'live checks');
   state.editor.conflict = { theirs: 'their text', theirsHash: 'y' };
   html = V.process(ctx);
   assert.ok(/Someone else changed this draft/.test(html) && /their text/.test(html) && /data-act="draft-keep-mine"/.test(html));
+});
+
+rule('Draft builder: phases as cards, steps as draggable rows, gates as striped bars, and a side form for what\'s selected', () => {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest;
+  const p = { id: 'release', title: 'Production release', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: latest.md }, draftChanged: false };
+  ctx.processes = () => [p]; ctx.data.validations = []; state.processId = 'release'; state.ptab = 'edit';
+  state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: null };
+  let html = V.process(ctx);
+  assert.ok(/data-act="ed-mode" data-id="builder" aria-pressed="true"/.test(html) && /data-act="ed-mode" data-id="markdown" aria-pressed="false"/.test(html), 'a Builder | Markdown switch');
+  assert.ok(/Phase 1<\/div>/.test(html) && /data-ob-phase="prep"/.test(html) && /<span class="cat">DO-CONFIRM<\/span>/.test(html), 'phase cards');
+  assert.ok(/<li class="ob-step" draggable="true" data-ob-step="approved">/.test(html) && /b-must/.test(html) && /<span class="ob-chip">\^commit<\/span>/.test(html), 'rows with must-do and run detail chips');
+  assert.ok(/class="fp-gate ob-gate"[^>]*><span class="fp-gate-t">.*Gate: Ready to deploy/.test(html), 'a named gate is a striped bar');
+  assert.ok(/class="fp-gate implicit ob-gate"/.test(html) && /aria-label="Add a gate to Verify in production"/.test(html), 'a phase without one offers to add it');
+  assert.ok(/<li class="ob-slot" aria-hidden="true" data-ob-drop="before:approved"><span>Cleared to land here · or move with Alt\+Up \/ Alt\+Down<\/span><\/li>/.test(html), 'landing slots');
+  assert.ok(/data-act="ob-add" data-id="verify" data-track="1">.*Add a step to Wrap-up/.test(html), 'add a step to a track');
+  assert.ok(/aria-describedby="ob-kbd"/.test(html) && /id="ob-kbd"/.test(html), 'the keyboard way is described');
+  assert.ok(!/class="panel stack ob-form"/.test(html), 'no side form until something is selected');
+  state.obSel = { pid: 'release', kind: 'step', key: 'flags' }; html = V.process(ctx);
+  assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="flags">/.test(html) && /aria-pressed="true" aria-describedby="ob-kbd"/.test(html), 'the selected row');
+  assert.ok(/<input id="ob-text" maxlength="200" data-enter="ob-commit" value="Feature flags set in the deploy values">/.test(html), 'its text, without @role or ^detail');
+  assert.ok(/<select id="ob-mark" data-bound><option value="step">Step<\/option><option value="must" selected>/.test(html) && /<option value="confirm" selected>Confirm \{confirm\}/.test(html), 'kind and type');
+  assert.ok(/data-act="ob-role" data-id="backend" aria-pressed="true"/.test(html) && /data-act="ob-role" data-id="qa" aria-pressed="false"/.test(html), 'roles from the checklist');
+  assert.ok(/class="ob-chip" data-act="ob-bind" data-id="environment" aria-pressed="true"/.test(html) && /data-id="commit" aria-pressed="false"/.test(html), 'run details as amber chips');
+  assert.ok(/for="ob-fld-where">Where to check/.test(html) && /for="ob-fld-looks">True when/.test(html), 'the fields its type asks for');
+  assert.ok(/ID <code>flags<\/code>/.test(html) && /data-act="ob-move" data-id="flags" data-dir="up"/.test(html) && /data-act="ob-del"/.test(html), 'its ID, and buttons to move and delete');
+  state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; html = V.process(ctx);
+  assert.ok(/<input id="ob-ph-title"[^>]*value="Before production changes">/.test(html) && /<option value="DO-CONFIRM" selected>/.test(html), 'a phase\'s name and mode');
+  assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy">/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its gate');
+  state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 }; html = V.process(ctx);
+  assert.ok(/<label class="sr" for="ob-new-text">New step: what to do<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go">/.test(html), 'an add-a-step box in place');
+  state.builder = false; html = V.process(ctx);
+  assert.ok(/id="draft-editor"/.test(html) && !/id="ob"/.test(html) && !/ob-form/.test(html) && !/Changed lines/.test(html), 'Markdown mode is the textarea, with no changes to list');
+});
+
+rule('Draft builder: everything from the draft is escaped, and a draft it can\'t read safely sends you to Markdown', () => {
+  const { ctx, state } = setup();
+  const md = ['---', 'process: x', 'title: X', 'roles: lead', 'context: commit', '---', '## <img src=x onerror=alert(1)> · READ-DO {#one}', '### Track: <u>lane</u> @lead {#lane}',
+    '- [ ] {confirm} "><script>alert(1)</script> ^commit {#s1}', '  where: <b>here</b>', '## Gate: <i>gate</i> · owner @lead {#g}', '  approves: <svg onload=alert(1)>', '## Two {#two}', '- [ ] {<x>} Unknown {#s2}', ''].join('\n');
+  const p = { id: 'x', title: 'X', latest: null, all: [], clashes: [], broken: [], skills: [], draft: { file: 'x.md', md }, draftChanged: true };
+  ctx.processes = () => [p]; ctx.data.validations = []; state.processId = 'x'; state.ptab = 'edit';
+  state.editor = { pid: 'x', base: md, baseHash: 'x', text: null };
+  const pages = [];
+  pages.push(V.process(ctx));
+  state.obSel = { pid: 'x', kind: 'step', key: 's1' }; pages.push(V.process(ctx));
+  state.obSel = { pid: 'x', kind: 'phase', key: 'one' }; pages.push(V.process(ctx));
+  pages.forEach((html, i) => {
+    assert.ok(!/<script|<img src=x|<svg onload|<u>lane|<b>here|<i>gate/.test(html), 'page ' + i + ' has nothing raw');
+  });
+  assert.ok(/&lt;script&gt;/.test(pages[1]) && /&lt;img src=x onerror=alert\(1\)&gt;/.test(pages[2]) && /value="&lt;b&gt;here&lt;\/b&gt;"/.test(pages[1]));
+  state.editor = { pid: 'x', base: md.replace(/\n/g, '\r'), baseHash: 'x', text: null };
+  const odd = V.process(ctx);
+  assert.ok(/can.t edit this draft safely/.test(odd) && /data-act="ed-mode" data-id="markdown">Markdown/.test(odd), 'old Mac line endings: use Markdown');
 });
 
 rule('Step types page lists every type; the form checks a new one as you build it', () => {
