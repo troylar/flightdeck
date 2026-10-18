@@ -7808,6 +7808,7 @@ PF.examples = (function () {
       else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
       if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
       else TL.saved(carried, res.hash);
+      if (ed.tl) learnIds(ed, text);
       if (g !== gen) return;
       if (opts.replace) dropPending();
       if (opts.replace && here) { state.mapVer = null; state.focus = 'cl-h'; }
@@ -7834,6 +7835,7 @@ PF.examples = (function () {
     }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
     var before = obSnap(ed);
+    learnIds(ed, ed.base);
     dropPending();
     if (res.same) return res;
     /* Each change keeps what was selected, being added, new in this window and typed but not applied then, so undoing
@@ -7856,6 +7858,9 @@ PF.examples = (function () {
   /* ---------- Undo, Redo and History (PF.timeline): one timeline per draft editor and per step-type form ---------- */
   var TL = PF.timeline;
   function tlOf(ed) { return ed.tl || (ed.tl = TL.create()); }
+  /* Every ID that was ever in a saved or loaded draft in this session: such a part is never new again, so no Undo can let
+     its ID follow its name. Kept on the timeline, which outlives the editor objects a save replaces. */
+  function learnIds(ed, text) { if (!ed || text == null) return; var tl = tlOf(ed), ids = PF.outline.parse(text).ids, k = tl.savedIds || (tl.savedIds = Object.create(null)); Object.keys(ids).forEach(function (x) { k[x] = true; }); }
   /* What rides along with a builder change: the selection, what's being added and the parts new in this window (freshCopy),
      so Undo and Redo put them back with the text. Typing not yet applied is never replayed: Undo waits for it instead. */
   function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null }; }
@@ -7907,6 +7912,13 @@ PF.examples = (function () {
     return { name: TF_NAMES[k[1]], item: 'type:' + k[1], value: String(def[k[1]] == null ? '' : def[k[1]]) };
   }
   function typeTl(f) { return f.tl || (f.tl = TL.create()); }
+  /* A step-type box holding text not added yet (a tag, an option), or null. */
+  function typePendingBox(f) {
+    var ids = ['tf-tagadd'];
+    f.def.fields.forEach(function (r) { ids.push('tf-f-' + r.k + '-optadd'); }); f.def.record.forEach(function (r) { ids.push('tf-r-' + r.k + '-optadd'); });
+    for (var i = 0; i < ids.length; i++) { var el = document.getElementById(ids[i]); if (el && String(el.value || '').trim()) return ids[i]; }
+    return null;
+  }
   /* The step-type editor is a page of its own, like the draft editor: the app's top bar hides while it's open. */
   /* The phone preview sheet exists only below 800 px: on a wider screen it's closed before anything is drawn, so the page
      never shows an inert editor without a way out. Widening the window redraws at once. */
@@ -8014,6 +8026,9 @@ PF.examples = (function () {
       say('Apply or clear what you typed in the box first (Enter applies it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn');
       state.focus = '#' + pf; render(); return;
     }
+    /* The same for the step-type editor's Add a tag and Add an option boxes. */
+    var tp = f ? typePendingBox(f) : null;
+    if (tp) { say('Add or clear what you typed in the box first (Enter adds it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn'); state.focus = '#' + tp; render(); return; }
     var top = TL.peek(tl).undo;
     /* What's selected now is what Redo will put back. */
     if (!redo && top && scope === 'draft' && top.kind === 'op') top.selAfter = obSnap(ed);
@@ -8036,7 +8051,7 @@ PF.examples = (function () {
       if (r.sel && 'obSel' in r.sel) {
         state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd;
         /* Parts already in the saved draft are never new again, whatever an older change remembered. */
-        if (r.sel.fresh) { var saved = PF.outline.parse(ed.base).ids, fr = Object.create(null); Object.keys(r.sel.fresh).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(saved, k)) fr[k] = true; }); ed.fresh = fr; }
+        if (r.sel.fresh) { learnIds(ed, ed.base); var saved = tl.savedIds, fr = Object.create(null); Object.keys(r.sel.fresh).forEach(function (k) { if (!saved[k]) fr[k] = true; }); ed.fresh = fr; }
       }
     } else { typeUnsnap(f, r.text); state.fieldErr = null; }
     say(words + (redo ? (k.undo ? ' Undo available.' : '') : ' Redo available.'), 'good', redo ? { act: 'tl-undo', id: scope, label: 'Undo' } : { act: 'tl-redo', id: scope, label: 'Redo' });

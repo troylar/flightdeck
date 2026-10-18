@@ -2523,4 +2523,38 @@ rule('App: Cmd+Z in the parts search undoes the search text, not the checklist',
   assert.ok(!/data-ob-step="rollback"/.test(app.html()), 'the deletion stays');
 });
 
+rule('App: a part that was ever saved keeps its ID, even after it was deleted, saved, and brought back by Undo', async () => {
+  const app = await builderOn();
+  dragPart(app, 'step', 'before:rollback', 'step'); await app.tick();
+  app.set('ob-text', 'Persistent step'); enter(app, 'ob-text', 'Persistent step'); await app.tick();
+  app.check('ob-mark-must', true); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  app.click('ob-del', 'persistent-step'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(!/persistent-step/.test(releaseText(app)), 'set-up: deleted and saved');
+  app.click('tl-undo', 'draft'); await app.tick(); app.click('tl-undo', 'draft'); await app.tick();
+  app.click('ob-sel', 'persistent-step'); await app.tick();
+  app.set('ob-text', 'Renamed saved step'); enter(app, 'ob-text', 'Renamed saved step'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/Renamed saved step \{#persistent-step\}/.test(releaseText(app)), releaseText(app).split('\n').find(l => /Renamed/.test(l)));
+});
+
+rule('App: step-type Undo and Redo never lose text typed in Add an option or Add a tag; they say to add or clear it first', async () => {
+  const app = await newTypeOn();
+  app.input('tf-label', 'Risk'); await settle(app);
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
+  app.set(box, 'Ask QA before continuing');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.strictEqual(app.draft(box), 'Ask QA before continuing', 'the option text is kept');
+  assert.ok(/Add or clear what you typed/.test(app.html()) && /data-act="tf-open" data-id="f:/.test(app.html()), 'Undo waits, and the field is still there');
+  app.set(box, ''); app.set('tf-tagadd', 'half a tag');
+  app.click('tl-redo', 'type'); await app.tick();
+  assert.strictEqual(app.draft('tf-tagadd'), 'half a tag', 'the tag text is kept too');
+  assert.ok(/Add or clear what you typed/.test(app.html()));
+  app.set('tf-tagadd', '');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(!/data-act="tf-open" data-id="f:/.test(app.html()), 'with the boxes empty, Undo works');
+});
+
 run();
