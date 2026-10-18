@@ -23,12 +23,13 @@ Read `AGENTS.md` in this team folder first.
    { "kind": "plan", "id": "plan-release-2026-10-24-k3m9p2", "process": "release", "version": 3,
      "title": "Release 2026.10.24", "details": { "ticket": "ABC-123", "commit": "", "environment": "production" },
      "roles": { "release-lead": "person-blake", "qa": "person-morgan" },
+     "when": "2026-10-24T13:00:00Z",
      "note": "Rotation: Blake leads for the second time; Morgan takes QA for the first time.",
      "by": "AI assistant", "created": "2026-10-17T13:00:00Z" }
    ```
 
-   Never edit a plan after it's written; if it needs to change, write a new plan and say which one it replaces in `note`.
+   Add `when` (ISO date and time) only if you were told when it runs. Never edit a plan after it's written; if it needs to change, write a new plan and say which one it replaces in `note`.
 
 ## Report back
 
-The file written, who's on what and why, which details are still empty, and that the plan now shows on Flightdeck's Home for someone to review and start.
+The file written, who's on what and why, which details are still empty, and where people will see it: under Runs › Planned in Flightdeck, and on Home when it's due within 24 hours (or right away if it has no `when`), for someone to review and start.

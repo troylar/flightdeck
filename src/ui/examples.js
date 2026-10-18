@@ -152,6 +152,17 @@ PF.examples = (function () {
         }) : null;
       }).then(function () {
         return notes.reduce(function (pr, n) { return pr.then(function () { return repo.addNote(mem, n[0], 'example-session', n[1]); }); }, Promise.resolve());
+      }).then(function () {
+        /* Next week's release, planned in the app by duplicating an earlier one, due in a few hours so it shows on Home. */
+        var last = runs.filter(function (r) { return r.title === 'Release 2026.10.09'; })[0], due = new Date(Date.now() + 3 * 60 * MIN);
+        due.setMinutes(0, 0, 0);
+        if (!last) return null;
+        return repo.loadAll(mem).then(function (d3) {
+          var rp = d3.processes.filter(function (p) { return p.process === 'release'; })[0];
+          return repo.savePlan(mem, { kind: 'plan', id: 'plan-release-example-next', process: 'release', version: rp.index.latest.info.version, title: 'Release 2026.10.23',
+            details: { ticket: 'ABC-4760', environment: 'production' }, roles: last.roles, when: due.toISOString(), note: 'Same team as the last release.',
+            from: 'release/' + last.id, by: 'person-casey', created: at(20) });
+        });
       });
     });
   }

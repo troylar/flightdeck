@@ -238,6 +238,12 @@
     return h + '</aside>';
   }
 
+  /* Duplicate a run into a plan: offered once its process has a published version to plan on. */
+  function planAgain(ctx, r) {
+    if (!ctx.state.me || !ctx.processes().some(function (p) { return p.id === r.process && p.latest; })) return '';
+    return '<button class="btn" data-act="plan-from-run" data-id="' + esc(runKey(r)) + '">Plan another like this</button>';
+  }
+  V.planAgain = planAgain;
   function run(ctx) {
     var r = ctx.run(), s = ctx.state;
     if (!r) return notices(ctx) + '<div class="panel">That run wasn\'t found. <button class="mini" data-act="home">Back to Home</button></div>';
@@ -255,7 +261,7 @@
     var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
     h += '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · v' + esc(r.version) + ' · started ' + esc(U.when(r.created)) + '</div><h1>' + esc(r.title) + '</h1><div class="chips">' + details + '</div>' + (roleRow ? '<div class="chips">' + roleRow + '</div>' : '') + '</div>' +
       '<div class="row"><div><div class="big">' + t.done + '<span class="muted">/' + t.total + '</span></div><div class="small">steps answered</div></div>' +
-      (alone ? '' : '<button class="btn" data-act="mission">' + I('screen') + 'Screen share</button>') + '<button class="btn" data-act="receipt">' + I('receipt') + 'Receipt</button></div></div>';
+      (alone ? '' : '<button class="btn" data-act="mission">' + I('screen') + 'Screen share</button>') + '<button class="btn" data-act="receipt">' + I('receipt') + 'Receipt</button>' + planAgain(ctx, r) + '</div></div>';
     if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<div class="notice"><span>' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops).</span>' + (pr ? '<button class="mini" data-act="open-run" data-id="' + esc(pk) + '">Open it</button>' : '') + '</div>'; }
     h += recovery(ctx, r, ctx.canRecover(r)) + recorderBar(ctx, r) + timeline(ctx, r, map);
     h += '<div class="headline" data-s="' + hl.s + '" role="status"><div><div class="headline-text">' + esc(hl.text) + '</div><div class="small">' + esc(hl.sub) + '</div></div><div class="row">';

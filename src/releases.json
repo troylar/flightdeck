@@ -5,6 +5,27 @@
     "headline": "Organized step types",
     "changes": [
       {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Plan a run ahead of time",
+        "now": "Plan a run in the app: a name, the details you know, who does what and an optional time. Planned runs are listed by time under Runs and show on Home from a day before. Nothing starts until someone starts it.",
+        "where": "A process page: Plan a run."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Plan another like this",
+        "now": "Duplicate any run into a new plan with its details and roles. Its answers, notes and gates are never copied, and details a step fills in during the run are left for the new run.",
+        "where": "A run, or its receipt: Plan another like this."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Plans keep their version",
+        "now": "A plan starts on the version it was planned on. If a newer one is published first, the plan says so, shows what changed and switches with one click.",
+        "where": "Starting a planned run."
+      },
+      {
         "kind": "improved",
         "area": "Step types",
         "title": "Step types in groups, with tags",

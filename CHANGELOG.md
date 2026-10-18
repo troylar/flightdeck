@@ -6,6 +6,12 @@
 
 Organized step types.
 
+### New
+
+- **Plan a run ahead of time** (Runs). Plan a run in the app: a name, the details you know, who does what and an optional time. Planned runs are listed by time under Runs and show on Home from a day before. Nothing starts until someone starts it. *Where:* A process page: Plan a run.
+- **Plan another like this** (Runs). Duplicate any run into a new plan with its details and roles. Its answers, notes and gates are never copied, and details a step fills in during the run are left for the new run. *Where:* A run, or its receipt: Plan another like this.
+- **Plans keep their version** (Runs). A plan starts on the version it was planned on. If a newer one is published first, the plan says so, shows what changed and switches with one click. *Where:* Starting a planned run.
+
 ### Improved
 
 - **Step types in groups, with tags** (Step types). Step types are listed in groups, like processes and skills, with a tag filter. Give a team type a group and tags in its form; built-ins are grouped as General, Tools and Automation. Reorganizing a type never marks a process or a skill as changed. *Where:* Step types.

@@ -70,6 +70,30 @@ PF.util = (function () {
     var d = new Date(iso);
     return isNaN(d) ? '' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
+  /* When a planned run is, in plain words: "Tue, Oct 24, 9:00 AM · in 3 days", "… · starts now", "… · was due yesterday". */
+  function dueWords(iso, now) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    var at = d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    var ms = d.getTime() - now, min = Math.round(Math.abs(ms) / 60000), h = Math.round(min / 60);
+    var days = Math.round((new Date(d.getTime()).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86400000);
+    var n = function (k, w) { return k + ' ' + w + (k === 1 ? '' : 's'); }, rel;
+    if (min < 15) rel = 'starts now';
+    else if (ms > 0) rel = min < 60 ? 'in ' + n(min, 'minute') : days === 0 || h < 6 ? 'in ' + n(h, 'hour') : days === 1 ? 'tomorrow' : 'in ' + n(days, 'day');
+    else rel = 'was due ' + (min < 60 ? n(min, 'minute') + ' ago' : days === 0 || h < 6 ? n(h, 'hour') + ' ago' : days === -1 ? 'yesterday' : n(-days, 'day') + ' ago');
+    return at + ' · ' + rel;
+  }
+  /* A date and time typed as local time ("2026-11-06T09:00", as a datetime-local field gives it). A time the clocks skip on
+     that day (the spring change) would silently move an hour, so it's refused: { error: 'gap' }; unreadable text: { error: 'bad' }. */
+  function localDateTime(text) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(String(text || '').trim());
+    if (!m) return { error: 'bad' };
+    var f = m.slice(1, 7).map(function (x) { return +(x || 0); }), d = new Date(f[0], f[1] - 1, f[2], f[3], f[4], f[5]);
+    if (isNaN(d) || f[1] < 1 || f[1] > 12 || f[2] < 1 || f[2] > 31 || f[3] > 23 || f[4] > 59 || f[5] > 59) return { error: 'bad' };
+    if (d.getFullYear() !== f[0] || d.getMonth() !== f[1] - 1 || d.getDate() !== f[2]) return { error: 'bad' };
+    if (d.getHours() !== f[3] || d.getMinutes() !== f[4]) return { error: 'gap' };
+    return { date: d };
+  }
   /* "12:04" or "1:02:09" for elapsed or remaining milliseconds. */
   function clock(ms) {
     var neg = ms < 0, s = Math.floor(Math.abs(ms) / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
@@ -113,5 +137,5 @@ PF.util = (function () {
   }
 
   return { esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
-    hm: hm, when: when, day: day, clock: clock, duration: duration, timeToday: timeToday };
+    hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
