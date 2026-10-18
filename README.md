@@ -20,13 +20,13 @@ Every team has processes that live in someone's head: the release, the check-in,
 
 It's **one HTML file**. No server, no sign-in, no network, no AI inside. It works offline in Edge or Chrome and keeps everything in a folder your team already shares.
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" alt="A release in progress: run details including a release tag set by an earlier step, roles, phases on the left with their gates, the current phase, and step notes on the right" width="1000"></picture></p>
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" alt="A release in progress: run details including a release tag set by an earlier step, roles, phases on the left with their gates, the current phase, and step notes on the right" width="1000"></picture></a></p>
 
 <br>
 
 ## The loop
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-light.png" alt="Write a checklist, publish a frozen version, run it, prove it with three clean runs and the owner sign-off, then your AI assistant builds the skill from the brief. A step done differently becomes a suggested checklist change; a new version that changes a covered step marks the skill as needing an update." width="1000"></picture></p>
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-light.png" alt="Write a checklist, publish a frozen version, run it, prove it with three clean runs and the owner sign-off, then your AI assistant builds the skill from the brief. A step done differently becomes a suggested checklist change; a new version that changes a covered step marks the skill as needing an update." width="1000"></picture></a></p>
 
 Flightdeck keeps checklists and run records together, links to skills stored elsewhere, and flags process changes that affect them.
 
@@ -58,14 +58,14 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 
 **Home** shows only what needs you, each with one button: the run you're recording, a plan to review, a skill to update.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/home-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/home-light.png" alt="Home: three things that need you, each with one button, and counts of runs, processes, skills and step types"></picture>
+<a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/home-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/home-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/home-light.png" alt="Home: three things that need you, each with one button, and counts of runs, processes, skills and step types"></picture></a>
 
 </td>
 <td width="50%" valign="top">
 
 **Processes** are your templates, in your team's own hierarchy and tags. **New process** starts one.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/processes-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/processes-light.png" alt="Processes: the team templates grouped by hierarchy, with tags, skill counts and last run"></picture>
+<a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/processes-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/processes-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/processes-light.png" alt="Processes: the team templates grouped by hierarchy, with tags, skill counts and last run"></picture></a>
 
 </td>
 </tr>
@@ -74,14 +74,14 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 
 **A process** is one page: its checklist with skill badges, whether it's ready for a skill, its skills, versions and recent runs.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-light.png" alt="The Production release process: the v2 checklist, Ready for a skill, two skills marked needs update, versions and recent runs"></picture>
+<a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-light.png" alt="The Production release process: the v2 checklist, Ready for a skill, two skills marked needs update, versions and recent runs"></picture></a>
 
 </td>
 <td valign="top">
 
 **Edit** in place: the Markdown beside a live check and preview. If the draft changed since you opened it, you see both and choose.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-light.png" alt="Editing a draft: the Markdown on the left, Ready to publish and a live preview on the right"></picture>
+<a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-light.png" alt="Editing a draft: the Markdown on the left, Ready to publish and a live preview on the right"></picture></a>
 
 </td>
 </tr>
@@ -90,14 +90,14 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 
 **Skills**: every skill built from your processes, wherever it lives, and which ones need an update.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-light.png" alt="Skills: two skills that need an update, then every skill in the team hierarchy with tag filters"></picture>
+<a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-light.png" alt="Skills: two skills that need an update, then every skill in the team hierarchy with tag filters"></picture></a>
 
 </td>
 <td valign="top">
 
 **A skill** says what changed under it and gives your LLM the exact before and after.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" alt="The release-deploy skill: needs an update because one of its steps changed in v2, with a Copy the update brief button and where the skill lives"></picture>
+<a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" alt="The release-deploy skill: needs an update because one of its steps changed in v2, with a Copy the update brief button and where the skill lives"></picture></a>
 
 </td>
 </tr>
@@ -106,6 +106,11 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 <br>
 
 ## What it does
+
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/features-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/features-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/features-light.png" alt="Eight features: gates that approve exactly what they say; one recorder with everyone watching; typed steps for Jenkins, Bitbucket, Jira and commands; real Jira workflows with required fields; clock times, deadlines, tracks and pauses; linked runs of other processes; run details that flow to later steps; and insights from every run." width="1000"></picture></a></p>
+
+<details>
+<summary><b>Every feature, in detail</b></summary>
 
 <table>
 <tr>
@@ -165,6 +170,8 @@ Every "did it differently", every block, every re-check is kept. A process's **H
 </td>
 </tr>
 </table>
+
+</details>
 
 <br>
 
@@ -241,13 +248,18 @@ Built-in types cover common tools. When your team has its own kind of step (a ch
 
 Or describe it to your AI assistant: `/flightdeck-new-step-type a change request the CAB approves, with the change number as evidence`.
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/types-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/types-light.png" alt="Step types: your team types, then each built-in type with what it is for, how many checklists use it, and a button to copy it to a team type" width="1000"></picture></p>
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/types-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/types-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/types-light.png" alt="Step types: your team types, then each built-in type with what it is for, how many checklists use it, and a button to copy it to a team type" width="1000"></picture></a></p>
 
 <br>
 
 ## Process-to-skill traceability
 
 This is what Flightdeck is for. Outside the team it's usually called **SOP-to-skill**: turning a standard operating procedure into an agent skill. Flightdeck adds the part that's usually missing: **traceability**. Each registered skill links to the exact process version and steps it follows, and runs are the evidence. Flightdeck flags process changes that affect a skill; it doesn't detect changes to the skill itself.
+
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/trace-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/trace-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/trace-light.png" alt="Five steps from process to skill: prove it with 3 clean runs, the owner signs it off, copy the brief, register the skill with its source and the steps it follows, and stay in step as new versions flag the skills they affect. Skill statuses: current, note version, needs an update, check it." width="1000"></picture></a></p>
+
+<details>
+<summary><b>How it works, step by step</b></summary>
 
 **1. Prove a version.** Each process page shows its run evidence. A run counts as clean only when it ended Completed, every covered step was done, every gate on that work (and the one before it) was passed, and nothing was blocked, re-checked, marked N/A or done differently, even in answers since archived.
 
@@ -282,7 +294,9 @@ Leave out `steps` for a skill that covers the whole process. A process can have 
 
 The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, so a brief from your LLM and a brief from the app agree.
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" alt="A skill that needs an update: the step that changed and the button that copies the update brief" width="1000"></picture></p>
+</details>
+
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" alt="A skill that needs an update: the step that changed and the button that copies the update brief" width="1000"></picture></a></p>
 
 <br>
 
@@ -301,6 +315,11 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 
 ## The team folder
 
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/folder-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/folder-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/folder-light.png" alt="The team folder and who writes each part: people.json and validations by people; drafts and step types by people and your AI assistant; skills, Jira workflows and proposals by your AI assistant; publications and runs by Flightdeck." width="1000"></picture></a></p>
+
+<details>
+<summary><b>The folder, as text</b></summary>
+
 ```
 people.json            who's on the team
 maps/drafts/           checklists being written (Markdown)
@@ -315,6 +334,8 @@ images/                screenshots that checklists refer to
 AGENTS.md              the rules any AI assistant follows in this folder
 .flightdeck/skills/    the Flightdeck skills for your AI assistant
 ```
+
+</details>
 
 Every file has exactly one writer, so a shared folder never corrupts. Your LLM writes checklists, plans, step types, workflows and skill registrations; people publish, run and sign off.
 
@@ -339,12 +360,19 @@ Every file has exactly one writer, so a shared folder never corrupts. Your LLM w
 
 ## Safe by design
 
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/safe-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/safe-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/safe-light.png" alt="Safe by design: nothing leaves your machine; no server or accounts; saves that check first; built for OneDrive; a careful command; accessible." width="1000"></picture></a></p>
+
+<details>
+<summary><b>The details</b></summary>
+
 - **Nothing leaves your machine.** The app makes no network requests and loads nothing from the internet; its fonts and code are inside the file.
 - **No server to run, no accounts to manage.** Your data is files in a folder you already control.
 - **One writer per file, and checked saves.** Two computers saving a run at once never overwrite each other: the loser becomes a copy you compare and keep. Drafts and step types are saved only over the version you opened; a change that lands in the instant between that check and the write is the one case a shared folder can't catch, so edit them one at a time.
 - **Built for OneDrive.** Folders that sync a minute late are expected; a gate means "passed for this commit, by this person," never a live lock.
 - **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, writes whole files atomically, and never replaces a newer version without `--force`.
 - **Accessible.** Every control has a label, errors sit next to their field, shortcuts can be turned off, and it works with a keyboard.
+
+</details>
 
 <br>
 
@@ -356,19 +384,54 @@ Flightdeck was called Preflight before 1.9.0. Team folders, runs and published v
 
 ## FAQ
 
-**Does Flightdeck run anything for me?** No. It never calls Jenkins, Bitbucket or Jira, and never runs a command. It shows the command to copy, records what happened, and keeps the clock. Your skills do the automating.
+<details>
+<summary><b>Does Flightdeck run anything for me?</b></summary>
 
-**Where does the AI live?** Outside Flightdeck. Your AI assistant writes checklists and builds skills from Flightdeck's briefs. Flightdeck versions the checklists and records which process version each skill follows.
+No. It never calls Jenkins, Bitbucket or Jira, and never runs a command. It shows the command to copy, records what happened, and keeps the clock. Your skills do the automating.
 
-**Can a skill cover only part of a process?** Yes. List its `steps`. The brief tells it which gate to wait for before its first step, and the evidence and status consider only those steps.
+</details>
 
-**Can a skill come first?** Yes. Ask your AI assistant to draft a checklist from an existing skill, publish it, and register the skill against that process version; then run and prove the checklist as usual. If the skill changes first, update and publish the checklist, then update the registration. Flightdeck doesn't detect skill changes. A guided skill-first workflow and skill change detection are planned.
+<details>
+<summary><b>Where does the AI live?</b></summary>
 
-**Can people edit checklists in the app, or only the LLM?** Both. The app's editor and your LLM write the same draft files. The app saves only over the version you opened and shows both when they differ; since a shared folder can't lock a file, edit a draft with one of them at a time.
+Outside Flightdeck. Your AI assistant writes checklists and builds skills from Flightdeck's briefs. Flightdeck versions the checklists and records which process version each skill follows.
 
-**What's new in each version?** The top bar shows the version and **What's new**, the full searchable history. It's also in [CHANGELOG.md](https://github.com/troylar/flightdeck/blob/main/CHANGELOG.md).
+</details>
 
-**Where's the source?** [github.com/troylar/flightdeck](https://github.com/troylar/flightdeck). The design and its decisions are in [docs/design.md](https://github.com/troylar/flightdeck/blob/main/docs/design.md).
+<details>
+<summary><b>Can a skill cover only part of a process?</b></summary>
+
+Yes. List its `steps`. The brief tells it which gate to wait for before its first step, and the evidence and status consider only those steps.
+
+</details>
+
+<details>
+<summary><b>Can a skill come first?</b></summary>
+
+Yes. Ask your AI assistant to draft a checklist from an existing skill, publish it, and register the skill against that process version; then run and prove the checklist as usual. If the skill changes first, update and publish the checklist, then update the registration. Flightdeck doesn't detect skill changes. A guided skill-first workflow and skill change detection are planned.
+
+</details>
+
+<details>
+<summary><b>Can people edit checklists in the app, or only the AI assistant?</b></summary>
+
+Both. The app's editor and your AI assistant write the same draft files. The app saves only over the version you opened and shows both when they differ; since a shared folder can't lock a file, edit a draft with one of them at a time.
+
+</details>
+
+<details>
+<summary><b>What's new in each version?</b></summary>
+
+The top bar shows the version and **What's new**, the full searchable history. It's also in [CHANGELOG.md](https://github.com/troylar/flightdeck/blob/main/CHANGELOG.md).
+
+</details>
+
+<details>
+<summary><b>Where's the source?</b></summary>
+
+[github.com/troylar/flightdeck](https://github.com/troylar/flightdeck). The design and its decisions are in [docs/design.md](https://github.com/troylar/flightdeck/blob/main/docs/design.md).
+
+</details>
 
 <br>
 
