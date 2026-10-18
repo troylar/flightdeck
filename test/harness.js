@@ -11,7 +11,7 @@ function load(withViews) {
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } }
   };
   vm.createContext(sandbox);
-  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/manage.js']) : FILES).forEach(f => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), sandbox, { filename: f }));
+  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/manage.js', 'ui/views/flight.js']) : FILES).forEach(f => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), sandbox, { filename: f }));
   return sandbox.PF;
 }
 /* The example folder's own step types and Jira workflows, as the app loads them, for publishing its maps. */

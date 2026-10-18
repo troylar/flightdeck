@@ -569,6 +569,28 @@ rule('Rotation and analytics: who has done which role, and how runs of a process
 });
 
 
+rule('Analytics for one version count only runs of that publication, and list every off-script step past the top ten', () => {
+  const md = n => '---\nprocess: x\ntitle: X\n---\n## P · READ-DO {#p}\n' + Array.from({ length: n }, (_, i) => '- [ ] {confirm} Step ' + i + ' {#s' + i + '}').join('\n');
+  const v1 = pubOf(md(12)), other = Object.assign({}, v1, { info: Object.assign({}, v1.info, { folder: 'v2-other', version: 2 }) });
+  const mk = (pub, id) => { const r = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: NOW, id }); const map = R.mapOf(r); for (let i = 0; i < 12; i++) R.na(r, map, 's' + i, 'a', NOW); return r; };
+  const runs = [mk(v1, 'a1'), mk(other, 'b1'), mk(other, 'b2')];
+  same([R.analytics(runs, 'x').runs, R.analytics(runs, 'x', v1.info.folder).runs, R.analytics(runs, 'x', 'v2-other').runs], [3, 1, 2]);
+  const an = R.analytics(runs, 'x', v1.info.folder);
+  same([an.steps.length, an.deviated.length], [10, 12]);
+});
+
+rule('Analytics for one version time each phase by its ID, so two phases with the same title keep their own times', () => {
+  const md = '---\nprocess: x\ntitle: X\n---\n## Review · READ-DO {#r1}\n- [ ] {confirm} A {#a}\n## Review · READ-DO {#r2}\n- [ ] {confirm} B {#b}';
+  const pub = pubOf(md), t0 = Date.parse(NOW), at = min => new Date(t0 + min * 60000).toISOString();
+  const r = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: NOW, id: 'rv' }), map = R.mapOf(r);
+  R.done(r, map, 'a', 'a', at(1)); R.pass(r, map, 0, 'a', at(5));
+  R.done(r, map, 'b', 'a', at(10)); R.pass(r, map, 1, 'a', at(65));
+  const an = R.analytics([r], 'x', pub.info.folder);
+  same(an.phasesById.map(x => [x.id, x.medianMs]), [['r1', 5 * 60000], ['r2', 60 * 60000]]);
+  same(an.phases.map(x => x.title), ['Review'], 'the title-keyed table is unchanged');
+  assert.strictEqual(R.analytics([r], 'x').phasesById, undefined, 'only for one version');
+});
+
 // ---------- 1.8 review fixes ----------
 rule('Child runs: a child counts only for the details it was started for; after they change, a new child can replace it', () => {
   const md = '---\nprocess: release\ntitle: R\ncontext: commit\n---\n## P · READ-DO {#p}\n- [!] {run.process} Check in the release branch ^commit {#ci}\n  process: check-in\n  carry: commit';

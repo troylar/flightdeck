@@ -618,19 +618,26 @@ PF.run = (function () {
     return { roles: roles.sort(), grid: grid };
   }
   function median(xs) { if (!xs.length) return null; var s = xs.slice().sort(function (a, b) { return a - b; }), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
-  function analytics(runs, processId) {
-    var mine = runs.filter(function (r) { return r.process === processId; }), ended = mine.filter(function (r) { return r.ended; });
+  /* folder, when given, keeps only runs of that one publication, so the numbers describe exactly that version. */
+  function analytics(runs, processId, folder) {
+    var mine = runs.filter(function (r) { return r.process === processId && (!folder || r.folder === folder); }), ended = mine.filter(function (r) { return r.ended; });
     /* Keys come from files (outcomes, phase titles, step IDs), so the tallies have no prototype: a phase called "constructor" is just a phase. */
     var out = { runs: mine.length, running: mine.length - ended.length, outcomes: Object.create(null), medianMs: null, phases: [], steps: [], gates: { waived: 0, failed: 0 } };
     ended.forEach(function (r) { out.outcomes[r.ended.outcome] = (out.outcomes[r.ended.outcome] || 0) + 1; });
     out.medianMs = median(ended.filter(function (r) { return r.ended.outcome === 'Completed'; }).map(function (r) { return activeMs(r, r.created, new Date(r.ended.at).getTime()); }));
-    var steps = Object.create(null), phases = Object.create(null);
+    var steps = Object.create(null), phases = Object.create(null), byId = Object.create(null);
     mine.forEach(function (r) {
       var map; try { map = mapOf(r); } catch (e) { return; }
       var prev = r.created;
       map.phases.forEach(function (p) {
         var g = r.gates[p.gate.id];
-        if (g && (g.s === 'passed' || g.s === 'waived') && g.at) { (phases[p.title] = phases[p.title] || []).push(activeMs(r, prev, new Date(g.at).getTime())); prev = g.at; }
+        if (g && (g.s === 'passed' || g.s === 'waived') && g.at) {
+          var ms = activeMs(r, prev, new Date(g.at).getTime());
+          (phases[p.title] = phases[p.title] || []).push(ms);
+          /* Within one publication a phase ID is unique, so two phases with the same title keep their own times. */
+          if (folder) (byId[p.id] = byId[p.id] || []).push(ms);
+          prev = g.at;
+        }
         if (g && g.s === 'waived') out.gates.waived++;
         if (g && g.s === 'failed') out.gates.failed++;
         p.steps.forEach(function (st) {
@@ -642,8 +649,11 @@ PF.run = (function () {
       });
     });
     out.phases = Object.keys(phases).map(function (t) { return { title: t, medianMs: median(phases[t]), n: phases[t].length }; });
-    out.steps = Object.keys(steps).map(function (k) { return steps[k]; }).filter(function (c) { return c.blocked + c.na + c.differently + c.recheck > 0; })
-      .sort(function (a, b) { return (b.blocked + b.differently + b.recheck + b.na) - (a.blocked + a.differently + a.recheck + a.na); }).slice(0, 10);
+    if (folder) out.phasesById = Object.keys(byId).map(function (id) { return { id: id, medianMs: median(byId[id]), n: byId[id].length }; });
+    /* Every step that went off-script, most first; the table shows the top ten, the flight plan each phase's own top one. */
+    out.deviated = Object.keys(steps).map(function (k) { return steps[k]; }).filter(function (c) { return c.blocked + c.na + c.differently + c.recheck > 0; })
+      .sort(function (a, b) { return (b.blocked + b.differently + b.recheck + b.na) - (a.blocked + a.differently + a.recheck + a.na); });
+    out.steps = out.deviated.slice(0, 10);
     return out;
   }
 

@@ -302,9 +302,38 @@ table.grid td.cold { color: var(--muted); }
 .pgrid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 22px; align-items: start; }
 .mapview .ph { margin-bottom: 16px; }
 .mapview .ph h3 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mapview .ph h3[id] { scroll-margin-top: calc(var(--top-h, 64px) + 12px); }
 .mapview ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .mapview li { display: flex; gap: 8px; align-items: baseline; font-size: 14.5px; }
 .mapview .g { margin-top: 8px; font-size: 13.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+/* Flight plan: a vertical route, Start at the top and Landed at the bottom, joined by a dashed line down the left. It
+   never wraps sideways, so it reads the same at any width. */
+.mapview .fp { list-style: none; margin: 4px 0 10px; padding: 0 0 0 30px; display: flex; flex-direction: column; gap: 14px; position: relative; }
+.mapview .fp::before { content: ""; position: absolute; left: 11px; top: 14px; bottom: 14px; border-left: 2px dashed var(--field); }
+.mapview .fp > li { position: relative; display: flex; flex-direction: column; gap: 0; align-items: stretch; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.mapview .fp > li::before { content: ""; position: absolute; left: -25px; top: 14px; width: 12px; height: 12px; border-radius: 50%; background: var(--card); border: 2px solid var(--ink); }
+.mapview .fp > .fp-end { gap: 2px; padding: 8px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--card); align-self: flex-start; max-width: 100%; }
+.mapview .fp > .fp-end::before { background: var(--ink); }
+.fp-tag { font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: .08em; text-transform: uppercase; }
+.fp-card { position: relative; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-bottom: 0; border-radius: 10px 10px 0 0; padding: 10px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 6px 18px; min-width: 0; }
+.fp-card:hover, .fp-card:focus-within { border-color: var(--ink); border-left-color: var(--amber); }
+.fp-head, .fp-lines { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fp-eye { font-family: var(--label); font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.fp-name { margin: 0; font-family: var(--display); font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; }
+.fp-go { border: 0; background: none; padding: 0; font: inherit; text-align: left; color: inherit; overflow-wrap: anywhere; max-width: 100%; }
+/* The whole card is the phase's button for a pointer; the name stays the one control for keyboards and screen readers. */
+.fp-go::after { content: ""; position: absolute; inset: 0; border-radius: 10px 10px 0 0; }
+.fp-line { display: flex; gap: 6px; align-items: baseline; font-size: 13px; min-width: 0; }
+.fp-line > span:not(.ic) { min-width: 0; overflow-wrap: anywhere; }
+.fp-line .ic { flex: none; align-self: center; }
+.fp-auto .ic { color: var(--go); } .fp-turb .ic, .fp-stale .ic { color: var(--stop); } .fp-stale { color: var(--stop); } .fp-follows { color: var(--muted); } .fp-conn .ic { color: var(--plan); }
+.mapview .fp-lanes { list-style: none; margin: 4px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 6px; }
+.mapview .fp-lane { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border-radius: 6px; background: var(--paper); border-top: 2px solid var(--field); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.fp-gate { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; padding: 8px 14px 8px 26px; background: var(--amber-soft); border-left: 4px solid var(--amber); border-radius: 0 0 10px 10px; min-width: 0; overflow-wrap: anywhere; }
+.fp-gate:not(.implicit)::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px; background: repeating-linear-gradient(-45deg, var(--amber) 0 5px, var(--stripe) 5px 10px); }
+.fp-gate > span { min-width: 0; }
+.fp-gate-t { display: flex; gap: 6px; align-items: center; font-weight: 600; font-size: 14px; }
+.fp-gate.implicit { background: var(--card); border: 1px dashed var(--field); border-left: 4px solid var(--amber); padding-left: 14px; }
 .vlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .vlist li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline; font-size: 14px; }
 .diff { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-height: 420px; overflow: auto; white-space: pre-wrap; }

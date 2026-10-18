@@ -25,16 +25,18 @@
       all.map(function (v) { return '<option value="' + esc(v.folder) + '"' + (v.folder === cur ? ' selected' : '') + '>v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + esc(v.info.changes.slice(0, 50)) + '</option>'; }).join('');
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
       '<div class="row">' + (all.length + (hasDraft ? 1 : 0) > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
-      '<button class="mini" data-act="toggle-md" aria-pressed="' + !!st.showMd + '">Markdown</button>' +
+      '<div class="seg" role="group" aria-label="Show as"><button type="button" data-act="flight" data-id="list" aria-pressed="' + !st.flight + '">Checklist</button><button type="button" data-act="flight" data-id="plan" aria-pressed="' + !!st.flight + '">Flight plan</button></div>' +
+      (st.flight ? '' : '<button class="mini" data-act="toggle-md" aria-pressed="' + !!st.showMd + '">Markdown</button>') +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + 'Edit</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
     /* Edits made and not saved stay in the editor; say so here, where the saved version is showing. */
     var ed = st.editor && st.editor.pid === p.id ? st.editor : null;
     if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span><button class="mini" data-act="ptab" data-id="edit">Continue editing</button></div>';
     if (!shown.current) h += '<div class="notice warn"><span>You\'re looking at v' + shown.pub.info.version + ', an older version. Runs that used it keep it.</span><button class="mini" data-act="back-current">Back to current</button></div>';
     if (st.pick && st.pick.kind === 'restore' && shown.pub && st.pick.id === shown.pub.folder) h += '<div class="notice warn"><span>' + (st.pick.dirty ? 'You have unsaved edits in the draft, and they\'ll be lost. ' : '') + 'The draft has changes that aren\'t published. Replace it with v' + shown.pub.info.version + '?</span><button class="btn stop" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '" data-sure="1">Replace the draft</button><button class="mini" data-act="unpick">Cancel</button></div>';
-    if (st.showMd) return h + '<div class="row"><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0">' + esc(shown.md) + '</pre></section>';
+    if (st.showMd && !st.flight) return h + '<div class="row"><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0">' + esc(shown.md) + '</pre></section>';
     var map = shown.draft ? M.parse(shown.md) : shown.pub.map, types = shown.draft ? (ctx.data.stepTypes || {}).types : shown.pub.types;
-    return h + (map.phases.length ? V.mapPreview(map, types, p.skills) : '<p class="small">No phases yet. Choose Edit to add one.</p>') + '</section>';
+    if (st.flight) return h + V.flightPlan(ctx, p, map, shown) + '</section>';
+    return h + (map.phases.length ? V.mapPreview(map, types, p.skills, 'cl-ph-') : '<p class="small">No phases yet. Choose Edit to add one.</p>') + '</section>';
   }
 
   /* The draft editor: the Markdown on the left, what Flightdeck thinks of it on the right, updated as you type. */

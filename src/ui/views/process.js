@@ -4,12 +4,13 @@
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, I = PF.icons.icon, esc = U.esc;
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   /* ---------- process page ---------- */
-  function mapPreview(map, types, skills) {
+  /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. */
+  function mapPreview(map, types, skills, anchor) {
     /* Which skills cover each step (skills mapped to the whole process are listed once, above). */
     var by = Object.create(null), whole = [];
     (skills || []).forEach(function (x) { if (!x.skill.steps) whole.push(x.skill.name); else x.skill.steps.forEach(function (id) { (by[id] = by[id] || []).push(x.skill.name); }); });
-    return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p) {
-      return '<div class="ph"><h3>' + esc(p.title) + (p.mode ? ' <span class="cat">' + p.mode + '</span>' : '') + '</h3><ul>' + p.steps.map(function (s) {
+    return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
+      return '<div class="ph"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + p.mode + '</span>' : '') + '</h3><ul>' + p.steps.map(function (s) {
         var t = T.get(s.type, types);
         return '<li>' + (t ? I(t.icon, t.label) : '') + '<span>' + U.mdInline(s.text) + (s.must ? ' <span class="badge b-must">Must do</span>' : '') + (by[s.id] ? ' <span class="badge b-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? ' <span class="badge b-plan">Automation planned</span>' : '') + (s.roles.length ? ' <span class="small">@' + esc(s.roles.join(' @')) + '</span>' : '') + '</span></li>';
       }).join('') + '</ul><div class="g">' + I('gate') + 'Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + U.mdInline(p.gate.approves) : '') + '</div></div>';
