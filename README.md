@@ -181,7 +181,7 @@ A step can **set** a run detail: the merge step records the release tag, and eve
 <td valign="top">
 
 ### Runs that teach the checklist
-Every "did it differently", every block, every re-check is kept. A process's **How runs go** shows typical time per phase, the steps that go off-script most, and who has never held which role yet, so the next rotation is obvious.
+Every "did it differently", every block, every re-check is kept. Anyone in a run can **suggest a fix** to the checklist from a step, a phase or a screenshot; the team accepts or declines it on the process page, and one click copies a fix brief for your AI assistant. A process's **How runs go** shows typical time per phase, the steps that go off-script most, and who has never held which role yet, so the next rotation is obvious.
 
 </td>
 </tr>
@@ -346,6 +346,7 @@ publications/          published versions, frozen (Flightdeck writes these)
 runs/                  one folder per run: run.json, everyone's notes, screenshots
 skills/                skill registrations: each skill's source, what it implements
 validations/           owners' sign-offs that a version is ready for a skill
+suggestions/           decisions on suggested fixes (accepted, declined, reopened), one file per person's window
 step-types/            your team's own step types (create them in the app)
 jira/workflows.json    your real Jira workflows, with required fields
 proposals/             planned runs (from the app or your LLM), waiting for a person to start them

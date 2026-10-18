@@ -90,6 +90,11 @@
     latestPub: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.latest : null; },
     suggestRole: suggestRole,
     attachments: function (key, step) { return attachmentsFor(key, step); },
+    /* Suggested fixes on a process with where each stands, worked out once per redraw like processes(). */
+    fixes: function (pid) {
+      if (!fixMemo[pid]) { var p = processes().filter(function (x) { return x.id === pid; })[0]; fixMemo[pid] = PF.fixes.withStatus(PF.fixes.collect(data.runs, pid), data.fixDecisions, p ? PF.fixes.creditable(p) : []); }
+      return fixMemo[pid];
+    },
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
     localCopy: function (r) { var c = lsGet(localKey(r.id), null); return c && c.id === r.id ? c : null; },
@@ -177,7 +182,7 @@
       if (newer !== state.newer) { state.newer = newer; renderTop(); }
     }, function () {});
   }
-  var procCache = null, orphanSkills = [];
+  var procCache = null, orphanSkills = [], fixMemo = Object.create(null);
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
@@ -227,7 +232,7 @@
   /* ---------- loading ---------- */
   function signature(d) {
     return JSON.stringify([d.people.length, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; })]);
+      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.fixDecisions || []).map(function (x) { return x._file + x.at; }), (d.fixUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; })]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -268,6 +273,8 @@
       }
       /* Any run this read may not replace stays, even if the read didn't list it (a file briefly missing mid-sync). */
       data.runs.forEach(function (x) { if (!canReplace(x.id, before) && !d.runs.some(function (y) { return y.id === x.id; })) d.runs.push(state.unsaved[x.id] || x); });
+      /* A decision that couldn't be read this time keeps the last one read from the same file. */
+      (d.fixUnread || []).forEach(function (u) { (data.fixDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fixDecisions.push(x); u.kept = true; } }); });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
       syncChildren();
@@ -459,7 +466,7 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
-    procCache = null;
+    procCache = null; fixMemo = Object.create(null);
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -965,7 +972,7 @@
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
   function home() { releaseUrls(state.urls); state.view = 'home'; state.processId = null; state.runKey = null; resetRunUi(); }
-  function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; }
+  function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; state.fixForm = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     state.view = 'run'; state.runKey = key; resetRunUi();
@@ -1357,9 +1364,48 @@
     goto: function (id) { var el = document.getElementById(id); if (!el) { var r = ctx.run(); if (r) { R.mapOf(r).phases.forEach(function (p) { state.unfold[p.id] = true; }); render(); el = document.getElementById(id); } } if (el) { el.scrollIntoView({ block: 'center' }); var f = el.querySelector('h2, .check, button'); if (f) f.focus({ preventScroll: true }); } },
     'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { state.view = 'receipt'; render(); } }); },
     'discard-unsaved': function () { var r = ctx.run(); if (!r) return; delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true); },
+    /* ---------- suggesting a fix to the checklist, and deciding on suggestions (docs/design.md section 19) ---------- */
+    'fix-open': function (id, b) {
+      var r = ctx.run(); if (!r || !state.me) return;
+      var map = R.mapOf(r), f = { key: state.runKey, kind: b && PF.fixes.isKind(b.dataset.kind) ? b.dataset.kind : '', shot: b && b.dataset.shot || '', where: 'after' };
+      if (/^phase:/.test(id)) { f.phase = id.slice(6); f.step = null; if (!map.phases.some(function (p) { return p.id === f.phase; })) return; }
+      else { var x = M.findStep(map, id); if (!x) return; f.step = id; f.phase = x.phase.id; selectStep(id); state.refOpen = true; }
+      state.fixForm = f; state.fieldErr = null; state.focus = f.kind ? 'fix-text' : 'fix-kind-missing'; render();
+    },
+    'fix-cancel': function () { var f = state.fixForm; state.fixForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="fix-open"][data-id="' + cssEsc(f.step || 'phase:' + f.phase) + '"]'; render(); },
+    'fix-save': function () {
+      var r = ctx.run(), f = state.fixForm; if (!r || !f || !state.me || f.key !== state.runKey || f.sending) return;
+      var target = f.step || 'phase:' + f.phase, mine = f.kind === 'screenshot' ? attachmentsFor(f.key, 'fix:' + target) : [], note;
+      try { note = PF.fixes.build({ id: U.randomId(10), at: new Date().toISOString(), by: state.me, session: WRITER, kind: f.kind, phase: f.phase, step: f.step, where: f.where, shot: f.shot, text: val('fix-text'), version: +r.version || 0 }); }
+      catch (e) { state.fieldErr = { id: 'fix', msg: e.message, field: e.field }; state.focus = e.field === 'fix-text' ? 'fix-text' : 'fix-kind-missing'; render(); return; }
+      var nfs = state.fs, ng = gen, endBusy = busyStart(); f.sending = true; render();
+      queued(function () {
+        return mine.reduce(function (pr, p) { return pr.then(function (acc) { return repo.saveAttachment(nfs, r, p.file, WRITER).then(function (path) { return acc.concat([path]); }); }); }, Promise.resolve([]))
+          .then(function (paths) { note.files = paths; return repo.addNote(nfs, r, WRITER, note); });
+      }).then(function () {
+        endBusy(); f.sending = false; if (ng !== gen) return;
+        state.pendingFiles = state.pendingFiles.filter(function (p) { return mine.indexOf(p) < 0; });
+        if (state.fixForm === f) { state.fixForm = null; state.fieldErr = null; state.focus = '[data-act="fix-open"][data-id="' + cssEsc(target) + '"]'; }
+        say('Suggestion sent. The team sees it on the process page.', 'good');
+        return refreshRun().then(function () { render(); });
+      }, function (e) { endBusy(); f.sending = false; if (ng !== gen) return; say('Couldn\'t send the suggestion: ' + e.message, 'bad'); render(); });
+    },
+    'fix-accept': function (id) { decideFix(id, 'accepted', '', 'Accepted into the draft. It shows as fixed once a newer version is published.'); },
+    'fix-decline': function (id) { decideFix(id, 'declined', val('pick-input'), 'Declined.'); },
+    'fix-reopen': function (id) { decideFix(id, 'open', '', 'Reopened.'); },
+    'fix-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.focus = '[data-act="fix-filter"][data-id="' + state.fixFilter + '"]'; render(); },
+    'copy-fix-brief': function (id) {
+      var p = processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
+      /* The brief quotes the steps as the draft has them now, since that's the file the assistant edits. */
+      var map = p.draft ? M.parse(p.draft.md) : p.latest ? p.latest.map : null;
+      var text = PF.fixes.brief({ id: p.id, title: p.title }, ctx.fixes(p.id), { map: map, draftFile: p.draft ? p.draft.file : null, version: p.latest && p.latest.info.version, nameOf: function (x) { return V.nameOf(ctx, x); } });
+      state.brief = { key: 'fixes:' + p.id, text: text }; render();
+      copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');
+    },
+    'zoom-fix': function (id, b) { var p = currentProcess(), s = p && ctx.fixes(p.id).filter(function (x) { return x.id === id; })[0]; if (!s) return; openLightbox(s.files.map(function (f, i) { return { src: f, caption: 'Attachment ' + (i + 1) + ' from ' + V.nameOf(ctx, s.by) }; }), +b.dataset.i); },
     'add-note': function (id) {
       var r = ctx.run(), text = val('note-text').trim(), nkey = state.runKey, mine = attachmentsFor(nkey, id), files = mine.map(function (p) { return p.file; });
-      var who = state.me, nfs = state.fs, ng = gen, asMap = !!(document.getElementById('note-map') || {}).checked;
+      var who = state.me, nfs = state.fs, ng = gen;
       if (!r || !who || (!text && !files.length)) return;
       /* A note that's too long is refused, not cut short; the draft stays so it can be shortened or split. */
       if (text.length > NOTE_MAX) { state.fieldErr = { id: 'note:' + id, msg: 'Notes can be up to 2,000 characters; this one is ' + text.length.toLocaleString('en-US') + '. Shorten it, or split it into two notes.', field: 'note-text' }; state.focus = '#note-text'; render(); return; }
@@ -1368,7 +1414,6 @@
       queued(function () {
         return files.reduce(function (pr, f) { return pr.then(function (acc) { return repo.saveAttachment(nfs, r, f, WRITER).then(function (p) { return acc.concat([p]); }); }); }, Promise.resolve([])).then(function (paths) {
           var note = { id: U.randomId(10), at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: paths };
-          if (asMap) note.kind = 'map';
           return repo.addNote(nfs, r, WRITER, note);
         });
       }).then(function () {
@@ -1392,6 +1437,20 @@
     'close-overlay': function () { closeOverlay(); }
   };
   /* Reread the open run before taking over recording. Resolves to the run's key and generation, or null if the folder changed. */
+  /* Anyone on the team decides on a suggestion; the decision goes in this window's own file, and the latest decision wins. */
+  function decideFix(id, status, reason, done) {
+    var p = currentProcess(), s = p && ctx.fixes(p.id).filter(function (x) { return x.id === id; })[0];
+    if (!s || !state.me) return;
+    var rec;
+    /* What this window shows is what the decision follows: the current decision, and the newest version it knows of. */
+    var known = p.all.reduce(function (m, v) { return Math.max(m, v.info.version || 0); }, 0);
+    try { rec = PF.fixes.decision(s, state.me, status, reason, new Date().toISOString(), { current: s.decision, latestVersion: known }); }
+    catch (e) { state.fieldErr = { id: 'fix-decline', msg: e.message }; state.focus = 'pick-input'; render(); return; }
+    var dfs = state.fs, g = gen;
+    queued(function () { return repo.decideFix(dfs, rec, WRITER); }).then(function () {
+      if (g !== gen) return; state.pick = null; state.fieldErr = null; state.focus = 'fx-h'; say(done, 'good'); return load(true);
+    }, function (e) { if (g !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
+  }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
   function recover(getCopy, logPrefix, cleanup) {
     var r = ctx.run(), fs = state.fs, g = gen; if (!r || state.recovering) return;
@@ -1558,13 +1617,18 @@
       state.fieldsDraft = { id: state.pick.id, values: vals }; render();
     }
     if (e.target.id === 'note-file') { addPending(e.target.files && e.target.files[0]); e.target.value = ''; }
+    /* The kind of fix decides which questions the form asks, so choosing one redraws it. */
+    if (/^fix-kind-/.test(e.target.id || '') && state.fixForm && PF.fixes.isKind(e.target.id.slice(9))) { state.fixForm.kind = e.target.id.slice(9); state.fieldErr = null; render(); }
+    if (/^fix-where-/.test(e.target.id || '') && state.fixForm) state.fixForm.where = e.target.id.slice(10) === 'end' ? 'end' : 'after';
+    if (e.target.id === 'fix-file' && state.fixForm) { addPending(e.target.files && e.target.files[0], fixFileKey()); e.target.value = ''; }
   });
-  function addPending(f) {
+  function fixFileKey() { var f = state.fixForm; return 'fix:' + (f.step || 'phase:' + f.phase); }
+  function addPending(f, step) {
     if (!f) return;
     if (!/^image\/(png|jpeg|webp)$/.test(f.type)) { say('Use a PNG, JPEG or WebP image.', 'warn'); render(); return; }
     if (f.size > 3 * 1024 * 1024) { say('That image is over 3 MB. Crop it to the part that matters.', 'warn'); render(); return; }
     /* An attachment belongs to the run and step it was added on, whichever way the person moves around afterwards. */
-    state.pendingFiles.push({ key: state.runKey, step: state.sel, file: f }); render();
+    state.pendingFiles.push({ key: state.runKey, step: step || state.sel, file: f }); render();
   }
   function attachmentsFor(key, step) { return state.pendingFiles.filter(function (p) { return p.key === key && p.step === step; }); }
   /* One way to select a step, for the mouse and the keyboard alike. */
@@ -1572,13 +1636,15 @@
   var NOTE_MAX = 2000;
   document.addEventListener('paste', function (e) {
     if (state.view !== 'run' || !state.sel || !state.me || !e.clipboardData) return;
+    /* While the fix form asks for the right screenshot, a pasted image goes with the suggestion, not a note. */
+    var fx = state.fixForm && state.fixForm.key === state.runKey && state.fixForm.kind === 'screenshot' ? fixFileKey() : null;
     var items = e.clipboardData.items || [];
-    for (var i = 0; i < items.length; i++) if (items[i].type.indexOf('image/') === 0) { addPending(items[i].getAsFile()); e.preventDefault(); return; }
+    for (var i = 0; i < items.length; i++) if (items[i].type.indexOf('image/') === 0) { addPending(items[i].getAsFile(), fx); e.preventDefault(); return; }
   });
 
   document.addEventListener('keydown', function (e) {
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { state.pick = null; state.edit = null; render(); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { state.pick = null; state.edit = null; render(); return; } if (state.fixForm) { ACTIONS['fix-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
     if (state.overlay && state.overlay.list && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { ACTIONS['lb-step'](e.key === 'ArrowLeft' ? '-1' : '1'); return; }
     if (typing && e.key === 'Enter' && t.dataset.enter) {
       e.preventDefault();

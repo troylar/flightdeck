@@ -55,7 +55,7 @@
     h += '<div class="row"><button class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '"' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving ? 'Saving…' : 'Save draft') + '</button>' + (dirty ? '<button class="mini" data-act="revert-draft" data-id="' + esc(p.id) + '">Discard my changes</button>' : '') +
       '<button class="mini" data-act="ptab" data-id="overview">Done</button><span class="small">Saving never publishes. When it\'s ready, choose Done and publish it.</span></div></section>';
     h += '<aside class="stack">' + (builder ? V.builderForm(ctx, p, text) : '') + '<section class="panel"><h2>' + (c.blockers.length ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c) + '</section>' +
-      '<section class="panel mapview"><h2>Preview</h2>' + (map.phases.length ? V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills) : '<p class="small">Add a phase (## Name · READ-DO {#id}) to see it here.</p>') + '</section>' +
+      '<section class="panel mapview"><h2>Preview</h2>' + (map.phases.length ? V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.fixes.openCounts(V.fixesOf(ctx, p))) : '<p class="small">Add a phase (## Name · READ-DO {#id}) to see it here.</p>') + '</section>' +
       '<section class="panel"><h2>Help</h2><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p></section></aside></div>';
     return h;
   }

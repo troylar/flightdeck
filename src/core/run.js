@@ -462,11 +462,16 @@ PF.run = (function () {
     addLog(r, who, now, 'Removed follow-up: ' + list[i].text);
     list.splice(i, 1);
   }
-  /* Map corrections people suggested during the run: "did it differently" answers and notes marked as a map change. */
+  /* Map corrections people suggested during the run: "did it differently" answers, suggested fixes and older notes marked as a map change. */
   function suggestions(r, map) {
     var out = [];
     M.steps(map).forEach(function (x) { var a = r.steps[x.step.id]; if (a && a.differently) out.push({ step: x.step.id, text: x.step.text, note: a.differently.note, by: a.differently.by }); });
-    (r._notes || []).forEach(function (n) { if (n.kind === 'map') { var x = M.findStep(map, n.step); out.push({ step: n.step, text: x ? x.step.text : '', note: n.text, by: n.by }); } });
+    (r._notes || []).forEach(function (n) {
+      if (n.kind !== 'map' && n.kind !== 'fix') return;
+      var x = n.step && M.findStep(map, n.step), ph = !x && n.target && map.phases.filter(function (p) { return p.id === n.target.phase; })[0];
+      /* A suggested fix says what kind it is; a phase-level one names its phase. */
+      out.push({ step: n.step, text: x ? x.step.text : ph ? 'Phase: ' + ph.title : '', note: n.text, by: n.by, kind: n.kind === 'fix' ? PF.fixes.kindLabel(n.fixKind) : '' });
+    });
     return out;
   }
   /* ---------- Pause and resume ---------- */
@@ -708,7 +713,7 @@ PF.run = (function () {
     var fus = r.followUps || [];
     if (fus.length) { lines.push('Follow-ups'); fus.forEach(function (f) { lines.push('  - ' + f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : '')); }); lines.push(''); }
     var sug = suggestions(r, map);
-    if (sug.length) { lines.push('Suggested checklist changes'); sug.forEach(function (x) { lines.push('  - ' + x.text + ': ' + x.note); }); lines.push(''); }
+    if (sug.length) { lines.push('Suggested checklist changes'); sug.forEach(function (x) { lines.push('  - ' + (x.kind ? '[' + x.kind + '] ' : '') + x.text + ': ' + x.note); }); lines.push(''); }
     var exceptions = r.log.filter(function (l) { return /^(Blocked|Waived|Failed|Took over|Changed)/.test(l.what); });
     if (exceptions.length) { lines.push('Exceptions'); exceptions.forEach(function (l) { lines.push('  ' + U.hm(l.at) + ' ' + nameOf(l.by) + ': ' + l.what); }); lines.push(''); }
     var noteCount = (notes || []).length;
