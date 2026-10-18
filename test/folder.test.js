@@ -239,4 +239,42 @@ rule('An unreadable skills folder is a folder error, not an empty list', async (
   await assert.rejects(repo.loadAll(fs), /NotReadable/);
 });
 
+rule('A suggested fix goes in the suggester\'s own notes file, and each person\'s decision in their own file; the decision made after seeing another wins', async () => {
+  const fs = folder(), r = await started(fs), F = PF.fixes;
+  const n = F.build({ id: 'fx1', at: NOW, by: 'person-blake', session: 'blake-laptop', kind: 'missing', phase: 'deploy', step: 'jenkins', where: 'after', text: 'Check the queue first', version: 1 });
+  await repo.addNote(fs, r, 'blake-laptop', n);
+  assert.ok(fs.files['runs/release/run1/notes-blake-laptop.jsonl'], 'the suggester\'s own notes file');
+  const rec = (by, status, at, reason, current) => F.decision({ process: 'release', id: 'fx1' }, by, status, reason, at, { current, latestVersion: 1 });
+  await repo.decideFix(fs, rec('person-casey', 'accepted', '2026-10-17T23:30:00.000Z'), 'casey-laptop');
+  // Avery's computer runs 40 minutes behind; she decides after reading Casey's acceptance.
+  const seen = (await repo.loadAll(fs)).fixDecisions[0];
+  assert.strictEqual(seen._file, 'fx1.casey-laptop.json');
+  await repo.decideFix(fs, rec('person-avery', 'declined', '2026-10-17T22:50:00.000Z', 'We do this in the job', seen), 'avery-desktop');
+  same(Object.keys(fs.files).filter(p => p.indexOf('suggestions/') === 0).sort(), ['suggestions/release/fx1.avery-desktop.json', 'suggestions/release/fx1.casey-laptop.json']);
+  await assert.rejects(() => repo.decideFix(fs, Object.assign(rec('a', 'open', NOW), { suggestion: '../x' }), 'w1'));
+  await fs.write('suggestions/release/junk.json', '{"kind":"fix-decision","suggestion":"fx1","status":"merged","by":"x","at":"2099-01-01"}');
+  const d = await repo.loadAll(fs), run1 = d.runs.filter(x => x.id === 'run1')[0];
+  same([run1._notes[0].kind, run1._notes[0].fixKind, run1._notes[0].target], ['fix', 'missing', { phase: 'deploy', step: 'jenkins', where: 'after' }]);
+  assert.strictEqual(d.fixDecisions.length, 2, 'an unknown status is ignored');
+  same(d.fixUnread.map(u => u._file), ['junk.json'], 'and reported as unreadable');
+  const s = F.withStatus(F.collect(d.runs, 'release'), d.fixDecisions, d.processes[0].index.all.map(v => v.info))[0];
+  same([s.status, s.decision.by, s.decision.reason, s.decision.rev, s.decision.seen], ['declined', 'person-avery', 'We do this in the job', 2, 'fx1.casey-laptop.json']);
+});
+
+rule('A decision file that can\'t be read is reported, not dropped', async () => {
+  const fs = folder(), r = await started(fs), F = PF.fixes;
+  await repo.addNote(fs, r, 'blake-laptop', F.build({ id: 'fx1', at: NOW, by: 'person-blake', session: 'blake-laptop', kind: 'missing', phase: 'deploy', step: 'jenkins', where: 'after', text: 'x', version: 1 }));
+  await repo.decideFix(fs, F.decision({ process: 'release', id: 'fx1' }, 'person-casey', 'accepted', '', NOW, { latestVersion: 1 }), 'casey-laptop');
+  const read = fs.read.bind(fs);
+  fs.read = p => /^suggestions\//.test(p) ? Promise.reject(new Error('NotReadableError')) : read(p);
+  const d = await repo.loadAll(fs);
+  same([d.fixDecisions.length, d.fixUnread.length, d.fixUnread[0].process, d.fixUnread[0]._file], [0, 1, 'release', 'fx1.casey-laptop.json']);
+  fs.read = read;
+  await fs.write('suggestions/release/fx1.casey-laptop.json', '{');
+  const e = await repo.loadAll(fs);
+  same([e.fixDecisions.length, e.fixUnread.length], [0, 1], 'half-synced JSON counts as unread, not as no decision');
+  await fs.write('suggestions/release/fx1.casey-laptop.json', 'null');
+  same([(await repo.loadAll(fs)).fixUnread.length], [1], 'so does a file holding null');
+});
+
 run();

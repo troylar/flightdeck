@@ -203,6 +203,29 @@
     return h + '</div></section>';
   }
 
+  /* ---------- suggesting a fix to the checklist (docs/design.md section 19) ---------- */
+  var FIX_CHOICES = { missing: 'A step is missing', instructions: 'The instructions are wrong', screenshot: 'The screenshot is wrong or outdated', order: 'The order is wrong', role: 'The role is wrong', other: 'Something else' };
+  var FIX_ASK = { missing: 'The missing step, and why it\'s needed', instructions: 'What the instructions should say', screenshot: 'What\'s wrong with it', order: 'The right order', role: 'Who should do it', other: 'What should change' };
+  function fixOpen(ctx, r, target) { var f = ctx.state.fixForm; return !!f && f.key === runKey(r) && (f.step ? f.step === target : 'phase:' + f.phase === target); }
+  function fixForm(ctx, r, map, f) {
+    var st = ctx.state, F = PF.fixes, x = f.step && M.findStep(map, f.step), ph = map.phases.filter(function (p) { return p.id === f.phase; })[0];
+    var kinds = (f.step ? F.ORDER : F.PHASE_KINDS).filter(function (k) { return k !== 'screenshot' || (x && x.step.shots.length); });
+    var err = st.fieldErr && st.fieldErr.id === 'fix' ? st.fieldErr : null, bad = function (field) { return err && err.field === field ? ' aria-invalid="true" aria-describedby="ferr-fix"' : ''; };
+    var target = f.step || 'phase:' + f.phase, files = ctx.attachments(runKey(r), 'fix:' + target);
+    var h = '<div class="compose fixform" data-scope="fix:' + esc(target) + '"><h4 class="fix-h">Suggest a fix to ' + (f.step ? 'this step' : 'the ' + esc(ph ? ph.title : '') + ' phase') + '</h4>' + ferr(st, 'fix') +
+      '<fieldset' + bad('fix-kind') + '><legend class="small">What\'s wrong?</legend>' + kinds.map(function (k) {
+        return '<label class="check-label small"><input type="radio" name="fix-kind" id="fix-kind-' + k + '" value="' + k + '" data-bound' + (f.kind === k ? ' checked' : '') + '> ' + esc(!f.step && k === 'missing' ? 'A step is missing at the end' : FIX_CHOICES[k]) + '</label>';
+      }).join('') + '</fieldset>';
+    if (f.step && f.kind === 'missing') h += '<fieldset><legend class="small">Where does it go?</legend>' + [['after', 'After this step'], ['end', 'At the end of this phase']].map(function (w) {
+      return '<label class="check-label small"><input type="radio" name="fix-where" id="fix-where-' + w[0] + '" value="' + w[0] + '" data-bound' + ((f.where || 'after') === w[0] ? ' checked' : '') + '> ' + w[1] + '</label>';
+    }).join('') + '</fieldset>';
+    if (f.shot) h += '<div class="small">About the screenshot <code>' + esc(f.shot) + '</code></div>';
+    h += '<label class="small" for="fix-text">' + esc(PF.fixes.isKind(f.kind) ? FIX_ASK[f.kind] : FIX_ASK.other) + '</label><textarea id="fix-text" maxlength="2000"' + bad('fix-text') + '></textarea>';
+    if (f.kind === 'screenshot') h += '<div class="row"><label class="mini" for="fix-file">' + I('camera') + 'Attach the right one</label><input type="file" id="fix-file" accept="image/png,image/jpeg,image/webp" class="sr">' +
+      (files.length ? '<span class="small">' + files.length + ' attached</span>' : '<span class="small">or paste it</span>') + '</div>';
+    return h + '<div class="row"><button class="btn primary" data-act="fix-save" data-id="' + esc(target) + '"' + (f.sending ? ' aria-disabled="true"' : '') + '>' + (f.sending ? 'Sending...' : 'Send suggestion') + '</button><button class="mini" data-act="fix-cancel">Cancel</button></div><p class="small">The team accepts or declines it on the process page.</p></div>';
+  }
+
   function refPanel(ctx, r, map, rec) {
     var s = ctx.state, x = s.sel && M.findStep(map, s.sel);
     if (!x) return '<aside class="ref" data-open="false" aria-label="Step details"><p class="small">Choose <b>Notes</b> on a step to see how to do it and what the team noted.</p></aside>';
@@ -211,6 +234,9 @@
     var shots = st.shots.map(function (sh, i) { return '<button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + i + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button>'; }).join('');
     var h = '<aside class="ref" data-scope="ref:' + esc(st.id) + '" data-open="' + s.refOpen + '" aria-label="Step details"><button class="mini close" data-act="close-ref">Close</button>' + (t ? '<div class="eyebrow">' + esc(t.label) + '</div>' : '') + '<h3>' + U.mdInline(st.text) + '</h3>' + (t ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '') + (shots ? '<div class="thumbs">' + shots + '</div>' : '');
+    if (s.me) h += fixOpen(ctx, r, st.id) ? fixForm(ctx, r, map, s.fixForm) : '<div class="row">' + st.shots.map(function (sh, i) {
+      return '<button class="linkish" data-act="fix-open" data-id="' + esc(st.id) + '" data-kind="screenshot" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'This screenshot is wrong' : 'Screenshot ' + (i + 1) + ' is wrong') + '</button>';
+    }).join('') + '<button class="mini" data-act="fix-open" data-id="' + esc(st.id) + '">' + I('edit') + 'Suggest a fix</button></div>';
     var a = r.steps[st.id];
     if (rec && !r.paused && R.phaseOpen(r, map, M.findStep(map, st.id).phaseIndex) && a && a.s === 'done' && !a.differently) {
       h += s.pick && s.pick.kind === 'differently' && s.pick.id === st.id
@@ -227,13 +253,12 @@
     else if (a && a.history && a.history.length >= 10) h += '<button class="mini" style="align-self:flex-start" data-act="load-history">Show older answers</button>';
     h += '<h3 style="margin-top:6px">' + (R.solo(r) ? 'Notes' : 'Team notes') + '</h3>' + (notes.length ? '<ul class="tnotes">' + notes.map(function (n) {
       var made = (r.followUps || []).some(function (f) { return f.from === n.id; });
-      return '<li>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + (n.kind === 'map' ? ' · <span class="badge b-plan">checklist change</span>' : '') + '</div><div>' + U.mdInline(n.text) + '</div>' +
+      return '<li>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + (n.kind === 'map' ? ' · <span class="badge b-plan">checklist change</span>' : n.kind === 'fix' ? ' · <span class="badge b-plan">Suggested fix: ' + esc(PF.fixes.kindLabel(n.fixKind)) + '</span>' : '') + '</div><div>' + U.mdInline(n.text) + '</div>' +
         (rec && r.state === 'running' && n.text ? (made ? '<span class="small">Follow-up added</span>' : '<button class="linkish" data-act="add-followup" data-text="' + esc(n.text.slice(0, 300)) + '" data-step="' + esc(st.id) + '" data-from="' + esc(n.id) + '">Make it a follow-up</button>') : '') +
         ((n.files || []).length ? '<div class="thumbs" style="margin-top:6px">' + n.files.map(function (f, i) { return '<button class="thumb" data-act="zoom-note" data-id="' + esc(n.id) + '" data-i="' + i + '" aria-label="Expand attachment">' + ctx.img(f, 'Attachment') + '</button>'; }).join('') + '</div>' : '') + '</div></li>';
     }).join('') + '</ul>' : '<p class="small">No notes on this step yet.</p>');
     if (s.me) h += '<div class="compose">' + ferr(s, 'note:' + st.id) + '<label class="sr" for="note-text">Add a note</label><textarea id="note-text" maxlength="2000"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'Add a note' : 'Add a note for the team') + '. Paste a screenshot to attach it."></textarea>' +
       (ctx.attachments(runKey(r), st.id).length ? '<div class="small">' + ctx.attachments(runKey(r), st.id).length + ' screenshot' + (ctx.attachments(runKey(r), st.id).length === 1 ? '' : 's') + ' attached</div>' : '') +
-      '<label class="small check-label"><input type="checkbox" id="note-map"> Suggests a change to the checklist</label>' +
       '<div class="row"><button class="btn primary" data-act="add-note" data-id="' + esc(st.id) + '">Add note</button><label class="mini" for="note-file">' + I('camera') + 'Attach</label><input type="file" id="note-file" accept="image/png,image/jpeg,image/webp" class="sr"></div></div>';
     return h + '</aside>';
   }
@@ -281,7 +306,8 @@
       var open = R.phaseOpen(r, map, pi), folded = (done || locked) && !s.unfold[p.id];
       var one = R.solo(r), hint = p.mode === 'READ-DO' ? (one ? 'Read each step, then do it.' : 'Read each step aloud, then do it.') : p.mode === 'DO-CONFIRM' ? (one ? 'Do the work, then stop and confirm each step.' : 'Do the work, then stop and confirm each step together.') : '';
       deck += '<section class="phase" id="phase-' + esc(p.id) + '" data-s="' + (done ? 'done' : locked ? 'locked' : 'open') + '" aria-labelledby="ph-' + esc(p.id) + '"><div class="placard"><span class="p-label">Phase ' + (pi + 1) + '</span><h2 class="p-title" id="ph-' + esc(p.id) + '" tabindex="-1">' + esc(p.title) + '</h2><span class="p-count">' + info.done + '/' + info.total + '</span>' +
-        (p.mode ? '<span class="mode">' + p.mode + '</span>' : '') + (hint && !folded ? '<span class="mode-hint">' + hint + '</span>' : '') + '</div>';
+        (p.mode ? '<span class="mode">' + p.mode + '</span>' : '') + (s.me ? '<button class="mini p-fix" data-act="fix-open" data-id="phase:' + esc(p.id) + '" aria-label="Suggest a fix to the ' + esc(p.title) + ' phase">' + I('edit') + 'Suggest a fix</button>' : '') + (hint && !folded ? '<span class="mode-hint">' + hint + '</span>' : '') + '</div>';
+      if (s.me && fixOpen(ctx, r, 'phase:' + p.id)) deck += '<div class="fixbox">' + fixForm(ctx, r, map, s.fixForm) + '</div>';
       if (folded) deck += '<div class="folded"><span>' + (locked ? info.total + ' step' + (info.total === 1 ? '' : 's') + ', after the gate above' : info.done + ' of ' + info.total + ' steps answered') + '</span><button class="mini" data-act="unfold" data-id="' + esc(p.id) + '">' + (locked ? 'Preview steps' : 'Show steps') + '</button></div>';
       else deck += stepsHtml(ctx, r, p, row(p, pi, open));
       deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id]) + '</section>';
