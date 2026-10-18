@@ -1,5 +1,33 @@
 [
   {
+    "version": "1.12.0",
+    "date": "2026-10-18",
+    "headline": "Build a checklist from parts",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Processes",
+        "title": "The draft editor is a page of its own",
+        "now": "Editing a draft fills the window: a header with Done, save state, Builder or Markdown, Undo and Redo, Checks and Save, then side-by-side panes that each scroll on their own. The inspector has Selected, Checks and Preview tabs, and Preview marks the selected step. Parts fold to a rail of icons. A refresh comes back to the editor, and the browser asks before leaving unsaved edits.",
+        "where": "A process page: Edit."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "A parts box beside the builder",
+        "now": "Add phases, parallel lanes, gates and any type of step from a searchable parts box. Drag a part onto the checklist: only places it can go light up and the nearest says where it lands. Or choose a part, pick a place with the arrow keys, and press Enter. The new item is selected with its name ready to type over, and Undo takes it back.",
+        "where": "A process page: Edit, then the Builder. On a phone, Add part."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "Edit lanes, gates and phases in the builder",
+        "now": "Parallel lanes show side by side. Select a lane to rename it, change who works it, or delete it, keeping its steps or deleting them with it. A phase's form can delete the phase or remove its gate. A step's kind is one choice: Step, Must do or Automation planned. A part you just added takes its ID from the name you give it, until you save the draft.",
+        "where": "A process page: Edit, then select a lane or phase in the Builder."
+      }
+    ]
+  },
+  {
     "version": "1.11.0",
     "date": "2026-10-18",
     "headline": "Planned runs, a flight plan view, a checklist builder, and organized step types",

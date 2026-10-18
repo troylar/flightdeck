@@ -95,7 +95,7 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .mini:disabled { opacity: .4; cursor: not-allowed; }
 .chipbtn { border: 1px solid var(--line); background: var(--chip); border-radius: 99px; padding: 3px 10px; font-size: 13px; }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
-.cat { font-family: var(--label); font-weight: 600; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+.cat { font-family: var(--label); font-weight: 600; font-size: 11px; line-height: 1.3; letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--chip); color: var(--muted); white-space: nowrap; }
 /* On a card the label can be long (process and who planned it): it wraps inside the card instead of running past it. */
 .card .cat { white-space: normal; max-width: 100%; overflow-wrap: anywhere; align-self: flex-start; }
 .big { font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -106,7 +106,7 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .notice.warn { background: var(--amber-soft); }
 .notice.good { background: var(--go-soft); }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-.field input, .field select, .field textarea { border: 1px solid var(--line); background: var(--card); border-radius: 7px; padding: 7px 10px; color: var(--ink); font-size: 14px; }
+.field input, .field select, .field textarea { border: 1px solid var(--field); background: var(--card); border-radius: 7px; padding: 7px 10px; color: var(--ink); font-size: 14px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .avatar { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; background: var(--ink); color: var(--paper); flex: none; }
 .avatar.lg { width: 28px; height: 28px; font-size: 11px; }
@@ -221,7 +221,7 @@ button.tag.on { background: var(--plan-soft); color: var(--plan); border-color: 
 .step[data-a="na"] .s-text { color: var(--muted); text-decoration: line-through; }
 .type { display: inline-flex; gap: 5px; align-items: center; font-family: var(--label); font-weight: 600; font-size: 11px; color: var(--muted); letter-spacing: .03em; }
 .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
-.badge { font-family: var(--label); font-weight: 600; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; }
+.badge { font-family: var(--label); font-weight: 600; font-size: 11px; line-height: 1.3; letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; }
 .b-must { background: var(--stop-soft); color: var(--stop); }
 .b-plan { background: var(--plan-soft); color: var(--plan); }
 .b-ref { background: var(--chip); color: var(--muted); }
@@ -434,13 +434,14 @@ details.panel > summary { cursor: pointer; list-style: revert; }
 .ob-ph-h { margin: 0; font-family: var(--display); font-size: 20px; line-height: 1.1; min-width: 0; }
 .ob-ph-name { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
 .ob-phase.sel .ob-ph-head { box-shadow: inset 0 0 0 2px var(--ink); }
-.ob-steps { list-style: none; margin: 0; padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 4px; background: var(--card); border-left: 4px solid var(--amber); border-right: 1px solid var(--line); min-width: 0; }
+.ob-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 10px 8px; background: var(--card); border-left: 4px solid var(--amber); border-right: 1px solid var(--line); min-width: 0; }
+.ob-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ob-step { display: flex; align-items: stretch; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); min-width: 0; transition: transform .12s, box-shadow .12s; }
 .ob-step.sel { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--amber); }
 .ob-step.odd { border-style: dashed; }
 .ob-grip { flex: none; width: 14px; margin: 8px 0 8px 6px; cursor: grab; background: radial-gradient(circle, var(--field) 1.3px, transparent 1.7px) 0 0 / 7px 7px; }
 .ob-step.odd .ob-grip { visibility: hidden; }
-.ob-step.lifted { transform: rotate(-1.5deg); box-shadow: 0 10px 22px rgba(0, 0, 0, .22); }
+.ob-step.lifted { transform: rotate(-.5deg); box-shadow: 0 10px 22px rgba(0, 0, 0, .22); }
 .ob-pick { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border: 0; background: none; padding: 8px 10px 8px 2px; font: inherit; font-size: 14px; color: inherit; text-align: left; min-width: 0; }
 .ob-txt { min-width: 0; overflow-wrap: anywhere; }
 .ob-chip { display: inline-flex; font-family: var(--mono); font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--amber-soft); color: var(--ink); border: 1px solid var(--amber); }
@@ -450,17 +451,184 @@ button.ob-chip[aria-pressed="true"] { background: var(--amber); color: var(--on-
 .ob-form .chipbtn[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
 .ob-form h2, .ob-form h3 { margin: 0; display: flex; gap: 6px; align-items: center; }
 .ob-form h3 { font-size: 14px; }
-.ob-track { padding: 8px 4px 0; font-size: 13px; overflow-wrap: anywhere; }
 .ob-addform { padding: 6px; border: 1px dashed var(--field); border-radius: 8px; }
 .ob-addform input, .ob-addform select { min-width: 0; max-width: 100%; border: 1px solid var(--field); border-radius: 7px; padding: 7px 10px; background: var(--card); color: var(--ink); font-size: 14px; }
 .ob-addform input { flex: 1 1 200px; }
-.ob-gate .mini { margin-left: auto; }
+.ob-gate .mini { margin-left: 0; }
 .ob-addphase { align-self: flex-start; }
-.ob-slot { display: none; }
-.ob-dragging .ob-slot { display: block; min-height: 6px; border-radius: 6px; }
+/* Parallel lanes, side by side. */
+.ob-lanes { display: flex; flex-direction: column; gap: 6px; border-left: 3px solid var(--plan); padding-left: 8px; min-width: 0; }
+.ob-lanes-h { margin: 0; display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; color: var(--plan); }
+.ob-lane-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; min-width: 0; }
+.ob-lane { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px dashed var(--plan); border-radius: 10px; background: var(--plan-soft); }
+.ob-lane.sel { border-style: solid; box-shadow: 0 0 0 2px var(--plan); }
+.ob-lane-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.ob-lane-h .fp-eye { flex-basis: 100%; }
+.ob-lane-name { border: 0; background: none; padding: 0; font-family: var(--display); font-size: 17px; font-weight: 700; color: var(--ink); text-align: left; overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+/* Drop lines take no room, so nothing moves while a part or step is dragged: the legal ones show faintly, the nearest one
+   lights up and says where it will land. */
+.ob-slot { position: relative; height: 0; list-style: none; }
+.ob-steps > .ob-slot { margin-top: -4px; }
+.ob-phases > .ob-slot { margin-top: -14px; }
+.ob-slot.v { height: auto; width: 0; margin-left: -8px; }
 .ob-slot > span { display: none; }
-.ob-dragging .ob-slot.over { padding: 8px 12px; border: 2px dashed var(--amber); background: var(--amber-soft); color: var(--ink); font-size: 13px; font-weight: 600; }
-.ob-dragging .ob-slot.over > span { display: inline; }
+.ob-slot::before { content: ''; position: absolute; left: 0; right: 0; top: 1px; height: 2px; border-radius: 2px; pointer-events: none; }
+.ob-phases > .ob-slot::before { top: 6px; }
+.ob-slot.v::before { left: 3px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
+.ob-for-move .ob-slot[data-ob-drop]::before, .ob-for-step .ob-slot[data-for="step"]::before, .ob-for-lanes .ob-slot[data-for="lanes"]::before, .ob-for-gate .ob-slot[data-for="gate"]::before, .ob-for-phase .ob-slot[data-for="phase"]::before { background: var(--line); }
+.ob-dragging .ob-slot.over::before { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+.ob-dragging .ob-slot.over::after { content: attr(data-label); position: absolute; right: 6px; top: -11px; z-index: 4; max-width: calc(100% - 12px); padding: 2px 10px; border-radius: 99px; background: var(--amber); color: var(--on-amber); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.ob-dragging .ob-slot.v.over::after { left: 8px; right: auto; top: 6px; max-width: 240px; }
+/* Placing a part by a click or the keyboard: each legal line is a button; the chosen one is lit and says "Put it here". */
+.ob-dest { position: absolute; left: 0; right: 0; top: -6px; height: 16px; border: 0; padding: 0; margin: 0; background: transparent; cursor: copy; z-index: 2; }
+.ob-dest::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: 2px; background: var(--amber); opacity: .5; }
+.ob-slot.v .ob-dest { left: -6px; right: auto; top: 0; bottom: 0; width: 16px; height: auto; }
+.ob-slot.v .ob-dest::before { left: 7px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
+.ob-slot.on .ob-dest::before, .ob-dest:hover::before, .ob-dest:focus-visible::before { opacity: 1; box-shadow: 0 0 0 3px var(--amber-soft); }
+.ob-dest > span { display: none; position: absolute; right: 6px; top: -5px; padding: 2px 10px; border-radius: 99px; background: var(--amber); color: var(--on-amber); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.ob-slot.v .ob-dest > span { right: auto; left: 10px; top: 6px; }
+.ob-slot.on .ob-dest > span, .ob-dest:hover > span, .ob-dest:focus-visible > span { display: inline-block; }
+.ob-dest:focus-visible { outline: none; }
+.ob-dest:focus-visible > span { outline: 2px solid var(--focus); outline-offset: 2px; }
+@keyframes ob-new { from { box-shadow: 0 0 0 4px var(--amber); } to { box-shadow: 0 0 0 0 transparent; } }
+.ob-new { animation: ob-new .65s ease-out; }
+/* The draft editor is a page of its own: a header, messages, then panes that each scroll on their own. */
+html.fpe-on .top { display: none; }
+html.fpe-on #app { padding: 0; max-width: none; }
+@media (min-width: 801px) { html.fpe-on, html.fpe-on body { overflow: hidden; } }
+.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); }
+.fpe-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
+.fpe-title { display: flex; flex-direction: column; min-width: 0; flex: 1 1 220px; }
+.fpe-title h1 { margin: 0; font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.fpe-title h1:focus { outline: none; }
+.fpe-title h1:focus-visible { outline: none; }
+.fpe-state { font-size: 13px; color: var(--muted); }
+.fpe-state.dirty { color: var(--ink); font-weight: 600; }
+.fpe-undo { gap: 4px; }
+.fpe-checks { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
+.fpe-checks.bad { border-color: var(--stop); }
+.cnt { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--ink); font-size: 12px; font-weight: 700; text-align: center; line-height: 18px; }
+.cnt.bad { background: var(--stop); color: var(--card); }
+.fpe-alerts { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
+.fpe-alerts:not(:empty) { padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.fpe-alerts .notice { margin: 0; }
+.fpe-theirs .source { max-height: 30vh; overflow: auto; }
+.fpe-panes { display: grid; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 420px); min-height: 0; }
+.fpe-panes.rail { grid-template-columns: 60px minmax(0, 1fr) minmax(320px, 420px); }
+.fpe-panes.md { grid-template-columns: minmax(0, 1fr) minmax(320px, 460px); }
+.fpe-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
+.fpe-outline { padding: 0 16px 48px; }
+.fpe-outline > .ob { padding-top: 12px; }
+.fpe-parts { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--line); background: var(--paper); }
+.fpe-parts-head { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
+.fpe-parts-head h2 { margin: 0; font-family: var(--display); font-size: 18px; }
+.fpe-parts-head .small { margin: 0; }
+.ob-plist { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 32px; }
+.ob-sheet .ob-plist { overflow: visible; padding: 0; }
+.ob-railbtn { padding: 3px 6px; }
+.fpe-ins { display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--line); background: var(--card); }
+.fpe-tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); flex: none; }
+.fpe-tabs [role="tab"] { border: 0; border-bottom: 3px solid transparent; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.fpe-tabs [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--amber); }
+.fpe-tabpanel { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px 14px 48px; display: flex; flex-direction: column; gap: 10px; }
+.fpe-tabpanel[hidden] { display: none; }
+.fpe-tabpanel > p { margin: 0; }
+.fpe-ph { margin: 0; font-size: 18px; }
+.fpe-ins .ob-form { border: 0; padding: 0; box-shadow: none; background: none; }
+.ob-form-top { display: flex; flex-direction: column; gap: 4px; }
+.ob-form-name { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.pv-sel { background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); border-radius: 4px; }
+.fpe-md { display: flex; overflow: hidden; }
+.fpe-md .code-editor { flex: 1; width: 100%; height: 100%; min-height: 0; border: 0 !important; border-radius: 0; resize: none; padding: 14px 16px; }
+/* Parts folded to a rail of icons: chosen, or always at middle widths so the inspector stays beside the outline. */
+.fpe-panes.rail .ob-blurb, .fpe-panes.rail .fpe-parts .ob-q, .fpe-panes.rail .fpe-parts h4, .fpe-panes.rail .fpe-parts .ob-none, .fpe-panes.rail .fpe-parts .ob-pgroup > p, .fpe-panes.rail .fpe-parts .ob-broken .small { display: none; }
+.fpe-panes.rail .fpe-parts-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.fpe-panes.rail .fpe-parts-head { padding: 8px 6px; align-items: center; }
+.fpe-panes.rail .ob-plist { padding: 8px 6px 32px; }
+.fpe-panes.rail .ob-part { justify-content: center; padding: 6px 0; }
+.fpe-panes.rail .ob-pt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (min-width: 801px) and (max-width: 1100px) {
+  .fpe-panes, .fpe-panes.rail { grid-template-columns: 60px minmax(0, 1fr) minmax(300px, 360px); }
+  .ob-railbtn, .ob-blurb, .fpe-parts .ob-q, .fpe-parts h4, .fpe-parts .ob-none, .fpe-parts .ob-pgroup > p, .fpe-parts .ob-broken .small { display: none; }
+  .fpe-parts-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .fpe-parts-head { padding: 8px 6px; align-items: center; }
+  .ob-plist { padding: 8px 6px 32px; }
+  .fpe-parts .ob-part { justify-content: center; padding: 6px 0; }
+  .fpe-parts .ob-pt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .fpe-file { display: none; }
+}
+.ob-pgroup { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.ob-pgroup h4 { margin: 4px 0 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); overflow-wrap: anywhere; }
+.ob-pgroup h4.sub { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--ink); }
+.ob-pgroup > p { margin: 0; }
+.ob-pgroup ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ob-part { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 6px 8px; color: var(--ink); cursor: grab; transition: border-color .12s, box-shadow .12s, transform .12s; }
+.ob-part:hover { border-color: var(--ink); transform: translateX(2px); }
+.ob-part[aria-pressed="true"] { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }
+.ob-pt { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.25; }
+.ob-pt small { color: var(--muted); font-size: 12px; }
+.ob-pic { flex: none; width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; font-family: var(--mono); font-size: 11px; font-weight: 700; background: var(--chip); color: var(--ink); }
+.ob-pic.g-ph { background: var(--ink); color: var(--card); }
+.ob-pic.g-ln { background: var(--plan-soft); color: var(--plan); }
+.ob-pic.g-gt { background: repeating-linear-gradient(-45deg, var(--amber) 0 4px, var(--stripe) 4px 8px); }
+.ob-pic.g-md { background: var(--stop-soft); color: var(--stop); }
+.ob-pic .ic svg { width: 16px; height: 16px; }
+.ob-broken { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; font-size: 13px; padding: 6px 8px; border: 1px dashed var(--stop); border-radius: 8px; overflow-wrap: anywhere; }
+.ob-none { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ob-none p { margin: 0; overflow-wrap: anywhere; }
+.ob-addpart { display: none; }
+.ob-bar { align-items: flex-start; }
+.ob-bar > p { flex: 1 1 260px; }
+.ob-placing { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 10px; background: var(--amber-soft); border: 1px solid var(--amber); position: sticky; top: 8px; z-index: 3; box-shadow: var(--shadow); }
+.ob-placing p { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ob-placing .ob-keys { display: block; }
+.ob-placing.none { background: var(--chip); border-color: var(--field); }
+.ob-sheet { background: var(--card); color: var(--ink); border-radius: 12px; padding: 16px; width: min(460px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.ob-sheet h2 { margin: 0; }
+.ob-sheet p { margin: 0; }
+/* The side form: switches for must-do and automation planned, and Done for the phone's sheet. */
+.ob-form-top h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ob-done { display: none; }
+.ob-kind { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ob-kind legend { padding: 0; margin-bottom: 4px; }
+.ob-switch { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; }
+.ob-switch:has(input:checked) { border-color: var(--ink); background: var(--paper); }
+.ob-switch:has(#ob-mark-must:checked) { border-color: var(--stop); background: var(--stop-soft); }
+.ob-switch input[type="radio"] { flex: none; margin: 3px 0 0; accent-color: var(--ink); width: 16px; height: 16px; }
+.ob-switch.reveal { animation: ob-new .65s ease-out; }
+@media (max-width: 800px) {
+  html.fpe-on .top { display: none; }
+  .fpe { position: static; display: block; min-height: 100vh; }
+  .fpe-head { position: sticky; top: 0; z-index: 5; padding: 8px 12px; gap: 6px 8px; }
+  .fpe-title { flex-basis: 140px; }
+  .fpe-title h1 { font-size: 18px; }
+  .fpe-head .btn { padding: 6px 10px; }
+  .fpe-file { display: none; }
+  .fpe-panes, .fpe-panes.rail, .fpe-panes.md { display: block; }
+  .fpe-pane { overflow: visible; }
+  .fpe-parts { display: none; }
+  .fpe-outline { padding: 0 12px 24px; }
+  .fpe-ins { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .fpe-tabpanel { overflow: visible; }
+  .fpe-md .code-editor { height: 65vh; }
+  .ob-placing { top: 64px; }
+  .ob-addpart { display: inline-flex; }
+  .ob-placing .ob-keys { display: none; }
+  .ob-lane { flex-basis: 100%; }
+  .ob-slot.v { width: 100%; height: 0; margin: 0; }
+  .ob-slot.v::before { left: 0; right: 0; top: 1px; bottom: auto; width: auto; height: 2px; }
+  /* Fingers need room: while placing, each legal place is a full-width button. */
+  .ob.placing .ob-slot.legal { height: auto; margin: 2px 0; width: 100%; }
+  .ob.placing .ob-dest, .ob.placing .ob-slot.v .ob-dest { position: static; width: 100%; min-height: 40px; height: auto; border: 2px dashed var(--amber); border-radius: 8px; background: var(--amber-soft); color: var(--ink); }
+  .ob.placing .ob-dest::before { display: none; }
+  .ob.placing .ob-dest > span { display: inline; position: static; background: none; color: var(--ink); padding: 0; }
+  .ob.placing .ob-slot.on .ob-dest { border-style: solid; background: var(--amber); }
+  .overlay:has(.ob-sheet) { place-items: end stretch; padding: 0; }
+  .ob-sheet { width: 100%; max-height: 88vh; border-radius: 14px 14px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .fpe-ins .ob-form { background: var(--card); padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); border: 1px solid var(--line); }
+  .ob-form { position: fixed; left: 0; right: 0; bottom: 0; max-height: 85vh; overflow: auto; z-index: 12; border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, .25); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .ob-done { display: inline-flex; }
+}
 .ob-changed summary { cursor: pointer; font-size: 13px; }
 .ob-lines { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .ob-lines li { border-left: 3px solid var(--amber); padding: 2px 8px; overflow-wrap: anywhere; }
@@ -553,6 +721,130 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
   .folder { margin-left: 0; }
   /* On a phone the step panel is a full-screen sheet with its own Close, never a box covering half the checklist. */
   .ref { inset: 0; right: 0; bottom: 0; width: 100%; max-height: none; border-radius: 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
+}
+/* ---------- Builder refinements: reading flow, hierarchy and states ---------- */
+/* Preview: copy and its labels apart, so badges never break; lanes as labeled groups; a gate as one sentence. */
+.mapview li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 8px; align-items: start; }
+.mapview li > .ic { margin-top: 3px; }
+.pv-body { min-width: 0; }
+.pv-copy { display: block; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.pv-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; align-items: center; }
+.mapview .badge { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; line-height: 1.3; }
+.pv-role { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.mapview .g { align-items: flex-start; }
+.mapview .g > .ic { margin-top: 2px; flex: none; }
+.pv-gate-copy { min-width: 0; line-height: 1.5; }
+.pv-lanes { margin-top: 12px; }
+.pv-lanes-h { margin: 0; font-size: 13px; font-weight: 600; color: var(--plan); }
+.pv-lane { border-left: 2px solid var(--plan); padding-left: 10px; margin-top: 12px; }
+.pv-lane-h { margin: 0 0 6px; font-family: var(--body); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.fpe .mapview .ph { margin-bottom: 24px; }
+.fpe .mapview .ph.pv-sel, .mapview li.pv-sel { padding: 4px 6px; margin-inline: -6px; }
+/* Step rows: a stable icon column, the text, then its labels (beside it when there's room, below it in a lane). */
+.ob-pick { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 4px 8px; align-items: start; }
+.ob-pick > .ic { margin-top: 2px; }
+.ob-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; min-width: 0; }
+.ob-txt { flex: 1 1 240px; min-width: 0; line-height: 1.4; }
+.ob-lane .ob-txt { flex-basis: 100%; }
+.ob-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; }
+.ob-meta .badge { display: inline-flex; white-space: nowrap; }
+.ob-role { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.ob-grip { height: 21px; align-self: flex-start; margin: 10px 0 0 6px; }
+.ob-step:hover:not(.sel) { border-color: var(--field); }
+.ob-step:hover .ob-pick { background: var(--paper); border-radius: 0 8px 8px 0; }
+/* Lanes: one quiet border, purple only when selected. Gates: the copy, then Edit at the right. */
+.ob-lanes { gap: 8px; }
+.ob-lane { border: 1px solid var(--line); }
+.ob-lane.sel { border-color: var(--plan); box-shadow: 0 0 0 1px var(--plan); }
+.ob-lane-name { font-family: var(--body); font-size: 14px; line-height: 1.4; font-weight: 600; }
+.ob-gate { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; }
+.ob-gate-copy { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; min-width: 0; }
+.ob-ph-h { font-size: 22px; line-height: 1.15; }
+.ob-form h3 { font-family: var(--body); font-size: 14px; font-weight: 600; }
+.ob-form .field { font-size: 14px; }
+.ob-sec { padding-top: 16px; border-top: 1px solid var(--line); }
+.ob-crumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
+.ob-crumbs li { overflow-wrap: anywhere; }
+.ob-crumbs li + li::before { content: "/"; margin: 0 6px; color: var(--field); }
+.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; }
+.ob-src summary, .ob-help summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.ob-src > p { margin: 6px 0 0; }
+.ob-help p { margin: 6px 0 0; max-width: 70ch; }
+.ob-bar { align-items: center; }
+.ob-switch:has(input:checked), .ob-switch:has(#ob-mark-must:checked) { border-color: var(--ink); background: var(--paper); }
+.ob-switch[for="ob-mark-must"] b { color: var(--stop); }
+/* Destination labels wrap rather than cut off. */
+.ob-dragging .ob-slot.over::after, .ob-dest > span { white-space: normal; max-width: min(320px, calc(100% - 12px)); line-height: 1.35; }
+/* Empty states. */
+.ob-empty { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; padding: 24px; border: 1px dashed var(--field); border-radius: 12px; background: var(--card); }
+.ob-empty p { margin: 0; max-width: 52ch; }
+.ob-nosel { display: flex; flex-direction: column; gap: 14px; }
+.ob-nosel p { margin: 0; }
+.ob-sample { list-style: none; margin: 0; padding: 10px; display: flex; flex-direction: column; gap: 6px; border-radius: 10px; background: var(--paper); color: var(--muted); font-size: 13px; }
+.ob-sample li { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); }
+.ob-sample .s-ph { background: none; border: 0; padding: 0 2px; font-family: var(--display); font-size: 16px; color: var(--ink); }
+.ob-sample .s-st.on { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--amber); color: var(--ink); }
+.ob-sample .s-gt { background: var(--amber-soft); border-color: var(--amber); }
+/* The header: identity | tools | save, which never trade places. */
+.fpe-head { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; grid-template-areas: "id tools save"; align-items: center; gap: 8px 12px; }
+.fpe-id { grid-area: id; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.fpe-tools { grid-area: tools; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fpe-save { grid-area: save; display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.fpe-head .btn, .fpe-head .mini, .fpe-head .seg button, .fpe-head .chipbtn { min-height: 36px; }
+.fpe-head .btn.go:disabled { opacity: 1; background: var(--chip); color: var(--muted); border-color: var(--line); }
+.fpe-head .mini:disabled { opacity: 1; background: var(--chip); color: var(--muted); }
+.fpe-state { width: 9.5em; display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.25; }
+.fpe-state.just { color: var(--go); font-weight: 600; }
+.fpe-discard[hidden] { display: inline !important; visibility: hidden; }
+.fpe-savestate { display: inline-flex; align-items: center; gap: 10px; }
+#ob-text { min-height: 64px; line-height: 1.45; resize: vertical; font: inherit; }
+.fpe .mini:not(:disabled) { color: var(--ink); border-color: var(--field); }
+.fpe-checks .ic { width: 16px; height: 16px; }
+@media (max-width: 1240px) { .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
+/* Panes: room for the outline at 1280; a narrower inspector. */
+.fpe-panes { grid-template-columns: 208px minmax(0, 1fr) clamp(320px, 27vw, 400px); }
+.fpe-panes.rail { grid-template-columns: 72px minmax(0, 1fr) clamp(320px, 27vw, 400px); }
+.fpe-panes.md { grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 460px); }
+.fpe-tabpanel { padding: 16px 16px 48px; }
+.fpe-alerts .notice { padding: 6px 10px; font-size: 13px; }
+.fpe-alerts .notice .btn { padding: 4px 10px; }
+.fpe-alerts .notice.bad { padding: 10px 14px; font-size: 14px; }
+/* Parts: a tray. Everyday parts explain themselves; type entries are compact; the search looks like a field. */
+.ob-q { width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid var(--field); border-radius: 7px; background: var(--card); }
+.ob-plist { gap: 12px; }
+.ob-part { position: relative; }
+.ob-part:hover { transform: none; border-color: var(--field); background: var(--paper); }
+.ob-part b { font-weight: 600; }
+.ob-part.type { padding: 8px; }
+.ob-part.type small { font-size: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ob-findparts { display: none; }
+/* The rail keeps a way to the names: Find parts, and each part's name on hover or focus. */
+.fpe-panes.rail .ob-findparts { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.1; padding: 6px 4px; text-align: center; }
+.fpe-panes.rail .ob-part:hover::after, .fpe-panes.rail .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+@media (min-width: 801px) and (max-width: 1100px) {
+  .fpe-panes, .fpe-panes.rail { grid-template-columns: 72px minmax(0, 1fr) clamp(300px, 34vw, 360px); }
+  .ob-findparts { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.1; padding: 6px 4px; text-align: center; }
+  .fpe-parts .ob-part:hover::after, .fpe-parts .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+}
+@media (max-width: 800px) {
+  /* Phone: who it is and Save, then the tools, then the save state and Discard on their own row. */
+  .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools" "state state"; }
+  .fpe-save { display: contents; }
+  .fpe-save > .btn { grid-area: save; }
+  .fpe-savestate { grid-area: state; justify-content: space-between; }
+  .fpe-savestate:not(:has(.dirty)):not(:has(.just)) { display: none; }
+  .fpe-head .btn, .fpe-head .mini, .fpe-head .seg button, .fpe-head .chipbtn { min-height: 44px; }
+  .fpe-state { width: auto; }
+  .fpe-checks-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .fpe-head .seg button { padding: 7px 10px; }
+  .fpe-tools { gap: 6px; }
+  .fpe input, .fpe select, .fpe textarea { font-size: 16px; }
+  .ob.placing .ob-dest, .ob.placing .ob-slot.v .ob-dest { min-height: 44px; }
+  /* The properties sheet: a scrim behind it, its heading and Done always in reach. */
+  .fpe-ins .ob-form { max-height: 92vh; max-height: 92dvh; padding-top: 0; box-shadow: 0 0 0 100vmax rgba(8, 12, 16, .32), 0 -10px 30px rgba(0, 0, 0, .25); }
+  .ob-form-top { position: sticky; top: 0; z-index: 1; margin: 0 -16px; padding: 12px 16px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .ob-form-top .mini { min-height: 44px; padding: 6px 14px; }
+  .ob-help { display: block; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
