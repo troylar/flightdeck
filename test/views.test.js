@@ -199,6 +199,75 @@ rule('Plans: two decisions that disagree are flagged on Runs, on Home and before
   assert.ok(/data-plan-conflict="1"/.test(V.start(ctx)), 'the form records that the warning was shown');
 });
 
+rule('Plans: Runs lists them soonest first with the time in words and who planned them; Home shows the ones due within a day', () => {
+  const { ctx } = setup();
+  const latest = ctx.data.processes[0].index.latest, at = h => new Date(Date.parse(NOW) + h * 3600000).toISOString();
+  ctx.processes = () => [{ id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: null }];
+  ctx.data.plans = [
+    { id: 'p-later', process: 'release', title: 'In three days', when: at(72), by: 'person-blake', created: at(-5) },
+    { id: 'p-none', process: 'release', title: 'No time yet', by: 'AI assistant', created: at(-9) },
+    { id: 'p-late', process: 'release', title: 'Overdue <b>one</b>', when: at(-24), by: 'person-casey', created: at(-30) },
+    { id: 'p-soon', process: 'release', title: 'Later today', when: at(2), by: 'person-casey', created: at(-1) },
+    { id: 'p-bad', process: 'release', title: 'Bad time', when: 'next week', by: 'person-casey', created: at(-8) }
+  ];
+  const runs = V.runs(ctx), order = ['p-late', 'p-soon', 'p-later', 'p-none', 'p-bad'].map(id => runs.indexOf('data-id="' + id + '"'));
+  assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), 'soonest first, then those without a usable time, oldest first: ' + order);
+  assert.ok(/was due yesterday/.test(runs) && /in 2 hours/.test(runs) && /in 3 days/.test(runs), 'times in words');
+  assert.ok(/planned by Blake/.test(runs), 'who planned it, by name');
+  assert.ok(!/<b>one<\/b>/.test(runs), 'titles are escaped');
+  const home = V.home(ctx);
+  assert.ok(/Overdue &lt;b&gt;one&lt;\/b&gt; is planned for [^<]*was due yesterday/.test(home), 'past due: on Home');
+  assert.ok(/Later today is planned for [^<]*in 2 hours/.test(home), 'due within a day: on Home');
+  assert.ok(!/In three days/.test(home), 'not due yet: only under Runs');
+  assert.ok(/planned &quot;No time yet&quot;|planned "No time yet"/.test(home), 'no time: Home as before');
+  assert.strictEqual((home.match(/>Review and start</g) || []).length, 2, 'one Start for each due plan');
+});
+
+rule('Plans: a plan made for an older version starts on it, with the differences and a one-click switch; plan mode saves instead', () => {
+  const { ctx, state } = setup();
+  const b2 = P.build(example('maps/drafts/release.md').replace('## ', '## Added in v2 {#added}\n- [ ] {confirm} A new step {#new-one}\n\n## Gate: New gate {#g-new}\n\n## '), { people, ...EX, by: 'person-avery', changes: 'Second', existing: [{ version: 1 }], now: NOW, rand: 'view0002' });
+  assert.ok(!b2.blockers, JSON.stringify(b2.blockers));
+  const v1 = ctx.data.processes[0].index.latest, v2 = P.verify(b2.folder, b2.files);
+  const proc = { id: 'release', title: 'Production release', category: 'Releases', latest: v2, all: [v2, v1], clashes: [], broken: [], skills: [], draft: null };
+  ctx.processes = () => [proc]; ctx.suggestRole = () => null;
+  ctx.data.plans = [{ id: 'plan-1', process: 'release', version: 1, title: 'Planned', details: { ticket: 'ABC-9' }, roles: {}, by: 'person-blake', _hash: 'h1' }];
+  state.view = 'start'; state.processId = 'release'; state.planId = 'plan-1';
+  let html = V.start(ctx);
+  assert.ok(/This plan was made for v1\. v2 is now published\./.test(html), 'says which version and what is newer');
+  assert.ok(/data-act="plan-diff"[^>]*>See what changed/.test(html) && /data-act="plan-latest" data-id="plan-1">Switch to v2/.test(html));
+  assert.ok(html.includes('data-folder="' + v1.info.folder + '"'), 'the form starts v1 until switched');
+  state.planDiff = true;
+  assert.ok(/class="diff"[\s\S]*Added in v2/.test(V.start(ctx)), 'the differences, from the published files');
+  state.planPick = { key: ctx.fsKey, plan: 'plan-1', hash: 'h1', folder: v2.info.folder };
+  html = V.start(ctx);
+  assert.ok(html.includes('data-folder="' + v2.info.folder + '"') && /Switched to v2/.test(html) && !/data-act="plan-latest"/.test(html));
+  state.planPick.hash = 'changed';
+  assert.ok(/This plan was made for v1/.test(V.start(ctx)), 'a switch made on an earlier version of the plan doesn\'t carry over');
+  proc.all = [v2]; state.planPick = null;
+  html = V.start(ctx);
+  assert.ok(/made for v1, which can't be used anymore\. It starts on v2/.test(html.replace(/&#39;/g, "'")) && html.includes('data-folder="' + v2.info.folder + '"'), 'a removed version falls back to the latest, and says so');
+  // Plan mode: the same form, with a time and a note, saving instead of starting.
+  state.planId = null; state.planning = { process: 'release', from: 'release/run1', title: 'Release', details: { ticket: 'ABC-7' }, roles: { qa: 'person-morgan' } };
+  html = V.start(ctx);
+  assert.ok(/<h1>Plan a run<\/h1>/.test(html) && /id="plan-form"/.test(html) && !/id="start-form"/.test(html));
+  assert.ok(/<label class="field" for="plan-when">When \(optional\)<input type="datetime-local" id="plan-when"/.test(html), 'a labeled date and time');
+  assert.ok(/<label class="field" for="plan-note">/.test(html) && />Save the plan</.test(html) && !/Start the run/.test(html));
+  assert.ok(/id="detail-ticket"[^>]*value="ABC-7"/.test(html) && !/id="detail-tag"/.test(html), 'prefilled; a detail a step sets is not asked for');
+  state.fieldErr = { id: 'plan-when', msg: 'Enter a date and time, or leave it blank.' };
+  assert.ok(/id="plan-when" value="" aria-invalid="true" aria-describedby="ferr-plan-when"/.test(V.start(ctx)) && /id="ferr-plan-when" role="alert"/.test(V.start(ctx)), 'the error is next to its field');
+});
+
+rule('Runs: a run and its receipt offer to plan another like it once its process is published', () => {
+  const { ctx, state, r } = setup();
+  assert.ok(!/plan-from-run/.test(V.run(ctx)), 'no published process: no offer');
+  ctx.processes = () => [{ id: 'release', latest: ctx.data.processes[0].index.latest }];
+  assert.ok(V.run(ctx).includes('data-act="plan-from-run" data-id="release/' + r.id + '">Plan another like this'));
+  state.view = 'receipt';
+  assert.ok(/data-act="plan-from-run"/.test(V.receipt(ctx)));
+  state.me = '';
+  assert.ok(!/plan-from-run/.test(V.run(ctx)), 'only for someone who has chosen who they are');
+});
+
 rule('Process page: one page; the checklist shows in place with its Markdown on request, older versions with a way back, Edit checks and previews; a conflict shows both versions', () => {
   const { ctx, state } = setup();
   const latest = ctx.data.processes[0].index.latest;

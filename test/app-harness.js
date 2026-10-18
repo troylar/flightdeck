@@ -31,6 +31,7 @@ function boot(opts) {
   opts = opts || {};
   const html = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
+  const intervals = [];
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign({}, opts.localStore || {}), inputs = new Set();
   const get = id => (els[id] = els[id] || element(id));
   ['app', 'top', 'overlay', 'live'].forEach(get);
@@ -54,7 +55,7 @@ function boot(opts) {
   };
   const ctx = vm.createContext({
     window, document, localStorage: storage(), sessionStorage, navigator: opts.locks ? { locks: opts.locks } : {}, BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout, clearTimeout, setInterval: () => 0, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} }
+    setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} }
   });
   vm.runInContext(script('pf-core'), ctx);
   // Remember the in-browser folder the app creates, so tests can plant files in it as "another computer" would.
@@ -75,6 +76,22 @@ function boot(opts) {
     html: () => els.app.innerHTML,
     top: () => els.top.innerHTML,
     overlay: () => els.overlay.innerHTML,
+    // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
+    // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
+    submitForm(id, dataset) {
+      const html = els.app.innerHTML, at = html.search(new RegExp('<form[^>]*\\bid="' + id + '"'));
+      if (at < 0) throw new Error('No form ' + id + ' on the page');
+      const form = html.slice(at, html.indexOf('</form>', at)), el = get(id), ds = {};
+      const unesc = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      const attr = (tag, k) => { const m = new RegExp('\\s' + k + '="([^"]*)"').exec(tag); return m ? unesc(m[1]) : null; };
+      form.slice(0, form.indexOf('>') + 1).replace(/\sdata-([\w-]+)="([^"]*)"/g, (m, k, v) => { ds[k.replace(/-(\w)/g, (x, c) => c.toUpperCase())] = unesc(v); });
+      el.dataset = Object.assign(ds, dataset || {});
+      const fields = [];
+      (form.match(/<input\b[^>]*>/g) || []).forEach(tag => { const fid = attr(tag, 'id'); if (!fid) return; if (!inputs.has(fid)) get(fid).value = attr(tag, 'value') || ''; if (attr(tag, 'data-detail') != null) fields.push({ id: fid, dataset: { detail: attr(tag, 'data-detail') } }); });
+      (form.match(/<select\b[^>]*>[\s\S]*?<\/select>/g) || []).forEach(sel => { const tag = sel.slice(0, sel.indexOf('>') + 1), fid = attr(tag, 'id'), m = /<option value="([^"]*)" selected>/.exec(sel); if (!inputs.has(fid)) get(fid).value = m ? unesc(m[1]) : ''; if (attr(tag, 'data-role') != null) fields.push({ id: fid, dataset: { role: attr(tag, 'data-role') } }); });
+      el.querySelectorAll = sel => fields.filter(f => sel === '[data-detail]' ? f.dataset.detail != null : sel === '[data-role]' ? f.dataset.role != null : false).map(f => ({ dataset: f.dataset, get value() { return els[f.id].value; } }));
+      (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} }));
+    },
     submit(id) { const el = get(id); (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} })); },
     input(id, value) { const el = get(id); el.value = value; (listeners.input || []).forEach(fn => fn({ target: el })); },
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
@@ -86,6 +103,8 @@ function boot(opts) {
     select(id, value) { const el = get(id); el.value = value; (listeners.change || []).forEach(fn => fn({ target: el })); },
     choose(personId) { (listeners.change || []).forEach(fn => fn({ target: { id: 'me', value: personId } })); },
     focus() { (winListeners.focus || []).forEach(fn => fn()); },
+    // One beat of the app's timers (countdowns, the tab title, refreshes), as a second passing would trigger.
+    every() { intervals.forEach(fn => fn()); },
     // The example release in progress (the folder also holds earlier, ended releases).
     run() {
       const k = app._runPath && app.fs.files[app._runPath] ? app._runPath : (app._runPath = Object.keys(app.fs.files).find(p => /^runs\/release\/[^/]+\/run\.json$/.test(p) && JSON.parse(app.fs.files[p].t).title === 'Release 2026.10.16'));

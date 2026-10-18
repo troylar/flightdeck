@@ -18,6 +18,7 @@ This folder holds the team's process checklists and runs for Flightdeck. Read th
 - `publications/`: published versions are immutable. People publish from Flightdeck.
 - `runs/`: only the recorder's window and each person's own notes file write there.
 - Anyone's `*.status-*.json` in `proposals/`: those are people's decisions.
+- Plans people made in the app (`"by"` is a person's ID): write a new plan instead.
 
 ## Skills for this folder
 
@@ -97,10 +98,13 @@ Write `proposals/<id>.json`:
 { "kind": "plan", "id": "plan-release-2026-10-24", "process": "release", "version": 3,
   "title": "Release 2026.10.24", "details": { "ticket": "ABC-123", "environment": "production" },
   "roles": { "release-lead": "person-blake", "qa": "person-morgan" },
+  "when": "2026-10-24T13:00:00Z",
   "note": "Why these people (for example, rotation).", "by": "AI assistant", "created": "2026-10-17T13:00:00Z" }
 ```
 
-A person reviews it in Flightdeck and starts it. Never edit a plan after it's been accepted; write a new one.
+`when` (an ISO date and time) is optional: Flightdeck lists plans by it and shows a plan on Home from 24 hours before. People also plan runs in the app; those plans are `proposals/plan-<process>-<random>.json`, with `by` set to a person's ID and, when duplicated from a run, `from` set to that run (`<process>/<run id>`). Never write or change a file the app wrote.
+
+A plan starts on its `version` until a person switches it to a newer one, so plan on the current version. A person reviews it in Flightdeck and starts it. Never edit a plan after it's been accepted; write a new one.
 
 ## Reading runs
 

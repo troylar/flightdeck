@@ -445,10 +445,15 @@ PF.repo = (function () {
     var rec = { kind: 'validation', process: pub.map.meta.process, version: pub.info.version, folder: pub.info.folder, by: by, at: new Date().toISOString(), note: String(note || '').slice(0, 300), evidence: evidence };
     return fs.write('validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
   }
+  /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
+  function savePlan(fs, plan, opts) {
+    if (!/^plan-[a-z0-9-]{1,100}$/.test(plan.id)) return Promise.reject(new Error('A plan ID is plan- followed by lowercase letters, numbers and dashes.'));
+    return saveChecked(fs, 'proposals/' + plan.id + '.json', JSON.stringify(plan, null, 2) + '\n', null, opts);
+  }
   function recordPlanStatus(fs, plan, session, status, runId, by) {
     var rec = { kind: 'status', proposal: plan.id, proposalHash: plan._hash, status: status, run: runId || null, by: by, at: new Date().toISOString() };
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, recordPlanStatus: recordPlanStatus };
+  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus };
 })();

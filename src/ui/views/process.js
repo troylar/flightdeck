@@ -97,7 +97,7 @@
     var pub = p.latest, h = notices(ctx);
     h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · v' + pub.info.version + ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1>' + esc(p.title) + '</h1>' +
       (pub ? '<div class="small">Published by ' + esc(nameOf(ctx, pub.info.publishedBy)) + ' on ' + esc(U.when(pub.info.publishedAt)) + ' · "' + esc(pub.info.changes) + '"</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
-      '<div class="row">' + (V.tabOf(ctx) === 'overview' && p.all.length ? '<button class="mini" data-act="ptab" data-id="insights">' + I('chart') + 'How runs go</button>' : '') + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button>' : '') + '</div></div>';
+      '<div class="row">' + (V.tabOf(ctx) === 'overview' && p.all.length ? '<button class="mini" data-act="ptab" data-id="insights">' + I('chart') + 'How runs go</button>' : '') + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>';
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
     p.broken.forEach(function (b) { h += '<div class="notice warn"><span>' + esc(b.folder) + ': ' + esc(b.why) + '</span></div>'; });
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
@@ -138,20 +138,43 @@
     return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
   }
 
-  /* ---------- start a run ---------- */
+  /* The exact publication a person switched this plan to, if it was in this folder, on this plan, as it reads now. */
+  function planChoice(ctx, plan) {
+    var c = ctx.state.planPick;
+    return c && plan && c.plan === plan.id && c.hash === plan._hash && c.key === ctx.fsKey ? c.folder : null;
+  }
+  /* ---------- start a run, or plan one ---------- */
+  /* The same form starts a run (from scratch or from a plan) or, with state.planning, saves a plan for later. */
   function start(ctx) {
-    var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0], plan = st.planId ? ctx.data.plans.filter(function (x) { return x.id === st.planId; })[0] : null;
+    var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
+    var planning = st.planning && st.planning.process === st.processId ? st.planning : null;
+    var plan = !planning && st.planId ? ctx.data.plans.filter(function (x) { return x.id === st.planId; })[0] : null;
     if (!p || !p.latest) return notices(ctx) + '<div class="panel">There\'s no published version of this process to run. <button class="mini" data-act="home">Back</button></div>';
-    var pub = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; });
-    var defTitle = plan ? plan.title : meta.title + ' · ' + U.day(new Date().toISOString());
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · planned by ' + esc(plan.by || 'an AI assistant') : '') + '</div><h1>Start a run</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
+    /* A plan starts on the version it was planned on, or the exact one the person switched to; see PF.publish.forPlan. */
+    var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.publish.forPlan(p, plan.version, chosen) : { pub: p.latest };
+    var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
+    var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · planned by ' + esc(plan.by ? nameOf(ctx, plan.by) : 'an AI assistant') : '') + '</div><h1>' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: one accepted it and one declined it. Someone may have started it already; check Runs before you start it again.</span></div>';
-    if (plan && plan.version && plan.version !== pub.info.version) h += '<div class="notice warn"><span>This plan was written for v' + esc(plan.version) + ', but the current version is v' + pub.info.version + '. Check the roles and details still make sense.</span></div>';
-    h += '<form class="panel stack" id="start-form" data-scope="start:' + esc(p.id) + ':' + esc(plan ? plan.id : '') + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._hash) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';
+    if (plan && pick.older) {
+      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + pub.info.version + '. v' + latest.info.version + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button><button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + latest.info.version + '</button></span></div>';
+      if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
+    } else if (plan && pick.missing) h += '<div class="notice warn" role="status"><span>' + (chosen ? 'The version you switched to' : 'This plan was made for v' + esc(plan.version) + ', which') + ' can\'t be used anymore. It starts on v' + latest.info.version + '. Check the roles and details still make sense.</span></div>';
+    else if (pick.chosen) h += '<div class="notice" role="status"><span>Switched to v' + pub.info.version + '. Check the roles and details still make sense.</span></div>';
+    var formId = planning ? 'plan-form' : 'start-form', scope = planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '');
+    h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._hash) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';
     /* A detail a step produces during the run (sets:) isn't asked for here; the form says which step fills it in. */
-    var setBy = M.setBy(pub.map), later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && !(plan && plan.details && plan.details[f]); });
-    meta.context.filter(function (f) { return later.indexOf(f) < 0; }).forEach(function (f) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(plan && plan.details ? plan.details[f] || '' : '') + '"></label>'; });
+    var setBy = M.setBy(pub.map), given = pre.details && typeof pre.details === 'object' ? pre.details : {};
+    var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && !(plan && given[f]); });
+    meta.context.filter(function (f) { return later.indexOf(f) < 0; }).forEach(function (f) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(typeof given[f] === 'string' ? given[f] : '') + '"></label>'; });
     if (later.length) h += '<p class="small" style="grid-column:1/-1">' + later.map(function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }).join('; ') + '.</p>';
+    if (planning) {
+      var err = st.fieldErr && st.fieldErr.id === 'plan-when';
+      h += '<p class="small" style="grid-column:1/-1">Details can stay blank until the run starts.</p>' +
+        '<label class="field" for="plan-when">When (optional)<input type="datetime-local" id="plan-when" value="' + esc(planning.when || '') + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-plan-when"' : '') + '></label>' +
+        '<label class="field" for="plan-note">Note (optional)<input id="plan-note" maxlength="300" value="' + esc(planning.note || '') + '"></label>' +
+        (err ? '<p class="ferr" id="ferr-plan-when" role="alert" style="grid-column:1/-1">' + esc(st.fieldErr.msg) + '</p>' : '');
+    }
     h += '</div>';
     /* On my own or with others: the map suggests which (runs: solo), the person decides. */
     var mode = st.startMode[p.id] || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
@@ -160,16 +183,17 @@
     if (meta.roles.length && !soloMap) {
       h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">Just me</button>' : '') + '</div><div class="grid2">';
       meta.roles.forEach(function (role) {
-        var chosen = plan && plan.roles ? plan.roles[role] || '' : '', sug = ctx.suggestRole(p.id, role);
+        var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>';
       });
       h += '</div><p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
-    h += '<div class="row"><button class="btn go" type="submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +
+    if (planning) return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>Save the plan</button><span class="small">It waits under Runs until someone starts it.</span><button class="mini" type="button" data-act="cancel-plan">Cancel</button></div></form>';
+    h += '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +
       (plan ? '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button>' : '') + '</div></form>';
     return h;
   }
 
-  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.briefBox = briefBox;
+  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice;
 })();

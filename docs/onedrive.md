@@ -36,7 +36,7 @@ While a run is open, Flightdeck rereads only that run and its notes every 5 seco
 |---|---|
 | `maps/drafts/*.md` | An AI assistant (or one person editing by hand). Two editors at once produce a OneDrive copy; keep one. |
 | `people.json` | One named person on the team. Edit it, save, and let it sync before anyone else edits it. |
-| `proposals/*.json` | An AI assistant writes plans; each person's decision is its own `*.status-<window>.json`. |
+| `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there. Each person's decision is its own `*.status-<window>.json`. |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |
 
 ## Before the first real release
