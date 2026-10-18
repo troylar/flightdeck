@@ -295,7 +295,7 @@
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
-    gen++; loading = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
+    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -563,6 +563,18 @@
       render(); return true;
     });
   }
+  /* Home and Runs say when plans are ("in 2 hours", "was due yesterday") and Home shows a plan from a day before it, so redraw
+     when any of that changes with time alone, even if nothing in the folder did. */
+  var planSig = null;
+  function planClock(now) {
+    if (state.view !== 'home' && state.view !== 'runs') { planSig = null; return; }
+    var sig = state.view + '|' + data.plans.map(function (p) {
+      var t = p._status ? null : V.planWhen(p);
+      return t == null ? '' : p.id + ':' + (t - now <= 86400000 ? 'due ' : '') + U.dueWords(p.when, now);
+    }).join('|');
+    if (planSig !== null && sig !== planSig) render();
+    planSig = sig;
+  }
   function tick() {
     var now = Date.now(), soonest = null;
     document.querySelectorAll('[data-since]').forEach(function (el) {
@@ -577,6 +589,7 @@
       if (soonest == null || ms < soonest) soonest = ms;
     });
     remind(now);
+    planClock(now);
     /* The tab says which run it is, so several open tabs are easy to tell apart. */
     var open = (state.view === 'run' || state.view === 'mission') && ctx.run(), base = open ? open.title + ' · Flightdeck' : 'Flightdeck';
     document.title = soonest != null && soonest > -600000 ? (soonest >= 0 ? '⏱ ' + U.clock(soonest) + ' · ' : '⚠ deadline passed · ') + base : base;
@@ -831,6 +844,10 @@
   }
 
   /* ---------- navigation ---------- */
+  function openPlanForm(planning) {
+    state.view = 'start'; state.processId = planning.process; state.planId = null; state.planning = planning; state.fieldErr = null;
+    state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
+  }
   function home() { releaseUrls(state.urls); state.view = 'home'; state.processId = null; state.runKey = null; resetRunUi(); }
   function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; }
   function openRun(key) {
@@ -991,8 +1008,37 @@
       f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true; render();
     },
     'open-run': function (id) { openRun(id); render(); },
-    'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.view = 'start'; state.processId = p.process; state.planId = id; render(); window.scrollTo(0, 0); },
-    start: function (id) { state.view = 'start'; state.processId = id; state.planId = null; render(); window.scrollTo(0, 0); },
+    'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.view = 'start'; state.processId = p.process; state.planId = id; state.planning = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
+    start: function (id) { state.view = 'start'; state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
+    /* Plan a run for later: the start form, saving a plan instead of starting. */
+    'plan-run': function (id) { openPlanForm({ process: id, from: null }); },
+    /* Duplicate a run into a plan: its details and roles, never its answers, notes or gates. Details a step sets during the run
+       (sets:) are left out, since the new run produces them again. */
+    'plan-from-run': function (key) {
+      var r = data.runs.filter(function (x) { return x.process + '/' + x.id === key; })[0], p = r && processes().filter(function (x) { return x.id === r.process; })[0];
+      if (!r || !p || !p.latest || !state.me) return;
+      var made = Object.assign({}, M.setBy(R.mapOf(r)), M.setBy(p.latest.map)), details = {}, roles = {};
+      Object.keys(r.details || {}).forEach(function (f) { if (!Object.prototype.hasOwnProperty.call(made, f) && r.details[f]) details[f] = String(r.details[f]); });
+      Object.keys(r.roles || {}).forEach(function (ro) { if (r.roles[ro]) roles[ro] = r.roles[ro]; });
+      /* "Release · Fri, Oct 16" (the default run name) becomes "Release"; any other name is kept as it is. */
+      var dated = ' · ' + U.day(r.created), title = r.title.length > dated.length && r.title.slice(-dated.length) === dated ? r.title.slice(0, -dated.length) : r.title;
+      openPlanForm({ process: r.process, from: key, title: title, details: details, roles: roles });
+    },
+    'cancel-plan': function () {
+      var from = state.planning && state.planning.from, pid = state.processId;
+      state.planning = null; state.fieldErr = null;
+      if (from && ctx.findRun(from)) { openRun(from); render(); return; }
+      state.focus = '[data-act="plan-run"]'; ACTIONS['open-process'](pid);
+    },
+    'plan-diff': function () { state.planDiff = !state.planDiff; state.focus = '[data-act="plan-diff"]'; render(); },
+    /* The one way a plan moves off the version it was planned on: the person chooses the latest. */
+    'plan-latest': function (id) {
+      var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && processes().filter(function (x) { return x.id === plan.process; })[0];
+      if (!p || !p.latest) return;
+      /* The exact version shown, never "whatever is latest": a newer one published later asks again. */
+      state.planPick = { key: fsKey(), plan: id, hash: plan._hash, folder: p.latest.info.folder };
+      state.planDiff = false; state.focus = 'start-submit'; say(null); render();
+    },
     'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
@@ -1177,7 +1223,7 @@
         return refreshRun();
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
-    'just-me': function () { app.querySelectorAll('#start-form [data-role]').forEach(function (el) { el.value = state.me; }); },
+    'just-me': function () { app.querySelectorAll('#start-form [data-role], #plan-form [data-role]').forEach(function (el) { el.value = state.me; }); },
     copy: function (id, b) { copyText(b.dataset.text, null); },
     mission: function () { state.view = 'mission'; render(); window.scrollTo(0, 0); },
     receipt: function () { state.view = 'receipt'; render(); window.scrollTo(0, 0); },
@@ -1272,22 +1318,59 @@
     var details = {}, roles = {};
     e.target.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = el.value; });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
-    if (val('start-mode') === 'solo') p.latest.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     var plan = state.planId && data.plans.filter(function (x) { return x.id === state.planId; })[0];
-    /* Start exactly what was reviewed: the same published version and, for a plan, the same plan content. */
-    if (e.target.dataset.folder !== p.latest.info.folder) { say('A new version was published while you were filling this in. Check the form, then start again.', 'warn'); render(); return; }
+    /* Start exactly what was reviewed: the same published version and, for a plan, the same plan content. Only a plan can start
+       an older version (the one it was planned on), and only until the person switches to the latest. */
+    var pub = plan ? PF.publish.forPlan(p, plan.version, V.planChoice(ctx, plan)).pub : p.latest;
+    if (e.target.dataset.folder !== pub.info.folder) { say(plan ? 'The version this plan starts on changed while you were filling this in. Check the form, then start again.' : 'A new version was published while you were filling this in. Check the form, then start again.', 'warn'); render(); return; }
+    if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    var r = R.create(p.latest, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows });
+    var r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows });
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me;
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     queued(function () { r.recorder.session = SESSION; return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
       return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who) : null;
-    }).then(function () { endBusy(); if (sg !== gen) return; state.planId = null; return load(true); }).then(function () { if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); render(); },
+    }).then(function () { endBusy(); if (sg !== gen) return; state.planId = null; state.planPick = null; state.planDiff = false; return load(true); }).then(function () { if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); render(); },
       function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
+  });
+
+  /* Save a plan: a new file, never a replacement for one that's there. */
+  document.addEventListener('submit', function (e) {
+    if (e.target.id !== 'plan-form') return;
+    e.preventDefault();
+    var p = processes().filter(function (x) { return x.id === e.target.dataset.process; })[0], planning = state.planning;
+    if (!p || !p.latest || !state.me || !planning || planning.process !== p.id) return;
+    var pub = p.latest, details = {}, roles = {};
+    if (e.target.dataset.folder !== pub.info.folder) { say('A new version was published while you were filling this in. Check the form, then save again.', 'warn'); render(); return; }
+    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = el.value.trim(); if (v) details[el.dataset.detail] = v.slice(0, 120); });
+    e.target.querySelectorAll('[data-role]').forEach(function (el) { if (el.value) roles[el.dataset.role] = el.value; });
+    if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
+    var whenText = val('plan-when').trim(), parsed = whenText ? U.localDateTime(whenText) : null, when = parsed && parsed.date;
+    if (parsed && parsed.error) { state.fieldErr = { id: 'plan-when', msg: parsed.error === 'gap' ? 'That time doesn\'t exist on that day (clocks change); pick another.' : 'Enter a date and time, or leave it blank.' }; state.focus = 'plan-when'; render(); return; }
+    state.fieldErr = null;
+    var plan = { kind: 'plan', id: 'plan-' + p.id + '-' + U.randomId(8), process: p.id, version: pub.info.version, title: (val('run-title').trim() || pub.map.meta.title || p.title).slice(0, 100), details: details, roles: roles };
+    if (when) plan.when = when.toISOString();
+    var note = val('plan-note').trim();
+    if (note) plan.note = note.slice(0, 300);
+    if (planning.from) plan.from = planning.from;
+    plan.by = state.me; plan.created = new Date().toISOString();
+    /* One save of a plan form at a time: a second click while it saves would write the same plan twice. */
+    if (planning.saving) { say('Still saving this plan.', 'warn'); render(); return; }
+    planning.saving = true;
+    var sfs = state.fs, g = gen, endBusy = busyStart();
+    queued(function () { return repo.savePlan(sfs, plan, { lock: LOCKS ? lock : null }); }).then(function (res) {
+      endBusy(); planning.saving = false; if (g !== gen) return;
+      if (res.conflict) { say(res.afterWrite ? 'Something else wrote the same plan file just now. Check Runs before planning it again.' : 'A plan with the same name is already in the folder, so nothing was saved. Save again.', 'warn'); render(); return; }
+      return load(true).then(function () {
+        if (g !== gen) return;
+        if (state.planning === planning && state.view === 'start') { state.planning = null; state.view = 'runs'; state.processId = null; state.focus = 'card-' + plan.id; window.scrollTo(0, 0); }
+        say('Planned ' + plan.title + '.', 'good'); render();
+      });
+    }, function (err) { endBusy(); planning.saving = false; if (g !== gen) return; say('Couldn\'t save the plan: ' + err.message, 'bad'); render(); });
   });
 
   document.addEventListener('input', function (e) {

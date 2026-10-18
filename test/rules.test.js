@@ -78,6 +78,47 @@ rule('Publishing freezes the map and the step types it uses; damaged or half-syn
   assert.ok(P.verify(b.folder, b.files).ok);
 });
 
+rule('A plan starts on the version it was planned on, or the exact one someone switched to; one that can\'t be used falls back to the latest', () => {
+  const v = (n) => ({ ok: true, info: { version: n, folder: 'v' + n + '-abc' } });
+  const proc = { latest: v(3), all: [v(3), v(2), v(1)], clashes: [] };
+  const pick = (pr, ver, chosen) => P.forPlan(pr, ver, chosen);
+  assert.strictEqual(pick(proc, 2).pub.info.version, 2, 'pinned');
+  assert.ok(pick(proc, 2).older && !pick(proc, 2).chosen);
+  assert.strictEqual(pick(proc, 3).older, false, 'already the latest');
+  assert.strictEqual(pick(proc, '2').pub.info.version, 2, 'a version written as text still pins');
+  assert.strictEqual(pick(proc, 1, 'v2-abc').pub.info.version, 2, 'the exact version switched to');
+  assert.ok(pick(proc, 1, 'v2-abc').older && pick(proc, 1, 'v2-abc').chosen, 'a newer one published after the switch is still pointed out');
+  assert.ok(pick(proc, 1, 'v3-abc').chosen && !pick(proc, 1, 'v3-abc').older);
+  const gone = pick({ latest: v(3), all: [v(3)], clashes: [] }, 2);
+  assert.ok(gone.missing && gone.pub.info.version === 3, 'removed: the latest, with a notice');
+  assert.ok(pick({ latest: v(3), all: [v(3)], clashes: [] }, 1, 'v2-abc').missing, 'a removed choice: the latest, with a notice');
+  assert.ok(pick({ latest: v(3), all: [v(3), v(2), v(2)], clashes: [2] }, 2).missing, 'clashing: never used');
+  assert.ok(pick(proc, 'soon').missing, 'unreadable: the latest');
+  assert.strictEqual(pick(proc, undefined).pub.info.version, 3, 'no version: the latest, no notice');
+});
+
+rule('A planned time is read as local time; a time the clocks skip is refused rather than moved', () => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    const ok = U.localDateTime('2026-11-06T09:00');
+    assert.ok(ok.date && ok.date.getHours() === 9 && ok.date.toISOString() === '2026-11-06T14:00:00.000Z', String(ok.date && ok.date.toISOString()));
+    assert.strictEqual(U.localDateTime('2026-03-08T02:30').error, 'gap', 'spring forward: 2:30 AM doesn\'t exist');
+    assert.strictEqual(U.localDateTime('2026-02-31T09:00').error, 'bad');
+    assert.strictEqual(U.localDateTime('whenever').error, 'bad');
+  } finally { if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz; }
+});
+
+rule('A planned run\'s time reads in plain words', () => {
+  const now = Date.parse(NOW), h = 3600000;
+  assert.ok(/^[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M · in 3 days$/.test(U.dueWords(new Date(now + 72 * h).toISOString(), now)), U.dueWords(new Date(now + 72 * h).toISOString(), now));
+  assert.ok(/ · in 2 hours$/.test(U.dueWords(new Date(now + 2 * h).toISOString(), now)));
+  assert.ok(/ · starts now$/.test(U.dueWords(new Date(now - 5 * 60000).toISOString(), now)));
+  assert.ok(/ · was due yesterday$/.test(U.dueWords(new Date(now - 24 * h).toISOString(), now)));
+  assert.ok(/ · was due 3 hours ago$/.test(U.dueWords(new Date(now - 3 * h).toISOString(), now)));
+  assert.strictEqual(U.dueWords('not a date', now), '');
+});
+
 rule('Publishing needs a person and a change note', () => {
   const md = example('maps/drafts/check-in.md');
   assert.ok(P.build(md, { people, ...EX, by: '', changes: 'x', existing: [], now: NOW }).blockers);

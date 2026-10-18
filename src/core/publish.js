@@ -70,5 +70,23 @@ PF.publish = (function () {
     return out;
   }
 
-  return { build: build, verify: verify, index: index, diff: diff, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  /* The publication a planned run starts on: the exact one the person chose (chosen: a publication folder), else the version it
+     was planned on. A choice or version that can't be used any more (removed, damaged or clashing) gives the latest, and
+     `missing` says so. `older` is true whenever a newer version than the one starting is published. */
+  function forPlan(proc, version, chosen) {
+    var latest = proc.latest, clashes = proc.clashes || [], all = proc.all || [];
+    var out = function (pub, missing) { return { pub: pub, older: !!pub && pub.info.folder !== latest.info.folder, missing: !!missing, chosen: !!chosen && !missing }; };
+    if (!latest) return out(null, false);
+    var ok = function (list) { return list.length === 1 && clashes.indexOf(list[0].info.version) < 0 ? list[0] : null; };
+    if (chosen) {
+      var c = ok(all.filter(function (p) { return p.info.folder === chosen; }));
+      return c ? out(c, false) : out(latest, true);
+    }
+    var v = typeof version === 'string' && /^\d+$/.test(version) ? +version : version;
+    if (v == null || v === latest.info.version) return out(latest, false);
+    var hit = typeof v === 'number' ? ok(all.filter(function (p) { return p.info.version === v; })) : null;
+    return hit ? out(hit, false) : out(latest, true);
+  }
+
+  return { build: build, verify: verify, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

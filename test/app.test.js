@@ -978,4 +978,223 @@ rule('Releases: the update notice is recorded only once it has been shown, and d
   assert.ok(!/Flightdeck was updated/.test(again.html()), 'not shown twice');
 });
 
+/* ---------- planned runs ---------- */
+const releaseRuns = app => app.files('runs/release/').filter(p => /\/run\.json$/.test(p));
+const newPlans = (app, before) => app.files('proposals/').filter(p => !/\.status-/.test(p) && before.indexOf(p) < 0);
+const pubFolder = (app, v) => app.files('publications/release/v' + v + '-')[0].split('/')[2];
+
+rule('Plans: clicking Save the plan again while it saves never writes the plan twice', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('plan-run', 'release'); await app.tick();
+  const before = app.files('proposals/'), write = app.fs.write.bind(app.fs), g = gate();
+  app.fs.write = (p, t) => /^proposals\/plan-/.test(p) ? g.p.then(() => write(p, t)) : write(p, t);
+  app.set('run-title', 'Release 2026.11.13');
+  app.submitForm('plan-form'); await app.tick(5);
+  app.submitForm('plan-form'); await app.tick(5);
+  assert.ok(/Still saving this plan/.test(app.html()), 'the second click waits');
+  g.open(); await app.tick(80);
+  assert.strictEqual(newPlans(app, before).length, 1, 'one plan file');
+});
+
+rule('Plans: planning a run from a process page writes one new plan file with what was entered, and never replaces a file', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  assert.ok(/data-act="plan-run" data-id="release">Plan a run</.test(app.html()), 'next to Start a run');
+  app.click('plan-run', 'release'); await app.tick();
+  assert.ok(/<h1>Plan a run<\/h1>/.test(app.html()) && /type="datetime-local" id="plan-when"/.test(app.html()));
+  const before = app.files('proposals/');
+  app.set('run-title', 'Release 2026.11.06').set('detail-ticket', 'ABC-5000').set('plan-when', '2026-11-06T09:00').set('plan-note', 'Morgan takes QA').set('role-qa', 'person-morgan');
+  app.submitForm('plan-form'); await app.tick(80);
+  const made = newPlans(app, before);
+  assert.strictEqual(made.length, 1, 'one new file');
+  assert.ok(/^proposals\/plan-release-[a-z0-9]{8}\.json$/.test(made[0]), made[0]);
+  const plan = JSON.parse(app.fs.files[made[0]].t);
+  assert.strictEqual(made[0], 'proposals/' + plan.id + '.json');
+  assert.deepStrictEqual(Object.keys(plan), ['kind', 'id', 'process', 'version', 'title', 'details', 'roles', 'when', 'note', 'by', 'created']);
+  assert.strictEqual(plan.kind, 'plan'); assert.strictEqual(plan.process, 'release'); assert.strictEqual(plan.version, 2, 'the published version shown');
+  assert.strictEqual(plan.title, 'Release 2026.11.06');
+  assert.deepStrictEqual(plan.details, { ticket: 'ABC-5000' }, 'blank details are left out; they can be filled in when it starts');
+  assert.strictEqual(plan.roles.qa, 'person-morgan');
+  assert.strictEqual(plan.when, new Date('2026-11-06T09:00').toISOString());
+  assert.strictEqual(plan.note, 'Morgan takes QA'); assert.strictEqual(plan.by, 'person-casey');
+  assert.ok(/Planned Release 2026\.11\.06\./.test(app.html()) && /<h1>Runs<\/h1>/.test(app.html()), 'goes to Runs and says so');
+  assert.ok(app.html().includes('id="card-' + plan.id + '"'), 'listed under Planned');
+  // A file with the same name is already there (another computer, or an assistant): nothing is replaced.
+  app.fs.files['proposals/plan-release-taken000.json'] = { t: 'THEIRS', m: Date.now() };
+  const rid = app.PF.util.randomId;
+  app.PF.util.randomId = () => 'taken000';
+  try {
+    app.click('plan-run', 'release'); await app.tick();
+    app.submitForm('plan-form'); await app.tick(80);
+  } finally { app.PF.util.randomId = rid; }
+  assert.strictEqual(app.fs.files['proposals/plan-release-taken000.json'].t, 'THEIRS', 'never overwritten');
+  assert.ok(/already in the folder, so nothing was saved/.test(app.html()), 'says nothing was saved');
+});
+
+rule('Plans: a time that can\'t be read is pointed out next to its field, and nothing is saved', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('plan-run', 'release'); await app.tick();
+  const before = app.files('proposals/');
+  app.set('plan-when', 'whenever'); app.submitForm('plan-form'); await app.tick(40);
+  assert.strictEqual(newPlans(app, before).length, 0);
+  assert.ok(/id="ferr-plan-when" role="alert"/.test(app.html()));
+});
+
+rule('Plans: duplicating a run plans its details and roles on the current version, never what a step set or anything answered, and records where it came from', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const path = releaseRuns(app).find(p => JSON.parse(app.fs.files[p].t).title === 'Release 2026.10.09'), src = JSON.parse(app.fs.files[path].t), key = 'release/' + src.id;
+  assert.ok(src.details.tag && src.ended, 'set-up: an ended run with a detail its tag step set');
+  app.click('open-run', key); await app.tick();
+  assert.ok(app.html().includes('data-act="plan-from-run" data-id="' + key + '"'), 'offered on the run');
+  app.click('receipt'); await app.tick();
+  assert.ok(/data-act="plan-from-run"/.test(app.html()), 'and on its receipt');
+  app.click('plan-from-run', key); await app.tick();
+  assert.ok(/<h1>Plan a run<\/h1>/.test(app.html()) && /id="detail-ticket"[^>]*value="ABC-4722"/.test(app.html()) && !/id="detail-tag"/.test(app.html()));
+  const before = app.files('proposals/');
+  app.submitForm('plan-form'); await app.tick(80);
+  const plan = JSON.parse(app.fs.files[newPlans(app, before)[0]].t);
+  assert.strictEqual(plan.from, key, 'from the run');
+  assert.strictEqual(plan.version, 2, 'the current version, not the run\'s v1');
+  assert.strictEqual(plan.title, 'Release 2026.10.09');
+  assert.deepStrictEqual(plan.details, { ticket: 'ABC-4722', commit: 'e4c90b2', environment: 'production' }, 'no tag: the run makes it again');
+  assert.deepStrictEqual(plan.roles, src.roles);
+  assert.ok(!['steps', 'gates', 'fields', 'log', 'followUps', 'notes', 'answers'].some(k => k in plan), 'answers, notes and gates are never copied');
+});
+
+rule('Plans: a plan starts on the version it was planned on; See what changed shows the differences; Switch starts the latest', async () => {
+  const pinned = boot(); await pinned.tick(60);
+  pinned.choose('person-casey'); await pinned.tick();
+  pinned.click('review-plan', 'plan-release-2026-10-24'); await pinned.tick();
+  assert.ok(/This plan was made for v1\. v2 is now published\./.test(pinned.html()));
+  pinned.click('plan-diff'); await pinned.tick();
+  assert.ok(/class="diff"/.test(pinned.html()), 'the differences');
+  let before = releaseRuns(pinned);
+  pinned.submitForm('start-form'); await pinned.tick(120);
+  let made = releaseRuns(pinned).filter(p => before.indexOf(p) < 0);
+  assert.strictEqual(made.length, 1, 'started');
+  let run = JSON.parse(pinned.fs.files[made[0]].t);
+  assert.strictEqual(run.version, 1); assert.strictEqual(run.folder, pubFolder(pinned, 1), 'on the version it was planned on');
+  assert.ok(pinned.files('proposals/plan-release-2026-10-24.status-').length === 1, 'the plan is marked started');
+
+  const switched = boot(); await switched.tick(60);
+  switched.choose('person-casey'); await switched.tick();
+  switched.click('review-plan', 'plan-release-2026-10-24'); await switched.tick();
+  switched.click('plan-latest', 'plan-release-2026-10-24'); await switched.tick();
+  assert.ok(/Switched to v2/.test(switched.html()));
+  before = releaseRuns(switched);
+  switched.submitForm('start-form'); await switched.tick(120);
+  made = releaseRuns(switched).filter(p => before.indexOf(p) < 0);
+  run = JSON.parse(switched.fs.files[made[0]].t);
+  assert.strictEqual(run.version, 2); assert.strictEqual(run.folder, pubFolder(switched, 2));
+});
+
+rule('Plans: when the version a plan pins is gone, it starts on the latest and says so', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const v1 = pubFolder(app, 1);
+  app.files('publications/release/' + v1 + '/').forEach(p => { delete app.fs.files[p]; });
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/made for v1, which can(&#39;|')t be used anymore\. It starts on v2/.test(app.html()));
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t);
+  assert.strictEqual(run.version, 2);
+});
+
+rule('Plans: an older version can only be started through a plan that pins it, never from a form drawn earlier', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const v1 = pubFolder(app, 1), before = releaseRuns(app);
+  // A plain start whose form named v1.
+  app.click('start', 'release'); await app.tick();
+  app.submitForm('start-form', { folder: v1 }); await app.tick(80);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  assert.ok(/A new version was published while you were filling this in/.test(app.html()));
+  // A plan switched to the latest, submitted from a form still showing v1.
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick();
+  app.submitForm('start-form', { folder: v1 }); await app.tick(80);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  assert.ok(/The version this plan starts on changed/.test(app.html()));
+});
+
+rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  assert.ok(/Release 2026\.10\.23 is planned for [^<]* · in \d+ (hours|minutes)/.test(app.html()));
+  assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review and start</.test(app.html()));
+});
+
+rule('Plans: a switch pins the exact version chosen; a version published after the switch is pointed out, never started silently', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick();
+  // Someone publishes v3 (a copy of v2 under a new number), and the folder is read again.
+  const v2 = pubFolder(app, 2), v3 = 'v3-zzzzzzzz';
+  app.files('publications/release/' + v2 + '/').forEach(p => {
+    const t = app.fs.files[p].t, name = p.split('/').pop();
+    app.fs.files['publications/release/' + v3 + '/' + name] = { t: name === 'publication.json' ? JSON.stringify(Object.assign(JSON.parse(t), { version: 3, folder: v3 })) : t, m: Date.now() };
+  });
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/You switched this plan to v2\. v3 is now published\./.test(app.html()), 'asks again');
+  assert.ok(/Switch to v3/.test(app.html()));
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t);
+  assert.strictEqual(run.folder, v2, 'the version chosen, not the newer one');
+});
+
+rule('Plans: a switch belongs to one folder and one version of the plan', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/Switched to v2/.test(app.html()));
+  // The plan's file changes (an assistant rewrote it): the switch was made on what it said before.
+  const path = 'proposals/plan-release-2026-10-24.json', plan = JSON.parse(app.fs.files[path].t);
+  app.fs.files[path] = { t: JSON.stringify(Object.assign(plan, { note: 'Changed' })), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/This plan was made for v1\. v2 is now published\./.test(app.html()), 'asks again');
+  // Switching folders drops the choice: reset the examples (a new folder generation) and the same plan asks again.
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick();
+  app.click('reset-examples'); await app.tick(200);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/This plan was made for v1\. v2 is now published\./.test(app.html()), 'not carried into another folder');
+});
+
+rule('Plans: as time passes, Home picks up a plan entering its last day and the times in words stay current, with no change in the folder', async () => {
+  let offset = 0;
+  const RealDate = Date;
+  class Clock extends RealDate { constructor(...a) { if (a.length) super(...a); else super(RealDate.now() + offset); } static now() { return RealDate.now() + offset; } }
+  const app = boot({ Date: Clock }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const when = new RealDate(RealDate.now() + 26 * 3600000); when.setMinutes(0, 0, 0);
+  app.fs.files['proposals/plan-release-later.json'] = { t: JSON.stringify({ kind: 'plan', id: 'plan-release-later', process: 'release', version: 2, title: 'Release later', details: {}, roles: {}, when: when.toISOString(), by: 'person-casey', created: new RealDate().toISOString() }), m: RealDate.now() };
+  app.click('refresh'); await app.tick(80); app.click('home'); await app.tick();
+  app.every(); await app.tick();
+  assert.ok(!/Release later is planned/.test(app.html()), 'more than a day away: not on Home yet');
+  offset = 3 * 3600000;
+  app.every(); await app.tick();
+  assert.ok(/Release later is planned for [^<]* · in 2\d hours|Release later is planned for [^<]* · tomorrow/.test(app.html()), 'inside its last day: on Home');
+  assert.ok(/Release 2026\.10\.23 is planned for [^<]* · (starts now|was due \d+ minutes ago|in \d+ minutes)/.test(app.html()), 'the other plan\'s time words moved on');
+});
+
+rule('Plans: a time the clocks skip is pointed out, not saved an hour off', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('plan-run', 'release'); await app.tick();
+  const before = app.files('proposals/'), real = app.PF.util.localDateTime;
+  app.PF.util.localDateTime = () => ({ error: 'gap' });
+  try { app.set('plan-when', '2026-03-08T02:30'); app.submitForm('plan-form'); await app.tick(40); } finally { app.PF.util.localDateTime = real; }
+  assert.strictEqual(newPlans(app, before).length, 0);
+  assert.ok(/That time doesn(&#39;|')t exist on that day \(clocks change\); pick another\./.test(app.html()));
+});
+
 run();

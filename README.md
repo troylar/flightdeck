@@ -249,6 +249,8 @@ A process is one page, with its checklist in the middle:
 
 Beside the checklist: whether it's ready for a skill, its skills, its versions and its recent runs.
 
+**Plan a run** for later, next to **Start a run**: a name, the details you know, who does what and an optional time. **Plan another like this** on any run or receipt copies its details and roles, never its answers. Planned runs are listed by time under **Runs** and show on Home when they're due; a plan starts on the version it was planned on until you switch to the newer one.
+
 Saving is careful. A save only goes through if the draft is still exactly what you opened. If a teammate or your LLM changed it meanwhile, nothing is saved: you see their version and choose to keep yours or take theirs. One limit: a shared folder can't lock a file, so a change that lands in the instant between that check and the write can still be replaced. Edit a draft with one person (or one LLM) at a time. Saving never publishes; publishing is a separate, logged step.
 
 **New process** on the Processes page asks for an ID, title, group, tags, run details, roles and owner, starts the draft, and opens it in the editor.
@@ -346,7 +348,7 @@ skills/                skill registrations: each skill's source, what it impleme
 validations/           owners' sign-offs that a version is ready for a skill
 step-types/            your team's own step types (create them in the app)
 jira/workflows.json    your real Jira workflows, with required fields
-proposals/             runs your LLM planned, waiting for a person to start them
+proposals/             planned runs (from the app or your LLM), waiting for a person to start them
 images/                screenshots that checklists refer to
 AGENTS.md              the rules any AI assistant follows in this folder
 .flightdeck/skills/    the Flightdeck skills for your AI assistant
@@ -354,7 +356,7 @@ AGENTS.md              the rules any AI assistant follows in this folder
 
 </details>
 
-Every file has exactly one writer, so a shared folder never corrupts. Your LLM writes checklists, plans, step types, workflows and skill registrations; people publish, run and sign off.
+Every file has exactly one writer, so a shared folder never corrupts. Your LLM writes checklists, plans, step types, workflows and skill registrations; people publish, plan, run and sign off.
 
 <br>
 

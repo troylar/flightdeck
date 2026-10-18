@@ -28,6 +28,18 @@
     return '<div class="runhead"><div><div class="eyebrow">' + eyebrow + '</div><h1>' + title + '</h1>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div>' + (actions ? '<div class="row">' + actions + '</div>' : '') + '</div>';
   }
 
+  /* A plan's time, or null when it has none or it can't be read. */
+  function whenOf(p) { var t = typeof p.when === 'string' ? Date.parse(p.when) : NaN; return isNaN(t) ? null : t; }
+  /* Soonest first; plans without a time after them, oldest first. */
+  function byWhen(plans) {
+    return plans.slice().sort(function (a, b) {
+      var x = whenOf(a), y = whenOf(b);
+      if (x != null && y != null && x !== y) return x - y;
+      if ((x == null) !== (y == null)) return x == null ? 1 : -1;
+      return String(a.created || '') < String(b.created || '') ? -1 : String(a.created || '') > String(b.created || '') ? 1 : 0;
+    });
+  }
+
   /* ---------- Home: only what needs this person, each with one obvious next step ---------- */
   function home(ctx) {
     var st = ctx.state, d = ctx.data, me = st.me, items = [];
@@ -37,7 +49,13 @@
       if (r.recorder.person === me) add('run', esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
       else if (nx) add('run', esc(r.title) + ': you\'re up', esc(nx.step.text) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
     });
-    d.plans.filter(function (p) { return !p._status; }).forEach(function (p) { add('plan', (p.by ? esc(p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', p._conflicting ? 'Two decisions on it disagree; check Runs before starting it.' : 'Review it before it starts.', 'review-plan', p.id, 'Review the plan'); });
+    /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
+    var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
+    byWhen(d.plans.filter(function (p) { return !p._status; })).forEach(function (p) {
+      var t = whenOf(p);
+      if (t == null) add('plan', esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', p._conflicting ? clash : 'Review it before it starts.', 'review-plan', p.id, 'Review the plan');
+      else if (t - now <= 86400000) add('plan', esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), p._conflicting ? clash : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.', 'review-plan', p.id, 'Review and start');
+    });
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', 'Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.', 'open-process', id, 'Open it'); });
     ctx.processes().forEach(function (p) {
       var owner = p.latest && p.latest.map.meta.owner;
@@ -68,12 +86,12 @@
     var st = ctx.state, d = ctx.data;
     var running = d.runs.filter(function (r) { return r.state === 'running' && (st.filter === 'all' || (!!st.me && (r.recorder.person === st.me || Object.keys(r.roles).some(function (k) { return r.roles[k] === st.me; })))); });
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
-    var plans = d.plans.filter(function (p) { return !p._status; });
+    var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
     var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process. To start one, pick its process.', '<button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 style="margin:0">Running</h2><div class="filter" role="group" aria-label="Show runs"><button class="chipbtn" data-act="filter" data-id="mine" aria-pressed="' + (st.filter !== 'all') + '">Mine</button><button class="chipbtn" data-act="filter" data-id="all" aria-pressed="' + (st.filter === 'all') + '">Everyone</button></div></div>';
     h += '<div class="cards">' + (running.map(function (r) { return runCard(ctx, r); }).join('') || '<p class="muted">' + (st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p>') + '</div></section>';
     if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
-      return '<button class="card plan" data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · planned by ' + esc(p.by || 'an AI assistant') + '</span><span class="card-title">' + esc(p.title) + '</span>' + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
+      return '<button class="card plan" id="card-' + esc(p.id) + '" data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
     }).join('') + '</div></section>';
     h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? '<div class="cards">' + ended.map(function (r) { return runCard(ctx, r); }).join('') + '</div>' : '<p class="small">No finished runs yet.</p>') +
       (d.legacy.length ? '<p class="small">From Flightdeck v0.1 (read-only files in <code>runs/</code>): ' + d.legacy.map(function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }).join(', ') + '</p>' : '') + '</section>';
@@ -129,5 +147,5 @@
     return h;
   }
 
-  V.home = home; V.runs = runs; V.processesPage = processesPage; V.skillsPage = skillsPage; V.pageHead = pageHead;
+  V.planWhen = whenOf; V.home = home; V.runs = runs; V.processesPage = processesPage; V.skillsPage = skillsPage; V.pageHead = pageHead;
 })();

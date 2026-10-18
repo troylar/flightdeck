@@ -4,11 +4,14 @@
 
 ## 1.11.0 · Oct 18, 2026
 
-Organized step types.
+Planned runs, a flight plan view, and organized step types.
 
 ### New
 
 - **See a process as a flight plan** (Processes). On a process page, switch the checklist to Flight plan to see its shape at a glance: phases from start to landing, gates as checkpoints, tracks side by side and linked processes. With runs of that version, it shows each phase's usual time and the step that most often goes off-script. It marks steps covered by skills built from that version. Choose a phase to go to it. *Where:* A process page, the Checklist | Flight plan switch.
+- **Plan a run ahead of time** (Runs). Plan a run in the app: a name, the details you know, who does what and an optional time. Planned runs are listed by time under Runs and show on Home from a day before. Nothing starts until someone starts it. *Where:* A process page: Plan a run.
+- **Plan another like this** (Runs). Duplicate any run into a new plan with its details and roles. Its answers, notes and gates are never copied, and details a step fills in during the run are left for the new run. *Where:* A run, or its receipt: Plan another like this.
+- **Plans keep their version** (Runs). A plan starts on the version it was planned on. If a newer one is published first, the plan says so, shows what changed and switches with one click. *Where:* Starting a planned run.
 
 ### Improved
 
