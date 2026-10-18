@@ -24,6 +24,22 @@ It's **one HTML file**. No server, no sign-in, no network, no AI inside. It work
 
 <br>
 
+## Your skills, tied to the process they automate
+
+Teams are turning runbooks into AI skills fast. Then the process changes, and nobody can say which skills are now wrong.
+
+Flightdeck keeps that link, version by version:
+
+- **Built from proof.** A skill starts from a version the team has actually run clean, and its owner signed off.
+- **Traced to the step.** Every skill names its source, the exact process version it follows, and which steps it covers.
+- **Breakage flagged.** Publish a new version and Flightdeck shows exactly which skills it affects, step by step, and which it doesn't.
+- **Fixes, briefed.** One click copies the exact before and after for your AI assistant to update the skill.
+- **Evidence kept.** Every run is recorded: who did what, what was skipped, and where people went off-script.
+
+<p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-light.png" alt="A process goes from v1 to v2 and one step changes. Flightdeck checks every skill built from it: release-deploy and release-notes need an update, pr-opener is current. The update brief for release-deploy shows the exact before and after for your AI assistant." width="1000"></picture></a></p>
+
+<br>
+
 ## The loop
 
 <p align="center"><a href="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-light.png" title="Open full size"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/loop-light.png" alt="Write a checklist, publish a frozen version, run it, prove it with three clean runs and the owner sign-off, then your AI assistant builds the skill from the brief. A step done differently becomes a suggested checklist change; a new version that changes a covered step marks the skill as needing an update." width="1000"></picture></a></p>
