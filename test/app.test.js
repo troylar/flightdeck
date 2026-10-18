@@ -2476,4 +2476,51 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   assert.strictEqual(app.fs.files[fpath].t, ftext, 'never written');
 });
 
+rule('App: Undo and Redo never lose text typed in a builder box and not applied; they say to apply or clear it first', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
+  app.input('ob-text', 'Ask @qa before continuing'); await app.tick();
+  enter(app, 'ob-text', 'Ask @qa before continuing'); await app.tick();
+  assert.ok(/role="alert">Choose roles and run details with their buttons/.test(app.html()), 'set-up: refused, still typed');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.strictEqual(app.draft('ob-text'), 'Ask @qa before continuing', 'the typing is kept');
+  assert.ok(/Apply or clear what you typed/.test(app.html()), 'and Undo says why it waits');
+  assert.deepStrictEqual([...new Set([...app.html().matchAll(/data-ob-step="([\w-]+)"/g)].map(m => m[1]))].slice(0, 3), ['approved', 'flags', 'tests'], 'the move is not undone');
+});
+
+rule('App: undoing an applied wording change back to the saved text leaves nothing unsaved', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Flags reworded'); await app.tick();
+  enter(app, 'ob-text', 'Flags reworded'); await app.tick();
+  assert.ok(/Unsaved changes/.test(app.html()), 'set-up: changed');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()), 'back to saved, with no typing left pending');
+});
+
+rule('App: a part saved once keeps its ID even when Undo goes back past changes made before the save', async () => {
+  const app = await builderOn();
+  dragPart(app, 'step', 'before:rollback', 'step'); await app.tick();
+  app.set('ob-text', 'Persistent step'); enter(app, 'ob-text', 'Persistent step'); await app.tick();
+  app.check('ob-mark-must', true); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/\{#persistent-step\}/.test(releaseText(app)), 'set-up: saved with its ID');
+  app.click('tl-undo', 'draft'); await app.tick();
+  app.click('ob-sel', 'persistent-step'); await app.tick();
+  app.set('ob-text', 'Renamed saved step'); enter(app, 'ob-text', 'Renamed saved step'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/Renamed saved step \{#persistent-step\}/.test(releaseText(app)), releaseText(app).split('\n').find(l => /Renamed/.test(l)));
+});
+
+rule('App: Cmd+Z in the parts search undoes the search text, not the checklist', async () => {
+  const app = await builderOn();
+  app.click('ob-del', 'rollback'); await app.tick();
+  for (const id of ['ob-part-q', 'ob-part-q2']) {
+    assert.ok(!cmdKey(app, 'z', { tagName: 'INPUT', id, type: 'search', value: 'jenkins', defaultValue: 'jenkins', dataset: {}, closest: () => null }), id + ': left to the browser');
+  }
+  await app.tick();
+  assert.ok(!/data-ob-step="rollback"/.test(app.html()), 'the deletion stays');
+});
+
 run();

@@ -7856,9 +7856,9 @@ PF.examples = (function () {
   /* ---------- Undo, Redo and History (PF.timeline): one timeline per draft editor and per step-type form ---------- */
   var TL = PF.timeline;
   function tlOf(ed) { return ed.tl || (ed.tl = TL.create()); }
-  /* What rides along with a builder change: the selection, what's being added, the parts new in this window (freshCopy) and
-     the box with typing not yet applied, so Undo and Redo put all of them back with the text. */
-  function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null, pending: state.obPending || null, pendingField: state.obPendingField || null }; }
+  /* What rides along with a builder change: the selection, what's being added and the parts new in this window (freshCopy),
+     so Undo and Redo put them back with the text. Typing not yet applied is never replayed: Undo waits for it instead. */
+  function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null }; }
   /* The step or phase an outline operation is about, in words and as a History item. */
   function opSubject(text, op) {
     if (op.op === 'add') return String(op.text || '').trim();
@@ -8007,6 +8007,13 @@ PF.examples = (function () {
     var tl = tlFor(scope); if (!tl) return;
     var p = scope === 'draft' ? currentProcess() : null, ed = p && openEditor(p), f = scope === 'type' ? state.typeForm : null;
     if (p && builderBlocked(p)) return;
+    /* Text typed in a builder box and not applied (or refused) isn't in the draft: Undo would replace the box and lose it,
+       so it waits until that text is applied or cleared. An Add box keeps its text through Undo (below). */
+    var pf = p && state.obPending === p.id && state.obPendingField;
+    if (pf && !/^ob-new-/.test(pf)) {
+      say('Apply or clear what you typed in the box first (Enter applies it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn');
+      state.focus = '#' + pf; render(); return;
+    }
     var top = TL.peek(tl).undo;
     /* What's selected now is what Redo will put back. */
     if (!redo && top && scope === 'draft' && top.kind === 'op') top.selAfter = obSnap(ed);
@@ -8028,8 +8035,8 @@ PF.examples = (function () {
       ed.text = r.text; obClearErr(); state.planFormReset = !adding; state.obPlace = null; state.obAsk = null; state.obFlash = null;
       if (r.sel && 'obSel' in r.sel) {
         state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd;
-        if (r.sel.fresh) ed.fresh = r.sel.fresh;
-        if (r.sel.pending && !adding) { state.obPending = r.sel.pending; state.obPendingField = r.sel.pendingField; }
+        /* Parts already in the saved draft are never new again, whatever an older change remembered. */
+        if (r.sel.fresh) { var saved = PF.outline.parse(ed.base).ids, fr = Object.create(null); Object.keys(r.sel.fresh).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(saved, k)) fr[k] = true; }); ed.fresh = fr; }
       }
     } else { typeUnsnap(f, r.text); state.fieldErr = null; }
     say(words + (redo ? (k.undo ? ' Undo available.' : '') : ' Redo available.'), 'good', redo ? { act: 'tl-undo', id: scope, label: 'Undo' } : { act: 'tl-redo', id: scope, label: 'Redo' });
@@ -9274,6 +9281,8 @@ PF.examples = (function () {
       var zs = tlScope(); if (!zs) return;
       var zid = (t && t.id) || '';
       /* The step-type editor's Add-a-tag and Add-an-option boxes hold typing not yet applied, like the builder's boxes. */
+      /* Searches and filters (the parts search) aren't part of the draft: their typing is the browser's to undo. */
+      if (typing && (t.type === 'search' || /^ob-part-q/.test(zid))) return;
       var pending = /^ob-/.test(zid) || /^tf-.*add$/.test(zid);
       if (typing && !(zid === 'draft-editor' || (/^tf-/.test(zid) && !pending) || (pending && (t.tagName === 'SELECT' || t.value === (t.defaultValue || ''))))) return;
       e.preventDefault(); tlMove(zs, zk === 'y' || e.shiftKey, 'key'); return;
