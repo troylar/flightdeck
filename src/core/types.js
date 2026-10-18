@@ -82,7 +82,9 @@ PF.types = (function () {
   var BY = {};
   LIST.forEach(function (t) { t.version = VERSION; BY[t.id] = t; });
 
-  function get(id, frozen) { return (frozen && frozen[id]) || BY[id] || null; }
+  /* Own entries only: a step typed {constructor} or {toString} must not find something every object inherits. */
+  function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) && o[k] && typeof o[k] === 'object' ? o[k] : null; }
+  function get(id, frozen) { return own(frozen, id) || own(BY, id); }
 
   /* ---- Team step types: step-types/<id>.json in the team folder. Checked as strictly as a map, so a bad file never reaches a run. ---- */
   var FIELD_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1 }, RECORD_KINDS = { text: 1, url: 1, choice: 1 };
@@ -142,7 +144,7 @@ PF.types = (function () {
       record: (def.record || []).map(function (d) { var c = { name: d.name, label: d.label, kind: d.kind }; if (d.options) c.options = d.options.map(String); if (d.long) c.long = true; return c; }) };
   }
   var ICONS_OK = ['check', 'chat', 'people', 'fork', 'doc', 'hourglass', 'cursor', 'gear', 'merge', 'ticket', 'terminal', 'script', 'spark', 'pipeline', 'nest'];
-  function fieldDef(type, name) { return (type && type.fields && type.fields[name]) || COMMON[name] || null; }
+  function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name); }
   function matches(cond, fields) { return Object.keys(cond).every(function (k) { return String(fields[k] || '').toLowerCase() === cond[k]; }); }
   function options(def, fields) {
     if (def.optionsFrom) return String(fields[def.optionsFrom] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
@@ -173,6 +175,20 @@ PF.types = (function () {
       }
     });
     return { errors: errors, tips: tips };
+  }
+  /* Whether a step type frozen into a version uses only what this copy knows: a newer type version, or a property, field
+     kind or evidence kind it doesn't know, could change how the step works, so such a version isn't run here. */
+  var TYPE_KEYS = { id: 1, label: 1, icon: 1, hint: 1, fields: 1, record: 1, version: 1, custom: 1, group: 1, tags: 1 };
+  var FIELD_KEYS = { label: 1, kind: 1, required: 1, requiredWhen: 1, requiredUnless: 1, options: 1 }, RECORD_KEYS = { name: 1, label: 1, kind: 1, long: 1, optionsFrom: 1, options: 1, when: 1 };
+  var KNOWN_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1, duration: 1, deadline: 1, require: 1, time: 1, sets: 1 };
+  function plainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  function only(o, keys) { return Object.keys(o).every(function (k) { return Object.prototype.hasOwnProperty.call(keys, k); }); }
+  function understood(def) {
+    if (!plainObj(def) || !only(def, TYPE_KEYS)) return false;
+    if (def.version != null && !(typeof def.version === 'number' && def.version <= VERSION)) return false;
+    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return plainObj(d) && only(d, FIELD_KEYS) && Object.prototype.hasOwnProperty.call(KNOWN_KINDS, d.kind); }))) return false;
+    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && Object.prototype.hasOwnProperty.call(RECORD_KINDS, d.kind); }))) return false;
+    return true;
   }
   function editable(type) { return Object.keys((type && type.fields) || {}).concat(['link']).filter(function (f) { return !FIXED[f]; }); }
   /* The editable fields worth showing for this step: skip ones that only apply to another action, unless they already have a value. */
@@ -220,5 +236,5 @@ PF.types = (function () {
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
 
-  return { VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
+  return { VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
 })();

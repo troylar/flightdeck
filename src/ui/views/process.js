@@ -170,7 +170,7 @@
       h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c);
       if (p.draftChanged) {
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
-          '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.all.map(function (x) { return x.info; })) + '</button></div>' +
+          '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
           '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>';
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
@@ -220,7 +220,11 @@
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + pub.info.version + '. v' + latest.info.version + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button><button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + latest.info.version + '</button></span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
-    } else if (plan && pick.missing) h += '<div class="notice warn" role="status"><span>' + (chosen ? 'The version you switched to' : 'This plan was made for v' + esc(plan.version) + ', which') + ' can\'t be used anymore. It starts on v' + latest.info.version + '. Check the roles and details still make sense.</span></div>';
+    } else if (plan && pick.missing) {
+      /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */
+      var gone = !chosen && (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder) === +plan.version; })[0];
+      h += '<div class="notice warn" role="status"><span>' + (chosen ? 'The version you switched to' : 'This plan was made for v' + esc(plan.version) + ', which') + (gone ? ' can\'t be used here: ' + esc(gone.why) : ' can\'t be used anymore.') + ' It starts on v' + latest.info.version + '. Check the roles and details still make sense.</span></div>';
+    }
     else if (pick.chosen) h += '<div class="notice" role="status"><span>Switched to v' + pub.info.version + '. Check the roles and details still make sense.</span></div>';
     var formId = planning ? 'plan-form' : 'start-form', scope = planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '');
     h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._hash) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';

@@ -28,7 +28,7 @@ The team owns this code. Leave it easier to change than you found it.
 | `src/page.html` | Styles, color tokens, page shell | Light and dark tokens; no external resources. |
 | `build.py` | Joins `src/` into `dist/flightdeck.html` | Order is fixed in `CORE` and `APP` at the top. |
 | `example-folder/` | A complete team folder, built into the app as examples | Synthetic people only. Its `AGENTS.md` is the contract for working **in a team folder**; its `.flightdeck/skills/` are the Flightdeck skills for AI assistants that every new team folder gets (`flightdeck skills --to <dir>` installs them anywhere else). |
-| `test/` | `rules`, `outline`, `folder`, `sync`, `views`, `checker` and `app` tests, `fixtures/`, `run.sh` | `sync.test.js` simulates two computers on a delayed OneDrive. |
+| `test/` | `rules`, `outline`, `folder`, `sync`, `views`, `checker`, `app`, `build` and `cli` tests, `fixtures/`, `run.sh` | `sync.test.js` simulates two computers on a delayed OneDrive. |
 | `tools/type-table.js` | Writes the step-type table in `docs/map-format.md` | A test fails if docs and code disagree. |
 | `docs/` | `design.md` (the spec), `map-format.md`, `onedrive.md` | Update them in the same change as the code. |
 
@@ -60,10 +60,11 @@ node tools/type-table.js --write   # after changing step types
 1. **The build stays one self-contained HTML file.** No CDN scripts, no font or network fetches. Fonts are embedded by `build.py`.
 2. **One writer per file in the team folder.** Never add a second writer to an existing file. New shared data gets a per-session file.
 3. **Escape everything that comes from files.** Use `esc`, `mdInline` or `mdBlock`. Never put raw HTML from a checklist, note or run into the page. Links must stay `http(s)` or `mailto`.
-4. **`R.sanitize` guards every run read from disk.** A new run field gets a sanitize line with an allowed type and a length cap, plus a fixture in `test/fixtures/` showing that older files still load.
+4. **`R.sanitize` guards every run read from disk.** A new run field gets a sanitize line with an allowed type and a length cap, an entry in `KNOWN` (a run with a field this copy doesn't know opens read-only, so a newer copy's data is never erased), plus a fixture in `test/fixtures/` showing that older files still load.
 5. **Gates are never locks.** Don't write UI or docs implying "safe right now". Irreversible actions keep a person's confirmation.
 6. **Don't drop records.** History past the `run.json` caps must go to `history-*.jsonl` through `r._overflow` (via `addLog`/`answer`, never by trimming arrays directly), including when a save is refused. Conflict copies stay until a person deletes them, and keeping one saves the version it replaces as `replaced-*.json`. Follow-ups stop at 100 with a message.
 7. **Synthetic data only** in examples and tests: `person-avery`, `example.com`, `ABC-123`. No real names, tickets, hosts or secrets.
+8. **Fail safe on what this copy doesn't understand.** `PF.publish.verify` rejects a version with an unknown format, syntax or step type (and a frozen type this copy can't fully read); such a version is never started, planned or picked, and `repo.saveRun` refuses to write a run on it. `check_folder.py` must agree; `test/checker.test.js` proves it.
 
 ## Code style
 

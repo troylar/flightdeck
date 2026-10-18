@@ -28,6 +28,21 @@
     ]
   },
   {
+    "version": "1.11.1",
+    "date": "2026-10-18",
+    "headline": "Checklist versions this copy can't read are never run",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Versions this copy doesn't understand can't be started",
+        "before": "A checklist version written by a newer Flightdeck, or edited by hand or by an AI assistant with lines or step types this copy doesn't know, was listed like any other version. You could start or plan a run on it, and steps that shouldn't have applied showed as ordinary work.",
+        "now": "Such a version isn't offered to start, plan or pick. The process page and the version picker say why: update Flightdeck to run it. A plan made for it starts on the latest version you can run, and says so. A run started on it, or saved by a newer copy with details or a file format this copy doesn't know, opens read-only with the reason, and this copy never saves over it or plans another like it.",
+        "where": "A process page, the version picker, Start a run, and the run page."
+      }
+    ]
+  },
+  {
     "version": "1.11.0",
     "date": "2026-10-18",
     "headline": "Planned runs, a flight plan view, a checklist builder, and organized step types",

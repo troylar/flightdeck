@@ -19,12 +19,14 @@
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
     if (!shown) return '<section class="panel"><p class="small">This process has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
-    var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest);
+    var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder;
     var opts = (hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '') +
-      all.map(function (v) { return '<option value="' + esc(v.folder) + '"' + (v.folder === cur ? ' selected' : '') + '>v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + esc(v.info.changes.slice(0, 50)) + '</option>'; }).join('');
+      all.map(function (v) { return '<option value="' + esc(v.folder) + '"' + (v.folder === cur ? ' selected' : '') + '>v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + esc(v.info.changes.slice(0, 50)) + '</option>'; }).join('') +
+      /* Versions in the folder that can't be shown or run here (still syncing, damaged, or too new for this copy) say why. */
+      gone.map(function (b) { return '<option value="" disabled>v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + esc(String(b.why).slice(0, 200)) + '</option>'; }).join('');
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
-      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
+      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       '<div class="seg" role="group" aria-label="Show as"><button type="button" data-act="flight" data-id="list" aria-pressed="' + !st.flight + '">Checklist</button><button type="button" data-act="flight" data-id="plan" aria-pressed="' + !!st.flight + '">Flight plan</button></div>' +
       (st.flight ? '' : '<button class="mini" data-act="toggle-md" aria-pressed="' + !!st.showMd + '">Markdown</button>') +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + 'Edit</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';

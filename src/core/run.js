@@ -6,6 +6,9 @@ PF.run = (function () {
   var LOG_MAX = 300;
 
   function create(pub, o) {
+    /* Only a version this copy fully understands can start a run; P.verify already sets the others aside. */
+    var bad = !pub.info || pub.info.format !== PF.publish.FORMAT ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types);
+    if (bad) throw new Error(bad);
     var map = pub.map, details = {}, roles = {};
     map.meta.context.forEach(function (f) { details[f] = String((o.details || {})[f] || '').trim(); });
     map.meta.roles.forEach(function (r) { roles[r] = (o.roles || {})[r] || ''; });
@@ -429,6 +432,7 @@ PF.run = (function () {
      in the log. Refuses a copy of another run or of another map version. The caller keeps the displaced version. */
   function adopt(cur, copy, who, now) {
     if (!copy || copy.id !== cur.id || copy.process !== cur.process) throw new Error('That copy belongs to a different run.');
+    if (copy._unrunnable) throw new Error(copy._unrunnable + ' That copy can only be read here, so it wasn\'t kept.');
     if (copy.mapHash !== cur.mapHash || copy.folder !== cur.folder) throw new Error('That copy was made from a different version of the checklist, so it can\'t replace this one.');
     /* Every deviation either version shows (in its marks, its answers or their earlier answers), taken before the copy's
        answers replace this version's, so a run from before marks existed can't lose a block by being recovered. */
@@ -732,8 +736,74 @@ PF.run = (function () {
   function inputsOf(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 60).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
   function values(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 120).forEach(function (k) { if (/^[\w-]{1,40}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
   function stamp(o) { return o && typeof o === 'object' && isoOrNull(o.at) ? { by: str(o.by, 80), at: o.at } : undefined; }
+  /* Every field a run file holds as this copy writes it. Anything else, or a state this copy doesn't know, came from a newer
+     Flightdeck: sanitize would drop it, so a save from here would erase it. */
+  var NEWER = 'This run uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
+  var KNOWN = {
+    run: 'format id process version folder mapHash title category snapshot types details roles recorder followUps shotsFrozen jira pauses paused lineage state created createdBy tz steps gates fields log ended rev savedAt savedBy marksFrom marks parent',
+    recorder: 'person session handoff', handoff: 'from rev at', step: 's by at reason started deadline differently values child history', history: 's by at reason differently values fields',
+    gate: 's by at reason was approved', ended: 'outcome by byName at', paused: 'by at reason', pause: 'from to by reason', child: 'process id inputs failed', parent: 'process id step inputs',
+    followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
+    workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
+  };
+  Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
+  var MARKS = { blocked: 1, recheck: 1, na: 1, differently: 1 };
+  function newer(o) {
+    var why = '';
+    function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+    /* Names starting with "_" are this window's own bookkeeping, never saved, so they're no sign of a newer copy. */
+    function look(v, kind, where) {
+      if (why || !obj(v)) return;
+      var extra = Object.keys(v).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN[kind], f) && !(kind === 'run' && f[0] === '_'); })[0];
+      if (extra != null) why = where + ' has "' + String(extra).slice(0, 40) + '".';
+    }
+    function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
+    function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
+    function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
+    look(o, 'run', 'The run');
+    state(RUN_STATES, o.state, 'Its state');
+    look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
+    look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
+    look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
+    look(o.parent, 'parent', 'Its parent run'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
+    /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
+    text(o.details, 'A run detail'); text(o.roles, 'A role');
+    if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"'); });
+    if (Array.isArray(o.lineage) && o.lineage.some(function (t) { return typeof t !== 'string'; })) why = why || 'A save receipt in it isn\'t a name.';
+    /* The run's copy of the Jira workflows, as PF.jira.check writes it (an issue type, its transitions, their required fields). */
+    if (obj(o.jira)) Object.keys(o.jira).forEach(function (k) {
+      var w = o.jira[k], where = 'The Jira workflow "' + k.slice(0, 40) + '"';
+      look(w, 'workflow', where);
+      if (obj(w) && Array.isArray(w.transitions)) w.transitions.forEach(function (t) { look(t, 'transition', where); if (obj(t)) each(t.fields, 'jiraField', where); });
+    });
+    if (o.marksFrom != null && o.marksFrom !== 'start') why = why || 'Its "marksFrom" is "' + String(o.marksFrom).slice(0, 40) + '".';
+    if (obj(o.marks)) Object.keys(o.marks).forEach(function (k) { if (Array.isArray(o.marks[k])) o.marks[k].forEach(function (m) { state(MARKS, m, 'A mark on step "' + k.slice(0, 60) + '"'); }); });
+    if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
+      var a = o.steps[k], w = 'Step "' + k.slice(0, 60) + '"';
+      if (!obj(a)) return;
+      look(a, 'step', w); state(STEP_STATES, a.s, w + '\'s state');
+      look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, 'child', w);
+      text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
+      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, 'history', w + '\'s history'); if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
+    });
+    if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
+      var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
+      if (!obj(g)) return;
+      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of');
+    });
+    return why ? NEWER + ' ' + why : '';
+  }
+  /* A run file in a run format this copy doesn't know (a newer Flightdeck's) is listed by name, read-only, with no steps:
+     this copy can't tell what any of it means, so it shows nothing it might misread and never writes the file. */
+  function newerFormat(o) {
+    if (!o || typeof o !== 'object' || typeof o.format !== 'string' || !/^preflight-run\//.test(o.format) || o.format === FORMAT) return null;
+    if (typeof o.id !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(o.id)) return null;
+    var r = sanitize({ format: FORMAT, id: o.id, process: o.process, title: o.title, created: o.created, createdBy: o.createdBy, version: o.version, folder: o.folder, state: o.state, ended: o.ended, snapshot: '', steps: {}, gates: {}, recorder: { person: o.recorder && o.recorder.person } });
+    r._unrunnable = 'This run was saved by a newer copy of Flightdeck, in a format this copy can\'t read. Update Flightdeck to see or record it.';
+    return r;
+  }
   function sanitize(o) {
-    if (!valid(o)) return null;
+    if (!valid(o)) return newerFormat(o);
     var r = {
       format: FORMAT, id: o.id, process: str(o.process, 60), version: Math.max(0, parseInt(o.version, 10) || 0), folder: str(o.folder, 60), mapHash: str(o.mapHash, 16),
       title: str(o.title, 100) || 'Untitled run', category: str(o.category, 60), snapshot: o.snapshot, types: o.types && typeof o.types === 'object' ? o.types : {},
@@ -780,11 +850,16 @@ PF.run = (function () {
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
     if (o.ended && OUTCOMES[o.ended.outcome] && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
+    /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
+       shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
+       Not saved itself ("_"). */
+    var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o);
+    if (bad) r._unrunnable = bad;
     return r;
   }
 
   return {
-    FORMAT: FORMAT, create: create, mapOf: mapOf, valid: valid, sanitize: sanitize, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, valid: valid, sanitize: sanitize, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, start: start, setDeadline: setDeadline,

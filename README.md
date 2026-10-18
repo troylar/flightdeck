@@ -95,7 +95,7 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 </td>
 <td valign="top">
 
-**Edit** in place: the Markdown beside a live check and preview. If the draft changed since you opened it, you see both and choose.
+**Edit** in place, as an outline or as Markdown, beside a live check and preview. If the draft changed since you opened it, you see both and choose.
 
 <a href="https://github.com/troylar/flightdeck/blob/main/docs/images/edit-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/edit-light.png" alt="Editing a draft: the Markdown on the left, Ready to publish and a live preview on the right"></picture></a>
 
@@ -111,9 +111,57 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 </td>
 <td valign="top">
 
-**A skill** says what changed under it and gives your LLM the exact before and after.
+**A skill** says what changed under it and gives your AI assistant the exact before and after.
 
 <a href="https://github.com/troylar/flightdeck/blob/main/docs/images/skill-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skill-light.png" alt="The release-deploy skill: needs an update because one of its steps changed in v2, with a Copy the update brief button and where the skill lives"></picture></a>
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Flight plan** shows a version's shape: phases from start to landing, gates as checkpoints, tracks side by side, and, from that version's runs, typical times, autopilot (steps skills cover) and turbulence.
+
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/flight-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/flight-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/flight-light.png" alt="The release v1 as a flight plan: Start, three phases with typical times, gates as striped checkpoints, a connecting flight to Check in code, autopilot and turbulence notes, and two parallel tracks"></picture></a>
+
+</td>
+<td valign="top">
+
+The **Builder** edits a draft as an outline: drag a step or press Alt+Up / Alt+Down, change it in the side form, and **Undo**. It writes the same Markdown.
+
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/builder-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/builder-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/builder-light.png" alt="The outline builder: phases as cards with steps as rows and a striped gate bar; the selected step's side form with its text, kind, type, roles, run details and fields"></picture></a>
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Runs**: what's running, what's **planned** (by a person or your AI assistant) and what finished.
+
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/runs-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/runs-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/runs-light.png" alt="Runs: one release running, two planned releases (one by Casey Nguyen with a time, one by an AI assistant), and finished runs"></picture></a>
+
+</td>
+<td valign="top">
+
+**Plan a run** for later: the details you know, who does what, and an optional time. Nothing starts until someone starts it.
+
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/plan-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/plan-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/plan-light.png" alt="Plan a run: run name, ticket and environment filled in, a time and a note, and suggested people for each role"></picture></a>
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**Suggest a fix** from any step or phase during a run: what's wrong, and what it should say.
+
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fix-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-light.png" alt="Suggest a fix to a step during a run: the instructions are wrong, with the text it should say"></picture></a>
+
+</td>
+<td valign="top">
+
+**Suggested fixes** on the process page: accept or decline each one, see which are fixed in a newer version, and copy a fix brief for your AI assistant.
+
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fixes-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-light.png" alt="Suggested fixes on the process page: one declined with a reason, one fixed in v2, one open with Accept into the draft and Decline, one in the draft"></picture></a>
 
 </td>
 </tr>
@@ -139,7 +187,7 @@ Every phase ends at a **gate**. Nothing after it opens until someone passes it, 
 <td width="50%" valign="top">
 
 ### One recorder, everyone watching
-One person records; everyone else follows on their own screen and adds notes and screenshots to any step. Hand recording over, or pick it up from another window. Two computers saving at once never overwrite each other: the loser becomes a copy you can compare and keep.
+One person records; everyone else follows on their own screen and adds notes and screenshots to any step. Hand recording over, or pick it up from another window. Every save first checks the file hasn't changed; if it has, yours is kept next to it as a copy you can compare and keep. Where two computers can't take turns, a save that gets replaced is still kept as a receipt and shown as a copy, so nothing is silently lost.
 
 </td>
 </tr>
@@ -193,7 +241,7 @@ Every "did it differently", every block, every re-check is kept. Anyone in a run
 
 ## A checklist, in twenty lines
 
-Checklists are Markdown. Your LLM writes them; people publish them.
+Checklists are Markdown. Your AI assistant writes them; people edit and publish them, in the builder or as Markdown.
 
 ```markdown
 ---
@@ -243,15 +291,16 @@ A process is one page, with its checklist in the middle:
 
 - **Read it** the way a run shows it, or switch on **Markdown** to see and copy the source.
 - **See its shape** with **Flight plan**: phases as waypoints from start to landing, gates as checkpoints, tracks as parallel lanes, linked processes as connecting flights, and, from that version's own runs and skills, typical times, the steps covered by skills (autopilot) and the steps that go off-script most (turbulence). Choose a phase to jump to it in the checklist.
-- **Edit** it on a page of its own (Parts, the outline and an inspector with Selected, Checks and Preview tabs, each scrolling on its own): the **Builder** (phases as cards, steps as rows, parallel lanes side by side, gates as striped bars; add phases, lanes, gates and any type of step from the parts box by dragging, or by choosing a part and a place with the arrow keys; drag a step or press Alt+Up / Alt+Down to move it; change a step's text, type, roles, run details and fields, or a lane's name and role, in the side form) or the **Markdown**, beside a live check (what blocks publishing, and what's just a tip) and a preview. Both edit the same Markdown: the builder changes only the lines you touch and never a step ID, and keeps comments and lines it doesn't understand. **Done** takes you back; **Publish** appears when the draft has changes.
+- **Edit** it on a page of its own (Parts, the outline and an inspector with Selected, Checks and Preview tabs, each scrolling on its own): the **Builder** (phases as cards, steps as rows, parallel lanes side by side, gates as striped bars; add phases, lanes, gates and any type of step from the parts box by dragging, or by choosing a part and a place with the arrow keys; drag a step or press Alt+Up / Alt+Down to move it; change a step's text, type, roles, run details and fields, or a lane's name and role, in the side form; **Undo** and **Redo** step back and forward through builder changes) or the **Markdown**, beside a live check (what blocks publishing, and what's just a tip) and a preview. Both edit the same Markdown: the builder changes only the lines you touch and never a step ID, and keeps comments and lines it doesn't understand. **Done** takes you back; **Publish** appears when the draft has changes.
 - **Look back**: pick any version from the version list or the Versions panel. An older version shows with a way back to the current one and **Restore as draft**.
+- **Versions this copy can't use** are listed with the reason instead: still syncing, damaged, or written by a newer Flightdeck ("update Flightdeck to run it"). They can't be started, planned or picked, and a run started on one by a newer copy opens read-only, so this copy never saves over it.
 - **How runs go**: typical time per phase, the steps that go off-script most, and who has held each role.
 
 Beside the checklist: whether it's ready for a skill, its skills, its versions and its recent runs.
 
 **Plan a run** for later, next to **Start a run**: a name, the details you know, who does what and an optional time. **Plan another like this** on any run or receipt copies its details and roles, never its answers. Planned runs are listed by time under **Runs** and show on Home when they're due; a plan starts on the version it was planned on until you switch to the newer one.
 
-Saving is careful. A save only goes through if the draft is still exactly what you opened. If a teammate or your LLM changed it meanwhile, nothing is saved: you see their version and choose to keep yours or take theirs. One limit: a shared folder can't lock a file, so a change that lands in the instant between that check and the write can still be replaced. Edit a draft with one person (or one LLM) at a time. Saving never publishes; publishing is a separate, logged step.
+Saving is careful. A save only goes through if the draft is still exactly what you opened. If a teammate or your AI assistant changed it meanwhile, nothing is saved: you see their version and choose to keep yours or take theirs. One limit: a shared folder can't lock a file, so a change that lands in the instant between that check and the write can still be replaced. Edit a draft with one person (or one AI assistant) at a time. Saving never publishes; publishing is a separate, logged step.
 
 **New process** on the Processes page asks for an ID, title, group, tags, run details, roles and owner, starts the draft, and opens it in the editor.
 
@@ -259,10 +308,10 @@ Saving is careful. A save only goes through if the draft is still exactly what y
 
 ## Your own step types
 
-Built-in types cover common tools. When your team has its own kind of step (a change request, a security sign-off), make it a type:
+Built-in types cover common tools, grouped as General, Tools and Automation, with your team's types in their own groups and a tag filter. When your team has its own kind of step (a change request, a security sign-off), make it a type:
 
 1. **Step types → New step type**, or **Copy to a team type** on any built-in.
-2. Add rows for its **fields** (what a checklist can say about the step) and its **evidence** (what's recorded when it's checked). The form checks it as you go and shows the checklist line and the file it will save.
+2. Give it a **group** and **tags** if you like (they only organize the list), then add rows for its **fields** (what a checklist can say about the step) and its **evidence** (what's recorded when it's checked). The form checks it as you go and shows the checklist line and the file it will save.
 3. **Save step type** writes `step-types/<id>.json`. Checklists can use `{your.type}` right away; publishing freezes it into each version, so editing it later never changes an old one.
 
 Or describe it to your AI assistant: `/flightdeck-new-step-type a change request the CAB approves, with the change number as evidence`.
@@ -284,7 +333,7 @@ This is what Flightdeck is for. Outside the team it's usually called **SOP-to-sk
 
 **2. Sign off.** With three clean runs, the process owner signs the version off. Only the owner's sign-off counts, and only for that exact published version.
 
-**3. Brief your LLM.** One click copies a brief with the process in order: phases and their mode, tracks, every step with its fields, evidence and screenshots, every gate with what it approves, the run details it receives, and what people actually did differently.
+**3. Brief your AI assistant.** One click copies a brief with the process in order: phases and their mode, tracks, every step with its fields, evidence and screenshots, every gate with what it approves, the run details it receives, and what people actually did differently.
 
 **4. Register the skill.** It can live anywhere: a repo, a shared folder, a local path. Its `location` is the skill's source path or link:
 
@@ -308,10 +357,10 @@ Leave out `steps` for a skill that covers the whole process. A process can have 
 |---|---|---|
 | **current** | Built from the version in use | Nothing |
 | **note version** | The process changed, but none of this skill's steps did | Move its `implements` forward |
-| **needs update** | Its steps, their order, their gates, their step types, screenshots or run details changed | Copy the update brief: the exact before and after, for your LLM |
+| **needs update** | Its steps, their order, their gates, their step types, screenshots or run details changed | Copy the update brief: the exact before and after, for your AI assistant |
 | **check it** | It can't be matched: a missing version, a clash, or an unreadable file | Fix the registration |
 
-The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, so a brief from your LLM and a brief from the app agree.
+The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, so a brief your AI assistant writes and a brief from the app agree.
 
 </details>
 
@@ -349,7 +398,7 @@ validations/           owners' sign-offs that a version is ready for a skill
 suggestions/           decisions on suggested fixes (accepted, declined, reopened), one file per person's window
 step-types/            your team's own step types (create them in the app)
 jira/workflows.json    your real Jira workflows, with required fields
-proposals/             planned runs (from the app or your LLM), waiting for a person to start them
+proposals/             planned runs (from the app or your AI assistant), waiting for a person to start them
 images/                screenshots that checklists refer to
 AGENTS.md              the rules any AI assistant follows in this folder
 .flightdeck/skills/    the Flightdeck skills for your AI assistant
@@ -357,7 +406,7 @@ AGENTS.md              the rules any AI assistant follows in this folder
 
 </details>
 
-Every file has exactly one writer, so a shared folder never corrupts. Your LLM writes checklists, plans, step types, workflows and skill registrations; people publish, plan, run and sign off.
+Every file has exactly one writer, which keeps ordinary use of a shared folder free of conflicts; when two saves do collide, the replaced one is kept for you to recover. Your AI assistant writes checklists, plans, step types, workflows and skill registrations; people publish, plan, run and sign off.
 
 <br>
 
@@ -387,7 +436,7 @@ Every file has exactly one writer, so a shared folder never corrupts. Your LLM w
 
 - **Nothing leaves your machine.** The app makes no network requests and loads nothing from the internet; its fonts and code are inside the file.
 - **No server to run, no accounts to manage.** Your data is files in a folder you already control.
-- **One writer per file, and checked saves.** Two computers saving a run at once never overwrite each other: the loser becomes a copy you compare and keep. Drafts and step types are saved only over the version you opened; a change that lands in the instant between that check and the write is the one case a shared folder can't catch, so edit them one at a time.
+- **One writer per file, and checked saves.** A run is saved only if its file hasn't changed since this window read it; otherwise this window's version is kept beside it as a copy to compare and keep. Two computers that can't see each other's changes yet can still both write, so every save first leaves its own receipt: one that gets replaced shows up in the run as a copy, never silently lost (see [docs/onedrive.md](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md)). Drafts and step types are saved only over the version you opened; a change that lands in the instant between that check and the write is the one case a shared folder can't catch, so edit them one at a time.
 - **Built for OneDrive.** Folders that sync a minute late are expected; a gate means "passed for this commit, by this person," never a live lock.
 - **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, writes whole files atomically, and never replaces a newer version without `--force`.
 - **Accessible.** Every control has a label, errors sit next to their field, shortcuts can be turned off, and it works with a keyboard.
@@ -436,6 +485,13 @@ Yes. Ask your AI assistant to draft a checklist from an existing skill, publish 
 <summary><b>Can people edit checklists in the app, or only the AI assistant?</b></summary>
 
 Both. The app's editor and your AI assistant write the same draft files. The app saves only over the version you opened and shows both when they differ; since a shared folder can't lock a file, edit a draft with one of them at a time.
+
+</details>
+
+<details>
+<summary><b>What if someone on the team has a newer Flightdeck?</b></summary>
+
+A version or run saved by a newer copy, with checklist features this copy doesn't understand, is shown with the reason and "Update Flightdeck to run it." It can't be started here, and a run on it opens read-only, so an older copy never records over what a newer one wrote. Put the newest `flightdeck.html` in the team folder; anyone on an older copy sees that a newer one is there.
 
 </details>
 

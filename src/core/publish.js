@@ -2,6 +2,8 @@
 PF.publish = (function () {
   'use strict';
   var U = PF.util, M = PF.map, T = PF.types;
+  var FORMAT = 'preflight-publication/1';
+  var NEWER = 'This version uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
 
   /* Each publish gets its own folder (v5-k3m9p2q8), so two people publishing at once never write the same files. */
   function folderName(version, rand) { return 'v' + version + '-' + (rand || U.randomId(8)); }
@@ -24,7 +26,7 @@ PF.publish = (function () {
     var types = T.freeze(M.usedTypes(map), opts.customTypes);
     var typesJson = JSON.stringify(types, null, 2);
     var info = {
-      format: 'preflight-publication/1', process: map.meta.process, title: map.meta.title, version: version, folder: folder,
+      format: FORMAT, process: map.meta.process, title: map.meta.title, version: version, folder: folder,
       publishedBy: opts.by, publishedAt: opts.now, changes: changes.slice(0, 200),
       mapHash: U.hash(draftMd), typesHash: U.hash(typesJson)
     };
@@ -33,15 +35,42 @@ PF.publish = (function () {
     return { folder: folder, version: version, files: { 'map.md': draftMd, 'types.json': typesJson, 'publication.json': JSON.stringify(info, null, 2) } };
   }
 
-  /* A publication is usable only when all three files arrived and match. Anything else is "still syncing" or damaged. */
+  /* Why this copy can't run a checklist, or '' if it can. Only what the version itself holds is checked, never the folder's
+     people, screenshots or Jira workflows, and only what decides how a run reads: syntax the parser skipped, a skipped
+     Questions section, a step type that isn't built in or frozen with it, a frozen type this copy can't fully read, and fields
+     its type doesn't have. Those are what a
+     newer Flightdeck, or a hand or AI edit, leaves behind; publishing always refused them, so no published version trips this. */
+  function unrunnable(md, types) {
+    var map = M.parse(md), e = map.errors[0], all = M.steps(map);
+    if (e) return NEWER + ' Line ' + e.line + ': ' + e.msg;
+    if (map.questions) return 'It has a "Questions" section, so steps after it would be skipped. Publish it again without one.';
+    for (var i = 0; i < all.length; i++) {
+      var s = all[i].step, label = 'Step "' + s.text.slice(0, 40) + '"', def = s.type ? T.get(s.type, types) : null;
+      if (!s.type) return label + ' has no step type, so it can\'t be run. Publish the checklist again.';
+      if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
+      /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */
+      if (!T.understood(def)) return NEWER + ' ' + label + ' has a step type this copy can\'t read.';
+      var bad; try { bad = T.checkFields(def, s.fields).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
+      if (bad) return NEWER + ' ' + label + ' ' + bad;
+    }
+    return '';
+  }
+
+  /* A publication is usable only when all three files arrived and match, and this copy understands what they say. Anything
+     else is "still syncing", damaged or unusable here, and never listed as a version to run. */
   function verify(folder, files) {
     var info = null;
     try { info = files['publication.json'] ? JSON.parse(files['publication.json']) : null; } catch (e) { return { ok: false, why: 'publication.json is unreadable.' }; }
     if (!info) return { ok: false, why: 'Still syncing: publication.json hasn\'t arrived.' };
+    if (typeof info !== 'object' || Array.isArray(info)) return { ok: false, why: 'publication.json isn\'t a publication record.' };
+    if (info.format !== FORMAT) return { ok: false, why: NEWER, info: info, unusable: true };
     if (files['map.md'] == null || files['types.json'] == null) return { ok: false, why: 'Still syncing: some files haven\'t arrived.', info: info };
     if (U.hash(files['map.md']) !== info.mapHash || U.hash(files['types.json']) !== info.typesHash) return { ok: false, why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', info: info };
     if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
     var types; try { types = JSON.parse(files['types.json']); } catch (e) { return { ok: false, why: 'types.json is unreadable.', info: info }; }
+    if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
+    var bad = unrunnable(files['map.md'], types);
+    if (bad) return { ok: false, why: bad, info: info, unusable: true };
     return { ok: true, info: info, map: M.parse(files['map.md']), md: files['map.md'], types: types };
   }
 
@@ -88,5 +117,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { build: build, verify: verify, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, NEWER: NEWER, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

@@ -15,6 +15,14 @@ Build a checklist from parts.
 
 - **The draft editor is a page of its own** (Processes). Editing a draft fills the window: a header with Done, save state, Builder or Markdown, Undo and Redo, Checks and Save, then side-by-side panes that each scroll on their own. The inspector has Selected, Checks and Preview tabs, and Preview marks the selected step. Parts fold to a rail of icons. A refresh comes back to the editor, and the browser asks before leaving unsaved edits. *Where:* A process page: Edit.
 
+## 1.11.1 · Oct 18, 2026
+
+Checklist versions this copy can't read are never run.
+
+### Fixed
+
+- **Versions this copy doesn't understand can't be started** (Runs). Such a version isn't offered to start, plan or pick. The process page and the version picker say why: update Flightdeck to run it. A plan made for it starts on the latest version you can run, and says so. A run started on it, or saved by a newer copy with details or a file format this copy doesn't know, opens read-only with the reason, and this copy never saves over it or plans another like it. *Where:* A process page, the version picker, Start a run, and the run page.
+
 ## 1.11.0 · Oct 18, 2026
 
 Planned runs, a flight plan view, a checklist builder, and organized step types.
