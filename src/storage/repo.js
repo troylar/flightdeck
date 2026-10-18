@@ -174,8 +174,9 @@ PF.repo = (function () {
   /* Notes come from files anyone can edit: keep only the shape the app understands, and only attachments inside this run's files/ folder. */
   function cleanNote(n, base) {
     var files = Array.isArray(n.files) ? n.files.filter(function (f) { return typeof f === 'string' && f.indexOf(base + 'files/') === 0 && /^[\w.@\/-]+$/.test(f) && f.indexOf('..') < 0; }) : [];
-    return { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by.slice(0, 80) : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
-      step: typeof n.step === 'string' ? n.step.slice(0, 60) : '', text: n.text.slice(0, 2000), files: files, kind: n.kind === 'map' ? 'map' : undefined };
+    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by.slice(0, 80) : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
+      step: typeof n.step === 'string' ? n.step.slice(0, 60) : '', text: n.text.slice(0, 2000), files: files, kind: n.kind === 'map' || n.kind === 'fix' ? n.kind : undefined };
+    return n.kind === 'fix' ? Object.assign(c, PF.fixes.cleanNote(n)) : c;
   }
 
   function loadLegacy(fs) {
@@ -200,7 +201,8 @@ PF.repo = (function () {
       loadSkills(fs),
       loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }),
       loadStepTypes(fs), loadWorkflows(fs),
-      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; })
+      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
+      loadFixDecisions(fs)
     ]).then(function (r) {
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
       r[9] = r[9].map(function (v) { return { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; });
@@ -215,8 +217,29 @@ PF.repo = (function () {
         p._status = match.length && !p._conflicting ? match[0] : null;
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
       });
-      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], plans: plans, stepTypes: r[7], jira: r[8], readAt: new Date().toISOString() };
+      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], fixDecisions: r[10].filter(function (d) { return !d._unread; }), fixUnread: r[10].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8], readAt: new Date().toISOString() };
     });
+  }
+  /* Decisions on suggested fixes: suggestions/<process>/<suggestion>.<writer>.json, one small file per person's window and
+     suggestion. They're few and tiny, so each refresh reads them all (at most 8 at once). A file that can't be read is
+     reported in fixUnread, never dropped, so its suggestion doesn't quietly look open again. */
+  function loadFixDecisions(fs) {
+    return fs.list('suggestions').then(function (procs) {
+      return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); }).map(function (p) {
+        return fs.list('suggestions/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name }; }); });
+      }));
+    }).then(function (nested) {
+      return limited([].concat.apply([], nested), 8, function (x) {
+        var unread = { _unread: true, process: x.process, _file: x.name };
+        /* A file that's missing now was removed; one that won't read, parse or check (a half-synced write) is unread. */
+        return fs.read('suggestions/' + x.process + '/' + x.name).then(function (f) { if (!f) return null; var d = PF.fixes.cleanDecision(json(f.text), x.process); if (!d) return unread; d._file = x.name; return d; }, function () { return unread; });
+      });
+    }).then(function (list) { return list.filter(Boolean); });
+  }
+  /* A person's decision on a suggestion, in their window's own file for that suggestion (a later decision replaces only their own). */
+  function decideFix(fs, rec, writer) {
+    if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(rec.process) || !/^[\w-]{1,40}$/.test(rec.suggestion) || !/^[\w-]{1,40}$/.test(writer)) return Promise.reject(new Error('That suggestion can\'t be decided here.'));
+    return fs.write('suggestions/' + rec.process + '/' + rec.suggestion + '.' + writer + '.json', JSON.stringify(rec, null, 2) + '\n');
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
@@ -455,5 +478,5 @@ PF.repo = (function () {
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus };
+  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideFix: decideFix };
 })();

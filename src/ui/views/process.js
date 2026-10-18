@@ -2,17 +2,20 @@
 (function () {
   'use strict';
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, I = PF.icons.icon, esc = U.esc;
+  var ferr = function (s, id) { return K.ferr(s, id); };
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   /* ---------- process page ---------- */
-  /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. */
-  function mapPreview(map, types, skills, anchor) {
+  /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. fixes, when given, counts open
+     suggested fixes per step ID (and "phase:<id>"), marked so whoever edits the draft sees them. */
+  function mapPreview(map, types, skills, anchor, fixes) {
+    var fixBadge = function (k) { var n = fixes && fixes[k]; return n ? ' <span class="badge b-warn">' + n + ' suggested fix' + (n === 1 ? '' : 'es') + '</span>' : ''; };
     /* Which skills cover each step (skills mapped to the whole process are listed once, above). */
     var by = Object.create(null), whole = [];
     (skills || []).forEach(function (x) { if (!x.skill.steps) whole.push(x.skill.name); else x.skill.steps.forEach(function (id) { (by[id] = by[id] || []).push(x.skill.name); }); });
     return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
-      return '<div class="ph"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + p.mode + '</span>' : '') + '</h3><ul>' + p.steps.map(function (s) {
+      return '<div class="ph"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + p.mode + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3><ul>' + p.steps.map(function (s) {
         var t = T.get(s.type, types);
-        return '<li>' + (t ? I(t.icon, t.label) : '') + '<span>' + U.mdInline(s.text) + (s.must ? ' <span class="badge b-must">Must do</span>' : '') + (by[s.id] ? ' <span class="badge b-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? ' <span class="badge b-plan">Automation planned</span>' : '') + (s.roles.length ? ' <span class="small">@' + esc(s.roles.join(' @')) + '</span>' : '') + '</span></li>';
+        return '<li>' + (t ? I(t.icon, t.label) : '') + '<span>' + U.mdInline(s.text) + (s.must ? ' <span class="badge b-must">Must do</span>' : '') + (by[s.id] ? ' <span class="badge b-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? ' <span class="badge b-plan">Automation planned</span>' : '') + (s.roles.length ? ' <span class="small">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id) + '</span></li>';
       }).join('') + '</ul><div class="g">' + I('gate') + 'Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + U.mdInline(p.gate.approves) : '') + '</div></div>';
     }).join('');
   }
@@ -86,6 +89,50 @@
     return h + '</section>';
   }
 
+  /* ---------- suggested fixes (docs/design.md section 19) ---------- */
+  /* Every suggestion on a process, with where it stands. The app memoizes this per folder read; views tests compute it. */
+  function fixesOf(ctx, p) {
+    if (ctx.fixes) return ctx.fixes(p.id);
+    return PF.fixes.withStatus(PF.fixes.collect(ctx.data.runs, p.id), ctx.data.fixDecisions, PF.fixes.creditable(p));
+  }
+  var FIX_PILL = { open: 'open', accepted: 'ready', fixed: 'passed', declined: 'locked' };
+  function fixesPanel(ctx, p) {
+    var st = ctx.state, all = fixesOf(ctx, p);
+    if (!all.length) return '';
+    var open = all.filter(function (s) { return s.status === 'open'; }), todo = all.filter(function (s) { return s.status === 'open' || s.status === 'accepted'; });
+    var showAll = st.fixFilter === 'all', list = showAll ? all : open, map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
+    var h = '<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">' + I('edit') + 'Suggested fixes · ' + open.length + ' open</h2>' +
+      '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="fix-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    var unread = (ctx.data.fixUnread || []).filter(function (u) { return u.process === p.id; });
+    if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>suggestions/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some suggestions may show the wrong status until it syncs.') + '</span></div>';
+    if (!list.length) h += '<p class="small">No open suggestions.</p>';
+    /* Grouped by the step or phase they're about, in checklist order; anything no longer in the checklist goes last. */
+    var order = [], groups = Object.create(null);
+    if (map) map.phases.forEach(function (ph) { order.push('phase:' + ph.id); ph.steps.forEach(function (x) { order.push(x.id); }); });
+    list.forEach(function (s) { var k = s.target.step || 'phase:' + s.target.phase; if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(s); });
+    order.filter(function (k) { return groups[k]; }).forEach(function (k) {
+      var x = map && k.indexOf('phase:') !== 0 && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0];
+      h += '<p class="fixgroup">' + (x ? U.mdInline(x.step.text) : ph ? 'Phase: ' + esc(ph.title) : esc(k.replace(/^phase:/, 'Phase ')) + ' <span class="small">(not in the current version)</span>') + '</p><ul class="fixlist">' + groups[k].map(function (s) { return fixItem(ctx, p, s); }).join('') + '</ul>';
+    });
+    if (todo.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-fix-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy fix brief</button></div>' + briefBox(st, 'fixes:' + p.id);
+    return h + '</section>';
+  }
+  function fixItem(ctx, p, s) {
+    var st = ctx.state, d = s.decision, F = PF.fixes, declining = st.pick && st.pick.kind === 'fix-decline' && st.pick.id === s.id;
+    var h = '<li data-scope="fix:' + esc(s.id) + '"><div class="row"><span class="badge b-plan">' + esc(F.kindLabel(s.kind)) + '</span><span class="pill ' + FIX_PILL[s.status] + '">' + esc(F.label(s)) + '</span>' +
+      (s.kind === 'missing' ? '<span class="small">' + (s.target.where === 'after' && s.target.step ? 'after this step' : 'at the end of the phase') + '</span>' : '') + '</div>' +
+      '<div>' + esc(s.text) + '</div>' + (s.target.shot ? '<div class="small">Screenshot <code>' + esc(s.target.shot) + '</code></div>' : '') +
+      (s.files.length ? '<div class="thumbs">' + s.files.map(function (f, i) { return '<button class="thumb" data-act="zoom-fix" data-id="' + esc(s.id) + '" data-i="' + i + '" aria-label="Expand the attached screenshot">' + ctx.img(f, 'Attachment') + '</button>'; }).join('') + '</div>' : '') +
+      '<div class="small">' + esc(nameOf(ctx, s.by)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(s.process + '/' + s.run) + '">' + esc(s.runTitle) + '</button> · v' + esc(s.version) + '</div>';
+    if (d) h += '<div class="small">' + esc(d.status === 'declined' ? 'Declined' : d.status === 'accepted' ? 'Accepted' : 'Reopened') + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>' +
+      (s.tie ? '<div class="small">Two people decided at once; the latest shown here.</div>' : '');
+    if (!st.me) return h + '</li>';
+    if (declining) return h + '<div class="row">' + ferr(st, 'fix-decline') + '<label class="sr" for="pick-input">Why decline it?</label><input id="pick-input" maxlength="300" placeholder="Why decline it?" data-enter="fix-decline" data-id="' + esc(s.id) + '"' + (st.fieldErr && st.fieldErr.id === 'fix-decline' ? ' aria-invalid="true" aria-describedby="ferr-fix-decline"' : '') + '><button class="btn" data-act="fix-decline" data-id="' + esc(s.id) + '">Decline</button><button class="mini" data-act="unpick">Cancel</button></div></li>';
+    if (s.status === 'open') h += '<div class="row"><button class="mini" data-act="fix-accept" data-id="' + esc(s.id) + '">Accept into the draft</button><button class="mini" data-act="pick" data-kind="fix-decline" data-id="' + esc(s.id) + '">Decline</button></div>';
+    else h += '<div class="row"><button class="mini" data-act="fix-reopen" data-id="' + esc(s.id) + '">Reopen</button></div>';
+    return h + '</li>';
+  }
+
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (!p) {
@@ -118,7 +165,7 @@
     }
     h += V.checklistPanel(ctx, p);
     h += '</div><aside class="stack">';
-    h += readyPanel(ctx, p, pub) + skillsPanel(ctx, p);
+    h += fixesPanel(ctx, p) + readyPanel(ctx, p, pub) + skillsPanel(ctx, p);
     /* Versions: one line each; the change note shows in full on hover and in Changes. */
     h += '<section class="panel" aria-labelledby="ver-h"><h2 id="ver-h">Versions</h2><ul class="vlist compact">' + (p.all.map(function (v, i) {
       var older = p.all[i + 1];
@@ -196,5 +243,5 @@
     return h;
   }
 
-  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice;
+  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice;
 })();

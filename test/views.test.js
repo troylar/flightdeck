@@ -550,4 +550,83 @@ rule('R3: every editable area carries its own scope, so typed text can\'t move t
   assert.ok(/data-scope="block:approved"/.test(V.run(ctx)));
 });
 
+/* ---------- Suggested fixes ---------- */
+const F = PF.fixes;
+const fx = (o) => F.build(Object.assign({ id: 'fx-' + Math.random().toString(36).slice(2, 8), at: NOW, by: 'person-blake', session: 'w1', version: 1, phase: 'deploy', step: 'jenkins', kind: 'instructions', text: 'Say when it asks' }, o));
+
+rule('Run screen: anyone viewing can suggest a fix from a step, a phase or a screenshot; the old checklist-change box is gone', () => {
+  const md = example('maps/drafts/release.md').replace('{#jenkins}\n', '{#jenkins}\n  ![Deploy page](images/release/deploy.png)\n');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'view0009' });
+  const r = R.create(P.verify(b.folder, b.files), { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'other', now: NOW, id: 'run1' });
+  r._notes = []; r._conflicts = [];
+  const { ctx, state } = setup(); ctx.run = () => r; ctx.data.runs = [r];
+  state.me = 'person-blake'; state.sel = 'jenkins'; state.unfold = { deploy: true };
+  let html = V.run(ctx);
+  assert.ok(!ctx.recording(r), 'set-up: Blake isn\'t recording');
+  assert.ok(/data-act="fix-open" data-id="jenkins">/.test(html), 'from the step');
+  assert.ok(/data-act="fix-open" data-id="jenkins" data-kind="screenshot" data-shot="images\/release\/deploy.png">This screenshot is wrong/.test(html), 'from its screenshot');
+  assert.ok(/data-act="fix-open" data-id="phase:deploy" aria-label="Suggest a fix to the Deploy phase"/.test(html), 'from the phase');
+  assert.ok(!/note-map/.test(html) && !/Suggests a change to the checklist/.test(html), 'no checkbox');
+  state.fixForm = { key: 'release/run1', step: 'jenkins', phase: 'deploy', kind: 'missing', where: 'after' };
+  html = V.run(ctx);
+  ['missing', 'instructions', 'screenshot', 'order', 'role', 'other'].forEach(k => assert.ok(html.includes('id="fix-kind-' + k + '"'), k));
+  assert.ok(/id="fix-kind-missing" value="missing" data-bound checked/.test(html) && /id="fix-where-after"[^>]*checked/.test(html) && /id="fix-where-end"/.test(html), 'a missing step asks where');
+  assert.ok(/<label class="small" for="fix-text">The missing step, and why it/.test(html) && /data-act="fix-save" data-id="jenkins"/.test(html));
+  state.fixForm.kind = 'screenshot';
+  assert.ok(/id="fix-file"/.test(V.run(ctx)) && !/fix-where/.test(V.run(ctx)), 'a bad screenshot can attach the right one');
+  state.fixForm = { key: 'release/run1', step: null, phase: 'deploy', kind: '' };
+  html = V.run(ctx);
+  assert.ok(/class="fixbox"/.test(html) && /A step is missing at the end/.test(html) && /id="fix-kind-order"/.test(html) && !/id="fix-kind-role"/.test(html) && !/id="fix-kind-screenshot"/.test(html), 'a phase offers only phase-level kinds');
+  state.fieldErr = { id: 'fix', msg: 'Say what should change.', field: 'fix-text' };
+  assert.ok(/id="ferr-fix" role="alert">Say what should change\./.test(V.run(ctx)) && /id="fix-text" maxlength="2000" aria-invalid="true" aria-describedby="ferr-fix"/.test(V.run(ctx)), 'the error is next to its field');
+  state.fieldErr = null; state.fixForm = null;
+  state.me = '';
+  assert.ok(!/data-act="fix-open"/.test(V.run(ctx)), 'only someone who has said who they are');
+});
+
+rule('Run screen and finish page: a suggested fix shows with its kind, escaped', () => {
+  const { r, ctx, state } = setup();
+  r._notes = [fx({ id: 'f1', text: '<img src=x onerror=alert(1)>' })];
+  state.sel = 'jenkins'; state.unfold = { deploy: true };
+  let html = V.run(ctx);
+  assert.ok(/Suggested fix: Wrong instructions/.test(html) && !/<img src=x/.test(html) && /&lt;img src=x/.test(html));
+  html = V.finish(ctx);
+  assert.ok(/<span class="badge b-plan">Wrong instructions<\/span> <b>Start the production deploy job<\/b>: &lt;img/.test(html), 'finish page lists it with its kind');
+  assert.ok(/Wrong instructions/.test(V.receipt(ctx)), 'receipt card');
+});
+
+rule('Process page: Suggested fixes lists open ones by step with who, run and version; anyone can accept or decline with a reason, or reopen; the brief can be copied', () => {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest;
+  const r1 = R.create(latest, { title: 'Release <b>1</b>', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r1' });
+  r1._notes = [fx({ id: 'f1', text: 'Say "when" <script>' }), fx({ id: 'f2', kind: 'missing', step: null, phase: 'verify', text: 'Add an error budget check' }), fx({ id: 'f3', kind: 'order', step: 'announce', phase: 'prep', text: 'Post first' })];
+  ctx.data.runs = [r1];
+  ctx.data.fixDecisions = [F.decision({ process: 'release', id: 'f3' }, 'person-avery', 'declined', 'We post once it\'s sure', NOW)];
+  const p = { id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: latest.md }, draftChanged: false };
+  ctx.processes = () => [p]; state.processId = 'release'; state.me = 'person-morgan';
+  let html = V.process(ctx);
+  assert.ok(/Suggested fixes · 2 open/.test(html));
+  assert.ok(/<p class="fixgroup">Start the production deploy job<\/p>/.test(html) && /<p class="fixgroup">Phase: Verify in production<\/p>/.test(html), 'grouped by step and phase');
+  assert.ok(html.indexOf('fixgroup">Start the production') < html.indexOf('fixgroup">Phase: Verify'), 'in checklist order');
+  assert.ok(/Say &quot;when&quot; &lt;script&gt;/.test(html) && /Release &lt;b&gt;1&lt;\/b&gt;/.test(html), 'escaped');
+  assert.ok(/Blake Ortiz · <button class="linkish" data-act="open-run" data-id="release\/r1">/.test(html) && /· v1<\/div>/.test(html), 'who, which run, which version');
+  assert.ok(/data-act="fix-accept" data-id="f1">Accept into the draft/.test(html) && /data-act="pick" data-kind="fix-decline" data-id="f1"/.test(html), 'not only the owner');
+  assert.ok(!/Post first/.test(html), 'Open hides decided ones');
+  assert.ok(/data-act="copy-fix-brief" data-id="release"/.test(html));
+  state.fixFilter = 'all'; html = V.process(ctx);
+  assert.ok(/Post first/.test(html) && /Declined by Avery Lee [^:]*: We post once it&#39;s sure/.test(html) && /data-act="fix-reopen" data-id="f3"/.test(html), 'All shows who declined and why');
+  state.fixFilter = 'open'; state.pick = { kind: 'fix-decline', id: 'f1' };
+  assert.ok(/placeholder="Why decline it\?" data-enter="fix-decline" data-id="f1"/.test(V.process(ctx)));
+  state.pick = null;
+  // In the editor's preview, steps with open suggestions are marked; the checklist itself stays clean.
+  assert.ok(!/suggested fix/.test(V.checklistPanel(ctx, p)));
+  state.ptab = 'edit'; state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md };
+  html = V.process(ctx);
+  const pv = html.slice(html.indexOf(">Preview<"));
+  assert.ok(/Start the production deploy job[^]*?<span class="badge b-warn">1 suggested fix<\/span>/.test(pv) && /Verify in production <span class="cat">READ-DO<\/span> <span class="badge b-warn">1 suggested fix<\/span><\/h3>/.test(pv), 'marked in the preview');
+  state.ptab = null; state.editor = null;
+  ctx.data.runs = [];
+  assert.ok(!/Suggested fixes/.test(V.process(ctx)), 'no panel without suggestions');
+});
+
 run();

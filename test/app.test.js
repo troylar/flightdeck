@@ -1197,4 +1197,108 @@ rule('Plans: a time the clocks skip is pointed out, not saved an hour off', asyn
   assert.ok(/That time doesn(&#39;|')t exist on that day \(clocks change\); pick another\./.test(app.html()));
 });
 
+/* ---------- Suggested fixes ---------- */
+const newNotes = (app, key) => app.files('runs/' + key + '/notes-').filter(p => !/example-session/.test(p)).map(p => app.fs.files[p].t.trim().split('\n').map(l => JSON.parse(l))).flat();
+
+rule('App: anyone viewing a run can suggest a fix to a step; it goes in their own notes file with the version and step, and run.json is untouched', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-blake'); await app.tick();
+  const { key, path } = app.run(), before = app.fs.files[path].t;
+  app.click('open-run', key); await app.tick(20);
+  app.click('fix-open', 'pods'); await app.tick();
+  assert.ok(/id="fix-kind-instructions"/.test(app.html()), 'the form opens on the step');
+  app.select('fix-kind-instructions', 'instructions'); await app.tick();
+  assert.ok(/for="fix-text">What the instructions should say/.test(app.html()), 'the question follows the kind');
+  app.set('fix-text', 'Watch for 20 minutes'); app.click('fix-save', 'pods'); await app.tick(60);
+  const n = newNotes(app, key).filter(x => x.text === 'Watch for 20 minutes')[0];
+  assert.ok(n, 'saved');
+  assert.deepStrictEqual([n.kind, n.fixKind, n.by, n.version, n.target.phase, n.target.step, n.step], ['fix', 'instructions', 'person-blake', 1, 'deploy', 'pods', 'pods']);
+  assert.strictEqual(app.fs.files[path].t, before, 'run.json untouched');
+  assert.ok(!/id="fix-text"/.test(app.html()) && /Suggestion sent/.test(app.html()), 'the form closes and says where it went');
+  assert.ok(/Suggested fix: Wrong instructions/.test(app.html()), 'shown with the step\'s notes');
+});
+
+rule('App: a missing step can be suggested at the end of a phase; the kind and text are asked for first', async () => {
+  const app = await recordingRelease();
+  const { key } = app.run();
+  app.click('fix-open', 'phase:verify'); await app.tick();
+  app.set('fix-text', 'Check the error budget'); app.click('fix-save', 'phase:verify'); await app.tick(20);
+  assert.ok(/id="ferr-fix" role="alert">Choose what kind of fix it is\./.test(app.html()), 'no kind chosen');
+  app.select('fix-kind-missing', 'missing'); await app.tick();
+  app.set('fix-text', ''); app.click('fix-save', 'phase:verify'); await app.tick(20);
+  assert.ok(/Say what should change\./.test(app.html()), 'no text');
+  app.set('fix-text', 'Check the error budget'); app.click('fix-save', 'phase:verify'); await app.tick(60);
+  const n = newNotes(app, key).filter(x => x.kind === 'fix')[0];
+  assert.deepStrictEqual([n.fixKind, n.target, n.step], ['missing', { phase: 'verify', step: null, where: 'end' }, '']);
+});
+
+rule('App: anyone can accept, decline with a reason, or reopen a suggestion; each decision replaces only their own file, and the latest one counts', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(20);
+  const id = /data-act="fix-accept" data-id="([\w-]+)"/.exec(app.html())[1];
+  const theirs = app.files('suggestions/release/').map(p => [p, app.fs.files[p].t]);
+  const mine = () => app.files('suggestions/release/' + id + '.').filter(p => !/example-session/.test(p));
+  app.click('fix-accept', id); await app.tick(60);
+  assert.strictEqual(mine().length, 1);
+  let d = JSON.parse(app.fs.files[mine()[0]].t);
+  assert.deepStrictEqual([d.kind, d.suggestion, d.status, d.by], ['fix-decision', id, 'accepted', 'person-morgan']);
+  assert.ok(/Suggested fixes · 0 open/.test(app.html()) && /Accepted into the draft/.test(app.html()));
+  app.click('fix-filter', 'all'); await app.tick();
+  assert.ok(new RegExp('data-act="fix-reopen" data-id="' + id + '"').test(app.html()));
+  app.click('fix-reopen', id); await app.tick(60);
+  assert.strictEqual(JSON.parse(app.fs.files[mine()[0]].t).status, 'open');
+  app.click('pick', id, { kind: 'fix-decline' }); await app.tick();
+  app.click('fix-decline', id); await app.tick(20);
+  assert.ok(/id="ferr-fix-decline" role="alert">Say why it(&#39;|')s declined/.test(app.html()), 'a reason is required');
+  app.set('pick-input', 'Ten minutes is enough with the new cache'); app.click('fix-decline', id); await app.tick(60);
+  assert.strictEqual(mine().length, 1, 'still one file: their own, replaced');
+  d = JSON.parse(app.fs.files[mine()[0]].t);
+  assert.deepStrictEqual([d.status, d.reason], ['declined', 'Ten minutes is enough with the new cache']);
+  assert.ok(/Declined by Morgan [^:]+: Ten minutes is enough/.test(app.html()));
+  theirs.forEach(([p, text]) => assert.strictEqual(app.fs.files[p].t, text, 'others\' decisions untouched'));
+});
+
+rule('App: Copy fix brief gives the AI assistant the open and accepted suggestions with the draft\'s steps and the rules for editing', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(20);
+  app.click('copy-fix-brief', 'release'); await app.tick();
+  const pre = /<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+  assert.ok(/^# Suggested fixes: Production release/.test(pre) && /current version v2/.test(pre) && /2 suggestions to review/.test(pre), pre.slice(0, 200));
+  assert.ok(/Edit the process's draft, `maps\/drafts\/release\.md`\. Change no other file\. Keep every existing step ID/.test(pre));
+  assert.ok(/Wrong instructions: "New pods stay up with no restarts" \{#pods\}/.test(pre) && /command: kubectl get pods -l app=web-app/.test(pre));
+  assert.ok(/Missing step: phase "Verify in production" \{#verify\}/.test(pre) && /Status: In the draft \(Casey Nguyen\)/.test(pre));
+  assert.ok(!/stage 5, and we waited/.test(pre) && !/before the flag check/.test(pre), 'fixed and declined ones are left out');
+});
+
+rule('App: the fix brief names the draft file the process really has, even when it isn\'t named after the process', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  const md = app.fs.files['maps/drafts/release.md'].t;
+  await app.fs.remove('maps/drafts/release.md'); await app.fs.write('maps/drafts/production-release.md', md);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick(20);
+  app.click('copy-fix-brief', 'release'); await app.tick();
+  const pre = /<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1];
+  assert.ok(/`maps\/drafts\/production-release\.md`/.test(pre) && !/drafts\/release\.md/.test(pre));
+});
+
+rule('App: a process called constructor and suggestions about steps called constructor, __proto__ or toString show without breaking the page', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  await app.fs.write('maps/drafts/constructor.md', app.fs.files['maps/drafts/release.md'].t.replace('process: release', 'process: constructor').replace('title: Production release', 'title: Odd names'));
+  const { key } = app.run();
+  const lines = ['constructor', '__proto__', 'toString'].map(id => JSON.stringify({ id, kind: 'fix', fixKind: 'instructions', target: { phase: id, step: id }, version: 1, step: id, text: 'About ' + id, by: 'person-blake', at: '2026-10-16T10:00:00.000Z', files: [] })).join('\n') + '\n';
+  await app.fs.write('runs/' + key + '/notes-odd.jsonl', lines);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'constructor'); await app.tick(20);
+  assert.ok(/Odd names/.test(app.html()) && !/Suggested fixes/.test(app.html()), 'its page opens');
+  app.click('open-process', 'release'); await app.tick(20);
+  const h = app.html();
+  ['constructor', '__proto__', 'toString'].forEach(id => assert.ok(h.includes('About ' + id) && h.includes(id + ' <span class="small">(not in the current version)</span>'), id));
+  app.click('ptab', 'edit'); await app.tick(20);
+  assert.ok(/id="draft-editor"/.test(app.html()), 'the editor opens too');
+});
+
 run();

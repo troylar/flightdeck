@@ -22,7 +22,7 @@ The team owns this code. Leave it easier to change than you found it.
 
 | Path | What it is | Rule |
 |---|---|---|
-| `src/core/` | `util`, `types`, `jira`, `map`, `publish`, `run`: every rule | Pure functions. No DOM, no files. Every rule has a test. |
+| `src/core/` | `util`, `types`, `jira`, `map`, `publish`, `run`, `fixes` (suggested fixes), `skills`: every rule | Pure functions. No DOM, no files. Every rule has a test. |
 | `src/storage/` | `fs` (folder access), `repo` (load, save, publish, conflicts, cache) | One writer per file, always. |
 | `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `run`, `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
 | `src/page.html` | Styles, color tokens, page shell | Light and dark tokens; no external resources. |
