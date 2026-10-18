@@ -83,7 +83,7 @@
     var fields = Object.keys(t.fields || {}), rec = t.record || [], key = 'type:' + t.id;
     var open = st.disc && st.disc[key];
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
-    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(t.label) + '</b> <code>{' + esc(t.id) + '}</code>' + (team ? ' <span class="pill open">team</span>' : '') + '</span>' +
+    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(t.label) + '</b> <code>{' + esc(t.id) + '}</code>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><div class="tcols">' +
@@ -96,9 +96,14 @@
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1>Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
     if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(e.errors.join('; ')); }).join('<br>') + '</span></div>';
-    var teamIds = Object.keys(team).sort();
-    h += '<section class="panel"><h2>Your team\'s types · ' + teamIds.length + '</h2>' + (teamIds.length ? '<ul class="tlist">' + teamIds.map(function (id) { return typeCard(st, team[id], true, uses(id)); }).join('') + '</ul>' : '<p class="small">None yet. Choose <b>New step type</b>, or copy a built-in below.</p>') + '</section>';
-    h += '<section class="panel"><h2>Built-in types · ' + T.LIST.length + '</h2><ul class="tlist">' + T.LIST.map(function (t) { return typeCard(st, t, false, uses(t.id)); }).join('') + '</ul></section>';
+    /* Organized like processes and skills: a tag filter, then each list as a tree by group. */
+    var teamTypes = Object.keys(team).sort().map(function (id) { return team[id]; }), chosen = st.tags || [];
+    var allT = chosen.slice(); teamTypes.forEach(function (t) { T.tagsOf(t).forEach(function (x) { if (allT.indexOf(x) < 0) allT.push(x); }); }); allT.sort();
+    var has = function (t) { var tg = T.tagsOf(t); return chosen.every(function (c) { return tg.indexOf(c) >= 0; }); };
+    var shownTeam = teamTypes.filter(has), shownBuilt = T.LIST.filter(has);
+    h += K.tagBar(allT, chosen);
+    h += '<section class="panel"><h2>Your team\'s types · ' + teamTypes.length + '</h2>' + (teamTypes.length ? (shownTeam.length ? K.tree(shownTeam, T.groupOf, function (t) { return typeCard(st, t, true, uses(t.id)); }, st.groupsOpen) : '<p class="small">None with these tags.</p>') : '<p class="small">None yet. Choose <b>New step type</b>, or copy a built-in below.</p>') + '</section>';
+    if (shownBuilt.length) h += '<section class="panel"><h2>Built-in types · ' + T.LIST.length + '</h2>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</section>';
     return h;
   }
   /* The form for a team step type. Rows for fields and evidence; checked on every change with the same rules the folder uses. */
@@ -121,12 +126,13 @@
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Step types</div><h1>' + (f.existing ? 'Edit {' + esc(f.existing) + '}' : 'New step type') + '</h1><div class="small">Saved as <code>step-types/' + esc(d.id || '<id>') + '.json</code>. Checklists can use it as <code>{' + esc(d.id || 'your.type') + '}</code> as soon as it\'s saved; publishing freezes it into each version, so later edits never change an old one.</div></div></div>' +
       '<div class="editor-grid"><form class="panel stack" id="type-form" data-scope="type-form">' +
       '<div class="grid2"><label class="field" for="tf-id">ID <span class="small">lowercase with dots, like change.request</span><input id="tf-id" value="' + esc(d.id) + '"' + (f.existing ? ' readonly' : '') + a11y('tf-id') + '></label><label class="field" for="tf-label">Label<input id="tf-label" value="' + esc(d.label) + '"' + a11y('tf-label') + '></label></div>' +
+      '<div class="grid2"><label class="field" for="tf-group">Group <span class="small">where it sits, like Releases / Approvals</span><input id="tf-group" maxlength="80" value="' + esc(d.group || '') + '"' + a11y('tf-group') + '></label><label class="field" for="tf-tags">Tags <span class="small">comma-separated</span><input id="tf-tags" maxlength="400" value="' + esc(d.tags || '') + '"' + a11y('tf-tags') + '></label></div>' +
       '<div class="grid2"><label class="field" for="tf-hint">What it\'s for<input id="tf-hint" maxlength="120" value="' + esc(d.hint) + '"' + a11y('tf-hint') + '></label><label class="field" for="tf-icon">Icon<select id="tf-icon" data-bound>' + T.ICONS.map(function (ic) { return '<option' + (d.icon === ic ? ' selected' : '') + '>' + ic + '</option>'; }).join('') + '</select></label></div>' +
       '<h3>Fields <span class="small">what a checklist can say about the step</span></h3>' + d.fields.map(function (r, i) { return row('f', i, r); }).join('') + '<button class="mini" type="button" data-act="tf-add" data-id="f">Add a field</button>' +
       '<h3>Evidence <span class="small">what can be recorded when it\'s checked</span></h3>' + d.record.map(function (r, i) { return row('r', i, r); }).join('') + '<button class="mini" type="button" data-act="tf-add" data-id="r">Add evidence</button>' +
-      (f.conflict ? '<div class="notice bad" role="alert"><span><b>Someone else changed this file</b> since you opened it. Nothing was saved. Compare, then keep yours or take theirs.</span><button class="btn stop" type="button" data-act="type-keep-mine">Keep mine</button><button class="mini" type="button" data-act="type-take-theirs">Take theirs</button></div>' +
+      (f.conflict ? '<div class="notice bad" role="alert"><span><b>Someone else changed this file</b> since you opened it. Nothing was saved. Compare, then keep yours or take theirs.</span>' + (f.saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" type="button" data-act="type-keep-mine">Keep mine</button><button class="mini" type="button" data-act="type-take-theirs">Take theirs</button>') + '</div>' +
         '<details open><summary class="small">Their version</summary><pre class="source">' + esc(f.conflict.theirs == null ? '(the file was deleted)' : f.conflict.theirs) + '</pre></details>' : '') +
-      '<div class="row"><button class="btn go" type="submit"' + (errs.length ? ' disabled aria-describedby="tf-errs"' : '') + '>Save step type</button><button class="mini" type="button" data-act="type-cancel">Cancel</button></div></form>' +
+      '<div class="row"><button class="btn go" type="submit"' + (errs.length || f.saving ? ' disabled' : '') + (errs.length ? ' aria-describedby="tf-errs"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button><button class="mini" type="button" data-act="type-cancel">Cancel</button></div></form>' +
       '<aside class="stack"><section class="panel"><h2 role="status">' + (errs.length ? 'Not ready yet · ' + errs.length + ' to fix' : 'Ready to save') + '</h2>' + (errs.length ? '<ul class="checks" id="tf-errs">' + errs.map(function (e, n) { return '<li id="tf-err-' + n + '"><span class="lvl bad">Fix</span><span>' + esc(e) + '</span></li>'; }).join('') + '</ul>' : '<p class="small">Checked with the same rules the team folder uses.</p>') + '</section>' +
       '<section class="panel"><h2>In a checklist</h2><pre class="source">' + esc('- [ ] {' + (d.id || 'your.type') + '} What to do {#step-id}' + d.fields.filter(function (r) { return r.name; }).map(function (r) { return '\n  ' + r.name + ': ...'; }).join('') + (d.record.length ? '\n  require: all' : '')) + '</pre></section>' +
       '<section class="panel"><h2>The file</h2><pre class="source">' + esc(json) + '</pre></section></aside></div>';
@@ -151,6 +157,8 @@
       if (/^"id"| is a built-in type/.test(e)) add('tf-id', n);
       else if (/^"label"/.test(e)) add('tf-label', n);
       else if (/^"hint"/.test(e)) add('tf-hint', n);
+      else if (/^"group"/.test(e)) add('tf-group', n);
+      else if (/^"tags"/.test(e)) add('tf-tags', n);
       else if ((m = /^(field|record) "([^"]*)"(: label)?/.exec(e))) { var kind = m[1] === 'field' ? 'f' : 'r', r = rowOf(kind === 'f' ? d.fields : d.record, m[2]); if (r) add('tf-' + kind + '-' + r.k + '-' + (m[3] ? 'label' : /options|choice/.test(e) ? 'options' : 'name'), n); }
       else if ((m = /^record (\d+): /.exec(e))) { var named = d.record.filter(function (r) { return r.name; }), rr = named[+m[1] - 1]; if (rr) add('tf-r-' + rr.k + '-' + (/options/.test(e) ? 'options' : /label/.test(e) ? 'label' : /kind/.test(e) ? 'kind' : 'name'), n); }
       else if ((m = /^(a field|evidence) (?:labeled "([^"]*)"|with options) has no name/.exec(e))) { var k2 = m[1] === 'a field' ? 'f' : 'r'; (k2 === 'f' ? d.fields : d.record).forEach(function (r) { if (!(r.name || '').trim() && (m[2] == null ? !(r.label || '').trim() && (r.options || '').trim() : (r.label || '').trim() === m[2])) add('tf-' + k2 + '-' + r.k + '-name', n); }); }
@@ -162,6 +170,9 @@
     /* Options a person didn't touch are kept exactly as the file had them (an option may hold spaces or a line break). */
     var out = { id: (d.id || '').trim(), label: (d.label || '').trim() }, norm = function (x) { return String(x || '').replace(/\r\n?/g, '\n'); }, opts = function (r) { return r.orig && norm(r.options) === norm(r.orig.join('\n')) ? r.orig.slice() : String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); };
     if (d.hint) out.hint = d.hint.trim();
+    if (d.group && T.groupText(d.group)) out.group = T.groupText(d.group);
+    var tg = String(d.tags || '').split(',').map(T.tagText).filter(Boolean);
+    if (tg.length) out.tags = tg;
     if (d.icon) out.icon = d.icon;
     out.fields = {};
     d.fields.forEach(function (r) { if (!r.name) return; var x = { label: r.label, kind: r.kind }; if (r.required) x.required = true; if (r.kind === 'choice') x.options = opts(r); out.fields[r.name] = x; });
@@ -170,7 +181,7 @@
   }
   /* A definition (from a file or a built-in) → the form's state. */
   function formOf(t, keepId) {
-    return { id: keepId ? t.id : '', label: t.label || '', hint: t.hint || '', icon: t.icon || 'check',
+    return { id: keepId ? t.id : '', label: t.label || '', hint: t.hint || '', icon: t.icon || 'check', group: keepId && t.group ? t.group.join(' / ') : '', tags: keepId && t.tags ? t.tags.join(', ') : '',
       fields: Object.keys(t.fields || {}).map(function (n) { var x = t.fields[n], fixed = x.kind !== 'choice' || ((x.options || []).length && !x.optionsFrom); return { k: nextKey(), name: n, label: x.label, kind: fixed ? x.kind : 'text', required: !!x.required, options: fixed ? (x.options || []).join('\n') : '', orig: fixed && x.options ? x.options.slice() : null }; }),
       /* A built-in choice whose options come from the step (optionsFrom) has no fixed list a team type can hold: it becomes text. */
       record: (t.record || []).map(function (r) { var fixed = r.kind === 'choice' && (r.options || []).length && !r.optionsFrom; return { k: nextKey(), name: r.name, label: r.label, kind: fixed ? 'choice' : r.kind === 'url' ? 'url' : 'text', long: !!r.long, options: fixed ? r.options.join('\n') : '', orig: fixed ? r.options.slice() : null }; }) };
@@ -242,5 +253,5 @@
   V.tabOf = tabOf; V.checklistPanel = checklistPanel; V.shownOf = shownOf; V.editTab = editTab; V.newProcess = newProcess; V.starterMap = starterMap;
   V.types = types; V.typeDefOf = defOf; V.typeFormOf = formOf;
   /* Everything a person can change in the form, unnamed rows included, so a half-filled row still counts as a change. */
-  V.typeFormSnapshot = function (d) { var row = function (r) { return [r.name, r.label, r.kind, String(r.options || '').replace(/\r\n?/g, '\n'), !!r.required, !!r.long]; }; return JSON.stringify([d.id, d.label, d.hint, d.icon, d.fields.map(row), d.record.map(row)]); };
+  V.typeFormSnapshot = function (d) { var row = function (r) { return [r.name, r.label, r.kind, String(r.options || '').replace(/\r\n?/g, '\n'), !!r.required, !!r.long]; }; return JSON.stringify([d.id, d.label, d.hint, d.icon, d.group || '', d.tags || '', d.fields.map(row), d.record.map(row)]); };
 })();

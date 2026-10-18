@@ -473,6 +473,7 @@
     renderTop();
     followDrafts();
     state.editor = state.processId ? editorOf(state.processId) : null;
+    state.tags = (state.tagsBy || {})[state.view] || [];
     var v = state.view;
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
     var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess };
@@ -761,7 +762,7 @@
     var f = state.typeForm; if (!f) return;
     var v = function (id) { var el = document.getElementById(id); return el ? el.value : undefined; }, c = function (id) { var el = document.getElementById(id); return el ? !!el.checked : undefined; };
     var d = f.def;
-    ['id', 'label', 'hint', 'icon'].forEach(function (k) { var x = v('tf-' + k); if (x !== undefined) d[k] = x; });
+    ['id', 'label', 'hint', 'icon', 'group', 'tags'].forEach(function (k) { var x = v('tf-' + k); if (x !== undefined) d[k] = x; });
     d.fields.forEach(function (r) { ['name', 'label', 'kind', 'options'].forEach(function (k) { var x = v('tf-f-' + r.k + '-' + k); if (x !== undefined) r[k] = x; }); var q = c('tf-f-' + r.k + '-required'); if (q !== undefined) r.required = q; });
     d.record.forEach(function (r) { ['name', 'label', 'kind', 'options'].forEach(function (k) { var x = v('tf-r-' + r.k + '-' + k); if (x !== undefined) r[k] = x; }); var q = c('tf-r-' + r.k + '-long'); if (q !== undefined) r.long = q; });
   }
@@ -773,8 +774,11 @@
     var def = V.typeDefOf(f.def), errs = V.typeErrors(f.def), sent = JSON.stringify(def), savedSnap = V.typeFormSnapshot(f.def);
     if (errs.length) { say(errs[0], 'warn'); render(); return; }
     if (!f.existing && (T.get(def.id) || ((data.stepTypes || {}).types || {})[def.id])) { say('There\'s already a step type {' + def.id + '}. Choose another ID, or edit that one.', 'warn'); render(); return; }
+    if (f.saving) { say('Still saving this step type. Try again in a moment.', 'warn'); render(); return; }
     var sfs = state.fs, g = gen;
+    f.saving = true; render();
     queued(function () { return repo.saveStepType(sfs, def, f.baseHash, { lock: LOCKS ? lock : null }); }).then(function (res) {
+      f.saving = false;
       /* The form is updated in its own folder even if someone switched folders meanwhile; only the screen waits. */
       var here = g === gen, open = typeForms[f.fsKey] === f;
       if (res.conflict) { f.conflict = res; if (here) render(); return; }
@@ -792,7 +796,7 @@
       if (open) state.focus = '[data-act="edit-type"][data-id="' + cssEsc(def.id) + '"]';
       say('Saved {' + def.id + '}. Checklists can use it now.', 'good');
       return load(true);
-    }, function (err) { if (fsKey() !== f.fsKey) return; say('Couldn\'t save the step type {' + def.id + '}: ' + err.message, 'bad'); render(); });
+    }, function (err) { f.saving = false; if (fsKey() !== f.fsKey) return; say('Couldn\'t save the step type {' + def.id + '}: ' + err.message, 'bad'); render(); });
   }
   function mutate(fn, opts) { return mutateRun(state.runKey, gen, fn, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
@@ -888,7 +892,8 @@
       copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your LLM.');
     },
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
-    tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
+    /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
+    tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { state.view = 'process'; state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
     nav: function (id) {
@@ -927,7 +932,7 @@
     },
     /* Saving keeps you in the editor: focus goes back to the text, since the Save button is disabled while it saves. */
     'save-draft': function () { var p = currentProcess(); if (!p) return; var ed = openEditor(p); state.focus = 'draft-editor'; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.'); },
-    'revert-draft': function () { var p = currentProcess(); if (!p || stillSaving(p)) return; dropEditor(p.id); openEditor(p); state.planFormReset = true; render(); },
+    'revert-draft': function () { var p = currentProcess(); if (!p || stillSaving(p)) return; dropEditor(p.id); openEditor(p); state.planFormReset = true; state.focus = 'draft-editor'; render(); },
     /* The draft file disappeared while it had unsaved edits: write them back as a new draft. */
     'recover-draft': function () {
       var ed = editorOf(state.processId); if (!ed || ed.text == null) return;
@@ -939,7 +944,7 @@
     'new-process': function () { state.view = 'new-process'; state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { ACTIONS.nav('types'); },
-    'new-type': function () { state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', fields: [{ k: V.nextRowKey(), name: '', label: '', kind: 'text' }], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
+    'new-type': function () { state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [{ k: V.nextRowKey(), name: '', label: '', kind: 'text' }], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     'copy-type': function (id) { var t = T.get(id); if (!t) return; state.view = 'types'; state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
     'edit-type': function (id) {
@@ -966,10 +971,10 @@
       state.focus = next ? 'tf-' + parts[0] + '-' + next.k + '-name' : '[data-act="tf-add"][data-id="' + parts[0] + '"]';
       render();
     },
-    'type-cancel': function () { state.typeForm = null; render(); },
-    'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict) { f.baseHash = f.conflict.theirsHash; f.conflict = null; saveType(); } },
+    'type-cancel': function () { state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
+    'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { f.baseHash = f.conflict.theirsHash; f.conflict = null; saveType(); } },
     'type-take-theirs': function () {
-      var f = state.typeForm; if (!f || !f.conflict) return;
+      var f = state.typeForm; if (!f || !f.conflict || f.saving) return;
       var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; }
       if (!o || T.checkCustom(o).length) { say('Their version can\'t be used as a step type' + (f.conflict.theirs == null ? ' (the file was deleted)' : '') + '. Keep yours, or cancel.', 'warn'); render(); return; }
       f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true; render();

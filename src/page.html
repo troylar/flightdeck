@@ -89,6 +89,9 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .mini { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 3px 9px; font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 .mini:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
+/* Step-type cards sit in a tree list; their own buttons keep the small-button look, not the list-row look. */
+.plist .tcard button.mini { width: auto; display: inline-flex; text-align: center; border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 3px 9px; font-size: 13px; }
+.plist > li.tcard { list-style: none; }
 .mini:disabled { opacity: .4; cursor: not-allowed; }
 .chipbtn { border: 1px solid var(--line); background: var(--chip); border-radius: 99px; padding: 3px 10px; font-size: 13px; }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }

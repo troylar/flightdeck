@@ -94,7 +94,10 @@ PF.types = (function () {
     else if (BY[def.id]) errs.push('"' + def.id + '" is a built-in type; choose another id');
     if (typeof def.label !== 'string' || !def.label.trim() || def.label.length > 40) errs.push('"label" must be 1-40 characters');
     if (def.hint != null && (typeof def.hint !== 'string' || def.hint.length > 120)) errs.push('"hint" must be at most 120 characters');
-    var extra = Object.keys(def).filter(function (k) { return ['id', 'label', 'hint', 'icon', 'fields', 'record'].indexOf(k) < 0; });
+    var extra = Object.keys(def).filter(function (k) { return ['id', 'label', 'hint', 'icon', 'fields', 'record', 'group', 'tags'].indexOf(k) < 0; });
+    /* Checked as the app writes them (levels joined with " / ", tags without "#"), so opening and saving never changes validity. */
+    if (def.group != null && (typeof def.group !== 'string' || groupText(def.group).length > 80)) errs.push('"group" must be text of at most 80 characters, like "Releases / Approvals"');
+    if (def.tags != null && (!Array.isArray(def.tags) || def.tags.length > 10 || def.tags.some(function (t) { return typeof t !== 'string' || !tagText(t) || tagText(t).length > 30 || /,/.test(t); }))) errs.push('"tags" must be a list of up to 10 short words, without commas');
     if (extra.length) errs.push('unknown field(s): ' + extra.join(', '));
     var fields = def.fields || {};
     if (typeof fields !== 'object' || Array.isArray(fields)) errs.push('"fields" must be an object of field definitions');
@@ -128,10 +131,14 @@ PF.types = (function () {
     return errs;
   }
   /* A checked team type, in the same shape as a built-in. */
+  function groupText(g) { return String(g).split('/').map(function (x) { return x.trim(); }).filter(Boolean).join(' / '); }
+  function tagText(t) { return String(t).replace(/^[#\s]+/, '').trim().toLowerCase(); }
   function customType(def) {
     var fields = {};
     Object.keys(def.fields || {}).forEach(function (f) { var d = def.fields[f]; fields[f] = { label: d.label, kind: d.kind, required: d.required === true }; if (d.options) fields[f].options = d.options.map(String); });
-    return { id: def.id, label: def.label, icon: ICONS_OK.indexOf(def.icon) >= 0 ? def.icon : 'check', hint: def.hint || '', fields: fields, version: VERSION, custom: true,
+    var group = typeof def.group === 'string' ? groupText(def.group).split(' / ').filter(Boolean) : [];
+    var tags = Array.isArray(def.tags) ? def.tags.map(tagText).filter(Boolean) : [];
+    return { id: def.id, label: def.label, icon: ICONS_OK.indexOf(def.icon) >= 0 ? def.icon : 'check', hint: def.hint || '', fields: fields, version: VERSION, custom: true, group: group, tags: tags,
       record: (def.record || []).map(function (d) { var c = { name: d.name, label: d.label, kind: d.kind }; if (d.options) c.options = d.options.map(String); if (d.long) c.long = true; return c; }) };
   }
   var ICONS_OK = ['check', 'chat', 'people', 'fork', 'doc', 'hourglass', 'cursor', 'gear', 'merge', 'ticket', 'terminal', 'script', 'spark', 'pipeline', 'nest'];
@@ -200,11 +207,18 @@ PF.types = (function () {
     return { values: out };
   }
   /* The definitions a map uses, frozen into its publication. */
+  /* Where a type sits and its tags are for finding it, not for what a step asks: they're never frozen into a version, so
+     reorganizing types never makes a process or a skill look changed. */
   function freeze(ids, custom) {
     var out = {};
-    ids.forEach(function (id) { var d = BY[id] || (custom && custom[id]); if (d) out[id] = JSON.parse(JSON.stringify(d)); });
+    ids.forEach(function (id) { var d = BY[id] || (custom && custom[id]); if (d) { out[id] = JSON.parse(JSON.stringify(d)); delete out[id].group; delete out[id].tags; } });
     return out;
   }
+  var GROUPS = { confirm: 'General', communicate: 'General', meeting: 'General', decide: 'General', review: 'General', wait: 'General',
+    'ui.action': 'Tools', 'jenkins.job': 'Tools', 'bitbucket.pr': 'Tools', 'jira.issue': 'Tools', 'ci.gate': 'Tools',
+    'run.process': 'Automation', 'run.command': 'Automation', 'run.script': 'Automation', 'run.skill': 'Automation' };
+  function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
+  function tagsOf(t) { return (t && t.tags) || []; }
 
-  return { VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze };
+  return { VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
 })();
