@@ -1,5 +1,41 @@
 [
   {
+    "version": "1.12.0",
+    "date": "2026-10-18",
+    "headline": "Undo, Redo and History in the checklist editor and the step-type form",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Undo, Redo and History in the checklist editor",
+        "before": "Only the builder had Undo. Typing in Markdown or saving the draft cleared it.",
+        "now": "Undo, Redo and History sit beside the Builder | Markdown switch, in both views, with one history for both. Undo names what it takes back, like Undo move, and says what it undid. Ctrl+Z or Cmd+Z undoes, Ctrl+Shift+Z, Cmd+Shift+Z or Ctrl+Y redoes, even while typing. Undo still works after a save; saving again is checked like any save.",
+        "where": "A process page: Edit. A selected step or phase also has History of this step or phase."
+      },
+      {
+        "kind": "new",
+        "area": "Step types",
+        "title": "Undo, Redo and History in the step-type form",
+        "now": "The step-type form has the same Undo, Redo and History and the same keys. Removing a field or evidence and undoing puts it back where it was, with everything it had. Each row has its own History.",
+        "where": "Step types: New step type, or Edit on a team type."
+      },
+      {
+        "kind": "improved",
+        "area": "Step types",
+        "title": "A clearer step-type editor",
+        "before": "One long form: the ID first, hints between labels and boxes, every field crammed on one line, and a Save button that was disabled without saying why.",
+        "now": "A full page with Save, Undo and History at the top and a live preview of the type in a checklist and in a run. The ID comes from the label. Tags are chips, the icon is a grid, and each field is a card you open, reorder or remove. Save says what's missing and keeps you in the editor, and Done asks before you lose changes.",
+        "where": "Step types: New step type, or Edit on a team type."
+      },
+      {
+        "kind": "improved",
+        "area": "Saving",
+        "title": "Undo never puts older text over newer work",
+        "now": "When the draft changes in the folder, or you take their version, restore a version or discard your changes, History marks the spot and Undo stops there. Changes before it stay listed but can't be undone, so Undo never brings older text back over someone else's work."
+      }
+    ]
+  },
+  {
     "version": "1.11.0",
     "date": "2026-10-18",
     "headline": "Planned runs, a flight plan view, a checklist builder, and organized step types",

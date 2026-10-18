@@ -40,6 +40,8 @@ function boot(opts) {
   Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { els[id].value = ''; }); } });
   appEl.querySelectorAll = sel => /input|textarea|select/.test(sel) ? [...inputs].map(id => els[id]) : [];
   appEl.contains = el => !!el && inputs.has(el.id);
+  /* What the app asked to find on the page (focus targets, mostly), newest last. */
+  const asked = []; appEl.querySelector = sel => { asked.push(sel); return null; };
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
   const storage = () => ({ getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
@@ -50,7 +52,7 @@ function boot(opts) {
   };
   document.activeElement = document.body;
   const window = {
-    innerWidth: 1400, scrollY: 0, scrollTo() {}, matchMedia: () => ({ matches: false }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
+    innerWidth: 1400, scrollY: 0, scrollTo() {}, matchMedia: () => ({ matches: !!opts.narrow }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
   const ctx = vm.createContext({
@@ -95,7 +97,17 @@ function boot(opts) {
       (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} }));
     },
     submit(id) { const el = get(id); (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} })); },
-    input(id, value) { const el = get(id); el.value = value; (listeners.input || []).forEach(fn => fn({ target: el })); },
+    // inputType as a browser sets it ('insertText', 'insertFromPaste'…); left out, it's plain typing.
+    input(id, value, inputType) { const el = get(id); el.value = value; (listeners.input || []).forEach(fn => fn({ target: el, inputType })); },
+    // The browser about to change a box (its Edit menu's Undo is 'historyUndo'). Returns whether the app cancelled it.
+    beforeinput(id, inputType) { let cancelled = false; (listeners.beforeinput || []).forEach(fn => fn({ target: get(id), inputType, preventDefault() { cancelled = true; } })); return cancelled; },
+    // What the screen reader was last told (the #live region).
+    live: () => els.live.textContent || '',
+    // Any page event the app listens for on the document (compositionstart, focusout…), with the event's own fields.
+    fire(type, props) { (listeners[type] || []).forEach(fn => fn(Object.assign({ preventDefault() {} }, props || {}))); },
+    // An element stand-in by id, and the document, for tests that need focus or a dialog's controls.
+    el: get, doc: document,
+    asked: () => asked.slice(),
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
     // Like set(), for an input inside one data-scope element with no other scope opened before it closes (the builder's
     // side form): the app then sees which form it belongs to, as closest() does in a browser.

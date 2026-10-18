@@ -216,7 +216,7 @@ rule('App: the builder\'s Undo puts back the last change, and the Markdown view 
   app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
   app.click('ob-del', 'rollback'); await app.tick();
   assert.ok(!/data-ob-step="rollback"/.test(app.html()) && /Step deleted/.test(app.html()));
-  app.click('ob-undo'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved changes/.test(app.html()), 'back, and nothing left unsaved');
   app.click('ob-sel-phase', 'verify'); await app.tick();
   app.set('ob-ph-title', 'Verify it'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
@@ -243,8 +243,8 @@ rule('App: once the editor follows a newer draft from the folder, Undo can\'t br
   const theirs = original.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(/data-act="ob-undo" disabled/.test(app.html()), 'nothing to undo against their version');
-  app.click('ob-undo'); await app.tick();
+  assert.ok(/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'nothing to undo against their version');
+  app.click('tl-undo', 'draft'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, theirs, 'their change is still on disk');
 });
@@ -283,12 +283,573 @@ rule('App: Undo puts the selection back with the text, so a phase without an ID 
   app.focus(); await app.tick(80);
   app.click('ob-sel-phase', '#0'); await app.tick();
   app.click('ob-ph-move', '#0', { dir: 'down' }); await app.tick();
-  app.click('ob-undo'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/<li class="ob-phase sel"><div class="ob-ph-head"><div class="fp-eye">Phase 1/.test(app.html()), 'First is selected again, back in first place');
   app.set('ob-ph-title', 'First, renamed'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'First, renamed', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const t = app.fs.files[path].t;
   assert.ok(/## First, renamed · READ-DO\n- \[ \] \{confirm\} One \{#one\}\n\n## Second · READ-DO/.test(t), t);
+});
+
+/* The draft editor's text as the page draws it in Markdown. */
+const mdOf = app => { const m = /<textarea id="draft-editor"[^>]*>\n([\s\S]*?)<\/textarea>/.exec(app.html()); return m ? m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&') : null; };
+/* Typing redraws the page at most every 250 ms. */
+const settle = app => new Promise(r => setTimeout(r, 300)).then(() => app.tick());
+/* A key pressed with Cmd (or Ctrl) on an element, and whether the app took it from the browser. */
+function cmdKey(app, key, target, mods) { let taken = false; app.keyOn(key, Object.assign({ metaKey: true, preventDefault() { taken = true; } }, mods || {}), target); return taken; }
+const undoLabel = app => { const m = /data-act="tl-undo" data-id="draft"[^>]*aria-keyshortcuts[^>]*><span class="ic"[\s\S]*?<\/svg><\/span>([\s\S]*?)<\/button>/.exec(app.html()); return m ? m[1].replace(/<[^>]+>/g, '') : null; };
+
+rule('App: typing in the Markdown keeps the builder\'s Undo, and switching views keeps both', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-del', 'rollback'); await app.tick();
+  assert.strictEqual(undoLabel(app), 'Undo step deletion');
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.strictEqual(undoLabel(app), 'Undo step deletion', 'the same Undo in Markdown');
+  const t = mdOf(app), at = t.indexOf('{#flags}');
+  app.input('draft-editor', t.slice(0, at) + 'now ' + t.slice(at)); await settle(app);
+  assert.strictEqual(undoLabel(app), 'Undo typing');
+  assert.ok(/aria-label="Undo the typing in &quot;Feature flags set in the deploy values/.test(app.html()), 'named by the step it was typed in');
+  app.click('ed-mode', 'builder'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.strictEqual(undoLabel(app), 'Undo step deletion', 'the typing went first, and the builder change is still there to undo');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved changes/.test(app.html()), 'both undone, back to the saved draft');
+  app.click('tl-redo', 'draft'); await app.tick(); app.click('tl-redo', 'draft'); await app.tick();
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.ok(!/\{#rollback\}/.test(mdOf(app)) && /@backend now \{#flags\}/.test(mdOf(app)), 'Redo brought both back');
+  assert.strictEqual(app.fs.files[path].t, original, 'nothing written');
+});
+
+rule('App: Undo after Save makes the draft unsaved again, and saving it is checked like any other save', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const saved = app.fs.files[path].t;
+  assert.ok(!/\{#rollback\}/.test(saved) && !/Unsaved changes/.test(app.html()), 'set-up: saved without Rollback');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Unsaved changes/.test(app.html()) && /data-ob-step="rollback"/.test(app.html()), 'undoing a saved change makes the draft unsaved');
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, original, 'saved back to the original');
+  app.click('tl-redo', 'draft'); await app.tick();
+  // Someone else changes the draft before this one is saved: the save is refused, never written over theirs.
+  const theirs = original.replace('title: Production release', 'title: Theirs');
+  await app.fs.write(path, theirs);
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, theirs, 'their change is kept');
+  assert.ok(/Someone else changed this draft/.test(app.html()), 'shown as a conflict');
+  app.click('hist-open', 'draft'); await app.tick();
+  assert.ok(/class="hist-entry"><div class="hist-what">The step deletion of &quot;Rollback commit written in the release ticket&quot;<\/div><div class="small">You · [^<]* · saved/.test(app.overlay()), 'History says the change was saved');
+});
+
+rule('App: following a newer draft from the folder sets a baseline: Undo stops there, and History says where', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const theirs = app.fs.files[path].t.replace('title: Production release', 'title: Theirs');
+  await app.fs.write(path, theirs);
+  app.focus(); await app.tick(80);
+  assert.ok(/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'nothing to undo against their version');
+  assert.ok(/id="tl-undo-why-draft">Earlier changes can.t be undone: the draft was replaced since/.test(app.html()), 'and the button says why');
+  app.click('ob-del', 'flags'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/data-ob-step="flags"/.test(app.html()) && !/Unsaved changes/.test(app.html()), 'a change made after it undoes');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Earlier changes can.t be undone: the draft was replaced since/.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'and Undo stops at the baseline');
+  app.click('hist-open', 'draft'); await app.tick();
+  const h = app.overlay();
+  assert.ok(/<b>Before<\/b><pre class="source">- \[!\] \{confirm\} Feature flags set in the deploy values \^environment @backend \{#flags\}\n/.test(h), 'before and after show whole lines');
+  assert.ok(/role="dialog"/.test(h) && /<li class="hist-mark">The draft changed in the folder here. Earlier changes can(&#39;|')t be undone.<\/li>/.test(h), 'History shows the baseline');
+  assert.ok(h.indexOf('hist-mark') > h.indexOf('The step deletion of &quot;Feature flags') && h.indexOf('hist-mark') < h.indexOf('The step deletion of &quot;Rollback'), 'between the changes before and after it');
+  assert.strictEqual(app.fs.files[path].t, theirs, 'their draft is untouched');
+});
+
+rule('App: Take theirs and Restore each set a baseline, so Undo can\'t bring back the text they replaced', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-del', 'rollback'); await app.tick();
+  const theirs = original.replace('title: Production release', 'title: Theirs');
+  await app.fs.write(path, theirs);
+  app.click('save-draft'); await app.tick(80);
+  app.click('draft-take-theirs'); await app.tick();
+  assert.ok(/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()) && /data-ob-step="rollback"/.test(app.html()), 'their text, nothing to undo');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/data-ob-step="rollback"/.test(app.html()), 'Undo doesn\'t delete Rollback from their text');
+  app.click('hist-open', 'draft'); await app.tick();
+  assert.ok(/You took their version here/.test(app.overlay()));
+  app.key('Escape'); await app.tick();
+  // Restore an older version as the draft.
+  app.click('ob-del', 'flags'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const folder = app.files('publications/release/').map(p => p.split('/')[2]).filter(f => /^v1-/.test(f))[0];
+  assert.ok(folder, 'set-up: v1 is published');
+  app.click('restore-draft', folder); await app.tick();
+  app.click('restore-draft', folder, { sure: '1' }); await app.tick(80);
+  assert.ok(/Restored v1 as the draft/.test(app.html()), 'restored');
+  app.click('ptab', 'edit'); await app.tick();
+  assert.ok(/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'nothing before the restore can be undone');
+  app.click('hist-open', 'draft'); await app.tick();
+  assert.ok(/You restored v1 as the draft here/.test(app.overlay()));
+});
+
+rule('App: Cmd+Z in the Markdown editor uses the draft\'s Undo, not the browser\'s, and so does the Edit menu', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const t = mdOf(app), ta = { tagName: 'TEXTAREA', id: 'draft-editor', dataset: {}, closest: () => null };
+  app.input('draft-editor', t + 'A'); await app.tick();
+  app.input('draft-editor', t + 'AB'); await app.tick();
+  assert.ok(cmdKey(app, 'z', ta), 'the app takes Cmd+Z');
+  await app.tick();
+  assert.strictEqual(mdOf(app), t, 'one Undo takes back the whole run of typing');
+  assert.ok(cmdKey(app, 'z', ta, { metaKey: false, ctrlKey: true, shiftKey: true, key: 'Z' }), 'Ctrl+Shift+Z is Redo');
+  await app.tick();
+  assert.strictEqual(mdOf(app), t + 'AB');
+  assert.ok(app.beforeinput('draft-editor', 'historyUndo'), 'the browser\'s own Undo is cancelled');
+  await app.tick();
+  assert.strictEqual(mdOf(app), t, '...and done by the draft\'s Undo');
+  assert.ok(!app.beforeinput('draft-editor', 'insertText'), 'typing isn\'t touched');
+  app.input('draft-editor', t + 'pasted', 'insertFromPaste'); await settle(app);
+  assert.strictEqual(undoLabel(app), 'Undo paste');
+});
+
+rule('App: Cmd+Z in a builder box with typing not yet applied leaves that box\'s own undo alone', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.select('ob-mark', 'step'); await app.tick();
+  assert.ok(/Unsaved changes/.test(app.html()), 'set-up: one change to undo');
+  const box = v => ({ tagName: 'INPUT', id: 'ob-text', value: v, defaultValue: 'Feature flags set in the deploy values', dataset: { enter: 'ob-commit' }, closest: () => null });
+  assert.ok(!cmdKey(app, 'z', box('Feature flags, half typed')), 'the browser undoes the typing in the box');
+  await app.tick();
+  assert.ok(/Unsaved changes/.test(app.html()), 'and the draft is left alone');
+  assert.ok(cmdKey(app, 'z', box('Feature flags set in the deploy values')), 'with nothing typed, the draft\'s Undo');
+  await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()), 'undone');
+  assert.ok(!cmdKey(app, 'z', { tagName: 'SELECT', id: 'me', value: '', dataset: {}, closest: () => null }), 'the name at the top keeps the browser\'s');
+});
+
+rule('App: Alt+Up still moves a step and Enter still adds one, next to the Undo and Redo keys', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', PF = app.PF;
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.keyOn('ArrowUp', { altKey: true }, rowOf('rollback')); await app.tick();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.set('ob-new-text', 'Check the dashboards'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-new-text', value: 'Check the dashboards', dataset: { enter: 'ob-add-go' }, closest: () => null }); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.deepStrictEqual(idsOf(PF, app.fs.files[path].t).slice(0, 5), ['approved', 'tests', 'rollback', 'check-the-dashboards', 'flags'], 'moved up, and added after it');
+  assert.ok(cmdKey(app, 'z', rowOf('check-the-dashboards'), { metaKey: false, ctrlKey: true })); await app.tick();
+  assert.ok(!/data-ob-step="check-the-dashboards"/.test(app.html()), 'Ctrl+Z undid the add');
+  assert.ok(cmdKey(app, 'y', rowOf('rollback'), { metaKey: false, ctrlKey: true })); await app.tick();
+  assert.ok(/data-ob-step="check-the-dashboards"/.test(app.html()), 'Ctrl+Y redid it');
+  assert.ok(!cmdKey(app, 'z', rowOf('rollback'), { altKey: true }), 'Alt+Cmd+Z is left alone');
+});
+
+rule('App: each Undo and Redo says what it undid or redid, on screen and to screen readers', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
+  assert.ok(/Moved &quot;Feature flags set in the deploy values&quot;. Undo available./.test(app.html()) && /data-act="tl-undo" data-id="draft">Undo<\/button>/.test(app.html()), 'the change says Undo is there, with a button');
+  assert.strictEqual(app.live(), 'Moved "Feature flags set in the deploy values". Undo available.');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.strictEqual(app.live(), 'Undid the move of "Feature flags set in the deploy values". Redo available.');
+  assert.ok(/data-act="tl-redo" data-id="draft">Redo<\/button>/.test(app.html()), 'with a Redo button');
+  assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="flags">/.test(app.html()), 'the step is still selected');
+  app.click('tl-redo', 'draft'); await app.tick();
+  assert.strictEqual(app.live(), 'Redid the move of "Feature flags set in the deploy values". Undo available.');
+  app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  const once = app.live();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(app.live() !== once && app.live().trim() === once.trim(), 'the same words again are announced again');
+});
+
+rule('App: in a step type, removing a field and undoing puts it back in place with all it had, and Cmd+Z there uses the same Undo', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const rows = () => [...app.html().matchAll(/data-act="tf-open" data-id="f:(k\d+)"[^>]*><span class="tf-item-text"><span class="tf-item-t">([^<]*)</g)].map(m => [m[1], m[2]]);
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
+  const [k1] = rows()[0];
+  app.input('tf-f-' + k1 + '-label', 'Level'); await settle(app);
+  assert.ok(new RegExp('id="tf-f-' + k1 + '-name"[^>]*value="level"').test(app.html()), 'the name comes from the label');
+  app.set('tf-f-' + k1 + '-optadd', 'Low'); app.click('tf-opt-add', 'f:' + k1); await app.tick();
+  app.set('tf-f-' + k1 + '-optadd', 'High'); app.click('tf-opt-add', 'f:' + k1); await app.tick();
+  app.click('tf-add', 'f'); await app.tick();
+  const k2 = rows()[1][0];
+  app.input('tf-f-' + k2 + '-label', 'Owner'); await settle(app);
+  assert.ok(/data-act="tl-undo" data-id="type"[^>]*>(?:<span class="ic"[\s\S]*?<\/svg><\/span>)?Undo<span class="tl-what"> typing<\/span><\/button>/.test(app.html()), 'the step-type form has the same Undo');
+  app.click('tf-remove', 'f:' + k1); await app.tick();
+  assert.deepStrictEqual(rows().map(r => r[1]), ['Owner']);
+  assert.strictEqual(app.live(), 'Removed field "level". Undo available.');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.deepStrictEqual(rows(), [[k1, 'Level'], [k2, 'Owner']], 'back first, with its own key');
+  app.click('tf-open', 'f:' + k1); await app.tick();
+  assert.ok(new RegExp('id="tf-f-' + k1 + '-kind"[^>]*>[\\s\\S]*?<option value="choice" selected>').test(app.html()) && /<li class="tf-chip">Low<button[\s\S]*?<li class="tf-chip">High<button/.test(app.html()), 'with its type and options');
+  assert.strictEqual(app.live(), 'Undid the field removal of "level". Redo available.');
+  const box = { tagName: 'INPUT', id: 'tf-f-' + k2 + '-label', value: 'Owner', dataset: {}, closest: () => null };
+  assert.ok(cmdKey(app, 'z', box), 'Cmd+Z in a box of the form goes to its Undo');
+  await app.tick();
+  assert.deepStrictEqual(rows().map(r => r[1]), ['Level', 'New field'], 'it undid the typing');
+  assert.ok(app.beforeinput('tf-label', 'historyUndo'), 'and the browser\'s own Undo goes there too');
+  assert.ok(!cmdKey(app, 'z', { tagName: 'INPUT', id: 'tf-tagadd', value: 'half', defaultValue: '', dataset: {}, closest: () => null }), 'the Add a tag box keeps its own undo while it holds typing');
+  app.click('hist-open', 'type', { item: 'field:' + k1 }); await app.tick();
+  assert.ok(/Only changes to <b>field level<\/b>/.test(app.overlay()) && /The new option of &quot;High&quot;/.test(app.overlay()) && !/Owner/.test(app.overlay()), 'one field\'s History');
+  app.click('hist-item', ''); await app.tick();
+  assert.ok(/Owner/.test(app.overlay()), 'Show all');
+});
+
+rule('App: Undo and Redo keep what\'s typed in an open Add a step box, and refuse when the step it goes after would disappear', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', PF = app.PF;
+  app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.set('ob-new-text', 'Check the dashboards');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/id="ob-new-text"/.test(app.html()) && app.draft('ob-new-text') === 'Check the dashboards', 'the box and its text stay through Undo');
+  app.click('tl-redo', 'draft'); await app.tick();
+  assert.ok(/id="ob-new-text"/.test(app.html()) && app.draft('ob-new-text') === 'Check the dashboards', 'and through Redo');
+  app.click('ob-add-go'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.deepStrictEqual(idsOf(PF, app.fs.files[path].t).slice(0, 5), ['approved', 'flags', 'tests', 'rollback', 'check-the-dashboards'], 'added where it was asked for');
+  // The new step's own Add-after box: undoing the add would take away where it goes.
+  app.click('ob-add-after', 'check-the-dashboards'); await app.tick();
+  app.set('ob-new-text', 'Watch the error rate');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/data-ob-step="check-the-dashboards"/.test(app.html()), 'nothing undone');
+  assert.ok(/Add or cancel the new step you&#39;re writing first/.test(app.html()) || /Add or cancel the new step you're writing first/.test(app.html()), 'it says why');
+  assert.strictEqual(app.draft('ob-new-text'), 'Watch the error rate', 'and the text is still there');
+});
+
+rule('App: while a save of the draft is still finishing, a refresh never replaces an Undo made meanwhile', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t, write = app.fs.write.bind(app.fs), g = gate();
+  app.click('ob-del', 'rollback'); await app.tick();
+  // The save writes, then waits before it's done.
+  app.fs.write = (p, t) => p === path ? write(p, t).then(() => g.p) : write(p, t);
+  app.click('save-draft'); await app.tick(5);
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/data-ob-step="rollback"/.test(app.html()), 'set-up: Rollback back');
+  app.focus(); await app.tick(80);
+  assert.ok(/data-ob-step="rollback"/.test(app.html()), 'the refresh leaves the Undo alone');
+  g.open(); await app.tick(80); app.fs.write = write;
+  app.focus(); await app.tick(80);
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && /Unsaved changes/.test(app.html()), 'after the save lands, the Undo is still there, unsaved');
+  assert.ok(!/data-act="tl-redo" data-id="draft" aria-disabled/.test(app.html()), 'and Redo still can put the deletion back');
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, original);
+});
+
+rule('App: the step-type editor makes the ID and names from labels, moves rows, edits tags and options with Undo, and asks before leaving unsaved changes', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  assert.ok(/id="tf-save-why">Add a label to save\./.test(app.html()) && !/type="submit"[^>]*disabled/.test(app.html()), 'Save says what\'s missing, and isn\'t disabled');
+  app.input('tf-label', 'Change board approval'); await settle(app);
+  assert.ok(/<code class="tf-idtok[^"]*">\{change\.board\.approval\}<\/code><button type="button" class="linkish" data-act="tf-id-edit"/.test(app.html()), 'the ID comes from the label, with Change');
+  app.click('tf-add', 'f', { kind: 'url' }); await app.tick();
+  const ka = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1];
+  app.input('tf-f-' + ka + '-label', 'Ticket link'); await settle(app);
+  app.click('tf-add', 'f'); await app.tick();
+  const kb = [...app.html().matchAll(/data-act="tf-open" data-id="f:(k\d+)"/g)][1][1];
+  app.input('tf-f-' + kb + '-label', 'Window'); await settle(app);
+  app.click('tf-move', 'f:' + kb, { dir: 'up' }); await app.tick();
+  const order = () => [...app.html().matchAll(/<span class="tf-item-sub"><code>([\w-]+)<\/code>/g)].map(m => m[1]);
+  assert.deepStrictEqual(order(), ['window', 'ticket-link'], 'moved up');
+  assert.ok(new RegExp('<li class="tf-item[^"]* flash" data-tf-row="f:' + kb + '"').test(app.html()), 'the moved row glows');
+  assert.ok(/  window: …\n  ticket-link: https:\/\/…/.test(app.html()), 'the checklist preview follows');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.deepStrictEqual(order(), ['ticket-link', 'window'], 'and the move undoes');
+  app.set('tf-tagadd', '#cab'); app.click('tf-tag-add'); await app.tick();
+  assert.ok(/<li class="tf-chip">#cab<button type="button" data-act="tf-tag-del" data-id="cab" aria-label="Remove tag cab">/.test(app.html()), 'a tag chip');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(!/tf-chip">#cab/.test(app.html()), 'undone');
+  app.el('tf-icon-gear').checked = true; app.select('tf-icon-gear', 'gear'); await app.tick();
+  assert.ok(/<input type="radio" name="tf-icon" id="tf-icon-gear" value="gear" checked/.test(app.html()), 'the icon is a radio grid');
+  app.click('type-done'); await app.tick();
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()) && /id="type-form"/.test(app.html()), 'Done asks first');
+  app.click('type-stay'); await app.tick();
+  app.click('type-save'); await app.tick(120);
+  const def = JSON.parse(app.fs.files['step-types/change.board.approval.json'].t);
+  assert.deepStrictEqual([Object.keys(def.fields), def.icon], [['ticket-link', 'window'], 'gear'], 'saved as shown');
+});
+
+rule('App: a step type keeps its Undo and History after it\'s saved and opened again', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  app.input('tf-id', 'risk.level'); app.input('tf-label', 'Risk level'); await settle(app);
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(app.fs.files['step-types/risk.level.json'], 'set-up: saved');
+  app.click('edit-type', 'risk.level'); await app.tick(40);
+  assert.ok(/data-act="tl-undo" data-id="type" aria-keyshortcuts/.test(app.html()), 'Undo is there');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(/<input id="tf-label"[^>]*value=""/.test(app.html()), 'and undoes the typing');
+  app.click('hist-open', 'type'); await app.tick();
+  assert.ok(/· saved/.test(app.overlay()), 'History says it was saved');
+  app.key('Escape'); await app.tick();
+  // Changed in the folder meanwhile: the older changes stay listed, behind a baseline.
+  app.click('type-cancel'); await app.tick();
+  const f = JSON.parse(app.fs.files['step-types/risk.level.json'].t); f.label = 'Theirs';
+  await app.fs.write('step-types/risk.level.json', JSON.stringify(f, null, 2) + '\n');
+  app.click('edit-type', 'risk.level'); await app.tick(40);
+  assert.ok(/<input id="tf-label"[^>]*value="Theirs"/.test(app.html()) && /data-act="tl-undo" data-id="type" aria-disabled="true"/.test(app.html()), 'their version, nothing to undo over it');
+  app.click('hist-open', 'type'); await app.tick();
+  assert.ok(/The step type changed in the folder here/.test(app.overlay()));
+});
+
+rule('App: text moved by dragging in the Markdown is one Undo', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const t = mdOf(app), word = 'Production release', at = t.indexOf(word), cut = t.slice(0, at) + t.slice(at + word.length), moved = cut + word;
+  app.input('draft-editor', cut, 'deleteByDrag'); app.input('draft-editor', moved, 'insertFromDrop'); await settle(app);
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.strictEqual(mdOf(app), t, 'one Undo puts it back where it was');
+});
+
+rule('App: typing with an input method is one Undo, and Cmd+Z while composing is left to the input method', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const t = mdOf(app), ta = app.el('draft-editor');
+  app.fire('compositionstart', { target: ta });
+  ['k', 'か', 'かn', 'かん', '缶'].forEach(x => app.input('draft-editor', t + x, 'insertCompositionText'));
+  assert.ok(!cmdKey(app, 'z', { tagName: 'TEXTAREA', id: 'draft-editor', dataset: {}, closest: () => null }, { isComposing: true }), 'Cmd+Z while composing goes to the input method');
+  app.fire('compositionend', { target: ta }); app.input('draft-editor', t + '缶'); await settle(app);
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.strictEqual(mdOf(app), t, 'one Undo takes back the whole composition');
+  app.click('tl-redo', 'draft'); await app.tick();
+  assert.strictEqual(mdOf(app), t + '缶');
+});
+
+rule('App: Tab and Shift+Tab stay inside History, and every dialog, wrapping at the ends', async () => {
+  const app = await builderOn(), doc = app.doc;
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('hist-open', 'draft'); await app.tick();
+  const btn = n => ({ id: n, dataset: {}, focus() { doc.activeElement = this; }, closest: () => null });
+  const ctl = [btn('close'), btn('undo'), btn('redo')], ov = app.el('overlay');
+  ov.querySelectorAll = () => ctl; ov.contains = el => ctl.includes(el);
+  doc.activeElement = ctl[2];
+  let taken = false; app.keyOn('Tab', { preventDefault() { taken = true; } }, ctl[2]);
+  assert.ok(taken && doc.activeElement === ctl[0], 'Tab from the last control goes to the first');
+  taken = false; app.keyOn('Tab', { shiftKey: true, preventDefault() { taken = true; } }, ctl[0]);
+  assert.ok(taken && doc.activeElement === ctl[2], 'Shift+Tab from the first goes to the last');
+  doc.activeElement = ctl[1]; taken = false; app.keyOn('Tab', { preventDefault() { taken = true; } }, ctl[1]);
+  assert.ok(!taken && doc.activeElement === ctl[1], 'in between, Tab moves as usual');
+});
+
+/* The step-type editor on a new type, as Casey. */
+async function newTypeOn() {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  return app;
+}
+const typeDef = app => JSON.parse(/<pre class="source">([\s\S]*?)<\/pre><\/details>/.exec(app.html())[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+
+rule('App: Undo in a saved step type never changes its ID, so saving it again goes to the same file', async () => {
+  const app = await newTypeOn();
+  app.input('tf-label', 'Risk'); await settle(app);
+  app.fire('focusout', { target: app.el('tf-label') });
+  app.input('tf-label', 'Risk level'); await settle(app);
+  app.click('type-save'); await app.tick(120);
+  assert.ok(app.fs.files['step-types/risk.level.json'], 'set-up: saved as risk.level');
+  if (!/id="type-form"/.test(app.html())) { app.click('edit-type', 'risk.level'); await app.tick(40); }
+  app.click('tl-undo', 'type'); await app.tick();
+  const d = typeDef(app);
+  assert.deepStrictEqual([d.id, d.label], ['risk.level', 'Risk'], 'the label goes back; the ID stays');
+  app.el('tf-label').value = 'Risk';  // the box as the page draws it now
+  app.click('type-save'); await app.tick(120);
+  assert.ok(!/Someone else changed this step type/.test(app.html()) && !app.fs.files['step-types/risk.json'], 'no false conflict, no second file');
+  assert.strictEqual(JSON.parse(app.fs.files['step-types/risk.level.json'].t).label, 'Risk');
+});
+
+rule('App: fast typing in a field\'s label keeps making its name, even before the page redraws', async () => {
+  const app = await newTypeOn();
+  app.click('tf-add', 'f'); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], nm = app.el('tf-f-' + k + '-name');
+  nm.value = ''; nm.defaultValue = '';  // the Name box as last drawn: empty
+  ['R', 'Ri', 'Risk'].forEach(v => app.input('tf-f-' + k + '-label', v));
+  await settle(app);
+  assert.ok(new RegExp('id="tf-f-' + k + '-name"[^>]*value="risk"').test(app.html()), 'named from the label');
+});
+
+rule('App: typing a step type\'s label quickly is one Undo, even though its ID changes with it', async () => {
+  const app = await newTypeOn();
+  ['R', 'Ri', 'Ris', 'Risk'].forEach(v => app.input('tf-label', v));
+  await settle(app);
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.deepStrictEqual([typeDef(app).label, typeDef(app).id], ['', ''], 'one Undo takes back the whole word');
+});
+
+rule('App: text moved by dragging in a step type\'s box is one Undo', async () => {
+  const app = await newTypeOn();
+  app.input('tf-hint', 'one two three'); await settle(app);
+  app.fire('focusout', { target: app.el('tf-hint') });
+  app.input('tf-hint', 'one three', 'deleteByDrag'); app.input('tf-hint', 'one three two', 'insertFromDrop'); await settle(app);
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.strictEqual(typeDef(app).hint, 'one two three');
+});
+
+rule('App: a composition with an input method is its own Undo, apart from typing right before and after it, in both editors', async () => {
+  const app = await newTypeOn(), hint = app.el('tf-hint');
+  app.fire('compositionstart', { target: hint });
+  ['k', 'か', '缶'].forEach(x => app.input('tf-hint', x, 'insertCompositionText'));
+  app.fire('compositionend', { target: hint }); app.input('tf-hint', '缶');
+  app.input('tf-hint', '缶a'); await settle(app);
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.strictEqual(typeDef(app).hint, '缶', 'typing after it is separate');
+  const md = boot({ localStore: { 'preflight:builder': 'false' } }); await md.tick(60); md.choose('person-casey'); await md.tick();
+  md.click('open-process', 'release'); await md.tick(); md.click('ptab', 'edit'); await md.tick();
+  const t = mdOf(md), ta = md.el('draft-editor');
+  md.input('draft-editor', t + 'x');
+  md.fire('compositionstart', { target: ta });
+  md.input('draft-editor', t + 'x缶', 'insertCompositionText');
+  md.fire('compositionend', { target: ta }); md.input('draft-editor', t + 'x缶'); await settle(md);
+  md.click('tl-undo', 'draft'); await md.tick();
+  assert.strictEqual(mdOf(md), t + 'x', 'typing before it is separate');
+});
+
+rule('App: a dialog\'s Tab trap skips controls that aren\'t shown', async () => {
+  const app = await builderOn(), doc = app.doc;
+  app.click('hist-open', 'draft'); await app.tick();
+  const btn = (n, shown) => ({ id: n, dataset: {}, focus() { doc.activeElement = this; }, closest: () => null, getClientRects: () => (shown ? [{}] : []) });
+  const ctl = [btn('close', true), btn('item', true), btn('hidden', false)], ov = app.el('overlay');
+  ov.querySelectorAll = () => ctl; ov.contains = el => ctl.includes(el);
+  doc.activeElement = ctl[1];
+  let taken = false; app.keyOn('Tab', { preventDefault() { taken = true; } }, ctl[1]);
+  assert.ok(taken && doc.activeElement === ctl[0], 'Tab from the last shown control wraps');
+  taken = false; app.keyOn('Tab', { shiftKey: true, preventDefault() { taken = true; } }, ctl[0]);
+  assert.ok(taken && doc.activeElement === ctl[1], 'Shift+Tab never lands on a hidden one');
+});
+
+rule('App: too many tags marks the Add a tag box invalid, and Move at the top focuses the row, not a disabled button', async () => {
+  const app = await newTypeOn();
+  app.input('tf-label', 'Risk'); await settle(app);
+  for (let i = 0; i < 11; i++) { app.set('tf-tagadd', 't' + i); app.click('tf-tag-add'); await app.tick(); }
+  app.click('type-save'); await app.tick(40);
+  assert.ok(/<input id="tf-tagadd"[^>]*aria-invalid="true"[^>]*aria-describedby="tf-err-\d+/.test(app.html()), 'the box points at the error');
+  app.click('tf-add', 'f'); await app.tick(); app.click('tf-add', 'f'); await app.tick();
+  const k2 = [...app.html().matchAll(/data-act="tf-open" data-id="f:(k\d+)"/g)][1][1];
+  app.click('tf-move', 'f:' + k2, { dir: 'up' }); await app.tick();
+  const last = app.asked().filter(q => /tf-move|tf-open/.test(q)).pop();
+  assert.ok(/data-act="tf-open"/.test(last), 'focus goes to the row: ' + last);
+});
+
+rule('App: adding blank fields and evidence, then undoing each, works every time, and a new field\'s label typed quickly is one Undo', async () => {
+  const app = await newTypeOn();
+  app.click('tf-add', 'f'); await app.tick(); app.click('tf-add', 'r'); await app.tick(); app.click('tf-add', 'f'); await app.tick();
+  // The page reads every box, checkboxes included, as it does before any change.
+  [...app.html().matchAll(/id="(tf-[fr]-k\d+-(?:required|long))"/g)].forEach(m => { app.el(m[1]).checked = false; });
+  app.input('tf-hint', 'x'); await settle(app);
+  for (let i = 0; i < 4; i++) { app.click('tl-undo', 'type'); await app.tick(); assert.ok(!/It changed since/.test(app.html()), 'Undo ' + (i + 1) + ' worked'); }
+  assert.ok(!/data-act="tf-open"/.test(app.html()), 'all three rows undone');
+  app.click('tf-add', 'f'); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1];
+  app.el('tf-f-' + k + '-required').checked = false;
+  ['R', 'Ri', 'Ris', 'Risk'].forEach(v => app.input('tf-f-' + k + '-label', v));
+  await settle(app);
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(new RegExp('data-act="tf-open" data-id="f:' + k + '"[^>]*><span class="tf-item-text"><span class="tf-item-t">New field<').test(app.html()), 'one Undo takes back the whole label');
+});
+
+rule('App: after saving a type under an ID typed by hand, Undo still reaches the earlier changes', async () => {
+  const app = await newTypeOn();
+  app.input('tf-label', 'Risk'); await settle(app);
+  app.fire('focusout', { target: app.el('tf-label') });
+  app.click('tf-id-edit'); await app.tick();
+  app.input('tf-id', 'custom.risk'); await settle(app);
+  app.click('type-save'); await app.tick(120);
+  assert.ok(app.fs.files['step-types/custom.risk.json'], 'set-up: saved under the typed ID');
+  app.click('tl-undo', 'type'); await app.tick();
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(!/It changed since/.test(app.html()), 'no refusal');
+  assert.deepStrictEqual([typeDef(app).id, typeDef(app).label], ['custom.risk', ''], 'the label is undone; the saved ID stays');
+});
+
+rule('App: on a phone, the step-type Preview is a dialog: focus goes in, Tab stays in, Escape closes it and focus comes back', async () => {
+  const app = boot({ narrow: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  app.click('tf-preview'); await app.tick();
+  const h = app.html();
+  assert.ok(/<aside class="fpe-pane tf-preview open" id="tf-preview" role="dialog" aria-modal="true" aria-labelledby="tf-prev-h"/.test(h), 'a modal dialog');
+  assert.ok(/<header class="fpe-head" role="region" aria-labelledby="tf-h" inert/.test(h) && /<section class="fpe-pane tf-formpane" aria-label="Step type" inert/.test(h), 'what\'s behind it can\'t be used');
+  assert.ok(app.asked().includes('.tf-prevclose'), 'focus goes to Close');
+  const doc = app.doc, btn = n => ({ id: n, dataset: {}, focus() { doc.activeElement = this; }, closest: () => null, getClientRects: () => [{}] });
+  const ctl = [btn('close'), btn('last')], pv = app.el('tf-preview');
+  pv.querySelectorAll = () => ctl; pv.contains = el => ctl.includes(el);
+  doc.activeElement = ctl[1];
+  let taken = false; app.keyOn('Tab', { preventDefault() { taken = true; } }, ctl[1]);
+  assert.ok(taken && doc.activeElement === ctl[0], 'Tab wraps inside it');
+  const before = app.asked().length;
+  app.key('Escape'); await app.tick();
+  assert.ok(!/tf-preview open/.test(app.html()) && !/aria-labelledby="tf-h" inert/.test(app.html()), 'Escape closes it');
+  assert.ok(app.asked().slice(before).includes('.tf-prevbtn'), 'focus comes back to Preview');
+});
+
+rule('App: an ID typed letter by letter and saved stays fixed while Undo goes all the way back and Redo all the way forward', async () => {
+  const app = await newTypeOn();
+  app.input('tf-label', 'Risk'); await settle(app);
+  app.fire('focusout', { target: app.el('tf-label') });
+  app.click('tf-id-edit'); await app.tick();
+  let id = ''; for (const ch of 'custom.risk') { id += ch; app.input('tf-id', id); }
+  await settle(app);
+  app.fire('focusout', { target: app.el('tf-id') });
+  app.input('tf-id', 'custom.risk2'); await settle(app);
+  app.click('type-save'); await app.tick(120);
+  assert.ok(app.fs.files['step-types/custom.risk2.json'], 'set-up: saved');
+  let n = 0;
+  while (!/data-act="tl-undo" data-id="type" aria-disabled="true"/.test(app.html()) && n < 10) {
+    app.click('tl-undo', 'type'); await app.tick(); n++;
+    assert.ok(!/It changed since/.test(app.html()), 'Undo ' + n + ' applied');
+    assert.strictEqual(typeDef(app).id, 'custom.risk2', 'the ID stays fixed');
+  }
+  assert.strictEqual(typeDef(app).label, '', 'back at the start');
+  for (let i = 0; i < n; i++) {
+    app.click('tl-redo', 'type'); await app.tick();
+    assert.ok(!/It changed since/.test(app.html()), 'Redo ' + (i + 1) + ' applied');
+    assert.strictEqual(typeDef(app).id, 'custom.risk2');
+  }
+  assert.strictEqual(typeDef(app).label, 'Risk', 'back at the end');
+});
+
+rule('App: widening the screen while the phone Preview is open closes it, so the editor never stays locked', async () => {
+  const opts = { narrow: true }, app = boot(opts); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  app.click('tf-preview'); await app.tick();
+  assert.ok(/role="dialog" aria-modal="true"/.test(app.html()), 'set-up: open');
+  opts.narrow = false;
+  app.input('tf-label', 'R'); await settle(app);
+  assert.ok(!/aria-modal="true"/.test(app.html()) && !/ inert/.test(app.html()), 'the next redraw draws the editor usable');
+});
+
+rule('App: an ID entered with spaces around it is saved trimmed, and Undo still applies, pasted or typed', async () => {
+  for (const how of ['paste', 'type']) {
+    const app = await newTypeOn();
+    app.input('tf-label', 'Risk'); await settle(app);
+    app.fire('focusout', { target: app.el('tf-label') });
+    app.click('tf-id-edit'); await app.tick();
+    if (how === 'paste') app.input('tf-id', ' custom.risk ', 'insertFromPaste');
+    else { let id = ''; for (const ch of ' custom.risk ') { id += ch; app.input('tf-id', id); } }
+    await settle(app);
+    app.click('type-save'); await app.tick(120);
+    assert.ok(app.fs.files['step-types/custom.risk.json'], how + ': saved trimmed');
+    app.click('tl-undo', 'type'); await app.tick();
+    assert.ok(!/It changed since/.test(app.html()), how + ': Undo applied');
+    app.click('tl-undo', 'type'); await app.tick();
+    assert.ok(!/It changed since/.test(app.html()), how + ': and the one before');
+    assert.deepStrictEqual([typeDef(app).id, typeDef(app).label], ['custom.risk', ''], how + ': back to the start, ID fixed');
+    app.click('tl-redo', 'type'); await app.tick(); app.click('tl-redo', 'type'); await app.tick();
+    assert.ok(!/It changed since/.test(app.html()) && typeDef(app).label === 'Risk', how + ': Redo too');
+  }
+});
+
+rule('App: a type just saved with a padded ID or label isn\'t unsaved: Done leaves, and reopening keeps its Undo', async () => {
+  for (const how of ['paste', 'type']) {
+    const app = await newTypeOn();
+    app.input('tf-label', ' Risk '); await settle(app);
+    app.fire('focusout', { target: app.el('tf-label') });
+    app.click('tf-id-edit'); await app.tick();
+    if (how === 'paste') app.input('tf-id', ' custom.risk ', 'insertFromPaste');
+    else { let id = ''; for (const ch of ' custom.risk ') { id += ch; app.input('tf-id', id); } }
+    app.input('tf-hint', ' For the board '); await settle(app);
+    app.click('type-save'); await app.tick(120);
+    assert.ok(app.fs.files['step-types/custom.risk.json'] && /class="fpe-state just"/.test(app.html()), how + ': saved, and says so');
+    app.click('type-done'); await app.tick();
+    assert.ok(!/changes that aren.t saved/.test(app.html()) && !/id="type-form"/.test(app.html()), how + ': Done leaves without asking');
+    app.click('edit-type', 'custom.risk'); await app.tick(40);
+    assert.ok(/role="status"><span class="ic"[\s\S]*?<\/span>Saved</.test(app.html()), how + ': reopened as saved');
+    app.click('tl-undo', 'type'); await app.tick();
+    assert.ok(!/can.t be undone/.test(app.html()) && !/It changed since/.test(app.html()), how + ': Undo still works');
+  }
 });
 
 rule('App: a value the builder refuses shows why next to its box, marked invalid for screen readers', async () => {
@@ -425,7 +986,7 @@ rule('App: changing a new type\'s ID while it saves keeps the form a new type un
   app.submit('type-form'); await app.tick(5);
   app.input('tf-id', 'risk.later'); await app.tick(300);
   g.open(); await app.tick(80);
-  assert.ok(/New step type/.test(app.html()) && !/readonly/.test(/<input id="tf-id"[^>]*>/.exec(app.html())[0]), 'still a new type, ID editable');
+  assert.ok(!/Fixed once saved/.test(app.html()) && /<input id="tf-id"[^>]*value="risk.later"/.test(app.html()), 'still a new type, ID editable');
   app.submit('type-form'); await app.tick(120);
   assert.ok(app.fs.files['step-types/risk.later.json'] && app.fs.files['step-types/risk.call.json'], 'both saved, no false conflict');
 });
@@ -575,8 +1136,11 @@ rule('App: step types are grouped and filtered by tag; a type saves its group an
   app.click('nav', 'types'); await app.tick();
   assert.ok(/data-group="Tools"/.test(app.html()) && /data-group="Automation"/.test(app.html()), 'built-ins in groups');
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.input('tf-group', 'Releases / Approvals'); app.input('tf-tags', 'cab, prod'); await app.tick(300);
+  app.input('tf-group', 'Releases / Approvals'); await app.tick(300);
+  app.set('tf-tagadd', 'cab'); app.click('tf-tag-add'); await app.tick();
+  app.set('tf-tagadd', '#prod'); app.click('tf-tag-add'); await app.tick();
   app.submit('type-form'); await app.tick(120);
+  app.click('type-done'); await app.tick();
   const def = JSON.parse(app.fs.files['step-types/change.request.json'].t);
   assert.strictEqual(JSON.stringify([def.group, def.tags]), JSON.stringify(['Releases / Approvals', ['cab', 'prod']]));
   assert.ok(/data-group="Releases \/ Approvals"/.test(app.html()) && /data-act="tag" data-id="cab"/.test(app.html()), 'grouped and taggable');
@@ -688,9 +1252,12 @@ rule('App: a new process starts a draft and opens it for editing', async () => {
 rule('App: a new step type is saved to step-types/ and listed; an invalid one is refused', async () => {
   const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
   app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
-  app.set('tf-id', 'risk.call'); app.set('tf-label', 'Risk call'); app.set('tf-hint', 'A go or no-go call'); app.set('tf-icon', 'fork');
+  app.set('tf-id', 'risk.call'); app.set('tf-label', 'Risk call'); app.set('tf-hint', 'A go or no-go call'); app.el('tf-icon-fork').checked = true;
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
   const fk = /id="tf-f-(k\d+)-name"/.exec(app.html())[1];
-  app.set('tf-f-' + fk + '-name', 'level'); app.set('tf-f-' + fk + '-label', 'Level'); app.set('tf-f-' + fk + '-kind', 'choice'); app.set('tf-f-' + fk + '-options', 'Low, with review\nHigh');
+  app.set('tf-f-' + fk + '-label', 'Level');
+  app.set('tf-f-' + fk + '-optadd', 'Low, with review'); app.click('tf-opt-add', 'f:' + fk); await app.tick();
+  app.set('tf-f-' + fk + '-optadd', 'High'); app.click('tf-opt-add', 'f:' + fk); await app.tick();
   app.click('tf-add', 'r'); await app.tick();
   const rk = /id="tf-r-(k\d+)-name"/.exec(app.html())[1];
   app.set('tf-r-' + rk + '-name', 'call'); app.set('tf-r-' + rk + '-label', 'Call'); app.set('tf-r-' + rk + '-kind', 'text');
@@ -698,7 +1265,9 @@ rule('App: a new step type is saved to step-types/ and listed; an invalid one is
   const f = app.fs.files['step-types/risk.call.json'];
   assert.ok(f, 'saved');
   const def = JSON.parse(f.t);
-  assert.deepStrictEqual([def.fields.level.options, def.record[0].name], [['Low, with review', 'High'], 'call'], 'options keep their commas');
+  assert.deepStrictEqual([def.fields.level.options, def.record[0].name, def.icon], [['Low, with review', 'High'], 'call', 'fork'], 'options keep their commas; the name comes from the label');
+  assert.ok(/class="fpe-state just" role="status"><span class="ic"[\s\S]*?<\/span>Saved<\/span>/.test(app.html()), 'Saved, with a check, and you stay in the editor');
+  app.click('type-done'); await app.tick();
   assert.ok(/data-act="edit-type" data-id="risk.call"/.test(app.html()), 'listed');
   app.click('new-type'); await app.tick(); app.set('tf-id', 'jenkins.job'); app.set('tf-label', 'Mine'); app.submit('type-form'); await app.tick(60);
   assert.ok(/built-in type|already a step type/.test(app.html()) && !app.fs.files['step-types/jenkins.job.json'], 'a built-in id is refused');

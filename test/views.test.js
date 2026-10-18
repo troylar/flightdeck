@@ -352,17 +352,70 @@ rule('Draft builder: everything from the draft is escaped, and a draft it can\'t
   assert.ok(/can.t edit this draft safely/.test(odd) && /data-act="ed-mode" data-id="markdown">Markdown/.test(odd), 'old Mac line endings: use Markdown');
 });
 
+rule('Every editor shows Undo (naming what it undoes), Redo and History, with the same names and keys', () => {
+  const { ctx, state } = setup(), TL = PF.timeline;
+  const md = ['---', 'process: x', 'title: X', '---', '## One · READ-DO {#one}', '- [ ] {confirm} <b>Smoke</b> tests {#smoke}', '- [ ] {confirm} Two {#two}', ''].join('\n');
+  const p = { id: 'x', title: 'X', latest: null, all: [], clashes: [], broken: [], skills: [], draft: { file: 'x.md', md }, draftChanged: true };
+  ctx.processes = () => [p]; state.view = 'process'; state.processId = 'x'; state.ptab = 'edit';
+  const tl = TL.create(), moved = md.replace('- [ ] {confirm} Two {#two}\n', '').replace('## One · READ-DO {#one}\n', '## One · READ-DO {#one}\n- [ ] {confirm} Two {#two}\n');
+  TL.record(tl, md, moved, { kind: 'op', label: 'move', subject: '<b>Smoke</b> tests' });
+  state.editor = { pid: 'x', base: md, baseHash: 'x', text: moved, tl };
+  const bar = html => { const m = /<div class="undobar" role="toolbar" aria-label="Undo and history">([\s\S]*?)<\/div>/.exec(html); assert.ok(m, 'a toolbar'); return m[1]; };
+  const names = h => [...h.matchAll(/<button[^>]*data-act="([\w-]+)"[^>]*>([\s\S]*?)<\/button>/g)].map(m => m[1] + ':' + m[2].replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, ''));
+  const keys = h => [...h.matchAll(/aria-keyshortcuts="([^"]*)"/g)].map(m => m[1]);
+  state.builder = true; const b = bar(V.process(ctx));
+  state.builder = false; const m = bar(V.process(ctx));
+  assert.deepStrictEqual(names(b), ['tl-undo:Undo move', 'tl-redo:Redo', 'hist-open:History'], 'the builder');
+  assert.deepStrictEqual(names(m), names(b), 'Markdown: the same three, same names');
+  assert.ok(/aria-label="Undo the move of &quot;&lt;b&gt;Smoke&lt;\/b&gt; tests&quot;"/.test(b) && !/<b>Smoke/.test(b), 'the full name is said, escaped');
+  assert.ok(/data-act="tl-redo" data-id="draft" aria-disabled="true"[^>]*aria-describedby="tl-redo-why-draft"/.test(b) && /id="tl-redo-why-draft">Nothing to redo.</.test(b), 'nothing to redo: still focusable, and says why');
+  state.builder = true; state.obSel = { pid: 'x', kind: 'step', key: 'smoke' };
+  assert.ok(/data-act="hist-open" data-id="draft" data-item="step:smoke"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?History of this step</.test(V.process(ctx)), 'a step\'s own History');
+  state.obSel = null;
+  // The step-type form: the same toolbar, its own timeline.
+  state.view = 'types';
+  const form = V.typeFormOf(PF.types.customType({ id: 'risk.level', label: 'Risk', fields: { level: { label: 'Level', kind: 'text' } } }), true), ttl = TL.create(), before = JSON.stringify(form);
+  form.fields.pop();
+  TL.record(ttl, before, JSON.stringify(form), { kind: 'form', label: 'field removal', subject: 'level' });
+  state.typeForm = { def: form, existing: 'risk.level', baseHash: null, tl: ttl };
+  const tb = bar(V.types(ctx));
+  assert.deepStrictEqual(names(tb), ['tl-undo:Undo field removal', 'tl-redo:Redo', 'hist-open:History'], 'the step-type form');
+  assert.deepStrictEqual(keys(tb), keys(b), 'and the same keys');
+  assert.ok(/data-act="tl-undo" data-id="type"/.test(tb));
+  // Nothing done yet: Undo says so.
+  state.typeForm.tl = TL.create();
+  assert.ok(/id="tl-undo-why-type">Nothing to undo yet.</.test(V.types(ctx)));
+});
+
+rule('History lists this session\'s changes newest first, marks the baseline, and escapes what it shows', () => {
+  const { ctx } = setup(), TL = PF.timeline, tl = TL.create();
+  TL.record(tl, 'a\n', 'a <script>x</script>\n', { kind: 'op', lines: true, label: 'wording change', subject: '<img src=x>', items: ['step:a'] });
+  TL.barrier(tl, 'The draft changed in the folder here. Earlier changes can\'t be undone.');
+  TL.record(tl, 'b\n', 'bc\n', { kind: 'typing', lines: true, label: 'typing', subject: 'B', items: ['step:b'] });
+  TL.record(tl, 'bc\n', 'bcd\n', { kind: 'op', label: 'move', subject: 'B', items: ['step:b'] });
+  TL.undo(tl, 'bcd\n');
+  const h = V.historyDrawer(ctx, { scope: 'draft', tl, title: 'Draft of X' });
+  assert.ok(/role="dialog" aria-modal="true" aria-labelledby="hist-t"/.test(h) && /<h3>This session<\/h3>/.test(h));
+  const order = ['The move of', 'The typing in', 'hist-mark', 'The wording change of'].map(x => h.indexOf(x));
+  assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), 'newest first, with the baseline in its place');
+  assert.ok(/Undone · Redo brings it back/.test(h) && /Can't be undone/.test(h));
+  assert.ok(!/<script>|<img src=x>/.test(h) && /&lt;script&gt;/.test(h), 'escaped');
+  const one = V.historyDrawer(ctx, { scope: 'draft', tl, item: 'step:a', itemName: 'step "A"' });
+  assert.ok(/Only changes to <b>step &quot;A&quot;<\/b>/.test(one) && /data-act="hist-item" data-id="">Show all/.test(one) && !/The typing in/.test(one), 'one item, with Show all');
+});
+
 rule('Step types page lists every type; the form checks a new one as you build it', () => {
   const { ctx, state } = setup();
   ctx.processes = () => []; ctx.data.stepTypes = { types: { 'risk.call': PF.types.customType({ id: 'risk.call', label: 'Risk call', record: [{ name: 'call', label: 'Call', kind: 'text' }] }) }, errors: [{ file: 'bad.json', errors: ['"label" must be 1-40 characters'] }] };
   let html = V.types(ctx);
   assert.ok(/Your team.s types · 1/.test(html) && /Built-in types · \d+/.test(html) && /\{jenkins\.job\}/.test(html) && /data-act="edit-type" data-id="risk.call"/.test(html) && /step-types\/bad\.json/.test(html));
-  state.typeForm = { def: { id: 'Bad Id', label: '', hint: '', icon: 'check', fields: [], record: [] }, existing: null, baseHash: null };
+  state.typeForm = { def: { id: 'Bad Id', idSet: true, label: '', hint: '', icon: 'check', fields: [], record: [] }, existing: null, baseHash: null };
   html = V.types(ctx);
-  assert.ok(/Not ready yet/.test(html) && /id(&quot;)? must be/.test(html) && /type="submit" disabled/.test(html));
+  assert.ok(/id="tf-save-why">Add a label to save\./.test(html) && /<p class="ferr" id="tf-err-\d+">The ID can use lowercase letters/.test(html) && !/&quot;label&quot; must be/.test(html), 'what\'s missing is said near Save, and a wrong ID next to it');
+  assert.ok(/<button class="btn go" type="submit" form="type-form" aria-describedby="tf-save-why">Save step type/.test(html), 'Save is never silently disabled');
   state.typeForm.def = { id: 'risk.level', label: 'Risk level', hint: '', icon: 'check', fields: [{ name: 'level', label: 'Level', kind: 'choice', options: 'Low, High' }], record: [{ name: 'who', label: 'Who', kind: 'text' }] };
   html = V.types(ctx);
-  assert.ok(/Ready to save/.test(html) && /options&quot;: \[/.test(html) && /\{risk\.level\} What to do/.test(html));
+  assert.ok(!/tf-save-why/.test(html) && /options&quot;: \[/.test(html) && /\{risk\.level\} What to do/.test(html) && /<dt>Level<\/dt>/.test(html), 'ready; the checklist line and the run card preview it');
 });
 
 rule('Every built-in type can start a team type that passes the checks', () => {
@@ -380,17 +433,17 @@ rule('Step type form: untouched options round-trip exactly; a named-less row wit
   assert.strictEqual(JSON.stringify(V.typeDefOf(form).fields.level.options), JSON.stringify(['Low', 'High']), 'an edited list is read one per line');
   const { ctx, state } = setup();
   form.fields.push({ k: 'k999', name: '', label: 'Change system', kind: 'text' });
-  state.typeForm = { def: form, existing: 'risk.level', baseHash: null };
+  state.typeForm = { def: form, existing: 'risk.level', baseHash: null, tried: true };
   assert.ok(V.typeErrors(form).some(e => /labeled "Change system" has no name/.test(e)), 'an error, not a silent drop');
   const html = V.types(ctx);
-  assert.ok(/id="tf-f-k999-name"[^>]*aria-invalid="true" aria-describedby="tf-err-\d+"/.test(html), 'the error points at the name');
-  assert.ok(/<li id="tf-err-\d+">/.test(html) && /role="status"/.test(html));
+  assert.ok(/id="tf-f-k999-name"[^>]*aria-invalid="true" aria-describedby="tf-err-\d+ tf-f-k999-name-help"/.test(html), 'the error points at the name');
+  assert.ok(/<p class="ferr" id="tf-err-\d+">/.test(html) && /role="status"/.test(html));
   form.fields.pop();
   form.fields.push({ k: 'k998', name: '', label: '', kind: 'text', options: 'only options' });
   assert.ok(V.typeErrors(form).some(e => /with options has no name/.test(e)), 'options alone count too');
   form.fields.pop();
   form.record.push({ k: 'k997', name: 'verdict', label: 'Verdict', kind: 'choice', options: '' });
-  assert.ok(/id="tf-r-k997-options"[^>]*aria-invalid="true"/.test(V.types(ctx)), 'a numbered evidence error points at its options');
+  assert.ok(/id="tf-r-k997-optadd"[^>]*aria-invalid="true"/.test(V.types(ctx)), 'a numbered evidence error points at its options');
   assert.ok(V.typeFormSnapshot(form) !== V.typeFormSnapshot(Object.assign({}, form, { fields: form.fields.concat({ k: 'x', name: '', label: 'half', kind: 'text' }) })), 'a half-filled row is a change');
 });
 

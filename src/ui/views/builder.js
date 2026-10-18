@@ -72,8 +72,7 @@
     if (o.unsupported) return '<div class="notice warn"><span>The builder can\'t edit this draft safely: ' + esc(o.unsupported) + ' Use Markdown instead.</span><button class="mini" data-act="ed-mode" data-id="markdown">Markdown</button></div>';
     if (map.errors.length) h += '<div class="notice warn"><span>' + map.errors.length + ' line' + (map.errors.length === 1 ? ' isn\'t' : 's aren\'t') + ' understood (see Checks). The builder keeps ' + (map.errors.length === 1 ? 'it' : 'them') + ' exactly as written; fix ' + (map.errors.length === 1 ? 'it' : 'them') + ' in Markdown.</span></div>';
     if (o.questions >= 0) h += '<div class="notice warn"><span>It still has a Questions section. Answer the questions in Markdown.</span></div>';
-    h += '<div class="row between"><p id="ob-kbd" class="small" style="margin:0">Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, phase or gate to change it.</p>' +
-      '<button type="button" class="mini" data-act="ob-undo"' + (ed && ed.undo && ed.undo.length ? '' : ' disabled') + '>Undo</button></div>';
+    h += '<p id="ob-kbd" class="small" style="margin:0">Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, phase or gate to change it.</p>';
     var phaseForm = '<div class="ob-addform row"><label class="sr" for="ob-new-title">New phase name</label><input id="ob-new-title" maxlength="120" placeholder="Phase name" data-enter="ob-add-go"' + errAt(ctx, 'ob-new-title') + '>' +
       '<label class="sr" for="ob-new-mode">How it\'s worked</label><select id="ob-new-mode"><option value="READ-DO">READ-DO</option><option value="DO-CONFIRM">DO-CONFIRM</option></select>' +
       '<button type="button" class="btn go" data-act="ob-add-go">Add phase</button><button type="button" class="mini" data-act="ob-add-cancel">Cancel</button></div>' + errMsg(ctx, 'ob-new-title');
@@ -119,7 +118,8 @@
       if (s.notes) h += '<p class="small">Its ' + (s.notes === 1 ? 'note line stays' : s.notes + ' note lines stay') + ' as written; edit notes in Markdown.</p>';
       h += '<p class="small">' + (s.id ? 'ID <code>' + esc(s.id) + '</code>. It never changes, so runs and skills keep finding this step.' : 'No ID yet. Add one in Markdown, like {#' + esc(U.slug(s.text, 24)) + '}.') + '</p>';
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
-        '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button></div>';
+        '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button>' +
+        '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="step:' + esc(s.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this step</button></div>';
       return h + '</section>';
     }
     var ph = o.phases.filter(function (x) { return x.key === sel.key; })[0]; if (!ph) return '';
@@ -127,7 +127,8 @@
     var f = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-phase|' + esc(ph.key) + '|' + sig + '"><h2 id="ob-form-h">' + I('edit') + 'Phase ' + (ph.index + 1) + '</h2>' +
       '<label class="field" for="ob-ph-title">Name<input id="ob-ph-title" maxlength="120" data-enter="ob-commit" value="' + esc(ph.title) + '"' + errAt(ctx, 'ob-ph-title') + '></label>' + errMsg(ctx, 'ob-ph-title') +
       '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>READ-DO: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>DO-CONFIRM: do the work, then confirm together</option></select></label>' +
-      '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button></div>' +
+      '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button>' +
+      '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="phase:' + esc(ph.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this phase</button></div>' +
       '<h3>' + I('gate') + 'Closing gate</h3>';
     if (gt && gt.odd) return f + '<p class="small">This gate has options the builder doesn\'t know. Edit it in Markdown.</p></section>';
     if (!gt) return f + '<p class="small">Without a gate, the phase ends with a check that it\'s done. Name a gate to add one.</p><label class="field" for="ob-g-title">Gate name<input id="ob-g-title" maxlength="120" data-enter="ob-commit" value="" placeholder="Ready to deploy"' + errAt(ctx, 'ob-g-title') + '></label>' + errMsg(ctx, 'ob-g-title') + '</section>';

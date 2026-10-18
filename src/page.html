@@ -377,7 +377,8 @@ table.grid td.cold { color: var(--muted); }
 .lb-bar .cap { flex: 1; min-width: 0; font-weight: 600; }
 .lb-bar button { border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); color: #EEF2F4; border-radius: 7px; padding: 6px 12px; font-weight: 600; }
 .help { background: var(--card); color: var(--ink); border-radius: 12px; padding: 20px 22px; width: min(460px, 100%); }
-.help dl { display: grid; grid-template-columns: 70px 1fr; gap: 6px 12px; margin: 0 0 12px; }
+.help dl { display: grid; grid-template-columns: minmax(70px, max-content) 1fr; gap: 6px 12px; margin: 0 0 12px; }
+.help h3 { font-size: 14px; margin: 14px 0 4px; }
 .help dt { font-family: var(--mono); font-weight: 600; }
 
 @keyframes stamp { 0% { transform: scale(1.6) rotate(-8deg); opacity: 0; } 60% { transform: scale(.95) rotate(-8deg); opacity: 1; } 100% { transform: scale(1) rotate(-8deg); opacity: 1; } }
@@ -462,6 +463,180 @@ button.ob-chip[aria-pressed="true"] { background: var(--amber); color: var(--on-
 .ob-dragging .ob-slot.over { padding: 8px 12px; border: 2px dashed var(--amber); background: var(--amber-soft); color: var(--ink); font-size: 13px; font-weight: 600; }
 .ob-dragging .ob-slot.over > span { display: inline; }
 .ob-changed summary { cursor: pointer; font-size: 13px; }
+/* Undo, Redo and History: the same toolbar on every editor. aria-disabled keeps a control focusable so it can say why. */
+.undobar { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ed-tools { gap: 8px; }
+.mini[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.mini[aria-disabled="true"]:hover { color: var(--muted); border-color: var(--line); }
+.help.hist { width: min(680px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.hist h3 { margin: 4px 0 0; }
+.hist-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.hist-entry { border-left: 3px solid var(--amber); padding: 4px 10px; overflow-wrap: anywhere; }
+.hist-entry.undone { border-left-style: dashed; color: var(--muted); }
+.hist-what { font-weight: 600; }
+.hist-mark { border-top: 2px dashed var(--field); padding: 6px 0 2px; font-size: 13px; color: var(--muted); }
+.hist-ba { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 4px; }
+.hist-ba pre { margin: 2px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.hist summary { cursor: pointer; }
+@media (max-width: 600px) { .hist-ba { grid-template-columns: minmax(0, 1fr); } }
+/* The step-type editor: a page of its own, on the same shell as the draft editor (fpe-* names), scoped to .fpe-type so the
+   two never fight over each other's rules. The app's top bar hides while it's open. */
+html.tfe-on .top { display: none; }
+html.tfe-on #app { padding: 0; max-width: none; }
+@media (min-width: 801px) { html.tfe-on, html.tfe-on body { overflow: hidden; } }
+.fpe-type.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); }
+.fpe-type .fpe-head { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; grid-template-areas: "id tools save"; align-items: center; gap: 8px 12px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
+.fpe-type .fpe-id { grid-area: id; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.fpe-type .fpe-tools { grid-area: tools; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fpe-type .fpe-save { grid-area: save; display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.fpe-type .fpe-title { display: flex; flex-direction: column; min-width: 0; }
+.fpe-type .fpe-title h1 { margin: 0; font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.fpe-type .fpe-title h1:focus { outline: none; }
+.fpe-type .fpe-head .btn, .fpe-type .fpe-head .mini { min-height: 36px; }
+.fpe-type .fpe-head .mini[aria-disabled="true"] { opacity: .55; background: var(--chip); color: var(--muted); }
+.fpe-type .fpe-state { width: 9.5em; display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.25; font-size: 13px; color: var(--muted); }
+.fpe-type .fpe-state.dirty { color: var(--ink); font-weight: 600; }
+.fpe-type .fpe-state.just { color: var(--go); font-weight: 600; }
+.fpe-type .fpe-state .ic { width: 16px; height: 16px; }
+.fpe-type .fpe-alerts { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
+.fpe-type .fpe-alerts:not(:empty) { padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.fpe-type .fpe-alerts .notice { margin: 0; }
+.fpe-type .fpe-theirs .source { max-height: 30vh; overflow: auto; }
+.fpe-type .fpe-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
+.tf-why { margin: 0; align-self: flex-end; font-size: 13px; color: var(--stop); font-weight: 600; }
+/* The form gets the room; the preview is a narrower column beside it. */
+.tf-panes { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 32vw, 440px); min-height: 0; }
+.tf-formpane { padding: 16px 16px 64px; }
+.tf-form { max-width: 760px; margin: 0 auto; }
+.tf-preview { display: flex; flex-direction: column; gap: 10px; padding: 16px 16px 48px; border-left: 1px solid var(--line); background: var(--card); }
+.tf-prevhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tf-prevhead h2 { margin: 0; }
+.tf-prevclose, .tf-prevbtn { display: none; }
+.tf-prevsub { margin: 10px 0 0; font-size: 15px; }
+.tf-preview .source { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+@media (max-width: 1240px) { .fpe-type .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
+.tf-card { display: flex; flex-direction: column; gap: 16px; }
+.tf-card h2 { margin: 0; }
+.tf-card > .tf-help { margin-top: -10px; }
+.tf-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tf-field > label, .tf-lab, .tf-icons legend { font-size: 13px; font-weight: 600; color: var(--ink); }
+.tf-field input, .tf-field select, .tf-field textarea { border: 1px solid var(--field); background: var(--card); color: var(--ink); border-radius: 7px; padding: 7px 10px; font: inherit; font-size: 14px; min-height: 36px; width: 100%; box-sizing: border-box; }
+.tf-field textarea { resize: vertical; min-height: 58px; line-height: 1.4; }
+.tf-field .mono { font-family: var(--mono); font-size: 13px; }
+.tf-help { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.tf-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 600px) { .tf-two { grid-template-columns: minmax(0, 1fr); } }
+.tf-idtok { font-family: var(--mono); font-size: 13px; background: var(--chip); padding: 4px 8px; border-radius: 6px; overflow-wrap: anywhere; }
+.tf-chipbox { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--field); border-radius: 7px; padding: 4px 6px; background: var(--card); min-height: 36px; box-sizing: border-box; }
+.tf-field .tf-chipbox input { border: 0 !important; flex: 1; min-width: 10ch; width: auto; padding: 4px; min-height: 0; background: transparent; }
+.tf-chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.tf-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--chip); border-radius: 99px; padding: 2px 3px 2px 10px; font-size: 13px; color: var(--ink); }
+.tf-chip button { border: 0; background: none; width: 24px; height: 24px; border-radius: 99px; color: var(--muted); font-size: 16px; line-height: 1; padding: 0; }
+.tf-chip button:hover { background: var(--line); color: var(--ink); }
+.tf-icons { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tf-icongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; margin-top: 6px; }
+.tf-icon { position: relative; display: grid; place-items: center; height: 42px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--card); color: var(--muted); }
+.tf-icon:hover { color: var(--ink); border-color: var(--field); }
+.tf-icon input { position: absolute; inset: 0; opacity: 0; margin: 0; width: 100%; height: 100%; cursor: pointer; }
+.tf-icon:has(input:checked) { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.tf-icon:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tf-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tf-item { border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.tf-item.open { border-color: var(--field); }
+.tf-item-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
+.tf-item-bar .ob-grip { cursor: grab; flex: none; align-self: stretch; min-height: 28px; margin: 4px 0 4px 2px; }
+.tf-item-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; text-align: left; padding: 6px; font: inherit; color: var(--ink); border-radius: 6px; }
+.tf-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tf-item-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.tf-chev { flex: none; color: var(--muted); display: inline-flex; transition: transform .15s; }
+.tf-item-main[aria-expanded="true"] .tf-chev { transform: rotate(180deg); }
+.tf-idrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.tf-idrow .tf-help { flex-basis: 100%; }
+.tf-iconname { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.tf-org > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; list-style: none; min-height: 32px; }
+.tf-org > summary::-webkit-details-marker { display: none; }
+.tf-org > summary .tf-chev { transform: rotate(-90deg); }
+.tf-org[open] > summary .tf-chev { transform: none; }
+.tf-org-t { font-weight: 600; font-size: 14px; }
+.tf-org[open] > summary { margin-bottom: 12px; }
+.tf-item-main:hover { background: var(--chip); }
+.tf-item-t { font-weight: 600; overflow-wrap: anywhere; }
+.tf-item-sub code { font-family: var(--mono); font-size: 12px; }
+.tf-item-tools { display: flex; gap: 4px; align-items: center; flex: none; }
+.tf-item-ed { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px 38px; border-top: 1px solid var(--line); }
+.tf-item-err { padding: 0 14px 8px 38px; }
+@media (max-width: 600px) { .tf-item-ed, .tf-item-err { padding-left: 12px; } .tf-item-bar { flex-wrap: wrap; } }
+.tf-menu { position: relative; }
+.tf-menu > summary, .tf-addmenu > summary { list-style: none; cursor: pointer; }
+.tf-menu > summary::-webkit-details-marker, .tf-addmenu > summary::-webkit-details-marker { display: none; }
+.tf-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 4; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 4px; display: flex; flex-direction: column; min-width: 170px; }
+.tf-menu-list button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 6px; font: inherit; font-size: 14px; color: var(--ink); display: flex; gap: 6px; align-items: center; }
+.tf-menu-list button:hover { background: var(--chip); }
+.tf-addbtn { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1.5px dashed var(--field); border-radius: 10px; padding: 10px; color: var(--ink); font-weight: 600; }
+.tf-addbtn:hover { background: var(--chip); }
+.tf-addlist { list-style: none; margin: 6px 0 0; padding: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.tf-addlist button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; display: flex; flex-direction: column; gap: 2px; font: inherit; color: var(--ink); }
+.tf-addlist button:hover { background: var(--chip); }
+.tf-switch { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.tf-switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; margin: 0; flex: none; cursor: pointer; border: 1px solid var(--field); }
+.tf-switch input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); transition: left .15s; }
+.tf-switch input[type="checkbox"]:checked { background: var(--go); border-color: var(--go); }
+.tf-switch input[type="checkbox"]:checked::after { left: 18px; }
+.tf-switch + .tf-help { margin-top: -8px; padding-left: 46px; }
+.tf-where > summary { cursor: pointer; font-weight: 600; }
+.tf-where[open] > summary { margin-bottom: 8px; }
+.tf-run { border: 1px dashed var(--field); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--paper); user-select: none; }
+.tf-run-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tf-run-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.tf-run-fields dt { overflow-wrap: anywhere; }
+.tf-run-hint { margin: 0; }
+.tf-run-fields dt { color: var(--muted); }
+.tf-run-fields dd { margin: 0; overflow-wrap: anywhere; }
+.tf-fakefield { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.tf-fake { border: 1px dashed var(--line); border-radius: 7px; padding: 6px 10px; min-height: 20px; font-size: 13px; color: var(--muted); background: transparent; }
+.tf-fake.long { min-height: 52px; }
+.tf-fakebtn { display: inline-flex; gap: 4px; align-items: center; border: 1px dashed var(--field); color: var(--muted); padding: 4px 12px; border-radius: 7px; font-weight: 600; font-size: 13px; }
+/* What just changed glows once: the preview line it touched, or the row that moved. */
+@keyframes tf-glow { from { background: var(--go-soft); } to { background: transparent; } }
+.fpe-type .flash { animation: tf-glow 1.4s ease-out; border-radius: 4px; }
+.tf-item.flash { animation: tf-glow 1.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .fpe-type .flash, .tf-item.flash { animation: none; } .tf-chev { transition: none; } }
+/* Phones: the shell scrolls as one page, 16px text so nothing zooms, and 44px targets. */
+@media (max-width: 800px) {
+  .fpe-type.fpe { position: static; display: block; min-height: 100vh; }
+  .fpe-type .fpe-head { position: sticky; top: 0; z-index: 5; padding: 8px 12px; gap: 6px 8px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; }
+  .fpe-type .fpe-title h1 { font-size: 18px; }
+  .fpe-type .fpe-head .btn, .fpe-type .fpe-head .mini { min-height: 44px; }
+  .fpe-type .fpe-head .btn { padding: 6px 10px; }
+  .fpe-type .fpe-state { width: auto; }
+  .fpe-type .fpe-state:not(.dirty):not(.just) { display: none; }
+  .fpe-type .fpe-tools { gap: 6px; }
+  .fpe-type .fpe-alerts:not(:empty) { padding: 8px 12px; }
+  .fpe-type .fpe-pane { overflow: visible; }
+  .tf-panes { display: block; }
+  .tf-formpane { padding: 12px 12px 48px; }
+  .tf-prevbtn { display: inline-flex; }
+  /* The preview opens as a sheet over the form, so the place being edited stays put. */
+  .tf-preview { display: none; }
+  .tf-preview.open { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; max-height: 78vh; max-height: 78dvh; overflow: auto; border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 0 0 100vmax rgba(8, 12, 16, .32), 0 -10px 30px rgba(0, 0, 0, .25); }
+  .tf-preview.open .tf-prevclose { display: inline-flex; min-height: 44px; }
+  .fpe-type input, .fpe-type select, .fpe-type textarea { font-size: 16px; }
+  .tf-field input, .tf-field select, .tf-chipbox { min-height: 44px; }
+  .tf-item-tools .mini, .tf-menu > summary, .tf-chipbox .mini { min-width: 44px; min-height: 44px; justify-content: center; }
+  .tf-chip button { width: 36px; height: 36px; }
+  .tf-icon { height: 48px; }
+  .tf-addbtn { min-height: 44px; }
+  .tf-help { font-size: 13px; }
+  /* The header keeps to two short rows: Done, the name (two lines at most) and Save; then Undo, Redo, History, Preview. */
+  .fpe-type .fpe-state, .fpe-type .fpe-title .cat { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .fpe-type .fpe-id { gap: 8px; }
+  .fpe-type .fpe-title h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tf-org > summary, .tf-where > summary, .tf-switch, .tf-idrow .linkish { min-height: 44px; }
+  .tf-idrow .linkish { display: inline-flex; align-items: center; }
+  .tf-field .tf-chipbox input { min-height: 34px; }
+  .fpe-type .tl-what { display: none; }
+  .fpe-type .tf-field .mono { font-size: 16px; }
+}
 .ob-lines { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .ob-lines li { border-left: 3px solid var(--amber); padding: 2px 8px; overflow-wrap: anywhere; }
 pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 0; }
@@ -469,7 +644,7 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .tcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); display: flex; flex-direction: column; gap: 6px; }
 .tcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .tcols ul { margin: 4px 0 0; padding-left: 18px; }
-.trow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto auto; gap: 6px; align-items: center; }
+.trow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1.2fr) auto auto auto; gap: 6px; align-items: center; }
 .trow input, .trow select { min-width: 0; padding: 6px 8px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; }
 @media (max-width: 800px) { .trow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .recovery { align-items: flex-start; }
