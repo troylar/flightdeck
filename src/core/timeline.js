@@ -13,9 +13,11 @@ PF.timeline = (function () {
     role: ['role change', 'Changed the roles of {s}'], bind: ['run detail change', 'Changed the run details of {s}'], field: ['field change', 'Changed a field of {s}'],
     add: ['new step', 'Added the step {s}'], 'delete': ['step deletion', 'Step deleted: {s}'], addPhase: ['new phase', 'Added the phase {s}'],
     phaseTitle: ['phase wording', 'Renamed the phase {s}'], phaseMode: ['phase mode change', 'Changed how {s} is worked'],
-    gate: ['gate wording', 'Changed the gate of {s}'], gateOwner: ['gate owner change', 'Changed who owns the gate of {s}']
+    gate: ['gate wording', 'Changed the gate of {s}'], gateOwner: ['gate owner change', 'Changed who owns the gate of {s}'],
+    removeGate: ['gate removal', 'Removed the gate of {s}'], deletePhase: ['phase deletion', 'Deleted the phase {s}'],
+    addTrack: ['new lane', 'Added the lane {s}'], trackTitle: ['lane wording', 'Renamed the lane {s}'], trackRole: ['lane role change', 'Changed who works the lane {s}'], deleteTrack: ['lane deletion', 'Deleted the lane {s}']
   };
-  var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new field': ' ', 'new evidence': ' ' };
+  var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new lane': ' ', 'new field': ' ', 'new evidence': ' ' };
 
   function create() { return { entries: [], pos: 0, barrier: 0, chars: 0, marks: [], seq: 0 }; }
   function patch(a, b) {
@@ -131,6 +133,7 @@ PF.timeline = (function () {
     else if (o === 'edit') k = 'text' in s ? 'text' : 'mark' in s ? 'mark' : 'type' in s ? 'type' : 'role' in s ? 'role' : 'bind' in s ? 'bind' : 'field';
     else if (o === 'editPhase') k = 'title' in s ? 'phaseTitle' : 'phaseMode';
     else if (o === 'gate') k = 'owner' in s && !('title' in s) && !('approves' in s) ? 'gateOwner' : 'gate';
+    else if (o === 'editTrack') k = 'title' in s ? 'trackTitle' : 'trackRole';
     else k = OPS[o] ? o : null;
     var x = k ? OPS[k] : ['change', 'Changed {s}'];
     return { label: x[0], past: x[1] };

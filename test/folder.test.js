@@ -277,4 +277,213 @@ rule('A decision file that can\'t be read is reported, not dropped', async () =>
   same([(await repo.loadAll(fs)).fixUnread.length], [1], 'so does a file holding null');
 });
 
+rule('A run.json saved by a newer copy opens read-only, and no save, take over or conflict copy from this copy ever writes it', async () => {
+  const newerMap = example('maps/drafts/release.md').replace(/^(- \[[ !~]\] \{.*)$/m, '$1\n  when: ^environment is production');
+  const edits = { 'a version this copy doesn\'t understand': j => { j.snapshot = newerMap; }, 'a field this copy would drop': j => { j.conditions = { notes: 'skipped' }; } };
+  for (const what of Object.keys(edits)) {
+    const fs = folder(), r = await started(fs), path = 'runs/release/run1/run.json';
+    const j = JSON.parse((await fs.read(path)).text); edits[what](j);
+    const text = JSON.stringify(j, null, 2); await fs.write(path, text);
+    const files = Object.keys(fs.files).sort();
+    const loaded = (await repo.loadAll(fs)).runs.find(x => x.id === 'run1');
+    assert.ok(loaded && /doesn't understand\. Update Flightdeck/.test(loaded._unrunnable), what + ': read-only, with the reason');
+    await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable, what + ': its own save');
+    await assert.rejects(repo.saveRun(fs, loaded, 'avery-desktop', { takeover: true }), e => e.unrunnable, what + ': take over');
+    // A window that read the run before the newer copy saved it: refused too, without even a conflict copy.
+    await assert.rejects(repo.saveRun(fs, r, 'casey-laptop'), e => e.unrunnable, what + ': an earlier window');
+    assert.strictEqual((await fs.read(path)).text, text, what + ': run.json is untouched');
+    same(Object.keys(fs.files).sort(), files, what + ': no other file was written');
+  }
+});
+
+rule('A run on a publication whose format this copy doesn\'t know opens read-only, even if its own checklist reads', async () => {
+  const fs = folder(), r = await started(fs), base = 'publications/release/' + r.folder + '/';
+  const info = JSON.parse((await fs.read(base + 'publication.json')).text); info.format = 'preflight-publication/2';
+  await fs.write(base + 'publication.json', JSON.stringify(info));
+  const text = (await fs.read('runs/release/run1/run.json')).text;
+  const loaded = (await repo.loadAll(fs, { deep: true })).runs.find(x => x.id === 'run1');
+  assert.ok(/doesn't understand\. Update Flightdeck/.test(loaded._unrunnable || ''), 'through loadAll');
+  const one = await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(/doesn't understand\. Update Flightdeck/.test(one._unrunnable || ''), 'and when the open run is reread');
+  await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable);
+  assert.strictEqual((await fs.read('runs/release/run1/run.json')).text, text);
+});
+
+rule('A run file in a newer run format is listed read-only and never written', async () => {
+  const fs = folder(), r = await started(fs), path = 'runs/release/run1/run.json';
+  const j = JSON.parse((await fs.read(path)).text); j.format = 'preflight-run/3';
+  const text = JSON.stringify(j); await fs.write(path, text);
+  const loaded = (await repo.loadAll(fs, { deep: true })).runs.find(x => x.id === 'run1');
+  assert.ok(loaded && /saved by a newer copy of Flightdeck/.test(loaded._unrunnable), 'listed, with the reason');
+  await assert.rejects(repo.saveRun(fs, r, 'casey-laptop'), e => e.unrunnable);
+  assert.strictEqual((await fs.read(path)).text, text);
+});
+
+rule('A publication folder replaced by a newer copy\'s (same name, newer format) makes its runs read-only; saves are refused, and a known-good one costs no read', async () => {
+  const fs0 = folder(), r = await started(fs0), runPath = 'runs/release/run1/run.json', base = 'publications/release/' + r.folder + '/';
+  // Another window on the same folder opens the run before it has read the versions, so it learns the format from the run.
+  const fs = new PF.fs.MemoryFS('test:' + Math.random(), null); fs.files = fs0.files;
+  const loaded = await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(!loaded._unrunnable, 'set-up: writable');
+  // A save on a known-good publication reads nothing from it.
+  const reads = [], read = fs.read.bind(fs); fs.read = p => { reads.push(p); return read(p); };
+  R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-2', 'person-casey', NOW); await repo.saveRun(fs, loaded, 'casey-laptop');
+  fs.read = read;
+  assert.ok(!reads.some(p => p.indexOf('publications/') === 0), 'no publication read: ' + reads.join(', '));
+  // The folder is removed, then recreated under the same name by a newer copy.
+  const saved = {}; Object.keys(fs.files).filter(p => p.indexOf(base) === 0).forEach(p => { saved[p] = fs.files[p].t; delete fs.files[p]; });
+  await repo.loadAll(fs, { deep: true });
+  const info = JSON.parse(saved[base + 'publication.json']); info.format = 'preflight-publication/2';
+  Object.keys(saved).forEach(p => { fs.files[p] = { t: p === base + 'publication.json' ? JSON.stringify(info, null, 2) : saved[p], m: Date.now() + 1000 }; });
+  const d = await repo.loadAll(fs, { deep: true });
+  assert.ok(!d.processes[0].pubs.find(x => x.folder === r.folder).ok, 'set-up: the publication is unusable');
+  const again = d.runs.find(x => x.id === 'run1');
+  assert.ok(/doesn't understand\. Update Flightdeck/.test(again._unrunnable || ''), 'the reloaded run is read-only');
+  const text = (await fs.read(runPath)).text;
+  R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-3', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable, 'the window that loaded it earlier can\'t save');
+  assert.ok(loaded._unrunnable, 'and its run is now read-only too');
+  assert.strictEqual((await fs.read(runPath)).text, text, 'run.json is untouched');
+});
+
+rule('A publication record replaced in place by a newer format between refreshes is caught at save by its changed fingerprint', async () => {
+  const fs = folder(), r = await started(fs), base = 'publications/release/' + r.folder + '/', runPath = 'runs/release/run1/run.json';
+  const loaded = (await repo.loadAll(fs, { deep: true })).runs.find(x => x.id === 'run1');
+  const info = JSON.parse(fs.files[base + 'publication.json'].t); info.format = 'preflight-publication/2';
+  fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: fs.files[base + 'publication.json'].m + 1000 };
+  const text = (await fs.read(runPath)).text;
+  R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-3', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable);
+  assert.strictEqual((await fs.read(runPath)).text, text);
+});
+
+/* Counts what a folder is asked about publications: stats and reads. */
+function counting(fs) {
+  const n = { stat: 0, read: 0 }, stat = fs.stat && fs.stat.bind(fs), read = fs.read.bind(fs);
+  fs.read = p => { if (p.indexOf('publications/') === 0) n.read++; return read(p); };
+  if (stat) fs.stat = p => { if (p.indexOf('publications/') === 0) n.stat++; return stat(p); };
+  return n;
+}
+
+for (const [what, strip] of [['no size or time at all', fs => { fs.stat = undefined; }], ['an unknown size and time', fs => { const stat = fs.stat.bind(fs); fs.stat = p => stat(p).then(st => st && { size: undefined, mtime: undefined }); }]]) {
+  rule('Without file metadata (' + what + '), a publication record replaced in place by a newer format is still refused at save, after routine refreshes', async () => {
+    const fs = folder(), r = await started(fs), base = 'publications/release/' + r.folder + '/', runPath = 'runs/release/run1/run.json';
+    strip(fs);
+    await repo.loadAll(fs);
+    const loaded = await repo.loadRun(fs, 'release', 'run1');
+    R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-2', 'person-casey', NOW); await repo.saveRun(fs, loaded, 'casey-laptop');
+    await repo.loadAll(fs); await repo.loadAll(fs);
+    const info = JSON.parse(fs.files[base + 'publication.json'].t); info.format = 'preflight-publication/2';
+    fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: fs.files[base + 'publication.json'].m };
+    await repo.loadAll(fs); await repo.loadAll(fs);
+    const text = (await fs.read(runPath)).text;
+    R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-3', 'person-casey', NOW);
+    await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable);
+    assert.strictEqual((await fs.read(runPath)).text, text);
+  });
+}
+
+rule('A warm routine refresh asks nothing about publications; a save on a known-good one costs one stat and no read', async () => {
+  const fs = folder(), r = await started(fs);
+  await repo.loadAll(fs);
+  const loaded = await repo.loadRun(fs, 'release', 'run1');
+  const n = counting(fs);
+  await repo.loadAll(fs);
+  assert.deepStrictEqual(n, { stat: 0, read: 0 }, 'routine refresh');
+  R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-2', 'person-casey', NOW); await repo.saveRun(fs, loaded, 'casey-laptop');
+  assert.deepStrictEqual(n, { stat: 1, read: 0 }, 'one save');
+});
+
+rule('A version replaced in place with the same format but different contents can\'t be recorded or started until it\'s checked again', async () => {
+  const fs = folder(), r = await started(fs), base = 'publications/release/' + r.folder + '/';
+  const d0 = await repo.loadAll(fs), cached = d0.processes[0].index.latest;
+  const loaded = await repo.loadRun(fs, 'release', 'run1');
+  // Another copy rewrites the version: syntax this copy doesn't know, with a matching record in the known format.
+  const md = fs.files[base + 'map.md'].t.replace(/^(- \[[ !~]\] \{.*)$/m, '$1\n  when: ^environment is production');
+  const info = JSON.parse(fs.files[base + 'publication.json'].t); info.mapHash = PF.util.hash(md);
+  const later = fs.files[base + 'publication.json'].m + 1000;
+  fs.files[base + 'map.md'] = { t: md, m: later }; fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: later };
+  await repo.loadAll(fs);
+  const files = Object.keys(fs.files).sort(), text = fs.files['runs/release/run1/run.json'].t;
+  R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-2', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable, 'the open run can\'t save');
+  assert.ok(loaded._unrunnable, 'and is read-only');
+  // Start, from the version as the page still shows it.
+  const fresh = R.create(cached, { title: 'New', details: {}, roles: {}, by: 'person-casey', session: 'casey-laptop', now: NOW, id: 'run2' });
+  await assert.rejects(repo.saveRun(fs, fresh, 'casey-laptop'), e => e.unrunnable, 'a new run can\'t start on it');
+  same(Object.keys(fs.files).sort(), files, 'no file was written');
+  assert.strictEqual(fs.files['runs/release/run1/run.json'].t, text);
+  // The next refresh checks that version again, and lists it as unusable.
+  const d = await repo.loadAll(fs);
+  assert.ok(!d.processes[0].pubs.find(x => x.folder === r.folder).ok, 'listed as unusable after the next refresh');
+});
+
+for (const [what, strip] of [['with file metadata', () => {}], ['without file metadata', fs => { fs.stat = undefined; }]]) {
+  rule('A publication record that arrives late with a step type this copy can\'t fully read is refused at save (' + what + ')', async () => {
+    const fs0 = folder(), r = await started(fs0), base = 'publications/release/' + r.folder + '/', runPath = 'runs/release/run1/run.json';
+    const pubText = fs0.files[base + 'publication.json'].t, typesText = fs0.files[base + 'types.json'].t;
+    delete fs0.files[base + 'publication.json']; delete fs0.files[base + 'types.json'];
+    // A window opens the run while the version's record and step types are still syncing.
+    const fs = new PF.fs.MemoryFS('test:' + Math.random(), null); fs.files = fs0.files; strip(fs);
+    const loaded = await repo.loadRun(fs, 'release', 'run1');
+    assert.ok(!loaded._unrunnable, 'set-up: writable while the record is missing');
+    // They arrive, written by a newer copy: same checklist, a frozen type from a newer type version.
+    const types = JSON.parse(typesText); types.confirm.version = PF.types.VERSION + 1;
+    const tj = JSON.stringify(types, null, 2), info = JSON.parse(pubText); info.typesHash = PF.util.hash(tj);
+    fs.files[base + 'types.json'] = { t: tj, m: Date.now() + 1000 }; fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: Date.now() + 1000 };
+    const text = fs.files[runPath].t;
+    R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-2', 'person-casey', NOW);
+    await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable);
+    assert.ok(loaded._unrunnable, 'the run is now read-only');
+    assert.strictEqual(fs.files[runPath].t, text, 'run.json is untouched');
+  });
+}
+
+rule('A run carrying step types this copy can\'t read never vouches for its version: another run on it is still refused when those types arrive', async () => {
+  const fs0 = folder(), r = await started(fs0), base = 'publications/release/' + r.folder + '/', path1 = 'runs/release/run1/run.json';
+  const pubText = fs0.files[base + 'publication.json'].t, typesText = fs0.files[base + 'types.json'].t;
+  // A second run on the same version, saved by a newer copy with a newer version of a step type.
+  const newer = JSON.parse(typesText); newer.confirm.version = PF.types.VERSION + 1;
+  const r2 = JSON.parse(fs0.files[path1].t); r2.id = 'run2'; r2.title = 'Started by a newer copy'; r2.types = newer;
+  await fs0.write('runs/release/run2/run.json', JSON.stringify(r2, null, 2));
+  delete fs0.files[base + 'publication.json']; delete fs0.files[base + 'types.json'];
+  const fs = new PF.fs.MemoryFS('test:' + Math.random(), null); fs.files = fs0.files;
+  const older = await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(!older._unrunnable, 'set-up: the older run is writable while the version is syncing');
+  assert.ok((await repo.loadRun(fs, 'release', 'run2'))._unrunnable, 'set-up: the newer run is read-only');
+  // The version's files arrive, with the newer step type; the newer run is opened and reread.
+  const tj = JSON.stringify(newer, null, 2), info = JSON.parse(pubText); info.typesHash = PF.util.hash(tj);
+  fs.files[base + 'types.json'] = { t: tj, m: Date.now() + 1000 }; fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: Date.now() + 1000 };
+  await repo.loadRun(fs, 'release', 'run2');
+  // Back on the older run: pausing it is refused, and nothing is written.
+  const text = fs.files[path1].t;
+  R.pause(older, 'Lunch', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, older, 'casey-laptop'), e => e.unrunnable);
+  assert.strictEqual(fs.files[path1].t, text, 'run.json is untouched');
+});
+
+rule('A run started from other checklist contents than its version holds is refused, even once the version is approved for another run', async () => {
+  const fs0 = folder(), r = await started(fs0), base = 'publications/release/' + r.folder + '/', path1 = 'runs/release/run1/run.json';
+  const pubText = fs0.files[base + 'publication.json'].t, md0 = fs0.files[base + 'map.md'].t;
+  // A second run, supported, whose checklist is different contents under the same version folder.
+  const md2 = md0.replace(/^(- \[[ !~]\] \{.*)$/m, '- [ ] {confirm} Change window confirmed on the calendar {#window}\n$1');
+  const r2 = JSON.parse(fs0.files[path1].t); r2.id = 'run2'; r2.title = 'Other contents'; r2.snapshot = md2; r2.mapHash = PF.util.hash(md2);
+  await fs0.write('runs/release/run2/run.json', JSON.stringify(r2, null, 2));
+  delete fs0.files[base + 'publication.json']; delete fs0.files[base + 'map.md'];
+  const fs = new PF.fs.MemoryFS('test:' + Math.random(), null); fs.files = fs0.files;
+  const older = await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(!older._unrunnable && !(await repo.loadRun(fs, 'release', 'run2'))._unrunnable, 'set-up: both writable while the version is syncing');
+  // The version arrives, matching the second run; that run is reread, which approves the version.
+  const info = JSON.parse(pubText); info.mapHash = PF.util.hash(md2);
+  fs.files[base + 'map.md'] = { t: md2, m: Date.now() + 1000 }; fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: Date.now() + 1000 };
+  assert.ok(!(await repo.loadRun(fs, 'release', 'run2'))._unrunnable, 'the matching run is fine');
+  const text = fs.files[path1].t;
+  R.pause(older, 'Lunch', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, older, 'casey-laptop'), e => e.unrunnable, 'the older run is refused');
+  assert.strictEqual(fs.files[path1].t, text, 'run.json is untouched');
+  // That refusal is the older run's own: the matching run still saves.
+  const again = await repo.loadRun(fs, 'release', 'run2');
+  R.pause(again, 'Lunch', 'person-casey', NOW); await repo.saveRun(fs, again, 'casey-laptop');
+});
+
 run();

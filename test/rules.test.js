@@ -1286,4 +1286,169 @@ rule('Suggestion fields and decision files from disk keep only what the app unde
   same([d.rev, d.seen, d.latestVersion], [0, null, null], 'odd values are dropped; an acceptance without a known version is never credited as fixed');
 });
 
+/* ---- Versions and runs this copy doesn't understand: shown, never run ---- */
+const CHECK_IN = example('maps/drafts/check-in.md');
+/* A version written by hand, by an AI assistant or by a newer Flightdeck: its files match their hashes, so only the content
+   check can stop it. */
+function forged(md, edit, version) {
+  const b = P.build(CHECK_IN, { people, ...EX, by: 'a', changes: 'x', existing: [{ version: (version || 2) - 1 }], now: NOW, rand: 'newer123' });
+  const info = JSON.parse(b.files['publication.json']), files = Object.assign({}, b.files, { 'map.md': md });
+  info.mapHash = U.hash(md);
+  if (edit) edit(info, files);
+  info.typesHash = U.hash(files['types.json']);
+  files['publication.json'] = JSON.stringify(info, null, 2);
+  return { folder: b.folder, files };
+}
+const FIRST_STEP = /^(- \[!\] \{run\.command\} Branch rebased.*)$/m;
+const NEWER_MAPS = {
+  'a "when:" field': CHECK_IN.replace(FIRST_STEP, '$1\n  when: ^branch is release'),
+  'an "### If" heading': CHECK_IN.replace(FIRST_STEP, '### If the branch is a release\n$1'),
+  'a "choices:" field': CHECK_IN.replace(FIRST_STEP, '$1\n  choices: rebase, merge')
+};
+
+rule('Every version built from the example folder, and every run in test/fixtures, still counts as runnable', () => {
+  MAPS.forEach(n => { const v = pub(n); assert.strictEqual(P.unrunnable(v.md, v.types), '', n); });
+  const dir = require('path').join(__dirname, 'fixtures');
+  require('fs').readdirSync(dir).filter(f => /\.json$/.test(f)).forEach(f => {
+    const r = R.sanitize(JSON.parse(require('fs').readFileSync(require('path').join(dir, f), 'utf8')));
+    assert.ok(r && !r._unrunnable, f + ': ' + (r && r._unrunnable));
+  });
+  // A run played through with everything a run can hold, saved and read back, is still this copy's to record.
+  const r = release(), map = R.mapOf(r), ids = M.steps(map).map(x => x.step.id);
+  R.start(r, map, ids[0], 'person-casey', NOW); R.setDeadline(r, map, ids[0], NOW, 'person-casey', NOW);
+  R.block(r, map, ids[0], 'Waiting', 'person-casey', NOW); R.clear(r, map, ids[0], 'person-casey', NOW);
+  done(r, map, ids[0], 'person-casey', NOW); R.differently(r, map, ids[0], 'Did it by hand', 'person-casey', NOW);
+  R.pause(r, 'Lunch', 'person-casey', NOW); R.resume(r, 'person-casey', NOW);
+  R.addFollowUp(r, { text: 'Tidy the job', owner: 'person-blake' }, 'person-casey', NOW);
+  R.handOff(r, 'person-blake', 'person-casey', NOW);
+  completeRun(PF, r, NOW);
+  const back = R.sanitize(JSON.parse(JSON.stringify(r)));
+  assert.ok(!back._unrunnable, back._unrunnable);
+});
+
+Object.keys(NEWER_MAPS).forEach(what => {
+  rule('A version with ' + what + ' this copy doesn\'t know isn\'t runnable: no run starts on it, and a plan for it falls back and says why', () => {
+    const md = NEWER_MAPS[what], f = forged(md), v = P.verify(f.folder, f.files);
+    assert.strictEqual(v.ok, false);
+    assert.ok(v.why.indexOf(P.NEWER) === 0, v.why);
+    assert.strictEqual(v.info.version, 2, 'the record is kept, so the version can be named');
+    // Even handed straight to R.create (skipping verify), it refuses.
+    assert.throws(() => R.create({ map: M.parse(md), md, types: JSON.parse(f.files['types.json']), info: JSON.parse(f.files['publication.json']) }, { by: 'a', session: 's', now: NOW }), /doesn't understand/);
+    const good = pub('check-in'), bad = Object.assign(v, { folder: f.folder }), ix = P.index([good, bad]);
+    assert.strictEqual(ix.latest, good, 'the latest runnable version is the one offered');
+    same(ix.all.map(x => x.info.version), [1], 'the unusable version is never listed to start or pick');
+    const plan = P.forPlan({ latest: ix.latest, all: ix.all, clashes: ix.clashes }, 2);
+    assert.ok(plan.missing && plan.pub === good, 'a plan made for it starts on the latest, with a notice');
+    assert.ok(P.forPlan({ latest: ix.latest, all: ix.all, clashes: ix.clashes }, 1, f.folder).missing, 'switching to it is never honored');
+  });
+});
+
+rule('A version with an unknown publication format isn\'t runnable, with the same explanation', () => {
+  const f = forged(CHECK_IN, info => { info.format = 'preflight-publication/2'; }), v = P.verify(f.folder, f.files);
+  assert.strictEqual(v.ok, false);
+  assert.strictEqual(v.why, P.NEWER);
+  assert.strictEqual(v.info.format, 'preflight-publication/2');
+});
+
+rule('A version using a step type that\'s neither built in nor in its own types.json isn\'t runnable', () => {
+  const md = CHECK_IN.replace('{confirm} No secrets', '{approve.change} No secrets'), v = (f => P.verify(f.folder, f.files))(forged(md));
+  assert.strictEqual(v.ok, false);
+  assert.ok(/\{approve\.change\}/.test(v.why) && /Update Flightdeck/.test(v.why), v.why);
+  // The same step type frozen into the version's own types.json is fine: content only, never the folder's step-types/.
+  const withType = forged(md, (info, files) => { const t = JSON.parse(files['types.json']); t['approve.change'] = { id: 'approve.change', label: 'Approve', fields: {}, record: [] }; files['types.json'] = JSON.stringify(t); });
+  assert.ok(P.verify(withType.folder, withType.files).ok, P.verify(withType.folder, withType.files).why);
+  // A type name every object inherits is never found by accident.
+  assert.strictEqual(P.verify.apply(null, (f => [f.folder, f.files])(forged(CHECK_IN.replace('{confirm} No secrets', '{constructor} No secrets')))).ok, false);
+});
+
+rule('A run on a version this copy doesn\'t understand, or with fields or states it doesn\'t know, opens read-only and can\'t be kept as a copy', () => {
+  const base = JSON.parse(JSON.stringify(release()));
+  const onNewer = Object.assign({}, base, { snapshot: NEWER_MAPS['a "when:" field'] });
+  const variants = {
+    'a newer version': onNewer,
+    'an unknown field': Object.assign({}, base, { conditions: { rebase: 'skipped' } }),
+    'an unknown step field': Object.assign({}, base, { steps: { merge: { s: 'done', by: 'a', at: NOW, skippedBy: 'when' } } }),
+    'an unknown step state': Object.assign({}, base, { steps: { merge: { s: 'skipped', by: 'a', at: NOW } } }),
+    'an unknown gate state': Object.assign({}, base, { gates: { x: { s: 'deferred', by: 'a', at: NOW } } }),
+    'an unknown outcome': Object.assign({}, base, { ended: { outcome: 'Rolled back', by: 'a', at: NOW } })
+  };
+  Object.keys(variants).forEach(k => {
+    const r = R.sanitize(JSON.parse(JSON.stringify(variants[k])));
+    assert.ok(r && r._unrunnable, k + ' is read-only');
+    assert.ok(r._unrunnable.indexOf('doesn\'t understand. Update Flightdeck') > 0, r._unrunnable);
+  });
+  assert.ok(!R.sanitize(JSON.parse(JSON.stringify(base)))._unrunnable, 'this copy\'s own run is not');
+  const cur = R.sanitize(JSON.parse(JSON.stringify(base))), copy = R.sanitize(JSON.parse(JSON.stringify(variants['an unknown field'])));
+  assert.throws(() => R.adopt(cur, copy, 'a', NOW), /wasn't kept/, 'keeping a newer copy would erase what this copy doesn\'t know');
+});
+
+rule('Every field, state and outcome a run file has ever held keeps the run recordable (test/fixtures/run-vocabulary-1.11.json)', () => {
+  const o = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'run-vocabulary-1.11.json'), 'utf8'));
+  assert.ok(Object.keys(o.jira).length, 'the fixture carries a Jira workflow copy');
+  [['running', null], ['completed', 'Completed'], ['stopped', 'Stopped early'], ['cancelled', 'Cancelled']].forEach(([state, outcome]) => {
+    const c = JSON.parse(JSON.stringify(o)); c.state = state;
+    if (outcome) c.ended.outcome = outcome; else delete c.ended;
+    const r = R.sanitize(c);
+    assert.ok(r && !r._unrunnable, state + ': ' + (r && r._unrunnable));
+  });
+});
+
+rule('A run with Jira workflow data, details or answers this copy doesn\'t know opens read-only, so a save can\'t erase them', () => {
+  const o = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'run-vocabulary-1.11.json'), 'utf8'));
+  const type = Object.keys(o.jira).find(k => (o.jira[k].transitions || []).some(t => t.fields && t.fields.length));
+  const edits = {
+    'a Jira workflow field': j => { j.jira[type].futureRule = 'conditional'; },
+    'a Jira transition field': j => { j.jira[type].transitions[0].when = 'risk is high'; },
+    'a Jira required-field setting': j => { j.jira[type].transitions.find(t => t.fields.length).fields[0].requiredWhen = 'x'; },
+    'a run detail that isn\'t text': j => { j.details.ticket = { key: 'ABC-1', url: 'https://example.com' }; },
+    'a role that isn\'t a name': j => { j.roles['release-lead'] = ['person-casey', 'person-blake']; },
+    'evidence that isn\'t text': j => { Object.values(j.steps)[0].values.build = { number: 42 }; },
+    'a corrected field that isn\'t text': j => { j.fields[Object.keys(j.fields)[0]].job = 7; },
+    'a gate approval that isn\'t text': j => { Object.values(j.gates)[0].approved.commit = { sha: 'aaa' }; },
+    'child-run inputs that aren\'t text': j => { Object.values(j.steps).find(a => a.child).child.inputs.commit = ['a', 'b']; },
+    'a save receipt that isn\'t a name': j => { j.lineage.push({ tag: 'x' }); }
+  };
+  Object.keys(edits).forEach(what => {
+    const c = JSON.parse(JSON.stringify(o)); edits[what](c);
+    const r = R.sanitize(c);
+    assert.ok(r && /doesn't understand\. Update Flightdeck/.test(r._unrunnable || ''), what + ' is read-only');
+  });
+});
+
+rule('A frozen step type this copy doesn\'t fully understand (a newer type version, or properties it doesn\'t know) isn\'t runnable', () => {
+  const withConfirm = def => forged(CHECK_IN, (info, files) => { const t = JSON.parse(files['types.json']); t.confirm = Object.assign({}, t.confirm, def(t.confirm)); files['types.json'] = JSON.stringify(t); });
+  const cases = {
+    'a newer type version': c => ({ version: PF.types.VERSION + 1 }),
+    'an unknown property': c => ({ futureBehavior: 'conditional' }),
+    'an unknown field setting': c => ({ fields: Object.assign({}, c.fields, { where: Object.assign({}, c.fields.where, { when: 'x' }) }) }),
+    'an unknown field kind': c => ({ fields: Object.assign({}, c.fields, { where: { label: 'Where', kind: 'condition' } }) }),
+    'an unknown evidence setting': c => ({ record: [{ name: 'proof', label: 'Proof', kind: 'url', skipWhen: 'x' }] }),
+    'an unknown evidence kind': c => ({ record: [{ name: 'proof', label: 'Proof', kind: 'file' }] }),
+    'a list of fields': c => ({ fields: [] })
+  };
+  Object.keys(cases).forEach(what => {
+    const f = withConfirm(cases[what]), v = P.verify(f.folder, f.files);
+    assert.strictEqual(v.ok, false, what);
+    assert.ok(v.why.indexOf(P.NEWER) === 0, what + ': ' + v.why);
+  });
+  const same = withConfirm(c => ({ version: PF.types.VERSION }));
+  assert.ok(P.verify(same.folder, same.files).ok, 'the same type version is fine');
+});
+
+rule('A run can\'t be created from a publication with a format this copy doesn\'t know, even if its checklist reads', () => {
+  const f = forged(CHECK_IN), info = JSON.parse(f.files['publication.json']); info.format = 'preflight-publication/2';
+  assert.throws(() => R.create({ map: M.parse(CHECK_IN), md: CHECK_IN, types: JSON.parse(f.files['types.json']), info }, { by: 'a', session: 's', now: NOW }), /doesn't understand/);
+});
+
+rule('A run file in a format this copy doesn\'t know is shown read-only with the reason, not dropped', () => {
+  const o = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'run-vocabulary-1.11.json'), 'utf8'));
+  o.format = 'preflight-run/3';
+  const r = R.sanitize(o);
+  assert.ok(r, 'it is listed');
+  assert.ok(/saved by a newer copy of Flightdeck/.test(r._unrunnable), r._unrunnable);
+  same([r.id, r.process, r.title], [o.id, o.process, o.title], 'named as it is in the file');
+  assert.strictEqual(M.parse(r.snapshot).phases.length, 0, 'no steps are shown as if this copy could tell their state');
+  assert.strictEqual(R.sanitize(Object.assign({}, o, { format: 'something-else' })), null, 'a file that isn\'t a run at all is still unreadable');
+});
+
 run();

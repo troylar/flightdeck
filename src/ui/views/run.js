@@ -153,6 +153,7 @@
 
   function recorderBar(ctx, r) {
     var s = ctx.state, me = s.me, rp = r.recorder.person, fresh = '<span id="fresh">' + freshness(ctx, r) + '</span>';
+    if (r._unrunnable) return '<div class="notice warn" role="status"><span><b>Read-only here.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.</span></div>';
     if (r.ended) return '';
     if (s.unsaved[r.id]) return '';
     /* Paused: the recorder's window gets Resume. Anyone else still sees how to pick up or take over recording, so a paused run
@@ -263,9 +264,10 @@
     return h + '</aside>';
   }
 
-  /* Duplicate a run into a plan: offered once its process has a published version to plan on. */
+  /* Duplicate a run into a plan: offered once its process has a published version to plan on, and never for a run this
+     copy can only partly read (its details and roles may be missing what a newer copy wrote). */
   function planAgain(ctx, r) {
-    if (!ctx.state.me || !ctx.processes().some(function (p) { return p.id === r.process && p.latest; })) return '';
+    if (!ctx.state.me || r._unrunnable || !ctx.processes().some(function (p) { return p.id === r.process && p.latest; })) return '';
     return '<button class="btn" data-act="plan-from-run" data-id="' + esc(runKey(r)) + '">Plan another like this</button>';
   }
   V.planAgain = planAgain;

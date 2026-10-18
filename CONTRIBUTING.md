@@ -12,9 +12,9 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 
 | Folder | What's there | Rules |
 |---|---|---|
-| `src/core/` | Pure logic: checklists, publishing, runs, gates | No DOM, no files. Everything here is tested in `test/rules.test.js`. |
+| `src/core/` | Pure logic: checklists, the builder's edits (`outline.js`), publishing, runs, gates, suggested fixes, skills | No DOM, no files. Tested in `test/rules.test.js` and `test/outline.test.js`. |
 | `src/storage/` | The team folder: reading, saving, conflict checks, caching | Every file has one writer. Tested in `test/folder.test.js`, and against simulated OneDrive sync between two computers in `test/sync.test.js`. |
-| `src/ui/` | Screens (`views.js`), wiring (`app.js`), icons | Views return HTML strings. Everything from files goes through `esc()` or the escape-first Markdown. |
+| `src/ui/` | Screens (`views/*.js`), wiring (`app.js`), the example history (`examples.js`), icons | Views return HTML strings. Everything from files goes through `esc()` or the escape-first Markdown. |
 | `src/page.html` | Styles and the page shell | Colors are tokens with light and dark values. No external resources. |
 | `example-folder/` | A complete example team folder | Synthetic people only. Also built into the app as the examples. |
 | `test/fixtures/` | Run files from earlier versions | Never edit one; add a new fixture when the run format changes, so old runs keep loading. |
@@ -27,10 +27,11 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 - **Add a step type:** add it to `LIST` in `src/core/types.js` (id, label, icon, hint, `fields`, `record`), add an icon to `src/ui/icons.js` if needed, then run `node tools/type-table.js --write` to update the docs table. A test fails if the table and the code disagree.
   - `fields` describe the step in the checklist. `required` means "usually there": leaving it out is a tip, not an error. `requiredWhen` / `requiredUnless` tie that to the step's `action`.
   - `record` is evidence that can be noted when the step is checked. It's optional unless the checklist's `require:` line names it. `when` limits it to one action; `long: true` gives it a multi-line box.
-- **Add a field kind** (beyond text, url, code, message, list, choice): it touches four places. Validation in `types.checkFields` / `types.checkRecord`, display in `views.stepRow`, the input in `views.fieldInput`, and the docs. Add a rule test for its validation.
+- **Add a field kind** (beyond text, url, code, message, list, choice): it touches four places. Validation in `types.checkFields` / `types.checkRecord` (and `types.understood`, with its copy `KNOWN_KINDS` in `check_folder.py`), display in `stepRow` and the input in `fieldInput` (both in `views/run.js`), and the docs. Add a rule test for its validation.
 - **Change a rule** (gates, re-checks, what counts as answered): change `src/core/run.js` and add or update a rule in `test/rules.test.js`. Tests are written as sentences; keep them that way.
 - **Change the checklist format:** update `src/core/map.js`, `docs/map-format.md`, and `example-folder/AGENTS.md` together.
-- **Change the run format:** keep `sanitize()` in `src/core/run.js` accepting older files, and add a fixture to `test/fixtures/`.
+- **Change the run format:** keep `sanitize()` in `src/core/run.js` accepting older files, add the new field to `KNOWN` in the same file (otherwise this copy treats runs that have it as written by a newer copy and opens them read-only), and add a fixture to `test/fixtures/`.
+- **Change a step type's properties:** a frozen type with a property, field kind or type version this copy doesn't know makes its version unusable (`types.understood`, mirrored in `check_folder.py`). Add new properties to both, and test them in `test/checker.test.js`.
 - **Change saving or loading:** add a case to `test/sync.test.js`. Its two simulated computers sync only when told to, which is how OneDrive behaves on release night.
 
 ## Release notes: every user-visible change gets one

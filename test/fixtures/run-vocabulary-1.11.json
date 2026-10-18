@@ -1,0 +1,662 @@
+{
+  "format": "preflight-run/2",
+  "id": "vocab1",
+  "process": "release",
+  "version": 1,
+  "folder": "v1-vocab001",
+  "mapHash": "9c636ddc",
+  "title": "Every field a run file has held",
+  "category": "Releases",
+  "snapshot": "---\nprocess: release\ntitle: Production release\ncategory: Releases\ngroup: Engineering / Releases\ntags: production, deploy\nowner: person-casey\ncontext: ticket, commit, environment, tag\nroles: release-lead, qa, backend\n---\n\n## Before production changes · DO-CONFIRM {#prep}\n- [!] {change.request} Change request approved for tonight's window @release-lead {#approved}\n  system: Change board\n  window: The release window on the ticket\n  require: number\n- [!] {ci.gate} Full test gate green on the release commit ^commit {#tests}\n  pipeline: web-app gate\n  page: https://ci.example.com/job/web-app-gate/\n  require: run\n  > Run the gate **after** the rebase. A green run on an earlier commit doesn't count.\n- [!] {confirm} Feature flags set in the deploy values ^environment @backend {#flags}\n  > New features ship off. Turn them on in the environment's values file, never in code.\n- [!] {confirm} Rollback commit written in the release ticket @release-lead {#rollback}\n- [ ] {run.process} Check in the release notes for this commit @release-lead {#notes}\n  process: check-in\n  carry: commit\n  > Starts a linked check-in run. This step is checked when that run completes.\n- [ ] {communicate} Post \"starting release\" in the team channel @release-lead {#announce}\n  channel: #team-releases\n  message: Starting the production release of ^commit (^ticket). I'll post again when it's verified.\n\n## Gate: Ready to deploy · owner @release-lead {#ready}\n  approves: deploy of `^commit` to ^environment\n\n## Deploy · READ-DO {#deploy}\n- [!] {bitbucket.pr} Merge the release branch to master ^commit @release-lead {#merge}\n  action: merge\n  repo: web-app\n  from: release\n  to: master\n  require: all\n  sets: tag\n  > Merging to master **is** the production release. Rebase first; never merge commits into the branch. The merge creates the release tag; record it here and every later step uses it.\n- [!] {jenkins.job} Start the production deploy job ^tag @backend {#jenkins}\n  job: web-app-deploy-prod\n  parameters: TICKET=^ticket TAG=^tag\n  stage: Stage 5 asks for the release ticket number\n  require: build\n  expect: 25m\n  after: 2h\n  > The job stops at stage 5 and asks for the release ticket number. Type it exactly as it appears in Jira.\n- [!] {ui.action} Approve the deploy in Jenkins before it rolls back @release-lead {#approve}\n  system: Jenkins\n  deadline: external\n  > Jenkins rolls the deploy back if nobody approves within 30 minutes. Copy its deadline into Flightdeck with **Set deadline** so everyone sees the countdown.\n- [!] {run.command} New pods stay up with no restarts @backend {#pods}\n  command: kubectl get pods -l app=web-app\n  where: Your terminal\n  expected: RESTARTS is 0 for every new pod after 10 minutes\n  expect: 10m\n\n## Gate: Deployed · owner @release-lead {#deployed}\n  approves: `^commit` running in ^environment\n\n## Verify in production · READ-DO {#verify}\n### Track: Product checks @qa {#checks}\n- [!] {confirm} Smoke prompts return their expected answers @qa {#smoke}\n  where: Release ticket, \"Smoke prompts\" section\n  evidence: note\n- [ ] {confirm} No new error events on the logs dashboard @qa {#logs}\n  where: Logs dashboard, last 30 minutes\n### Track: Wrap-up @release-lead {#wrap}\n- [ ] {communicate} Post the result in the team channel @release-lead {#result}\n  channel: #team-releases\n  message: ^tag (^commit) is live in ^environment and verified. Thanks, everyone.\n- [ ] {jira.issue} Close the release ticket @release-lead {#close}\n  action: transition\n  issue: ^ticket\n  issueType: Release\n  status: Done\n",
+  "types": {
+    "bitbucket.pr": {
+      "id": "bitbucket.pr",
+      "label": "Pull request",
+      "icon": "merge",
+      "hint": "Open, review or merge a Bitbucket pull request.",
+      "fields": {
+        "action": {
+          "label": "Action",
+          "kind": "choice",
+          "options": [
+            "open",
+            "review",
+            "merge"
+          ],
+          "required": true
+        },
+        "repo": {
+          "label": "Repository",
+          "kind": "text",
+          "required": true
+        },
+        "from": {
+          "label": "From branch",
+          "kind": "text"
+        },
+        "to": {
+          "label": "Into branch",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "pr",
+          "label": "Pull request link",
+          "kind": "url"
+        },
+        {
+          "name": "mergeCommit",
+          "label": "Merge commit",
+          "kind": "text",
+          "when": {
+            "action": "merge"
+          }
+        }
+      ],
+      "version": 2
+    },
+    "change.request": {
+      "id": "change.request",
+      "label": "Change request",
+      "icon": "doc",
+      "hint": "A change request the change board approves before production work.",
+      "fields": {
+        "system": {
+          "label": "Change system",
+          "kind": "text",
+          "required": true
+        },
+        "window": {
+          "label": "Approved window",
+          "kind": "text",
+          "required": false
+        }
+      },
+      "version": 2,
+      "custom": true,
+      "record": [
+        {
+          "name": "number",
+          "label": "Change number",
+          "kind": "text"
+        },
+        {
+          "name": "link",
+          "label": "Change link",
+          "kind": "url"
+        }
+      ]
+    },
+    "ci.gate": {
+      "id": "ci.gate",
+      "label": "Pipeline result",
+      "icon": "pipeline",
+      "hint": "A build or test result for a specific commit.",
+      "fields": {
+        "pipeline": {
+          "label": "Pipeline",
+          "kind": "text",
+          "required": true
+        },
+        "page": {
+          "label": "Pipeline page",
+          "kind": "url"
+        }
+      },
+      "record": [
+        {
+          "name": "run",
+          "label": "Run number",
+          "kind": "text"
+        },
+        {
+          "name": "runLink",
+          "label": "Run link",
+          "kind": "url"
+        }
+      ],
+      "version": 2
+    },
+    "communicate": {
+      "id": "communicate",
+      "label": "Communicate",
+      "icon": "chat",
+      "hint": "Tell people something.",
+      "fields": {
+        "channel": {
+          "label": "Channel",
+          "kind": "text",
+          "required": true
+        },
+        "audience": {
+          "label": "Audience",
+          "kind": "text"
+        },
+        "message": {
+          "label": "Message",
+          "kind": "message"
+        }
+      },
+      "record": [
+        {
+          "name": "sent",
+          "label": "Link to the message",
+          "kind": "url"
+        }
+      ],
+      "version": 2
+    },
+    "confirm": {
+      "id": "confirm",
+      "label": "Confirm",
+      "icon": "check",
+      "hint": "Check that something is true.",
+      "fields": {
+        "where": {
+          "label": "Where to check",
+          "kind": "text"
+        },
+        "looks": {
+          "label": "True when",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "jenkins.job": {
+      "id": "jenkins.job",
+      "label": "Jenkins job",
+      "icon": "gear",
+      "hint": "Start or follow a Jenkins job by hand.",
+      "fields": {
+        "job": {
+          "label": "Job",
+          "kind": "text",
+          "required": true
+        },
+        "page": {
+          "label": "Job page",
+          "kind": "url"
+        },
+        "parameters": {
+          "label": "Parameters",
+          "kind": "code"
+        },
+        "stage": {
+          "label": "Watch for",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "build",
+          "label": "Build number",
+          "kind": "text"
+        },
+        {
+          "name": "buildLink",
+          "label": "Build link",
+          "kind": "url"
+        }
+      ],
+      "version": 2
+    },
+    "jira.issue": {
+      "id": "jira.issue",
+      "label": "Jira",
+      "icon": "ticket",
+      "hint": "Create or change a Jira issue by hand.",
+      "fields": {
+        "action": {
+          "label": "Action",
+          "kind": "choice",
+          "options": [
+            "create",
+            "update",
+            "transition",
+            "assign",
+            "link"
+          ],
+          "required": true
+        },
+        "issue": {
+          "label": "Issue",
+          "kind": "text",
+          "requiredUnless": {
+            "action": "create"
+          }
+        },
+        "project": {
+          "label": "Project",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "create"
+          }
+        },
+        "issueType": {
+          "label": "Issue type",
+          "kind": "text"
+        },
+        "status": {
+          "label": "Move to",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "transition"
+          }
+        },
+        "assignee": {
+          "label": "Assign to",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "assign"
+          }
+        },
+        "linkTo": {
+          "label": "Link to",
+          "kind": "text",
+          "requiredWhen": {
+            "action": "link"
+          }
+        },
+        "set": {
+          "label": "Fields to set",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "key",
+          "label": "Issue key",
+          "kind": "text",
+          "when": {
+            "action": "create"
+          }
+        }
+      ],
+      "version": 2
+    },
+    "run.command": {
+      "id": "run.command",
+      "label": "Run a command",
+      "icon": "terminal",
+      "hint": "Shown as text to copy. Flightdeck never runs it.",
+      "fields": {
+        "command": {
+          "label": "Command",
+          "kind": "code",
+          "required": true
+        },
+        "where": {
+          "label": "Where",
+          "kind": "text"
+        },
+        "expected": {
+          "label": "Expected result",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "result",
+          "label": "What you saw",
+          "kind": "text",
+          "long": true
+        }
+      ],
+      "version": 2
+    },
+    "run.process": {
+      "id": "run.process",
+      "label": "Run another process",
+      "icon": "nest",
+      "hint": "Start a linked run of another process; this step is done when it completes.",
+      "fields": {
+        "process": {
+          "label": "Process",
+          "kind": "text",
+          "required": true
+        },
+        "carry": {
+          "label": "Details passed on",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "ui.action": {
+      "id": "ui.action",
+      "label": "Do in a tool",
+      "icon": "cursor",
+      "hint": "Do something by hand in a web tool.",
+      "fields": {
+        "system": {
+          "label": "Tool",
+          "kind": "text",
+          "required": true
+        },
+        "page": {
+          "label": "Page",
+          "kind": "url"
+        }
+      },
+      "record": [
+        {
+          "name": "reference",
+          "label": "Reference (ID or link)",
+          "kind": "text"
+        }
+      ],
+      "version": 2
+    }
+  },
+  "details": {
+    "ticket": "ABC-123",
+    "commit": "aaa111",
+    "environment": "production",
+    "tag": ""
+  },
+  "roles": {
+    "release-lead": "person-casey",
+    "qa": "",
+    "backend": ""
+  },
+  "recorder": {
+    "person": "person-casey",
+    "session": null,
+    "handoff": {
+      "from": "person-avery",
+      "rev": 3,
+      "at": "2026-10-17T21:00:00.000Z"
+    }
+  },
+  "state": "stopped",
+  "created": "2026-10-17T21:00:00.000Z",
+  "createdBy": "person-casey",
+  "steps": {
+    "approved": {
+      "s": "done",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "reason": "x",
+      "started": {
+        "by": "person-casey",
+        "at": "2026-10-17T21:00:00.000Z"
+      },
+      "deadline": {
+        "at": "2026-10-17T22:00:00.000Z",
+        "by": "person-casey",
+        "set": "2026-10-17T21:00:00.000Z"
+      },
+      "differently": {
+        "note": "By hand",
+        "by": "person-casey",
+        "at": "2026-10-17T21:00:00.000Z"
+      },
+      "values": {
+        "build": "42"
+      },
+      "history": [
+        {
+          "s": "blocked",
+          "by": "person-casey",
+          "at": "2026-10-17T21:00:00.000Z",
+          "reason": "Waiting",
+          "differently": {
+            "note": "n",
+            "by": "person-casey",
+            "at": "2026-10-17T21:00:00.000Z"
+          },
+          "values": {
+            "build": "41"
+          }
+        },
+        {
+          "s": "corrected",
+          "by": "person-casey",
+          "at": "2026-10-17T21:00:00.000Z",
+          "fields": {
+            "job": "deploy"
+          },
+          "values": {
+            "build": "42"
+          }
+        }
+      ]
+    },
+    "tests": {
+      "s": "na",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z"
+    },
+    "flags": {
+      "s": "blocked",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "reason": "Waiting"
+    },
+    "rollback": {
+      "s": "recheck",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "reason": "commit changed"
+    },
+    "notes": {
+      "s": "open",
+      "started": {
+        "by": "person-casey",
+        "at": "2026-10-17T21:00:00.000Z"
+      }
+    },
+    "announce": {
+      "s": "done",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "child": {
+        "process": "check-in",
+        "id": "child1",
+        "inputs": {
+          "commit": "aaa111"
+        },
+        "failed": true
+      }
+    }
+  },
+  "gates": {
+    "ready": {
+      "s": "passed",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "approved": {
+        "commit": "aaa111"
+      }
+    },
+    "deployed": {
+      "s": "review",
+      "was": "waived",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "reason": "A detail changed",
+      "approved": {}
+    },
+    "verify-confirm": {
+      "s": "failed",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z",
+      "reason": "No"
+    }
+  },
+  "fields": {
+    "approved": {
+      "job": "deploy-prod"
+    }
+  },
+  "followUps": [
+    {
+      "id": "f1",
+      "text": "Tidy the job",
+      "owner": "person-blake",
+      "ticket": "ABC-124",
+      "step": "approved",
+      "from": "run",
+      "by": "person-casey",
+      "at": "2026-10-17T21:00:00.000Z"
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-10-17T21:00:00.000Z",
+      "by": "person-casey",
+      "what": "Started the run"
+    }
+  ],
+  "ended": {
+    "outcome": "Stopped early",
+    "by": "person-casey",
+    "byName": "Casey",
+    "at": "2026-10-17T22:00:00.000Z"
+  },
+  "rev": 4,
+  "tz": "America/New_York",
+  "shotsFrozen": true,
+  "jira": {
+    "Story": {
+      "statuses": [
+        "To Do",
+        "In Progress",
+        "In Review",
+        "Done"
+      ],
+      "transitions": [
+        {
+          "from": "To Do",
+          "to": "In Progress",
+          "fields": []
+        },
+        {
+          "from": "In Progress",
+          "to": "In Review",
+          "fields": [
+            {
+              "name": "Reviewer",
+              "hint": "The person reviewing the pull request",
+              "source": "role:reviewer",
+              "options": null
+            },
+            {
+              "name": "Pull request",
+              "hint": "The pull request link from the review step",
+              "source": "",
+              "options": null
+            }
+          ]
+        },
+        {
+          "from": "In Review",
+          "to": "In Progress",
+          "fields": []
+        },
+        {
+          "from": "*",
+          "to": "Done",
+          "fields": [
+            {
+              "name": "Resolution",
+              "hint": "Usually Done; Won't Do if the story was dropped",
+              "source": "",
+              "options": [
+                "Done",
+                "Won't Do",
+                "Duplicate"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "Release": {
+      "statuses": [
+        "Open",
+        "Approved",
+        "Deploying",
+        "Done"
+      ],
+      "transitions": [
+        {
+          "from": "Open",
+          "to": "Approved",
+          "fields": []
+        },
+        {
+          "from": "Approved",
+          "to": "Deploying",
+          "fields": []
+        },
+        {
+          "from": "Deploying",
+          "to": "Done",
+          "fields": [
+            {
+              "name": "Deployed commit",
+              "hint": "The commit now running in production",
+              "source": "detail:commit",
+              "options": null
+            },
+            {
+              "name": "Fix version",
+              "hint": "The release name on the board, like 2026.10.16",
+              "source": "",
+              "options": null
+            },
+            {
+              "name": "Resolution",
+              "hint": "Released, unless the release was rolled back",
+              "source": "",
+              "options": [
+                "Released",
+                "Rolled back"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "marksFrom": "start",
+  "pauses": [
+    {
+      "from": "2026-10-17T21:00:00.000Z",
+      "to": "2026-10-17T22:00:00.000Z",
+      "by": "person-casey",
+      "reason": "Lunch"
+    }
+  ],
+  "paused": {
+    "by": "person-casey",
+    "at": "2026-10-17T22:00:00.000Z",
+    "reason": "Change board"
+  },
+  "lineage": [
+    "s1.abcd1234"
+  ],
+  "marks": {
+    "approved": [
+      "blocked",
+      "recheck",
+      "na",
+      "differently"
+    ]
+  },
+  "parent": {
+    "process": "incident",
+    "id": "parent1",
+    "step": "fix",
+    "inputs": {
+      "ticket": "ABC-123"
+    }
+  },
+  "savedAt": "2026-10-17T22:00:00.000Z",
+  "savedBy": "s1"
+}

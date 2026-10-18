@@ -8,6 +8,7 @@
   var RELEASES = /*@RELEASES@*/[];
   var APP_VERSION = RELEASES[0] ? RELEASES[0].version : 'dev';
   var LS = 'preflight';
+  var resumeEdit = (function () { try { return sessionStorage.getItem('preflight:editing'); } catch (e) { return null; } })();
   var canFolder = typeof window.showDirectoryPicker === 'function';
 
   function lsGet(k, d) { try { var v = localStorage.getItem(LS + ':' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
@@ -54,7 +55,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}
+    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -77,9 +78,9 @@
     now: function () { return Date.now(); },
     get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
     run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
-    recording: function (r) { return !!r && !!state.me && !r.ended && r.recorder.person === state.me && r.recorder.session === SESSION; },
+    recording: function (r) { return !!r && !!state.me && !r.ended && !r._unrunnable && r.recorder.person === state.me && r.recorder.session === SESSION; },
     /* Who may resolve conflict copies: the recorder's window while it runs; once it has ended, whoever recorded or ended it. */
-    canRecover: function (r) { return !!r && !!state.me && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
+    canRecover: function (r) { return !!r && !!state.me && !r._unrunnable && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
     processTitle: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.title : id; },
     processes: function () { return processes(); },
     get fsKey() { return fsKey(); },
@@ -186,10 +187,12 @@
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
-    function entry(id) { return by[id] = by[id] || { id: id, title: id, category: 'Other', latest: null, all: [], clashes: [], broken: [], draft: null, draftChanged: false, lastRun: null, staleSkills: 0, skills: [], group: [], tags: [] }; }
+    function entry(id) { return by[id] = by[id] || { id: id, title: id, category: 'Other', latest: null, all: [], clashes: [], broken: [], taken: [], draft: null, draftChanged: false, lastRun: null, staleSkills: 0, skills: [], group: [], tags: [] }; }
     data.processes.forEach(function (p) {
       var e = entry(p.process); e.latest = p.index.latest; e.all = p.index.all; e.clashes = p.index.clashes;
       e.broken = p.pubs.filter(function (x) { return !x.ok; });
+      /* Every version number in use, including ones still syncing or unusable here, so publishing never reuses one. */
+      e.taken = p.pubs.map(function (x) { return { version: PF.publish.versionOf(x.folder) || 0 }; });
       if (e.latest) { e.title = e.latest.map.meta.title || e.id; e.category = e.latest.map.meta.category || 'Other'; e.group = e.latest.map.meta.group; e.tags = e.latest.map.meta.tags; }
     });
     data.drafts.forEach(function (d) {
@@ -397,6 +400,8 @@
   var app = document.getElementById('app'), topEl = document.getElementById('top'), overlayEl = document.getElementById('overlay');
   /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
+  /* A builder change said back with a real Undo button. */
+  function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
   function renderTop() {
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
     if (meVal) patch(topEl, V.top(ctx));
@@ -410,7 +415,9 @@
     root.style.setProperty('--top-h', (pinned ? bar.offsetHeight : 0) + 'px');
     if (pl && pl.offsetHeight) root.style.setProperty('--placard-h', pl.offsetHeight + 'px');
   }
-  window.addEventListener('resize', function () { pinOffsets(); });
+  /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
+  var wasNarrow = null;
+  window.addEventListener('resize', function () { pinOffsets(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -508,6 +515,9 @@
     /* The caret goes back where it was: from the carried-over value, or for a bound control from the node it had before. */
     var caret = keep[target && target.id] || (ae && target && ae.id && ae.id === target.id && ae.selectionStart != null ? { s: ae.selectionStart, e: ae.selectionEnd } : null);
     if (target && document.activeElement !== target) { target.focus({ preventScroll: true }); if (caret && target.setSelectionRange && caret.s != null) try { target.setSelectionRange(caret.s, caret.e); } catch (e) { /* not a text field */ } }
+    /* A part just added has its name selected, ready to type over. */
+    if (target && state.focusSelect && target.select) target.select();
+    state.focusSelect = false;
     var pi = document.getElementById('pick-input') || document.getElementById('edit-input');
     if (pi && document.activeElement !== pi) pi.focus({ preventScroll: true });
     pinOffsets();
@@ -523,21 +533,51 @@
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */
-      var c = overlayEl.querySelector('#lb-close, #rel-close, .help [data-act="close-overlay"]');
+      var c = overlayEl.querySelector('#lb-close, #rel-close, #ob-sheet-close, .help [data-act="close-overlay"]');
       if (c && !overlayEl.contains(document.activeElement)) c.focus();
       app.setAttribute('inert', ''); topEl.setAttribute('inert', '');
     } else { app.removeAttribute('inert'); topEl.removeAttribute('inert'); }
+    /* Typed text whose box has left the screen (a mode switch, another screen) was never applied: it isn't pending. */
+    if (state.obPendingField && (!document.getElementById(state.obPendingField) || app.innerHTML.indexOf('id="' + state.obPendingField + '"') < 0)) dropPending();
+    editorPage();
     sheet();
     announce();
     tick();
     lsSet('filter', state.filter);
   }
   var lastOverlay = '';
+  /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
+     selected item and its line in the preview are brought into view when the selection or the inspector tab changes. */
+  var lastShown = '';
+  function editorPage() {
+    var on = state.view === 'process' && state.ptab === 'edit' && !!currentProcess(), de = document.documentElement;
+    if (de && de.classList) { if (on) de.classList.add('fpe-on'); else de.classList.remove('fpe-on'); }
+    try { if (on) sessionStorage.setItem('preflight:editing', state.processId); else if (!resumeEdit) sessionStorage.removeItem('preflight:editing'); } catch (e) { /* this tab only */ }
+    var s = state.obSel, k = on && s ? [s.kind, s.key, s.track, state.insTab].join('|') : '';
+    if (k === lastShown) return;
+    lastShown = k; if (!k) return;
+    reveal(s.kind === 'step' ? '[data-ob-step="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '.ob-lane.sel' : '[data-ob-phase="' + cssEsc(s.key) + '"]');
+    reveal('#pv-sel', 'center');
+  }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
      closing returns focus to the step it came from. */
-  var sheetWasOpen = false;
+  var sheetWasOpen = false, obSheetOpen = false, obInert = [];
+  /* The builder's side form too: on a phone it covers the outline, everything else is inert, and Done closes it. */
+  function obSheet(narrow) {
+    obInert.forEach(function (el) { el.removeAttribute('inert'); }); obInert = [];
+    if (wasNarrow === null) wasNarrow = narrow;
+    var form = app.querySelector('.ob-form'), open = !!(narrow && form && !form.closest('[hidden]') && state.view === 'process' && state.ptab === 'edit' && state.obSel && !state.obAdd && !state.overlay);
+    if (open) {
+      for (var n = form; n && n !== app && n.parentNode; n = n.parentNode) Array.prototype.forEach.call(n.parentNode.children, function (sib) { if (sib !== n && !sib.hasAttribute('inert')) { sib.setAttribute('inert', ''); obInert.push(sib); } });
+      topEl.setAttribute('inert', ''); form.setAttribute('role', 'dialog'); form.setAttribute('aria-modal', 'true');
+      if (!form.contains(document.activeElement)) { var f = form.querySelector('input, select, textarea, button'); if (f) f.focus(); }
+    } else if (form) { form.removeAttribute('role'); form.removeAttribute('aria-modal'); }
+    obSheetOpen = open;
+    return open;
+  }
   function sheet() {
     var narrow = window.matchMedia && window.matchMedia('(max-width: 800px)').matches, ref = app.querySelector('.ref[data-open="true"]');
+    if (obSheet(narrow)) return;
     var open = !!(narrow && ref && state.view === 'run');
     app.querySelectorAll('.run > .rail, .run > .deck, .runhead, .headline, .notice').forEach(function (el) { if (open) el.setAttribute('inert', ''); else el.removeAttribute('inert'); });
     if (open) { topEl.setAttribute('inert', ''); ref.setAttribute('role', 'dialog'); ref.setAttribute('aria-modal', 'true'); if (!sheetWasOpen || !ref.contains(document.activeElement)) { var c = ref.querySelector('.close'); if (c) c.focus(); } }
@@ -682,7 +722,8 @@
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
     var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
-    var child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs } });
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs } }); }
+    catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, { process: child.process, id: child.id, inputs: inputs }, state.me, new Date().toISOString()); }
     catch (err) { say(err.message, 'warn'); render(); return; }
@@ -739,11 +780,12 @@
     processes().forEach(function (p) {
       /* Only a read that started after the editor's own save or Take theirs counts, so an older copy still in memory or
          an older read finishing late never undoes it. A later read is the folder as it is, whatever it holds. */
-      /* Nor while this window's own save of it is still finishing: an Undo made meanwhile is newer than either. */
-      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || !p.draft || state.draftSaving[edKey(p.id)] || (data.readSeq || 0) <= (ed.after || 0)) return;
+      /* Nor while this window's own save of it is still finishing (an Undo made meanwhile is newer than either), nor while
+         text typed in the builder's form isn't applied yet (that's unsaved too). */
+      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || !p.draft || state.draftSaving[edKey(p.id)] || (data.readSeq || 0) <= (ed.after || 0)) return;
       /* Undo steps were taken against the old text; one applied now would bring it back over the newer draft. They stay
          listed in History, behind a barrier. */
-      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; TL.barrier(tlOf(ed), 'The draft changed in the folder here. Earlier changes can\'t be undone.'); }
+      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; ed.fresh = null; TL.barrier(tlOf(ed), 'The draft changed in the folder here. Earlier changes can\'t be undone.'); }
     });
   }
   function currentProcess() { var id = state.processId; return processes().filter(function (x) { return x.id === id; })[0] || null; }
@@ -782,14 +824,19 @@
       }
       /* Saved: the editor now starts from what was saved. Anything typed while it saved stays, as unsaved changes. */
       /* Undo steps survive a save: undoing one makes the draft unsaved again, and saving it is checked like any other. A
-         restore replaced the text, so nothing before it can be undone. */
-      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; }
+         restore replaced the text, so nothing before it can be undone. Parts saved are no longer new. */
+      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.fresh = null; }
       else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
       if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
       else TL.saved(carried, res.hash);
       if (g !== gen) return;
+      if (opts.replace) dropPending();
       if (opts.replace && here) { state.mapVer = null; state.focus = 'cl-h'; }
       say(okMsg, 'good');
+      /* In the editor a save is confirmed by a quiet check beside Save (and still announced), not a notice. */
+      if (!opts.replace && state.view === 'process' && state.ptab === 'edit' && state.processId === p.id) state.msg.quiet = true;
+      /* A quiet check beside Save, for a moment. */
+      if (!opts.replace) { var mark = state.justSaved = { pid: p.id }; setTimeout(function () { if (state.justSaved === mark) { state.justSaved = null; scheduleRender(); } }, 1600); }
       return load(true);
     }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message, 'bad'); render(); });
   }
@@ -798,8 +845,8 @@
   function builderBlocked(p) { if (state.draftSaving[edKey(p.id)] !== 'restore') return false; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return true; }
   /* Apply one outline operation to the editor's current text. The result is unsaved, like typing: Save draft, conflicts
      and checks work exactly as they do for the Markdown. Returns the operation's result, or null if nothing changed. */
-  /* field: the input the value came from, so a refusal shows next to it. */
-  function builderEdit(op, field) {
+  /* field: the input the value came from, so a refusal shows next to it. what: the change in a few words, for Undo. */
+  function builderEdit(op, field, what) {
     var p = currentProcess(); if (!p || builderBlocked(p)) return null;
     var ed = openEditor(p), cur = ed.text != null ? ed.text : ed.base, res = PF.outline.apply(cur, op);
     if (res.error) {
@@ -807,15 +854,18 @@
       render(); return null;
     }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
+    var before = obSnap(ed);
+    dropPending();
     if (res.same) return res;
-    /* Each change keeps what was selected and being added then, so undoing puts those back with the text. */
+    /* Each change keeps what was selected, being added, new in this window and typed but not applied then, so undoing
+       puts those back with the text. */
     var lb = TL.labelOf(op), subj = opSubject(cur, op);
-    TL.record(tlOf(ed), cur, res.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: opItems(op, res), selBefore: obSnap() });
-    ed.text = res.text; state.planFormReset = true;
+    TL.record(tlOf(ed), cur, res.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: opItems(op, res), selBefore: before });
+    ed.text = res.text; state.planFormReset = true; state.obFlash = null; state.obReveal = null; state.obAsk = null;
     say(TL.past(lb.past, subj) + '. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
     /* A step or phase without a unique ID is known by its place, so what's selected or being added to follows the change. */
     var F = function (kind, key) { return PF.outline.follow(cur, res.text, op, res.at, kind, key); };
-    var sl = state.obSel; if (sl && sl.pid === p.id) { var nk = F(sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
+    var sl = state.obSel; if (sl && sl.pid === p.id) { var nk = F(sl.kind === 'track' ? 'phase' : sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
     var ad = state.obAdd;
     if (ad && ad.pid === p.id) {
       if (ad.after != null) ad.after = F(ad.kind === 'phase' ? 'phase' : 'step', ad.after);
@@ -827,11 +877,14 @@
   /* ---------- Undo, Redo and History (PF.timeline): one timeline per draft editor and per step-type form ---------- */
   var TL = PF.timeline;
   function tlOf(ed) { return ed.tl || (ed.tl = TL.create()); }
-  function obSnap() { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd) }; }
+  /* What rides along with a builder change: the selection, what's being added, the parts new in this window (freshCopy) and
+     the box with typing not yet applied, so Undo and Redo put all of them back with the text. */
+  function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null, pending: state.obPending || null, pendingField: state.obPendingField || null }; }
   /* The step or phase an outline operation is about, in words and as a History item. */
   function opSubject(text, op) {
     if (op.op === 'add') return String(op.text || '').trim();
-    if (op.op === 'addPhase') return String(op.title || '').trim();
+    if (op.op === 'addPhase' || op.op === 'addTrack') return String(op.title || '').trim();
+    if (op.op === 'editTrack' || op.op === 'deleteTrack') { var ph = PF.outline.parse(text).phases.filter(function (y) { return y.key === String(op.phase); })[0], tr = ph && ph.tracks[+op.track]; return tr ? String(tr.title || '') : ''; }
     var o = PF.outline.parse(text), isStep = op.step != null, k = String(isStep ? op.step : op.phase), x = (isStep ? o.steps : o.phases).filter(function (y) { return y.key === k; })[0];
     return x ? String(isStep ? x.text : x.title).replace(/\*\*|__|`/g, '') : '';
   }
@@ -977,7 +1030,7 @@
     if (p && builderBlocked(p)) return;
     var top = TL.peek(tl).undo;
     /* What's selected now is what Redo will put back. */
-    if (!redo && top && scope === 'draft' && top.kind === 'op') top.selAfter = obSnap();
+    if (!redo && top && scope === 'draft' && top.kind === 'op') top.selAfter = obSnap(ed);
     var cur = p ? (ed.text != null ? ed.text : ed.base) : typeSnap(f), r = redo ? TL.redo(tl, cur) : TL.undo(tl, cur);
     /* A new step or phase being written in its Add box isn't in the text yet: Undo and Redo keep the box and what's typed in
        it. If the step or phase it goes after would change or disappear, nothing is undone, so the typing is never lost. */
@@ -993,18 +1046,25 @@
     }
     var k = TL.peek(tl), words = (redo ? 'Redid ' : 'Undid ') + TL.describe(r.entry) + '.';
     if (p) {
-      ed.text = r.text; obClearErr(); state.planFormReset = !adding;
-      if (r.sel && 'obSel' in r.sel) { state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd; }
+      ed.text = r.text; obClearErr(); state.planFormReset = !adding; state.obPlace = null; state.obAsk = null; state.obFlash = null;
+      if (r.sel && 'obSel' in r.sel) {
+        state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd;
+        if (r.sel.fresh) ed.fresh = r.sel.fresh;
+        if (r.sel.pending && !adding) { state.obPending = r.sel.pending; state.obPendingField = r.sel.pendingField; }
+      }
     } else { typeUnsnap(f, r.text); state.fieldErr = null; }
     say(words + (redo ? (k.undo ? ' Undo available.' : '') : ' Redo available.'), 'good', redo ? { act: 'tl-undo', id: scope, label: 'Undo' } : { act: 'tl-redo', id: scope, label: 'Redo' });
     var mine = '[data-act="' + (redo ? 'tl-redo' : 'tl-undo') + '"][data-id="' + scope + '"]', sl = state.obSel, md = p && !state.builder;
-    state.focus = how === 'button' && !state.overlay ? mine : md && !state.overlay ? 'draft-editor' : null;
+    /* In the builder, Undo from its button goes to the item it restored (as the builder always has); with nothing to go to,
+       focus stays on the button so it can be pressed again. */
+    var back = p && state.builder && how === 'button' && !state.overlay && state.obSel ? selFocus(state.obSel) : null;
+    state.focus = back || (how === 'button' && !state.overlay ? mine : md && !state.overlay ? 'draft-editor' : null);
     render();
     /* The Markdown's caret marks the change, whichever way Undo was pressed. */
     var ta = md && document.getElementById('draft-editor');
     if (ta && ta.setSelectionRange) try { ta.setSelectionRange(r.caret.start, r.caret.end); } catch (err) { /* not a text field */ }
     if (how === 'button' || state.overlay || md) return;
-    focusFirst(p ? [sl ? itemSel(sl.kind + ':' + sl.key) : null, itemSel(r.entry.items[0]), mine] : [r.sel && r.sel.focus, mine]);
+    focusFirst(p ? [sl ? selFocus(sl) : null, itemSel(r.entry.items[0]), mine] : [r.sel && r.sel.focus, mine]);
   }
   /* The step or phase an open Add box goes after (or into) is the same one, with the same words, in the new text. */
   function addAnchorKept(a, oldText, newText) {
@@ -1026,7 +1086,98 @@
       return V.historyDrawer(ctx, { scope: o.hist, tl: t, item: o.item, itemName: name, title: o.hist === 'draft' ? (p ? 'Draft of ' + p.title : '') : f ? (f.existing ? '{' + f.existing + '}' : 'New step type') : '' });
     } });
   }
-  function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; }
+  /* A value as the outline ops apply it (lineValue): line breaks become spaces and the ends are trimmed; spaces inside
+     (a command's arguments) are its content. */
+  function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
+  function dropPending() { state.obPending = null; state.obPendingField = null; }
+  /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
+  function fieldApplied(id) {
+    var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
+    var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
+    if (id === 'ob-text') return st ? st.text : '';
+    if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
+    if (id === 'ob-ph-title') return ph ? ph.title : '';
+    if (id === 'ob-tr-title') { var tr = ph && ph.tracks[+s.track]; return tr ? tr.title : ''; }
+    if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
+    return '';
+  }
+  function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; dropPending(); }
+
+  /* Parts added in this window and not saved yet, by ID: own keys only, so an ID like "constructor" is never one of them.
+     Each Undo step keeps a copy, so undoing an addition also undoes its being new. */
+  function isFresh(ed, id) { return !!(id && ed && ed.fresh && Object.prototype.hasOwnProperty.call(ed.fresh, id)); }
+  function markFresh(ed, id) { if (!id) return; if (!ed.fresh) ed.fresh = Object.create(null); ed.fresh[id] = true; }
+  function freshCopy(ed) { var c = Object.create(null); if (ed.fresh) Object.keys(ed.fresh).forEach(function (k) { c[k] = true; }); return c; }
+  /* On a phone the properties form is a sheet over the outline: an addition in the outline closes it first, or the new box
+     would sit behind it. */
+  function sheetAway() { if (narrow()) { state.obSel = null; state.obAsk = null; } }
+  function partsSheetAway() { if (state.overlay && state.overlay.obParts) { state.overlay = null; app.removeAttribute('inert'); topEl.removeAttribute('inert'); } }
+  /* Where focus goes for a selection: its row, lane or phase in the outline. */
+  function selFocus(s) {
+    if (!s) return null;
+    return s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
+  }
+  function narrow() { return !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); }
+  function edText(p) { var ed = openEditor(p); return ed.text != null ? ed.text : ed.base; }
+  /* The new item is shown: the page scrolls just enough to bring it into view (renders keep the scroll where it was). */
+  function reveal(sel, block) { var el = sel && document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: block || 'nearest' }); }
+
+  /* ---------- the parts box: placing a new part ---------- */
+  /* Choosing a part (click, Enter or Space) starts placing it: the place nearest what's selected is offered first, the
+     arrow keys move among the places it can legally go, Enter puts it there, Escape cancels. A part dragged in skips this. */
+  function startPlacing(partId, via) {
+    var p = currentProcess(), pt = p && V.obPart(ctx, partId); if (!pt) return;
+    obClearErr(); state.obAdd = null; state.obAsk = null;
+    var sel = state.obSel && state.obSel.pid === p.id ? state.obSel : null, at = PF.outline.nearest(edText(p), pt.kind, sel);
+    state.obPlace = { pid: p.id, part: pt.id, at: at, via: via || '' };
+    if (at) { say('Placing ' + pt.label + '. Choose a destination. Escape cancels.'); state.focus = destSel(at); }
+    else { say('Nowhere to put ' + pt.noun + '. ' + V.obNowhere(PF.outline.parse(edText(p)), pt), 'warn'); state.focus = 'ob-place-cancel'; }
+    render(); if (at) reveal(destSel(at));
+  }
+  function destSel(id) { return '[data-act="ob-place-at"][data-id="' + cssEsc(id) + '"]'; }
+  function cancelPlacing() {
+    var pl = state.obPlace; if (!pl) return;
+    state.obPlace = null; say('Canceled. Nothing was added.');
+    state.focus = pl.via === 'sheet' ? '[data-act="ob-parts-open"]' : '[data-act="ob-part"][data-id="' + cssEsc(pl.part) + '"]'; render();
+  }
+  function movePlace(e) {
+    var pl = state.obPlace, p = currentProcess(), pt = p && pl && V.obPart(ctx, pl.part); if (!pt) return;
+    var list = PF.outline.places(edText(p), pt.kind), i = 0; if (!list.length) return;
+    for (var k = 0; k < list.length; k++) if (list[k].id === pl.at) i = k;
+    var j = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : i + (e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 1);
+    j = Math.max(0, Math.min(list.length - 1, j));
+    pl.at = list[j].id; state.focus = destSel(pl.at); render(); reveal(destSel(pl.at));
+  }
+  /* Put a part at a place, if it can legally go there: one builder edit (so Undo takes it back), then the new item is
+     selected with its name ready to type over, and a message says where it went. */
+  function placePart(partId, placeId) {
+    var p = currentProcess(), pt = p && V.obPart(ctx, partId); if (!pt) return;
+    var cur = edText(p), place = PF.outline.places(cur, pt.kind).filter(function (x) { return x.id === placeId; })[0];
+    if (!place) {
+      var none = !PF.outline.places(cur, pt.kind).length;
+      say(none ? 'Nowhere to put ' + pt.noun + '. ' + V.obNowhere(PF.outline.parse(cur), pt) : pt.label + ' can\'t go there. Choose one of the places marked for it.', 'warn'); render(); return;
+    }
+    var m = placeId.split(':'), op, meta = PF.map.parse(cur).meta;
+    if (pt.kind === 'step') op = { op: 'add', to: m[0] === 'before' ? { before: m[1] } : { phase: m[1], track: +m[2], where: 'end' }, text: pt.text, type: pt.type, mark: pt.mark };
+    else if (pt.kind === 'phase') op = { op: 'addPhase', first: m[1] === '^', after: m[1] === '^' ? null : m[1], title: pt.title, mode: 'READ-DO' };
+    else if (pt.kind === 'gate') op = { op: 'gate', phase: m[1], set: { title: pt.title } };
+    else {
+      /* A new lane works as a role no lane in its phase has yet, else the first role; it's named after that role. */
+      var ph = PF.outline.parse(cur).phases.filter(function (x) { return x.key === m[1]; })[0], taken = ph ? ph.tracks.reduce(function (a, t) { return a.concat(t.roles); }, []) : [];
+      var role = meta.roles.filter(function (r) { return taken.indexOf(r) < 0; })[0] || meta.roles[0] || '';
+      op = { op: 'addTrack', to: { phase: m[1], before: m[2] === 'end' ? null : +m[2] }, title: role ? role.charAt(0).toUpperCase() + role.slice(1).replace(/[-_]+/g, ' ') : pt.title, role: role, text: pt.text, type: 'confirm' };
+    }
+    var res = builderEdit(op, null, 'added ' + pt.noun); if (!res) return;
+    var ed = openEditor(p);
+    state.obPlace = null; state.obAdd = null;
+    if (pt.kind === 'step') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.obFlash = { kind: 'step', key: res.id }; state.focus = 'ob-text'; if (pt.mark === '!') state.obReveal = res.id; }
+    else if (pt.kind === 'phase') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'phase', key: res.id }; state.obFlash = { kind: 'phase', key: res.id }; state.focus = 'ob-ph-title'; }
+    else if (pt.kind === 'gate') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'phase', key: m[1] }; state.obFlash = { kind: 'gate', key: m[1] }; state.focus = 'ob-g-title'; }
+    else { markFresh(ed, res.id); markFresh(ed, res.step); state.obSel = { pid: p.id, kind: 'track', key: res.phase, track: res.track }; state.obFlash = { kind: 'track', key: res.phase, track: res.track }; state.focus = 'ob-tr-title'; }
+    state.focusSelect = true; state.insTab = null;
+    sayUndo('Added ' + pt.noun + ' ' + place.where + '.'); render();
+    reveal(pt.kind === 'step' ? '[data-ob-step="' + cssEsc(res.id) + '"]' : pt.kind === 'phase' ? '[data-ob-phase="' + cssEsc(res.id) + '"]' : '#ob .ob-new');
+  }
   function builderMoveStep(key, dir, from) {
     var res = builderEdit({ op: 'move', step: key, dir: dir }); if (!res) return;
     /* A step without a unique ID is known by its place, so the selection follows it to its new place. */
@@ -1044,60 +1195,91 @@
   /* The side form's controls: which one changed says what to change. */
   function builderField(id, value) {
     var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
-    var refocus = '#' + id, res = null;
+    var refocus = '#' + id, res = null, ed = openEditor(cp), o = PF.outline.parse(edText(cp)), fresh = function (x) { return isFresh(ed, x); };
+    var ph = o.phases.filter(function (x) { return x.key === s.key; })[0];
+    /* A part added in this window and not saved yet takes its ID from the name it's given (it's in no run or skill). */
+    var reid = function (oldId, r) { if (r && r.id && r.id !== oldId && fresh(oldId)) markFresh(ed, r.id); return r; };
     if (s.kind === 'step') {
-      var set = id === 'ob-text' ? { text: value } : id === 'ob-mark' ? { mark: value === 'must' ? '!' : value === 'planned' ? '~' : ' ' } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
+      var st = o.steps.filter(function (x) { return x.key === s.key; })[0], mk = id === 'ob-mark' ? (value === 'must' ? '!' : value === 'planned' ? '~' : ' ') : null;
+      var set = id === 'ob-text' ? { text: value, reid: !!(st && fresh(st.id)) } : mk ? { mark: mk } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
       if (!set) return;
-      res = builderEdit({ op: 'edit', step: s.key, set: set }, id);
+      res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
+      /* The three kinds exclude each other: say what the new one means, and what leaving must-do allows. */
+      if (res && !res.same && mk) { say((st && st.must && mk !== '!' ? 'No longer a must-do step: it can now be marked N/A or waived. ' : '') + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good'); refocus = '#ob-mark-' + value; }
+    } else if (s.kind === 'track') {
+      var tr = ph && ph.tracks[+s.track]; if (!tr) return;
+      if (id === 'ob-tr-title') res = reid(tr.id, builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { title: value, reid: fresh(tr.id) } }, id));
+      else if (id === 'ob-tr-role') res = builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { role: value } }, id);
+      else return;
     } else {
-      if (id === 'ob-ph-title') res = builderEdit({ op: 'editPhase', phase: s.key, set: { title: value } }, id);
+      if (id === 'ob-ph-title') res = reid(ph && ph.id, builderEdit({ op: 'editPhase', phase: s.key, set: { title: value, reid: !!(ph && fresh(ph.id)) } }, id));
       else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
       else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
         /* Leaving the "name a gate" box empty adds nothing. */
-        var ed = openEditor(cp), ph = PF.outline.parse(ed.text != null ? ed.text : ed.base).phases.filter(function (x) { return x.key === s.key; })[0];
         if (ph && !ph.gate && !String(value).trim()) return;
         var g = {}; g[id === 'ob-g-title' ? 'title' : id === 'ob-g-owner' ? 'owner' : 'approves'] = value;
-        res = builderEdit({ op: 'gate', phase: s.key, set: g }, id);
+        if (id === 'ob-g-title' && ph && ph.gate && fresh(ph.gate.id)) g.reid = true;
+        res = reid(ph && ph.gate && ph.gate.id, builderEdit({ op: 'gate', phase: s.key, set: g }, id));
       } else return;
     }
     if (res) { state.focus = refocus; render(); }
   }
-  /* Dragging a step: the row lifts, the slots open, and the slot under the pointer says where it will land. The keyboard
-     does the same with Alt+Up / Alt+Down, and the side form has Move up / Move down. */
-  var drag = null;
+  /* Dragging a step or a part: the drop lines take no room, so nothing moves while aiming. The line nearest the pointer that
+     can take it lights up and says where it will land. The keyboard does the same with Alt+Up / Alt+Down (steps) or by
+     choosing a part and the arrow keys, and the side form has Move up / Move down. */
+  var drag = null, partDrag = null;
+  function bodyClass(on, names) { var b = document.body; if (b && b.classList) names.forEach(function (n) { if (on) b.classList.add(n); else b.classList.remove(n); }); }
   function dragClear() {
-    drag = null;
-    if (document.body && document.body.classList) document.body.classList.remove('ob-dragging');
+    drag = null; partDrag = null;
+    bodyClass(false, ['ob-dragging', 'ob-for-move', 'ob-for-step', 'ob-for-lanes', 'ob-for-gate', 'ob-for-phase']);
     Array.prototype.forEach.call(document.querySelectorAll('.ob-step.lifted, .ob-slot.over'), function (el) { el.classList.remove('lifted'); el.classList.remove('over'); });
   }
-  function dropSlotOf(t) {
-    if (!t || !t.closest) return null;
-    var slot = t.closest('[data-ob-drop]'); if (slot) return slot;
-    var row = t.closest('[data-ob-step]');
-    return row && row.previousElementSibling && row.previousElementSibling.hasAttribute('data-ob-drop') ? row.previousElementSibling : null;
+  /* The line under the pointer if it takes what's dragged, else the nearest one that does, within the outline. */
+  function dropSlotOf(e) {
+    var t = e.target; if (!t || !t.closest) return null;
+    var sel = partDrag ? '[data-for="' + partDrag.kind + '"]' : '[data-ob-drop]', direct = t.closest(sel); if (direct) return direct;
+    if (!t.closest('#ob-outline')) return null;
+    var best = null, bd = Infinity;
+    Array.prototype.forEach.call(document.querySelectorAll('#ob-outline ' + sel), function (el) {
+      var r = el.getBoundingClientRect(), dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom), d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = el; }
+    });
+    return best;
   }
   document.addEventListener('dragstart', function (e) {
+    var pe = e.target && e.target.closest && e.target.closest('[data-ob-part]');
+    if (pe) {
+      dragClear(); partDrag = V.obPart(ctx, pe.getAttribute('data-ob-part')); if (!partDrag) return;
+      try { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('text/plain', partDrag.label); } catch (err) { /* older browsers */ }
+      var kind = partDrag.kind; setTimeout(function () { if (partDrag) bodyClass(true, ['ob-dragging', 'ob-for-' + kind]); }, 0);
+      return;
+    }
     var row = e.target && e.target.closest && e.target.closest('[data-ob-step]'); if (!row) return;
     dragClear(); drag = row.getAttribute('data-ob-step');
     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', drag); } catch (err) { /* older browsers */ }
     row.classList.add('lifted');
-    /* Opening the slots after the browser has taken its picture of the row keeps the drag from being cancelled. */
-    setTimeout(function () { if (drag && document.body.classList) document.body.classList.add('ob-dragging'); }, 0);
+    /* Lighting the lines after the browser has taken its picture of the row keeps the drag from being cancelled. */
+    setTimeout(function () { if (drag) bodyClass(true, ['ob-dragging', 'ob-for-move']); }, 0);
   });
   document.addEventListener('dragover', function (e) {
-    if (!drag) return;
-    var slot = dropSlotOf(e.target); if (!slot) return;
+    if (!drag && !partDrag) return;
+    /* Near the top or bottom of the outline's pane, it scrolls. */
+    var pane = document.getElementById('ob-outline');
+    if (pane && pane.getBoundingClientRect) { var pr = pane.getBoundingClientRect(); if (e.clientY < pr.top + 48) pane.scrollTop -= 14; else if (e.clientY > pr.bottom - 48) pane.scrollTop += 14; }
+    var slot = dropSlotOf(e); if (!slot) return;
     e.preventDefault();
-    try { e.dataTransfer.dropEffect = 'move'; } catch (err) { /* older browsers */ }
+    try { e.dataTransfer.dropEffect = partDrag ? 'copy' : 'move'; } catch (err) { /* older browsers */ }
     if (slot.classList.contains('over')) return;
     Array.prototype.forEach.call(document.querySelectorAll('.ob-slot.over'), function (el) { el.classList.remove('over'); });
+    slot.setAttribute('data-label', partDrag ? V.obSentence(partDrag, { where: slot.getAttribute('data-say') }) : 'Lands ' + slot.getAttribute('data-say') + ' · or move with Alt+Up / Alt+Down');
     slot.classList.add('over');
   });
   document.addEventListener('drop', function (e) {
-    if (!drag) return;
-    var slot = dropSlotOf(e.target), key = drag; dragClear();
+    if (!drag && !partDrag) return;
+    var slot = dropSlotOf(e), key = drag, part = partDrag; dragClear();
     if (!slot) return;
     e.preventDefault();
+    if (part) { placePart(part.id, slot.getAttribute('data-ob-place')); return; }
     var d = slot.getAttribute('data-ob-drop'), m = /^before:(.+)$/.exec(d) || null, to;
     if (m) to = { before: m[1] };
     else { var parts = /^end:(.+):(-?\d+)$/.exec(d); if (!parts) return; to = { phase: parts[1], track: +parts[2], where: 'end' }; }
@@ -1105,7 +1287,12 @@
     var nk = PF.outline.keyAt(openEditor(currentProcess()).text, res.at) || key;
     state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(nk) + '"]'; render();
   });
-  document.addEventListener('dragend', function () { if (drag) dragClear(); tfDrag = null; });
+  document.addEventListener('dragend', function () { if (drag || partDrag) dragClear(); tfDrag = null; });
+  /* Pointing at a place while placing a part previews it in words. */
+  document.addEventListener('mouseover', function (e) {
+    var d = state.obPlace && e.target && e.target.closest && e.target.closest('.ob-dest'), pv = d && document.getElementById('ob-preview');
+    if (pv) pv.textContent = d.getAttribute('data-say');
+  });
   /* Dragging a field or evidence row in the step-type editor by its grip; Move up / Move down do the same from the keyboard. */
   var tfDrag = null;
   document.addEventListener('dragstart', function (e) {
@@ -1217,6 +1404,8 @@
     if (g !== gen) { say('That didn\'t happen: the folder changed while it was in progress.', 'warn'); render(); return Promise.resolve(false); }
     var r = null; for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) r = data.runs[i];
     if (!r) return Promise.resolve(false);
+    /* A run on a version this copy can't fully read is view-only for everyone here: no recording, take over or recovery. */
+    if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return Promise.resolve(false); }
     /* While a copy is being kept or restored, nothing else may change the run; the person is told to wait. */
     if (state.recovering && !opts.recovery) { say('Wait until the copy is kept, then try again.', 'warn'); render(); return Promise.resolve(false); }
     /* Recovery applies only to the exact contents it backed up: same object and same contents. */
@@ -1332,12 +1521,12 @@
     },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
-    'toggle-md': function () { state.showMd = !state.showMd; state.focus = '[data-act="toggle-md"]'; render(); },
     /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
-    flight: function (id) { state.flight = id === 'plan'; state.focus = '[data-act="flight"][data-id="' + (state.flight ? 'plan' : 'list') + '"]'; render(); },
+    /* Checklist, Flight plan or Markdown: the same version three ways. The choice stays while you move around. */
+    flight: function (id) { state.clView = id === 'plan' || id === 'md' ? id : 'list'; state.focus = '[data-act="flight"][data-id="' + state.clView + '"]'; render(); },
     'flight-phase': function (id) {
       var want = /^\d+$/.test(id) ? 'cl-ph-' + id : 'cl-h';
-      state.flight = false; state.showMd = false; state.focus = want;
+      state.clView = 'list'; state.focus = want;
       render();
       var el = document.getElementById(want) || document.getElementById('cl-h');
       if (!el) return;
@@ -1360,6 +1549,7 @@
     'save-draft': function () { var p = currentProcess(); if (!p) return; var ed = openEditor(p); state.focus = 'draft-editor'; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.'); },
     'revert-draft': function () {
       var p = currentProcess(); if (!p || stillSaving(p)) return;
+      dropPending(); obClearErr();
       var old = editorOf(p.id); dropEditor(p.id); var ne = openEditor(p);
       if (old && old.tl) { ne.tl = old.tl; TL.barrier(ne.tl, 'You discarded your changes here. Earlier changes can\'t be undone.'); }
       state.planFormReset = true; state.focus = 'draft-editor'; render();
@@ -1370,15 +1560,77 @@
       saveDraftText({ id: state.processId, title: state.processId, draft: null }, ed.text, null, 'Saved your draft again.');
     },
     'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.'); },
-    'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
+    'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
     /* ---------- the outline builder: every change is an operation on the editor's text (PF.outline) ---------- */
     'ed-mode': function (id) {
-      state.builder = id !== 'markdown'; lsSet('builder', state.builder);
+      state.builder = id !== 'markdown'; lsSet('builder', state.builder); state.obPlace = null;
       var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce && ce.tl) TL.close(ce.tl);
       state.focus = '[data-act="ed-mode"][data-id="' + (state.builder ? 'builder' : 'markdown') + '"]'; render();
     },
-    'ob-sel': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
-    'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-sel': function (id) { var p = currentProcess(); if (!p || !id) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-sel-track': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.insTab = null; var k = b && b.dataset ? +b.dataset.track : 0; state.obSel = { pid: p.id, kind: 'track', key: id, track: k }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel-track"][data-id="' + cssEsc(id) + '"][data-track="' + k + '"]'; render(); },
+    'ob-part': function (id) {
+      var pl = state.obPlace, sheet = !!(state.overlay && state.overlay.obParts);
+      if (pl && pl.part === id && !sheet) { cancelPlacing(); return; }
+      /* From the phone's sheet: it closes, and the outline is where the place is chosen. */
+      if (sheet) partsSheetAway();
+      startPlacing(id, sheet ? 'sheet' : '');
+    },
+    /* The inspector's tabs; Checks and Preview are remembered in this browser. */
+    'ins-tab': function (id) {
+      if (['selected', 'checks', 'preview'].indexOf(id) < 0) return;
+      state.insTab = id; if (id !== 'selected') { state.insTabSaved = id; lsSet('insTab', id); }
+      state.focus = '#ins-t-' + id; render();
+    },
+    'ob-rail': function () { state.partsRail = !state.partsRail; lsSet('partsRail', state.partsRail); state.focus = '[data-act="ob-rail"]'; render(); },
+    /* Done leaves the editor; edits not saved stay in it, and the process page says so. */
+    'ed-done': function () {
+      var p = currentProcess(); state.obPlace = null; state.obAsk = null;
+      if (p && editorDirty(p)) say('Your changes aren\'t saved yet. They stay in the editor until you save or discard them.', 'warn'); else say(null);
+      state.ptab = 'overview'; state.focus = '[data-act="ptab"][data-id="edit"]'; render(); window.scrollTo(0, 0);
+    },
+    /* An empty checklist: Step offers to add its phase too, as one change. */
+    'ob-phase-with': function () {
+      var pl = state.obPlace, p = currentProcess(), pt = pl && p && V.obPart(ctx, pl.part); if (!pt || pt.kind !== 'step') return;
+      var res = builderEdit({ op: 'addPhase', title: 'New phase', mode: 'READ-DO', step: { text: pt.text, type: pt.type, mark: pt.mark } }, null, 'added a phase with ' + pt.noun); if (!res) return;
+      var ed = openEditor(p); markFresh(ed, res.id); markFresh(ed, res.step);
+      state.obPlace = null; state.obSel = { pid: p.id, kind: 'step', key: res.step }; state.obFlash = { kind: 'step', key: res.step }; state.insTab = null;
+      state.focus = 'ob-text'; state.focusSelect = true; sayUndo('Added a phase with ' + pt.noun + ' in it.'); render();
+    },
+    'ob-place-at': function (id) { var pl = state.obPlace; if (pl) placePart(pl.part, id); },
+    'ob-place-cancel': function () { cancelPlacing(); },
+    'ob-part-clear': function () { state.obQ = ''; state.focus = state.overlay && state.overlay.obParts ? null : 'ob-part-q'; if (state.overlay) state.overlayFocus = '#ob-part-q2'; render(); },
+    'ob-parts-open': function () { var p = currentProcess(); if (!p) return; state.overlayFocus = '#ob-part-q2'; openOverlay({ obParts: true, html: function () { return V.obPartsSheet(ctx, currentProcess() || p); } }); },
+    'ob-ask': function (id) { var s = state.obSel; if (!s) return; state.obAsk = { kind: id === 'track' ? 'track' : 'phase', key: s.key, track: s.track }; state.focus = 'ob-ask-go'; render(); },
+    'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
+    'ob-del-track': function (how) {
+      var s = state.obSel, p = currentProcess(); if (!s || s.kind !== 'track' || !p) return;
+      var ph = PF.outline.parse(edText(p)).phases.filter(function (x) { return x.key === s.key; })[0], tr = ph && ph.tracks[+s.track], name = tr && tr.title || 'untitled';
+      var res = builderEdit({ op: 'deleteTrack', phase: s.key, track: s.track, steps: how === 'keep' ? 'keep' : 'all' }, null, 'deleted the ' + name + ' lane'); if (!res) return;
+      state.obSel = { pid: p.id, kind: 'phase', key: state.obSel ? state.obSel.key : s.key };
+      sayUndo('Deleted the ' + name + ' lane' + (!res.steps ? '' : how === 'keep' ? '; its steps moved up into the phase' : ' and its ' + res.steps + ' step' + (res.steps === 1 ? '' : 's')) + '.');
+      state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
+    },
+    'ob-del-phase': function (id) {
+      var p = currentProcess(); if (!p) return;
+      var ph = PF.outline.parse(edText(p)).phases.filter(function (x) { return x.key === id; })[0], name = ph && ph.title || 'the phase';
+      var res = builderEdit({ op: 'deletePhase', phase: id }, null, 'deleted ' + name); if (!res) return;
+      state.obSel = null; sayUndo('Deleted ' + name + (res.steps ? ' and its ' + res.steps + ' step' + (res.steps === 1 ? '' : 's') : '') + '.'); state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
+    },
+    'ob-gate-remove': function (id) {
+      var res = builderEdit({ op: 'removeGate', phase: id }, null, 'removed a gate'); if (!res) return;
+      sayUndo('Removed the gate. The phase ends with a check that it\'s done.'); state.focus = 'ob-g-title'; render();
+    },
+    /* On a phone, Done closes the side form's sheet and goes back to what was selected. */
+    'ob-done': function () {
+      /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
+      var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
+      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
+      state.focus = !s ? 'ed-h' : s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
+      render();
+    },
+    'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
     'ob-move': function (id, b) { builderMoveStep(id, b && b.dataset.dir === 'up' ? -1 : 1, b && b.dataset.from === 'key' ? 'row' : 'button'); },
     'ob-ph-move': function (id, b) {
       var up = b && b.dataset.dir === 'up', res = builderEdit({ op: 'movePhase', phase: id, dir: up ? -1 : 1 }); if (!res) return;
@@ -1388,12 +1640,13 @@
     'ob-role': function (id) { builderToggle('role', id); },
     'ob-bind': function (id) { builderToggle('bind', id); },
     'ob-del': function (id) {
-      var res = builderEdit({ op: 'delete', step: id }); if (!res) return;
-      state.obSel = null; state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
+      var p = currentProcess(), st = p && PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === id; })[0];
+      var res = builderEdit({ op: 'delete', step: id }, null, 'deleted the step “' + (st ? String(st.text).slice(0, 60) : '') + '”'); if (!res) return;
+      state.obSel = null; sayUndo('Deleted the step.'); state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
     },
-    'ob-add': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.obAdd = { pid: p.id, kind: 'step', phase: id, track: b && b.dataset.track != null ? +b.dataset.track : -1 }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
-    'ob-add-after': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); state.obAdd = { pid: p.id, kind: 'step', after: id }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
-    'ob-add-phase': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); state.obAdd = { pid: p.id, kind: 'phase', after: id || null }; state.planFormReset = true; state.focus = 'ob-new-title'; render(); },
+    'ob-add': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', phase: id, track: b && b.dataset.track != null ? +b.dataset.track : -1 }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
+    'ob-add-after': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', after: id }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
+    'ob-add-phase': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'phase', after: id || null }; state.planFormReset = true; state.focus = 'ob-new-title'; render(); },
     'ob-add-cancel': function () { var a = state.obAdd; state.obAdd = null; obClearErr(); state.focus = a && a.kind === 'phase' ? '[data-act="ob-add-phase"]' : a && a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : a ? '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]' : 'ed-h'; render(); },
     'ob-add-go': function () {
       var a = state.obAdd, p = currentProcess(); if (!a || !p || a.pid !== p.id) return;
@@ -1415,8 +1668,8 @@
     'open-skill': function (id) { state.view = 'skill'; state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     'new-process': function () { state.view = 'new-process'; state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
-    'open-types': function () { ACTIONS.nav('types'); },
-    'new-type': function () { state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
+    'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
+    'new-type': function () { partsSheetAway(); state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
     'copy-type': function (id) { var t = T.get(id); if (!t) return; state.view = 'types'; state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
     'edit-type': function (id) {
@@ -1520,6 +1773,7 @@
     'plan-from-run': function (key) {
       var r = data.runs.filter(function (x) { return x.process + '/' + x.id === key; })[0], p = r && processes().filter(function (x) { return x.id === r.process; })[0];
       if (!r || !p || !p.latest || !state.me) return;
+      if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return; }
       var made = Object.assign({}, M.setBy(R.mapOf(r)), M.setBy(p.latest.map)), details = {}, roles = {};
       Object.keys(r.details || {}).forEach(function (f) { if (!Object.prototype.hasOwnProperty.call(made, f) && r.details[f]) details[f] = String(r.details[f]); });
       Object.keys(r.roles || {}).forEach(function (ro) { if (r.roles[ro]) roles[ro] = r.roles[ro]; });
@@ -1558,7 +1812,7 @@
         return Promise.all([pfs.read(draftPath), repo.loadStepTypes(pfs)]).then(function (got) {
           var f = got[0];
           if (!f || f.text !== shown) return { changed: true };
-          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.all.map(function (x) { return x.info; }), now: new Date().toISOString() });
+          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString() });
         });
       }).then(function (res) {
         if (pg !== gen) return;
@@ -1800,6 +2054,8 @@
     return queued(function () { return getCopy(fs, cur); }).then(function (c) {
       if (g !== gen) return;
       if (!c) { say('That copy can\'t be read.', 'bad'); return; }
+      /* Keeping it would save only what this copy understands of it, erasing the rest. */
+      if (c._unrunnable) { say(c._unrunnable + ' That copy can only be read here, so it wasn\'t kept.', 'warn'); return; }
       text = snapshot(cur);
       return repo.keepDisplaced(fs, cur, WRITER).then(function (where) {
         if (g !== gen) return false;
@@ -1883,7 +2139,9 @@
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    var r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows });
+    /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows }); }
+    catch (err) { say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me;
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
@@ -1938,6 +2196,14 @@
       ed.text = next; scheduleRender();
     }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, true); scheduleRender(); }
+    /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
+    if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title)$/.test(e.target.id || '') && state.processId) {
+      /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
+      var differs = norm(e.target.value) !== norm(fieldApplied(e.target.id)), was = !!state.obPending;
+      if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) dropPending();
+      if (was !== !!state.obPending) scheduleRender();
+    }
+    if (e.target.id === 'ob-part-q' || e.target.id === 'ob-part-q2') { state.obQ = String(e.target.value || '').slice(0, 60); render(); }
   });
   /* The browser's own Undo and Redo (the Edit menu, a context menu) in the draft editor and step-type form go to the timeline,
      so there is one history, never two that disagree. Leaving the editor ends the typing unit. */
@@ -1962,7 +2228,8 @@
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|mark|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
     /* In Fill in, changing a choice (like a Jira action) redraws the form so the fields that choice needs appear. */
     if (/^fld-/.test(e.target.id || '') && state.pick && state.pick.kind === 'fields') {
@@ -1998,7 +2265,7 @@
 
   document.addEventListener('keydown', function (e) {
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { state.pick = null; state.edit = null; render(); return; } if (state.fixForm) { ACTIONS['fix-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { state.pick = null; state.edit = null; render(); return; } if (state.fixForm) { ACTIONS['fix-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -2032,6 +2299,15 @@
       if (typing && !(zid === 'draft-editor' || (/^tf-/.test(zid) && !pending) || (pending && (t.tagName === 'SELECT' || t.value === (t.defaultValue || ''))))) return;
       e.preventDefault(); tlMove(zs, zk === 'y' || e.shiftKey, 'key'); return;
     }
+    /* The inspector's tabs: the arrow keys (Home, End) move between them. */
+    if (t && t.dataset && t.dataset.act === 'ins-tab' && /^(Arrow(Left|Right)|Home|End)$/.test(e.key) && !e.altKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      var tabs = (state.builder !== false ? ['selected'] : []).concat(['checks', 'preview']), ti = Math.max(0, tabs.indexOf(t.dataset.id));
+      ACTIONS['ins-tab'](tabs[e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (ti + (e.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length]);
+      return;
+    }
+    /* Placing a part: the arrow keys (Home, End) move among the places it can go. */
+    if (state.obPlace && t && t.dataset && t.dataset.act === 'ob-place-at' && /^(Arrow(Up|Down|Left|Right)|Home|End)$/.test(e.key) && !e.altKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); movePlace(e); return; }
     /* In the outline builder, Alt+Up / Alt+Down move the focused step or phase. Never while typing in a field. */
     if (e.altKey && !e.metaKey && !e.ctrlKey && !typing && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && state.view === 'process' && state.ptab === 'edit' && state.builder && !state.overlay) {
       var obr = t && t.closest && t.closest('[data-ob-step], [data-ob-phase]');
@@ -2061,5 +2337,16 @@
   });
 
   render();
-  boot().then(announceRelease, announceRelease);
+  /* A refresh while editing a draft comes back to the editor (this tab only). Unsaved edits don't survive a refresh, so the
+     browser asks before leaving with any. */
+  function resumeEditor() {
+    var id = resumeEdit; resumeEdit = null;
+    var p = id && processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
+    state.view = 'process'; state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; render();
+  }
+  window.addEventListener('beforeunload', function (e) {
+    var any = !!state.obPending || Object.keys(state.editors || {}).some(function (k) { return dirty(state.editors[k]); });
+    if (any) { e.preventDefault(); e.returnValue = ''; }
+  });
+  boot().then(resumeEditor, resumeEditor).then(announceRelease, announceRelease);
 })();

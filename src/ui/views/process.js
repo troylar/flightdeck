@@ -7,16 +7,28 @@
   /* ---------- process page ---------- */
   /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. fixes, when given, counts open
      suggested fixes per step ID (and "phase:<id>"), marked so whoever edits the draft sees them. */
-  function mapPreview(map, types, skills, anchor, fixes) {
+  /* hl: what the builder has selected ({ line } of a step, or { phase } index), marked so the preview can show it. */
+  function mapPreview(map, types, skills, anchor, fixes, hl) {
     var fixBadge = function (k) { var n = fixes && fixes[k]; return n ? ' <span class="badge b-warn">' + n + ' suggested fix' + (n === 1 ? '' : 'es') + '</span>' : ''; };
     /* Which skills cover each step (skills mapped to the whole process are listed once, above). */
     var by = Object.create(null), whole = [];
     (skills || []).forEach(function (x) { if (!x.skill.steps) whole.push(x.skill.name); else x.skill.steps.forEach(function (id) { (by[id] = by[id] || []).push(x.skill.name); }); });
+    var step = function (s) {
+      var t = T.get(s.type, types), hs = hl && hl.line === s.line;
+      var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (by[s.id] ? '<span class="badge b-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
+        (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id);
+      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + U.mdInline(s.text) + '</span>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+    };
+    /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
     return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
-      return '<div class="ph"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + p.mode + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3><ul>' + p.steps.map(function (s) {
-        var t = T.get(s.type, types);
-        return '<li>' + (t ? I(t.icon, t.label) : '') + '<span>' + U.mdInline(s.text) + (s.must ? ' <span class="badge b-must">Must do</span>' : '') + (by[s.id] ? ' <span class="badge b-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? ' <span class="badge b-plan">Automation planned</span>' : '') + (s.roles.length ? ' <span class="small">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id) + '</span></li>';
-      }).join('') + '</ul><div class="g">' + I('gate') + 'Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + U.mdInline(p.gate.approves) : '') + '</div></div>';
+      var hp = hl && hl.phase === pi, lead = p.steps.filter(function (s) { return !s.track; });
+      var lanes = p.tracks.map(function (t) { return { t: t, steps: p.steps.filter(function (s) { return s.track === t.id && t.id; }) }; });
+      var body = lead.length || !lanes.length ? '<ul>' + lead.map(step).join('') + '</ul>' : '';
+      if (lanes.length) body += '<div class="pv-lanes"><p class="pv-lanes-h">Do all lanes</p>' + lanes.map(function (l) {
+        return '<div class="pv-lane"><p class="pv-lane-h">' + esc(l.t.title || 'Untitled lane') + (l.t.roles.length ? ' <span class="pv-role">@' + esc(l.t.roles.join(' @')) + '</span>' : '') + '</p><ul>' + l.steps.map(step).join('') + '</ul></div>';
+      }).join('') + '</div>';
+      return '<div class="ph' + (hp ? ' pv-sel" id="pv-sel' : '') + '"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + p.mode + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3>' + body +
+        '<div class="g">' + I('gate') + '<span class="pv-gate-copy">Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + U.mdInline(p.gate.approves) : '') + '</span></div></div>';
     }).join('');
   }
   function checkList(c) {
@@ -142,6 +154,8 @@
         '<div class="row"><button class="btn go" data-act="recover-draft">Save as the draft again</button><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0">' + esc(lost.text) + '</pre></section>';
       return notices(ctx) + '<div class="panel">That process wasn\'t found. <button class="mini" data-act="home">Back to Home</button></div>';
     }
+    /* Editing a draft takes the whole page (manage.js). */
+    if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
     var pub = p.latest, h = notices(ctx);
     h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · v' + pub.info.version + ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1>' + esc(p.title) + '</h1>' +
       (pub ? '<div class="small">Published by ' + esc(nameOf(ctx, pub.info.publishedBy)) + ' on ' + esc(U.when(pub.info.publishedAt)) + ' · "' + esc(pub.info.changes) + '"</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
@@ -149,7 +163,6 @@
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
     p.broken.forEach(function (b) { h += '<div class="notice warn"><span>' + esc(b.folder) + ': ' + esc(b.why) + '</span></div>'; });
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
-    if (V.tabOf(ctx) === 'edit') return h + V.editTab(ctx, p);
     if (V.tabOf(ctx) === 'insights') return h + '<div class="row"><button class="mini" data-act="ptab" data-id="overview">' + I('back') + 'Back to the checklist</button></div>' + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
@@ -157,7 +170,7 @@
       h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c);
       if (p.draftChanged) {
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
-          '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.all.map(function (x) { return x.info; })) + '</button></div>' +
+          '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
           '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>';
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
@@ -207,7 +220,11 @@
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + pub.info.version + '. v' + latest.info.version + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button><button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + latest.info.version + '</button></span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
-    } else if (plan && pick.missing) h += '<div class="notice warn" role="status"><span>' + (chosen ? 'The version you switched to' : 'This plan was made for v' + esc(plan.version) + ', which') + ' can\'t be used anymore. It starts on v' + latest.info.version + '. Check the roles and details still make sense.</span></div>';
+    } else if (plan && pick.missing) {
+      /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */
+      var gone = !chosen && (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder) === +plan.version; })[0];
+      h += '<div class="notice warn" role="status"><span>' + (chosen ? 'The version you switched to' : 'This plan was made for v' + esc(plan.version) + ', which') + (gone ? ' can\'t be used here: ' + esc(gone.why) : ' can\'t be used anymore.') + ' It starts on v' + latest.info.version + '. Check the roles and details still make sense.</span></div>';
+    }
     else if (pick.chosen) h += '<div class="notice" role="status"><span>Switched to v' + pub.info.version + '. Check the roles and details still make sense.</span></div>';
     var formId = planning ? 'plan-form' : 'start-form', scope = planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '');
     h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._hash) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';

@@ -2,8 +2,29 @@
   {
     "version": "1.12.0",
     "date": "2026-10-18",
-    "headline": "Undo, Redo and History in the checklist editor and the step-type form",
+    "headline": "Build a checklist from parts, with Undo, Redo and History in every editor and a clearer step-type editor",
     "changes": [
+      {
+        "kind": "improved",
+        "area": "Processes",
+        "title": "The draft editor is a page of its own",
+        "now": "Editing a draft fills the window: a header with Done, save state, Builder or Markdown, Undo, Redo and History, Checks and Save, then side-by-side panes that each scroll on their own. The inspector has Selected, Checks and Preview tabs, and Preview marks the selected step. Parts fold to a rail of icons. A refresh comes back to the editor, and the browser asks before leaving unsaved edits.",
+        "where": "A process page: Edit."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "A parts box beside the builder",
+        "now": "Add phases, parallel lanes, gates and any type of step from a searchable parts box. Drag a part onto the checklist: only places it can go light up and the nearest says where it lands. Or choose a part, pick a place with the arrow keys, and press Enter. The new item is selected with its name ready to type over, and Undo takes it back.",
+        "where": "A process page: Edit, then the Builder. On a phone, Add part."
+      },
+      {
+        "kind": "new",
+        "area": "Processes",
+        "title": "Edit lanes, gates and phases in the builder",
+        "now": "Parallel lanes show side by side. Select a lane to rename it, change who works it, or delete it, keeping its steps or deleting them with it. A phase's form can delete the phase or remove its gate. A step's kind is one choice: Step, Must do or Automation planned. A part you just added takes its ID from the name you give it, until you save the draft.",
+        "where": "A process page: Edit, then select a lane or phase in the Builder."
+      },
       {
         "kind": "new",
         "area": "Checklists",
@@ -32,6 +53,29 @@
         "area": "Saving",
         "title": "Undo never puts older text over newer work",
         "now": "When the draft changes in the folder, or you take their version, restore a version or discard your changes, History marks the spot and Undo stops there. Changes before it stay listed but can't be undone, so Undo never brings older text back over someone else's work."
+      },
+      {
+        "kind": "improved",
+        "area": "Processes",
+        "title": "Checklist, Flight plan or Markdown in one switch",
+        "before": "Markdown was a separate small button beside the Checklist | Flight plan switch, and it didn't show when it was on.",
+        "now": "The checklist panel has one switch: Checklist, Flight plan or Markdown. Markdown shows the version's source, read-only, with Copy. The choice stays while you move around.",
+        "where": "A process page, the checklist panel."
+      }
+    ]
+  },
+  {
+    "version": "1.11.1",
+    "date": "2026-10-18",
+    "headline": "Checklist versions this copy can't read are never run",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Versions this copy doesn't understand can't be started",
+        "before": "A checklist version written by a newer Flightdeck, or edited by hand or by an AI assistant with lines or step types this copy doesn't know, was listed like any other version. You could start or plan a run on it, and steps that shouldn't have applied showed as ordinary work.",
+        "now": "Such a version isn't offered to start, plan or pick. The process page and the version picker say why: update Flightdeck to run it. A plan made for it starts on the latest version you can run, and says so. A run started on it, or saved by a newer copy with details or a file format this copy doesn't know, opens read-only with the reason, and this copy never saves over it or plans another like it.",
+        "where": "A process page, the version picker, Start a run, and the run page."
       }
     ]
   },
