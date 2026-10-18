@@ -26,7 +26,7 @@ PF.repo = (function () {
   /* What's already been read from a folder. Complete publications never change, and ended runs rarely do, so routine refreshes
      skip them; a deep refresh (the Refresh button) reads everything again. */
   var caches = typeof WeakMap === 'function' ? new WeakMap() : null;
-  function cacheOf(fs) { if (!caches) return { pubs: {}, ended: {}, notes: {} }; var c = caches.get(fs); if (!c) { c = { pubs: {}, ended: {}, notes: {} }; caches.set(fs, c); } return c; }
+  function cacheOf(fs) { if (!caches) return { pubs: {}, ended: {}, notes: {}, approved: {}, bad: {} }; var c = caches.get(fs); if (!c) { c = { pubs: {}, ended: {}, notes: {}, approved: {}, bad: {} }; caches.set(fs, c); } return c; }
   /* Run at most n reads at once, so a folder with hundreds of runs doesn't flood OneDrive or the browser. */
   function limited(items, n, fn) {
     var out = new Array(items.length), i = 0;
@@ -35,21 +35,34 @@ PF.repo = (function () {
     return Promise.all(workers).then(function () { return out; });
   }
 
+  /* Reading the versions also notes which are unusable here (cache.bad: a hard refusal for runs on them), and forgets what it
+     knew about a folder that's gone. Complete versions stay cached, so a routine refresh asks nothing about them. */
   function loadPublications(fs, cache, deep) {
+    var seen = {};
+    cache.bad = cache.bad || {}; cache.approved = cache.approved || {};
     return fs.list('publications').then(function (procs) {
       return Promise.all(procs.filter(function (p) { return p.kind === 'dir'; }).map(function (p) {
         return fs.list('publications/' + p.name).then(function (vers) {
           return Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) {
             var base = 'publications/' + p.name + '/' + v.name + '/';
+            seen[base] = true;
             if (!deep && cache.pubs[base]) return cache.pubs[base];
             return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
               var res = P.verify(v.name, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
               res.folder = v.name; res.process = p.name;
-              return checkImages(fs, base, res).then(function (res) { if (res.ok) cache.pubs[base] = res; else delete cache.pubs[base]; return res; });
+              return checkImages(fs, base, res).then(function (res) {
+                if (res.ok) cache.pubs[base] = res; else delete cache.pubs[base];
+                if (res.unusable) cache.bad[base] = res.why; else delete cache.bad[base];
+                return res;
+              });
             });
           }));
         }).then(function (pubs) { return { process: p.name, pubs: pubs, index: P.index(pubs) }; });
       }));
+    }).then(function (out) {
+      /* A folder that's gone is forgotten, so one recreated under the same name is judged afresh. */
+      [cache.pubs, cache.bad, cache.approved].forEach(function (m) { Object.keys(m).forEach(function (k) { if (/^publications\//.test(k) && !seen[k]) delete m[k]; }); });
+      return out;
     });
   }
 
@@ -88,7 +101,7 @@ PF.repo = (function () {
            always matches the fingerprint it's checked against. */
         function fresh() {
           var before;
-          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return loadRun(fs, proc, id, cache, deep); })
+          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return loadRun(fs, proc, id, cache, deep, true); })
             .then(function (run) {
               return fingerprint(fs, 'runs/' + key).then(function (after) {
                 if (run && run.ended && after === before) cache.ended[key] = { run: run, fp: after }; else delete cache.ended[key];
@@ -108,8 +121,61 @@ PF.repo = (function () {
     });
   }
 
-  function loadRun(fs, proc, id, cacheIn, deep) {
+  /* A file's size and time, or '' when the folder doesn't give both: a record replaced in place gets a new one. */
+  function fileStamp(fs, path) {
+    if (!fs.stat) return Promise.resolve('');
+    return fs.stat(path).then(function (st) { return st && st.size != null && st.mtime != null ? st.size + ':' + st.mtime : ''; }, function () { return ''; });
+  }
+  /* Why the publication a run names can't be recorded on here, or ''. Checked for that one publication only, when the run is
+     saved or the open run is reread, so routine refreshes cost nothing. One known unusable is refused with no read. One whose
+     format was approved is trusted only while its record keeps the same size and time (one stat); without both, or once they
+     change, the record is read again, and an approval is kept only with a real size and time. A missing or unreadable
+     record says nothing (it may still be syncing, and the run carries its own copy of the checklist). */
+  var CHANGED = 'This version was changed in the folder after this copy checked it, so nothing can be recorded on it until it\'s checked again. Choose Refresh.';
+  /* A run started from other contents than the version it names holds is refused, for that run only (never cached). */
+  function runMismatch(run, info) { return info && (run.folder !== info.folder || (run.mapHash && run.mapHash !== info.mapHash) || (run.version && +run.version !== info.version)) ? CHANGED : ''; }
+  function pubProblem(fs, run, cacheIn) {
+    if (!run || typeof run.process !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(run.process) || typeof run.folder !== 'string' || !P.versionOf(run.folder)) return Promise.resolve('');
+    var c = cacheIn || cacheOf(fs), dir = 'publications/' + run.process + '/' + run.folder + '/', rec = dir + 'publication.json';
+    c.approved = c.approved || {}; c.bad = c.bad || {};
+    if (c.bad[dir]) return Promise.resolve(c.bad[dir]);
+    return fileStamp(fs, rec).then(function (stamp) {
+      var ok = c.approved[dir];
+      if (stamp && ok && ok.stamp === stamp) return runMismatch(run, ok.info);
+      delete c.approved[dir];
+      return fs.read(rec).then(function (f) {
+        var info = f && json(f.text);
+        if (!info || typeof info !== 'object' || Array.isArray(info)) return '';
+        if (info.format !== P.FORMAT) return P.NEWER;
+        /* Same format, different contents from what this copy verified: unusable here until the versions are read again,
+           which the next refresh now does, since its cached check is dropped. */
+        var was = c.pubs[dir] ? c.pubs[dir].info : null;
+        if (info.folder !== run.folder || (was && (info.mapHash !== was.mapHash || info.typesHash !== was.typesHash || info.version !== was.version))) {
+          delete c.pubs[dir];
+          return (c.bad[dir] = CHANGED);
+        }
+        var approve = function (v) { if (stamp) c.approved[dir] = { stamp: stamp, info: { folder: v.folder, mapHash: v.mapHash, version: v.version } }; return runMismatch(run, v); };
+        if (was) return approve(was);
+        /* Never verified here: verify the version itself, once (its checklist and step types, as a refresh would). A run's
+           own copy of them is never taken as evidence for the version, so one run can't vouch for it for every other run.
+           Files not there yet, or not matching the record, are still syncing: no approval, checked again next time. */
+        return Promise.all([fs.read(dir + 'map.md'), fs.read(dir + 'types.json')]).then(function (r) {
+          var v = P.verify(run.folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': f.text });
+          if (!v.ok) return v.unusable ? (c.bad[dir] = v.why) : '';
+          return approve(info);
+        }, function () { return ''; });
+      }, function () { return ''; });
+    });
+  }
+  /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
+     one run (the open one) also checks its own publication. */
+  function loadRun(fs, proc, id, cacheIn, deep, allRuns) {
     var base = 'runs/' + proc + '/' + id + '/';
+    function withPublication(res) {
+      if (allRuns) return res;
+      var o = res[0] && json(res[0].text);
+      return pubProblem(fs, o, cacheIn).then(function (why) { res.pubProblem = why; return res; });
+    }
     return fs.list(base.slice(0, -1)).then(function (items) {
       var names = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; });
       var extra = names.filter(function (n) { return n !== 'run.json' && /^run.*\.json$/i.test(n); });
@@ -129,9 +195,12 @@ PF.repo = (function () {
           });
         });
       }
-      return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(readNotes))).then(function (res) {
+      return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(readNotes))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) return null;
+        /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
+           its own copy of the checklist happens to read. */
+        if (!run._unrunnable && res.pubProblem) run._unrunnable = res.pubProblem;
         run._path = base; run._mtime = res[0].mtime; run._conflicts = extra; run._fileHash = U.hash(res[0].text);
         var notes = [];
         res.slice(1).forEach(function (f) {
@@ -217,6 +286,8 @@ PF.repo = (function () {
         p._status = match.length && !p._conflicting ? match[0] : null;
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
       });
+      /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
+      r[3].forEach(function (run) { var bad = cache.bad && cache.bad['publications/' + run.process + '/' + run.folder + '/']; if (bad && !run._unrunnable) run._unrunnable = bad; });
       return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], fixDecisions: r[10].filter(function (d) { return !d._unread; }), fixUnread: r[10].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8], readAt: new Date().toISOString() };
     });
   }
@@ -293,16 +364,22 @@ PF.repo = (function () {
     opts = opts || {};
     var writer = opts.writer || session;
     var path = 'runs/' + run.process + '/' + run.id + '/run.json';
+    if (run._unrunnable) return Promise.reject(readOnly(run._unrunnable));
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
     if (opts.lock) return opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); });
     return checkAndWrite();
+    /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
-    return fs.read(path).then(function (f) {
+    return pubProblem(fs, run).then(function (why) {
+      if (why) { run._unrunnable = why; throw readOnly(why); }
+      return fs.read(path);
+    }).then(function (f) {
       var e;
       if (f) {
         var disk = R.sanitize(json(f.text));
         if (!disk) { e = new Error('The run file is unreadable, so it wasn\'t overwritten.'); e.unreadable = true; throw e; }
+        if (disk._unrunnable) throw readOnly(disk._unrunnable);
         var changed = U.hash(f.text) !== run._fileHash;
         var otherWriter = !opts.takeover && disk.recorder.session && disk.recorder.session !== session;
         if (changed || otherWriter) {
@@ -331,6 +408,8 @@ PF.repo = (function () {
     });
     }
   }
+  /* A run this copy can't fully read is never written, not even as a conflict copy: R.sanitize dropped what it doesn't know. */
+  function readOnly(why) { var e = new Error(why + ' This run is read-only here, so nothing was saved.'); e.unrunnable = true; return e; }
   /* A candidate is removed once a later save includes it (it's in the list and isn't the newest entry). The newest save's
      candidate stays until the next save, so it's still there if that next save comes from a window that never saw it.
      Names are unique per save, so removing one never touches a candidate another window is writing right now. */

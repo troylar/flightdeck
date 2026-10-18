@@ -17,6 +17,7 @@ Flightdeck reads and writes files in the team folder on your computer. OneDrive 
 - **A check before every save.** If `run.json` changed at all since this window read it (another save, a sync, an unreadable file), Flightdeck doesn't overwrite it. It switches to the other version and **writes yours next to it as `run.conflict-<window>-<time>.json`**.
 - **Conflict copies are reviewed in the app.** A run with other versions shows a panel listing each one: **Compare** (what differs: answers, evidence, filled-in values, gates, details, roles, follow-ups and outcome), **Keep this one** (recorder only; the current version is first saved beside it as `replaced-*.json`, then the copy becomes the next revision, and its file is removed only after that save succeeds), and **Delete**. A copy of another run or another checklist version can't be kept. OneDrive's own copies (`run-<COMPUTER>.json`) appear there too. Nothing is merged automatically.
 - **Half-synced publications are refused.** A version can't be used until all its files have arrived and match. Reference screenshots are copied into the version, so replacing an image later never changes an old version.
+- **A newer Flightdeck's files are left alone.** A version or run written by a newer copy, with features this copy doesn't understand, shows "Update Flightdeck to run it": the version can't be started and the run opens read-only. Every save also checks the run's own version record, so one replaced in the folder by a newer copy can't be recorded on, even before the next full refresh lists it as unusable. Put the newest `flightdeck.html` in the team folder when anyone updates.
 - **Each folder keeps to itself.** Switching folders discards anything still being read from the old one; a save always goes to the folder its change was made in; changes kept in this browser are filed under their folder's name.
 - **An unreadable folder isn't an empty one.** If OneDrive or permissions stop Flightdeck reading the folder, it keeps showing what it last read, says when that was, and offers **Try again**.
 
@@ -34,10 +35,12 @@ While a run is open, Flightdeck rereads only that run and its notes every 5 seco
 
 | File | Writer |
 |---|---|
-| `maps/drafts/*.md` | An AI assistant (or one person editing by hand). Two editors at once produce a OneDrive copy; keep one. |
+| `maps/drafts/*.md` | One person in Flightdeck's editor, or an AI assistant. Flightdeck saves only over the draft it opened, but two editors at once can still produce a OneDrive copy; keep one. |
 | `people.json` | One named person on the team. Edit it, save, and let it sync before anyone else edits it. |
 | `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there. Each person's decision is its own `*.status-<window>.json`. |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |
+| `step-types/*.json` | One person in Flightdeck's Step types form, or an AI assistant. Saved only over the file the form opened. |
+| `suggestions/<process>/*.json` | Each window writes its own decisions on suggested fixes; nobody edits another's. |
 
 ## Before the first real release
 

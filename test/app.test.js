@@ -1452,4 +1452,63 @@ rule('App: a process called constructor and suggestions about steps called const
   assert.ok(/data-act="ob-/.test(app.html()), 'the builder opens too');
 });
 
+rule('App: a version this copy doesn\'t understand says why, can\'t be picked or started, a plan for it falls back, and a run on it is read-only', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  // The examples' own versions and runs, played through this copy's rules, are all runnable here.
+  app.files('runs/').filter(p => /\/run\.json$/.test(p)).forEach(p => { const r = app.PF.run.sanitize(JSON.parse(app.fs.files[p].t)); assert.ok(r && !r._unrunnable, p + ': ' + (r && r._unrunnable)); });
+  app.files('publications/').filter(p => /\/publication\.json$/.test(p)).forEach(p => { const d = p.replace(/publication\.json$/, ''), f = n => (app.fs.files[d + n] || {}).t; const v = app.PF.publish.verify(d.split('/')[2], { 'map.md': f('map.md'), 'types.json': f('types.json'), 'publication.json': f('publication.json') }); assert.ok(v.ok, p + ': ' + v.why); });
+  const U = app.PF.util, md = app.fs.files['maps/drafts/release.md'].t.replace(/^(- \[[ !~]\] \{.*)$/m, '$1\n  when: ^environment is production');
+  // v3, written by a newer Flightdeck: every file matches its record, so only the content check can stop it.
+  const src = app.files('publications/release/').find(p => /publication\.json$/.test(p)).replace(/publication\.json$/, '');
+  const types = app.fs.files[src + 'types.json'].t, info = JSON.parse(app.fs.files[src + 'publication.json'].t), base = 'publications/release/v3-newer123/';
+  Object.assign(info, { version: 3, folder: 'v3-newer123', mapHash: U.hash(md), typesHash: U.hash(types), images: {} });
+  const put = (p, t) => { app.fs.files[p] = { t, m: Date.now() }; };
+  put(base + 'map.md', md); put(base + 'types.json', types); put(base + 'publication.json', JSON.stringify(info));
+  put('proposals/plan-newer.json', JSON.stringify({ kind: 'plan', id: 'plan-newer', process: 'release', version: 3, title: 'On v3', details: {}, roles: {} }));
+  const run = app.run().json, rpath = 'runs/release/newer1/run.json';
+  put(rpath, JSON.stringify(Object.assign({}, run, { id: 'newer1', title: 'Started by a newer copy', snapshot: md, folder: 'v3-newer123', version: 3, recorder: { person: 'person-blake', session: 'other' } })));
+  app.click('refresh'); await app.tick(80);
+  const NEWER = /This version uses checklist features this copy of Flightdeck doesn&#39;t understand\. Update Flightdeck to run it\./;
+
+  app.click('open-process', 'release'); await app.tick();
+  let h = app.html();
+  assert.ok(new RegExp('v3-newer123: ' + NEWER.source).test(h), 'the process page says why');
+  assert.ok(new RegExp('<option value="" disabled>v3 · can\'t be used here: ' + NEWER.source).test(h), 'the version picker says why and can\'t pick it');
+  assert.ok(!/value="v3-newer123"/.test(h) && !/data-id="v3-newer123"/.test(h), 'never offered to view or compare');
+  app.click('start', 'release'); await app.tick();
+  assert.ok(/data-folder="v2-/.test(app.html()) && !/v3-newer123/.test(app.html()), 'a new run starts on v2');
+
+  app.click('review-plan', 'plan-newer'); await app.tick();
+  h = app.html();
+  assert.ok(new RegExp('This plan was made for v3, which can\'t be used here: ' + NEWER.source + '.*It starts on v2\\.').test(h), 'the plan falls back and says so');
+  const before = app.files('runs/release/').length;
+  app.submitForm('start-form'); await app.tick(80);
+  const started = app.files('runs/release/').filter(p => /run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t)).find(r => r.title === 'On v3');
+  assert.ok(started && started.version === 2, 'the planned run started on v2, never on v3');
+  assert.ok(app.files('runs/release/').length > before);
+
+  const text = app.fs.files[rpath].t, files = app.files('runs/release/newer1/');
+  app.click('open-run', 'release/newer1'); await app.tick();
+  assert.ok(/<b>Read-only here\.<\/b> This version uses checklist features/.test(app.html()), 'the run says why it is read-only');
+  assert.ok(/This copy shows the parts it understands, and can't record it or save over it\./.test(app.html()), 'and that it shows only what it understands');
+  assert.ok(!/data-act="(pickup|takeover)"/.test(app.html()), 'no way to record it is offered');
+  assert.ok(!/data-act="plan-from-run"/.test(app.html()), 'nor to plan another like it');
+  const plans = app.files('proposals/').length;
+  app.click('plan-from-run', 'release/newer1'); await app.tick(40);
+  assert.ok(!/id="plan-form"/.test(app.html()) && app.files('proposals/').length === plans, 'planning from it is refused');
+  app.click('pickup'); await app.tick(40); app.click('takeover'); await app.tick(40);
+  app.click('toggle', run.steps && Object.keys(run.steps)[0] || 'approve'); await app.tick(40);
+  assert.strictEqual(app.fs.files[rpath].t, text, 'run.json is never written');
+  assert.deepStrictEqual(app.files('runs/release/newer1/'), files, 'nor any copy next to it');
+
+  // A run file in a newer run format: listed and opened read-only with the reason, never written.
+  const fpath = 'runs/release/newer2/run.json', ftext = JSON.stringify(Object.assign({}, run, { format: 'preflight-run/3', id: 'newer2', title: 'Newer format' }));
+  put(fpath, ftext); app.click('refresh'); await app.tick(80);
+  app.click('open-run', 'release/newer2'); await app.tick();
+  assert.ok(/Newer format/.test(app.html()) && /saved by a newer copy of Flightdeck, in a format this copy can&#39;t read/.test(app.html()), 'shown with the reason');
+  app.click('pickup'); await app.tick(40); app.click('takeover'); await app.tick(40);
+  assert.strictEqual(app.fs.files[fpath].t, ftext, 'never written');
+});
+
 run();

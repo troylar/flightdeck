@@ -98,4 +98,66 @@ rule('The assistants\' folder checker agrees with the app on complete, damaged a
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+rule('The checker reports the same versions as unusable as the app, with the same reasons, and knows the same step types', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  // Its copy of the built-in step types matches the app's, as far as the check reads them.
+  const known = JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps({"builtin": c.BUILTIN, "common": c.COMMON, "newer": c.NEWER, "format": c.PUBLICATION_FORMAT, "version": c.TYPES_VERSION}))', path.dirname(CHECKER)], { encoding: 'utf8' }));
+  const plain = o => JSON.parse(JSON.stringify(o)), shape = d => plain({ fields: Object.fromEntries(Object.entries(d.fields || {}).map(([k, f]) => [k, f.options ? { kind: f.kind, options: f.options } : { kind: f.kind }])), record: (d.record || []).map(r => ({ name: r.name })) });
+  assert.deepStrictEqual(known.builtin, Object.fromEntries(PF.types.LIST.map(t => [t.id, shape(t)])), 'built-in step types');
+  assert.deepStrictEqual(known.common, shape({ fields: PF.types.COMMON }).fields, 'fields every step takes');
+  assert.strictEqual(known.newer, PF.publish.NEWER); assert.strictEqual(known.version, PF.types.VERSION, 'step type version'); assert.strictEqual(known.format, PF.publish.FORMAT);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-unusable-'));
+  const d = new DiskFS(root), U = PF.util, md = example('maps/drafts/check-in.md'), first = /^(- \[!\] \{run\.command\} Branch rebased.*)$/m;
+  await d.write('people.json', JSON.stringify(people));
+  const v1 = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  assert.ok(!v1.blockers, String(v1.blockers));
+  /* Each as a newer copy, a person or an assistant would leave it: every file matches its record. */
+  const forge = async (n, text, edit) => {
+    const folder = 'v' + n + '-forged' + n, base = 'publications/check-in/' + folder + '/';
+    const types = JSON.parse(v1.files['types.json']), info = JSON.parse(v1.files['publication.json']);
+    if (edit) edit(types, info);
+    const tj = JSON.stringify(types);
+    Object.assign(info, { version: n, folder, mapHash: U.hash(text), typesHash: U.hash(tj) });
+    await d.write(base + 'map.md', text); await d.write(base + 'types.json', tj); await d.write(base + 'publication.json', JSON.stringify(info));
+    return folder;
+  };
+  const bad = [
+    await forge(2, md.replace(first, '$1\n  when: ^branch is release')),
+    await forge(3, md.replace(first, '### If the branch is a release\n$1')),
+    await forge(4, md.replace(first, '$1\n  choices: rebase, merge')),
+    await forge(5, md, (t, info) => { info.format = 'preflight-publication/2'; }),
+    await forge(6, md.replace('{confirm} No secrets', '{approve.change} No secrets')),
+    await forge(7, md.replace('{confirm} No secrets', '{constructor} No secrets')),
+    await forge(8, md.replace(/^## Before the pull request/m, '## Questions\n- Which branch?\n\n## Before the pull request')),
+    await forge(9, md, t => { t.confirm = { id: 'confirm', fields: { where: null } }; }),
+    await forge(10, md.replace(first, '$1\n  where: Your repository\n  require: build')),
+    await forge(12, md, t => { t.confirm.version = PF.types.VERSION + 1; }),
+    await forge(13, md, t => { t.confirm.futureBehavior = 'conditional'; }),
+    await forge(14, md, t => { t.confirm.fields.where.when = 'x'; }),
+    await forge(15, md, t => { t.confirm.fields.where.kind = 'condition'; }),
+    await forge(16, md, t => { t.confirm.record = [{ name: 'proof', label: 'Proof', kind: 'file' }]; }),
+    await forge(17, md, t => { t.confirm.record = [{ name: 'proof', label: 'Proof', kind: 'url', skipWhen: 'x' }]; }),
+    await forge(18, md, t => { t.confirm.fields = []; })
+  ];
+  const good = [await forge(20, md, t => { delete t.confirm; }), await forge(19, md, t => { t.confirm.version = PF.types.VERSION; }), await forge(11, md.replace('{confirm} No secrets', '{approve.change} No secrets'), t => { t['approve.change'] = { id: 'approve.change', label: 'Approve', fields: {}, record: [] }; })];
+
+  const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'check-in').pubs;
+  const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' })).publications['check-in'];
+  for (const folder of bad) {
+    const mine = out.versions.find(v => v.folder === folder), theirs = pubs.find(p => p.folder === folder);
+    assert.strictEqual(theirs.ok, false, folder + ': the app refuses it');
+    assert.strictEqual(mine.status, 'unusable', folder + ': ' + mine.status + ' ' + mine.why);
+    assert.strictEqual(mine.why, theirs.why, folder + ': same reason');
+  }
+  for (const folder of good.concat([v1.folder])) {
+    assert.ok(pubs.find(p => p.folder === folder).ok, folder + ' runs in the app');
+    assert.strictEqual(out.versions.find(v => v.folder === folder).status, 'complete', folder);
+  }
+  assert.strictEqual(out.current, app.processes.find(p => p.process === 'check-in').index.latest.folder, 'the same current version');
+  assert.strictEqual(out.current, good[0], 'the newest runnable one');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 run();

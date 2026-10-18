@@ -408,4 +408,29 @@ rule('Follow-up: on a finished run, a receipt that becomes old enough is recheck
   repo.config.candidateGraceMs = 60000;
 });
 
+rule('A run loaded before its publication record synced is refused at save time if that record turns out to be in a newer format', async () => {
+  const { cloud, a, b } = await twoComputers();
+  const pubPath = Object.keys(cloud.files).find(p => /^publications\/release\/[^/]+\/publication\.json$/.test(p));
+  // Blake's computer hasn't received the publication record yet when it loads the run: nothing says it's read-only.
+  const good = b.files[pubPath]; delete b.files[pubPath]; delete b.base[pubPath];
+  const r = await get(b);
+  assert.ok(!r._unrunnable, 'set-up: writable while the record is missing');
+  // The record arrives, written by a newer copy in a format this copy doesn't know.
+  const info = JSON.parse(good); info.format = 'preflight-publication/2'; cloud.files[pubPath] = JSON.stringify(info);
+  b.sync();
+  const before = b.files['runs/release/run1/run.json'];
+  R.setDetail(r, R.mapOf(r), 'ticket', 'ABC-2', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(b, r, 'casey'), e => e.unrunnable && /doesn't understand\. Update Flightdeck/.test(e.message));
+  assert.ok(/doesn't understand/.test(r._unrunnable || ''), 'the run is now read-only in this window');
+  assert.strictEqual(b.files['runs/release/run1/run.json'], before, 'run.json is untouched');
+  // Once a publication's format is known good, a save reads it no more (here on a computer that never loaded the versions).
+  cloud.files[pubPath] = good;
+  const c = new Computer(cloud, 'AVERY'); c.sync();
+  const r2 = await get(c), paths = [], read = c.read.bind(c);
+  c.read = p => { paths.push(p); return read(p); };
+  R.setDetail(r2, R.mapOf(r2), 'ticket', 'ABC-3', 'person-casey', NOW); await repo.saveRun(c, r2, 'casey');
+  R.setDetail(r2, R.mapOf(r2), 'ticket', 'ABC-4', 'person-casey', NOW); await repo.saveRun(c, r2, 'casey');
+  assert.ok(!paths.some(p => /publication\.json$/.test(p)), 'no extra read: ' + paths.join(', '));
+});
+
 run();

@@ -10,13 +10,13 @@ This folder holds the team's process checklists and runs for Flightdeck. Read th
 | Propose a planned run | `proposals/<id>.json` with `"kind": "plan"` |
 | Register a skill built from a process | `skills/<name>.json` (see *Skills built from processes*) |
 | Add reference screenshots | `images/<process>/...` |
-| Add or change a team step type | `step-types/<id>.json` (the file name matches the `id`) |
+| Add or change a team step type | `step-types/<id>.json` (the file name matches the `id`; `group` and `tags` only organize the Step types page) |
 | Describe the team's Jira workflows | `jira/workflows.json` (statuses, transitions, each transition's required fields with a `hint` and, when known, a `source`) |
 
 ## What you must never touch
 
 - `publications/`: published versions are immutable. People publish from Flightdeck.
-- `runs/`: only the recorder's window and each person's own notes file write there.
+- `runs/`: only the recorder's window and each person's own notes file write there. A run file with fields Flightdeck doesn't know opens read-only, so never add any.
 - Anyone's `*.status-*.json` in `proposals/`: those are people's decisions.
 - `suggestions/`: people accept or decline suggested fixes there. Read it; never write it.
 - Plans people made in the app (`"by"` is a person's ID): write a new plan instead.
@@ -38,7 +38,7 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 
 ## Writing a checklist
 
-Follow `docs/map-format.md` in the Flightdeck repository. The essentials:
+Follow `docs/map-format.md` in the Flightdeck repository (a copy is in `.flightdeck/skills/_flightdeck/map-format.md`). Use only the syntax it describes: Flightdeck refuses anything else. The essentials:
 
 - Front matter: `process`, `title`, `category`, `group` (its place in the hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `context` (run details), `roles`, and `runs: solo` when one person usually runs it alone.
 - **Many processes are solo**: a developer's check-in, a product owner's weekly Jira cleanup. Write those for one person: `runs: solo`, one role or none, no "together" steps. Example:
@@ -114,7 +114,7 @@ Each run is `runs/<process>/<id>/run.json` plus `notes-*.jsonl` files. A step's 
 - **Candidate files:** `candidate-*.json` next to `run.json` are saves in progress or saves another save replaced. One whose name isn't listed in `run.json`'s `lineage` (as `<window>.<save>`) and is over a minute old is a lost save: report it like a conflict copy, and never delete it.
 - **Conflict copies:** any other `run*.json` next to `run.json` (for example `run.conflict-<session>-<time>.json` or OneDrive's `run-<COMPUTER>.json`) is a competing version that a person hasn't resolved yet. Report it; never pick one yourself and never delete it.
 - **Older history** that no longer fits in `run.json` is in `history-*.jsonl`, one JSON object per line.
-- **Publications:** read a process's latest complete version from `publications/<process>/v<N>-<id>/`. A version folder without `publication.json` is still syncing; ignore it. Its reference screenshots are copied into the same folder.
+- **Publications:** read a process's latest complete version from `publications/<process>/v<N>-<id>/`. A version folder without `publication.json` is still syncing; ignore it. A version whose checklist uses syntax or step types Flightdeck doesn't know is unusable: the app never runs it, so never hand-edit a published version. Its reference screenshots are copied into the same folder.
 - **Improving a checklist after a run:** use the run's "did it differently" answers, its suggested fixes and its follow-ups to edit the draft in `maps/drafts/`, then tell a person it's ready to publish.
 
 ## Suggested fixes
