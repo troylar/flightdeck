@@ -2574,4 +2574,31 @@ rule('App: text typed in Add an option and not added survives closing and reopen
   assert.ok(/Add or clear what you typed/.test(app.html()) && new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'Undo waits, and opens the field to show it');
 });
 
+rule('App: removing a field drops the option text typed in it, so Undo and Redo never wait on a field that is gone', async () => {
+  const app = await newTypeOn();
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
+  app.set(box, 'Ask QA before continuing');
+  app.click('tf-open', 'f:' + k); await app.tick();
+  app.el(box).value = '';  // the closed field's box is gone from the page
+  app.click('tf-remove', 'f:' + k); await app.tick();
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(!/Add or clear what you typed/.test(app.html()), 'Undo doesn\'t wait');
+  assert.ok(new RegExp('data-act="tf-open" data-id="f:' + k + '"').test(app.html()), 'the field is back');
+  app.click('tl-redo', 'type'); await app.tick();
+  assert.ok(!/Add or clear what you typed/.test(app.html()) && !new RegExp('data-act="tf-open" data-id="f:' + k + '"').test(app.html()), 'and Redo removes it again');
+});
+
+rule('App: adding another field keeps the option text typed in the open one', async () => {
+  const app = await newTypeOn();
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
+  app.set(box, 'Ask QA before continuing');
+  app.click('tf-add', 'r'); await app.tick();
+  assert.ok(!new RegExp('id="' + box + '"').test(app.html()), 'set-up: the first field closed');
+  app.el(box).value = '';  // gone from the page
+  app.click('tf-open', 'f:' + k); await app.tick();
+  assert.ok(new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'its option text is still there');
+});
+
 run();

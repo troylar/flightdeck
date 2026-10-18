@@ -940,13 +940,17 @@
       if (f.open !== key) return; var p = key.split(':'), el = document.getElementById('tf-' + p[0] + '-' + p[1] + '-optadd'); if (el) d[key] = String(el.value || '');
     });
   }
-  /* A step-type box holding text not added yet (a tag, an option, also in a closed row), or null; a closed row is opened. */
+  /* The one way the open row changes: what's typed in the row closing is kept first. */
+  function setOpen(f, key) { keepOptDrafts(f); f.open = key; }
+  function rowExists(f, key) { var p = key.split(':'); return rowIndex(p[0] === 'f' ? f.def.fields : f.def.record, p[1]) >= 0; }
+  /* A step-type box holding text not added yet (a tag, an option, also in a closed row), or null; a closed row is opened.
+     Drafts of rows that no longer exist never count. */
   function typePendingBox(f) {
     keepOptDrafts(f);
     var el = document.getElementById('tf-tagadd'); if (el && String(el.value || '').trim()) return 'tf-tagadd';
-    var d = f.optDraft || {}, keys = Object.keys(d).filter(function (k) { return String(d[k]).trim(); });
+    var d = f.optDraft || {}, keys = Object.keys(d).filter(function (k) { return String(d[k]).trim() && rowExists(f, k); });
     if (!keys.length) return null;
-    f.open = keys[0]; var p = keys[0].split(':'); return 'tf-' + p[0] + '-' + p[1] + '-optadd';
+    setOpen(f, keys[0]); var p = keys[0].split(':'); return 'tf-' + p[0] + '-' + p[1] + '-optadd';
   }
   /* The step-type editor is a page of its own, like the draft editor: the app's top bar hides while it's open. */
   /* The phone preview sheet exists only below 800 px: on a wider screen it's closed before anything is drawn, so the page
@@ -1718,7 +1722,7 @@
       var f = state.typeForm, d = f && f.def; if (!d) return; readTypeForm();
       var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice'];
       var before = typeSnap(f), row = { k: V.nextRowKey(), name: '', label: '', kind: kinds.indexOf(kd) >= 0 ? kd : 'text' }; (id === 'f' ? d.fields : d.record).push(row);
-      f.open = id + ':' + row.k; (state.disc = state.disc || {})['tf-add-' + id] = false;
+      setOpen(f, id + ':' + row.k); (state.disc = state.disc || {})['tf-add-' + id] = false;
       recordTypeForm(f, before, { kind: 'form', label: id === 'f' ? 'new field' : 'new evidence', items: [(id === 'f' ? 'field:' : 'evidence:') + row.k], selBefore: { focus: '[data-act="tf-add"][data-id="' + id + '"]' }, selAfter: { focus: '#tf-' + id + '-' + row.k + '-label' } });
       state.focus = 'tf-' + id + '-' + row.k + '-label'; render();
     },
@@ -1728,6 +1732,8 @@
       var list = parts[0] === 'f' ? d.fields : d.record, i = list.map(function (r) { return r.k; }).indexOf(parts[1]);
       if (i < 0) return;
       var before = typeSnap(state.typeForm), gone = list[i], what = (parts[0] === 'f' ? 'field' : 'evidence');
+      /* Removing a field is deliberate: the option text typed in it and not added goes with it (Undo brings the field back). */
+      keepOptDrafts(state.typeForm); if (state.typeForm.optDraft) delete state.typeForm.optDraft[id]; if (state.typeForm.open === id) state.typeForm.open = null;
       list.splice(i, 1);
       recordTypeForm(state.typeForm, before, { kind: 'form', label: what + ' removal', subject: gone.name || '', items: [what + ':' + gone.k], selBefore: { focus: '[data-act="tf-open"][data-id="' + parts[0] + ':' + gone.k + '"]' }, show: { before: [gone.name, gone.label, gone.kind].filter(Boolean).join(' · '), after: '' } });
       say('Removed ' + what + (gone.name ? ' "' + gone.name + '"' : '') + '. Undo available.', 'good', { act: 'tl-undo', id: 'type', label: 'Undo' });
@@ -1750,8 +1756,8 @@
     'type-save': function () { var f = state.typeForm; if (f && f.leaving) f.closeAfterSave = true; readTypeForm(); saveType(); },
     'tf-id-edit': function () { var f = state.typeForm; if (!f || f.existing) return; f.idEdit = true; state.focus = 'tf-id'; render(); },
     'tf-open': function (id) {
-      var f = state.typeForm; if (!f) return; readTypeForm(); keepOptDrafts(f);
-      f.open = f.open === id ? null : id;
+      var f = state.typeForm; if (!f) return; readTypeForm();
+      setOpen(f, f.open === id ? null : id);
       var p = String(id).split(':');
       state.focus = f.open ? 'tf-' + p[0] + '-' + p[1] + '-label' : '[data-act="tf-open"][data-id="' + cssEsc(id) + '"]'; render();
     },
