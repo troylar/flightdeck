@@ -30,13 +30,13 @@ Teams are turning runbooks into AI skills fast. Then the process changes, and no
 
 Flightdeck keeps that link, version by version:
 
-- **Built from proof.** A skill starts from a version the team has actually run clean, and its owner signed off.
-- **Traced to the step.** Every skill names its source, the exact process version it follows, and which steps it covers.
-- **Breakage flagged.** Publish a new version and Flightdeck shows exactly which skills it affects, step by step, and which it doesn't.
-- **Fixes, briefed.** One click copies the exact before and after for your AI assistant to update the skill.
-- **Evidence kept.** Every run is recorded: who did what, what was skipped, and where people went off-script.
+- **Built from proof.** Prove a version with three clean runs and its owner's sign-off, then brief your AI assistant to build the skill.
+- **Traced to the step.** Each registered skill links to an exact process version and the steps it covers (or the whole process), plus where its source lives.
+- **Changes flagged.** Publish a new version and Flightdeck shows which registered skills follow steps that changed, and which are still current.
+- **Fixes, briefed.** One click copies an update brief: the before and after of each changed step, and the process as it is now.
+- **Evidence kept.** Every run keeps who checked each step, what was marked N/A, and where people did it differently.
 
-<p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/skills-traced-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-light.png" alt="A process goes from v1 to v2 and one step changes. Flightdeck checks every skill built from it: release-deploy and release-notes need an update, pr-opener is current. The update brief for release-deploy shows the exact before and after for your AI assistant." width="1000"></picture></a></p>
+<p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/skills-traced-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/skills-traced-light.png" alt="A process goes from v1 to v2 and one step changes. Flightdeck checks the registered skills: release-deploy and release-notes need an update, pr-opener is current. The update brief for release-deploy shows the exact before and after for your AI assistant." width="1000"></picture></a></p>
 
 <br>
 
