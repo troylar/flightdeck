@@ -298,4 +298,85 @@ rule('Cancel stops collecting between chunks, and nothing is written', async () 
   assert.strictEqual(wrote, 0);
 });
 
+/* ---------- Review fixes (78edf20) ---------- */
+rule('run.json replaced between planning and hashing: what the pack keeps and leaves out follows the bytes in the pack, never the earlier read', async () => {
+  const p = 'runs/release/run1/run.json'; let swapped = false;
+  const f = await folder({ hooks: { blob: (q, x) => { if (q === p && !swapped) { swapped = true; const o = JSON.parse(x.files.get(q).toString('utf8')); const was = x.files.get(q).toString('utf8'); o.lineage.forEach(t => { was.indexOf(t); }); x.files.set(q, Buffer.from(o.lineage.reduce((txt, t) => txt.split('"' + t + '"').join('"' + 'x'.repeat(t.length) + '"'), was))); } } } });
+  const { res } = await pack(f, { run: 'release/run1' });
+  const cand = res.col.files.filter(x => /candidate-w1-/.test(x.path));
+  assert.ok(cand.length >= 1 && cand.every(x => /may not be in run\.json/.test(x.flag)), 'with other names in the lineage (same size), every receipt is kept and flagged: ' + JSON.stringify(res.col.exclusions));
+  assert.ok(!res.col.exclusions.some(x => /candidate-w1-/.test(x.path)), 'none left out as "already included"');
+  assert.strictEqual(res.col.attempts, 2, 'collected again');
+  assert.strictEqual(res.status, 'complete');
+});
+
+rule('A file rewritten between hashing and writing, with the same size and CRC, stops the pack: its SHA-256 is checked on the second read too', async () => {
+  // A copy whose CRC-32 says nothing, so only SHA-256 can tell the bytes apart.
+  const PF2 = load(false, (f, src) => f === 'core/zip.js' ? src.replace('function crc32(u8, prev) {', 'function crc32(u8, prev) { return 0;') : src);
+  let n = 0;
+  const f = await folder({ hooks: { blob: (q, x) => { if (q === fixture.log && ++n === 2) x.files.set(q, Buffer.from('deploy KO\n')); } } });
+  await assert.rejects(PF2.repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => {}, keepBytes: false, tz: 'UTC' }), /changed while/);
+  assert.strictEqual(n, 2, 'read twice');
+});
+
+rule('Planning never reads a file over the limit, nor another run\'s files before sizes are checked, and a pack past the cap reads no notes at all', async () => {
+  const other = 'runs/release/run2/notes-w9.jsonl', big = fixture.notesPath, reads = {};
+  const files = Object.assign({}, fixture.files);
+  files['runs/release/run2/run.json'] = fixture.files['runs/release/run1/run.json'];
+  files[other] = Buffer.from('{"id":"o1","text":"other run"}\n');
+  const f = new BytesFS(files, { hooks: { read: q => { reads[q] = (reads[q] || 0) + 1; }, blob: q => { reads[q] = (reads[q] || 0) + 1; } } });
+  const stat = f.stat.bind(f);
+  f.stat = q => q === other || q === big ? stat(q).then(st => st && Object.assign({}, st, { size: 200 * 1048576 })) : stat(q);
+  const col = await repo.collectEvidence(f, { run: 'release/run1' }, { cap: 500 * 1048576, plan: true });
+  assert.ok(!reads[other] && !reads[big], 'files over 100 MB are never read: ' + JSON.stringify(reads));
+  assert.ok(col.exclusions.some(x => x.path === big && /over 100 MB/.test(x.reason)));
+  Object.keys(reads).forEach(k => delete reads[k]);
+  f.stat = stat;
+  await assert.rejects(repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => {}, cap: 4000 }), /limit/);
+  assert.ok(!Object.keys(reads).some(k => /notes-/.test(k)), 'refused from sizes alone, before any notes file is read: ' + Object.keys(reads).join(', '));
+});
+
+rule('A screenshot shared by many runs is shown once, the estimate covers what the page really holds, and the report is written through checked counters', async () => {
+  const files = Object.assign({}, fixture.files), shot = 'publications/release/' + fixture.v1 + '/images/release/big.png';
+  files[shot] = Buffer.concat([require('./evidence-fixture').PNG, crypto.randomBytes(1048576)]);
+  const t = fixture.files['runs/release/run1/run.json'].toString('utf8');
+  for (let i = 2; i <= 6; i++) files['runs/release/run' + i + '/run.json'] = Buffer.from(t.replace(/"id": "run1"/, '"id": "run' + i + '"'));
+  const f = new BytesFS(files), scope = { process: 'release', from: '2026-10-17', through: '2026-10-17', tz: 'UTC' };
+  const plan = await repo.collectEvidence(f, scope, { plan: true });
+  const parts = [], res = await repo.exportEvidence(f, scope, { format: 'report', sink: u => parts.push(Buffer.from(u)), tz: 'UTC' });
+  const html = Buffer.concat(parts).toString('utf8');
+  assert.strictEqual(res.col.runs.length, 6);
+  const shown = html.split('alt="' + shot + '"').length - 1;
+  assert.strictEqual(shown, 1, 'the shared screenshot is embedded once');
+  assert.ok(res.bytes <= plan.estimate, 'estimate ' + plan.estimate + ' covers the report ' + res.bytes);
+  await assert.rejects(repo.exportEvidence(f, scope, { format: 'report', sink: () => {}, tz: 'UTC', cap: res.bytes - 1, maxFile: 1e12, estimateSlack: 0 }), /limit/);
+});
+
+rule('Two names that differ only in letter case both go in the pack: the second is renamed first, then every final name is checked', async () => {
+  const files = Object.assign({}, fixture.files);
+  files['runs/release/run1/files/A.txt'] = Buffer.from('upper');
+  files['runs/release/run1/files/a.txt'] = Buffer.from('lower');
+  const { zip, res } = await pack(new BytesFS(files), { run: 'release/run1' }), z = unzip(zip);
+  assert.strictEqual(res.status, 'complete');
+  const a = res.col.files.filter(x => /files\/[Aa]\.txt$/.test(x.path));
+  assert.strictEqual(a.length, 2);
+  assert.ok(a.some(x => / \(2\)\.txt$/.test(x.pack)), a.map(x => x.pack).join(', '));
+  a.forEach(x => assert.ok(z[x.pack] && z[x.pack].data.toString() === (/A\.txt$/.test(x.path) ? 'upper' : 'lower'), x.pack));
+});
+
+rule('Days follow the clock in the time zone, across a midnight that is skipped or repeated', () => {
+  const day = (t, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
+  /* The first minute whose local date is d or later, found by walking every minute: an oracle that knows nothing of offsets. */
+  const first = (d, tz) => { const g = Date.parse(d + 'T00:00:00Z'); for (let t = g - 16 * 3600000; ; t += 60000) if (day(t, tz) >= d) return t; };
+  const next = d => new Date(Date.parse(d + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10);
+  [['America/Santiago', '2026-09-05'], ['America/Santiago', '2026-09-06'], ['America/Santiago', '2026-04-04'], ['America/Santiago', '2026-04-05'], ['America/Havana', '2026-03-07'], ['America/Havana', '2026-03-08'],
+   ['America/Havana', '2026-10-31'], ['Asia/Beirut', '2026-03-28'], ['Asia/Beirut', '2026-03-29'], ['America/Asuncion', '2026-10-03'], ['Australia/Lord_Howe', '2026-10-04'], ['Europe/London', '2026-03-29'], ['UTC', '2026-10-17']].forEach(([tz, d]) => {
+    const r = E.dayRange(d, d, tz);
+    assert.strictEqual(new Date(r.start).toISOString(), new Date(first(d, tz)).toISOString(), tz + ' ' + d + ' start');
+    assert.strictEqual(new Date(r.end + 1).toISOString(), new Date(first(next(d), tz)).toISOString(), tz + ' ' + d + ' end');
+    for (let t = r.start - 3 * 3600000; t <= r.end + 3 * 3600000; t += 15 * 60000) assert.strictEqual(E.inRange(new Date(t).toISOString(), r), day(t, tz) === d, tz + ' ' + new Date(t).toISOString());
+  });
+  assert.ok(E.inRange('2026-09-06T03:30:00.000Z', E.dayRange('2026-09-05', '2026-09-05', 'America/Santiago')), 'September 5 at 11:30 PM in Santiago');
+});
+
 run();

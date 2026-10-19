@@ -1204,6 +1204,30 @@ PF.repo = (function () {
     function names(items, dir) { return items.map(function (x) { return x.path.slice(dir.length + 1); }).sort(); }
     function textOf(path) { return ro.read(path).then(function (f) { return f ? f.text : null; }, function () { return null; }); }
     function statOf(path) { return ro.stat(path).then(function (st) { return st ? st.size : null; }); }
+    /* Records (run.json, notes, decisions, a version's files) are read in full only once their size says they may be: never
+       one over the limit. Decisions are tiny; one over 1 MB isn't read as one. Other runs of a process, read only to work out
+       where corrections stand, have a budget of their own. */
+    var recordMax = maxFile || E.CAPS.file, DEC_MAX = 1048576, CTX_MAX = cap ? Math.min(64 * 1048576, Math.floor(cap / 4)) : 64 * 1048576;
+    function smallText(path, limit) {
+      return statOf(path).then(function (size) {
+        if (size == null) return { missing: true };
+        if (size > (limit || recordMax)) return { over: size };
+        return textOf(path).then(function (t) { return t == null ? { missing: true } : { text: t, size: size }; });
+      });
+    }
+    /* Pack names: the folder's own path under originals/, made unique ignoring letter case (so the pack unpacks on Windows)
+       and short enough, before any name is checked. */
+    function assignPacks(list) {
+      var taken = {};
+      list.slice().sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; }).forEach(function (f, i) {
+        var want = 'originals/' + f.path, n = 2;
+        if (Z.checkName(want)) want = 'originals/_long-paths/' + (i + 1) + (/\.[\w]{1,8}$/.exec(f.path) || [''])[0];
+        var base = want, fold = function (x) { return (x.normalize ? x.normalize('NFC') : x).toLowerCase(); };
+        while (taken[fold(want)]) { var m = /^(.*?)(\.[^./]*)?$/.exec(base); want = m[1] + ' (' + n++ + ')' + (m[2] || ''); }
+        taken[fold(want)] = true; f.pack = want;
+      });
+      return list;
+    }
 
     /* ---- which runs ---- */
     function runKeys() {
@@ -1223,10 +1247,10 @@ PF.repo = (function () {
       return ro.list('runs/' + scope.process).then(function (items) {
         var dirs = items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort();
         return limited(dirs, 8, function (id) {
-          return textOf('runs/' + scope.process + '/' + id + '/run.json').then(function (t) {
-            var o = t == null ? undefined : json(t);
+          return smallText('runs/' + scope.process + '/' + id + '/run.json').then(function (r) {
+            var o = r.text == null ? undefined : json(r.text);
             if (o && typeof o === 'object' && typeof o.created === 'string' && !isNaN(Date.parse(o.created))) return E.inRange(o.created, range) ? { id: id } : null;
-            return { id: id, undated: t == null ? 'run.json is missing' : 'run.json couldn\'t be read' };
+            return { id: id, undated: r.over ? 'run.json is over ' + E.size(recordMax) : r.missing ? 'run.json is missing' : 'run.json couldn\'t be read' };
           });
         });
       }).then(function (list) {
@@ -1248,8 +1272,8 @@ PF.repo = (function () {
         return ro.list(dir + '/' + proc).then(function (items) {
           return limited(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 8, function (n) {
             var path = dir + '/' + proc + '/' + n;
-            return textOf(path).then(function (t) {
-              var o = t == null ? undefined : json(t), d = o === undefined ? null : C.cleanDecision(o, proc, n);
+            return smallText(path, DEC_MAX).then(function (r) {
+              var t = r.text == null ? null : r.text, o = t == null ? undefined : json(t), d = o === undefined ? null : C.cleanDecision(o, proc, n);
               if (d && (dir === 'suggestions') !== (d.kind === 'fix-decision')) d = null;
               if (d) { d._file = n; d._dir = dir; }
               return { path: path, dir: dir, name: n, text: t, d: d };
@@ -1257,46 +1281,57 @@ PF.repo = (function () {
           });
         });
       })).then(function (x) { return x[0].concat(x[1]); });
+      var why = '';
+      /* Every run of the process, sizes first: read only within the budget, and never a file over the limit. */
       var runs = ro.list('runs/' + proc).then(function (items) {
         return limited(items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return i.name; }).sort(), 8, function (id) {
           var base = 'runs/' + proc + '/' + id + '/';
           return ro.list(base.slice(0, -1)).then(function (files) {
-            var notes = files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort();
-            return Promise.all([textOf(base + 'run.json')].concat(notes.map(function (n) { return textOf(base + n); }))).then(function (t) {
-              if (t[0] == null || !R.sanitize(json(t[0]))) return null;
-              return build({ text: t[0], base: base, notes: t.slice(1), conflicts: [], fileHash: U.hash(t[0]), notesSig: '', unrunnable: '' }, null);
-            });
+            var want = files.some(function (i) { return i.name === 'run.json' && i.kind === 'file'; }) ? ['run.json'].concat(files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort()) : [];
+            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { base: base, want: want, sizes: sizes }; });
           });
         });
-      }).then(function (x) { return x.filter(Boolean); });
+      }).then(function (metas) {
+        var total = 0, over = false;
+        metas.forEach(function (m) { m.sizes.forEach(function (z) { if (z == null) return; total += z; if (z > recordMax) over = true; }); });
+        if (over || total > CTX_MAX) { why = 'The runs of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.'; return []; }
+        return limited(metas.filter(function (m) { return m.want.length; }), 8, function (m) {
+          return Promise.all(m.want.map(function (n) { return textOf(m.base + n); })).then(function (t) {
+            if (t[0] == null || !R.sanitize(json(t[0]))) return null;
+            return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: U.hash(t[0]), notesSig: '', unrunnable: '' }, null);
+          });
+        }).then(function (x) { return x.filter(Boolean); });
+      });
       var pubs = ro.list('publications/' + proc).then(function (items) {
         return limited(items.filter(function (i) { return i.kind === 'dir' && P.versionOf(i.name); }).map(function (i) { return i.name; }).sort(), 8, function (folder) {
           var b = 'publications/' + proc + '/' + folder + '/';
-          return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return textOf(b + n); })).then(function (t) {
-            var files = { 'map.md': t[0], 'types.json': t[1], 'publication.json': t[2] }, v = P.verify(folder, files);
+          return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return smallText(b + n); })).then(function (rs) {
+            var t = rs.map(function (r) { return r.text == null ? null : r.text; }), files = { 'map.md': t[0], 'types.json': t[1], 'publication.json': t[2] }, v = P.verify(folder, files);
             return { folder: folder, files: files, v: v };
           });
         });
       });
       return (procCache[proc] = Promise.all([decisions, runs, pubs]).then(function (r) {
         var ds = r[0], pubList = r[2], verified = pubList.filter(function (p) { return p.v.ok; }).map(function (p) { return p.v; });
-        var idx = P.index(verified), groups = C.forProcess(r[1], proc, ds.filter(function (x) { return x.d; }).map(function (x) { return x.d; }), idx);
-        return { decisions: ds, groups: groups, pubs: pubList };
+        var idx = P.index(verified), groups = why ? [] : C.forProcess(r[1], proc, ds.filter(function (x) { return x.d; }).map(function (x) { return x.d; }), idx);
+        return { decisions: ds, groups: groups, pubs: pubList, why: why };
       }));
     }
 
     /* ---- one run: list and stat what goes in (nothing read in full yet, except the small records that decide it) ---- */
     function planRun(key) {
       var k = key.split('/'), proc = k[0], id = k[1], base = 'runs/' + proc + '/' + id;
-      var p = { key: key, process: proc, id: id, base: base, files: [], excl: [], listing: [], fuListing: [], decListing: [], texts: {} };
+      var p = { key: key, process: proc, id: id, base: base, files: [], excl: [], listing: [], fuListing: [], decListing: [], texts: {}, readTexts: {} };
       function add(path, cls, runs) { p.files.push({ path: path, role: cls.role, label: cls.label, flag: cls.flag || '' }); }
       return listFiles(base).then(function (items) {
         p.listing = names(items, base);
         p.items = items;
-        return textOf(base + '/run.json');
-      }).then(function (runText) {
-        var raw = runText == null ? undefined : json(runText);
+        return smallText(base + '/run.json');
+      }).then(function (r) {
+        var runText = r.text == null ? null : r.text, raw = runText == null ? undefined : json(runText);
         p.runText = runText;
+        /* What's kept and left out is decided from this text; the bytes hashed into the pack must be the same text. */
+        if (runText != null) p.readTexts[base + '/run.json'] = runText;
         var lineage = raw && typeof raw === 'object' && Array.isArray(raw.lineage) ? raw.lineage.filter(function (t) { return typeof t === 'string'; }) : null;
         p.folder = raw && typeof raw === 'object' && typeof raw.folder === 'string' && P.versionOf(raw.folder) ? raw.folder : '';
         p.items.forEach(function (x) {
@@ -1307,7 +1342,7 @@ PF.repo = (function () {
           else add(x.path, cls);
         });
         var notes = p.files.filter(function (f) { return f.role === 'notes'; });
-        return Promise.all(notes.map(function (f) { return textOf(f.path); })).then(function (t) {
+        return Promise.all(notes.map(function (f) { return smallText(f.path).then(function (r) { if (r.text != null) p.readTexts[f.path] = r.text; return r.text == null ? null : r.text; }); })).then(function (t) {
           var ids = { corr: {}, fix: {} };
           t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { if (n.note.kind === 'correction') ids.corr[n.note.id] = true; if (n.note.kind === 'fix' || n.note.kind === 'map') ids.fix[n.note.id] = true; }); });
           p.ids = ids;
@@ -1319,7 +1354,9 @@ PF.repo = (function () {
           p.fuListing = mine;
           return limited(mine, 8, function (n) {
             var path = 'followups/' + proc + '/' + n;
-            return textOf(path).then(function (t) {
+            return smallText(path, DEC_MAX).then(function (r) {
+              var t = r.text == null ? null : r.text;
+              if (t != null) p.readTexts[path] = t;
               var o = t == null ? undefined : json(t), d = o === undefined ? null : FU.cleanDecision(o, proc, n), loose = !d && o ? FU.cleanDecision(o, proc) : null;
               add(path, { role: 'followup', label: 'What became of a follow-up', flag: d ? '' : o === undefined ? 'couldn\'t be read; may relate to this run' : loose ? 'a copy of a decision under another name (OneDrive may have made it)' : 'isn\'t a decision this copy can read; may relate to this run' });
             });
@@ -1334,6 +1371,7 @@ PF.repo = (function () {
           p.decListing = ctx.decisions.map(function (x) { return x.path; }).sort();
           ctx.decisions.forEach(function (x) {
             var d = x.d;
+            if (x.text != null) p.readTexts[x.path] = x.text;
             if (!d) { add(x.path, { role: x.dir === 'suggestions' ? 'suggestion' : 'correction', label: x.dir === 'suggestions' ? 'A decision on a suggested fix (before 1.13)' : 'A decision on corrections', flag: 'couldn\'t be read; may relate to this run' }); return; }
             if (d.kind === 'fix-decision' ? p.ids.fix[d.suggestion] : ((d.members || []).some(function (m) { return p.ids.corr[m]; }) || mineGroups[d.group]))
               add(x.path, d.kind === 'fix-decision' ? { role: 'suggestion', label: 'A decision on a suggested fix (before 1.13)' } : { role: 'correction', label: 'A decision on corrections' });
@@ -1359,7 +1397,8 @@ PF.repo = (function () {
             return listFiles(b).then(function (items) {
               items.forEach(function (x) {
                 if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
-                var rel = x.path.slice(b.length + 1);
+                var rel = x.path.slice(b.length + 1), pub = ctx.pubs.filter(function (q) { return q.folder === folder; })[0];
+                if (pub && pub.files[rel] != null) p.readTexts[x.path] = pub.files[rel];
                 if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') === 0 ? 'A screenshot in the version the run ran' : 'The version the run ran' });
                 else if (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '"' });
               });
@@ -1383,7 +1422,7 @@ PF.repo = (function () {
     }
 
     /* ---- reading: every file hashed in 1 MB chunks, a yield between them, canceled between them ---- */
-    function keepBytes(f) { return keepAll || f.role !== 'attachment' || /\.(png|jpe?g|gif|webp)$/i.test(f.path); }
+    function keepBytes(f) { return keepAll || (f.size <= recordMax && (f.role !== 'attachment' || /\.(png|jpe?g|gif|webp)$/i.test(f.path))); }
     /* A file that turned into a link since it was listed is never read: it counts as removed, so the run is listed again
        (and the link left out, with its reason). */
     function hashFile(f) {
@@ -1413,7 +1452,10 @@ PF.repo = (function () {
             if (r.gone) { changes.push(f.path.split('/').pop() + ' was removed'); return; }
             if (r.size !== f.size) changes.push(f.path.split('/').pop() + (r.size > f.size ? ' grew' : ' changed'));
             f.size = r.size; f.sha256 = r.sha256; f.crc = r.crc; f.bytes = r.bytes; f.image = r.bytes && r.bytes.length ? E.imageType(f.path, r.bytes[0]) : '';
-            if (f.bytes && p.texts[f.path] === undefined && (f.role !== 'attachment')) p.texts[f.path] = E.text(E.join(f.bytes));
+            if (f.bytes && f.role !== 'attachment' && f.size <= recordMax) p.texts[f.path] = E.text(E.join(f.bytes));
+            /* A record read earlier to decide what goes in must be exactly what's packed; otherwise the run is read again. */
+            var nm = f.path.split('/').pop();
+            if (p.readTexts[f.path] !== undefined && p.texts[f.path] !== p.readTexts[f.path] && !changes.some(function (c) { return c.indexOf(nm + ' ') === 0; })) changes.push(nm + ' changed');
           });
         });
       }, Promise.resolve()).then(function () { return changes; });
@@ -1443,8 +1485,6 @@ PF.repo = (function () {
           if (x[0].concat(x[1]).sort().join('/') !== p.decListing.join('/')) changes.push('a decision on corrections was added or removed');
         });
       }).then(function () {
-        /* The versions behind a claim were read as text first; the bytes in the pack must say the same. */
-        p.files.forEach(function (f) { if ((f.role === 'proof' || f.role === 'publication') && /\.(md|json)$/.test(f.path)) { var pub = p.ctx.pubs.filter(function (x) { return f.path.indexOf('publications/' + p.process + '/' + x.folder + '/') === 0; })[0]; var n = f.path.split('/').pop(); if (pub && pub.files[n] != null && pub.files[n] !== p.texts[f.path]) changes.push(f.path + ' changed'); } });
         return changes;
       });
     }
@@ -1464,7 +1504,8 @@ PF.repo = (function () {
       rc.title = run ? run.title : rc.raw && typeof rc.raw.title === 'string' ? rc.raw.title.slice(0, 100) : '';
       var notes = [];
       p.files.filter(function (f) { return f.role === 'notes'; }).sort(function (a, b) { return a.path < b.path ? -1 : 1; }).forEach(function (f) {
-        var nf = E.notesFile(p.texts[f.path] || ''); nf.file = f.path.split('/').pop(); rc.notes.push(nf);
+        var t = p.texts[f.path], nf = t == null ? { notes: [], malformed: [], lines: 0 } : E.notesFile(t); nf.file = f.path.split('/').pop(); rc.notes.push(nf);
+        if (t == null) limits.push(nf.file + ' is too big to show here; it\'s in the pack as it is.');
         nf.notes.forEach(function (x) { notes.push(cleanNote(x.note, p.base + '/')); });
       });
       if (rc.notes.some(function (n) { return n.malformed.length; })) limits.push('Some lines in its notes files couldn\'t be read.');
@@ -1473,7 +1514,8 @@ PF.repo = (function () {
         rc.run = run;
         try { rc.map = R.mapOf(run); } catch (e) { rc.map = null; }
         var byId = C.statusById(Object.keys(p.groups).map(function (k) { return p.groups[k]; }));
-        try { rc.corrections = rc.map ? C.forRun(run, rc.map).map(function (c) { var g = byId[c.id]; return Object.assign({}, c, { status: c.oneOff ? 'One-off' : g ? C.label(g) : 'Open' }); }) : []; } catch (e) { rc.corrections = []; }
+        try { rc.corrections = rc.map ? C.forRun(run, rc.map).map(function (c) { var g = byId[c.id]; return Object.assign({}, c, { status: c.oneOff ? 'One-off' : p.ctx && p.ctx.why ? 'Can\'t be worked out here' : g ? C.label(g) : 'Open' }); }) : []; } catch (e) { rc.corrections = []; }
+        if (p.ctx && p.ctx.why) limits.push(p.ctx.why);
       }
       rc.fuDecisions = p.files.filter(function (f) { return f.role === 'followup'; }).map(function (f) { var o = json(p.texts[f.path]); return o ? PF.followups.cleanDecision(o, p.process, f.path.split('/').pop()) : null; }).filter(Boolean);
       var pubTexts = {};
@@ -1493,8 +1535,27 @@ PF.repo = (function () {
     /* ---- the whole collection ---- */
     var plans = [], peopleOut = [];
     function exclusions() { return plans.reduce(function (a, p) { return a.concat(p.excl); }, peopleOut.slice()); }
+    /* Sizes alone, before any record is read: the run folders, as they'd go in (every save receipt counted), checked against
+       the limits and the cap. */
+    function preEstimate(keys) {
+      var list = [];
+      return keys.reduce(function (q, key) {
+        return q.then(function () {
+          stop();
+          var k = key.split('/'), base = 'runs/' + k[0] + '/' + k[1];
+          return listFiles(base).then(function (items) {
+            var fl = items.filter(function (x) { var rel = x.path.slice(base.length + 1); return x.kind === 'file' && !/\.tmp$/i.test(rel) && (attachments || !/^files\//.test(rel)); });
+            return limited(fl, 8, function (x) { return statOf(x.path).then(function (z) { if (z != null && !(maxFile && z > maxFile)) list.push({ path: x.path, size: z, role: /^files\//.test(x.path.slice(base.length + 1)) ? 'attachment' : 'record' }); }); });
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        var est = E.estimate(assignPacks(list), cap);
+        if (!est.ok) throw new Error(est.why + ' Export fewer runs, or leave out attachments.');
+        return keys;
+      });
+    }
     progress({ phase: 'list' });
-    return runKeys().then(function (keys) {
+    return runKeys().then(preEstimate).then(function (keys) {
       return keys.reduce(function (q, k) { return q.then(function () { stop(); return planRun(k).then(function (p) { plans.push(p); }); }); }, Promise.resolve());
     }).then(function () {
       return textOf(PF.people.FILE).then(function (t) {
@@ -1505,8 +1566,8 @@ PF.repo = (function () {
     }).then(function () {
       /* The estimate, before anything is read in full: refused here if it can't fit. */
       var all = {}, list = [];
-      plans.forEach(function (p) { p.files.forEach(function (f) { if (!all[f.path]) { all[f.path] = true; list.push({ path: f.path, pack: 'originals/' + f.path, size: f.size, role: f.role }); } }); });
-      var est = E.estimate(list, cap);
+      plans.forEach(function (p) { p.files.forEach(function (f) { if (!all[f.path]) { all[f.path] = true; list.push({ path: f.path, size: f.size, role: f.role }); } }); });
+      var est = E.estimate(assignPacks(list), cap);
       col.estimate = est.bytes || 0;
       col.exclusions = exclusions();
       if (!est.ok) throw new Error(est.why + ' Export fewer runs, or leave out attachments.');
@@ -1532,7 +1593,7 @@ PF.repo = (function () {
       }, Promise.resolve()).then(finish);
     });
     function finish() {
-      var seen = {}, taken = {};
+      var seen = {};
       col.exclusions = exclusions();
       plans.forEach(function (p) {
           col.attempts = Math.max(col.attempts, p.attempts || 1);
@@ -1543,14 +1604,7 @@ PF.repo = (function () {
           if (p.unresolved && p.unresolved.length) col.unresolved.push('The run changed while this pack was made: ' + p.unresolved.join(', ') + '.' + (plans.length > 1 ? ' (' + p.key + ')' : ''));
         });
         col.files.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; });
-        /* Pack names: the folder's own path under originals/, made unique ignoring letter case so the pack unpacks on Windows. */
-        col.files.forEach(function (f, i) {
-          var want = 'originals/' + f.path, n = 2;
-          if (Z.checkName(want)) want = 'originals/_long-paths/' + (i + 1) + (/\.[\w]{1,8}$/.exec(f.path) || [''])[0];
-          var base = want;
-          while (taken[want.toLowerCase()]) { var m = /^(.*?)(\.[^./]*)?$/.exec(base); want = m[1] + ' (' + n++ + ')' + (m[2] || ''); }
-          taken[want.toLowerCase()] = true; f.pack = want;
-        });
+        assignPacks(col.files);
         col.runs = plans.map(interpret);
         col.endedAt = new Date(now()).toISOString();
         col.status = col.unresolved.length ? 'partial' : 'complete';
@@ -1566,12 +1620,17 @@ PF.repo = (function () {
     var ro = readOnlyView(opts.pool === false ? fsIn : bounded(fsIn, 'export'));
     function stop() { if (opts.cancelled && opts.cancelled()) throw evCancelled(); }
     return collectEvidence(fsIn, scope, opts).then(function (col) {
-      var h = S.create(), total = 0, name = E.packName(col, now());
+      var h = S.create(), total = 0, name = E.packName(col, now(), U.randomId(6));
       function sink(u8) { h.update(u8); total += u8.length; return opts.sink(u8); }
       function result() { return { status: col.status, name: name, bytes: total, digest: h.digest(), col: col }; }
       stop();
       if (opts.begin) opts.begin(name);
-      if (col.options.format === 'report') return Promise.resolve(sink(S.utf8(E.page(col, { report: true })))).then(result);
+      /* The report goes through the same byte accounting as a pack: past the cap, nothing is handed over. */
+      if (col.options.format === 'report') {
+        var page = S.utf8(E.page(col, { report: true }));
+        if (opts.cap && page.length > opts.cap) return Promise.reject(new Error('The report would be ' + E.size(page.length) + ', over the ' + E.size(opts.cap) + ' limit here. Export fewer runs.'));
+        return Promise.resolve(sink(page)).then(result);
+      }
       var gen = E.generate(col), w = Z.writer({ sink: sink, cap: opts.cap || 0, date: new Date(now()) }), n = 0;
       if (opts.progress) opts.progress({ phase: 'write', done: 0, total: col.files.length });
       return col.files.reduce(function (q, f) {
@@ -1583,11 +1642,16 @@ PF.repo = (function () {
             /* Not kept in memory (the command line): read again, chunk by chunk; the writer checks it's the same size and CRC. */
             return ro.blob(f.path).then(function (b) {
               if (!b) { var e = new Error(f.path + ' changed while the pack was written. Try again.'); e.changed = true; throw e; }
-              var off = 0;
+              /* Read again: the bytes written must have the SHA-256 the manifest gives, not only the same size and CRC. */
+              var off = 0, again = S.create();
               function step() {
                 stop();
-                if (off >= b.size) { if (b.close) b.close(); return; }
-                return b.slice(off, Math.min(b.size, off + EV_CHUNK)).arrayBuffer().then(function (ab) { var u = new Uint8Array(ab); if (!u.length) throw new Error(f.path + ' ended early while it was read.'); off += u.length; return w.data(u); }).then(evYield).then(step);
+                if (off >= b.size) {
+                  if (b.close) b.close();
+                  if (again.digest() !== f.sha256) { var e2 = new Error(f.path + ' changed while the pack was written. Try again.'); e2.changed = true; throw e2; }
+                  return;
+                }
+                return b.slice(off, Math.min(b.size, off + EV_CHUNK)).arrayBuffer().then(function (ab) { var u = new Uint8Array(ab); if (!u.length) throw new Error(f.path + ' ended early while it was read.'); off += u.length; again.update(u); return w.data(u); }).then(evYield).then(step);
               }
               return Promise.resolve().then(step).then(null, function (e) { if (b.close) b.close(); throw e; });
             });

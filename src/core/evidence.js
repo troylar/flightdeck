@@ -18,31 +18,40 @@ PF.evidence = (function () {
 
   /* ---------- dates: inclusive days in a time zone ---------- */
   function zoneOk(tz) { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0); return true; } catch (e) { return false; } }
-  function offset(tz, t) {
-    var p = {}; new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      .formatToParts(new Date(t)).forEach(function (x) { p[x.type] = +x.value; });
-    return Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) - Math.floor(t / 1000) * 1000;
+  var fmts = {};
+  /* The date (YYYY-MM-DD) a clock in tz shows at instant t. */
+  function localDay(t, tz) {
+    var f = fmts[tz] || (fmts[tz] = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })), p = {};
+    f.formatToParts(new Date(t)).forEach(function (x) { p[x.type] = x.value; });
+    return p.year + '-' + p.month + '-' + p.day;
   }
-  function midnight(y, m, d, tz) {
-    var guess = Date.UTC(y, m - 1, d), t = guess - offset(tz, guess), o2 = offset(tz, t);
-    return guess - o2;
+  /* The first instant whose local date is d or later. Offsets are whole minutes, and a day starts within 16 hours of its UTC
+     midnight, so walk in 15-minute steps to the first one past the start, then minute by minute back. No offset arithmetic:
+     a midnight that a clock change skips (America/Santiago in September) or repeats still gives the instant the clock shows. */
+  function firstInstant(d, tz) {
+    var g = Date.parse(d + 'T00:00:00Z'), t = g - 16 * 3600000, end = g + 16 * 3600000;
+    while (t <= end && localDay(t, tz) < d) t += 15 * 60000;
+    for (var k = 0; k < 15 && localDay(t - 60000, tz) >= d; k++) t -= 60000;
+    return t;
   }
   function day(s, what) {
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
     if (!m) throw new Error('Give ' + what + ' as YYYY-MM-DD, for example 2026-10-17.');
     var y = +m[1], mo = +m[2], d = +m[3], t = new Date(Date.UTC(y, mo - 1, d));
     if (t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) throw new Error(s + ' isn\'t a real date.');
-    return [y, mo, d];
+    return s;
   }
-  /* From 00:00:00.000 on the first day through 23:59:59.999 on the last, in tz, both included. */
+  /* Runs started on these days, both included, by the date a clock in tz showed when each started. start and end are the
+     first and last instants of that span, for saying it; inRange decides by the local date itself, so an hour a clock
+     change repeats belongs to the day the clock showed. */
   function dayRange(from, through, tz) {
     if (!tz || !zoneOk(tz)) throw new Error('"' + tz + '" isn\'t a time zone this computer knows. Use a name like Europe/London or America/New_York.');
-    var a = day(from, 'the first day'), b = day(through, 'the last day');
-    var start = midnight(a[0], a[1], a[2], tz), next = new Date(Date.UTC(b[0], b[1] - 1, b[2] + 1)), end = midnight(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), tz) - 1;
-    if (start > end) throw new Error('The first day (' + from + ') is after the last day (' + through + ').');
-    return { start: start, end: end, from: from, through: through, tz: tz };
+    day(from, 'the first day'); day(through, 'the last day');
+    if (from > through) throw new Error('The first day (' + from + ') is after the last day (' + through + ').');
+    var next = new Date(Date.parse(through + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10);
+    return { start: firstInstant(from, tz), end: firstInstant(next, tz) - 1, from: from, through: through, tz: tz };
   }
-  function inRange(created, range) { var t = Date.parse(created); return !isNaN(t) && t >= range.start && t <= range.end; }
+  function inRange(created, range) { var t = Date.parse(created); if (isNaN(t)) return false; var d = localDay(t, range.tz); return d >= range.from && d <= range.through; }
 
   /* ---------- bytes ---------- */
   function join(parts) {
@@ -151,10 +160,11 @@ PF.evidence = (function () {
   /* ---------- generated files ---------- */
   function nameOf(col, id) { if (!id) return ''; var n = col.people && col.people[id]; return n ? n + ' (' + id + ')' : id; }
   function when(iso) { return iso ? String(iso).replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC') : ''; }
-  function packName(col, at) {
+  /* rand: a few random characters, so two packs made in the same second never share a name. */
+  function packName(col, at, rand) {
     var stamp = new Date(at).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z'), sc = col.scope;
     var what = sc.run ? sc.run.replace('/', '-') : sc.process + '-' + sc.from + '-to-' + sc.through;
-    return 'evidence-' + what.replace(/[^\w.-]+/g, '-') + '-' + stamp + (col.options && col.options.format === 'report' ? '.html' : '.zip');
+    return 'evidence-' + what.replace(/[^\w.-]+/g, '-') + '-' + stamp + (rand ? '-' + String(rand).replace(/[^a-z0-9]/gi, '').slice(0, 12) : '') + (col.options && col.options.format === 'report' ? '.html' : '.zip');
   }
   function title(col) {
     if (col.scope.run) { var r = col.runs[0]; return (r && r.title) || col.scope.run; }
@@ -241,8 +251,14 @@ PF.evidence = (function () {
       h += '<tr><td class="mono">' + esc(f.path) + (f.pack !== 'originals/' + f.path ? '<br><span class="soft">in the pack as ' + esc(f.pack) + '</span>' : '') + '</td><td>' + esc(f.label) + (f.flag ? '<br><span class="no">' + esc(f.flag) + '</span>' : '') + '</td><td>' + esc(size(f.size)) + '</td><td class="mono">' + esc(f.sha256) + '</td></tr>';
     });
     h += '</table>';
-    var pics = opts.images === false ? [] : mine.filter(function (f) { return f.image && f.bytes; });
-    if (pics.length) h += '<h3>Pictures</h3>' + pics.map(function (f) { return '<figure class="card"><img alt="' + esc(f.path) + '" src="data:' + f.image + ';base64,' + base64(join(f.bytes)) + '"><figcaption class="soft mono">' + esc(f.path) + '</figcaption></figure>'; }).join('');
+    /* Each picture is put in the page once, under the first run that has it; later runs point to it, so a screenshot shared by
+       many runs costs its size once, as the estimate counts it. */
+    var shown = opts.shown || (opts.shown = {}), pics = opts.images === false ? [] : mine.filter(function (f) { return f.image && f.bytes; });
+    if (pics.length) h += '<h3>Pictures</h3>' + pics.map(function (f) {
+      if (shown[f.path]) return '<p class="soft">' + esc(f.path) + ': <a href="#' + shown[f.path] + '">shown above</a></p>';
+      shown[f.path] = 'pic-' + (Object.keys(shown).length + 1);
+      return '<figure class="card" id="' + shown[f.path] + '"><img alt="' + esc(f.path) + '" src="data:' + f.image + ';base64,' + base64(join(f.bytes)) + '"><figcaption class="soft mono">' + esc(f.path) + '</figcaption></figure>';
+    }).join('');
     return h;
   }
   function runHtml(col, rc, opts) {
@@ -260,7 +276,7 @@ PF.evidence = (function () {
   }
   /* The page. opts.report: the one-file readable report, which says plainly it isn't the pack and what it leaves out. */
   function page(col, opts) {
-    opts = opts || {};
+    opts = Object.assign({}, opts || {}, { shown: {} });
     var a = alerts(col), t = title(col), sc = col.scope;
     var h = '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + CSP + '"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">' +
       '<title>Evidence: ' + esc(t) + '</title><style>' + STYLE + '</style></head><body><main>';
@@ -315,6 +331,6 @@ PF.evidence = (function () {
   function estimate(files, cap) { return Z.plan(files.map(function (f) { return { name: f.pack, size: f.size }; }).concat(generatedUpper(files)), { cap: cap }); }
 
   return { FORMAT: FORMAT, CSP: CSP, PRIVACY: PRIVACY, VERIFY: VERIFY, LIMITED: LIMITED, CAPS: CAPS, capFor: capFor, size: size, dayRange: dayRange, inRange: inRange, zoneOk: zoneOk,
-    join: join, text: text, base64: base64, imageType: imageType, canonical: canonical, candidateTag: candidateTag, classify: classify, notesFile: notesFile, checks: checks,
+    join: join, text: text, base64: base64, imageType: imageType, canonical: canonical, localDay: localDay, candidateTag: candidateTag, classify: classify, notesFile: notesFile, checks: checks,
     page: page, readme: readme, generate: generate, generatedUpper: generatedUpper, estimate: estimate, packName: packName, title: title };
 })();

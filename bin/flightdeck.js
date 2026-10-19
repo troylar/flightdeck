@@ -404,41 +404,54 @@ function readAdapter(root) {
     a.forEach((x) => { if (!x || x === '.' || x === '..' || /[\\\u0000]/.test(x)) fail('refusing an unexpected path: ' + p); });
     return a;
   }
-  /* The real folder at these parts, or null when it isn't there. */
+  /* The real folder at these parts, or null when it isn't there, with each folder's identity (device and inode) on the way. */
   function dirAt(a) {
     let cur = root;
+    const ids = [];
     for (let i = 0; i < a.length; i++) {
       cur = path.join(cur, a[i]);
       const st = lstatOrNull(cur);
       if (!st) return null;
       if (st.isSymbolicLink()) throw linkErr(a.slice(0, i + 1).join('/'));
       if (!st.isDirectory()) return null;
+      ids.push(st.dev + ':' + st.ino);
     }
-    return cur;
+    return { cur, ids };
+  }
+  /* Node has no openat, so a folder swapped for a link (and maybe put back) is caught by walking again after the open:
+     every folder must still be the same real folder, and the file at the path the one that was opened. */
+  function sameWalk(a, ids, rel) {
+    const again = dirAt(a);
+    if (!again || again.ids.join('/') !== ids.join('/')) throw linkErr(rel);
+    return again.cur;
   }
   function fileAt(p) {
     const a = partsOf(p), name = a.pop(), dir = dirAt(a);
     if (!dir) return null;
-    const full = path.join(dir, name), st = lstatOrNull(full);
+    const full = path.join(dir.cur, name), st = lstatOrNull(full);
     if (!st) return null;
     if (st.isSymbolicLink()) throw linkErr(p);
-    return st.isFile() ? { full, st } : null;
+    return st.isFile() ? { full, st, a, ids: dir.ids, name } : null;
   }
   function open(p) {
     const f = fileAt(p);
     if (!f) return null;
     let fd;
     try { fd = fs.openSync(f.full, fs.constants.O_RDONLY | NOFOLLOW); } catch (e) { if (e.code === 'ELOOP') throw linkErr(p); if (e.code === 'ENOENT') return null; throw e; }
-    const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.ino !== f.st.ino || st.dev !== f.st.dev) { fs.closeSync(fd); throw linkErr(p); }
-    return { fd, st };
+    try {
+      const st = fs.fstatSync(fd), now = lstatOrNull(path.join(sameWalk(f.a, f.ids, p), f.name));
+      if (!st.isFile() || st.ino !== f.st.ino || st.dev !== f.st.dev || !now || now.isSymbolicLink() || now.ino !== st.ino || now.dev !== st.dev) throw linkErr(p);
+      return { fd, st };
+    } catch (e) { fs.closeSync(fd); throw e; }
   }
   return {
     links,
     list: (p) => new Promise((res) => {
-      const dir = dirAt(partsOf(p));
+      const a = partsOf(p), dir = dirAt(a);
       if (!dir) return res([]);
-      res(fs.readdirSync(dir, { withFileTypes: true }).map((e) => {
+      const entries = fs.readdirSync(dir.cur, { withFileTypes: true });
+      sameWalk(a, dir.ids, p || '.');
+      res(entries.map((e) => {
         const rel = (p ? p + '/' : '') + e.name;
         if (e.isSymbolicLink()) { if (links.indexOf(rel) < 0) links.push(rel); return { name: e.name, kind: 'link' }; }
         return e.isDirectory() ? { name: e.name, kind: 'dir' } : e.isFile() ? { name: e.name, kind: 'file' } : null;
@@ -472,6 +485,29 @@ function readAdapter(root) {
     })
   };
 }
+/* Where packs go: the nearest folder of --out that exists, resolved, must be outside the team folder before anything is
+   created; then each missing folder is made one at a time, and each must be a real folder (not a link), still outside. */
+function outFolder(want, within) {
+  const inTeam = 'the pack can\'t go inside the team folder. Choose another place with --out.';
+  const rest = [];
+  let cur = want;
+  while (!lstatOrNull(cur)) { rest.unshift(path.basename(cur)); const up = path.dirname(cur); if (up === cur) break; cur = up; }
+  let at;
+  try { at = fs.realpathSync(cur); } catch (e) { fail('"' + cur + '" can\'t be used for the pack: ' + e.message); }
+  if (!fs.statSync(at).isDirectory()) fail('"' + cur + '" isn\'t a folder.');
+  if (within(at)) fail(inTeam);
+  for (const part of rest) {
+    if (!part || part === '.' || part === '..') fail('"' + want + '" isn\'t a plain folder path.');
+    at = path.join(at, part);
+    try { fs.mkdirSync(at); } catch (e) { if (e.code !== 'EEXIST') fail('couldn\'t create "' + at + '": ' + e.message); }
+    const st = lstatOrNull(at);
+    if (!st || st.isSymbolicLink() || !st.isDirectory()) fail('refusing to write through a link: ' + at);
+    if (within(at)) fail(inTeam);
+  }
+  const real = fs.realpathSync(at);
+  if (within(real)) fail(inTeam);
+  return real;
+}
 /* The pack goes to <out>/<name>.partial, created exclusively and written as it's made, then gets its final name without
    replacing anything (" (2)" and on when the name is taken). Canceled (Ctrl+C) or failed, the partial file is removed. */
 async function exportPack(opt) {
@@ -481,12 +517,7 @@ async function exportPack(opt) {
   const { PF, version } = engine(), E = PF.evidence;
   const tz = opt.tz || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   if (!E.zoneOk(tz)) fail('"' + tz + '" isn\'t a time zone this computer knows. Use a name like Europe/London or America/New_York.');
-  const within = withinOf(dir), outArg = expand(opt.out || path.join(require('os').homedir(), 'Flightdeck evidence'));
-  const inTeam = 'the pack can\'t go inside the team folder. Choose another place with --out.';
-  if (within(outArg)) fail(inTeam);
-  try { fs.mkdirSync(outArg, { recursive: true }); } catch (e) { fail('couldn\'t create "' + outArg + '": ' + e.message); }
-  const out = fs.realpathSync(outArg);
-  if (within(out)) fail(inTeam);
+  const out = outFolder(expand(opt.out || path.join(require('os').homedir(), 'Flightdeck evidence')), withinOf(dir));
   const scope = opt.run ? { run: opt.run } : { process: opt.process, from: opt.from, through: opt.through, tz };
   let fd = null, partial = null, canceled = false;
   const onSig = () => { canceled = true; };
@@ -499,7 +530,8 @@ async function exportPack(opt) {
     const res = await PF.repo.exportEvidence(readAdapter(dir), scope, {
       tz, app: version, madeWith: 'command line', attachments: !opt.noAttachments, keepBytes: false, pool: false,
       cancelled: () => canceled,
-      begin: (name) => { partial = path.join(out, name + '.partial'); fd = fs.openSync(partial, 'wx'); },
+      /* Marked for cleanup only once this process created it: a file already there is never touched. */
+      begin: (name) => { const p = path.join(out, name + '.partial'); fd = fs.openSync(p, 'wx'); partial = p; },
       sink: (u8) => {
         const b = Buffer.from(u8.buffer, u8.byteOffset, u8.length);
         for (let off = 0; off < b.length;) { const n = fs.writeSync(fd, b, off, b.length - off); if (!(n > 0)) throw new Error('the disk accepted no more bytes'); off += n; }

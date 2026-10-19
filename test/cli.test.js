@@ -621,4 +621,49 @@ function zipEntry(buf, name) {
   return null;
 }
 
+/* ---------- Review fixes (78edf20) ---------- */
+rule('export --out through a link into the team folder is refused before anything is created', async () => {
+  const dir = await teamFolder(), side = tmp();
+  fs.mkdirSync(path.join(dir, 'reports'));
+  fs.symlinkSync(path.join(dir, 'reports'), path.join(side, 'out-link'));
+  const before = EV.tree(dir), r = cli('export', dir, '--run', 'release/run1', '--out', path.join(side, 'out-link', 'new-dir', 'deeper'));
+  assert.ok(r.code === 1 && /inside the team folder/.test(r.out), r.out);
+  assert.ok(!fs.existsSync(path.join(dir, 'reports', 'new-dir')), 'nothing created in the team folder');
+  assert.deepStrictEqual(EV.tree(dir), before);
+});
+
+rule('export never removes a .partial file it didn\'t create, and two exports in the same second get different names', async () => {
+  const dir = await teamFolder(), out = tmp(), C = require('../bin/flightdeck.js');
+  let theirs = null;
+  const orig = fs.openSync;
+  fs.openSync = function (p, flags) { if (flags === 'wx' && /\.partial$/.test(String(p))) { theirs = String(p); fs.writeFileSync(theirs, 'another export'); } return orig.apply(fs, arguments); };
+  let r;
+  try { r = await C.main(['export', dir, '--run', 'release/run1', '--out', out]); } catch (e) { r = { code: 1, out: e.message }; } finally { fs.openSync = orig; }
+  assert.ok(theirs && r.code === 1, r.out);
+  assert.strictEqual(fs.readFileSync(theirs, 'utf8'), 'another export', 'left as it was');
+  const out2 = tmp();
+  cli('export', dir, '--run', 'release/run1', '--out', out2); cli('export', dir, '--run', 'release/run1', '--out', out2);
+  const names = zipsIn(out2);
+  assert.strictEqual(names.length, 2);
+  assert.ok(names.every(n => /-[a-z0-9]{6}\.zip$/.test(n) && !/\(2\)/.test(n)), names.join(', '));
+});
+
+rule('The export read adapter refuses a file reached through a parent folder swapped for a link while it was opened, even if the folder is put back', async () => {
+  const dir = fs.realpathSync(await teamFolder()), outside = tmp(), A = require('../bin/flightdeck.js').readAdapter(dir);
+  const files = path.join(dir, 'runs/release/run1/files'), name = (await A.list('runs/release/run1/files')).map(i => i.name).filter(n => /\.log$/.test(n))[0];
+  fs.writeFileSync(path.join(outside, name), 'outside the team folder');
+  /* The swap lands after the folders were checked and before the file's own lstat; it's put back once the file is open. */
+  const target = path.join(files, name), origL = fs.lstatSync, origO = fs.openSync;
+  let swapped = false, swaps = 0, armed = false;
+  fs.lstatSync = function (p) { if (String(p) === target && armed) { armed = false; swapped = true; swaps++; fs.renameSync(files, files + '.real'); fs.symlinkSync(outside, files); } return origL.apply(fs, arguments); };
+  fs.openSync = function (p) { try { return origO.apply(fs, arguments); } finally { if (String(p) === target && swapped) { fs.unlinkSync(files); fs.renameSync(files + '.real', files); swapped = false; } } };
+  try {
+    armed = true; await assert.rejects(A.blob('runs/release/run1/files/' + name), /link/);
+    armed = true; await assert.rejects(A.read('runs/release/run1/files/' + name), /link/);
+  } finally { fs.lstatSync = origL; fs.openSync = origO; if (swapped) { fs.unlinkSync(files); fs.renameSync(files + '.real', files); } }
+  assert.strictEqual(swaps, 2, 'the swap happened both times');
+  const ok = await A.read('runs/release/run1/files/' + name);
+  assert.ok(ok && !/outside/.test(ok.text), 'the real file reads normally afterwards');
+});
+
 run();

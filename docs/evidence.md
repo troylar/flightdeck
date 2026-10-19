@@ -7,7 +7,7 @@ An evidence pack is a zip of what the team folder holds about one run, or about 
 | Path | What it is |
 |---|---|
 | `evidence.html` | A page to read in any browser. It runs no script and loads nothing: its Content Security Policy is exactly `default-src 'none'; img-src data:; style-src 'unsafe-inline'`. Pictures are inline; every other file is listed with its path, size and SHA-256. Anything that changed while the pack was made, and any check that failed, is shown first, in red. |
-| `originals/…` | The files, at their paths in the team folder. A name that would clash with another one on Windows (letters differing only in case) gets " (2)", and `manifest.json` gives its real path. |
+| `originals/…` | The files, at their paths in the team folder. A name that would clash with another one on Windows (letters differing only in case) gets " (2)", and `manifest.json` gives its real path. Names are made unique first and checked after. |
 | `manifest.json` | When collecting started and ended, the time zone, which runs and which revisions were read (`run.json`'s `rev` and SHA-256, the run folder's listing), every file with its path, size, SHA-256, what it is and any flag, the generated files' SHA-256, what was left out and why, what's unresolved, and whether this window had unsaved changes. |
 | `SHA256SUMS` | The SHA-256 of every file above and of `manifest.json`, in the format `sha256sum -c` reads. |
 | `README.txt` | What's in the pack and how to check it. |
@@ -40,7 +40,7 @@ On Windows, `Get-FileHash -Algorithm SHA256 <file>` gives a file's hash to compa
 
 ## A pack is a snapshot of the folder, and says when it isn't
 
-- Collecting records when it started and ended. After reading a run it lists the run folder again, rereads `run.json`, checks every file's size and lists the decision folders again. If anything changed, the run is collected again, up to 2 more times. Anything still changing is listed at the top of the page and in `manifest.json` ("The run changed while this pack was made: notes-w3.jsonl grew."), and the pack is **partial**. So is a pack whose `run.json` is missing (it holds what's there), or a date range with a run whose start can't be read (it's included so nothing is hidden).
+- Collecting records when it started and ended. After reading a run it lists the run folder again, rereads `run.json`, checks every file's size and lists the decision folders again. Every record read to decide what goes in (run.json and its lineage, notes, decisions, a version's files) must be byte for byte what's hashed into the pack. If anything changed, the run is collected again, up to 2 more times. Anything still changing is listed at the top of the page and in `manifest.json` ("The run changed while this pack was made: notes-w3.jsonl grew."), and the pack is **partial**. So is a pack whose `run.json` is missing (it holds what's there), or a date range with a run whose start can't be read (it's included so nothing is hidden).
 - The pack holds what's saved in the team folder. If the window making it has a change to the run that isn't in the folder yet, the dialog says "This window has a change that isn't in the team folder yet. The pack holds only what's saved in the folder." and offers **Wait for the save**; the manifest records it.
 
 ## Privacy
@@ -52,7 +52,9 @@ The people directory and its email fields are left out. Original records and att
 - Packs are stored ZIP files (no compression), with CRC-32 and UTF-8 names and no Zip64, so they follow PKWARE's limits: at most 65,535 files, and no file, offset or the pack itself past 4 GB. Names are relative, at most 512 bytes, with no `..`, leading `/`, `\` or drive letter, and unique ignoring letter case.
 - Before reading anything in full, Flightdeck estimates the size from the listing (files, headers, and the page at its largest: pictures as base64, records escaped) and refuses a pack that won't fit. While writing, every byte goes through checked counters.
 - In the browser a pack is made in memory: up to 500 MB on a desktop and 150 MB on a phone-width screen or a device with 4 GB of memory or less, and up to 200 runs. Files are read and hashed 1 MB at a time, with a pause between pieces, and **Cancel** stops between them.
-- `flightdeck export` has only the ZIP limits. It streams: attachments are hashed 1 MB at a time and copied again when the pack is written, checked against the same size and CRC.
+- `flightdeck export` has only the ZIP limits. It streams: attachments are hashed 1 MB at a time and read again when the pack is written, checked against the same size, CRC and SHA-256; a file that changed in between stops the pack.
+- Records (run.json, notes, decisions, a version's files) are read in full only after their size is checked, never over 100 MB; a pack's size is first estimated from listings and sizes alone. Other runs of the process, read only to work out where corrections stand, have their own budget (64 MB, or a quarter of the cap); past it, the page says that can't be worked out here.
+- A picture shared by many runs (a version's screenshot) is shown once on the page; later runs point to it.
 
 ## The readable report
 
@@ -65,10 +67,10 @@ flightdeck export "<team folder>" --run release/run-2026-10-17 [--out <dir>] [--
 flightdeck export "<team folder>" --process release --from 2026-10-01 --through 2026-10-31 [--tz Europe/London] [--out <dir>]
 ```
 
-- `--from` and `--through` are days, both included: from 00:00:00.000 on the first through 23:59:59.999 on the last, in `--tz` (this computer's time zone unless you say; it's printed and recorded in the manifest), compared with when each run started (`created`).
-- The pack goes to `~/Flightdeck evidence/` unless `--out` names another folder; one inside the team folder is refused. It's written as `<name>.zip.partial`, created so it never replaces a file, and renamed when it's done (with " (2)" if the name is taken). Ctrl+C or a failure removes the partial file.
+- `--from` and `--through` are days, both included, in `--tz` (this computer's time zone unless you say; it's printed and recorded in the manifest): a run is in when the date a clock there showed as it started (`created`) is one of those days. So a midnight that a clock change skips or repeats (America/Santiago, for one) still puts each run on the day the clock showed.
+- The pack goes to `~/Flightdeck evidence/` unless `--out` names another folder. The nearest part of that path that exists is resolved (links included) and must be outside the team folder before anything is created; then each missing folder is made one at a time, and each must be a real folder. The pack's name ends in a few random characters, so two packs made in the same second never share one. It's written as `<name>.zip.partial`, created so it never replaces a file, and given its final name when it's done (with " (2)" if the name is taken). Ctrl+C or a failure removes the partial file, and only one this export created.
 - Exit codes: `0` a complete pack, `4` a partial pack (made, with what's unresolved listed), `1` no pack.
-- It runs the core and storage code from its own installed `flightdeck.html` (the `pf-core` and `pf-storage` blocks), never a team folder's copy. It reads the folder through a read-only adapter that checks every folder on a path for links, opens files without following links and checks each is the file it listed; a link is left out and named.
+- It runs the core and storage code from its own installed `flightdeck.html` (the `pf-core` and `pf-storage` blocks), never a team folder's copy. It reads the folder through a read-only adapter that checks every folder on a path for links, opens files without following links, and then walks the path again: every folder must still be the same real folder, and the file at the path must be the one it opened, so a folder swapped for a link (even one put back afterwards) is refused. A link is left out and named.
 
 ## For AI assistants
 
