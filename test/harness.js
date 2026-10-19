@@ -4,14 +4,15 @@ const fs = require('fs'), path = require('path'), vm = require('vm');
 const SRC = path.join(__dirname, '..', 'src');
 const FILES = ['core/util.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/run.js', 'core/corrections.js', 'core/skills.js', 'core/attach.js', 'storage/fs.js', 'storage/repo.js'];
 
-function load(withViews) {
+/* edit(file, source) can change a module before it loads, to stand in for an older copy of Flightdeck. */
+function load(withViews, edit) {
   const store = {};
   const sandbox = {
     PF: {}, console, Date, Math, JSON, Promise, setTimeout, Blob, fetch, btoa, Uint8Array,
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } }
   };
   vm.createContext(sandbox);
-  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/builder.js', 'ui/views/manage.js', 'ui/views/flight.js']) : FILES).forEach(f => vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), sandbox, { filename: f }));
+  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/builder.js', 'ui/views/manage.js', 'ui/views/flight.js']) : FILES).forEach(f => { const src = fs.readFileSync(path.join(SRC, f), 'utf8'); vm.runInContext(edit ? edit(f, src) : src, sandbox, { filename: f }); });
   return sandbox.PF;
 }
 /* The example folder's own step types and Jira workflows, as the app loads them, for publishing its maps. */

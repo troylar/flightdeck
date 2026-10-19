@@ -40,7 +40,9 @@ PF.icons = (function () {
     redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
     clip: '<path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7-7L13 4.5a3.3 3.3 0 0 1 4.7 4.7l-7.6 7.6a1.7 1.7 0 0 1-2.4-2.4l7-7"/>',
-    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'
+    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+    deploy: '<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 14v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/>',
+    pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>'
   };
   function icon(name, label) {
     var body = P[name] || P.check;

@@ -10,7 +10,7 @@ Flightdeck checklists follow *The Checklist Manifesto* (Atul Gawande). A checkli
 - **No filler.** Never start a step with "Make sure", "Ensure", "Don't forget" or "Remember to".
 - **Must-dos are rare.** Mark `[!]` only where skipping the step causes real harm (a broken release, lost data, a missed approval). If everything is a must-do, nothing is.
 - **READ-DO or DO-CONFIRM, on purpose.** READ-DO: read a step, then do it (unfamiliar or risky work, like a deploy). DO-CONFIRM: experienced people work from memory, then stop and confirm (routine prep).
-- **The most specific step type.** A Jenkins job is `{jenkins.job}`, a pull request is `{bitbucket.pr}`, a Jira change is `{jira.issue}`. Use `{ui.action}` only for tools without their own type.
+- **The most specific step type.** A Jenkins job is `{jenkins.job}`, a pull request is `{bitbucket.pr}` or `{github.pr}`, a Jira change is `{jira.issue}`, starting or closing a sprint is `{jira.sprint}`, a deploy is `{deploy}`, watching a dashboard afterward is `{verify.health}`, and a number worth keeping is `{measure}`. Use `{ui.action}` only for tools without their own type.
 - **Fields describe; they don't have to be complete.** Fill in what's stable (the job name, the repo, the Jira action). Leave out what changes each run; people fill it in during the run.
 - **Evidence only where it matters.** `require: build` on a production deploy, `require: all` on a merge to master. Most steps need none, so they check in one click.
 - **Tie steps to what they depend on.** If a step is only valid for one commit or environment, add `^commit` or `^environment`. If that detail changes mid-run, the step comes back for a re-check, and so does any gate that approved it.

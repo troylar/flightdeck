@@ -2141,7 +2141,7 @@ rule('App: placing a part by keyboard announces it, moves among legal places wit
   app.keyOn('ArrowDown', {}, dest('before:rollback')); await app.tick();
   assert.strictEqual(app.focused(), '[data-act="ob-place-at"][data-id="before:notes"]');
   app.keyOn('End', {}, dest('before:notes')); await app.tick();
-  assert.ok(/data-id="end:verify:1" tabindex="0" aria-label="Put Step here: Verify in production, Wrap-up lane, after Close the release ticket, position 3 of 3"/.test(app.html()), 'the last place, in a lane');
+  assert.ok(/data-id="end:verify:1" tabindex="0" aria-label="Put Step here: Verify in production, Wrap-up lane, after Close the release ticket, position 4 of 4"/.test(app.html()), 'the last place, in a lane');
   app.key('Escape'); await app.tick();
   assert.ok(!/class="ob placing/.test(app.html()) && /Canceled\. Nothing was added\./.test(app.live()));
   assert.strictEqual(app.focused(), '[data-act="ob-part"][data-id="step"]', 'focus back on the part');
@@ -2190,7 +2190,7 @@ rule('App: deleting a lane asks whether its steps stay; the answer is said back'
   app.click('ob-sel-track', 'verify', { track: '1' }); await app.tick();
   assert.ok(/<input id="ob-tr-title"[^>]*value="Wrap-up">/.test(app.html()) && /<option value="release-lead" selected>@release-lead/.test(app.html()), 'the lane\'s form');
   app.click('ob-ask', 'track'); await app.tick();
-  assert.ok(/Delete the Wrap-up lane\? Its 2 steps can move up into the phase, or go with it\./.test(app.html()));
+  assert.ok(/Delete the Wrap-up lane\? Its 3 steps can move up into the phase, or go with it\./.test(app.html()));
   assert.strictEqual(app.focused(), 'ob-ask-go');
   app.key('Escape'); await app.tick();
   assert.ok(!/Delete the Wrap-up lane\?/.test(app.html()), 'Escape cancels the question');

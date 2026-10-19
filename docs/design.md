@@ -171,10 +171,15 @@ A short, broad list. A specialized type earns its place only when it changes beh
 | `ui.action` | Doing something by hand in any other web tool |
 | `jenkins.job` | Starting or following a Jenkins job by hand |
 | `bitbucket.pr` | Opening, reviewing or merging a pull request |
+| `github.pr` | Opening, reviewing, approving or merging a GitHub pull request (1.14.0) |
 | `jira.issue` | Creating, updating, moving, assigning or linking a Jira issue by hand |
 | `run.command` / `run.script` | Running a command or script (shown as copyable text; Flightdeck never runs anything) |
 | `run.skill` | Running a skill |
 | `ci.gate` | A build or test pipeline result for a specific commit |
+| `jira.sprint` | Starting or closing a Jira sprint, moving its unfinished issues, or setting its goal (1.14.0) |
+| `deploy` | Deploying a version to an environment, with what to roll back to (1.14.0) |
+| `verify.health` | Watching a dashboard or metric for a while and saying whether it stayed healthy (1.14.0) |
+| `measure` | Recording a number with its unit, like velocity or capacity; `sets:` can make it a run detail (1.14.0) |
 
 - **Every type has fields that fit it**, in two kinds: *checklist fields* that describe the step (the Jenkins job and parameters, the repo and branches, the Jira action and target status) and *evidence* that can be noted when it's checked (build number, PR link, merge commit, the decision). The full list is in `docs/map-format.md`.
 - **Typed doesn't mean filled in.** A checklist may name only what's known; a step can be there for information, so people and skills know what it involves. Missing usual fields are tips, not errors. Wrong values (an action the type doesn't have) block publishing.
