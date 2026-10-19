@@ -68,7 +68,7 @@
      only the hits are wrapped in <mark>. */
   function marked(segs) { return segs.map(function (x) { return x.hit ? '<mark>' + esc(x.t) + '</mark>' : esc(x.t); }).join(''); }
   function num(n) { return Number(n || 0).toLocaleString('en-US'); }
-  function clockTime(iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }); }
+  function clockTime(iso) { if (iso == null || iso === '') return 'time unknown'; var d = new Date(iso); return isNaN(d) ? 'time unknown' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }); }
   var SX_ICON = { run: 'flag', step: 'check', note: 'note', correction: 'edit', followup: 'clock', process: 'doc', version: 'timeline', type: 'nest', skill: 'spark', page: 'cursor' };
   function search(ctx) {
     var st = ctx.state.sx || { q: '' }, info = ctx.search(), res = st.res, q = st.q || '', S = PF.search, typed = !!q.trim();

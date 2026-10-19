@@ -379,4 +379,16 @@ rule('Days follow the clock in the time zone, across a midnight that is skipped 
   assert.ok(E.inRange('2026-09-06T03:30:00.000Z', E.dayRange('2026-09-05', '2026-09-05', 'America/Santiago')), 'September 5 at 11:30 PM in Santiago');
 });
 
+rule('Times a run file can\'t give are "time unknown" on the page, never 1970, and the page says some times couldn\'t be read', async () => {
+  const f = await folder(), p = fixture.base + 'run.json';
+  const o = JSON.parse(f.files.get(p).toString('utf8')); o.created = 'not a time'; o.log.push({ at: 'later', by: 'person-casey', what: 'Something' }); o.steps[Object.keys(o.steps)[0]].at = null;
+  f.files.set(p, Buffer.from(JSON.stringify(o)));
+  const { zip, res } = await pack(f, { run: 'release/run1' });
+  const html = unzip(zip)['evidence.html'].data.toString('utf8');
+  assert.ok(/started time unknown/.test(html), 'the start');
+  assert.ok(!/1970/.test(html) && !/not a time/.test(html.replace(/<p class="warn">[^<]*<\/p>/g, '')), 'never a made-up time, nor the bad text as if it were one');
+  assert.ok(/Some times in run\.json couldn(&#39;|')t be read/.test(html) && /Some times in run\.json/.test(res.col.runs[0].limited));
+  assert.strictEqual(unzip(zip)['originals/' + p].data.toString('utf8'), JSON.stringify(o), 'the original keeps them as written');
+});
+
 run();

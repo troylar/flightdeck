@@ -608,6 +608,193 @@ function flightRun(pub, id, step) {
 }
 const skillOf = (name, steps, implementsV, s, errors) => ({ skill: { name, steps, implements: implementsV, process: 'release' }, status: { s }, errors: errors || [] });
 
+/* ---------- 1.17: How runs go (PF.insights; docs/design.md section 23) ---------- */
+function insightsSetup(n, each) {
+  const { ctx, state, p, latest } = flightSetup();
+  const runs = Array.from({ length: n }, (_, i) => { const r = flightRun(latest, 'in' + i); r.title = 'Run ' + i; r._fileHash = 'h' + i; if (each) each(r, i); return r; });
+  ctx.data.runs = runs; ctx.findRun = k => runs.filter(r => r.process + '/' + r.id === k)[0] || null;
+  ctx.followUps = () => []; ctx.corrections = () => [];
+  state.ptab = 'insights';
+  return { ctx, state, p, latest, runs };
+}
+rule('How runs go: a run title is escaped inside the chart\'s SVG title, the chart has a table equivalent, and under 5 runs only counts show', () => {
+  const { ctx, p, runs } = insightsSetup(3, (r, i) => { if (i === 0) r.title = '<img src=x onerror=alert(1)></title><script>bad()</script>'; if (i < 2) R.differently(r, R.mapOf(r), 'approved', 'Other way', 'person-casey', NOW); });
+  const html = V.insightsPage(ctx, p);
+  assert.ok(!/<img src=x|<script>bad/.test(html), 'nothing from a run is raw markup, in the SVG or anywhere');
+  assert.ok(/<title>&lt;img src=x onerror=alert\(1\)&gt;&lt;\/title&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;, under a minute<\/title>/.test(html), 'escaped in the dot\'s title');
+  assert.ok(/aria-label="&lt;img src=x/.test(html) && /data-act="go" data-view="run" data-run="release\/in0"/.test(html), 'each dot is a link to its run with an accessible name');
+  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
+  assert.ok(html.indexOf(PF.insights.FEW) >= 0, 'says it\'s too few for a rate');
+  const hot = html.slice(html.indexOf('id="ins-hot-h"'));
+  assert.ok(/data-act="ins-runs" data-id="step:approved:offScript">2 of 3 runs</.test(hot) && !/% · /.test(hot), 'counts, no percentages');
+  assert.ok(!/class="ins-fill"/.test(hot.slice(0, hot.indexOf('</section>'))), 'no bars under 5 runs');
+  assert.strictEqual(runs.length, 3);
+});
+rule('How runs go: from 5 runs each number has its own bar against its own denominator, never stacked', () => {
+  const { ctx, p } = insightsSetup(6, (r, i) => { const m = R.mapOf(r); if (i < 3) R.differently(r, m, 'approved', 'Other way', 'person-casey', NOW); });
+  const html = V.insightsPage(ctx, p), hot = html.slice(html.indexOf('id="ins-hot-h"'), html.indexOf('</section>', html.indexOf('id="ins-hot-h"')));
+  assert.ok(/50% · 3 of 6 runs/.test(hot), hot.slice(0, 600));
+  const bars = hot.match(/<svg class="ins-bar"[\s\S]*?<\/svg>/g) || [];
+  assert.ok(bars.length >= 2, 'Any off-script and Done differently each have a bar');
+  bars.forEach(b => { assert.strictEqual((b.match(/class="ins-fill"/g) || []).length, 1); assert.strictEqual((b.match(/class="ins-track"/g) || []).length, 1); });
+  assert.ok(/<rect class="ins-fill" width="50"/.test(hot), 'drawn to scale');
+});
+rule('How runs go: runs that couldn\'t be read, a load still under way and history incomplete are said, with the runs behind them', () => {
+  const { ctx, state, p, runs } = insightsSetup(3);
+  delete runs[2].marksFrom;
+  state.unread = { runs: { ['release/' + runs[0].id]: 'bad JSON' } }; state.reading = { done: 40, total: 2000 };
+  const html = V.insightsPage(ctx, p);
+  assert.ok(/1 run couldn&#39;t be read; its last copy isn&#39;t counted\./.test(html) && /data-act="ins-runs" data-id="ex:unread">Show it</.test(html), html.slice(0, 2000));
+  assert.ok(/Still reading runs \(40 of 2,000\)\. These numbers aren&#39;t final\./.test(html));
+  assert.ok(/1 run started before Flightdeck kept a full record/.test(html));
+  assert.ok(/data-act="ins-runs" data-id="runs:all">2</.test(html), 'two runs counted');
+  assert.ok(/How these are counted/.test(html) && /Ever blocked/.test(html), 'the definitions');
+});
+rule('Runs: the runs behind a number are exactly the ones clicked, with Back to How runs go, and a change since is said', () => {
+  const { ctx, state, runs } = insightsSetup(3, (r, i) => { if (i !== 1) R.differently(r, R.mapOf(r), 'approved', 'Other way', 'person-casey', NOW); });
+  const res = PF.insights.forProcess({ runs }, 'release', { now: Date.parse(NOW), folder: runs[0].folder });
+  state.view = 'runs'; state.filter = 'all'; state.runFilter = Object.assign(PF.insights.spec(res, 'step:approved:differently', runs), { cohort: true, back: { process: 'release', folder: runs[0].folder, scrollY: 0 } });
+  ctx.processTitle = id => id; ctx.data.plans = [];
+  let html = V.runs(ctx);
+  assert.ok(/data-act="ins-back"[^>]*>.*Back to How runs go/.test(html), 'Back');
+  assert.deepStrictEqual((html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).map(x => x.split('"')[3]), ['release/in0', 'release/in2']);
+  assert.ok(!/changed since/.test(html));
+  runs[2].rev = 9;
+  html = V.runs(ctx);
+  assert.ok(/1 of these runs changed since\./.test(html) && /data-act="ins-refresh"/.test(html), 'the banner');
+  assert.strictEqual((html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).length, 2, 'still the cohort clicked');
+  state.runFilter = { outcome: 'Completed', process: 'release' };
+  html = V.runs(ctx);
+  assert.ok(/<label for="rf-process">Process<\/label>/.test(html) && /<label for="rf-outcome">Outcome<\/label>/.test(html) && /<label for="rf-from">Started from<\/label>/.test(html), 'every filter has a label');
+  assert.ok(/Matching runs · 3/.test(html) && /data-act="rf-clear" data-id="outcome"/.test(html), 'chips to remove each filter');
+});
+
+rule('Flight plan: each typical time says how many runs it\'s from, the footer counts runs still going apart, and runs it couldn\'t count are said', () => {
+  const { ctx, state, p, latest } = flightSetup();
+  const done = ['fa', 'fb'].map(id => flightRun(latest, id)), going = R.create(latest, { title: 'G', details: { ticket: 'ABC-1', commit: 'a1', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id: 'fg' });
+  const newer = flightRun(latest, 'fn'); newer._unrunnable = 'newer';
+  ctx.data.runs = done.concat([going, newer]); state.reading = { done: 3, total: 10 };
+  const html = V.checklistPanel(ctx, p);
+  assert.ok(/Typically under a minute <span class="small">\(2 of 3 runs\)/.test(html), 'n on each phase time');
+  assert.ok(/typically takes under a minute \(from 2 completed runs\)/.test(html), 'n on the completed-run time');
+  assert.ok(/From 2 finished runs of v1\. 1 run still going counts only for what it has done so far\./.test(html) && !/From 3 runs/.test(html), 'the footer doesn\'t count the run still going');
+  assert.ok(/1 run is from a newer Flightdeck/.test(html) && /Still reading runs \(3 of 10\)/.test(html), 'what isn\'t counted, and not final');
+  ctx.data.runs = [newer]; state.reading = null;
+  const only = V.checklistPanel(ctx, p);
+  assert.ok(!/No runs of this version yet/.test(only) && /1 run is from a newer Flightdeck/.test(only), 'an excluded run isn\'t "no runs"');
+});
+rule('How runs go: the dots stay out of the tab order (the table is the keyboard path), at most 300 are drawn, and the table pages', () => {
+  const { ctx, p } = insightsSetup(320);
+  const html = V.insightsPage(ctx, p), dots = html.match(/<a href="#" class="ins-dot-a"[^>]*>/g) || [];
+  assert.strictEqual(dots.length, 300);
+  assert.ok(dots.every(d => /tabindex="-1"/.test(d)));
+  assert.ok(/The latest 300 of 320 completed runs are drawn; the table has them all\./.test(html));
+  assert.ok(/Showing 50 of 320/.test(html), 'the table pages');
+});
+rule('How runs go: corrections on runs still going show even before any run has finished, and Compare versions says what each row couldn\'t count', () => {
+  const { ctx, p, latest } = flightSetup();
+  const going = R.create(latest, { title: 'G', details: { ticket: 'ABC-1', commit: 'a1', environment: 'production' }, roles: {}, by: 'person-casey', session: 'me', now: NOW, id: 'cg' });
+  going._fileHash = 'g';
+  const older = Object.assign({}, latest, { folder: 'v0-old', info: Object.assign({}, latest.info, { version: 0, folder: 'v0-old' }) });
+  const old = flightRun(older, 'o1'); old._unrunnable = 'newer';
+  ctx.data.runs = [going, old]; ctx.findRun = () => going; ctx.followUps = () => [];
+  ctx.corrections = () => [{ target: { step: 'approved' }, status: 'open', members: [{ run: 'cg', folder: latest.info.folder }] }];
+  p.all = [latest, older]; ctx.state.ptab = 'insights';
+  const html = V.insightsPage(ctx, p);
+  assert.ok(!/No finished runs of this version yet/.test(html) && /data-id="step:approved:corrections"/.test(html), 'the correction shows');
+  assert.ok(/<th scope="row">v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, it&#39;s from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
+});
+rule('Runs: the banner over the runs behind a number never says "vnull", and names the folder when two folders share a version number', () => {
+  const { ctx, state, runs, latest } = insightsSetup(2);
+  const clash = Object.assign({}, latest, { info: Object.assign({}, latest.info, { folder: 'v1-zzzz9999' }) });
+  ctx.processes = () => [{ id: 'release', all: [latest, clash], clashes: [1] }];
+  ctx.processTitle = id => id; ctx.data.plans = []; state.view = 'runs';
+  const res = PF.insights.forProcess({ runs, runStatus: { 'release/never': 'unread' } }, 'release', { now: Date.parse(NOW), folder: 'v1-zzzz9999' });
+  state.runFilter = Object.assign(PF.insights.spec(res, 'ex:unknown', runs), { cohort: true, back: { process: 'release', folder: 'v1-zzzz9999', scrollY: 0 } });
+  assert.strictEqual(state.runFilter.version, null, 'set-up: no run gives this folder a version');
+  let html = V.runs(ctx);
+  assert.ok(!/vnull/.test(html) && /release v1 \(folder v1-zzzz9999\)/.test(html), html.slice(html.indexOf('ins-banner'), html.indexOf('ins-banner') + 400));
+  const ok = PF.insights.forProcess({ runs }, 'release', { now: Date.parse(NOW), folder: runs[0].folder });
+  state.runFilter = Object.assign(PF.insights.spec(ok, 'runs:all', runs), { cohort: true, back: {} });
+  html = V.runs(ctx);
+  assert.ok(new RegExp('release v1 \\(folder ' + runs[0].folder + '\\)').test(html), 'the other folder of the clash is named too');
+});
+rule('How runs go: gates waived and failed show per phase with their denominators, and a run never read is said with a way to Folder health', () => {
+  const { ctx, state, p } = insightsSetup(3, (r, i) => { if (i === 0) { const g = R.mapOf(r).phases[0].gate.id; r.gates[g] = Object.assign({}, r.gates[g], { s: 'waived', reason: 'ok' }); } });
+  state.unread = { runs: { 'release/never-read': true } };
+  const html = V.insightsPage(ctx, p);
+  assert.ok(/waived in <button class="linkish" data-act="ins-runs" data-id="gate:[^:"]+:waived">1 of 3 runs<\/button>/.test(html), 'waived, out of the runs with a record of the gate');
+  assert.ok(/couldn&#39;t be read, so which version it belongs to isn&#39;t known/.test(html) && /data-act="health">Folder health/.test(html), 'the run never read');
+});
+rule('Compare versions and the flight plan say what each number left out, through the same words as How runs go', () => {
+  const { ctx, state, p, latest } = flightSetup();
+  const older = Object.assign({}, latest, { folder: 'v0-old', info: Object.assign({}, latest.info, { version: 0, folder: 'v0-old' }) });
+  const ahead = flightRun(older, 'o1'); ahead.ended.at = new Date(Date.parse(NOW) + 400 * 86400000).toISOString();
+  const a = flightRun(latest, 'fa'), b = flightRun(latest, 'fb', 'approved'); delete a.marksFrom;
+  const fut = flightRun(latest, 'fc'); fut.ended.at = new Date(Date.parse(NOW) + 86400000).toISOString();
+  ctx.data.runs = [ahead, a, b, fut]; ctx.findRun = () => null; ctx.followUps = () => []; ctx.corrections = () => [];
+  p.all = [latest, older]; state.ptab = 'insights';
+  const html = V.insightsPage(ctx, p), cmp = html.slice(html.indexOf('Compare versions'));
+  assert.ok(/<th scope="row">v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
+  state.ptab = 'checklist';
+  const fp = V.checklistPanel(ctx, p);
+  assert.ok(/A completed run typically takes [^<]+<\/span><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
+  assert.ok(/went off-script in 1 of 2 runs<span class="small ins-q">Not counted: 1 run, history incomplete\./.test(fp), fp.slice(fp.indexOf('Turbulence'), fp.indexOf('Turbulence') + 400));
+});
+rule('Runs: Show current numbers can come back with no runs, and then says nothing changed', () => {
+  const { ctx, state, runs } = insightsSetup(2);
+  ctx.processTitle = id => id; ctx.data.plans = []; state.view = 'runs';
+  const res = PF.insights.forProcess({ runs }, 'release', { now: Date.parse(NOW), folder: runs[0].folder });
+  state.runFilter = Object.assign(PF.insights.spec(res, 'ex:unread', runs), { cohort: true, back: {} });
+  const html = V.runs(ctx);
+  assert.ok(/id="rf-h" tabindex="-1">0 runs</.test(html) && !/changed since/.test(html), html.slice(html.indexOf('ins-banner'), html.indexOf('ins-banner') + 900));
+});
+rule('How runs go: every number that left out a run it should have counted, or has history incomplete, says so on the page, even with nothing to count', () => {
+  const { ctx, state } = flightSetup();
+  const md = ['---', 'process: x', 'title: X', '---', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '## Gate: Ready {#g1}',
+    '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', '## Gate: Ready {#g2}'].join('\n');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'gen00001' }), pub = P.verify(b.folder, b.files);
+  const base = Date.parse(NOW) - 86400000, t = m => new Date(base + m * 60000).toISOString();
+  const mk = (id, how) => {
+    const r = R.create(pub, { title: id, details: {}, roles: {}, by: 'person-casey', session: 'me', now: t(0), id }), m = R.mapOf(r);
+    R.done(r, m, 'one', 'person-casey', t(1));
+    if (how === 'shared') { R.fail(r, m, 0, 'Broke', 'person-casey', t(2)); R.reopen(r, m, 0, 'person-casey', t(3)); }
+    R.pass(r, m, 0, 'person-casey', t(4)); R.done(r, m, 'three', 'person-casey', t(5)); R.pass(r, m, 1, 'person-casey', t(6)); R.end(r, m, 'Completed', 'person-casey', 'C', t(how === 'late' ? 5 : 8));
+    if (how === 'incomplete') delete r.marksFrom;
+    if (how === 'pauses') r.pauses = [{ from: t(1), to: t(4), by: 'a', reason: 'x' }, { from: t(2), to: t(5), by: 'a', reason: 'y' }];
+    if (how === 'future') r.ended.at = new Date(Date.parse(NOW) + 86400000).toISOString();
+    if (how === 'fu') { R.addFollowUp(r, { id: 'f1', text: 'x' }, 'person-casey', t(2)); r.followUps[0].at = null; }
+    r._fileHash = id;
+    return r;
+  };
+  const runs = ['shared', 'incomplete', 'pauses', 'future', 'late', 'fu', 'plain'].map(h => mk('g-' + h, h));
+  ctx.data.runs = runs; ctx.findRun = k => runs.find(r => 'x/' + r.id === k) || null; ctx.corrections = () => [];
+  ctx.followUps = () => PF.followups.list(runs, []);
+  const p = { id: 'x', title: 'X', latest: pub, all: [pub], clashes: [], broken: [], skills: [] };
+  state.ptab = 'insights';
+  const html = V.insightsPage(ctx, p), res = V.insightsOf(ctx, 'x', pub.info.folder, false);
+  const I = PF.insights, U = PF.util, qs = [['duration', res.duration.q, null], ['open follow-ups', res.followUps.open.q, null], ['decided follow-ups', res.followUps.decided.q, null]];
+  res.phases.forEach(x => qs.push(['phase ' + x.id, x.q, null], ['waived ' + x.id, x.gate.waived.q, null], ['failed ' + x.id, x.gate.failed.q, null]));
+  res.steps.forEach(s => ['offScript', 'blocked', 'redone', 'na', 'differently', 'skipped', 'corrections'].forEach(k => qs.push([s.id + ' ' + k, s[k].q, 'step:' + s.id + ':' + k])));
+  let checked = 0;
+  qs.forEach(([name, q, path]) => {
+    if (!I.hasProblems(q)) return;
+    checked++;
+    if (path && q.incomplete) assert.ok(html.indexOf('data-id="' + path + ':incomplete"') >= 0, name + ': its history-incomplete count');
+    const line = path ? I.notCounted(q, ['incomplete']) : I.notCounted(q);
+    if (line) assert.ok(html.indexOf(U.esc(line)) >= 0, name + ': "' + line + '"');
+  });
+  assert.ok(checked >= 6, 'the page had problems to say: ' + checked);
+  assert.ok(res.phases[1].gate.failed.hits === 0 && /failed at least once in (\d+% · )?0 of 6 runs<span class="small ins-q">Not counted: 1 run, its log says a gate with this title failed/.test(html), 'a failure the log can\'t place shows with no runs failed');
+});
+rule('Runs: a filter keeps the alert about run files that can\'t be read above its results', () => {
+  const { ctx, state } = insightsSetup(2);
+  ctx.data.unreadable = [{ path: 'runs/release/in0/run.json', key: 'release/in0', why: 'bad JSON' }];
+  ctx.processTitle = id => id; ctx.data.plans = []; state.view = 'runs'; state.runFilter = { outcome: 'Completed' };
+  const html = V.runs(ctx);
+  assert.ok(/A run file can.t be read/.test(html) && html.indexOf('A run file can') < html.indexOf('Matching runs'), 'the alert first');
+});
+
 rule('Flight plan: the Checklist | Flight plan switch shows the same version as a vertical route from Start to Landed', () => {
   const { ctx, state, p } = flightSetup();
   let html = V.checklistPanel(ctx, p);
@@ -675,12 +862,12 @@ rule('Flight plan: times and turbulence come only from runs of the version shown
   // Ten steps in the first two phases go off-script more than any step in the third, so a global top ten would hide it.
   mine.forEach(r => { const m = R.mapOf(r); ['approved', 'tests', 'flags', 'rollback', 'notes', 'announce', 'merge', 'jenkins', 'approve', 'pods'].forEach(id => R.differently(r, m, id, 'again', 'person-casey', NOW)); });
   R.differently(mine[0], R.mapOf(mine[0]), 'smoke', 'x', 'person-casey', NOW);
-  assert.ok(R.analytics(mine, 'release').steps.every(c => c.id !== 'smoke'), 'set-up: the third phase is outside the top ten');
+  assert.ok(R.analytics(mine, 'release', latest.info.folder, Date.parse(NOW)).steps.every(c => c.id !== 'smoke'), 'set-up: the third phase is outside the top ten');
   ctx.data.runs = mine.concat(theirs);
   let html = V.checklistPanel(ctx, p);
-  assert.ok(/Typically under a minute/.test(html) && /From 3 runs of v1; paused time isn.t counted\./.test(html), 'numbers say which version they come from');
+  assert.ok(/Typically under a minute/.test(html) && /From 3 finished runs of v1\. Paused time isn.t counted\./.test(html), 'numbers say which version they come from');
   assert.strictEqual((html.match(/<b>Turbulence<\/b>/g) || []).length, 3, 'every phase with deviations keeps its own, past the global top ten');
-  assert.ok(/off-script 3 times/.test(html) && !/off-script 4 times/.test(html), 'the older run\'s deviation is not added');
+  assert.ok(/off-script in 3 of 3 runs/.test(html) && !/of 4 runs/.test(html), 'the older run\'s deviation is not added, and each run counts once');
   p.draft = { file: 'release.md', md: latest.md.replace('Approve the deploy in Jenkins', 'Approve it') }; p.draftChanged = true;
   html = V.checklistPanel(ctx, p);
   assert.ok(!/Typically|Turbulence/.test(html) && /No runs of this version yet\./.test(html), 'a draft shows no history');
@@ -697,9 +884,9 @@ rule('Flight plan: two phases with the same title show their own typical times',
   R.done(r, map, 'a', 'person-casey', at(1)); R.pass(r, map, 0, 'person-casey', at(5));
   R.done(r, map, 'b', 'person-casey', at(10)); R.pass(r, map, 1, 'person-casey', at(65));
   const { ctx, p } = flightSetup({ id: 'rv', title: 'RV', latest: pub, all: [pub] });
-  ctx.data.runs = [r];
+  ctx.data.runs = [r]; ctx.now = () => t0 + 86400000; // its gates are after NOW: times later than now aren't counted
   const html = V.checklistPanel(ctx, p);
-  assert.ok(/Typically 5 min/.test(html) && /Typically 1 h</.test(html) && !/Typically 33 min/.test(html), 'not pooled by title');
+  assert.ok(/Typically 5 min/.test(html) && /Typically 1 h </.test(html) && !/Typically 33 min/.test(html), 'not pooled by title');
 });
 
 rule('Flight plan: titles from the checklist are escaped, long unbroken names can wrap, and a draft with no phases says how to start one', () => {

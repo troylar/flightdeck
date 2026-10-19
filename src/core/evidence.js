@@ -159,7 +159,11 @@ PF.evidence = (function () {
 
   /* ---------- generated files ---------- */
   function nameOf(col, id) { if (!id) return ''; var n = col.people && col.people[id]; return n ? n + ' (' + id + ')' : id; }
-  function when(iso) { return iso ? String(iso).replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC') : ''; }
+  /* A time from a file, in UTC, or "time unknown" (as U.when says it) for anything that isn't a time: never a made-up one. */
+  function when(iso) {
+    var t = typeof iso === 'string' && iso ? Date.parse(iso) : NaN;
+    return isNaN(t) ? 'time unknown' : new Date(t).toISOString().replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC');
+  }
   /* rand: a few random characters, so two packs made in the same second never share a name. */
   function packName(col, at, rand) {
     var stamp = new Date(at).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z'), sc = col.scope;
@@ -263,7 +267,7 @@ PF.evidence = (function () {
   }
   function runHtml(col, rc, opts) {
     var r = rc.run, raw = rc.raw || {}, h = '<h2>Run: ' + esc(rc.title || rc.key) + '</h2>';
-    h += '<p class="soft">' + esc(rc.key) + (raw.version != null ? ' · version ' + esc(raw.version) : '') + (raw.folder ? ' · <span class="mono">' + esc(raw.folder) + '</span>' : '') + (raw.created ? ' · started ' + esc(when(raw.created)) : '') +
+    h += '<p class="soft">' + esc(rc.key) + (raw.version != null ? ' · version ' + esc(raw.version) : '') + (raw.folder ? ' · <span class="mono">' + esc(raw.folder) + '</span>' : '') + ' · started ' + esc(when(raw.created)) +
       (r && r.ended ? ' · ended ' + esc(r.ended.outcome) + ' at ' + esc(when(r.ended.at)) : r ? ' · ' + esc(r.state) : '') + (raw.rev != null ? ' · revision ' + esc(raw.rev) : '') + '</p>';
     if (rc.limited) h += '<p class="warn">' + esc(rc.limited) + ' ' + esc(LIMITED) + '</p>';
     if (r) {

@@ -839,8 +839,10 @@ PF.repo = (function () {
     }).then(function (files) {
       var out = [];
       var seen = {};
-      files.forEach(function (f) { if (f) f.text.split('\n').forEach(function (line) { var x = line.trim() && json(line); if (x && x.at && !(x.id && seen[x.id])) { if (x.id) seen[x.id] = 1; out.push(x); } }); });
-      return out.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+      /* An entry whose time is missing or can't be read is kept (it shows "time unknown"), never dropped; it sorts first. */
+      files.forEach(function (f) { if (f) f.text.split('\n').forEach(function (line) { var x = line.trim() && json(line); if (x && typeof x === 'object' && !Array.isArray(x) && !(x.id && seen[x.id])) { if (x.id) seen[x.id] = 1; out.push(x); } }); });
+      var key = function (x) { return typeof x.at === 'string' && !isNaN(Date.parse(x.at)) ? x.at : ''; };
+      return out.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
     });
   }
   /* Only a copy that was actually listed next to this run, by its exact name. */
@@ -1501,6 +1503,7 @@ PF.repo = (function () {
       var run = rc.raw ? R.sanitize(rc.raw) : null;
       if (rc.raw && !run) limits.push('run.json isn\'t a run this copy can read.');
       if (run && run._unrunnable) limits.push(run._unrunnable);
+      if (run && run._badTimes) limits.push('Some times in run.json couldn\'t be read, so this page shows them as unknown; the original file has them as written.');
       rc.title = run ? run.title : rc.raw && typeof rc.raw.title === 'string' ? rc.raw.title.slice(0, 100) : '';
       var notes = [];
       p.files.filter(function (f) { return f.role === 'notes'; }).sort(function (a, b) { return a.path < b.path ? -1 : 1; }).forEach(function (f) {

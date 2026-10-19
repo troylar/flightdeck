@@ -49,6 +49,45 @@ rule('Publishing writes the publication record last, and a second publish become
   assert.strictEqual(d2.processes[0].index.all.length, 2, 'old versions stay');
 });
 
+/* Flightdeck 1.16.1's run.js (test/fixtures/run-1.16.1.js): a copy that older team members may still be running. */
+const OLD116 = () => load(false, (f, src) => f === 'core/run.js' ? require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'run-1.16.1.js'), 'utf8') : src);
+rule('1.17 and 1.16.1 read and write a run the same way, times that can\'t be read included: no loss and no read-only copy either way', async () => {
+  const OLD = OLD116(), fs = folder(), r = await started(fs);
+  const raw = JSON.parse((await fs.read('runs/release/run1/run.json')).text);
+  raw.pauses = [{ from: NOW, to: '2026-10-17T21:05:00.000Z', by: 'person-casey', reason: 'wait' }, { from: NOW, to: 'not a time', by: 'person-casey', reason: 'bad' }];
+  raw.log.push({ at: 'not a time', by: 'person-casey', what: 'Reopened gate "x"' });
+  raw.followUps = [{ id: 'f1', text: 'Do it', by: 'person-casey', at: 'not a time' }];
+  raw.state = 'completed'; raw.ended = { outcome: 'Completed', by: 'person-casey', byName: 'Casey', at: 'not a time' };
+  const strip = x => JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(x).filter(([k]) => k[0] !== '_'))));
+  same(strip(R.sanitize(JSON.parse(JSON.stringify(raw)))), strip(OLD.run.sanitize(JSON.parse(JSON.stringify(raw)))), 'the same shapes as 1.16.1');
+  await fs.write('runs/release/run1/run.json', JSON.stringify(raw));
+  // 1.17 reads it, flags what it can't read, and saves; 1.16.1 reads that and saves; 1.17 reads it again.
+  const one = await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(one._badTimes && one._badTimes.pauses && one._badTimes.ended === 'Completed' && one._badTimes.log, '1.17 flags them until it saves');
+  one.recorder.session = 'casey-laptop';
+  await repo.saveRun(fs, one, 'casey-laptop');
+  const old = await OLD.repo.loadRun(fs, 'release', 'run1');
+  assert.ok(!old._unrunnable, '1.16.1 can record it');
+  same(strip(old), strip(one), '1.16.1 reads exactly what 1.17 saved');
+  old.recorder.session = 'casey-laptop';
+  await OLD.repo.saveRun(fs, old, 'casey-laptop');
+  const back = await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(!back._unrunnable && !back._badTimes, 'and 1.17 reads what 1.16.1 saved, writable');
+  same([back.pauses.length, back.log.length, back.followUps.length, back.state], [one.pauses.length, one.log.length, one.followUps.length, 'completed'], 'nothing lost between them');
+  assert.ok(r);
+});
+
+rule('Archived history keeps an entry whose time is missing or can\'t be read, past the 300 entries run.json keeps', async () => {
+  const fs = folder(), r = await started(fs), map = R.mapOf(r);
+  for (let i = 0; i < 320; i++) R.log(r, 'person-casey', new Date(Date.parse(NOW) + i * 1000).toISOString(), 'Entry ' + i);
+  await repo.saveRun(fs, r, 'casey-laptop');
+  await fs.append('runs/release/run1/history-old-copy.jsonl', JSON.stringify({ id: 'n1', kind: 'log', at: null, by: 'person-casey', what: 'No time' }) + '\n' + JSON.stringify({ id: 'n2', kind: 'answer', at: 'not a time', by: 'person-casey', step: 'x', s: 'done' }) + '\n');
+  const h = await repo.loadHistory(fs, r);
+  assert.ok(h.filter(x => /^Entry \d+$/.test(x.what)).length >= 20, 'the archived entries');
+  same(h.slice(0, 2).map(x => x.id).sort(), ['n1', 'n2'], 'those without a usable time are kept, first');
+  assert.ok(map);
+});
+
 rule('Only the recorder\'s window can save the run; another window\'s save is refused and nothing is overwritten', async () => {
   const fs = folder(), r = await started(fs);
   const copy = JSON.parse(JSON.stringify(r)); const map = R.mapOf(copy);
