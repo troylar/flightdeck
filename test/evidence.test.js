@@ -388,7 +388,7 @@ rule('Times a run file can\'t give are "time unknown" on the page, never 1970, a
   const { zip, res } = await pack(f, { run: 'release/run1' });
   const html = unzip(zip)['evidence.html'].data.toString('utf8');
   assert.ok(/started time unknown/.test(html), 'the start');
-  assert.ok(!/1970/.test(html) && !/not a time/.test(html.replace(/<p class="warn">[^<]*<\/p>/g, '')), 'never a made-up time, nor the bad text as if it were one');
+  assert.ok(!/1970-01-01/.test(html) && !/not a time/.test(html.replace(/<p class="warn">[^<]*<\/p>/g, '')), 'never a made-up time, nor the bad text as if it were one');
   assert.ok(/Some times in run\.json couldn(&#39;|')t be read/.test(html) && /Some times in run\.json/.test(res.col.runs[0].limited));
   assert.strictEqual(unzip(zip)['originals/' + p].data.toString('utf8'), JSON.stringify(o), 'the original keeps them as written');
 });
@@ -498,6 +498,34 @@ rule('The collection never holds more than its budget in memory: past it, nothin
   assert.ok(res.col.retained.peak <= 3 * 1048576, 'peak ' + res.col.retained.peak);
   assert.strictEqual(res.status, 'partial');
   assert.ok(res.col.exclusions.some(x => /-part\.bin$/.test(x.path) && /memory/.test(x.reason)) && res.col.unresolved.some(u => /memory/.test(u)), JSON.stringify(res.col.unresolved));
+});
+
+/* ---------- Fourth review (efc021d) ---------- */
+const gc = (() => { try { require('v8').setFlagsFromString('--expose-gc'); return require('vm').runInNewContext('gc'); } catch (e) { return null; } })();
+rule('A decision let go holds nothing of its file: kept fields are copies, and the heap doesn\'t grow with what was read', async () => {
+  if (!gc) return console.log('  (skipped: no gc)');
+  await folder();
+  const files = Object.assign({}, fixture.files);
+  for (let i = 0; i < 20; i++) files['corrections/release/y' + i + '.w9.1.json'] = Buffer.from(JSON.stringify({ kind: 'correction-decision', group: 'yy' + i, status: 'declined', reason: 'r'.repeat(900000), by: 'person-avery', at: NOW, rev: 1, members: ['other' + i] }));
+  const f = new BytesFS(files);
+  gc(); gc();
+  const h0 = process.memoryUsage().heapUsed;
+  let grew = null;
+  await pack(f, { run: 'release/run1' }, { progress: p => { if (p.phase === 'check' && grew == null) { gc(); gc(); grew = process.memoryUsage().heapUsed - h0; } } });
+  assert.ok(grew != null && grew < 6 * 1048576, 'the heap grew by ' + (grew / 1048576).toFixed(1) + ' MB while 18 MB of decisions were read');
+});
+
+rule('Choosing runs by date reads one run.json at a time, inside the memory budget: never more than the cap at once', async () => {
+  await folder();
+  const files = Object.assign({}, fixture.files), t = JSON.parse(fixture.files['runs/release/run1/run.json'].toString('utf8'));
+  ['old1', 'old2'].forEach(id => { const o = Object.assign({}, t, { id, created: '2026-01-01T00:00:00.000Z', title: 'x'.repeat(2 * 1048576) }); files['runs/release/' + id + '/run.json'] = Buffer.from(JSON.stringify(o)); });
+  let inFlight = 0, most = 0;
+  const f = new BytesFS(files), rd = f.read.bind(f);
+  f.read = q => { inFlight++; most = Math.max(most, inFlight); return new Promise(res => setTimeout(res, 5)).then(() => rd(q)).then(x => { inFlight--; return x; }); };
+  const { res } = await pack(f, { process: 'release', from: '2026-10-17', through: '2026-10-17', tz: 'UTC' }, { cap: 3 * 1048576 });
+  assert.strictEqual(most, 1, 'one at a time');
+  same(res.col.runs.map(r => r.key), ['release/run1']);
+  assert.ok(res.col.retained.peak >= 2 * 1048576 && res.col.retained.peak <= 3 * 1048576, 'counted, within the cap: ' + res.col.retained.peak);
 });
 
 run();

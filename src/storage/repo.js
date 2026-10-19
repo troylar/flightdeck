@@ -1281,6 +1281,9 @@ PF.repo = (function () {
       });
     }
     function textOf(path) { return done[path] && done[path].text != null ? done[path].text : null; }
+    /* A copy of what's kept from a file that shares nothing with its text: a slice of a big string keeps the whole string
+       alive, so kept fields are written out and parsed again (fresh strings), and what they take is counted. */
+    function detach(o) { var t = JSON.stringify(o); hold(t.length * 2); return JSON.parse(t); }
     function changeOf(path, r) { var n = path.split('/').pop(); return r.gone ? n + ' was removed' : r.size > r.statSize ? n + ' grew' : n + ' changed'; }
 
     /* ---- pack names ----
@@ -1316,11 +1319,20 @@ PF.repo = (function () {
       col.scope = { process: scope.process, from: scope.from, through: scope.through, tz: tz };
       return ro.list('runs/' + scope.process).then(function (items) {
         var dirs = items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort();
-        return limited(dirs, 8, function (id) {
-          return sizedText('runs/' + scope.process + '/' + id + '/run.json', recordMax).then(function (r) {
-            var o = r.text == null ? undefined : json(r.text);
-            if (o && typeof o === 'object' && typeof o.created === 'string' && !isNaN(Date.parse(o.created))) return E.inRange(o.created, range) ? { id: id } : null;
-            return { id: id, undated: r.over ? 'run.json is over ' + E.size(recordMax) : r.missing ? 'run.json is missing' : 'run.json couldn\'t be read' };
+        /* One run.json at a time, counted in the memory budget while it's read and let go once its start is known. One that
+           doesn't fit the budget can't be dated here: it's included, so nothing is hidden, and the pack says so. */
+        return limited(dirs, 1, function (id) {
+          var path = 'runs/' + scope.process + '/' + id + '/run.json';
+          return statOf(path).then(function (size) {
+            if (size == null) return { id: id, undated: 'run.json is missing' };
+            if (size > recordMax || retained.now + size > retained.limit) return { id: id, undated: 'run.json is too big to read for when it started within the memory a pack may use here' };
+            hold(size);
+            return ro.read(path).then(function (f) { return f ? decoded(f.text) : null; }, function () { return null; }).then(function (t) {
+              var o = t == null ? undefined : json(t), created = o && typeof o === 'object' && typeof o.created === 'string' ? o.created : null;
+              t = null; o = null; retained.now -= size;
+              if (created && !isNaN(Date.parse(created))) return E.inRange(created, range) ? { id: id } : null;
+              return { id: id, undated: 'run.json couldn\'t be read' };
+            });
           });
         });
       }).then(function (list) {
@@ -1347,7 +1359,7 @@ PF.repo = (function () {
             return record(path, DEC_MAX).then(function (r) {
               var o = r.text == null ? undefined : json(r.text), d = o === undefined ? null : C.cleanDecision(o, proc, n);
               if (d && (dir === 'suggestions') !== (d.kind === 'fix-decision')) d = null;
-              if (d) { d._file = n; d._dir = dir; }
+              if (d) { d._file = n; d._dir = dir; d = detach(d); }
               /* Read one at a time and let go at once: only the cleaned decision (small) and its hash are kept. One that
                  belongs to the pack is read again when the pack is read, and must have the same hash. */
               if (done[path] && done[path].sha256) decHash[path] = done[path].sha256;
