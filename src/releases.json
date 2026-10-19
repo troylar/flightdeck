@@ -1,5 +1,79 @@
 [
   {
+    "version": "1.13.0",
+    "date": "2026-10-18",
+    "headline": "Runs get a workspace of their own, corrections replace Suggest a fix, and notes take files",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "A run fills the window",
+        "before": "A run was a long page: a big header, details, roles and a recording banner pushed the steps below the fold, and the step panel scrolled with everything else.",
+        "now": "A run is a page of its own: a slim header with 7/14 answered, a strip saying who's recording with Pause, Hand off, Pick up or Take over beside it, then three panes that each scroll on their own: Phases, the checklist and the selected step. The strip also says what this window saved and when it checked the folder; a failed save or a conflict shows there with Try again or Compare copies.",
+        "where": "Runs: open any run."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Next up, and one place to answer a step",
+        "now": "Next up, pinned atop the checklist, points at where the run stands (the next step, a blocked step, a gate to review), never at what you're looking at. The selected step shows how to do it, values to copy, evidence to record, Done, Blocked, N/A and notes. Done reads what you typed in its evidence boxes. Check the step Next up points at and the next one is selected, so Space keeps going.",
+        "where": "A run: the checklist and the selected step."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Suggest a fix became Corrections",
+        "before": "Suggest a fix asked you to pick one of several kinds of problem, then describe it in your own words. The process page marked a suggestion fixed whenever any newer version was published.",
+        "now": "Correct this step starts on the wording, with a Before/After redline as you type; Change something else covers a missing step, the order, who does it, a screenshot or removing it. It never answers the step. Runs and receipts list their Corrections; on the process page the same one from several runs shows once, and anyone marks it applied or declines it with a reason.",
+        "where": "A run: Correct this step on the selected step (or press C). A process page: Corrections."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Done differently",
+        "now": "Beside Done, the recorder can mark a step Done differently: say what happened, then choose Just this run or Fix the checklist too, which adds a correction. It follows every rule of Done, so required evidence still has to be there.",
+        "where": "A run: the selected step."
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "What you type stays with its step",
+        "now": "Evidence typed into a step, an open Fill in and an unsent note stay with that step while you move around the run, and come back when you return; the row says Draft. Drafts belong to their team folder. Checking a step (row, Done, Space or Done differently) uses what was typed on that step only. While its Fill in is open or unsaved, Done waits and says \"Save or cancel Fill in first.\"",
+        "where": "A run."
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Attachments with runs of dots in their names",
+        "now": "A file named like deploy..output.log is saved as deploy.output.log and stays listed with its note after a reload.",
+        "where": "A run: attachments on notes and corrections."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Attach files to notes and corrections",
+        "before": "A note or a suggested fix could carry one PNG, JPEG or WebP screenshot.",
+        "now": "Drop files on the note box, paste them, or choose Attach: images (PNG, JPEG, WebP, GIF), PDF, text and logs (.txt, .log, .md, .csv, .json, .yaml) and .zip, up to 10 MB each and several per note. Images show as pictures; text opens as plain text; other files save a copy. A file that isn't allowed is refused next to the box with the reason.",
+        "where": "A run: the selected step's notes, or Correct this step."
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Keyboard, phones and screen share",
+        "now": "J and K open a folded phase they move into, X works like Space, and a held key checks one step. On a phone a step opens as a full-screen sheet with Close, Previous and Next. Screen share shows who's recording, a pause, and why a step is blocked; Back to the run returns to the same step and scroll.",
+        "where": "A run. Press ? for the keys."
+      },
+      {
+        "kind": "improved",
+        "area": "Skills",
+        "title": "Plain words for your AI assistant",
+        "before": "Skill briefs and the Skills page used a technical term for the assistant that builds skills.",
+        "now": "Flightdeck now says \"your AI assistant\" everywhere: copy the brief for your AI assistant, and it builds or updates the skill.",
+        "where": "Skills, and a process page: Skills."
+      }
+    ]
+  },
+  {
     "version": "1.12.0",
     "date": "2026-10-18",
     "headline": "Build a checklist from parts, with Undo, Redo and History in every editor and a clearer step-type editor",
@@ -216,7 +290,7 @@
         "kind": "fixed",
         "area": "Skills",
         "title": "The right words after copying a brief",
-        "now": "Copying a skill brief says to paste it to your LLM, and gate approvals in the checklist preview show as formatted text."
+        "now": "Copying a skill brief says to paste it to your AI assistant, and gate approvals in the checklist preview show as formatted text."
       },
       {
         "kind": "improved",
@@ -279,14 +353,14 @@
         "kind": "new",
         "area": "Skills",
         "title": "Know when a process change affects a skill",
-        "now": "When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your LLM.",
+        "now": "When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your AI assistant.",
         "where": "Copy update brief, on a skill."
       },
       {
         "kind": "new",
         "area": "Skills",
         "title": "Prove a version, then turn it into a skill",
-        "now": "Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an LLM needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant.",
+        "now": "Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an AI assistant needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant.",
         "where": "Ready for a skill?, on a process page."
       },
       {

@@ -134,16 +134,16 @@
     h += '<details class="panel"' + (skills.length ? '' : ' open') + '><summary><h2 style="display:inline">How a process becomes a skill</h2></summary><ol class="howto">' +
       '<li><b>Prove it.</b><span>Run a published version until it has 3 clean runs.</span></li>' +
       '<li><b>Sign it off.</b><span>The process owner confirms the version is ready.</span></li>' +
-      '<li><b>Brief your LLM.</b><span>Copy the brief from the process page; your LLM builds the skill.</span></li>' +
-      '<li><b>Register it.</b><span>The LLM adds <code>skills/&lt;name&gt;.json</code>: where it lives, what it implements.</span></li>' +
+      '<li><b>Brief your AI assistant.</b><span>Copy the brief from the process page; your AI assistant builds the skill.</span></li>' +
+      '<li><b>Register it.</b><span>Your AI assistant adds <code>skills/&lt;name&gt;.json</code>: where it lives, what it implements.</span></li>' +
       '<li><b>Stay in step.</b><span>When the process changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
     if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their process changed. Open one to copy the update brief.</p><ul class="plist">' + attention.map(skillRow).join('') + '</ul></section>';
-    /* A signed-off version that no skill implements yet: the one action is to brief the LLM. */
+    /* A signed-off version that no skill implements yet: the one action is to brief the AI assistant. */
     if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2><ul class="rlist">' + ready.map(function (p) {
       return '<li><div class="row"><button class="link t" data-act="open-process" data-id="' + esc(p.id) + '">' + esc(p.title) + ' v' + p.latest.info.version + '</button><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy brief</button></div>' + V.briefBox(st, 'create:' + p.id) + '</li>';
     }).join('') + '</ul></section>';
     h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + K.tagBar(skillTags(skills, st.tags || []), st.tags || []) + (skills.length ? K.tree(skills.filter(function (k) { return has(k.x.skill.tags); }), function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, st.groupsOpen)
-      : '<p class="small">No skills yet. Follow the steps above: once a process version is signed off, its page has the brief your LLM needs.</p>') + '</section>';
+      : '<p class="small">No skills yet. Follow the steps above: once a process version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }
 

@@ -151,21 +151,40 @@ rule('Reference screenshots are frozen into each published version', async () =>
   assert.strictEqual(a.files['publications/x/' + res.folder + '/images/release/jenkins.png'], 'first picture');
 });
 
-rule('Follow-ups and suggested map changes are kept on the run and printed on the receipt', async () => {
+rule('Follow-ups, answers done differently and corrections are kept with the run and printed on the receipt', async () => {
   const { a } = await twoComputers();
   const r = await get(a), map = R.mapOf(r);
   done(r, map, 'approved', 'person-casey', NOW);
   R.differently(r, map, 'approved', 'Approved in the change board instead', 'person-casey', NOW);
   R.addFollowUp(r, { text: 'Automate the flag check', owner: 'person-blake', ticket: 'ABC-9' }, 'person-casey', NOW);
   assert.throws(() => R.addFollowUp(r, { text: '  ' }, 'person-casey', NOW), /Say what/);
-  r._notes = [{ id: 'n1', step: 'flags', text: 'Flags live in values-prod.yaml now', by: 'person-blake', kind: 'map' }];
+  r._notes = [{ id: 'n1', step: 'flags', text: 'Flags live in values-prod.yaml now', by: 'person-blake', kind: 'map', at: NOW }];
   await repo.saveRun(a, r, 'casey');
   const back = await get(a); back._notes = r._notes;
   same(back.followUps.map(f => f.text), ['Automate the flag check']);
-  assert.strictEqual(R.suggestions(back, map).length, 2);
-  const text = R.receipt(back, map, id => id, NOW, []);
+  assert.strictEqual(R.corrections(back, map).length, 2);
+  const text = R.receipt(back, map, id => id, NOW, back._notes);
   assert.ok(/Follow-ups\n  - Automate the flag check \(person-blake\) \[ABC-9\]/.test(text));
-  assert.ok(/Suggested checklist changes/.test(text));
+  assert.ok(/Corrections · 2\n/.test(text) && /\[One-off\]/.test(text) && /Problem: Flags live in values-prod\.yaml now/.test(text), text);
+});
+
+rule('Two computers decide on the same correction at once: both files are kept, and both computers show Needs review', async () => {
+  const { a, b } = await twoComputers(), C = PF.corrections;
+  const r = await get(b);
+  await repo.addNote(b, r, 'blake', C.build({ id: 'c1', at: NOW, by: 'person-blake', session: 'blake', map: R.mapOf(r), step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes', version: 1, folder: r.folder }));
+  b.sync(); a.sync();
+  const groupsOn = async fs => { const d = await repo.loadAll(fs); return C.status(C.groups(C.collect(d.runs, 'release')), d.corrDecisions); };
+  const ga = (await groupsOn(a))[0], gb = (await groupsOn(b))[0];
+  await repo.decideCorrection(a, C.decision(ga, 'person-casey', 'applied', '', NOW, { current: ga.decision }), 'casey');
+  await repo.decideCorrection(b, C.decision(gb, 'person-blake', 'declined', 'Ten minutes is enough', NOW, { current: gb.decision }), 'blake');
+  assert.strictEqual((await groupsOn(a))[0].label, 'Applied to draft', 'before syncing, each sees its own');
+  a.sync(); b.sync(); a.sync();
+  const after = [(await groupsOn(a))[0], (await groupsOn(b))[0]];
+  same(after.map(g => [g.label, g.tie, g.decision.by]), [['Needs review', true, after[0].decision.by], ['Needs review', true, after[0].decision.by]], 'the same on both');
+  const settled = await groupsOn(a);
+  await repo.decideCorrection(a, C.decision(settled[0], 'person-casey', 'applied', '', NOW, { current: settled[0].decision }), 'casey');
+  a.sync(); b.sync();
+  same([(await groupsOn(b))[0].label, (await groupsOn(b))[0].decision.rev], ['Applied to draft', 2], 'deciding again after seeing both settles it');
 });
 
 rule('Run files written by earlier versions of Flightdeck still load', async () => {
