@@ -2722,4 +2722,66 @@ rule('A time that is missing or can\'t be read is never formatted as a made-up t
   assert.ok(!/\b(7|8):00 PM\b|Dec 31|Jan 1\b/.test(text), 'no 1970 time');
 });
 
+
+/* ---------- Shapes for other apps (1.18 READ, PF.appjson) ---------- */
+rule('Shapes for other apps: a process, a run, what\'s next and its follow-ups each match their documented schema, nothing extra', () => {
+  const A = PF.appjson, v = pub('release'), r = release(), map = R.mapOf(r), nameOf = A.names(people);
+  done(r, map, map.phases[0].steps[0].id, 'person-casey', NOW);
+  R.block(r, map, map.phases[0].steps[1].id, 'Gate is red', 'person-casey', NOW);
+  r.followUps.push({ id: 'fu1', text: 'Rotate the key', owner: 'person-blake', ticket: '', step: '', from: '', by: 'person-casey', at: NOW });
+  const proc = { process: 'release', pubs: [v], index: P.index([v]) };
+  same(A.conforms(A.processes([proc]), A.SCHEMA.processes), []);
+  same(A.conforms(A.process(proc, v), A.SCHEMA.process), []);
+  same(A.conforms(A.runs([r], [], nameOf), A.SCHEMA.runs), []);
+  const items = PF.followups.list([r], []);
+  same(A.conforms(A.run(r, items, nameOf), A.SCHEMA.run), []);
+  same(A.conforms(A.next(r, nameOf, 'person-blake'), A.SCHEMA.next), []);
+  same(A.conforms(A.followUps(items, nameOf), A.SCHEMA.followups), []);
+  const e = A.envelope('1.18.0', NOW, [], A.runs([r], [], nameOf));
+  same(A.conforms(e, A.SCHEMA.envelope), []);
+  assert.strictEqual(A.next(r, nameOf, null).next.kind, 'blocked', 'a blocked step is what\'s next, as on the run screen');
+});
+
+rule('Shapes for other apps: people are an ID and a name; people-directory email fields are omitted', () => {
+  const A = PF.appjson, r = release(), nameOf = A.names(people);
+  same(nameOf('person-casey'), { id: 'person-casey', name: 'Casey Nguyen' });
+  same(nameOf('person-nobody'), { id: 'person-nobody', name: null }, 'someone not in people.json keeps their ID');
+  assert.strictEqual(nameOf(''), null);
+  const text = JSON.stringify([A.runs([r], [], nameOf), A.run(r, [], nameOf), A.next(r, nameOf, 'person-casey')]);
+  people.forEach(p => assert.ok(!p.email || !text.includes(p.email), p.email));
+  assert.ok(!/"email"/.test(text));
+});
+
+rule('Shapes for other apps: the envelope is complete exactly when it has no problems, and every problem kind is a documented one', () => {
+  const A = PF.appjson;
+  assert.strictEqual(A.CONTRACT, 'flightdeck-read/1');
+  same(A.KINDS, ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped']);
+  assert.strictEqual(A.envelope('1.18.0', NOW, [], {}).complete, true);
+  const e = A.envelope('1.18.0', NOW, [{ path: 'runs/x/y/run.json', kind: 'nofile', why: 'The run folder has no run.json.' }], {});
+  assert.strictEqual(e.complete, false);
+  assert.throws(() => A.envelope('1.18.0', NOW, [{ path: 'x', kind: 'odd', why: 'x' }], {}), /kind/);
+  assert.ok(/another computer may be a minute ahead/.test(e.note) && /People-directory email fields are omitted\./.test(e.note));
+});
+
+rule('Shapes for other apps: conforms names a missing, extra or wrongly typed field', () => {
+  const A = PF.appjson, S = { a: 'string', b: ['number'], c: A.opt({ d: 'boolean' }), m: A.map('string') };
+  same(A.conforms({ a: 'x', b: [1], c: null, m: { k: 'v' } }, S), []);
+  same(A.conforms({ a: 'x', b: [1], c: { d: true }, m: {} }, S), []);
+  assert.ok(A.conforms({ b: [1], c: null, m: {} }, S).some(x => /a/.test(x) && /missing/.test(x)));
+  assert.ok(A.conforms({ a: 'x', b: [1], c: null, m: {}, z: 1 }, S).some(x => /z/.test(x) && /extra/.test(x)));
+  assert.ok(A.conforms({ a: 'x', b: ['1'], c: null, m: {} }, S).some(x => /b\[0\]/.test(x)));
+  assert.ok(A.conforms({ a: 'x', b: [], c: { d: 'no' }, m: { k: 1 } }, S).length === 2);
+});
+
+rule('Shapes for other apps: a version that can\'t be used says why, as newer, unusable, still syncing or malformed', () => {
+  const A = PF.appjson, v = pub('release'), f = v.info.folder;
+  const files = { 'map.md': v.md, 'types.json': JSON.stringify(v.types, null, 2), 'publication.json': JSON.stringify(v.info) };
+  assert.strictEqual(A.pubProblem(P.verify(f, Object.assign({}, files, { 'publication.json': JSON.stringify(Object.assign({}, v.info, { format: 'preflight-publication/9' })) }))).kind, 'newer');
+  assert.strictEqual(A.pubProblem(P.verify(f, Object.assign({}, files, { 'map.md': null }))).kind, 'still-syncing');
+  assert.strictEqual(A.pubProblem(P.verify(f, Object.assign({}, files, { 'publication.json': null }))).kind, 'still-syncing');
+  assert.strictEqual(A.pubProblem(P.verify(f, Object.assign({}, files, { 'publication.json': '{' }))).kind, 'malformed');
+  const md2 = v.md.replace('{confirm} Feature flags', '{no.such} Feature flags');
+  assert.strictEqual(A.pubProblem(P.verify(f, Object.assign({}, files, { 'map.md': md2, 'publication.json': JSON.stringify(Object.assign({}, v.info, { mapHash: U.hash(md2) })) }))).kind, 'unusable');
+});
+
 run();

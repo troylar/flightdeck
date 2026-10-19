@@ -76,4 +76,19 @@ rule('The baselines list this version\'s AGENTS.md and skills, and the built app
   assert.ok(Object.keys(b.files['AGENTS.md#flightdeck']).length > 1, 'earlier releases are recorded too (node tools/baselines.js --backfill)');
 });
 
+
+rule('The shapes for other apps are built into the core block, and docs/apps.md documents every field, problem kind and exit code', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'flightdeck.html'), 'utf8'), core = /<script id="pf-core">([\s\S]*?)<\/script>/.exec(html)[1];
+  assert.ok(/PF\.appjson = /.test(core), 'core/appjson.js is in CORE');
+  const PF = require('./harness').load(), A = PF.appjson, doc = fs.readFileSync(path.join(ROOT, 'docs', 'apps.md'), 'utf8');
+  const keys = new Set();
+  (function walk(d) { if (Array.isArray(d)) return d.forEach(walk); if (d && typeof d === 'object') Object.keys(d).forEach(k => { if (k[0] !== '$') keys.add(k); walk(d[k]); }); })(Object.values(JSON.parse(JSON.stringify(A.SCHEMA))));
+  const missing = [...keys].filter(k => !doc.includes('`' + k + '`'));
+  assert.deepStrictEqual(missing, [], 'fields not in docs/apps.md');
+  A.KINDS.forEach(k => assert.ok(doc.includes('`' + k + '`'), 'problem kind ' + k));
+  ['0', '1', '4', '5'].forEach(c => assert.ok(new RegExp('\\| `?' + c + '`? \\|').test(doc), 'exit code ' + c));
+  ['processes', 'process', 'runs', 'run', 'next', 'followups'].forEach(c => assert.ok(doc.includes('flightdeck ' + c + ' '), c));
+  assert.ok(doc.includes('People-directory email fields are omitted.'));
+});
+
 run();

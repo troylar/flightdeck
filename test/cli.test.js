@@ -683,4 +683,294 @@ rule('export reads a run.json with a UTF-8 byte-order mark like any other: a com
   assert.strictEqual(r.code, 0, r.out);
 });
 
+
+/* ---------- READ: flightdeck processes | process | runs | run | next | followups --json (1.18) ---------- */
+const RF = require('./read-fixture');
+const FD = require('../bin/flightdeck.js');
+const SRC = require('./harness').load(), AJ = SRC.appjson;
+/* What's wrong with a value against a schema entry, as a plain list (the sandbox's arrays have their own prototype). */
+const wrong = (v, d) => JSON.parse(JSON.stringify(AJ.conforms(v, d)));
+let rfBuilt = null;
+async function readFolder(edit, after) {
+  rfBuilt = rfBuilt || await RF.build(SRC);
+  const files = Object.assign({}, rfBuilt.files);
+  if (edit) edit(files, rfBuilt);
+  const dir = RF.toDisk(files, tmp());
+  if (after) after(dir);
+  return dir;
+}
+function readCli(...a) {
+  const r = cp().spawnSync(process.execPath, [BIN, ...a], { encoding: 'utf8', maxBuffer: 64 * 1048576 });
+  let json = null; try { json = JSON.parse(r.stdout); } catch (e) { /* the caller says what it expected */ }
+  return { code: r.status, json, out: r.stdout, err: r.stderr };
+}
+/* The contract's promise, checked on every READ call in these tests: complete, a non-empty problems list and exit 4 agree,
+   and an error object (no data) exits 1 or 5. */
+function agree(r) {
+  assert.ok(r.json, 'JSON on stdout: ' + r.out + r.err);
+  if (r.json.error) {
+    assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.error), [], 'error object');
+    assert.ok(r.code === 1 || r.code === 5, 'an error object exits 1 or 5, not ' + r.code);
+    return r;
+  }
+  assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.envelope), [], 'envelope');
+  assert.strictEqual(r.json.contract, 'flightdeck-read/1');
+  assert.strictEqual(r.json.complete, r.json.problems.length === 0, 'complete is true exactly when problems is empty');
+  assert.strictEqual(r.code === 4, !r.json.complete, 'exit 4 exactly when not complete (exit ' + r.code + ')');
+  if (r.json.complete) assert.strictEqual(r.code, 0);
+  return r;
+}
+const shape = (r, name) => assert.deepStrictEqual(wrong(r.json.data, AJ.SCHEMA[name]), [], name + ' data');
+
+rule('READ: processes --json lists each process with its versions, in the documented shape', async () => {
+  const dir = await readFolder(), r = agree(readCli('processes', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'processes');
+  assert.strictEqual(r.json.app, cli('version').out.trim());
+  const p = r.json.data.processes[0];
+  assert.strictEqual(p.id, 'release'); assert.strictEqual(p.title, 'Production release'); assert.strictEqual(p.category, 'Releases');
+  assert.deepStrictEqual(p.group, ['Engineering', 'Releases']); assert.deepStrictEqual(p.tags, ['production', 'deploy']); assert.strictEqual(p.owner, 'person-casey');
+  assert.deepStrictEqual(p.latest, { version: 1, folder: rfBuilt.folder });
+  assert.deepStrictEqual(p.versions.map(v => [v.folder, v.version, v.usable, v.why, v.clash, v.publishedBy]), [[rfBuilt.folder, 1, true, null, false, 'person-avery']]);
+});
+
+rule('READ: process --json gives phases, steps, gates and the publication\'s evidence; a version that isn\'t there exits 5', async () => {
+  const dir = await readFolder(), r = agree(readCli('process', dir, 'release', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'process');
+  const d = r.json.data, steps = [].concat(...d.phases.map(p => p.steps)), by = id => steps.filter(s => s.id === id)[0];
+  assert.strictEqual(d.evidenceFrom, 'publication'); assert.strictEqual(d.usable, true); assert.strictEqual(d.version.folder, rfBuilt.folder);
+  assert.ok(d.context.includes('commit') && d.roles.includes('release-lead'));
+  assert.ok(by('approved').evidence.some(e => e.name === 'number' && e.required === true), JSON.stringify(by('approved').evidence));
+  assert.deepStrictEqual(by('tests').binds, ['commit']); assert.strictEqual(by('approved').must, true); assert.deepStrictEqual(by('approved').roles, ['release-lead']);
+  assert.strictEqual(by('notes').type, 'run.process');
+  assert.strictEqual(d.phases[0].gate.id, 'ready'); assert.deepStrictEqual(d.phases[0].gate.binds, ['commit', 'environment']);
+  for (const a of [['--version', '1'], ['--folder', rfBuilt.folder]]) assert.deepStrictEqual(agree(readCli('process', dir, 'release', ...a, '--json')).json.data, d, a.join(' '));
+  for (const a of [['release', '--version', '9'], ['release', '--folder', 'v9-zzzz9999'], ['nope']]) {
+    const x = agree(readCli('process', dir, ...a, '--json'));
+    assert.ok(x.code === 5 && x.json.error.kind === 'not-found', a.join(' ') + ': ' + x.out);
+  }
+});
+
+rule('READ: runs --json lists runs and planned runs, filtered by --process and --status', async () => {
+  const dir = await readFolder(), r = agree(readCli('runs', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'runs');
+  const d = r.json.data, run1 = d.runs.filter(x => x.key === 'release/run1')[0], run2 = d.runs.filter(x => x.key === 'release/run2')[0];
+  assert.strictEqual(run1.state, 'running'); assert.deepStrictEqual(run1.recorder, { id: 'person-casey', name: 'Casey Nguyen' });
+  assert.strictEqual(run1.progress.done, 1); assert.ok(run1.progress.total > 5); assert.strictEqual(run1.details.commit, 'aaa111'); assert.strictEqual(run1.ended, null);
+  assert.strictEqual(run2.state, 'completed'); assert.strictEqual(run2.ended.outcome, 'Completed');
+  assert.deepStrictEqual(d.planned.map(p => [p.id, p.status, p.run]), [['plan-release-2026-10-24', 'pending', null]]);
+  const keys = (...a) => { const x = agree(readCli('runs', dir, ...a, '--json')); return [x.json.data.runs.map(y => y.key).sort(), x.json.data.planned.length]; };
+  assert.deepStrictEqual(keys('--status', 'running'), [['release/run1'], 0]);
+  assert.deepStrictEqual(keys('--status', 'ended'), [['release/run2'], 0]);
+  assert.deepStrictEqual(keys('--status', 'planned'), [[], 1]);
+  assert.deepStrictEqual(keys('--process', 'release'), [['release/run1', 'release/run2'], 1]);
+  assert.strictEqual(agree(readCli('runs', dir, '--process', 'nope', '--json')).code, 5);
+  assert.strictEqual(readCli('runs', dir, '--status', 'sometimes', '--json').code, 1);
+});
+
+rule('READ: run --json gives each step\'s state, who and when, its values and the run\'s own evidence, gates and follow-ups', async () => {
+  const dir = await readFolder(), r = agree(readCli('run', dir, 'release/run1', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'run');
+  const run = r.json.data.run, step = run.steps.filter(s => s.id === 'approved')[0];
+  assert.strictEqual(run.key, 'release/run1'); assert.strictEqual(step.state, 'done'); assert.deepStrictEqual(step.by, { id: 'person-casey', name: 'Casey Nguyen' });
+  assert.strictEqual(step.values.number, 'sample number');
+  const local = SRC.run.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json']));
+  const want = SRC.run.evidenceFor(local, SRC.map.findStep(SRC.run.mapOf(local), 'approved').step).list.map(e => e.name);
+  assert.deepStrictEqual(step.evidence.map(e => e.name), want);
+  assert.ok(run.gates.some(g => g.id === 'ready' && g.status === 'open'));
+  assert.deepStrictEqual(run.roles.filter(x => x.role === 'qa')[0].person, { id: 'person-morgan', name: 'Morgan Diaz' });
+  const r2 = agree(readCli('run', dir, 'release/run2', '--json')).json.data.run;
+  assert.deepStrictEqual(r2.followUps.map(f => [f.id, f.status]), [['fu1', 'ticket'], ['fu2', 'open']]);
+  assert.strictEqual(r2.followUps[0].decision.ticket, 'ABC-124');
+  assert.strictEqual(agree(readCli('run', dir, 'release/run9', '--json')).code, 5);
+  assert.strictEqual(agree(readCli('run', dir, 'nope/run1', '--json')).code, 5);
+  assert.strictEqual(readCli('run', dir, 'release', '--json').code, 1);
+});
+
+rule('READ: next --json says what\'s waiting and on whom, as the run screen does; --person adds that person\'s next step', async () => {
+  const dir = await readFolder(), r = agree(readCli('next', dir, 'release/run1', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'next');
+  const local = SRC.run.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json'])), map = SRC.run.mapOf(local), nu = SRC.run.nextUp(local, map);
+  const n = r.json.data.next;
+  assert.strictEqual(n.kind, nu.kind); assert.strictEqual(n.step.id, nu.step.id);
+  assert.deepStrictEqual(n.step.roles, [...nu.step.roles].map(ro => ({ role: ro, person: { id: local.roles[ro], name: rfBuilt.people.filter(p => p.id === local.roles[ro])[0].name } })));
+  assert.strictEqual(r.json.data.person, null); assert.strictEqual(r.json.data.mine, null);
+  const m = agree(readCli('next', dir, 'release/run1', '--person', 'person-blake', '--json')).json.data, mine = SRC.run.myNext(local, map, 'person-blake');
+  assert.deepStrictEqual(m.person, { id: 'person-blake', name: 'Blake Ortiz' });
+  assert.strictEqual(m.mine.step.id, mine.step.id);
+});
+
+rule('READ: followups --json lists every follow-up with its current decision; --status open leaves out the decided ones', async () => {
+  const dir = await readFolder(), r = agree(readCli('followups', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'followups');
+  const f = r.json.data.followUps;
+  assert.deepStrictEqual(f.map(x => [x.key, x.status, x.label]), [['release/run2/fu1', 'ticket', 'Moved to a ticket'], ['release/run2/fu2', 'open', 'Open']]);
+  assert.deepStrictEqual(f[0].owner, { id: 'person-blake', name: 'Blake Ortiz' }); assert.strictEqual(f[0].decision.ticket, 'ABC-124');
+  assert.deepStrictEqual(agree(readCli('followups', dir, '--status', 'open', '--json')).json.data.followUps.map(x => x.id), ['fu2']);
+});
+
+/* Each case: what to break, the commands that must report it, and the problem's path and kind. */
+const PROBLEMS = [
+  ['a run folder without run.json', f => { f['runs/release/run3/notes-w9.jsonl'] = '{"id":"n1","text":"hello"}\n'; }, null, [['runs'], ['followups']], 'runs/release/run3/run.json', 'nofile'],
+  ['a malformed proposal', f => { f['proposals/plan-broken.json'] = '{"kind": "plan", '; }, null, [['runs']], 'proposals/plan-broken.json', 'malformed'],
+  ['a proposal that isn\'t a plan', f => { f['proposals/plan-odd.json'] = '{"kind": "plan", "id": 7}'; }, null, [['runs']], 'proposals/plan-odd.json', 'malformed'],
+  ['a malformed follow-up decision', f => { f['followups/release/run2.fu2.w3.1.json'] = '{"kind": "followup-dec'; }, null, [['followups'], ['run', 'release/run2']], 'followups/release/run2.fu2.w3.1.json', 'malformed'],
+  ['a malformed run.json', f => { f['runs/release/run5/run.json'] = '{"format": "preflight-run/2", "id": "run5"'; }, null, [['runs']], 'runs/release/run5/run.json', 'malformed'],
+  ['a run from a newer Flightdeck', f => { f['runs/release/run4/run.json'] = JSON.stringify({ format: 'preflight-run/3', id: 'run4', process: 'release', title: 'From the future' }); }, null, [['runs'], ['run', 'release/run4']], 'runs/release/run4/run.json', 'newer'],
+  ['an unusable version', (f, b) => addVersion(f, b, 2, 'bbbb2222', md => md.replace('{confirm} Feature flags', '{no.such} Feature flags')), null, [['processes'], ['process', 'release']], 'publications/release/v2-bbbb2222/', 'unusable'],
+  ['a version from a newer Flightdeck', (f, b) => addVersion(f, b, 3, 'cccc3333', null, 'preflight-publication/2'), null, [['processes'], ['process', 'release']], 'publications/release/v3-cccc3333/', 'newer'],
+  ['a version still syncing', (f, b) => { addVersion(f, b, 4, 'dddd4444'); delete f['publications/release/v4-dddd4444/map.md']; }, null, [['processes']], 'publications/release/v4-dddd4444/', 'still-syncing'],
+  ['conflict copies beside a run', f => { f['runs/release/run1/run-LAPTOP.json'] = f['runs/release/run1/run.json'].replace('Release 2026.10.20', 'Release 2026.10.20 (copy)'); }, null, [['runs'], ['run', 'release/run1'], ['next', 'release/run1']], 'runs/release/run1/', 'conflict'],
+  ['a link the CLI won\'t follow', null, dir => { const o = tmp(); fs.writeFileSync(path.join(o, 'x.json'), '{"kind": "plan", "id": "plan-x", "process": "release"}'); fs.symlinkSync(path.join(o, 'x.json'), path.join(dir, 'proposals', 'plan-x.json')); }, [['runs']], 'proposals/plan-x.json', 'link'],
+  ['a file too large to read', null, dir => { fs.writeFileSync(path.join(dir, 'runs', 'release', 'run1', 'notes-big.jsonl'), Buffer.alloc(17 * 1048576, 32)); }, [['runs'], ['run', 'release/run1']], 'runs/release/run1/notes-big.jsonl', 'skipped']
+];
+function addVersion(f, b, n, rand, edit, format) {
+  const src = 'publications/release/' + b.folder + '/', dst = 'publications/release/v' + n + '-' + rand + '/';
+  const md = edit ? edit(f[src + 'map.md']) : f[src + 'map.md'], info = JSON.parse(f[src + 'publication.json']);
+  Object.assign(info, { version: n, folder: 'v' + n + '-' + rand, mapHash: SRC.util.hash(md) }, format ? { format } : {});
+  f[dst + 'map.md'] = md; f[dst + 'types.json'] = f[src + 'types.json']; f[dst + 'publication.json'] = JSON.stringify(info, null, 2);
+}
+const ALL = [['processes'], ['process', 'release'], ['runs'], ['run', 'release/run1'], ['next', 'release/run1'], ['followups']];
+
+rule('READ: a clean folder reads complete, exit 0, with no problems, from every command', async () => {
+  const dir = await readFolder();
+  ALL.forEach(([c, ...a]) => { const r = agree(readCli(c, dir, ...a, '--json')); assert.ok(r.json.complete && r.code === 0, c + ': ' + JSON.stringify(r.json.problems)); });
+});
+
+PROBLEMS.forEach(([name, edit, after, cmds, at, kind]) => {
+  rule('READ: ' + name + ' is reported per file (' + kind + '), the result is partial with exit 4, and the data is still printed', async () => {
+    const dir = await readFolder(edit, after);
+    cmds.forEach(([c, ...a]) => {
+      const r = agree(readCli(c, dir, ...a, '--json'));
+      assert.strictEqual(r.code, 4, c + ' ' + a.join(' ') + ': exit ' + r.code + ' ' + r.err);
+      assert.ok(r.json.problems.some(p => p.path === at && p.kind === kind), c + ': ' + JSON.stringify(r.json.problems));
+      assert.ok(r.json.data && typeof r.json.data === 'object', 'data still printed');
+    });
+  });
+});
+
+rule('READ: each command reports only problems in its own scope', async () => {
+  const dir = await readFolder(f => { f['proposals/plan-broken.json'] = '{'; f['runs/release/run3/notes-w9.jsonl'] = '{}\n'; });
+  assert.ok(agree(readCli('processes', dir, '--json')).json.complete, 'processes: runs and proposals are out of scope');
+  assert.ok(agree(readCli('run', dir, 'release/run1', '--json')).json.complete, 'run: only that run, its version and its decisions');
+  assert.strictEqual(agree(readCli('runs', dir, '--json')).json.problems.length, 2);
+});
+
+rule('READ: people-directory email fields never appear in any command\'s output', async () => {
+  const dir = await readFolder(), emails = rfBuilt.people.map(p => p.email).filter(Boolean);
+  assert.ok(emails.length >= 3);
+  ALL.concat([['next', 'release/run1', '--person', 'person-blake']]).forEach(([c, ...a]) => {
+    const r = agree(readCli(c, dir, ...a, '--json'));
+    emails.forEach(e => assert.ok(!r.out.includes(e), c + ' shows ' + e));
+    assert.ok(!/"email"/.test(r.out), c + ' has an email field');
+  });
+});
+
+rule('READ never changes the folder: the tree is identical after every command, with an old save receipt that loading would remove', async () => {
+  const dir = await readFolder(f => { f['runs/release/run1/candidate-other-zzzz9999.json'] = f['runs/release/run1/run.json'].replace(/"rev": \d+/, '"rev": 77'); });
+  const before = EV.tree(dir);
+  assert.ok(Object.keys(before).includes('runs/release/run1/candidate-other-zzzz9999.json'));
+  ALL.forEach(([c, ...a]) => { const r = agree(readCli(c, dir, ...a, '--json')); assert.ok(r.json.complete, c + ': ' + JSON.stringify(r.json.problems)); });
+  assert.deepStrictEqual(EV.tree(dir), before, 'the team folder tree is identical, the save receipt included');
+});
+
+/* A folder in memory whose write, append and remove throw and are counted, for the in-process READ engine. */
+function strictFolder(files, seen) {
+  const B = new EV.BytesFS(files, { strict: true, hooks: seen ? { list: p => seen.push('list ' + p), read: p => seen.push('read ' + p), stat: p => seen.push('stat ' + p), blob: p => seen.push('blob ' + p) } : {} });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, RF.OLD.getTime()));
+  return B;
+}
+const REQ = { processes: { cmd: 'processes' }, process: { cmd: 'process', proc: 'release' }, runs: { cmd: 'runs' }, run: { cmd: 'run', key: 'release/run1' }, next: { cmd: 'next', key: 'release/run1', person: 'person-casey' }, followups: { cmd: 'followups' } };
+
+rule('READ: every mutating method of the folder throws, and no command calls one', async () => {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files, { 'runs/release/run1/candidate-other-zzzz9999.json': rfBuilt.files['runs/release/run1/run.json'].replace(/"rev": \d+/, '"rev": 77') });
+  const eng = { PF: SRC, version: 'test' };
+  for (const k of Object.keys(REQ)) {
+    const B = strictFolder(files), r = await FD.readData(eng, B, REQ[k]);
+    assert.strictEqual(r.code, 0, k + ': ' + JSON.stringify(r.json.problems || r.json.error));
+    assert.deepStrictEqual(B.mutations, [], k);
+  }
+  const ro = SRC.repo.readOnly(strictFolder(files));
+  ['write', 'append', 'remove'].forEach(m => assert.throws(() => ro[m]('runs/release/run1/run.json', 'x'), /read-only/));
+});
+
+rule('READ: run and next read only their own run, its version, its follow-up decisions and the people list', async () => {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files), eng = { PF: SRC, version: 'test' };
+  const ok = ['list runs/release', 'runs/release/run1/', 'runs/release/run1', 'publications/release/' + rfBuilt.folder + '/', 'list followups/release', 'followups/release/run1.', 'read people.json'];
+  for (const k of ['run', 'next']) {
+    const seen = [], r = await FD.readData(eng, strictFolder(files, seen), REQ[k]);
+    assert.strictEqual(r.code, 0, k);
+    const stray = seen.filter(s => { const p = s.replace(/^\w+ /, ''); return !ok.some(o => s === o || p.startsWith(o)); });
+    assert.deepStrictEqual(stray, [], k + ' read outside its run');
+    assert.ok(seen.some(s => s === 'read runs/release/run1/run.json'));
+  }
+});
+
+rule('READ: next equals the run screen\'s Next up at every point of a run, from first step to the end', async () => {
+  await readFolder();
+  const R = SRC.run, mem = new SRC.fs.MemoryFS('read-next:' + Math.random(), null), eng = { PF: SRC, version: 'test' };
+  mem.reset(rfBuilt.files);
+  const r = R.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json'])), map = R.mapOf(r), done = require('./harness').sampleDone(SRC);
+  let checks = 0;
+  for (let pi = 0; pi < map.phases.length; pi++) {
+    for (const s of map.phases[pi].steps.concat([null])) {
+      await mem.write('runs/release/run1/run.json', JSON.stringify(r, null, 2));
+      const got = (await FD.readData(eng, mem, { cmd: 'next', key: 'release/run1' })).json.data.next, nu = R.nextUp(r, map);
+      assert.strictEqual(got.kind, nu.kind);
+      assert.strictEqual(got.step ? got.step.id : null, nu.step ? nu.step.id : null);
+      assert.strictEqual(got.gate ? got.gate.id : null, nu.gate ? nu.gate.id : null);
+      checks++;
+      if (s && !R.answered(r, s)) done(r, map, s.id, 'person-casey', RF.NOW);
+    }
+    R.pass(r, map, pi, 'person-casey', RF.NOW);
+  }
+  R.end(r, map, 'Completed', 'person-casey', 'Casey Nguyen', RF.NOW);
+  await mem.write('runs/release/run1/run.json', JSON.stringify(r, null, 2));
+  assert.strictEqual((await FD.readData(eng, mem, { cmd: 'next', key: 'release/run1' })).json.data.next.kind, 'ended');
+  assert.ok(checks > 10, 'checked ' + checks + ' points');
+});
+
+rule('READ: --contract 1 is this contract; one this copy doesn\'t have exits 1 naming those it has', async () => {
+  const dir = await readFolder();
+  assert.strictEqual(agree(readCli('runs', dir, '--contract', '1', '--json')).code, 0);
+  const r = agree(readCli('runs', dir, '--contract', '2', '--json'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'contract' && /flightdeck-read\/1/.test(r.json.error.why), r.out);
+});
+
+rule('READ: without --json, or on a folder that can\'t be read, nothing is printed as data and the exit code is 1', async () => {
+  const dir = await readFolder();
+  let r = readCli('runs', dir);
+  assert.ok(r.code === 1 && /--json/.test(r.err), r.out + r.err);
+  r = agree(readCli('runs', path.join(dir, 'nope'), '--json'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'failed', r.out);
+});
+
+
+rule('READ: the size cap reaches the folder through the wrappers, and a file over it is refused before any byte is read', async () => {
+  const dir = await readFolder();
+  fs.writeFileSync(path.join(dir, 'proposals', 'big.json'), Buffer.alloc(4096, 32));
+  const A = FD.readAdapter(fs.realpathSync(dir)), view = SRC.repo.lane(SRC.repo.readOnly(A, 'Reading for other apps'), 'load');
+  const orig = fs.readFileSync, reads = [];
+  fs.readFileSync = function (f) { if (typeof f === 'number') reads.push(f); return orig.apply(fs, arguments); };
+  const origSync = fs.readSync;
+  fs.readSync = function (f) { reads.push(f); return origSync.apply(fs, arguments); };
+  try {
+    await assert.rejects(view.read('proposals/big.json', { maxBytes: 1024 }), e => e.skipped === true && /over the 1\.0 KB/.test(e.message));
+    await assert.rejects(view.blob('proposals/big.json', { maxBytes: 1024 }), e => e.skipped === true);
+  } finally { fs.readFileSync = orig; fs.readSync = origSync; }
+  assert.deepStrictEqual(reads, [], 'no bytes read');
+  assert.deepStrictEqual(A.skipped.map(x => x.path), ['proposals/big.json']);
+  assert.strictEqual((await view.read('proposals/big.json', { maxBytes: 8192 })).text.length, 4096, 'under the cap it reads');
+});
+
+
+rule('READ: a problem at a folder above the scope counts too: a linked process folder is named by runs --process', async () => {
+  const dir = await readFolder(null, d => { const real = path.join(tmp(), 'release'); fs.renameSync(path.join(d, 'runs', 'release'), real); fs.symlinkSync(real, path.join(d, 'runs', 'release')); });
+  for (const a of [['runs', '--process', 'release'], ['followups', '--process', 'release']]) {
+    const r = agree(readCli(a[0], dir, ...a.slice(1), '--json'));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'runs/release' && p.kind === 'link'), a.join(' ') + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
 run();

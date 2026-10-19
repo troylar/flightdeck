@@ -3426,6 +3426,8 @@
     mission: function () { if (state.view === 'run') savePanes(); setView('mission'); render(); window.scrollTo(0, 0); },
     receipt: function () { setView('receipt'); render(); window.scrollTo(0, 0); },
     'exit-mission': function () { setView('run'); render(); },
+    /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
+    'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
     'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-note': function (id, b) { var r = ctx.run(), n = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; if (!n) return; openLightbox(imagesOf(n), +b.dataset.i); },

@@ -14,8 +14,10 @@ const APP = path.join(__dirname, '..', 'dist', 'flightdeck.html');
 const NAME = 'flightdeck.html', OLD = 'preflight.html', SKILLS = '.flightdeck/skills', AGENTS = 'AGENTS.md';
 const BEGIN = '<!-- flightdeck:begin -->', END = '<!-- flightdeck:end -->';
 /* --check exit codes, for scripts: nothing to do, updates to install, files that need a person (or an assistant) to merge.
-   export: 0 a complete pack, 4 a partial pack (made, with what's unresolved listed), 1 no pack (any partial file removed). */
-const EXIT = { none: 0, error: 1, updates: 2, merge: 3, partial: 4 };
+   export: 0 a complete pack, 4 a partial pack (made, with what's unresolved listed), 1 no pack (any partial file removed).
+   Reading for other apps (processes, process, runs, run, next, followups): 0 complete, 4 partial (data printed, every
+   problem listed), 1 no data, 5 no such process, version or run. */
+const EXIT = { none: 0, error: 1, updates: 2, merge: 3, partial: 4, notFound: 5 };
 
 class Refused extends Error {}
 /* A file that changed between the moment install read it and the moment it would replace it. */
@@ -378,10 +380,10 @@ function backup(src, toArg) {
 }
 function size(n) { return n < 1024 ? n + ' bytes' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
 
-/* ---------- flightdeck export: an evidence pack (docs/evidence.md) ---------- */
+/* ---------- The engine: export and reading for other apps run the app's own rules ---------- */
 /* The app's own rules, from this installed package's dist/flightdeck.html and nowhere else (never a team folder's copy):
    its core and storage blocks, run in node:vm without the screens. */
-function engine() {
+function loadEngine() {
   const html = app(), block = (id) => {
     const m = new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html);
     if (!m) fail('the app file in this install has no ' + id + ' block (' + APP + '). Reinstall the package.');
@@ -395,10 +397,18 @@ function engine() {
 /* The team folder for the collector: list, read, stat and blob, read-only, and never through a link. Every folder on the
    way to a path is checked with lstat (a linked folder is refused), a link in a listing is reported as a link and never
    opened, and a file is opened without following a link and must be the very file lstat saw (device and inode), so one
-   swapped for a link after it was listed is refused too. links collects what was skipped. */
-function readAdapter(root) {
-  const NOFOLLOW = fs.constants.O_NOFOLLOW || 0, links = [];
+   swapped for a link after it was listed is refused too. links collects what was skipped. opts.maxBytes (or a read's own
+   { maxBytes }) caps what read() takes in: a bigger file is sized from its open handle and refused before any byte is
+   read, and named in skipped. */
+function readAdapter(root, opts) {
+  const NOFOLLOW = fs.constants.O_NOFOLLOW || 0, links = [], skipped = [], max = (opts && opts.maxBytes) || 0;
   function linkErr(rel) { const e = new Refused('refusing to read through a link: ' + rel); e.link = true; if (links.indexOf(rel) < 0) links.push(rel); return e; }
+  function skipErr(rel, bytes, cap) {
+    const e = new Refused(rel + ' is ' + size(bytes) + ', over the ' + size(cap) + ' this command reads');
+    e.skipped = true; e.size = bytes;
+    if (!skipped.some((x) => x.path === rel)) skipped.push({ path: rel, size: bytes, cap });
+    return e;
+  }
   function partsOf(p) {
     const a = p ? String(p).split('/') : [];
     a.forEach((x) => { if (!x || x === '.' || x === '..' || /[\\\u0000]/.test(x)) fail('refusing an unexpected path: ' + p); });
@@ -448,7 +458,7 @@ function readAdapter(root) {
     } catch (e) { fs.closeSync(fd); throw e; }
   }
   return {
-    links,
+    links, skipped,
     list: (p) => new Promise((res) => {
       const a = partsOf(p), dir = dirAt(a);
       if (!dir) return res([]);
@@ -465,16 +475,20 @@ function readAdapter(root) {
       try { f = fileAt(p); } catch (e) { if (!e.link) throw e; }
       res(f ? { size: f.st.size, mtime: f.st.mtimeMs } : null);
     }),
-    read: (p) => new Promise((res) => {
+    read: (p, ro) => new Promise((res) => {
       const o = open(p);
       if (!o) return res(null);
+      const cap = (ro && ro.maxBytes) || max;
+      if (cap && o.st.size > cap) { fs.closeSync(o.fd); throw skipErr(p, o.st.size, cap); }
       /* Decoded as a browser decodes a file (TextDecoder: UTF-8, a byte-order mark dropped), so every reader sees the same text. */
       try { const data = fs.readFileSync(o.fd); res({ text: new TextDecoder('utf-8').decode(data), size: data.length, mtime: o.st.mtimeMs }); } finally { fs.closeSync(o.fd); }
     }),
     /* A file to read a piece at a time, from the descriptor opened above; close() when done. */
-    blob: (p) => new Promise((res) => {
+    blob: (p, ro) => new Promise((res) => {
       const o = open(p);
       if (!o) return res(null);
+      const cap = (ro && ro.maxBytes) || max;
+      if (cap && o.st.size > cap) { fs.closeSync(o.fd); throw skipErr(p, o.st.size, cap); }
       let closed = false;
       res({
         size: o.st.size,
@@ -518,7 +532,7 @@ async function exportPack(opt) {
   const dir = folderArg(opt.folder, 'export');
   if (!opt.run && !opt.process) fail('say which runs: --run <process>/<run id>, or --process <process> --from YYYY-MM-DD --through YYYY-MM-DD');
   if (opt.process && (!opt.from || !opt.through)) fail('give the days with --from YYYY-MM-DD and --through YYYY-MM-DD (both included)');
-  const { PF, version } = engine(), E = PF.evidence;
+  const { PF, version } = loadEngine(), E = PF.evidence;
   const tz = opt.tz || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   if (!E.zoneOk(tz)) fail('"' + tz + '" isn\'t a time zone this computer knows. Use a name like Europe/London or America/New_York.');
   const out = outFolder(expand(opt.out || path.join(require('os').homedir(), 'Flightdeck evidence')), withinOf(dir));
@@ -571,6 +585,147 @@ async function exportPack(opt) {
   }
 }
 
+/* ---------- Reading for other apps: processes, process, runs, run, next, followups --json (docs/apps.md) ---------- */
+const READS = ['processes', 'process', 'runs', 'run', 'next', 'followups'];
+/* What one read takes in at most: a record past this is named (skipped), never read. */
+const READ_MAX = 16 * 1048576;
+/* Where each part of loadAll lives, for naming a part that couldn't be read. */
+const PART_PATH = { people: 'people.json', drafts: 'maps/drafts/', publications: 'publications/', runs: 'runs/', legacy: 'runs/', skills: 'skills/', proposals: 'proposals/',
+  'step types': 'step-types/', 'Jira workflows': 'jira/workflows.json', 'sign-offs': 'validations/', corrections: 'corrections/', 'follow-ups': 'followups/' };
+const PROC_ID = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN_KEY = /^([a-z0-9][a-z0-9-]{0,59})\/([a-z0-9-]{1,40})$/i;
+
+function fileWhy(w) { return 'This file ' + String(w || 'couldn\'t be read') + '.'; }
+/* A run this copy can only list by name: saved by a newer Flightdeck (its format, or fields this copy doesn't know). */
+function newerRun(PF, r) { return !!r._unrunnable && (r.snapshot === '' || r._unrunnable.indexOf(PF.run.NEWER) === 0); }
+function runProblems(PF, r) {
+  const out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/';
+  if (newerRun(PF, r)) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
+  if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
+  return out;
+}
+/* Every problem a whole-folder read found, one per file or folder, before each command keeps those in its scope. */
+function folderProblems(PF, d, adapter) {
+  const A = PF.appjson, out = [];
+  Object.keys(d.failed || {}).forEach((part) => out.push({ path: PART_PATH[part] || part, kind: 'unreadable', why: 'This part of the folder couldn\'t be read: ' + d.failed[part] + '.' }));
+  (d.unreadable || []).forEach((u) => out.push({ path: u.path, kind: u.kind || 'unreadable', why: fileWhy(u.why) }));
+  (d.nofile || []).forEach((n) => out.push({ path: n.path, kind: 'nofile', why: 'The run folder has no run.json.' }));
+  (d.malformed || []).forEach((m) => out.push({ path: m.path, kind: m.kind || 'malformed', why: fileWhy(m.why) }));
+  (d.fuUnread || []).forEach((u) => out.push({ path: 'followups/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a follow-up decision this copy can read.' }));
+  (d.corrUnread || []).forEach((u) => out.push({ path: u.dir + '/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a decision this copy can read.' }));
+  (d.processes || []).forEach((proc) => (proc.pubs || []).forEach((p) => { if (!p.ok) { const x = A.pubProblem(p); out.push({ path: 'publications/' + proc.process + '/' + p.folder + '/', kind: x.kind, why: x.why }); } }));
+  (d.runs || []).forEach((r) => out.push(...runProblems(PF, r)));
+  return out.concat(adapterProblems(adapter));
+}
+function adapterProblems(adapter) {
+  return (adapter.links || []).map((p) => ({ path: p, kind: 'link', why: 'A link. Flightdeck never reads through links.' }))
+    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + size(x.size) + '; the limit is ' + size(x.cap) + ').' })));
+}
+/* Only the problems under these paths (or exactly at one of exact), each once; a file named as a link or as too large isn't
+   named again as unreadable. */
+function scoped(list, prefixes, exact) {
+  const keep = list.filter((p) => prefixes.some((x) => p.path.indexOf(x) === 0) || (exact || []).indexOf(p.path) >= 0);
+  const special = {}; keep.forEach((p) => { if (p.kind === 'link' || p.kind === 'skipped') special[p.path] = true; });
+  const seen = {};
+  return keep.filter((p) => {
+    if (special[p.path] && p.kind !== 'link' && p.kind !== 'skipped') return false;
+    const k = p.path + '\u0000' + p.kind; if (seen[k]) return false; seen[k] = true; return true;
+  });
+}
+
+/* eng: { PF, version } (loadEngine()). adapter: a folder with list, read, stat and blob (and links and skipped, as the
+   command line's has); it's only ever read through PF.repo.readOnly. req: { cmd, proc, key, version, folder, status, person,
+   contract }. Resolves to { code, json }: an envelope (exit 0 or 4) or an error object (exit 1 or 5). */
+async function readData(eng, adapter, req) {
+  const PF = eng.PF, A = PF.appjson, repo = PF.repo, F = PF.followups, app = eng.version || '';
+  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why) });
+  const notFound = (why) => err(EXIT.notFound, 'not-found', why);
+  if (req.contract != null && A.VERSIONS.indexOf(+req.contract) < 0) return err(EXIT.error, 'contract', 'This copy of Flightdeck reads contract ' + A.VERSIONS.join(', ') + ' only (' + A.CONTRACT + '). Ask for one of those, or update Flightdeck.');
+  const done = (problems, data, readAt) => { const e = A.envelope(app, readAt || new Date().toISOString(), problems, data); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
+  const ro = repo.readOnly(adapter, 'Reading for other apps');
+  if (req.cmd === 'run' || req.cmd === 'next') {
+    const m = RUN_KEY.exec(req.key || '');
+    const one = await repo.readRunOnly(ro, m[1], m[2]);
+    if (!one.found) return notFound('There\'s no run ' + req.key + ' in the team folder.');
+    const r = one.run, key = m[1] + '/' + m[2], problems = [];
+    if (one.nofile) problems.push({ path: 'runs/' + key + '/run.json', kind: 'nofile', why: 'The run folder has no run.json.' });
+    one.bad.forEach((b) => problems.push({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
+    one.fuUnread.forEach((u) => problems.push({ path: u.path, kind: u.kind || 'malformed', why: fileWhy(u.why) }));
+    if (one.peopleWhy) problems.push({ path: 'people.json', kind: one.peopleKind || 'unreadable', why: fileWhy(one.peopleWhy) });
+    const prefixes = ['runs/' + key + '/', 'followups/' + m[1] + '/' + m[2] + '.'], exact = ['people.json', 'followups/', 'followups/' + m[1], 'followups/' + m[1] + '/', 'runs/', 'runs/' + m[1], 'runs/' + key];
+    let usable = r && !newerRun(PF, r);
+    if (r) {
+      problems.push(...runProblems(PF, r));
+      prefixes.push('publications/' + r.process + '/' + r.folder + '/'); exact.push('publications/' + r.process + '/' + r.folder);
+      /* The version's own record says it can't be used here: named at the version, as processes does. */
+      if (usable && r._unrunnable && !PF.publish.unrunnable(r.snapshot, r.types)) problems.push({ path: 'publications/' + r.process + '/' + r.folder + '/', kind: r._unrunnable === PF.publish.NEWER ? 'newer' : 'unusable', why: r._unrunnable });
+    }
+    const all = scoped(problems.concat(adapterProblems(adapter)), prefixes, exact);
+    const nameOf = A.names(one.people);
+    if (req.cmd === 'run') return done(all, usable ? A.run(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
+    return done(all, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
+  }
+  const d = await repo.loadAll(ro, { readOnly: true, explain: true, deep: true });
+  const nameOf = A.names(d.people), every = folderProblems(PF, d, adapter);
+  const runs = d.runs.filter((r) => !newerRun(PF, r));
+  const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
+  if (req.proc && !known(req.proc)) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
+  /* A command's scope, as folders: a problem in one, or at the folder itself or any folder above it (a part that failed, a
+     linked folder), counts. */
+  const above = (x) => x.split('/').map((_, i, a) => a.slice(0, i + 1).join('/'));
+  const within = (dirs) => scoped(every, dirs.map((x) => x + '/'), [].concat(...dirs.map(above)).reduce((o, y) => o.concat([y, y + '/']), []));
+  const sub = (top) => top + (req.proc ? '/' + req.proc : '');
+  if (req.cmd === 'processes') return done(within(['publications']), A.processes(d.processes), d.readAt);
+  if (req.cmd === 'process') {
+    const proc = d.processes.filter((x) => x.process === req.proc)[0];
+    if (!proc || !proc.pubs.length) return notFound('There\'s no published checklist for ' + req.proc + ' in the team folder.');
+    let pub = null;
+    const vOf = (p) => (p.info && typeof p.info.version === 'number' ? p.info.version : PF.publish.versionOf(p.folder));
+    if (req.folder) pub = proc.pubs.filter((p) => p.folder === req.folder)[0];
+    else if (req.version != null) pub = proc.pubs.filter((p) => vOf(p) === +req.version).sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0) || (a.folder < b.folder ? -1 : 1))[0];
+    else pub = proc.index.latest || proc.pubs.slice().sort((a, b) => (vOf(b) || 0) - (vOf(a) || 0))[0];
+    if (!pub) return notFound('There\'s no version ' + (req.folder || req.version) + ' of ' + req.proc + ' in the team folder.');
+    return done(within(['publications/' + req.proc]), A.process(proc, pub), d.readAt);
+  }
+  if (req.cmd === 'runs') {
+    const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
+    const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
+    const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
+    return done(scoped(within([sub('runs'), 'proposals']).concat(every.filter((p) => p.path === 'people.json')), [''], []), A.runs(list, plans, nameOf), d.readAt);
+  }
+  /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
+  const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));
+  return done(scoped(within([sub('followups'), sub('runs')]).concat(every.filter((p) => p.path === 'people.json')), [''], []), A.followUps(items, nameOf), d.readAt);
+}
+
+/* The command line around readData: flags, the folder, the engine, and JSON out. Usage problems before any reading exit 1. */
+async function readMain(argv) {
+  const VAL = ['--process', '--status', '--person', '--version', '--folder', '--contract'], val = {};
+  for (const f of VAL) { const i = argv.indexOf(f); if (i >= 0) { if (!argv[i + 1] || argv[i + 1].startsWith('--')) fail('say what goes after ' + f); val[f] = argv[i + 1]; } }
+  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  const cmd = args[0];
+  if (!argv.includes('--json')) fail(cmd + ' prints JSON for other apps. Add --json, for example: flightdeck ' + cmd + ' <team folder> --json');
+  const usage = (why) => ({ out: JSON.stringify(failureJson(null, 'usage', why), null, 2), code: EXIT.error });
+  const req = { cmd, proc: val['--process'] || null, status: val['--status'] || null, person: val['--person'] || null, version: val['--version'] || null, folder: val['--folder'] || null, contract: val['--contract'] || null };
+  if (cmd === 'process') { req.proc = args[2]; if (!req.proc || !PROC_ID.test(req.proc)) return usage('say which process, for example: flightdeck process <team folder> release --json'); }
+  if (cmd === 'run' || cmd === 'next') { req.key = args[2]; if (!req.key || !RUN_KEY.test(req.key)) return usage('say which run as <process>/<run id>, for example: flightdeck ' + cmd + ' <team folder> release/k3m9p2q8 --json'); }
+  if (req.proc && !PROC_ID.test(req.proc)) return usage('a process ID is lowercase letters, numbers and dashes.');
+  if (req.version != null && !/^\d{1,6}$/.test(req.version)) return usage('--version is a version number, like 3.');
+  if (req.folder != null && !/^v\d+-[a-z0-9]+$/.test(req.folder)) return usage('--folder is a version folder, like v3-k3m9p2q8.');
+  if (req.contract != null && !/^\d{1,4}$/.test(req.contract)) return usage('--contract is a contract number, like 1.');
+  const statuses = cmd === 'runs' ? ['running', 'planned', 'ended', 'all'] : cmd === 'followups' ? ['open', 'all'] : null;
+  if (req.status != null && (!statuses || statuses.indexOf(req.status) < 0)) return usage(statuses ? '--status is one of: ' + statuses.join(', ') + '.' : '--status works with runs and followups.');
+  let eng, dir;
+  try { eng = loadEngine(); dir = folderArg(args[1], cmd); }
+  catch (e) { return { out: JSON.stringify(failureJson(eng, 'failed', e.message), null, 2), code: EXIT.error }; }
+  try {
+    const r = await readData(eng, readAdapter(dir, { maxBytes: READ_MAX }), req);
+    return { out: JSON.stringify(r.json, null, 2), code: r.code };
+  } catch (e) {
+    return { out: JSON.stringify(failureJson(eng, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e))), null, 2), code: EXIT.error };
+  }
+}
+function failureJson(eng, kind, why) { return eng ? eng.PF.appjson.failure(eng.version, kind, why) : { contract: 'flightdeck-read/1', app: versionOf(app()) || '', error: { kind, why } }; }
+
 const HELP = `flightdeck: team process checklists, in one HTML file
 
   flightdeck open                     open the app (it starts on built-in examples)
@@ -584,6 +739,19 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck export <team folder> --process <process> --from YYYY-MM-DD --through YYYY-MM-DD [--tz Area/City]
                                       make one of the runs started on those days, both included, in --tz
                                       (this computer's time zone unless you say)
+  flightdeck processes <team folder> --json
+                                      for other apps: every process and its versions, as JSON
+  flightdeck process <team folder> <process> [--version N | --folder v3-...] --json
+                                      one version's phases, steps, gates and evidence (the latest usable one
+                                      unless you say)
+  flightdeck runs <team folder> [--process <id>] [--status running|planned|ended|all] --json
+                                      runs and planned runs
+  flightdeck run <team folder> <process>/<run id> --json
+                                      one run: each step's state, who and when, its evidence, gates, follow-ups
+  flightdeck next <team folder> <process>/<run id> [--person <id>] --json
+                                      what's waiting in a run and on whom (with --person, that person's next step)
+  flightdeck followups <team folder> [--process <id>] [--status open|all] --json
+                                      every follow-up and what became of it
   flightdeck path                     print where the app file is
   flightdeck version                  print this version
 
@@ -592,6 +760,10 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   --app-only  install only ${NAME}, not AGENTS.md or the skills
   --force     replace a newer app, an unrecognized file, or contract files your team changed
   --no-attachments   export: list attachments with their sizes instead of packing them
+
+The JSON commands only read: they never change a file in the team folder. Exit code 0: complete; 4: partial (the data
+is printed, and "problems" names every file or folder that couldn't be read); 1: no data; 5: no such process, version or
+run. People-directory email fields are omitted. See docs/apps.md in the Flightdeck repository.
 
 export never changes the team folder and never writes a pack into it. It prints the pack's SHA-256: keep it somewhere
 separate. Exit code 0: a complete pack; 4: a partial pack (made, with what changed or is missing listed); 1: no pack.
@@ -603,6 +775,9 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
 
 function main(argv) {
   const out = [];
+  /* Reading for other apps has flags of its own (--version takes a number there), so it's parsed apart. */
+  const first = argv.filter((a) => !a.startsWith('--'))[0];
+  if (READS.indexOf(first) >= 0 && !argv.includes('--help')) return readMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */
@@ -720,4 +895,4 @@ if (require.main === module) {
     if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
   } catch (e) { failed(e); }
 }
-module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, engine };
+module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, EXIT };
