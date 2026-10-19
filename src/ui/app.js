@@ -541,7 +541,6 @@
     var mem = new PF.fs.MemoryFS(LS + ':examples', null);
     /* A browser that refuses storage still gets the examples, kept in this tab only; a failed seed shows what failed. */
     var seeded = Object.keys(mem.files).length ? Promise.resolve() : Promise.resolve().then(function () { return seedExamples(mem); }).catch(function (e) { say(e && e.message || 'The examples couldn\'t be set up.', 'warn'); });
-    if (mem.volatile) say('This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. To keep your work, use a team folder.', 'warn');
     var useMem = function () { return seeded.then(function () { return useFs(mem); }); };
     if (!canFolder) return useMem();
     return handles.get().then(function (rec) {
@@ -780,7 +779,10 @@
   /* ---------- rendering ---------- */
   var app = document.getElementById('app'), topEl = document.getElementById('top'), overlayEl = document.getElementById('overlay');
   /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
-  function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
+  function say(text, kind, act) {
+    /* In a tab that can't keep anything, a save says where it went. */
+    if (text && kind === 'good' && state.fs && state.fs.volatile) text = text.replace(/^Saved( \{[^}]*\}| your draft)?(?! for this tab only)/, 'Saved$1 for this tab only');
+    state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
   function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
   function renderTop() {

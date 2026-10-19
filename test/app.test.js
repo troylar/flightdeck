@@ -626,6 +626,29 @@ rule('App: a browser that refuses all storage still opens the examples, says the
   assert.strictEqual(paneVar(app, 'tf'), start + 16);
 });
 
+rule('App: with storage and the folder memory both refused, the tab-only warning stays on every screen, and saves say they\'re for this tab only', async () => {
+  const deny = () => { throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
+  const app = boot({ storageThrows: true, firstRun: true, picker: {}, indexedDB: { open: deny } }); await app.tick(80);
+  const banner = () => /id="tab-only"[^>]*>[\s\S]*?only while this tab is open/.test(app.html());
+  assert.ok(/couldn(&#39;|')t read which team folder you used last/.test(app.html()), 'the folder-memory message is shown');
+  assert.ok(banner(), 'and the tab-only warning with it');
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  assert.ok(banner(), 'on Home');
+  app.click('nav', 'types'); await app.tick();
+  assert.ok(banner(), 'on Step types');
+  app.click('new-type'); await app.tick();
+  app.input('tf-label', 'Risk review'); await app.tick(40);
+  assert.ok(banner(), 'in the step-type editor');
+  app.click('type-save'); await app.tick(120);
+  assert.ok(app.fs.files['step-types/risk.review.json'], 'saved in this tab');
+  assert.ok(/Saved \{risk\.review\} for this tab only\./.test(app.html()) && banner(), 'the save says it is for this tab only, and the warning stays');
+  app.click('dismiss'); await app.tick();
+  assert.ok(banner(), 'dismissing the message leaves the warning');
+  app.click('type-done'); await app.tick(); app.click('nav', 'processes'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  assert.ok(banner(), 'in the draft editor');
+});
+
 rule('App: Undo and Redo keep what\'s typed in an open Add a step box, and refuse when the step it goes after would disappear', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md', PF = app.PF;
   app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();

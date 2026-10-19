@@ -77,6 +77,7 @@
       '<button type="button" class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '" title="Saving never publishes. Choose Done, then publish it."' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving && saving !== 'restore' ? 'Saving…' : 'Save draft') + '</button></div></header>';
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
+    al += V.tabOnly(ctx);
     if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span><b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
@@ -231,6 +232,7 @@
       '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button></div></header>';
     /* Messages stay in view under the header. The top bar is hidden here, so its "choose who you are" note isn't shown. */
     var al = (why ? '<p class="tf-why" id="tf-save-why">' + esc(why) + '</p>' : '');
+    al += V.tabOnly(ctx);
     if (st.msg) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (f.leaving) al += '<div class="notice warn" role="alert" aria-labelledby="tf-leave-h"><span id="tf-leave-h"><b>This step type has changes that aren\'t saved.</b> Save them, or leave without them.</span><span class="row"><button type="button" class="btn go" data-act="type-save">Save step type</button><button type="button" class="mini" data-act="type-cancel">Leave without saving</button><button type="button" class="mini" data-act="type-stay">Keep editing</button></span></div>';

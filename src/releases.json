@@ -33,7 +33,7 @@
         "area": "Examples",
         "title": "Opens in a browser that blocks site storage",
         "before": "In a browser set to block site data, Flightdeck stopped while setting up the examples and showed nothing.",
-        "now": "The examples open, and a message says they and your changes to them last only while the tab is open. A team folder still keeps everything.",
+        "now": "The examples open with a warning on every screen that they and your changes to them last only while the tab is open, and saves say Saved for this tab only. A team folder still keeps everything.",
         "where": "Opening Flightdeck"
       }
     ]

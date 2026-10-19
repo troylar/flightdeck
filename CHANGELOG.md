@@ -14,7 +14,7 @@ Make the editors' side panels wider or narrower.
 ### Fixed
 
 - **The step-type form has its room again** (Step types). The form takes most of the page and the preview is a narrower column beside it, as intended. *Where:* Step types › a step type
-- **Opens in a browser that blocks site storage** (Examples). The examples open, and a message says they and your changes to them last only while the tab is open. A team folder still keeps everything. *Where:* Opening Flightdeck
+- **Opens in a browser that blocks site storage** (Examples). The examples open with a warning on every screen that they and your changes to them last only while the tab is open, and saves say Saved for this tab only. A team folder still keeps everything. *Where:* Opening Flightdeck
 
 ## 1.16.0 · Oct 19, 2026
 

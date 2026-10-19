@@ -11,8 +11,13 @@ PF.vk = (function () {
     var p = person(ctx, id), ini = p ? p.initials : String(id || '?').slice(0, 2).toUpperCase();
     return '<span class="avatar' + (lg ? ' lg' : '') + '" title="' + esc(nameOf(ctx, id)) + '">' + esc(ini) + '</span>';
   }
+  /* The examples in a browser that refuses storage live in this tab only. Said on every screen, apart from messages, so no
+     other message can replace it. */
+  function tabOnly(ctx) {
+    return ctx.state.fs && ctx.state.fs.volatile ? '<div class="notice warn" id="tab-only" role="note"><span><b>Kept in this tab only.</b> This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. To keep your work, use a team folder.</span></div>' : '';
+  }
   function notices(ctx, opts) {
-    var h = '';
+    var h = tabOnly(ctx);
     /* A quiet message (a check said back, Copied) is only announced, never shown as a notice. */
     if (ctx.state.msg && !ctx.state.msg.quiet) h += '<div class="notice ' + (ctx.state.msg.kind || '') + '" role="status"><span>' + esc(ctx.state.msg.text) + '</span><span class="row">' + (ctx.state.msg.act ? '<button class="btn" data-act="' + esc(ctx.state.msg.act) + '"' + (ctx.state.msg.id ? ' data-id="' + esc(ctx.state.msg.id) + '"' : '') + '>' + esc(ctx.state.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
     var cur = /^(run|receipt|finish|mission)$/.test(ctx.state.view) && ctx.run();
@@ -71,7 +76,7 @@ PF.vk = (function () {
       (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
   }
   function tagChips(tags) { return (tags || []).length ? '<span class="tags">' + tags.map(function (t) { return '<span class="tag">#' + esc(t) + '</span>'; }).join('') + '</span>' : ''; }
-  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips };
+  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips };
 })();
 (function () {
   'use strict';
@@ -181,6 +186,6 @@ PF.vk = (function () {
   }
 
   V.undoBar = undoBar;
-  V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
+  V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   V.top = top; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;
 })();
