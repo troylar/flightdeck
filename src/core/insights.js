@@ -137,6 +137,7 @@ PF.insights = (function () {
      the one before it ended, which only a clock set back can do (then the run's times can't be trusted and it's left out).
      The pause still under way runs on to whatever end is asked about. { list: [[from, to]] } or { why, whose }. */
   function pausesOf(r, now) {
+    if (bad(r, 'pauses') || bad(r, 'paused')) return { why: 'time' };
     var list = [], last = -Infinity, ps = r.pauses || [], i, f, e;
     for (i = 0; i < ps.length; i++) {
       f = at(ps[i] && ps[i].from, now, 'recorder'); if (f.why) return f;
@@ -190,8 +191,9 @@ PF.insights = (function () {
     return ev.current === 'na' ? 'hit' : 'clean';
   }
   var STATE_OUTCOME = { completed: 'Completed', stopped: 'Stopped early', cancelled: 'Cancelled' };
-  function isEnded(r) { return !!r.ended || own(STATE_OUTCOME, r.state); }
-  function outcomeOf(r) { return r.ended ? r.ended.outcome || 'Ended' : STATE_OUTCOME[r.state] || ''; }
+  /* An end whose time couldn't be read was dropped on load, but the file said how the run ended (_badTimes.ended). */
+  function isEnded(r) { return !!r.ended || own(STATE_OUTCOME, r.state) || bad(r, 'ended'); }
+  function outcomeOf(r) { return r.ended ? r.ended.outcome || 'Ended' : STATE_OUTCOME[r.state] || (bad(r, 'ended') ? String(r._badTimes.ended) : ''); }
   /* A Completed run's active time, { ms, at } or { why, whose }; null for any other run. */
   function durationOf(r, now) {
     if (outcomeOf(r) !== 'Completed') return null;
@@ -233,9 +235,11 @@ PF.insights = (function () {
      and so can't say which. In review now; the run's log (run.json keeps its latest 300 entries) says "Reopened gate" or
      settles it more than once; or it settled after the next gate did. Reopening deletes a gate's record and passing it again
      writes a new one, so the record alone can't tell, and the log names gates only by title. */
+  /* The run's log, with any entries dropped on load because their time couldn't be read: what they say still counts. */
+  function logOf(r) { return bad(r, 'log') ? (r.log || []).concat(r._badTimes.log) : r.log || []; }
   function reopenedGates(r, map, now) {
     var out = {}, T = titlesOf(map), settled = Object.create(null), again = Object.create(null);
-    (r.log || []).forEach(function (l) {
+    logOf(r).forEach(function (l) {
       var g = logGate(l, T.list); if (!g) return;
       if (g[0] === 'Reopened') again[g[1]] = true; else if (g[0] !== 'Failed') settled[g[1]] = (settled[g[1]] || 0) + 1;
     });
@@ -284,7 +288,7 @@ PF.insights = (function () {
   function gateKinds(r, map, pi) {
     var g = map.phases[pi].gate, rec = own(r.gates, g.id) ? r.gates[g.id] : null, T = titlesOf(map), shared = T.by[g.title].length > 1;
     var logFailed = false, logSeen = false;
-    (r.log || []).forEach(function (l) { var x = logGate(l, T.list); if (x && x[1] === g.title) { logSeen = true; if (x[0] === 'Failed') logFailed = true; } });
+    logOf(r).forEach(function (l) { var x = logGate(l, T.list); if (x && x[1] === g.title) { logSeen = true; if (x[0] === 'Failed') logFailed = true; } });
     var waived = !!rec && rec.s === 'waived', failedNow = !!rec && rec.s === 'failed';
     if (!rec && (!logSeen || shared)) return { reached: false, shared: shared && logSeen };
     return { reached: true, waived: waived, failed: failedNow || (logFailed && !shared), shared: !failedNow && logFailed && shared };

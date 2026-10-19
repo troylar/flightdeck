@@ -16,7 +16,7 @@
         "area": "Insights",
         "title": "How runs go counts runs, one version at a time, and says what it left out",
         "before": "Numbers mixed versions when phases shared a name, counted every answer instead of every run, and lost blocks whose answers were archived. Runs that couldn't be read were counted without a word.",
-        "now": "Each number belongs to one version, counts runs, and shows how many runs it's out of, as a percentage only from 5 runs. It says which runs it couldn't count and why, and which runs' history is incomplete. Unreadable or future times and reopened gates are left out of times. Choose a number to see the runs behind it. Times show as dots on a line and as a table.",
+        "now": "Each number belongs to one version, counts runs, and says how many runs it's out of and which it couldn't count, and why. Unreadable or future times and reopened gates are left out of times. Choose a number to see its runs. Known limit: a time that can't be read is dropped when any copy saves the run, as before, so it's left out only until then.",
         "where": "A process › How runs go, and the flight plan"
       },
       {

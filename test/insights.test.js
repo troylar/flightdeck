@@ -362,25 +362,23 @@ rule('Bad times survive the run file\'s cleanup as bad times: a start that can\'
   const badStart = R.sanitize(Object.assign(JSON.parse(JSON.stringify(play())), { created: 'garbage' }));
   const badEndRaw = JSON.parse(JSON.stringify(play())); badEndRaw.ended.at = 'garbage';
   const badEnd = R.sanitize(badEndRaw);
-  assert.ok(badEnd.ended && badEnd.ended.at === null && badEnd.state === 'completed', 'set-up: cleanup keeps the outcome without a time');
+  assert.ok(!badEnd.ended && badEnd.state === 'completed' && badEnd._badTimes.ended === 'Completed', 'set-up: cleanup drops the end, as 1.16 does, and says so for this load');
   const res = forX({ runs: [badStart, badEnd, play()] });
   same([res.duration.n, res.duration.of, res.runs.running, res.pool.n], [1, 3, 0, 3], 'neither is a 56-year run, and the one without an end isn\'t "still going"');
   assert.ok(res.duration.excluded.some(e => /couldn't be read/.test(e.text) && e.keys.length === 2), JSON.stringify(res.duration.excluded));
   same(res.runs.outcomes.Completed.length, 3);
 });
 
-rule('R.sanitize keeps an outcome whose end time can\'t be read, without a time, so load, save and load again keeps the run ended', () => {
+rule('A run whose end time can\'t be read counts as ended, by what its file says, until a copy saves it', () => {
   const raw = JSON.parse(JSON.stringify(play())); raw.ended.at = '2026-13-45'; raw.state = 'running';
   const r = R.sanitize(raw);
-  same([r.ended.outcome, r.ended.at, r.state, r._badTimes], ['Completed', null, 'completed', { ended: true }]);
-  const saved = JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k[0] !== '_'))));
-  const again = R.sanitize(saved);
-  same([again.ended.outcome, again.ended.at, again.state, again._badTimes, again._unrunnable], ['Completed', null, 'completed', { ended: true }, undefined], 'the same after a save');
-  [r, again].forEach(x => {
-    const res = forX({ runs: [x, play()] });
-    same([res.runs.running, res.pool.n, res.duration.n, res.duration.of, res.runs.outcomes.Completed.length], [0, 2, 1, 2, 2]);
-    assert.ok(res.duration.excluded.some(e => /a time couldn't be read/.test(e.reason)), JSON.stringify(res.duration.excluded));
-  });
+  same([r.ended, r.state, r._badTimes], [null, 'running', { ended: 'Completed' }], '1.16\'s shape, flagged for this load');
+  const res = forX({ runs: [r, play()] });
+  same([res.runs.running, res.pool.n, res.duration.n, res.duration.of, res.runs.outcomes.Completed.length], [0, 2, 1, 2, 2]);
+  assert.ok(res.duration.excluded.some(e => /a time couldn't be read/.test(e.reason)), JSON.stringify(res.duration.excluded));
+  // Known limit: once any copy saves it, the end is gone, as in every earlier version.
+  const again = R.sanitize(resaved(r));
+  same([again.ended, again._badTimes], [null, undefined]);
   assert.strictEqual(R.sanitize(JSON.parse(JSON.stringify(play())))._badTimes, undefined, 'a clean file has no flag');
 });
 
@@ -516,36 +514,33 @@ rule('Property: for random runs with random bad times, every number\'s counted, 
 
 // ---------- Review of 13caeb6 ----------
 const resaved = r => JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k[0] !== '_'))));
-rule('Any time cleanup can\'t read is kept as no time, never dropped with its record, so Insights still leaves it out after a save and a reload', () => {
+rule('Times cleanup drops are flagged from the file as read, so Insights leaves them out until a copy saves the run', () => {
   const raw = JSON.parse(JSON.stringify(play()));
   raw.pauses = [{ from: at(5), to: 'garbage', by: 'a', reason: 'x' }];
   const r = R.sanitize(raw);
-  same([r.pauses.length, r.pauses[0].to, !!r._badTimes.pauses], [1, null, true], 'the pause is kept, without its end');
-  [r, R.sanitize(resaved(r))].forEach((x, i) => {
-    const res = forX({ runs: [x, play()] });
-    same([res.duration.n, res.duration.of], [1, 2], 'not a 30-minute run with no pause' + (i ? ', after a save' : ''));
-    assert.ok(res.duration.q.excluded.some(g => g.why === 'time'), JSON.stringify(res.duration.q.excluded));
-  });
-  // A log entry whose time can't be read keeps what it says, so a reopen is still found.
+  same([r.pauses.length, r._badTimes.pauses], [0, true], 'the pause is dropped, as 1.16 does, and flagged');
+  const res = forX({ runs: [r, play()] });
+  same([res.duration.n, res.duration.of], [1, 2], 'not a 30-minute run with no pause');
+  assert.ok(res.duration.q.excluded.some(g => g.why === 'time'), JSON.stringify(res.duration.q.excluded));
+  assert.strictEqual(forX({ runs: [R.sanitize(resaved(r)), play()] }).duration.n, 2, 'known limit: after a save the pause is gone and the run is timed');
+  // A log entry whose time can't be read still says what it said, for this load: a reopen is still found.
   const lr = play({ running: true }), m = R.mapOf(lr);
   R.reopen(lr, m, 0, 'a', at(12)); R.pass(lr, m, 0, 'a', at(13)); R.pass(lr, m, 1, 'a', at(30)); R.end(lr, m, 'Completed', 'a', 'A', at(30));
-  const lraw = JSON.parse(JSON.stringify(lr)); lraw.log.forEach(l => { if (/^Reopened/.test(l.what)) l.at = 'garbage'; });
-  [R.sanitize(lraw), R.sanitize(resaved(R.sanitize(lraw)))].forEach(x => {
-    assert.ok(x.log.some(l => /^Reopened/.test(l.what) && l.at === null));
-    assert.ok(forX({ runs: [x] }).phases[0].q.excluded.some(g => g.why === 'reopened'), 'the reopen is still found');
-  });
-  // A pause under way whose time can't be read stays a pause, and leaves a running run's times out.
+  const lraw = JSON.parse(JSON.stringify(lr)); lraw.log.forEach(l => { if (/^(Reopened|Passed)/.test(l.what)) l.at = 'garbage'; });
+  const ls = R.sanitize(lraw);
+  assert.ok(!ls.log.some(l => /^Reopened/.test(l.what)) && ls._badTimes.log.some(l => /^Reopened/.test(l.what)));
+  assert.ok(forX({ runs: [ls] }).phases[0].q.excluded.some(g => g.why === 'reopened'), 'the reopen is still found');
+  // A pause under way whose time can't be read leaves a running run's times out.
   const pr = JSON.parse(JSON.stringify(play({ running: true }))); pr.paused = { by: 'a', at: 'garbage', reason: 'wait' };
-  const ps = R.sanitize(pr), ps2 = R.sanitize(resaved(ps));
-  same([ps.paused && ps.paused.at, ps2.paused && ps2.paused.at], [null, null]);
-  assert.ok(forX({ runs: [ps2] }, { includeRunning: true }).phases[0].q.excluded.some(g => g.why === 'time'));
-  // Every time field cleanup checks: none is dropped with its record or replaced by another time.
+  const ps = R.sanitize(pr);
+  same([ps.paused, ps._badTimes.paused], [null, true]);
+  assert.ok(forX({ runs: [ps] }, { includeRunning: true }).phases[0].q.excluded.some(g => g.why === 'time'));
+  // Follow-up and gate times were already kept as null by 1.16; a start becomes 1970, before 2000.
   const all = JSON.parse(JSON.stringify(play())); R.addFollowUp(all, { id: 'f', text: 'x' }, 'a', at(3));
   all.followUps = JSON.parse(JSON.stringify(all.followUps)); all.followUps[0].at = 'bad'; all.gates.ready.at = 'bad'; all.created = 'bad';
-  const c = R.sanitize(all), c2 = R.sanitize(resaved(c));
-  same([c.followUps.length, c.followUps[0].at, c.gates.ready.at, c2.followUps[0].at, c2.gates.ready.at], [1, null, null, null, null]);
-  same(Object.keys(c._badTimes).sort(), ['created', 'followUps', 'gates']);
-  assert.ok(Date.parse(c2.created) < Date.UTC(2000, 0, 1), 'a start that can\'t be read stays before 2000, so it\'s left out again');
+  const c = R.sanitize(all);
+  same([c.followUps[0].at, c.gates.ready.at, c._badTimes.created], [null, null, true]);
+  assert.ok(Date.parse(R.sanitize(resaved(c)).created) < Date.UTC(2000, 0, 1), 'a start that can\'t be read stays before 2000 after a save');
 });
 
 rule('A run\'s times hold only in order: a gate passed after the run ended (a clock set back) leaves its times out', () => {

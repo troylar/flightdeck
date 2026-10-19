@@ -14,7 +14,7 @@
     if (d >= 2) return d + ' days' + (h % 24 ? ' ' + (h % 24) + ' h' : '');
     return h ? h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min';
   }
-  function hms(ms) { var d = new Date(ms); return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }); }
+  function hms(ms) { if (ms == null || ms === '') return 'time unknown'; var d = new Date(ms); return isNaN(d) ? 'time unknown' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }); }
   function plural(n, one, many) { return I.num(n) + ' ' + (n === 1 ? one : many || one + 's'); }
 
   /* What PF.insights reads, from what the app has accepted: runs, which ones couldn't be read or are gone, parts that failed,

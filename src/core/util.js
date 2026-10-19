@@ -58,22 +58,29 @@ PF.util = (function () {
     return ('0000000' + h.toString(16)).slice(-8);
   }
 
+  /* A time to show, or null: null, '' and anything that isn't a time are never formatted (new Date(null) is 1970, which
+     would print a made-up time). The formatters say "time unknown" instead. */
+  var UNKNOWN = 'time unknown';
+  function dateOf(v) {
+    if (!(typeof v === 'string' && v) && typeof v !== 'number' && !(v instanceof Date)) return null;
+    var d = new Date(v); return isNaN(d) ? null : d;
+  }
   function hm(iso) {
-    var d = new Date(iso);
-    return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    var d = dateOf(iso);
+    return d ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : UNKNOWN;
   }
   function when(iso) {
-    var d = new Date(iso);
-    return isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    var d = dateOf(iso);
+    return d ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : UNKNOWN;
   }
   function day(iso) {
-    var d = new Date(iso);
-    return isNaN(d) ? '' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    var d = dateOf(iso);
+    return d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : UNKNOWN;
   }
   /* When a planned run is, in plain words: "Tue, Oct 24, 9:00 AM · in 3 days", "… · starts now", "… · was due yesterday". */
   function dueWords(iso, now) {
-    var d = new Date(iso);
-    if (isNaN(d)) return '';
+    var d = dateOf(iso);
+    if (!d) return '';
     var at = d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     var ms = d.getTime() - now, min = Math.round(Math.abs(ms) / 60000), h = Math.round(min / 60);
     var days = Math.round((new Date(d.getTime()).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86400000);

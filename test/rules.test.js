@@ -2709,4 +2709,17 @@ rule('Folder health says when refreshing is slow on this computer, only after 3 
   assert.ok(!H.check(healthy(), HNOW).issues.some(x => x.id === 'slow-refresh'));
 });
 
+rule('A time that is missing or can\'t be read is never formatted as a made-up time: it says "time unknown", in the text receipt too', () => {
+  const U = PF.util;
+  [null, undefined, '', 'garbage', {}, NaN].forEach(v => { assert.strictEqual(U.hm(v), 'time unknown', String(v)); assert.strictEqual(U.when(v), 'time unknown'); assert.strictEqual(U.day(v), 'time unknown'); });
+  assert.strictEqual(U.dueWords(null, Date.parse(NOW)), '');
+  assert.ok(/\d:\d\d/.test(U.hm(NOW)) && U.hm(0) !== 'time unknown', 'a real time, and a number, still format');
+  const r = release(), map = R.mapOf(r);
+  r.gates[map.phases[0].gate.id] = { s: 'passed', by: 'a', at: null, approved: {} };
+  r.log.push({ at: null, by: 'a', what: 'Blocked "x"' });
+  const text = R.receipt(r, map, x => x, NOW, [], null, null);
+  assert.ok(/time unknown/.test(text), text);
+  assert.ok(!/\b(7|8):00 PM\b|Dec 31|Jan 1\b/.test(text), 'no 1970 time');
+});
+
 run();

@@ -66,8 +66,8 @@
     }).join('');
     var fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
     var statusOf = function (c) { var g = idx[c.id]; return c.oneOff ? 'One-off' : g ? PF.corrections.label(g) + (g.status === 'declined' && g.decision && g.decision.reason ? ': ' + g.decision.reason : '') : 'Open'; };
-    var pz = (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: null, open: true, by: r.paused.by, reason: r.paused.reason }] : []);
-    if (pz.length) body += '<div><h4><span>Pauses</span></h4>' + pz.map(function (p) { return '<div class="rrow"><span class="ric open">' + I('pause') + '</span><span>' + esc(U.hm(p.from)) + (p.to && p.from ? '–' + esc(U.hm(p.to)) + ' (' + U.clock(new Date(p.to) - new Date(p.from)) + ')' : p.open ? ', still paused' : ', time couldn\'t be read') + ': ' + esc(p.reason) + ' <span class="cat">' + esc(nameOf(ctx, p.by)) + '</span></span></div>'; }).join('') + '</div>';
+    var pz = (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: null, by: r.paused.by, reason: r.paused.reason }] : []);
+    if (pz.length) body += '<div><h4><span>Pauses</span></h4>' + pz.map(function (p) { return '<div class="rrow"><span class="ric open">' + I('pause') + '</span><span>' + esc(U.hm(p.from)) + (p.to ? '–' + esc(U.hm(p.to)) + ' (' + U.clock(new Date(p.to) - new Date(p.from)) + ')' : ', still paused') + ': ' + esc(p.reason) + ' <span class="cat">' + esc(nameOf(ctx, p.by)) + '</span></span></div>'; }).join('') + '</div>';
     var fuX = PF.followups.forRun(V.fuList(ctx), r), fuOf = function (f) { return fuX.filter(function (x) { return x.id === f.id; })[0]; };
     var fuStatusOf = function (f) { var x = fuOf(f); if (!x) return 'Open'; var d = PF.followups.detail(x, function (k) { if (/^plan:/.test(k)) { var pl = (ctx.data.plans || []).filter(function (q) { return 'plan:' + q.id === k; })[0]; return pl ? pl.title : ''; } var t = ctx.findRun ? ctx.findRun(k) : null; return t ? t.title : ''; }); return x.status === 'open' || !d ? x.label : d; };
     if (fus.length) body += '<div class="r-fu"><h4><span>Follow-ups</span></h4>' + fus.map(function (f) {

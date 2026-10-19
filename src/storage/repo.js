@@ -839,8 +839,10 @@ PF.repo = (function () {
     }).then(function (files) {
       var out = [];
       var seen = {};
-      files.forEach(function (f) { if (f) f.text.split('\n').forEach(function (line) { var x = line.trim() && json(line); if (x && x.at && !(x.id && seen[x.id])) { if (x.id) seen[x.id] = 1; out.push(x); } }); });
-      return out.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+      /* An entry whose time is missing or can't be read is kept (it shows "time unknown"), never dropped; it sorts first. */
+      files.forEach(function (f) { if (f) f.text.split('\n').forEach(function (line) { var x = line.trim() && json(line); if (x && typeof x === 'object' && !Array.isArray(x) && !(x.id && seen[x.id])) { if (x.id) seen[x.id] = 1; out.push(x); } }); });
+      var key = function (x) { return typeof x.at === 'string' && !isNaN(Date.parse(x.at)) ? x.at : ''; };
+      return out.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
     });
   }
   /* Only a copy that was actually listed next to this run, by its exact name. */
