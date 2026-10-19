@@ -48,7 +48,7 @@
       '<h3 class="fp-name"><button class="fp-go" data-act="flight-phase" data-id="' + i + '" aria-label="' + esc(label) + '">' + esc(p.title) + '</button></h3>' +
       '<div class="small">' + plural(p.steps.length, 'step') + (musts ? ' · ' + musts + ' must-do' : '') + '</div>';
     var time = an && p.id && an.phasesById.filter(function (x) { return x.id === p.id; })[0];
-    if (time && time.medianMs != null) head += '<div class="fp-line">' + I('clock') + '<span>Typically ' + about(time.medianMs) + '</span></div>';
+    if (time && time.medianMs != null) head += '<div class="fp-line">' + I('clock') + '<span>Typically ' + about(time.medianMs) + ' <span class="small">(' + time.n + ' of ' + plural(time.of, 'run') + ')</span></span></div>';
     /* Tracks are worked at the same time, so they sit side by side as lanes. */
     if (p.tracks.length) head += '<ul class="fp-lanes" aria-label="Parallel tracks">' + p.tracks.map(function (t) {
       var count = p.steps.filter(function (s) { return s.track === t.id; }).length;
@@ -80,14 +80,21 @@
     if (!map.phases.length) return '<p class="small">Add a phase to see the flight plan.</p>';
     var pub = shown && shown.pub ? shown.pub : null;
     var an = pub ? R.analytics(V.insightsInput(ctx, p.id), p.id, pub.info.folder, ctx.now()) : null;
+    /* Runs it couldn't count, or a load still under way, are said even when nothing could be counted. */
+    var said = an ? an.notes.concat(an.excluded) : [];
     if (an && !an.runs) an = null;
     var notes = skillNotes(p.skills, pub, p.latest), meta = map.meta;
     var h = '<ol class="fp" aria-label="Flight plan">';
     h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
       notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return noteLine(x, null); }).join('') + '</li>';
     map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes) + '</li>'; });
-    h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + '</span>' : '') + '</li>';
-    return h + '</ol><p class="small">' + (an ? 'From ' + plural(an.runs, 'run') + ' of v' + pub.info.version + '; paused time isn\'t counted.' : 'No runs of this version yet.') + '</p>';
+    h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + '</li>';
+    /* The footer counts finished runs only; a run still going adds only what it has done so far. */
+    var foot = !an ? (said.length ? 'No runs of this version could be counted.' : 'No runs of this version yet.')
+      : (an.ended ? 'From ' + plural(an.ended, 'finished run') + ' of v' + pub.info.version + '.' : 'No finished runs of v' + pub.info.version + ' yet.') +
+        (an.running ? ' ' + (an.running === 1 ? '1 run still going counts' : an.running + ' runs still going count') + ' only for what ' + (an.running === 1 ? 'it has' : 'they have') + ' done so far.' : '') + ' Paused time isn\'t counted.';
+    return h + '</ol><p class="small">' + foot + '</p>' +
+      (said.length ? '<ul class="small fp-said">' + said.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '');
   }
 
   V.flightPlan = flightPlan;

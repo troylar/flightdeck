@@ -122,7 +122,7 @@ rule('Timing exclusions apply per metric: an unreadable start time drops the run
 });
 
 rule('Long runs are shown, not excluded', () => {
-  const res = forX({ runs: [play({ minutes: 60 * 24 * 45 })] });
+  const res = forX({ runs: [play({ minutes: 60 * 24 * 45 })] }, { now: NOW_MS + 30 * 86400000 });
   same(res.duration.n, 1);
   assert.ok(res.duration.median > 30 * 86400000);
 });
@@ -218,7 +218,7 @@ rule('Corrections count distinct runs of this folder per step, grouped by status
     { target: { step: 'one' }, status: 'applied', members: [{ run: runs[1].id, folder: FOLDER }, { run: 'elsewhere', folder: 'v9-other' }] }
   ];
   const s = step(forX({ runs, corrections: groups }), 'one');
-  same([s.corrections.hits, s.corrections.n, s.corrections.byStatus], [2, 3, { open: 2, applied: 1 }]);
+  same([s.corrections.hits, s.corrections.n, s.corrections.groups], [2, 3, { open: 1, applied: 1 }]);
 });
 
 rule('Follow-up ages are by the recorder\'s clock in buckets, and time to a decision uses the current decision', () => {
@@ -255,6 +255,137 @@ rule('Runs filters: process, folder, outcome and dates, with dates inclusive in 
   same(ids({ folder: 'v9-none' }), []);
   same(ids({ from: ymd(day), through: ymd(day) }), [a.id, b.id, c.id], 'the same day, from and through');
   same(ids({ from: ymd(new Date(day.getTime() + 86400000)) }), []);
+});
+
+// ---------- Review of 9e7cffc ----------
+rule('Times later than now, by the clock of the computer that wrote them, are left out of times with that reason', () => {
+  const ahead = play(); ahead.ended.at = new Date(NOW_MS + 400 * 86400000).toISOString();
+  const absurd = play(); absurd.ended.at = new Date(T0 + 1e13).toISOString();
+  const gate = play(); gate.gates.ready.at = new Date(NOW_MS + 86400000).toISOString();
+  const res = forX({ runs: [ahead, absurd, gate, play()] });
+  same([res.duration.n, res.duration.of], [2, 4]);
+  assert.ok(res.duration.excluded.some(e => /later than now, by the recorder's clock/.test(e.text) && e.keys.length === 2), JSON.stringify(res.duration.excluded));
+  assert.ok(res.duration.max < 86400000, 'the scale isn\'t stretched by them');
+  assert.ok(res.phases[0].excluded.some(e => /later than now/.test(e.text) && e.keys[0] === 'x/' + gate.id), JSON.stringify(res.phases[0].excluded));
+});
+
+rule('A gate reopened and passed again leaves its phase out as reopened, from the run\'s log or from its gate times', () => {
+  const r = play({ running: true }), m = R.mapOf(r);
+  R.reopen(r, m, 0, 'a', at(12)); R.pass(r, m, 0, 'a', at(200)); R.pass(r, m, 1, 'a', at(210)); R.end(r, m, 'Completed', 'a', 'A', at(210));
+  const res = forX({ runs: [r, play()] });
+  assert.ok(res.phases[0].excluded.some(e => /reopened/.test(e.text) && e.keys[0] === 'x/' + r.id), JSON.stringify(res.phases[0].excluded));
+  same([res.phases[0].n, res.phases[0].median], [1, 10 * 60000], 'the 200 minutes aren\'t counted');
+  assert.ok(res.phases[1].excluded.some(e => /earlier gate/.test(e.text)));
+  // A detail change sends the first gate back for review after the second passed; it's passed again later.
+  const b = play({ running: true }), mb = R.mapOf(b);
+  R.pass(b, mb, 1, 'a', at(20)); R.setDetail(b, mb, 'commit', 'bbb', 'a', at(25)); R.pass(b, mb, 0, 'a', at(40)); R.end(b, mb, 'Completed', 'a', 'A', at(45));
+  const rb = forX({ runs: [b] });
+  assert.ok(rb.phases[0].excluded.some(e => /reopened/.test(e.text)), JSON.stringify(rb.phases[0].excluded));
+  assert.ok(!rb.phases[1].excluded.some(e => /backward/.test(e.text)), 'not blamed on the clock');
+  // Without the log entries, a gate settled after a later gate still says reopened.
+  b.log = []; const rc = forX({ runs: [b] });
+  assert.ok(rc.phases[0].excluded.some(e => /reopened/.test(e.text)), JSON.stringify(rc.phases[0].excluded));
+  assert.ok(/log/.test(I.DEFS.filter(d => d.id === 'phase')[0].denominator), 'the definition says what is detected');
+});
+
+rule('A follow-up count and its drill-down agree: the label says how many follow-ups in how many runs', () => {
+  const r = play(), r2 = play(), day = new Date(NOW_MS - 86400000).toISOString();
+  ['f1', 'f2', 'f3'].forEach(id => R.addFollowUp(r, { id, text: id }, 'a', day));
+  const res = forX({ runs: [r, r2], followUps: F.list([r, r2], []) }), b = res.followUps.open.buckets[0];
+  same([b.items.length, b.keys.length], [3, 1]);
+  assert.ok(/3 follow-ups in 1 run/.test(I.select(res, 'fu:lt7').label), I.select(res, 'fu:lt7').label);
+});
+
+rule('A drill-down notices a change to a run\'s follow-up decisions, its corrections\' status or its readability, not only its file', () => {
+  const runs = [play(), play()]; R.addFollowUp(runs[0], { id: 'f1', text: 'x' }, 'a', at(5));
+  const fus = F.list(runs, []), res = forX({ runs, followUps: fus });
+  const sp = I.spec(res, 'runs:all', runs, res);
+  assert.strictEqual(I.changed(sp, runs, res), 0);
+  const d = F.decision({ process: 'x', run: runs[0].id, id: 'f1' }, 'a', 'done', {}, at(6)); d._file = 'a';
+  assert.strictEqual(I.changed(sp, runs, forX({ runs, followUps: F.list(runs, [d]) })), 1, 'a decision');
+  const groups = [{ target: { step: 'one' }, status: 'open', members: [{ run: runs[1].id, folder: FOLDER }] }];
+  const before = forX({ runs, corrections: groups }), sp2 = I.spec(before, 'runs:all', runs, before);
+  assert.strictEqual(I.changed(sp2, runs, forX({ runs, corrections: [Object.assign({}, groups[0], { status: 'applied' })] })), 1, 'a correction decided');
+  assert.strictEqual(I.changed(sp, runs, forX({ runs, followUps: fus, runStatus: { ['x/' + runs[1].id]: 'unread' } })), 1, 'a run that can no longer be read');
+});
+
+rule('With no readable run the version still comes from the folder\'s runs', () => {
+  const r = play(), res = forX({ runs: [r], runStatus: { ['x/' + r.id]: 'unread' } });
+  assert.strictEqual(I.spec(res, 'ex:unread', [r]).version, 1);
+});
+
+rule('Gates waived and failed are counted per phase, each out of the runs that reached the gate', () => {
+  const w = play({ running: true }), mw = R.mapOf(w);
+  w.gates.ready = { s: 'waived', by: 'a', at: at(10), reason: 'ok', approved: { commit: 'aaa' } };
+  const f = play({ running: 'early' }); R.fail(f, R.mapOf(f), 0, 'Broke', 'a', at(5)); R.end(f, R.mapOf(f), 'Stopped early', 'a', 'A', at(6));
+  R.end(w, mw, 'Stopped early', 'a', 'A', at(20));
+  const res = forX({ runs: [w, f, play(), play({ running: 'early' })] });
+  const g = res.phases[0].gate;
+  same([g.waived.hits, g.waived.n, g.failed.hits, g.failed.n], [1, 3, 1, 3]);
+  same(I.select(res, 'gate:prep:failed').keys, ['x/' + f.id]);
+});
+
+rule('Correction statuses count groups, so they never add up to more than they say', () => {
+  const runs = [play(), play()];
+  const groups = [{ target: { step: 'one' }, status: 'open', members: [{ run: runs[0].id, folder: FOLDER }, { run: runs[1].id, folder: FOLDER }] },
+    { target: { step: 'one' }, status: 'applied', members: [{ run: runs[0].id, folder: FOLDER }] }];
+  same(step(forX({ runs, corrections: groups }), 'one').corrections.groups, { open: 1, applied: 1 });
+});
+
+rule('Every number\'s runs are exactly the runs matches() picks, so working a number out again by select() is the same as asking matches()', () => {
+  const runs = [play({ before: (r, m) => R.block(r, m, 'one', 'x', 'a', at(1)) }), play({ running: 'early' }), play({ outcome: 'Cancelled' }), play(), play(), play(), play()];
+  delete runs[3].marksFrom;
+  runs[4]._unrunnable = 'newer';
+  const f = play({ running: 'early' }); R.fail(f, R.mapOf(f), 0, 'Broke', 'a', at(5)); R.end(f, R.mapOf(f), 'Stopped early', 'a', 'A', at(6)); runs.push(f);
+  R.addFollowUp(runs[0], { id: 'f1', text: 'x' }, 'a', at(5)); R.addFollowUp(runs[0], { id: 'f2', text: 'y' }, 'a', at(5)); R.addFollowUp(runs[2], { id: 'f3', text: 'z' }, 'a', at(5));
+  const d = F.decision({ process: 'x', run: runs[2].id, id: 'f3' }, 'a', 'done', {}, at(60)); d._file = 'd';
+  const input = { runs, runStatus: { ['x/' + runs[5].id]: 'unread', ['x/' + runs[6].id]: 'missing' }, followUps: F.list(runs, [d]),
+    corrections: [{ target: { step: 'one' }, status: 'open', members: [{ run: runs[0].id, folder: FOLDER }, { run: runs[5].id, folder: FOLDER }, { run: runs[1].id, folder: 'v9-other' }] }] };
+  const ctx = { now: NOW_MS, runStatus: input.runStatus, followUps: input.followUps, corrections: input.corrections };
+  [false, true].forEach(includeRunning => {
+    const res = forX(input, { includeRunning });
+    const paths = ['runs:all', 'runs:running', 'runs:o:Completed', 'runs:o:Cancelled', 'runs:o:Stopped early', 'dur', 'phase:prep', 'phase:ship', 'gate:prep:waived', 'gate:prep:failed', 'gate:ship:failed',
+      'ex:unread', 'ex:missing', 'ex:newer', 'fu:lt7', 'fu:d7to30', 'fu:gt30', 'fu:decided'];
+    res.steps.forEach(s => ['blocked', 'redone', 'na', 'differently', 'offScript', 'skipped', 'corrections'].forEach(k => { paths.push('step:' + s.id + ':' + k); paths.push('step:' + s.id + ':' + k + ':incomplete'); }));
+    let nonEmpty = 0;
+    paths.forEach(p => {
+      const sel = I.select(res, p); if (!sel) return;
+      if (sel.keys.length) nonEmpty++;
+      same(runs.filter(r => I.matches(r, { process: 'x', folder: FOLDER, path: p, asOf: NOW_MS, includeRunning }, ctx)).map(r => 'x/' + r.id).sort(), sel.keys.slice().sort(), p + (includeRunning ? ' (running included)' : ''));
+    });
+    assert.ok(nonEmpty >= 15, 'the paths have runs behind them: ' + nonEmpty);
+  });
+});
+
+rule('Bad times survive the run file\'s cleanup as bad times: a start that can\'t be read and an end that can\'t be read are left out of times, and the run still counts as ended', () => {
+  const badStart = R.sanitize(Object.assign(JSON.parse(JSON.stringify(play())), { created: 'garbage' }));
+  const badEndRaw = JSON.parse(JSON.stringify(play())); badEndRaw.ended.at = 'garbage';
+  const badEnd = R.sanitize(badEndRaw);
+  assert.ok(!badEnd.ended && badEnd.state === 'completed', 'set-up: cleanup drops the end and keeps the state');
+  const res = forX({ runs: [badStart, badEnd, play()] });
+  same([res.duration.n, res.duration.of, res.runs.running, res.pool.n], [1, 3, 0, 3], 'neither is a 56-year run, and the one without an end isn\'t "still going"');
+  assert.ok(res.duration.excluded.some(e => /couldn't be read/.test(e.text) && e.keys.length === 2), JSON.stringify(res.duration.excluded));
+  same(res.runs.outcomes.Completed.length, 3);
+});
+
+rule('R.sanitize flags a start or end that was there but couldn\'t be read, so a run left "running" by its file still counts as ended, with no time', () => {
+  const raw = JSON.parse(JSON.stringify(play())); raw.ended.at = '2026-13-45'; raw.state = 'running';
+  const r = R.sanitize(raw);
+  same([r.ended, r._badTimes], [null, { ended: 'Completed' }]);
+  const res = forX({ runs: [r, play()] });
+  same([res.runs.running, res.pool.n, res.duration.n, res.duration.of], [0, 2, 1, 2]);
+  assert.ok(res.duration.excluded.some(e => /couldn't be read/.test(e.text)), JSON.stringify(res.duration.excluded));
+  const ok = R.sanitize(JSON.parse(JSON.stringify(play())));
+  assert.strictEqual(ok._badTimes, undefined, 'a clean file has no flag');
+  // A start that was missing altogether is flagged too only if it was there: a file with no created at all reads as 1970, which is before 2000.
+  const none = JSON.parse(JSON.stringify(play())); delete none.created;
+  assert.ok(forX({ runs: [R.sanitize(none)] }).duration.excluded.length === 1);
+});
+
+rule('A run that couldn\'t be read and was never read before is still said: which version it belongs to isn\'t known', () => {
+  const res = forX({ runs: [play()], runStatus: { 'x/never-read': 'unread', 'y/other-process': 'unread' } });
+  const u = res.excluded.filter(e => e.why === 'unknown')[0];
+  assert.ok(u && u.keys.length === 1 && /which version/.test(u.text), JSON.stringify(res.excluded));
 });
 
 rule('The table in docs/design.md section 23 matches DEFS', () => {

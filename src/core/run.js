@@ -656,7 +656,10 @@ PF.run = (function () {
     var deviated = res.steps.filter(function (s) { return s.offScript.hits > 0; }).map(function (s, i) {
       return { id: s.id, text: s.text, phase: s.phase, offScript: s.offScript.hits, n: s.offScript.n, blocked: s.blocked.hits, redone: s.redone.hits, na: s.na.hits, differently: s.differently.hits, at: i };
     }).sort(function (a, b) { return b.offScript - a.offScript || a.at - b.at; });
-    return { runs: res.runs.n, medianMs: res.duration.median, completed: res.duration.n, phasesById: res.phases.map(function (p) { return { id: p.id, medianMs: p.median, n: p.n }; }), deviated: deviated, steps: deviated.slice(0, 10) };
+    /* Every number keeps its n, and what wasn't counted (unreadable, gone, newer) and a load still under way are passed on. */
+    return { runs: res.runs.n, ended: res.runs.n - res.runs.running, running: res.runs.running, medianMs: res.duration.median, completed: res.duration.n,
+      phasesById: res.phases.map(function (p) { return { id: p.id, medianMs: p.median, n: p.n, of: p.of }; }),
+      deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
   function end(r, map, outcome, who, whoName, now) {
@@ -888,6 +891,12 @@ PF.run = (function () {
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
     if (o.ended && OUTCOMES[o.ended.outcome] && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
+    /* A start or end that was there but couldn't be read: cleaning made the start 1970 and dropped the end, so Insights
+       must leave this run out of its times and still count it as ended (docs/design.md section 23). Not saved ("_"). */
+    var badTimes = {};
+    if (o.created != null && !isoOrNull(o.created)) badTimes.created = true;
+    if (o.ended && !r.ended) badTimes.ended = OUTCOMES[o.ended.outcome] ? o.ended.outcome : 'Ended';
+    if (badTimes.created || badTimes.ended) r._badTimes = badTimes;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */

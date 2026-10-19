@@ -76,28 +76,34 @@
       outs.map(function (o) { return '<li><span class="big">' + link('runs:o:' + o, I.num(r.outcomes[o].length), 1) + '</span><span class="small">' + esc(o.toLowerCase()) + '</span></li>'; }).join('') +
       (r.running ? '<li><span class="big">' + link('runs:running', I.num(r.running), 1) + '</span><span class="small">still going</span></li>' : '') + '</ul>';
     h += '<p class="small">As of ' + esc(hms(res.now)) + '. Every number counts runs of this version only, says how many runs it\'s out of, and opens the runs behind it.' + (res.pool.note ? ' ' + esc(res.pool.note) : '') + '</p>';
-    if (res.excluded.length) h += '<ul class="small ins-ex">' + res.excluded.map(function (e) { return '<li>' + esc(e.text) + ' ' + link('ex:' + e.why, e.keys.length === 1 ? 'Show it' : 'Show them', 1) + '</li>'; }).join('') + '</ul>';
+    /* A run never read has no copy to show: Folder health lists its file. */
+    if (res.excluded.length) h += '<ul class="small ins-ex">' + res.excluded.map(function (e) { return '<li>' + esc(e.text) + ' ' + (e.why === 'unknown' ? '<button class="linkish" data-act="health">Folder health</button>' : link('ex:' + e.why, e.keys.length === 1 ? 'Show it' : 'Show them', 1)) + '</li>'; }).join('') + '</ul>';
     if (res.history.incomplete.length) h += '<p class="small">' + esc(plural(res.history.incomplete.length, 'run')) + ' started before Flightdeck kept a full record of what went off-script, so the "ever" numbers count ' + (res.history.incomplete.length === 1 ? 'it' : 'them') + ' apart as history incomplete, never as clean.</p>';
     if (res.pool.n && !I.rated(res.pool.n)) h += '<p class="small">' + esc(I.FEW) + ' Under 5 runs, only counts are shown.</p>';
     return h + '</section>';
   }
 
-  /* Completed runs as dots on one line, to scale from zero to the longest, with the median marked. Each dot opens its run. */
-  function dotStrip(ctx, values, median) {
-    var W = 600, R0 = 6, pad = 10, max = Math.max.apply(null, values.map(function (v) { return v.ms; }).concat([1]));
+  /* Completed runs as dots on one line, to scale from zero to the longest, with the median marked. Each dot opens its run
+     with the mouse; the dots stay out of the tab order, since the table under it is the keyboard path. At most DOTS are
+     drawn, the latest to end, so a big folder doesn't put thousands of links on the page; the table has every run. */
+  var DOTS = 300;
+  function dotStrip(ctx, all, median) {
+    var values = all.length > DOTS ? all.slice().sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; }).slice(0, DOTS) : all;
+    var W = 600, R0 = 6, pad = 10, max = Math.max.apply(null, all.map(function (v) { return v.ms; }).concat([1]));
     var x = function (ms) { return pad + (W - 2 * pad) * ms / max; }, rows = [], dots = '';
     values.slice().sort(function (a, b) { return a.ms - b.ms; }).forEach(function (v) {
       var cx = x(v.ms), row = 0;
       while (row < 2 && rows[row] != null && cx - rows[row] < 2 * R0 + 1) row++;
       rows[row] = cx;
       var r = ctx.findRun ? ctx.findRun(v.key) : null, name = (r ? r.title : v.key) + ', ' + about(v.ms);
-      dots += '<a href="#" class="ins-dot-a" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
+      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
     });
     var mx = x(median);
     return '<div class="ins-chart"><svg class="ins-strip" viewBox="0 0 ' + W + ' 48" role="group" aria-label="Completed runs by active time, from 0 to ' + esc(about(max)) + '">' +
       '<line class="ins-axis" x1="' + pad + '" x2="' + (W - pad) + '" y1="46" y2="46"/>' +
       '<line class="ins-mid" x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="2" y2="46"><title>Median ' + esc(about(median)) + '</title></line>' + dots + '</svg>' +
-      '<div class="ins-ticks small" aria-hidden="true"><span>0</span><span>' + esc(about(max)) + '</span></div></div>';
+      '<div class="ins-ticks small" aria-hidden="true"><span>0</span><span>' + esc(about(max)) + '</span></div>' +
+      (all.length > DOTS ? '<p class="small">The latest ' + DOTS + ' of ' + I.num(all.length) + ' completed runs are drawn; the table has them all.</p>' : '') + '</div>';
   }
   /* A bar against its own denominator: a track for every run, the filled part for the runs counted. Only from 5 runs. */
   function bar(hits, n) {
@@ -112,8 +118,10 @@
       h += '<p>Typical completed run: <b>' + esc(about(d.median)) + '</b>' + (d.q1 != null ? ' · middle half ' + esc(about(d.q1)) + ' to ' + esc(about(d.q3)) : '') + ' · ' +
         link('dur', I.num(d.n) + ' of ' + plural(d.of, 'completed run'), d.n) + '. Paused time isn\'t counted.</p>';
       h += dotStrip(ctx, d.values, d.median);
-      h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Run</th><th scope="col">Active time</th></tr></thead><tbody>' +
-        d.values.slice().sort(function (a, b) { return a.ms - b.ms; }).map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr><td><button class="linkish" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
+      var rows = function (list) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Run</th><th scope="col">Active time</th></tr></thead><tbody>' +
+        list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
+      h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary>' +
+        K.paged(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), rows, function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }) + '</details>';
     }
     if (d.excluded.length) h += '<ul class="small ins-ex">' + exLines(d.excluded) + '</ul>';
     if (res.phases.length) {
@@ -123,6 +131,7 @@
         return '<li><div class="ins-row"><span class="ins-lab">' + esc(x.title) + '</span>' +
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
+          (x.gate.waived.hits || x.gate.failed.hits ? '<p class="small">Gate "' + esc(x.gate.title) + '": ' + [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { return x.gate[k[0]].hits; }).map(function (k) { return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(x.gate[k[0]].hits, x.gate[k[0]].n), 1); }).join(' · ') + '</p>' : '') +
           (x.excluded.length ? '<ul class="small ins-ex">' + exLines(x.excluded) + '</ul>' : '') + '</li>';
       }).join('') + '</ul><p class="small">Bars are typical times, to scale with the longest phase.</p>';
     }
@@ -135,8 +144,8 @@
     var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h">' + IC('flag') + 'Steps that go off-script</h2>';
     if (res.corrections.note) h += '<div class="notice warn" role="status"><span>' + esc(res.corrections.note) + '</span></div>';
     var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits; });
-    if (!res.pool.n) return h + '<p class="small">No finished runs of this version yet.</p></section>';
-    if (!list.length) return h + '<p class="small">No step went off-script in ' + esc(plural(res.pool.n, 'run')) + '.</p></section>';
+    if (!list.length) return h + '<p class="small">' + (res.pool.n ? 'No step went off-script in ' + esc(plural(res.pool.n, 'run')) + '.' : 'No finished runs of this version yet.') + '</p></section>';
+    if (!res.pool.n) h += '<p class="small">Nothing has finished in this version yet; corrections on runs still going are shown.</p>';
     var order = res.steps.map(function (s) { return s.id; });
     list.sort(function (a, b) { return b.offScript.hits - a.offScript.hits || b.corrections.hits - a.corrections.hits || order.indexOf(a.id) - order.indexOf(b.id); });
     h += '<p class="small">Each bar is out of its own runs, shown from 5 runs. Choose a count to see the runs behind it. These are good places to change the checklist.</p>';
@@ -144,7 +153,7 @@
       return '<ul class="ins-steps">' + shown.map(function (s) {
         var rows = ROWS.filter(function (r) { var m = s[r[0]]; return r[0] === 'offScript' || m.hits || m.incomplete; }).map(function (r) {
           var m = s[r[0]], extra = '';
-          if (r[0] === 'corrections') extra = ' <span class="small">(' + Object.keys(m.byStatus).map(function (k) { return m.byStatus[k] + ' ' + (STATUS_WORDS[k] || k); }).join(', ') + ')</span>';
+          if (r[0] === 'corrections') extra = ' <span class="small">(groups: ' + Object.keys(m.groups).map(function (k) { return m.groups[k] + ' ' + (STATUS_WORDS[k] || k); }).join(', ') + ')</span>';
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
           return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + '</span></div>';
         }).join('');
@@ -159,10 +168,10 @@
     var h = '<section class="panel ins" aria-labelledby="ins-fu-h"><h2 id="ins-fu-h">' + IC('flag') + 'Follow-ups</h2>';
     if (f.note) h += '<div class="notice warn" role="status"><span>' + esc(f.note) + '</span></div>';
     h += o.n ? '<p class="small">Open follow-ups by how long since they were added, ' + esc(o.clock) + ':</p><ul class="ins-sum">' + o.buckets.map(function (b) {
-      return '<li><span class="big">' + link('fu:' + b.id, I.num(b.items.length), b.items.length) + '</span><span class="small">' + esc(b.label.toLowerCase()) + '</span></li>';
+      return '<li><span class="big">' + link('fu:' + b.id, I.num(b.items.length), b.items.length) + '</span><span class="small">' + esc(b.label.toLowerCase()) + (b.items.length ? ', in ' + esc(plural(b.keys.length, 'run')) : '') + '</span></li>';
     }).join('') + '</ul>' : '<p class="small">No open follow-ups.</p>';
     if (o.excluded.length) h += '<ul class="small ins-ex">' + exLines(o.excluded) + '</ul>';
-    if (d.n) h += '<p>Typical time to a decision: <b>' + esc(about(d.median)) + '</b>' + (d.q1 != null ? ' · middle half ' + esc(about(d.q1)) + ' to ' + esc(about(d.q3)) : '') + ' · ' + link('fu:decided', plural(d.n, 'decided follow-up'), d.n) + ', ' + esc(d.clock) + '.</p>';
+    if (d.n) h += '<p>Typical time to a decision: <b>' + esc(about(d.median)) + '</b>' + (d.q1 != null ? ' · middle half ' + esc(about(d.q1)) + ' to ' + esc(about(d.q3)) : '') + ' · ' + link('fu:decided', plural(d.n, 'decided follow-up') + ' in ' + plural(d.keys.length, 'run'), d.n) + ', ' + esc(d.clock) + '.</p>';
     if (d.excluded.length) h += '<ul class="small ins-ex">' + exLines(d.excluded) + '</ul>';
     return h + '</section>';
   }
@@ -183,10 +192,10 @@
     if (list.length < 2) return '';
     var open = (ctx.state.disc || {})['ins-cmp'];
     /* Drawn closed too: opening a details element doesn't redraw the page. */
-    return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th></tr></thead><tbody>' +
+    return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
       list.map(function (f) {
         var r = insightsOf(ctx, p.id, f.folder, false);
-        return '<tr><th scope="row">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td></tr>';
+        return '<tr><th scope="row">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + (r.excluded.length ? esc(r.excluded.map(function (e) { return e.text; }).join(' ')) : '—') + '</td></tr>';
       }).join('') + '</tbody></table></div></details>';
   }
 
@@ -221,8 +230,13 @@
     if (f && f.cohort) {
       var by = {}; all.forEach(function (r) { by[r.process + '/' + r.id] = r; });
       var shown = f.keys.filter(function (k) { return by[k]; }).map(function (k) { return by[k]; }), gone = f.keys.length - shown.length;
-      var ch = I.changed(f, all);
-      var h = '<div class="notice ins-banner" role="status" id="ins-banner"><span><b>The runs behind a number in How runs go:</b> ' + esc(f.label) + ' · ' + esc(ctx.processTitle(f.process)) + ' v' + esc(String(f.version)) + ' · as of ' + esc(hms(f.asOf)) + '.</span>' +
+      var ch = I.changed(f, all, insightsOf(ctx, f.process, f.folder, f.includeRunning));
+      /* Never "vnull": the version comes from the spec, else the folder's publication or runs; a clash names the folder. */
+      var proc = ctx.processes ? (ctx.processes() || []).filter(function (x) { return x.id === f.process; })[0] : null;
+      var fl = I.folders(all, f.process, proc ? proc.all : [], proc ? proc.clashes : []).filter(function (x) { return x.folder === f.folder; })[0];
+      var vn = f.version != null ? f.version : fl && fl.version ? fl.version : null;
+      var ver = vn != null ? 'v' + vn + (fl && fl.clash ? ' (folder ' + f.folder + ')' : '') : 'folder ' + f.folder;
+      var h = '<div class="notice ins-banner" role="status" id="ins-banner"><span><b>The runs behind a number in How runs go:</b> ' + esc(f.label) + ' · ' + esc(ctx.processTitle(f.process)) + ' ' + esc(ver) + ' · as of ' + esc(hms(f.asOf)) + '.</span>' +
         '<span class="row"><button class="btn" data-act="ins-back">' + IC('back') + 'Back to How runs go</button><button class="mini" data-act="rf-clear" data-id="all">Show all runs</button></span></div>';
       if (ch) h += '<div class="notice warn" role="status"><span>' + esc(ch === 1 ? '1 of these runs changed since.' : ch + ' of these runs changed since.') + '</span><button class="btn" data-act="ins-refresh">Show current numbers</button></div>';
       h += '<section class="panel"><h2 id="rf-h" tabindex="-1">' + esc(plural(f.keys.length, 'run')) + '</h2>' + (gone ? '<p class="small">' + esc(gone === 1 ? '1 of them is no longer in the folder.' : gone + ' of them are no longer in the folder.') + '</p>' : '') +

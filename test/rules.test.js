@@ -588,7 +588,7 @@ rule('Analytics for one version time each phase by its ID, so two phases with th
   const r = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: NOW, id: 'rv' }), map = R.mapOf(r);
   R.done(r, map, 'a', 'a', at(1)); R.pass(r, map, 0, 'a', at(5));
   R.done(r, map, 'b', 'a', at(10)); R.pass(r, map, 1, 'a', at(65));
-  const an = R.analytics([r], 'x', pub.info.folder, Date.parse(NOW));
+  const an = R.analytics([r], 'x', pub.info.folder, t0 + 86400000);
   same(an.phasesById.map(x => [x.id, x.medianMs]), [['r1', 5 * 60000], ['r2', 60 * 60000]]);
   assert.strictEqual(an.phases, undefined, '1.17: no table pooled by title');
 });
