@@ -11026,12 +11026,13 @@ PF.examples = (function () {
       }
       if (!(key in cache)) {
         var g = gen, ep = cache._epoch || 0; cache[key] = null;
-        /* A picture that finishes after the folder changed, its lightbox closed or the person moved on is released, and its
-           entry is cleared so it loads again if it's needed again. Thumbnails and full images have separate epochs. */
+        /* A picture that finishes after the folder changed, its lightbox closed or the person moved on is released. Its entry
+           was already cleared with its epoch (releaseUrls), so it loads again if it's needed again; whatever is there now
+           belongs to a newer request and is left alone. Thumbnails and full images have separate epochs. */
         (full ? fullUrl(paths) : thumbJob(paths)).then(function (u) {
-          if (g !== gen || ep !== (cache._epoch || 0)) { if (u) URL.revokeObjectURL(u); if (cache[key] === null) delete cache[key]; return; }
+          if (g !== gen || ep !== (cache._epoch || 0)) { if (u) URL.revokeObjectURL(u); return; }
           cache[key] = u || ''; later();
-        }, function () { if (g === gen && ep === (cache._epoch || 0)) { cache[key] = ''; later(); } else if (cache[key] === null) delete cache[key]; });
+        }, function () { if (g === gen && ep === (cache._epoch || 0)) { cache[key] = ''; later(); } });
       }
       var u = cache[key];
       return u ? '<img alt="' + U.esc(caption) + '" src="' + U.esc(u) + '"' + (full ? '' : ' loading="lazy" decoding="async"') + '>' : '<span class="small" style="display:grid;place-items:center;height:100%;padding:4px">' + (u === '' ? 'Missing' : '…') + '</span>';
@@ -11068,6 +11069,10 @@ PF.examples = (function () {
     var fs = state.fs, g = gen;
     return fs ? repo.poolOf(fs)('thumb', function () { return g === gen && state.fs === fs ? thumbUrl(paths, fs) : ''; }) : Promise.resolve('');
   }
+  /* thumbWant: keys drawn as a placeholder with no result and no live job. thumbSeen: the nodes the observer tracks right
+     now; a node leaves it whenever it's unobserved or the observer goes. After every redraw each wanted placeholder on the
+     page that the observer isn't tracking is observed, whatever happened to that node before (a redraw keeps a node that
+     was seen, and its job's result can be thrown away when the run changes underneath it). */
   var thumbWant = {}, thumbIO = null, thumbSeen = [];
   function watchThumbs() {
     pruneThumbs();
@@ -11083,12 +11088,14 @@ PF.examples = (function () {
         state.urls[k] = null;
         var g = gen, ep = state.urls._epoch || 0;
         thumbJob(w.paths).then(function (u) {
-          if (g !== gen || ep !== (state.urls._epoch || 0)) { if (u) URL.revokeObjectURL(u); if (state.urls[k] === null) delete state.urls[k]; return; }
+          if (g !== gen || ep !== (state.urls._epoch || 0)) { if (u) URL.revokeObjectURL(u); return; }
           state.urls[k] = u || ''; later();
-        }, function () { if (g === gen && ep === (state.urls._epoch || 0)) { state.urls[k] = ''; later(); } else if (state.urls[k] === null) delete state.urls[k]; });
+        }, function () { if (g === gen && ep === (state.urls._epoch || 0)) { state.urls[k] = ''; later(); } });
       });
     }, { rootMargin: '200px' });
-    Array.prototype.forEach.call(app.querySelectorAll('[data-thumb]'), function (el) { if (!el._pfWatched) { el._pfWatched = true; thumbIO.observe(el); thumbSeen.push(el); } });
+    Array.prototype.forEach.call(app.querySelectorAll('[data-thumb]'), function (el) {
+      if (thumbWant[el.dataset.thumb] && thumbSeen.indexOf(el) < 0) { thumbIO.observe(el); thumbSeen.push(el); }
+    });
   }
   /* Placeholders a redraw removed are no longer watched; with nothing left to watch, the observer goes. */
   function pruneThumbs() {

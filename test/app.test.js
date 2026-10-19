@@ -4666,4 +4666,81 @@ rule('Opening another folder never brings Fill in, a correction or picked files 
   assert.ok(!/TEAM-ONLY/.test(other[path] || ''), 'never saved into the third folder');
 });
 
+/* ---------- 1.17 sixth review: a placeholder is watched by what the observer tracks, never by a mark on the node ---------- */
+/* Two runs of the release on one publication, whose Pods step shows a screenshot frozen in that publication. Both draw the
+   same thumbnail key, so moving from one to the other at that step keeps the placeholder node, as morph does. */
+async function twoRunsWithShot(IO) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const a = app.run(), j = a.json;
+  j.snapshot = j.snapshot.replace('{#pods}\n', '{#pods}\n  ![The pods](images/release/pods.png)\n'); j.shotsFrozen = true;
+  assert.ok(/images\/release\/pods\.png/.test(j.snapshot), 'set-up: the step shows a screenshot');
+  await app.fs.write('publications/release/' + j.folder + '/images/release/pods.png', png());
+  await app.fs.write(a.path, JSON.stringify(j));
+  const b = Object.assign(JSON.parse(JSON.stringify(j)), { id: j.id + '-b', title: 'Release 2026.10.16 (moved here)' });
+  delete b.lineage;
+  const bPath = a.path.replace(j.id, b.id);
+  await app.fs.write(bPath, JSON.stringify(b));
+  app.focus(); await app.tick(80);
+  return { app, A: a.key, B: 'release/' + b.id };
+}
+const shotKey = html => { const m = /data-thumb="([^"]+)"/.exec(html); return m && m[1].replace(/&amp;/g, '&'); };
+
+rule('A thumbnail loading in one run still loads after moving to another run of the same publication at the same step', async () => {
+  const watched = new Set(), observers = [];
+  // Like a browser: observing a placeholder that's on screen reports it as in view.
+  class IO { constructor(cb) { this.cb = cb; observers.push(this); } observe(el) { watched.add(el); setTimeout(() => { if (watched.has(el)) this.cb([{ isIntersecting: true, target: el }], this); }, 0); } unobserve(el) { watched.delete(el); } disconnect() { watched.clear(); } }
+  const { app, A, B } = await twoRunsWithShot(IO);
+  let reads = 0; const proto = app.PF.fs.MemoryFS.prototype, orig = proto.blob;
+  proto.blob = function (p) { if (/pods\.png$/.test(p)) reads++; return orig.call(this, p); };
+  // Hold every thumbnail turn, so the job is still loading when the person moves on.
+  const pool = app.PF.repo.poolOf(app.fs), held = [];
+  for (let i = 0; i < 4; i++) pool('thumb', () => new Promise(r => held.push(r)));
+  app.click('go', '', { view: 'run', run: A, step: 'pods' }); await app.tick(20);
+  assert.ok(shotKey(app.html()), 'run A: the screenshot waits');
+  assert.strictEqual(watched.size, 0, 'run A: seen, so no longer watched; its job is queued');
+  // "Moved to another run": the same publication and step, so the same placeholder.
+  app.click('go', '', { view: 'run', run: B, step: 'pods' }); await app.tick(20);
+  assert.ok(/Release 2026\.10\.16 \(moved here\)/.test(app.html()) && shotKey(app.html()), 'run B: the same screenshot waits');
+  held.forEach(r => r()); await app.tick(60);
+  proto.blob = orig;
+  assert.ok(!shotKey(app.html()), 'no placeholder left behind');
+  assert.ok(/<img alt="The pods" src="blob:/.test(app.html()), 'the screenshot shows in run B');
+  assert.strictEqual(reads, 2, 'read once for each run: the discarded job and the one run B asked for, no more');
+});
+
+rule('After every redraw, each thumbnail placeholder still waiting is watched or has a job running', async () => {
+  for (let seed = 1; seed <= (+process.env.THUMB_SEEDS || 6); seed++) {
+    let x = seed * 7919; const rnd = n => { x = (x * 48271) % 2147483647; return x % n; };
+    const watched = new Set(), observers = [];
+    // This observer reports only when the test says something scrolled into view.
+    class IO { constructor(cb) { this.cb = cb; observers.push(this); } observe(el) { watched.add(el); } unobserve(el) { watched.delete(el); } disconnect() { watched.clear(); } }
+    const { app, A, B } = await twoRunsWithShot(IO);
+    let jobs = 0; const poolOf = app.PF.repo.poolOf;
+    app.PF.repo.poolOf = function (fs) { const p = poolOf.call(this, fs); return (lane, fn) => lane !== 'thumb' ? p(lane, fn) : (jobs++, p(lane, fn).then(v => { jobs--; return v; }, e => { jobs--; throw e; })); };
+    let held = [];
+    // Holds still queued behind others take their turn only once those finish, so release until none is left.
+    const releaseAll = async () => { while (held.length) { const h = held; held = []; h.forEach(r => r()); await app.tick(5); } };
+    const log = [];
+    for (let i = 0; i < 24; i++) {
+      const op = rnd(7);
+      log.push(op);
+      if (op === 0) app.click('go', '', { view: 'run', run: A, step: 'pods' });
+      else if (op === 1) app.click('go', '', { view: 'run', run: B, step: 'pods' });
+      else if (op === 2) [...watched].forEach(el => observers.forEach(o => o.cb([{ isIntersecting: true, target: el }], o)));
+      else if (op === 3) { const pool = poolOf.call(app.PF.repo, app.fs); for (let k = 0; k < 4; k++) pool('thumb', () => new Promise(r => held.push(r))); }
+      else if (op === 4) await releaseAll();
+      else if (op === 5) app.click('select', rnd(2) ? 'approve' : 'pods');
+      else app.click('home');
+      await app.tick(40);
+      const key = shotKey(app.html());
+      if (key) assert.ok([...watched].some(el => el.dataset.thumb === key) || jobs > 0, 'seed ' + seed + ' after ' + log.join(',') + ': the placeholder is neither watched nor loading');
+    }
+    await releaseAll(); await app.tick(40);
+    const key = shotKey(app.html());
+    if (key) assert.ok([...watched].some(el => el.dataset.thumb === key), 'seed ' + seed + ' after ' + log.join(',') + ' jobs ' + jobs + ': once every job settled, the waiting placeholder is watched');
+    app.PF.repo.poolOf = poolOf;
+  }
+});
+
 run();
