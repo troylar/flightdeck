@@ -147,18 +147,15 @@ rule('install --check changes nothing and says by its exit code whether there ar
   assert.strictEqual(cli('install', path.join(dir, 'nope'), '--check').code, 1);
 });
 
-rule('install updates an earlier default, keeps a file the team changed, and puts a new default the team also changed in the updates folder', () => {
+rule('install keeps a file the team changed, adds a missing one, and puts a new default the team also changed in the updates folder', () => {
   const dir = tmp();
   cli('install', dir);
-  write(dir, PLAN, 'The text Flightdeck installed earlier');
-  setRecord(dir, { [PLAN]: C.hash('The text Flightdeck installed earlier') });
   write(dir, STATUS, 'Ours, on top of an older default');
   setRecord(dir, { [STATUS]: 'f'.repeat(64) });
   fs.unlinkSync(at(dir, '.flightdeck/skills/flightdeck-skill-brief/SKILL.md'));
   let r = cli('install', dir);
   assert.strictEqual(r.code, 0, r.out);
-  assert.strictEqual(read(dir, PLAN), EX[PLAN], 'unchanged since it was installed: updated');
-  assert.ok(/updated\s+\.flightdeck\/skills\/flightdeck-plan-run/.test(r.out) && /added again\s+\.flightdeck\/skills\/flightdeck-skill-brief/.test(r.out), r.out);
+  assert.ok(/added again\s+\.flightdeck\/skills\/flightdeck-skill-brief/.test(r.out), r.out);
   assert.strictEqual(read(dir, STATUS), 'Ours, on top of an older default', 'the team\'s file stays');
   const up = '.flightdeck/updates/' + VER + '/';
   assert.strictEqual(read(dir, up + STATUS), EX[STATUS], 'the new default waits beside it');
@@ -182,19 +179,21 @@ rule('install updates an earlier default, keeps a file the team changed, and put
 rule('install updates only the Flightdeck part of AGENTS.md, keeps Team notes, and replaces a whole AGENTS.md from before the markers when it was a default', () => {
   const dir = tmp();
   cli('install', dir);
-  const oldRegion = '<!-- flightdeck:begin -->\nOld rules\n<!-- flightdeck:end -->';
-  write(dir, 'AGENTS.md', 'Our preface\n' + oldRegion + '\n\n## Team notes\n\nDeploy only on Tuesdays.\n');
-  setRecord(dir, { 'AGENTS.md': C.hash(oldRegion) });
+  const region = C.region(EX['AGENTS.md']).text, ours = 'Our preface\n' + region + '\n\n## Team notes\n\nDeploy only on Tuesdays.\n';
+  write(dir, 'AGENTS.md', ours);
+  assert.strictEqual(cli('install', dir, '--check').code, 0, 'Team notes and a preface never count as a change');
   cli('install', dir);
-  const now = read(dir, 'AGENTS.md'), region = C.region(EX['AGENTS.md']).text;
-  assert.strictEqual(now, 'Our preface\n' + region + '\n\n## Team notes\n\nDeploy only on Tuesdays.\n');
+  const now = read(dir, 'AGENTS.md');
+  assert.strictEqual(now, ours);
+  const old = { key: 'AGENTS.md', now: 'Our preface\n<!-- flightdeck:begin -->\nOld rules\n<!-- flightdeck:end -->\n\n## Team notes\nOurs\n', text: EX['AGENTS.md'] };
+  assert.strictEqual(C.merged(old), 'Our preface\n' + region + '\n\n## Team notes\nOurs\n', 'an update replaces only the part between the markers');
   write(dir, 'AGENTS.md', now.replace('## What you may write', '## What you may write (we added this)'));
   assert.strictEqual(cli('install', dir, '--check').code, 0, 'a change inside the markers is kept while the default is unchanged');
-  let old = null;
-  try { old = execFileSync('git', ['show', 'v1.13.0:example-folder/AGENTS.md'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch (e) { console.log('  (skipped the 1.13 AGENTS.md: no git tags here)'); }
-  if (old) {
+  let v113 = null;
+  try { v113 = execFileSync('git', ['show', 'v1.13.0:example-folder/AGENTS.md'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch (e) { console.log('  (skipped the 1.13 AGENTS.md: no git tags here)'); }
+  if (v113) {
     const d2 = tmp();
-    write(d2, 'AGENTS.md', old.replace(/\n/g, '\r\n'));
+    write(d2, 'AGENTS.md', v113.replace(/\n/g, '\r\n'));
     const r = cli('install', d2);
     assert.ok(/updated\s+AGENTS\.md/.test(r.out), 'a shipped default, even with Windows line endings, is recognized: ' + r.out);
     assert.strictEqual(read(d2, 'AGENTS.md'), EX['AGENTS.md']);
@@ -301,6 +300,91 @@ rule('the command and the app agree on what a contract file\'s hash covers', () 
   const t = '﻿Pre\r\n<!-- flightdeck:begin -->\r\nA\r\n<!-- flightdeck:end -->\r\nNotes\r\n';
   ['AGENTS.md', STATUS].forEach(k => assert.strictEqual(C.managed(k, t), PF.contract.managed(k, t), k));
   ['', 'x', '<!-- flightdeck:end -->x<!-- flightdeck:begin -->'].forEach(x => assert.deepStrictEqual(C.region(x), JSON.parse(JSON.stringify(PF.contract.region(x)))));
+});
+
+// Runs the command in this process, so a test can step in at an exact moment of a file operation.
+function inProcess(argv, hook) {
+  const orig = fs.openSync;
+  fs.openSync = function (p, flags) { const fd = orig.apply(fs, arguments); if (flags === 'wx' && /\.tmp$/.test(String(p))) hook(String(p)); return fd; };
+  try { return C.main(argv); } catch (e) { return { out: e.message, code: 1 }; } finally { fs.openSync = orig; }
+}
+
+rule('Every --force keeps its own copies: a second --force in the same minute never replaces the first one\'s', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'First'); cli('install', dir, '--force');
+  write(dir, STATUS, 'Second'); cli('install', dir, '--force');
+  const rep = at(dir, '.flightdeck/updates/' + VER + '/replaced'), copies = fs.readdirSync(rep).map(d => fs.readFileSync(at(path.join(rep, d), STATUS), 'utf8')).sort();
+  assert.deepStrictEqual(copies, ['First', 'Second']);
+});
+
+rule('A record that isn\'t valid, or names a hash Flightdeck never shipped, never lets install replace a file', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'Ours');
+  write(dir, '.flightdeck/installed.json', JSON.stringify({ format: 'garbage', files: { [STATUS]: C.hash('Ours') } }));
+  let r = cli('install', dir);
+  assert.strictEqual(read(dir, STATUS), 'Ours', r.out);
+  assert.ok(/installed\.json/.test(r.out) && /ignored/i.test(r.out), 'says the record was ignored: ' + r.out);
+  const d2 = tmp();
+  cli('install', d2);
+  write(d2, STATUS, 'Ours');
+  setRecord(d2, { [STATUS]: C.hash('Ours') });
+  r = cli('install', d2);
+  assert.strictEqual(read(d2, STATUS), 'Ours', 'a hash in a valid record isn\'t proof of a default: ' + r.out);
+  assert.strictEqual(read(d2, '.flightdeck/updates/' + VER + '/' + STATUS), EX[STATUS], 'it waits for a merge instead');
+});
+
+rule('A file that changes while install runs is left as it is, and install says so and exits with an error', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'Ours');
+  let edited = false;
+  const r = inProcess(['install', dir, '--force'], (p) => { if (!edited && p.includes('flightdeck-status' + path.sep + '.SKILL.md')) { edited = true; fs.writeFileSync(at(dir, STATUS), 'An assistant\'s edit'); } });
+  assert.ok(edited, 'the hook ran');
+  assert.strictEqual(read(dir, STATUS), 'An assistant\'s edit');
+  assert.ok(r.code === 1 && /changed during install/.test(r.out), r.out);
+});
+
+rule('A folder swapped for a link while install writes is caught before anything lands outside the team folder', () => {
+  const dir = tmp(), outside = tmp();
+  cli('install', dir);
+  fs.unlinkSync(at(dir, STATUS));
+  let swapped = false;
+  const r = inProcess(['install', dir], (p) => {
+    if (swapped || !p.includes('flightdeck-status' + path.sep)) return;
+    swapped = true;
+    fs.renameSync(at(dir, '.flightdeck/skills/flightdeck-status'), at(dir, '.flightdeck/skills/moved'));
+    fs.symlinkSync(outside, at(dir, '.flightdeck/skills/flightdeck-status'));
+  });
+  assert.ok(swapped, 'the hook ran');
+  assert.ok(r.code === 1 && /link/.test(r.out), r.out);
+  assert.deepStrictEqual(fs.readdirSync(outside), [], 'nothing written outside');
+});
+
+rule('backup knows a folder by what it is, not how its name is spelled', () => {
+  const src = tmp(), upper = path.join(path.dirname(src), path.basename(src).toUpperCase());
+  if (!fs.existsSync(upper)) return console.log('  (skipped: this file system tells letter case apart)');
+  write(src, 'people.json', '[]');
+  const r = cli('backup', src, '--to', path.join(upper, 'backups'));
+  assert.ok(r.code === 1 && /inside the folder it backs up/.test(r.out), r.out);
+  assert.ok(!fs.existsSync(path.join(src, 'backups')));
+});
+
+rule('A merge left from an earlier version still counts until its copy is deleted, and --force files it away with the copies it keeps', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'Ours');
+  write(dir, '.flightdeck/updates/1.14.9/' + STATUS, 'an earlier version\'s default, not merged yet');
+  let r = cli('install', dir, '--check');
+  assert.ok(r.code === 3 && /still waiting/.test(r.out) && /1\.14\.9/.test(r.out), r.out);
+  r = cli('install', dir, '--force');
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(!fs.existsSync(at(dir, '.flightdeck/updates/1.14.9/' + STATUS)), 'the staged copy is no longer waiting');
+  const rep = at(dir, '.flightdeck/updates/' + VER + '/replaced'), stamp = fs.readdirSync(rep)[0];
+  assert.strictEqual(fs.readFileSync(at(path.join(rep, stamp), 'staged/1.14.9/' + STATUS), 'utf8'), 'an earlier version\'s default, not merged yet', 'moved beside the replaced file, never deleted');
+  write(dir, STATUS, 'Ours again');
+  assert.strictEqual(cli('install', dir, '--check').code, 0, 'a later change is just kept');
 });
 
 run();

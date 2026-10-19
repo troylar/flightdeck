@@ -15,6 +15,8 @@ const BEGIN = '<!-- flightdeck:begin -->', END = '<!-- flightdeck:end -->';
 const EXIT = { none: 0, error: 1, updates: 2, merge: 3 };
 
 class Refused extends Error {}
+/* A file that changed between the moment install read it and the moment it would replace it. */
+class Changed extends Error {}
 function fail(msg) { throw new Refused(msg); }
 function versionOf(html) {
   const m = /<meta name="(?:flightdeck|preflight)-version" content="(\d+\.\d+\.\d+|dev)">/.exec(html.slice(0, 8192));
@@ -39,7 +41,7 @@ function folderArg(arg, example) {
 
 /* The same hashing as PF.contract in the app: no byte-order mark, Unix line endings, and for AGENTS.md only the part
    between the markers (all of it in an AGENTS.md from before the markers). */
-function norm(text) { return String(text).replace(/^﻿/, '').replace(/\r\n?/g, '\n'); }
+function norm(text) { return String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n'); }
 function region(text) {
   const t = norm(text), i = t.indexOf(BEGIN), j = i < 0 ? -1 : t.indexOf(END, i);
   return i < 0 || j < 0 ? { text: t, start: 0, end: t.length, marked: false } : { text: t.slice(i, j + END.length), start: i, end: j + END.length, marked: true };
@@ -68,21 +70,62 @@ function readInside(dir, parts) {
   if (!st.isFile()) fail(path.join(dir, ...parts) + ' isn\'t a file.');
   return fs.readFileSync(path.join(dir, ...parts), 'utf8');
 }
-/* Write a file inside the folder, and only there, never through a link. The file is written whole to a temporary sibling
-   first, then moved into place, so an interrupted write never leaves half a file behind. */
-function safeWrite(dir, parts, text) {
+function lstatOrNull(p) { try { return fs.lstatSync(p); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
+/* Every folder from dir down to dir/parts is a real folder, not a link, and is where its name says. dir itself is a real
+   path (folderArg resolves it), so the folder's real path must be exactly the joined name. With create, missing folders
+   are made one at a time. */
+function folders(dir, parts, create) {
   let cur = dir;
-  for (let i = 0; i < parts.length; i++) {
-    cur = path.join(cur, parts[i]);
-    if (!parts[i] || parts[i] === '.' || parts[i] === '..' || !cur.startsWith(dir + path.sep)) fail('refusing to write outside the folder: ' + parts.join('/'));
-    let st = null;
-    try { st = fs.lstatSync(cur); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-    if (st && st.isSymbolicLink()) fail('refusing to write through a link: ' + cur);
-    if (i < parts.length - 1) { if (!st) fs.mkdirSync(cur); else if (!st.isDirectory()) fail(cur + ' isn\'t a folder.'); }
+  for (const p of parts) {
+    if (!p || p === '.' || p === '..' || /[\\/]/.test(p)) fail('refusing to write outside the folder: ' + parts.join('/'));
+    cur = path.join(cur, p);
+    let st = lstatOrNull(cur);
+    if (!st && create) { try { fs.mkdirSync(cur); } catch (e) { if (e.code !== 'EEXIST') throw e; } st = lstatOrNull(cur); }
+    if (!st) return null;
+    if (st.isSymbolicLink()) fail('refusing to write through a link: ' + cur);
+    if (!st.isDirectory()) fail(cur + ' isn\'t a folder.');
   }
-  const tmp = path.join(path.dirname(cur), '.' + path.basename(cur) + '.' + process.pid + '.' + Date.now() + '.tmp');
-  try { fs.writeFileSync(tmp, text, { flag: 'wx' }); fs.renameSync(tmp, cur); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (e2) { /* nothing to clean up */ } fail('couldn\'t write ' + cur + ': ' + e.message); }
+  if (fs.realpathSync(cur) !== cur) fail('refusing to write through a link: ' + cur);
+  return cur;
+}
+/* Write a file inside the folder, and only there, never through a link. The text goes to a new temporary file first
+   (created exclusively, so it can't be an existing file or a link), then is moved into place, so an interrupted write never
+   leaves half a file. Just before the move, the folders are checked again, the temporary file must still be the one this
+   process created, and with expect (the text install read, or null for "not there") the file must not have changed since.
+   Limit: these checks narrow the window, they can't close it. Someone who can rename folders inside your own team folder
+   during the instant between the last check and the move can still redirect it; that's out of scope. Ordinary accidents
+   (a link already in the folder, an assistant editing a file mid-install) are caught. */
+function safeWrite(dir, parts, text, expect) {
+  const name = parts[parts.length - 1], sub = parts.slice(0, -1);
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) fail('refusing to write outside the folder: ' + parts.join('/'));
+  const home = folders(dir, sub, true), target = path.join(home, name);
+  const was = lstatOrNull(target);
+  if (was && (was.isSymbolicLink() || !was.isFile())) fail('refusing to write through a link: ' + target);
+  const tmp = path.join(home, '.' + name + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
+  let fd = null, mine = null, moved = false;
+  try {
+    fd = fs.openSync(tmp, 'wx');
+    fs.writeSync(fd, text);
+    mine = fs.fstatSync(fd);
+    fs.closeSync(fd); fd = null;
+    folders(dir, sub, false);
+    const now = lstatOrNull(tmp);
+    if (!now || now.isSymbolicLink() || now.ino !== mine.ino || now.dev !== mine.dev) fail('refusing to write through a link: ' + home);
+    if (expect !== undefined) {
+      const st = lstatOrNull(target);
+      if (st && (st.isSymbolicLink() || !st.isFile())) fail('refusing to write through a link: ' + target);
+      if ((st ? fs.readFileSync(target, 'utf8') : null) !== expect) throw new Changed(parts.join('/'));
+    }
+    fs.renameSync(tmp, target);
+    moved = true;
+  } catch (e) {
+    if (e instanceof Refused || e instanceof Changed) throw e;
+    fail('couldn\'t write ' + target + ': ' + e.message);
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+    /* Remove the temporary file only if it's still the one this process made, wherever a swapped folder now points. */
+    if (!moved && mine) { const left = lstatOrNull(tmp); if (left && !left.isSymbolicLink() && left.ino === mine.ino && left.dev === mine.dev) fs.unlinkSync(tmp); }
+  }
 }
 
 /* The example folder and the baselines are built into the app, so the contract always matches this version. */
@@ -104,37 +147,48 @@ function baselines(html) {
 /* What the app copy at dest is, compared with this one: missing, current, older (update), or a refusal. */
 function appStatus(dir, file, html, mine, force) {
   const text = readInside(dir, [file]);
-  if (text === null) return 'new';
-  if (text === html) return 'current';
+  if (text === null) return { status: 'new', text };
+  if (text === html) return { status: 'current', text };
   const theirs = versionOf(text);
-  if (force) return 'update';
+  if (force) return { status: 'update', text };
   if (!theirs) fail(path.join(dir, file) + ' isn\'t a Flightdeck app this version recognizes. Use --force to replace it anyway.');
   if (theirs !== 'dev' && mine !== 'dev' && cmp(theirs, mine) > 0) fail(path.join(dir, file) + ' is a newer version (' + theirs + ') than this one (' + mine + '). Update the package, or use --force to replace it anyway.');
-  return 'update';
+  return { status: 'update', text };
 }
 
 /* Sort each contract file into what install does with it:
      current     same as this version's default
-     update      an earlier default (or unchanged since it was installed): replaced with this version's
+     update      a default some version shipped (only the built-in baselines prove that): replaced with this version's
      kept        the team changed it, and this version's default is the one it was based on: left alone
      merge       the team changed it and the default changed too: the new default goes to the updates folder
      new         not there yet: written
      missing     installed before, since deleted: written again
+   The folder's record only ever makes install more careful (kept rather than merge), never lets it replace a file.
+   A copy still waiting in .flightdeck/updates/<any version>/ keeps a file at merge until someone deletes the copy.
    With --force, kept and merge files are replaced too, after a copy is saved. */
 function classify(t, files, base, force) {
   return files.map((f) => {
     const parts = f.rel.split('/'), now = readInside(t.dir, parts), want = hash(managed(f.key, f.text));
-    const item = { key: f.key, rel: f.rel, parts, text: f.text, now, want };
-    if (now === null) return Object.assign(item, { status: t.record.files && t.record.files[f.key] ? 'missing' : 'new' });
+    const item = { key: f.key, rel: f.rel, parts, text: f.text, now, want, staged: staged(t, f.rel) };
+    if (now === null) return Object.assign(item, { status: t.record.files[f.key] ? 'missing' : 'new' });
     const have = hash(managed(f.key, now));
     if (have === want) return Object.assign(item, { status: 'current' });
-    const known = base[f.baseKey || baselineKey(f.key)] || {};
-    if (known[have] || (t.record.files && t.record.files[f.key] === have)) return Object.assign(item, { status: 'update' });
+    if ((base[f.baseKey || baselineKey(f.key)] || {})[have]) return Object.assign(item, { status: 'update' });
     if (force) return Object.assign(item, { status: 'forced' });
-    if (readInside(t.dir, t.updates.concat(t.version, f.rel.split('/'))) !== null) return Object.assign(item, { status: 'merge', waiting: true });
-    if (t.record.files && t.record.files[f.key] === want) return Object.assign(item, { status: 'kept' });
+    if (item.staged.length) return Object.assign(item, { status: 'merge', waiting: item.staged.map((x) => x.version).join(', ') });
+    if (t.record.files[f.key] === want) return Object.assign(item, { status: 'kept' });
     return Object.assign(item, { status: 'merge' });
   });
+}
+/* The versions under the updates folder, and which of them hold a copy of rel still waiting to be merged. */
+function versionsStaged(t) {
+  if (t.versions) return t.versions;
+  const home = folders(t.dir, t.updates, false);
+  t.versions = home ? fs.readdirSync(home).filter((v) => /^(\d+\.\d+\.\d+|dev)$/.test(v) && folders(t.dir, t.updates.concat(v), false)) : [];
+  return t.versions;
+}
+function staged(t, rel) {
+  return versionsStaged(t).map((v) => ({ version: v, parts: t.updates.concat(v, rel.split('/')) })).filter((x) => { const text = readInside(t.dir, x.parts); return text !== null && (x.text = text, true); });
 }
 /* The text written for a contract file: AGENTS.md keeps everything outside its markers (the team's notes); a file from
    before the markers is replaced whole. */
@@ -143,13 +197,23 @@ function merged(item) {
   const old = region(item.now), fresh = region(item.text);
   return old.marked ? norm(item.now).slice(0, old.start) + fresh.text + norm(item.now).slice(old.end) : item.text;
 }
-function readRecord(dir, parts) {
-  const text = readInside(dir, parts);
-  if (text === null) return {};
-  try { const r = JSON.parse(text); return r && typeof r === 'object' && r.files && typeof r.files === 'object' ? r : {}; }
-  catch (e) { return {}; }
+/* The folder's record, checked field by field. Anyone can edit it, so a record that isn't exactly what this command writes is
+   ignored (and said so), and only entries for files this version installs, with a well-formed hash, are read. */
+function readRecord(t, keys) {
+  const text = readInside(t.dir, t.recordAt), none = { files: {} };
+  if (text === null) return none;
+  let r = null;
+  try { r = JSON.parse(text); } catch (e) { /* reported below */ }
+  const ok = r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && /^(\d+\.\d+\.\d+|dev)$/.test(r.version)
+    && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
+    && Object.keys(r.files).every((k) => typeof r.files[k] === 'string' && /^[0-9a-f]{64}$/.test(r.files[k]));
+  if (!ok) return Object.assign(none, { ignored: true });
+  const files = {};
+  keys.forEach((k) => { if (Object.prototype.hasOwnProperty.call(r.files, k)) files[k] = r.files[k]; });
+  return { version: r.version, files };
 }
 function stamp(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + p(d.getMinutes()); }
+function fineStamp(d) { const p = (n, w) => String(n).padStart(w || 2, '0'); return stamp(d).replace(' ', '-') + p(d.getSeconds()) + '-' + p(d.getMilliseconds(), 3); }
 
 function mergeReadme(version, items, t) {
   const here = t.updates.concat(version).join('/');
@@ -175,34 +239,60 @@ Then run the same flightdeck command with \`--check\`: exit code 0 means nothing
 function contract(t, files, opts) {
   const base = baselines(opts.html), now = new Date();
   inside(t.dir, t.updates.concat(t.version, 'replaced'));
-  t.record = readRecord(t.dir, t.recordAt);
+  t.record = readRecord(t, files.map((f) => f.key));
+  t.changed = [];
   const items = classify(t, files, base, opts.force);
   if (opts.check) return items;
   for (const i of items) {
-    const out = merged(i);
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting)) continue;
-    if (i.status === 'merge') { safeWrite(t.dir, t.updates.concat(t.version, i.rel.split('/')), i.text); continue; }
-    if (opts.force && i.now !== null && i.now !== out) keepCopy(t, i.parts, i.now);
-    safeWrite(t.dir, i.parts, out);
+    try {
+      if (i.status === 'merge') { safeWrite(t.dir, t.updates.concat(t.version, i.rel.split('/')), i.text, null); continue; }
+      const out = merged(i);
+      if (opts.force && i.now !== null && i.now !== out) keepCopy(t, i.parts, i.now);
+      safeWrite(t.dir, i.parts, out, i.now);
+      if (opts.force) i.staged.forEach((x) => fileAway(t, x));
+    } catch (e) {
+      if (!(e instanceof Changed)) throw e;
+      i.changed = true; t.changed.push(i.rel);
+    }
   }
-  const merges = items.filter((i) => i.status === 'merge');
-  if (merges.length) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges, t));
-  const rec = Object.assign({}, t.record.files || {});
-  items.forEach((i) => { rec[i.key] = i.want; });
-  if (t.record.version === t.version && JSON.stringify(rec) === JSON.stringify(t.record.files)) return items;
+  const merges = items.filter((i) => i.status === 'merge' && !i.changed);
+  if (merges.some((i) => !i.waiting)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.staged.some((x) => x.version === t.version)), t));
+  const rec = Object.assign({}, t.record.files);
+  items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
+  if (!t.record.ignored && t.record.version === t.version && JSON.stringify(rec) === JSON.stringify(t.record.files)) return items;
   safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
   return items;
 }
-/* --force saves each file it replaces under .flightdeck/updates/<version>/replaced/<date-time>/ first. */
+/* --force saves each file it replaces in a folder of its own under .flightdeck/updates/<version>/replaced/, made new for
+   this run (never one an earlier run used), before replacing anything. */
 function keepCopy(t, parts, text) {
-  if (!t.replacedAt) t.replacedAt = t.updates.concat(t.version, 'replaced', stamp(new Date()).replace(' ', '-'));
-  safeWrite(t.dir, t.replacedAt.concat(parts), text);
+  if (!t.replacedAt) {
+    const home = folders(t.dir, t.updates.concat(t.version, 'replaced'), true);
+    for (let n = 0; !t.replacedAt; n++) {
+      const name = fineStamp(new Date()) + '-' + crypto.randomBytes(3).toString('hex');
+      try { fs.mkdirSync(path.join(home, name)); t.replacedAt = t.updates.concat(t.version, 'replaced', name); }
+      catch (e) { if (e.code !== 'EEXIST' || n > 20) throw e; }
+    }
+  }
+  safeWrite(t.dir, t.replacedAt.concat(parts), text, null);
+}
+/* A staged copy that --force made obsolete: moved beside the files it replaced (staged/<version>/...), never deleted. */
+function fileAway(t, x) {
+  keepCopy(t, ['staged', x.version].concat(x.parts.slice(t.updates.length + 1)), x.text);
+  const p = path.join(folders(t.dir, x.parts.slice(0, -1), false), x.parts[x.parts.length - 1]), st = lstatOrNull(p);
+  if (st && st.isFile() && !st.isSymbolicLink() && fs.readFileSync(p, 'utf8') === x.text) fs.unlinkSync(p);
 }
 
 const LABEL = { current: 'up to date', update: 'updated', new: 'added', missing: 'added again', kept: 'kept (your team changed it)', merge: 'needs merge', forced: 'replaced (--force)' };
 const CHECK_LABEL = { update: 'update available', new: 'will be added', missing: 'will be added again', merge: 'needs merge', forced: 'will be replaced (--force)', kept: 'kept (your team changed it)' };
 function report(items, check, out) {
-  items.filter((i) => i.status !== 'current').forEach((i) => out.push('  ' + (check ? CHECK_LABEL : LABEL)[i.status].padEnd(28) + i.rel + (i.waiting ? ' (still waiting)' : '')));
+  items.filter((i) => i.status !== 'current').forEach((i) => out.push('  ' + (i.changed ? 'changed during install' : (check ? CHECK_LABEL : LABEL)[i.status]).padEnd(28) + i.rel + (i.waiting ? ' (still waiting in updates/' + i.waiting + ')' : '')));
+}
+/* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
+function notes(t, out) {
+  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted. A new one was written.');
+  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while install was running: ' + t.changed.join(', ') + '. Run the command again.');
 }
 function exitFor(statuses) {
   if (statuses.includes('merge')) return EXIT.merge;
@@ -212,18 +302,30 @@ function exitFor(statuses) {
 /* Copy a team folder to <dest>/<name> backup <date time>/. Links are skipped, never followed, and so are temporary files. */
 function backup(src, toArg) {
   const parent = expand(toArg || path.join(require('os').homedir(), 'Flightdeck backups'));
-  const inSrc = (p) => p === src || p.startsWith(src + path.sep);
-  /* Checked before anything is created: the place as named, and where it really is once links are followed. */
-  let have = parent;
-  while (!fs.existsSync(have) && path.dirname(have) !== have) have = path.dirname(have);
-  if (inSrc(parent) || inSrc(path.join(fs.realpathSync(have), path.relative(have, parent)))) fail('the backup can\'t go inside the folder it backs up. Choose another place with --to.');
+  const me = fs.statSync(src);
+  /* Whether p is the folder or inside it, judged by what each folder above p is (device and inode), never by spelling:
+     on a file system that ignores letter case, "Team" and "TEAM" are the same folder. Missing parts are skipped. */
+  const within = (p) => {
+    for (let cur = p; ; cur = path.dirname(cur)) {
+      let st = null;
+      try { st = fs.statSync(cur); } catch (e) { /* not there yet */ }
+      if (st && st.dev === me.dev && st.ino === me.ino) return true;
+      if (path.dirname(cur) === cur) return false;
+    }
+  };
+  const inside = 'the backup can\'t go inside the folder it backs up. Choose another place with --to.';
+  if (within(parent)) fail(inside);
   try { fs.mkdirSync(parent, { recursive: true }); } catch (e) { fail('couldn\'t create "' + parent + '": ' + e.message); }
   const real = fs.realpathSync(parent);
-  if (inSrc(real)) fail('the backup can\'t go inside the folder it backs up. Choose another place with --to.');
+  if (within(real)) fail(inside);
   let dest = path.join(real, path.basename(src) + ' backup ' + stamp(new Date()));
-  for (let n = 2; fs.existsSync(dest); n++) dest = path.join(real, path.basename(src) + ' backup ' + stamp(new Date()) + ' (' + n + ')');
-  fs.mkdirSync(dest);
+  for (let n = 2; ; n++) {
+    try { fs.mkdirSync(dest); break; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    dest = path.join(real, path.basename(src) + ' backup ' + stamp(new Date()) + ' (' + n + ')');
+  }
+  if (within(dest)) fail(inside);
   const tally = { files: 0, bytes: 0, links: 0, tmp: 0 };
+  const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
   (function copy(from, to) {
     for (const e of fs.readdirSync(from, { withFileTypes: true })) {
       const a = path.join(from, e.name), b = path.join(to, e.name), st = fs.lstatSync(a);
@@ -231,8 +333,17 @@ function backup(src, toArg) {
       if (st.isDirectory()) { fs.mkdirSync(b); copy(a, b); continue; }
       if (!st.isFile()) continue;
       if (/\.tmp$/i.test(e.name)) { tally.tmp++; continue; }
-      fs.copyFileSync(a, b, fs.constants.COPYFILE_EXCL);
-      tally.files++; tally.bytes += st.size;
+      /* Opened without following a link, and checked to be the file just looked at, so a file swapped for a link meanwhile
+         is skipped rather than copied from wherever it points. */
+      let fd;
+      try { fd = fs.openSync(a, fs.constants.O_RDONLY | NOFOLLOW); } catch (err) { if (err.code === 'ELOOP') { tally.links++; continue; } throw err; }
+      try {
+        const f = fs.fstatSync(fd);
+        if (!f.isFile() || f.ino !== st.ino || f.dev !== st.dev) { tally.links++; continue; }
+        const data = fs.readFileSync(fd);
+        fs.writeFileSync(b, data, { flag: 'wx' });
+        tally.files++; tally.bytes += data.length;
+      } finally { fs.closeSync(fd); }
     }
   })(src, dest);
   return Object.assign(tally, { dest });
@@ -274,7 +385,8 @@ function main(argv) {
     /* Before 1.9.0 the app was preflight.html. If the folder still has it, update it too: people who open that file keep
        their browser-saved state (it's tied to the file's address), and older copies looking for it see the update. */
     const keepOld = inside(dir, [OLD]) !== null;
-    const appSt = appStatus(dir, NAME, html, mine, force), oldSt = keepOld ? appStatus(dir, OLD, html, mine, force) : 'current';
+    const appS = appStatus(dir, NAME, html, mine, force), oldS = keepOld ? appStatus(dir, OLD, html, mine, force) : { status: 'current' };
+    const appSt = appS.status, oldSt = oldS.status;
     const all = examples(html), t = { dir, updates: ['.flightdeck', 'updates'], recordAt: ['.flightdeck', 'installed.json'], version: mine, home: 'the team folder' };
     const files = appOnly ? [] : [AGENTS].concat(Object.keys(all).filter((p) => p.startsWith(SKILLS + '/'))).filter((k) => all[k] != null).map((k) => ({ key: k, rel: k, text: all[k] }));
     if (check) {
@@ -283,6 +395,7 @@ function main(argv) {
       if (appSt !== 'current') out.push('  ' + (appSt === 'new' ? 'will be added' : 'update available').padEnd(28) + NAME);
       if (oldSt !== 'current') out.push('  ' + 'update available'.padEnd(28) + OLD);
       report(items, true, out);
+      notes(t, out);
       const code = exitFor([appSt === 'current' ? 'current' : 'update', oldSt === 'current' ? 'current' : 'update'].concat(items.map((i) => i.status)));
       if (code === EXIT.none) out.push('  Nothing to do.');
       if (code === EXIT.merge) out.push('Files marked "needs merge" go to .flightdeck/updates/' + mine + '/ when you install.');
@@ -290,13 +403,15 @@ function main(argv) {
     }
     /* Everything is checked before anything is written, so a refusal (a link, say) leaves the folder as it was. */
     if (!appOnly) contract(t, files, { html, force, check: true });
-    [[NAME, appSt], [OLD, oldSt]].forEach(([file, st]) => {
-      if (st === 'current' || (file === OLD && !keepOld)) return;
-      const was = readInside(dir, [file]);
-      if (force && was !== null) keepCopy(t, [file], was);
-      safeWrite(dir, [file], html);
+    t.changed = [];
+    [[NAME, appS], [OLD, oldS]].forEach(([file, st]) => {
+      if (st.status === 'current' || (file === OLD && !keepOld)) return;
+      if (force && st.text !== null) keepCopy(t, [file], st.text);
+      try { safeWrite(dir, [file], html, st.text); } catch (e) { if (!(e instanceof Changed)) throw e; t.changed.push(file); }
     });
+    const appChanged = t.changed.slice();
     const items = appOnly ? [] : contract(t, files, { html, force });
+    t.changed = appChanged.concat(t.changed || []);
     out.push('Installed Flightdeck ' + mine + ' at ' + path.join(dir, NAME) + (keepOld ? '\nAlso updated ' + path.join(dir, OLD) + ' (the same app under its old name)' : ''));
     if (!appOnly) {
       out.push(items.every((i) => i.status === 'current') ? 'AGENTS.md and the skills are up to date.' : 'AGENTS.md and the skills:');
@@ -304,8 +419,9 @@ function main(argv) {
       if (items.some((i) => i.status === 'merge')) out.push('Your team changed files this version changes too. The new defaults are in ' + path.join(dir, '.flightdeck', 'updates', mine) + '; its README.md has a prompt for your AI assistant to merge them.');
     }
     if (t.replacedAt) out.push('Copies of the files --force replaced are in ' + path.join(dir, ...t.replacedAt));
+    notes(t, out);
     out.push('Open ' + NAME + ' in Edge or Chrome, choose Open team folder, and pick ' + dir);
-    return { out: out.join('\n'), code: 0 };
+    return { out: out.join('\n'), code: t.changed.length ? EXIT.error : 0 };
   }
   if (cmd === 'skills') {
     /* Without --to the skills go in <team folder>/.flightdeck/skills. With --to they go straight into that folder, which
@@ -330,6 +446,7 @@ function main(argv) {
     if (check) {
       out.push('Skills in ' + where + ':');
       report(items, true, out);
+      notes(t, out);
       const code = exitFor(items.map((i) => i.status));
       if (code === EXIT.none) out.push('  Nothing to do.');
       return { out: out.join('\n'), code };
@@ -339,7 +456,8 @@ function main(argv) {
     report(items.filter((i) => i.status !== 'update' && i.status !== 'new'), false, out);
     if (t.replacedAt) out.push('Copies of the files --force replaced are in ' + path.join(t.dir, ...t.replacedAt));
     if (items.some((i) => i.status === 'merge')) out.push('Some files you changed were also changed in this version. The new defaults are in ' + path.join(t.dir, ...t.updates, mine) + ', with a README.md for your AI assistant. Use --force to replace your versions instead.');
-    return { out: out.join('\n'), code: 0 };
+    notes(t, out);
+    return { out: out.join('\n'), code: t.changed.length ? EXIT.error : 0 };
   }
   if (cmd === 'backup') {
     const dir = folderArg(args[1], 'backup'), r = backup(dir, to);
@@ -369,4 +487,4 @@ if (require.main === module) {
     process.exitCode = EXIT.error;
   }
 }
-module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, hash, baselineKey, examples };
+module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples };

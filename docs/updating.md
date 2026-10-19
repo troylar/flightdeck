@@ -60,7 +60,7 @@ It copies `flightdeck.html`, then goes through `AGENTS.md` and each skill file:
 | What install finds | What it does |
 |---|---|
 | Same as this version's default | Nothing |
-| An earlier default (unchanged since it was installed, or any default Flightdeck has shipped) | Updates it |
+| An earlier default (exactly a file some Flightdeck version shipped, which the built-in list of defaults proves) | Updates it |
 | A file your team changed, when this version didn't change that default | Leaves it alone |
 | A file your team changed, when this version changed that default too | Leaves it alone, and puts the new default in `.flightdeck/updates/<version>/` with a `README.md` |
 | Missing | Adds it |
@@ -69,7 +69,13 @@ In `AGENTS.md`, only the part between `<!-- flightdeck:begin -->` and `<!-- flig
 
 **When files need merging:** open your AI assistant in the team folder and give it the prompt in `.flightdeck/updates/<version>/README.md`. It compares each new default with your file, keeps your changes, brings in the new ones, and deletes each copy once merged. Run `flightdeck install <folder> --check` again; 0 means nothing is left.
 
-`--force` replaces files your team changed with the new defaults instead. It saves a copy of each file it replaces in `.flightdeck/updates/<version>/replaced/` first. `--app-only` installs only `flightdeck.html`.
+A copy left in any version's updates folder still counts as waiting, even after a later update, until someone deletes it.
+
+`--force` replaces files your team changed with the new defaults instead. Each run saves a copy of every file it replaces in a new folder of its own under `.flightdeck/updates/<version>/replaced/`, and moves any copies still waiting to be merged for those files there too (under `staged/`). `--app-only` installs only `flightdeck.html`.
+
+**What install trusts.** `.flightdeck/installed.json` only ever makes install more careful. Install replaces a file without `--force` only when it's exactly a default Flightdeck shipped; a record that's damaged or wasn't written by Flightdeck is ignored, and install says so. A file that changes while install is running (an AI assistant saving it, say) is left as it is, and install ends with exit code 1 so you run it again.
+
+**Links.** Install never writes through a link or outside the folder: it checks every folder on the way, writes to a new temporary file, and checks again just before moving it into place. Those checks can't stop someone who renames folders inside your team folder at the same instant on purpose; that's outside what a file copy can guard against. Don't run install while something else is reorganizing the folder.
 
 ## 6. Verify
 

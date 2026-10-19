@@ -94,7 +94,8 @@ Step 0 needs the connection check, which comes in a later 1.15 release. Until th
 18. Resume OneDrive on B. Wait one to two minutes.
 19. Expect on both: the run shows a conflict copy panel (**Compare copies**). Nothing is silently lost: every step checked on A and B is in one of the copies.
 20. Recorder: compare, keep the right copy, and delete the other. Expect: both computers settle on the kept copy; the deleted copy's answers stay visible in the comparison until it's deleted.
-21. Pause OneDrive on A and edit a draft in the builder, then Save. On B, edit the same draft and Save. Resume A. Expect: one save is refused with "Someone else changed this draft", offering Keep mine and Take theirs. Undo never brings back text over the other person's change.
+21. Pause OneDrive on A and edit a draft in the builder, then Save. On B, edit the same draft and Save. Both saves succeed: neither computer can see the other's change yet. Resume A. Expect: OneDrive keeps both versions, one of them as a copy with a computer's name (`release-LAPTOP.md`). Nothing is silently lost: both edits are in one of the two files. Resolve it as in [When something goes wrong](recovery.md#onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type); once Folder health exists (a later 1.15 release), it lists the copy too.
+    - 21b. With both computers syncing, open the same draft on A and B. A edits and saves. Wait until A's save has reached B, then edit on B and save. Expect on B: the save is refused with "Someone else changed this draft", offering Keep mine and Take theirs. Undo never brings back text over A's change.
 - P. Pause OneDrive on A. Publish a new version of a checklist on A, then resume. Expect on B: until every file of the new version has arrived, the version is either not there or shown as still syncing. It's never offered for a run before it's complete.
 - R. With a run open on both computers, restore that run's `run.json` to an earlier version from OneDrive's version history (on the OneDrive website: the run's folder → `run.json` → Version history → Restore). Then the recorder checks a step. Expect: the save is refused and a conflict copy appears; both the restored version and the recorder's are there to compare. Nothing is silently lost.
 
@@ -145,7 +146,8 @@ Copy this into `docs/rehearsals/<version>-<date>.md` and fill it in.
 | 15-18 | Paused B, take over on A, resumed | | | |
 | 19 | Compare copies on both; every answer in a copy | | | |
 | 20 | Both settle on the kept copy | | | |
-| 21 | One draft save refused; Undo safe | | | |
+| 21 | Both offline saves kept: the draft plus a OneDrive copy | | | |
+| 21b | Save after A's change arrived is refused; Undo safe | | | |
 | P | Half-synced version never usable on B | | | |
 | R | Restored run.json gives a conflict copy | | | |
 | 22 | Corrections group with both people; Done differently joined | | | |

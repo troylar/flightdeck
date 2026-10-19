@@ -9,7 +9,7 @@ PF.contract = (function () {
   var BASELINES = /*@BASELINES@*/{};
 
   /* Hashes ignore a byte-order mark and Windows line endings, which editors and OneDrive may add. */
-  function norm(text) { return String(text == null ? '' : text).replace(/^﻿/, '').replace(/\r\n?/g, '\n'); }
+  function norm(text) { return String(text == null ? '' : text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n'); }
   /* The part of AGENTS.md Flightdeck owns: from the begin marker through the end marker. A file without both markers (every
      AGENTS.md from before 1.15) is all Flightdeck's. */
   function region(text) {
