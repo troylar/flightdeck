@@ -1353,7 +1353,7 @@ rule('Setup: the people step shows each ID before anything is written, -2 on a c
   ctx.setupProgress = () => PF.setup.progress({});
   const html = V.setup(ctx);
   assert.ok(/Saved as <code>person-riley-park<\/code>/.test(html) && /person-sam-fox<\/code>/.test(html) && /person-sam-fox-2<\/code>/.test(html));
-  assert.ok(/<option value="t2" selected>Sam Fox<\/option>/.test(html) && !/value="t3"/.test(html), 'only named teammates can be backup');
+  assert.ok(/<option value="t2" selected>Sam Fox \(person-sam-fox-2\)<\/option>/.test(html) && !/value="t3"/.test(html), 'only named teammates can be backup');
   assert.ok(html.indexOf(PF.util.esc(V.PROMISE)) > 0 && /They aren't security/.test(V.PROMISE) && /set by how you share it in OneDrive/.test(V.PROMISE));
   assert.ok(/Team &lt;b&gt;/.test(html), 'the folder name is escaped');
   assert.strictEqual((html.match(/<li class="done/g) || []).length, 1, 'before the folder is created, only the tested folder is done');
@@ -1407,6 +1407,21 @@ rule('Setup: every step in the stepper has a full accessible name, even on a pho
   assert.ok(/data-act="setup-step" data-id="people" aria-label="Step 2 of 5: People, done"/.test(html), html.slice(html.indexOf('su-steps'), html.indexOf('su-steps') + 600));
   assert.ok(/aria-current="step" aria-label="Step 4 of 5: First run, current"/.test(html));
   assert.ok(/aria-label="Step 5 of 5: Second computer, not done yet"/.test(html));
+});
+
+rule('Setup and Settings: people with the same name are told apart in every picker', () => {
+  const { ctx, state } = setup(null, { view: 'setup', me: '' });
+  state.setup = { mode: 'start', step: 'people', tested: true, dirName: 'T', me: { name: 'Riley', email: '' }, team: [{ k: 't1', name: 'Sam Fox', email: 'sam@example.com' }, { k: 't2', name: 'Sam Fox', email: '' }], backup: '' };
+  ctx.setupProgress = () => PF.setup.progress({});
+  const html = V.setup(ctx);
+  assert.ok(/<option value="t1">Sam Fox \(sam@example\.com\)<\/option>/.test(html) && /<option value="t2">Sam Fox \(person-sam-fox-2\)<\/option>/.test(html), html.slice(html.indexOf('su-backup'), html.indexOf('su-backup') + 400));
+  const two = people.concat([{ id: 'person-avery-2', name: 'Avery Lee', email: '' }]);
+  const s2 = setup(null, { view: 'setup', me: 'person-casey', fs: { kind: 'folder', name: 'T' } });
+  s2.ctx.data.people = two; s2.ctx.peopleById = Object.fromEntries(two.map(p => [p.id, p]));
+  s2.state.setup = { mode: 'start', step: 'second', created: true, me: {}, team: [], to: '' };
+  s2.ctx.setupProgress = () => PF.setup.progress({}); s2.ctx.processes = () => []; s2.ctx.releases = { list: [], version: 'dev' };
+  assert.ok(/>Avery Lee \(avery@example\.com\)<\/option>/.test(V.setup(s2.ctx)) && />Avery Lee \(person-avery-2\)<\/option>/.test(V.setup(s2.ctx)), 'who is opening it');
+  assert.ok(/>Avery Lee \(person-avery-2\)<\/option>/.test(V.top(s2.ctx)), 'the top bar\'s You are');
 });
 
 run();

@@ -101,7 +101,7 @@ PF.vk = (function () {
     h += '<button class="mini icon-btn" data-act="theme" data-id="' + THEMES[th].next + '" aria-label="Appearance: ' + THEMES[th].label + '. Switch to ' + THEMES[THEMES[th].next].label + '" title="Appearance: ' + THEMES[th].label + '">' + I(THEMES[th].icon) + '</button>';
     h += '<label class="me" for="me">You are ';
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-    if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select>';
+    if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(PF.people.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select>';
     else h += '<input id="me" value="' + esc(st.me) + '" placeholder="Your name" maxlength="40">';
     h += '</label>';
     /* On a run, which run it is stays in view while scrolling: its name, process and version, where it is and how far. */

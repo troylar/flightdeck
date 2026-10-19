@@ -730,4 +730,11 @@ rule('Folder: the write test always tries to remove its file and says whether it
   same(path(), [], 'removed even when it read back wrong');
 });
 
+rule('Folder: when the write test neither reads back nor removes its file, the error names the file left behind', async () => {
+  const fs = folder(), read = fs.read;
+  fs.read = p => /write-test/.test(p) ? Promise.reject(new Error('busy')) : read.call(fs, p);
+  fs.remove = () => Promise.reject(new Error('locked'));
+  await assert.rejects(repo.writeTest(fs, 'w9'), /\.flightdeck\/write-test-w9\.tmp/);
+});
+
 run();

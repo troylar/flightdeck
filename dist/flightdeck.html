@@ -4807,7 +4807,7 @@ PF.skills = (function () {
     return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup)); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
-     people.json (as read; peopleUnread: this read of it failed). Returns "owner", "backup" or "". */
+     people.json (as read; peopleUnread: this read of it failed), and only while the backup is listed and active. Returns "owner", "backup" or "". */
   function signer(pub, people, me, peopleUnread) {
     var meta = pub.map.meta, owner = meta.owner, backup = meta.backup;
     if (!me) return '';
@@ -4815,7 +4815,8 @@ PF.skills = (function () {
     /* The owner's absence must be read, never assumed: no backup sign-off while people.json can't be read or lists nobody. */
     if (peopleUnread || !(people || []).length) return '';
     var o = (people || []).filter(function (p) { return p.id === owner; })[0];
-    return backup && backup === me && (!o || o.inactive) ? 'backup' : '';
+    var b = (people || []).filter(function (p) { return p.id === backup; })[0];
+    return backup && backup === me && b && !b.inactive && (!o || o.inactive) ? 'backup' : '';
   }
 
   /* ---------- Briefs: what an AI assistant needs to create or update a skill. Plain Markdown to paste, or for an AI assistant to read. ---------- */
@@ -5138,6 +5139,11 @@ PF.people = (function () {
     }
     return 'Unknown change.';
   }
+  /* How a person is named where someone is chosen: a name two people share gets their email, else their ID. */
+  function label(p, all) {
+    var n = String(p.name || '').trim().toLowerCase(), twin = (all || []).some(function (x) { return x !== p && x.id !== p.id && String(x.name || '').trim().toLowerCase() === n; });
+    return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
+  }
   function text(doc) { return JSON.stringify(doc, null, 2) + '\n'; }
 
   /* What someone not on the list sends the folder owner. */
@@ -5148,7 +5154,7 @@ PF.people = (function () {
       'In Flightdeck: Settings, People, Add a person. Then I can choose my name when I open the folder.', '', 'Thanks!'].join('\n');
   }
 
-  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, listOf: listOf, clean: clean, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
+  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, label: label, listOf: listOf, clean: clean, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
 })();
 
 /* Folder health: what in the team folder needs a person, worth a look, or is fine. Pure: it reads a snapshot (what the app
@@ -6440,7 +6446,7 @@ PF.repo = (function () {
     /* The file is always removed (or said to be left), whatever the read back found. */
     var remove = function () { return fs.remove(path).then(function () { return { removed: true }; }, function () { return { removed: false, path: path }; }); };
     return fs.write(path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
-      return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written'); return res; });
+      return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written' + (res.removed ? '' : ', and ' + path + ' couldn\'t be removed; delete it')); return res; });
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
@@ -6732,7 +6738,7 @@ PF.vk = (function () {
     h += '<button class="mini icon-btn" data-act="theme" data-id="' + THEMES[th].next + '" aria-label="Appearance: ' + THEMES[th].label + '. Switch to ' + THEMES[THEMES[th].next].label + '" title="Appearance: ' + THEMES[th].label + '">' + I(THEMES[th].icon) + '</button>';
     h += '<label class="me" for="me">You are ';
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-    if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select>';
+    if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(PF.people.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select>';
     else h += '<input id="me" value="' + esc(st.me) + '" placeholder="Your name" maxlength="40">';
     h += '</label>';
     /* On a run, which run it is stays in view while scrolling: its name, process and version, where it is and how far. */
@@ -7201,7 +7207,7 @@ PF.vk = (function () {
       meta.roles.forEach(function (role) {
         var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>';
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(PF.people.label(x, people)) + '</option>'; }).join('') + '</select></label>';
       });
       h += '</div><p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
@@ -7382,7 +7388,7 @@ PF.vk = (function () {
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
       var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-      ctl = people.length ? '<label class="sr" for="me-run">You are</label><select id="me-run"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('') + '</select>' : '<label class="sr" for="me-run">Your name</label><input id="me-run" class="rw-in" placeholder="Your name" maxlength="40">';
+      ctl = people.length ? '<label class="sr" for="me-run">You are</label><select id="me-run"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select>' : '<label class="sr" for="me-run">Your name</label><input id="me-run" class="rw-in" placeholder="Your name" maxlength="40">';
     } else if (r.paused) {
       kind = 'paused';
       text = I('pause') + ' <b>Paused</b> by ' + esc(nameOf(ctx, r.paused.by)) + ' at ' + U.hm(r.paused.at) + ': ' + esc(r.paused.reason) + '. Steps, gates and timers wait until it\'s resumed; deadlines from other tools keep counting.';
@@ -7394,7 +7400,7 @@ PF.vk = (function () {
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
       var people2 = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== s.me; });
-      var hand = s.pick && s.pick.kind === 'handoff' ? '<span class="row rw-ask"><label class="sr" for="handoff-to">Hand recording to</label><select id="handoff-to">' + people2.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('') + '</select><button class="mini" data-act="handoff">Hand off</button><button class="mini" data-act="unpick">Cancel</button></span>'
+      var hand = s.pick && s.pick.kind === 'handoff' ? '<span class="row rw-ask"><label class="sr" for="handoff-to">Hand recording to</label><select id="handoff-to">' + people2.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(PF.people.label(p, people2)) + '</option>'; }).join('') + '</select><button class="mini" data-act="handoff">Hand off</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="handoff" data-id="recorder">' + I('swap') + (solo ? 'Hand to someone' : 'Hand off') + '</button>';
       ctl = pause + hand;
     } else { var w = ownership(ctx, r); text = w.text; ctl = w.ctl; kind = /data-act="pickup"/.test(w.ctl) ? 'ready' : 'follow'; }
@@ -7440,7 +7446,7 @@ PF.vk = (function () {
       return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : 'set') + '</button>';
     }).join('');
     var roles = map.meta.roles.map(function (ro) {
-      if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + ctx.data.people.filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
+      if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + ctx.data.people.filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(PF.people.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
       return '<button class="chip' + (r.roles[ro] ? '' : ' empty') + '" data-act="edit" data-id="role:' + esc(ro) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(ro) + '</span>' + (r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : 'assign') + '</button>';
     }).join('');
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
@@ -7912,7 +7918,7 @@ PF.vk = (function () {
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
     h += '<div class="finish"><section class="panel stack"><h2>1. Follow-ups</h2><p class="small">Work this run turned up that outlives it. Each one goes on the receipt and on Home for 30 days; put the real tracking in Jira.</p>';
     h += fus.length ? '<ul class="fulist">' + fus.map(function (f) { return '<li><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (f.owner ? ' <span class="small">· ' + esc(nameOf(ctx, f.owner)) + '</span>' : '') + '</span><button class="mini" data-act="remove-followup" data-id="' + esc(f.id) + '">Remove</button></li>'; }).join('') + '</ul>' : '<p class="muted">None yet.</p>';
-    h += ferr(s, 'followup') + '<div class="grid2"><label class="field" for="fu-text">What needs doing<input id="fu-text" maxlength="300" data-enter="add-followup"' + (s.fieldErr && s.fieldErr.id === 'followup' ? ' aria-invalid="true" aria-describedby="ferr-followup"' : '') + '></label><label class="field" for="fu-owner">Who<select id="fu-owner"><option value="">Nobody yet</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('') + '</select></label><label class="field" for="fu-ticket">Jira ticket (optional)<input id="fu-ticket" maxlength="120" placeholder="ABC-123"></label></div><button class="btn" style="align-self:flex-start" data-act="add-followup">Add follow-up</button></section>';
+    h += ferr(s, 'followup') + '<div class="grid2"><label class="field" for="fu-text">What needs doing<input id="fu-text" maxlength="300" data-enter="add-followup"' + (s.fieldErr && s.fieldErr.id === 'followup' ? ' aria-invalid="true" aria-describedby="ferr-followup"' : '') + '></label><label class="field" for="fu-owner">Who<select id="fu-owner"><option value="">Nobody yet</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label><label class="field" for="fu-ticket">Jira ticket (optional)<input id="fu-ticket" maxlength="120" placeholder="ABC-123"></label></div><button class="btn" style="align-self:flex-start" data-act="add-followup">Add follow-up</button></section>';
     h += '<section class="panel stack"><h2>2. Corrections' + (cor.length ? ' · ' + cor.length : '') + '</h2><p class="small">Where the checklist was wrong or the work went differently. Corrections also wait on the process page, where anyone on the team decides on them.</p>' +
       (cor.length ? '<ul class="corrlist">' + cor.map(function (c) {
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
@@ -8490,7 +8496,7 @@ PF.vk = (function () {
       '<div class="grid2">' + field('id', 'Process ID', 'lowercase, dashes: the file name and what skills point to', f.id, ' pattern="[a-z0-9][a-z0-9-]*" required') + field('title', 'Title', '', f.title, ' required') + '</div>' +
       '<div class="grid2">' + field('group', 'Group', 'its place in the hierarchy, like Engineering / Releases', f.group) + field('tags', 'Tags', 'comma-separated', f.tags) + '</div>' +
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
-      '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label>' +
       '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="home">Cancel</button></div></form>';
   }
@@ -9136,9 +9142,9 @@ PF.vk = (function () {
       return '<li><div class="grid2">' + input(st, 'su-name-' + x.k, 'Name', x.name, ' maxlength="60"') + input(st, 'su-email-' + x.k, 'Email (optional)', x.email, ' maxlength="120" type="email"') + '</div><div class="row between">' + idLine(x.k) +
         '<button type="button" class="mini" data-act="setup-del-row" data-id="' + x.k + '" aria-label="Remove teammate ' + (i + 1) + (x.name ? ', ' + esc(x.name) : '') + '">Remove</button></div></li>';
     }).join('') + '</ul><button type="button" class="btn" data-act="setup-add-row">' + I('plus') + 'Add a teammate</button></fieldset>';
-    var b = ferr(st, 'su-backup');
+    var b = ferr(st, 'su-backup'), cands = [{ id: ids.me, name: su.me.name }].concat(named.map(function (x) { return { id: ids[x.k], name: x.name, email: String(x.email || '').trim() }; }));
     h += '<fieldset class="su-backup"><legend>Backup owner</legend><label class="field" for="su-backup">If you\'re away or leave, your backup owner keeps the people list and can hand the folder to someone else.<select id="su-backup" data-bound' + b.attrs + '><option value="">Nobody yet</option>' +
-      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
+      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(PP.label({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() }, cands)) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
     h += promise();
     h += '<div class="row su-actions"><button class="btn go" type="submit"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Creating…' : 'Create the team folder') + '</button><button type="button" class="mini" data-act="setup-step" data-id="folder">Back</button></div>' +
       '<p class="small">Flightdeck writes <code>people.json</code>, <code>AGENTS.md</code> (instructions for AI assistants) and their skills into <b>' + esc(su.dirName || '') + '</b>.</p></form>';
@@ -9187,7 +9193,7 @@ PF.vk = (function () {
     h += '<li><h3>Send a teammate the way in</h3>';
     if (!to) h += '<p>Add a teammate in Settings, People first.</p><button class="btn" data-act="nav" data-id="settings">Settings</button>';
     else {
-      h += (others.length > 1 ? '<label class="field su-to" for="su-to">Who\'s opening it<select id="su-to">' + others.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p === to ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>' : '') +
+      h += (others.length > 1 ? '<label class="field su-to" for="su-to">Who\'s opening it<select id="su-to">' + others.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p === to ? ' selected' : '') + '>' + esc(PP.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select></label>' : '') +
         '<pre class="source su-msg" id="su-invite" tabindex="0">' + esc(S.invite({ folder: fs ? fs.name : '', to: to.name, from: nameOf(ctx, me) })) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="invite">' + I('copy') + 'Copy the message</button><span class="small" id="copy-msg" role="status"></span></div>';
     }
     h += '</li><li><h3>Check the connection</h3>';

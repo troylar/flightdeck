@@ -147,7 +147,7 @@ PF.skills = (function () {
     return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup)); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
-     people.json (as read; peopleUnread: this read of it failed). Returns "owner", "backup" or "". */
+     people.json (as read; peopleUnread: this read of it failed), and only while the backup is listed and active. Returns "owner", "backup" or "". */
   function signer(pub, people, me, peopleUnread) {
     var meta = pub.map.meta, owner = meta.owner, backup = meta.backup;
     if (!me) return '';
@@ -155,7 +155,8 @@ PF.skills = (function () {
     /* The owner's absence must be read, never assumed: no backup sign-off while people.json can't be read or lists nobody. */
     if (peopleUnread || !(people || []).length) return '';
     var o = (people || []).filter(function (p) { return p.id === owner; })[0];
-    return backup && backup === me && (!o || o.inactive) ? 'backup' : '';
+    var b = (people || []).filter(function (p) { return p.id === backup; })[0];
+    return backup && backup === me && b && !b.inactive && (!o || o.inactive) ? 'backup' : '';
   }
 
   /* ---------- Briefs: what an AI assistant needs to create or update a skill. Plain Markdown to paste, or for an AI assistant to read. ---------- */

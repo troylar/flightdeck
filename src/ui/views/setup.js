@@ -71,9 +71,9 @@
       return '<li><div class="grid2">' + input(st, 'su-name-' + x.k, 'Name', x.name, ' maxlength="60"') + input(st, 'su-email-' + x.k, 'Email (optional)', x.email, ' maxlength="120" type="email"') + '</div><div class="row between">' + idLine(x.k) +
         '<button type="button" class="mini" data-act="setup-del-row" data-id="' + x.k + '" aria-label="Remove teammate ' + (i + 1) + (x.name ? ', ' + esc(x.name) : '') + '">Remove</button></div></li>';
     }).join('') + '</ul><button type="button" class="btn" data-act="setup-add-row">' + I('plus') + 'Add a teammate</button></fieldset>';
-    var b = ferr(st, 'su-backup');
+    var b = ferr(st, 'su-backup'), cands = [{ id: ids.me, name: su.me.name }].concat(named.map(function (x) { return { id: ids[x.k], name: x.name, email: String(x.email || '').trim() }; }));
     h += '<fieldset class="su-backup"><legend>Backup owner</legend><label class="field" for="su-backup">If you\'re away or leave, your backup owner keeps the people list and can hand the folder to someone else.<select id="su-backup" data-bound' + b.attrs + '><option value="">Nobody yet</option>' +
-      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
+      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(PP.label({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() }, cands)) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
     h += promise();
     h += '<div class="row su-actions"><button class="btn go" type="submit"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Creating…' : 'Create the team folder') + '</button><button type="button" class="mini" data-act="setup-step" data-id="folder">Back</button></div>' +
       '<p class="small">Flightdeck writes <code>people.json</code>, <code>AGENTS.md</code> (instructions for AI assistants) and their skills into <b>' + esc(su.dirName || '') + '</b>.</p></form>';
@@ -122,7 +122,7 @@
     h += '<li><h3>Send a teammate the way in</h3>';
     if (!to) h += '<p>Add a teammate in Settings, People first.</p><button class="btn" data-act="nav" data-id="settings">Settings</button>';
     else {
-      h += (others.length > 1 ? '<label class="field su-to" for="su-to">Who\'s opening it<select id="su-to">' + others.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p === to ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>' : '') +
+      h += (others.length > 1 ? '<label class="field su-to" for="su-to">Who\'s opening it<select id="su-to">' + others.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p === to ? ' selected' : '') + '>' + esc(PP.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select></label>' : '') +
         '<pre class="source su-msg" id="su-invite" tabindex="0">' + esc(S.invite({ folder: fs ? fs.name : '', to: to.name, from: nameOf(ctx, me) })) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="invite">' + I('copy') + 'Copy the message</button><span class="small" id="copy-msg" role="status"></span></div>';
     }
     h += '</li><li><h3>Check the connection</h3>';

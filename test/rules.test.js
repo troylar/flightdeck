@@ -2259,4 +2259,18 @@ rule('The honest promise names the backup owner\'s sign-off too', () => {
   assert.ok(/backup owner, while the owner is away/.test(V.PROMISE), V.PROMISE);
 });
 
+rule('Sign-off: an inactive or unlisted backup owner never signs off', () => {
+  const p = pub('release'), S = PF.skills, ppl = PP.clean(people).map(x => x.id === 'person-casey' ? Object.assign({}, x, { inactive: true }) : x);
+  assert.strictEqual(S.signer(p, ppl, 'person-avery'), 'backup');
+  assert.strictEqual(S.signer(p, ppl.map(x => x.id === 'person-avery' ? Object.assign({}, x, { inactive: true }) : x), 'person-avery'), '', 'inactive backup');
+  assert.strictEqual(S.signer(p, ppl.filter(x => x.id !== 'person-avery'), 'person-avery'), '', 'backup not in people.json');
+});
+
+rule('People: a name shared by two people is shown with their email, else their ID, wherever someone is chosen', () => {
+  const all = [{ id: 'person-sam-fox', name: 'Sam Fox', email: 'sam@example.com' }, { id: 'person-sam-fox-2', name: 'Sam Fox', email: '' }, { id: 'person-riley', name: 'Riley' }];
+  assert.strictEqual(PP.label(all[0], all), 'Sam Fox (sam@example.com)');
+  assert.strictEqual(PP.label(all[1], all), 'Sam Fox (person-sam-fox-2)');
+  assert.strictEqual(PP.label(all[2], all), 'Riley');
+});
+
 run();

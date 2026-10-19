@@ -628,7 +628,7 @@ PF.repo = (function () {
     /* The file is always removed (or said to be left), whatever the read back found. */
     var remove = function () { return fs.remove(path).then(function () { return { removed: true }; }, function () { return { removed: false, path: path }; }); };
     return fs.write(path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
-      return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written'); return res; });
+      return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written' + (res.removed ? '' : ', and ' + path + ' couldn\'t be removed; delete it')); return res; });
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */

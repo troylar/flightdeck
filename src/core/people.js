@@ -102,6 +102,11 @@ PF.people = (function () {
     }
     return 'Unknown change.';
   }
+  /* How a person is named where someone is chosen: a name two people share gets their email, else their ID. */
+  function label(p, all) {
+    var n = String(p.name || '').trim().toLowerCase(), twin = (all || []).some(function (x) { return x !== p && x.id !== p.id && String(x.name || '').trim().toLowerCase() === n; });
+    return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
+  }
   function text(doc) { return JSON.stringify(doc, null, 2) + '\n'; }
 
   /* What someone not on the list sends the folder owner. */
@@ -112,5 +117,5 @@ PF.people = (function () {
       'In Flightdeck: Settings, People, Add a person. Then I can choose my name when I open the folder.', '', 'Thanks!'].join('\n');
   }
 
-  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, listOf: listOf, clean: clean, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
+  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, label: label, listOf: listOf, clean: clean, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
 })();
