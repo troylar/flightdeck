@@ -15,6 +15,8 @@ PF.corrections = (function () {
   var STATUS = { open: 'Open', applied: 'Applied to draft', declined: 'Declined', withdrawn: 'Withdrawn', legacy: 'Applied (legacy)' };
   var DECIDE = ['open', 'applied', 'declined', 'withdrawn'];
   var TEXT_MAX = 2000, REASON_MAX = 300, CV = 1;
+  /* A checklist's own step, phase and role names follow its format's limits (60 characters); IDs this file makes are shorter. */
+  var CID = /^[a-z0-9][a-z0-9-]{0,59}$/i, ROLE = /^[\w-]{1,60}$/;
   var ID = /^[\w-]{1,40}$/, FILE = /^[\w-]{1,40}\.[\w-]{1,40}(\.\d{1,9})?\.json$/;
   var LEGACY_KIND = { missing: 'A step is missing', instructions: 'The instructions are wrong', screenshot: 'The screenshot is wrong', order: 'The order is wrong', role: 'The role is wrong', other: '' };
 
@@ -112,10 +114,10 @@ PF.corrections = (function () {
     else if (op === 'add') { out.text = str(ch.text, TEXT_MAX); out.where = ch.where === 'end' ? 'end' : 'after'; if (!out.text) out = { op: 'describe' }; }
     else if (op === 'move') {
       var t = ch.to && typeof ch.to === 'object' ? ch.to : {};
-      if (typeof t.after === 'string' && ID.test(t.after)) out.to = { after: t.after };
-      else if (typeof t.phase === 'string' && ID.test(t.phase)) out.to = { phase: t.phase, where: t.where === 'start' ? 'start' : 'end' };
+      if (typeof t.after === 'string' && CID.test(t.after)) out.to = { after: t.after };
+      else if (typeof t.phase === 'string' && CID.test(t.phase)) out.to = { phase: t.phase, where: t.where === 'start' ? 'start' : 'end' };
       else out = { op: 'describe' };
-    } else if (op === 'roles') out.to = Array.isArray(ch.to) ? ch.to.filter(function (r) { return typeof r === 'string' && /^[\w-]{1,40}$/.test(r); }).slice(0, 20) : [];
+    } else if (op === 'roles') out.to = Array.isArray(ch.to) ? ch.to.filter(function (r) { return typeof r === 'string' && ROLE.test(r); }).slice(0, 20) : [];
     else if (op === 'screenshot' && typeof ch.shot === 'string' && /^images\/[\w./-]+$/.test(ch.shot) && ch.shot.indexOf('..') < 0) out.shot = ch.shot.slice(0, 200);
     return out;
   }
@@ -127,7 +129,7 @@ PF.corrections = (function () {
     if (typeof n.happened === 'string' && n.happened) c.happened = n.happened.slice(0, 500);
     if (typeof n.replaces === 'string' && ID.test(n.replaces)) c.replaces = n.replaces;
     /* A correction from a newer copy shows as the problem it describes, in its own words. */
-    if (c.cv > CV) c.change = { op: 'describe' };
+    if (c.cv > CV || (n.change && n.change.op !== c.change.op)) { c.change = { op: 'describe' }; c.newer = true; }
     return c;
   }
 
@@ -143,7 +145,8 @@ PF.corrections = (function () {
         var base = { id: n.id, process: process, run: r.id, runTitle: r.title, by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, runEnded: !!r.ended };
         if (n.kind === 'correction') {
           if (n.replaces) gone[n.by + '|' + n.replaces] = true;
-          out.push(Object.assign(base, { version: n.version || +r.version || 0, folder: n.folder || r.folder, target: n.target, change: n.change, from: n.from, sig: n.base, why: n.why || '', happened: n.happened || '' }));
+          /* One this copy can't fully read shows its own plain summary as the problem. */
+          out.push(Object.assign(base, { version: n.version || +r.version || 0, folder: n.folder || r.folder, target: n.target, change: n.change, from: n.from, sig: n.base, why: n.newer ? n.text || n.why || '' : n.why || '', happened: n.happened || '', newer: !!n.newer }));
           return;
         }
         var t = n.kind === 'fix' && n.target ? n.target : { phase: '', step: n.step || null };
@@ -217,16 +220,19 @@ PF.corrections = (function () {
       if (rev > crev) cur[k] = { d: d, tie: false };
       else if (rev === crev) cur[k] = { d: (d._file || '') > (c.d._file || '') ? d : c.d, tie: true };
     }
-    var legacyOf = Object.create(null);
+    var legacyOf = Object.create(null), byId = Object.create(null);
+    gs.forEach(function (g) { byId[g.process + '/' + g.id] = g; });
     gs.forEach(function (g) { g.members.forEach(function (c) { if (c.legacy) legacyOf[g.process + '/' + c.id] = g.id; }); });
     (decisions || []).forEach(function (d) {
       if (d.kind === 'fix-decision') { var gid = legacyOf[d.process + '/' + d.suggestion]; if (gid) pick(d.process + '/' + gid, d); return; }
+      /* A withdrawal counts only from the author of every correction it covers; any other is ignored, so the decision before it stands. */
+      if (d.status === 'withdrawn') { var g = byId[d.process + '/' + d.group]; if (!g || !canWithdraw(g, d.by)) return; }
       pick(d.process + '/' + d.group, d);
     });
     return gs.map(function (g) {
       var hit = cur[g.process + '/' + g.id], d = hit ? hit.d : null, st = d ? d.status : 'open', again = null;
-      /* A withdrawal counts only from the author of every correction it covers. */
-      if (st === 'withdrawn' && !canWithdraw(g, d.by)) st = 'open';
+      /* Two decided at once is unresolved: the group stays open, as Needs review, until someone decides again. */
+      if (hit && hit.tie) st = 'open';
       if (d && d.kind === 'correction-decision') {
         var known = d.members || [], fresh = g.members.filter(function (c) { return known.indexOf(c.id) < 0; });
         if (fresh.length && (st === 'declined' || st === 'withdrawn')) { again = { reason: d.reason, by: d.by, status: st }; st = 'open'; }
@@ -251,22 +257,20 @@ PF.corrections = (function () {
   /* A run's corrections, for its record: each correction from its notes with what happened, and each "done differently"
      answer. One recorded with a correction is shown with it; one without is a one-off (just this run). */
   function forRun(r, map) {
-    var out = [], linked = Object.create(null), notes = (r._notes || []).filter(function (n) { return n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'; });
+    var out = [], notes = (r._notes || []).filter(function (n) { return n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'; });
     notes.forEach(function (n) {
       var x = n.step && M.findStep(map, n.step), ch = n.kind === 'correction' ? n.change : { op: 'describe' };
-      if (n.kind === 'correction' && n.happened) linked[n.step] = true;
       out.push({ id: n.id, step: n.step || '', stepText: x ? x.step.text : n.target && n.target.phase ? 'Phase: ' + phaseTitle(map, n.target.phase) : '', from: n.kind === 'correction' ? n.from : x ? x.step.text : '',
-        change: ch, proposed: proposal(n.kind === 'correction' ? n : { change: ch }, map), why: n.kind === 'correction' ? n.why || '' : (n.kind === 'fix' && LEGACY_KIND[n.fixKind] ? LEGACY_KIND[n.fixKind] + ': ' : '') + n.text,
+        change: ch, proposed: proposal(n.kind === 'correction' ? n : { change: ch }, map), why: n.kind === 'correction' ? (n.newer ? n.text || n.why || '' : n.why || '') : (n.kind === 'fix' && LEGACY_KIND[n.fixKind] ? LEGACY_KIND[n.fixKind] + ': ' : '') + n.text,
         happened: n.kind === 'correction' ? n.happened || '' : '', by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, legacy: n.kind !== 'correction' ? n.kind : '', oneOff: false });
     });
     M.steps(map).forEach(function (x) {
       var a = r.steps[x.step.id], d = a && a.differently;
       if (!d) return;
-      /* The run's answer and the correction that went with it are one row; the note carries what happened too, so the link
-         holds even if an older copy rewrote run.json. */
-      var mine = out.filter(function (o) { return o.step === x.step.id && o.happened; })[0];
+      /* An answer and the correction recorded with it share their time: the correction is written first with that time, and
+         the answer takes it. Any other answer, earlier or later, is its own row. */
+      var mine = out.filter(function (o) { return o.step === x.step.id && o.happened && !o.answer && d.at && o.at === d.at; })[0];
       if (mine) { mine.answer = { by: d.by, at: d.at }; return; }
-      if (linked[x.step.id]) return;
       out.push({ id: 'diff-' + x.step.id, step: x.step.id, stepText: x.step.text, from: x.step.text, change: null, proposed: '', why: '', happened: d.note, by: d.by, at: d.at, files: [], fileInfo: {}, oneOff: true, answer: { by: d.by, at: d.at } });
     });
     var order = M.steps(map).map(function (x) { return x.step.id; });

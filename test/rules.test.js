@@ -1342,6 +1342,54 @@ rule('The correction brief gives each open group with the step as the draft has 
   assert.ok(!/announce/.test(md), 'declined groups are left out');
 });
 
+rule('A step answered again links only the correction recorded with that answer; a later one-off answer stands on its own', () => {
+  const r = release(), map = R.mapOf(r);
+  R.doneDifferently(r, map, 'flags', 'First workaround', 'person-casey', '2026-10-17T21:01:00.000Z');
+  r._notes = [corr({ id: 'w1', step: 'flags', to: 'Feature flags set by hand', happened: 'First workaround', at: '2026-10-17T21:01:00.000Z', by: 'person-casey' })];
+  same(R.corrections(r, map).map(x => [x.id, !!x.answer]), [['w1', true]], 'linked by the answer it was recorded with');
+  R.clear(r, map, 'flags', 'person-casey', NOW);
+  R.doneDifferently(r, map, 'flags', 'Different workaround', 'person-casey', '2026-10-17T21:30:00.000Z');
+  const rows = R.corrections(r, map);
+  same(rows.map(x => [x.id, x.oneOff, x.happened, !!x.answer]), [['w1', false, 'First workaround', false], ['diff-flags', true, 'Different workaround', true]]);
+  assert.ok(/Different workaround/.test(R.receipt(r, map, id => id, NOW, r._notes)), 'the new answer is on the receipt');
+});
+
+rule('Two decisions made at once leave the group open and counted as Needs review, whichever file name sorts last', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'a1' })])];
+  const g0 = groupsOf(runs)[0];
+  const ds = [Object.assign(C.decision(g0, 'person-avery', 'applied', '', NOW), { _file: 'zzz.w.1.json' }), Object.assign(C.decision(g0, 'person-morgan', 'declined', 'No', NOW), { _file: 'aaa.w.1.json' })];
+  const g = groupsOf(runs, ds)[0];
+  same([g.status, g.tie, g.label], ['open', true, 'Needs review']);
+  same(Object.assign({}, C.openCounts([g])), { pods: 1 });
+  assert.ok(/1 open correction/.test(C.brief({ id: 'release', title: 'R' }, [g], {})), 'and in the brief');
+});
+
+rule('A withdrawal by anyone but the author is ignored, so the decision before it still stands', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'a1' })])];
+  const g0 = groupsOf(runs)[0];
+  const applied = Object.assign(C.decision(g0, 'person-casey', 'applied', '', NOW), { _file: 'a.w.1.json' });
+  const forged = Object.assign(C.decision(g0, 'person-blake', 'withdrawn', '', NOW, { current: applied }), { by: 'person-casey', _file: 'b.w.2.json' });
+  same(groupsOf(runs, [applied, forged])[0].status, 'applied');
+});
+
+rule('Corrections use the checklist\'s own ID and role limits: a move to a 60-character ID survives a reload', () => {
+  const long = 'a'.repeat(50);
+  same(C.cleanNote({ change: { op: 'move', to: { after: long } } }).change, { op: 'move', to: { after: long } });
+  same(C.cleanNote({ change: { op: 'move', to: { phase: 'p'.repeat(60), where: 'start' } } }).change, { op: 'move', to: { phase: 'p'.repeat(60), where: 'start' } });
+  same(C.cleanNote({ change: { op: 'move', to: { after: 'a'.repeat(61) } } }).change, { op: 'describe' });
+  same(C.cleanNote({ change: { op: 'roles', to: ['r'.repeat(55)] } }).change.to, ['r'.repeat(55)]);
+});
+
+rule('A correction from a newer copy keeps its readable summary in the collection, the run record and the receipt', () => {
+  const r = release(), map = R.mapOf(r);
+  const n = Object.assign({ id: 'nw', at: NOW, by: 'person-avery', step: 'merge', files: [], text: 'Correction to "Merge". Split it in two. Why: Merging and tagging are two steps.' },
+    C.cleanNote({ cv: 2, step: 'merge', target: { phase: 'deploy', step: 'merge' }, change: { op: 'split' }, why: 'Merging and tagging are two steps.', from: 'Merge the release branch to master' }));
+  r._notes = [n];
+  assert.ok(/Split it in two/.test(C.collect([r], 'release')[0].why));
+  assert.ok(/Split it in two/.test(R.corrections(r, map)[0].why));
+  assert.ok(/Problem: Correction to "Merge"\. Split it in two\./.test(R.receipt(r, map, id => id, NOW, r._notes)));
+});
+
 rule('Correction fields and decision files from disk keep only what the app understands; a newer copy\'s change shows as a problem', () => {
   const n = C.cleanNote({ cv: 1, version: '3', folder: 'v1-x', target: { phase: 'p'.repeat(99), step: 7 }, step: 'pods', change: { op: 'wording', to: 'x'.repeat(3000) }, from: 'f', base: 'nothex!', why: 1, happened: 'h', replaces: '../x' });
   same([n.version, n.target, n.change.to.length, n.base, n.why, n.happened, n.replaces], [0, { phase: 'p'.repeat(60), step: 'pods' }, 2000, '', undefined, 'h', undefined]);

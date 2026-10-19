@@ -2849,4 +2849,40 @@ rule('App: a tag typed and not added is added on leaving the box or typing a com
   assert.deepStrictEqual(tags(), ['cab'], 'one Undo per tag');
 });
 
+/* ---------- Review round 2 (1.13) ---------- */
+rule('App: Screen share by keyboard and back keeps evidence and a note typed on the step', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'pods'); await app.tick();
+  app.set('rec-result', 'RESTARTS 0'); app.set('note-text', 'Watched the dashboard');
+  app.key('m'); await app.tick();
+  assert.ok(/m-rec|exit-mission/.test(app.html()), 'set-up: screen share');
+  app.key('m'); await app.tick();
+  assert.ok(/<textarea id="rec-result"[^>]*>RESTARTS 0<\/textarea>/.test(app.html()) && /<textarea id="note-text"[^>]*>Watched the dashboard<\/textarea>/.test(app.html()));
+});
+
+rule('App: Done differently waits while Fill in is open, says why, and keeps what was typed', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app');
+  app.click('pick', 'approve', { kind: 'fields' }); await app.tick();
+  app.set('fld-system', 'Jenkins (phone)');
+  app.click('corr-done', 'approve'); await app.tick(40);
+  assert.ok((app.run().json.steps.approve || {}).s !== 'done', 'not answered');
+  assert.ok(/Save or cancel Fill in first\./.test(app.html()));
+  assert.strictEqual(app.draft('fld-system'), 'Jenkins (phone)');
+  assert.ok(/data-scope="fields:approve"/.test(app.html()), 'Fill in is still open');
+});
+
+rule('App: a field cleared in Fill in stays cleared after J and K, and the row says Draft', async () => {
+  const app = await recordingRelease();
+  app.click('pick', 'approve', { kind: 'fields' }); await app.tick();
+  assert.ok(/id="fld-system"[^>]*value="Jenkins"/.test(app.html()), 'set-up: the checklist says Jenkins');
+  app.set('fld-system', '');
+  app.key('j'); await app.tick();
+  assert.ok(/id="step-approve"[\s\S]*?s-draft/.test(app.html().slice(app.html().indexOf('id="step-approve"'), app.html().indexOf('id="step-pods"'))), 'a cleared field is a draft');
+  app.key('k'); await app.tick();
+  assert.ok(/data-scope="fields:approve"/.test(app.html()) && /id="fld-system"[^>]*value=""/.test(app.html()), 'still cleared');
+});
+
 run();

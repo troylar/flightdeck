@@ -1520,14 +1520,14 @@
 
   /* ---------- navigation ---------- */
   function openPlanForm(planning) {
-    state.view = 'start'; state.processId = planning.process; state.planId = null; state.planning = planning; state.fieldErr = null;
+    setView('start'); state.processId = planning.process; state.planId = null; state.planning = planning; state.fieldErr = null;
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
-  function home() { releaseUrls(state.urls); state.view = 'home'; state.processId = null; state.runKey = null; resetRunUi(); }
+  function home() { releaseUrls(state.urls); setView('home'); state.processId = null; state.runKey = null; resetRunUi(); }
   function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; state.corrForm = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
-    state.view = 'run'; state.runKey = key; resetRunUi();
+    setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
@@ -1589,13 +1589,13 @@
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
-    'open-process': function (id) { state.view = 'process'; state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
     nav: function (id) {
       typeOpens++;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
-      releaseUrls(state.urls); state.view = id; state.processId = null; state.runKey = null; resetRunUi();
+      releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi();
       /* A step-type form with changes stays for when you come back to Step types; an untouched one closes. */
       if (state.typeForm && !typeFormChanged(state.typeForm)) state.typeForm = null;
       state.focus = '[data-act="nav"][data-id="' + id + '"]'; render(); window.scrollTo(0, 0);
@@ -1756,12 +1756,12 @@
     'tl-redo': function (id) { if (id === 'draft' || id === 'type') tlMove(id, true, 'button'); },
     'hist-open': function (id, b) { if (id === 'draft' || id === 'type') openHistory(id, b && b.dataset && b.dataset.item); },
     'hist-item': function (id) { if (!state.overlay || !state.overlay.hist) return; state.overlay.item = id || null; state.overlayFocus = '#hist-t'; render(); },
-    'open-skill': function (id) { state.view = 'skill'; state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
-    'new-process': function () { state.view = 'new-process'; state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
+    'new-process': function () { setView('new-process'); state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
-    'new-type': function () { partsSheetAway(); state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
-    'copy-type': function (id) { var t = T.get(id); if (!t) return; state.view = 'types'; state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
+    'new-type': function () { partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
+    'copy-type': function (id) { var t = T.get(id); if (!t) return; setView('types'); state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
     'edit-type': function (id) {
       /* Only the latest open request lands: one that finishes after another form was opened, or after leaving, does nothing. */
@@ -1772,7 +1772,7 @@
         var o = null; try { o = f ? JSON.parse(f.text) : null; } catch (e) { o = null; }
         var errs = o ? T.checkCustom(o) : ['it can\'t be read'];
         if (!o || errs.length) { say('step-types/' + id + '.json ' + (errs[0] || 'has a problem') + '. Fix the file, or ask your AI assistant to.', 'warn'); render(); return; }
-        state.view = 'types'; state.typeForm = resumeTypeTl(typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)), id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
+        setView('types'); state.typeForm = resumeTypeTl(typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)), id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
       }, function (e) { if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
     'tf-add': function (id, b) {
@@ -1855,8 +1855,8 @@
       render();
     },
     'open-run': function (id) { openRun(id); render(); },
-    'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.view = 'start'; state.processId = p.process; state.planId = id; state.planning = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
-    start: function (id) { state.view = 'start'; state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
+    'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; setView('start'); state.processId = p.process; state.planId = id; state.planning = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
+    start: function (id) { setView('start'); state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
     /* Plan a run for later: the start form, saving a plan instead of starting. */
     'plan-run': function (id) { openPlanForm({ process: id, from: null }); },
     /* Duplicate a run into a plan: its details and roles, never its answers, notes or gates. Details a step sets during the run
@@ -1993,9 +1993,9 @@
     pickup: function () { fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
     takeover: function () { fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
-    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { state.view = 'receipt'; render(); window.scrollTo(0, 0); } }); },
+    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { setView('receipt'); render(); window.scrollTo(0, 0); } }); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
-    finish: function () { state.view = 'finish'; state.pick = null; render(); window.scrollTo(0, 0); },
+    finish: function () { setView('finish'); state.pick = null; render(); window.scrollTo(0, 0); },
     'add-followup': function (id, b) {
       var text = b && b.dataset.text != null ? b.dataset.text : val('fu-text'), owner = b && b.dataset.text != null ? '' : val('fu-owner'), ticket = b && b.dataset.text != null ? '' : val('fu-ticket');
       if (!String(text).trim()) { state.fieldErr = { id: 'followup', msg: 'Say what needs doing.' }; render(); return; }
@@ -2082,7 +2082,7 @@
     /* A quick way between the checklist and the selected step, for keyboards and screen readers. */
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
-    'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { state.view = 'receipt'; render(); } }); },
+    'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { setView('receipt'); render(); } }); },
     'discard-unsaved': function () { var r = ctx.run(); if (!r) return; delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true); },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
     /* Correct this step (anyone who has said who they are; it doesn't answer the step) or Done differently (the recorder; it
@@ -2162,13 +2162,13 @@
         setTimeout(function () { if (state.copied === mark) { state.copied = null; scheduleRender(); } }, 1600);
       }, function () { if (g === gen) { say('Couldn\'t copy. Select the text and press Ctrl+C.', 'warn'); render(); } });
     },
-    mission: function () { if (state.view === 'run') savePanes(); state.view = 'mission'; render(); window.scrollTo(0, 0); },
-    receipt: function () { state.view = 'receipt'; render(); window.scrollTo(0, 0); },
-    'exit-mission': function () { state.view = 'run'; render(); },
+    mission: function () { if (state.view === 'run') savePanes(); setView('mission'); render(); window.scrollTo(0, 0); },
+    receipt: function () { setView('receipt'); render(); window.scrollTo(0, 0); },
+    'exit-mission': function () { setView('run'); render(); },
     'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-note': function (id, b) { var r = ctx.run(), n = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; if (!n) return; openLightbox(imagesOf(n), +b.dataset.i); },
-    'att-remove': function (id) { var p = state.pendingFiles.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.pendingFiles = state.pendingFiles.filter(function (x) { return x !== p; }); state.attErr = null; state.focus = /^corr:/.test(p.step) ? '[data-act="corr-attach"]' : 'note-text'; render(); },
+    'att-remove': function (id) { var p = state.pendingFiles.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.pendingFiles = state.pendingFiles.filter(function (x) { return x !== p; }); state.attErr = null; state.focus = /^corr:/.test(p.step) ? 'corr-why' : 'note-text'; render(); },
     /* A text attachment opens as plain text in a dialog; anything else saves a copy. Only files of the note or suggestion named are read. */
     'att-open': function (id, b) {
       var it = attOwner(id, b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId; if (!it || !path) return;
@@ -2218,6 +2218,8 @@
     function bad(e, field) { state.fieldErr = { id: 'corr', msg: e.message || e, field: field || e.field || '' }; state.focus = '#' + (field || e.field || 'corr-to'); render(); }
     if (answer) {
       if (!(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
+      /* The same rule as Done: an open Fill in is saved or canceled first, so its edits are never answered over or lost. */
+      if (state.pick && state.pick.kind === 'fields' && state.pick.id === f.step) { bad('Save or cancel Fill in first.', 'fill-in'); state.focus = '[data-act="save-fields"][data-id="' + cssEsc(f.step) + '"]'; render(); return; }
       if (!f.happened.trim()) { bad('Say what happened.', 'corr-happened'); return; }
       /* Required evidence still applies: what's typed in the step's evidence boxes goes with the answer. */
       var a = r.steps[f.step];
@@ -2242,7 +2244,7 @@
         dropDraft(key, step, ['record']);
         if (state.runKey !== key) return Promise.resolve();
         var was = nextStepId(ctx.run(), R.mapOf(ctx.run()));
-        return mutateRun(key, ng, function (r2, map2, me, now) { R.doneDifferently(r2, map2, step, f.happened, me, now, values); }).then(function (ok) {
+        return mutateRun(key, ng, function (r2, map2, me, now) { R.doneDifferently(r2, map2, step, f.happened, me, note ? note.at : now, values); }).then(function (ok) {
           if (ok !== false) { say('Done differently' + (withNote ? ', with a correction for the checklist. Saved on this computer.' : '. Saved on this computer.'), 'good'); state.msg.quiet = true; afterAnswer(step, was); }
           else if (withNote) { say('The correction was saved, but the step wasn\'t answered.', 'warn'); render(); }
         });
@@ -2343,7 +2345,7 @@
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || state.newProc !== f) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } state.view = 'process'; state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
+      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || state.newProc !== f) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
   });
   document.addEventListener('submit', function (e) {
@@ -2405,7 +2407,7 @@
       if (res.conflict) { say(res.afterWrite ? 'Something else wrote the same plan file just now. Check Runs before planning it again.' : 'A plan with the same name is already in the folder, so nothing was saved. Save again.', 'warn'); render(); return; }
       return load(true).then(function () {
         if (g !== gen) return;
-        if (state.planning === planning && state.view === 'start') { state.planning = null; state.view = 'runs'; state.processId = null; state.focus = 'card-' + plan.id; window.scrollTo(0, 0); }
+        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.focus = 'card-' + plan.id; window.scrollTo(0, 0); }
         say('Planned ' + plan.title + '.', 'good'); render();
       });
     }, function (err) { endBusy(); planning.saving = false; if (g !== gen) return; say('Couldn\'t save the plan: ' + err.message, 'bad'); render(); });
@@ -2491,8 +2493,12 @@
         if (g !== gen || state.runKey !== key) return;
         var ok = PF.attach.check(f.name || '', f.type, f.size);
         if (ok.error) { state.attErr = { key: errKey, msg: ok.error }; return; }
-        if (attachmentsFor(key, step).length >= PF.attach.PER_NOTE) { state.attErr = { key: errKey, msg: 'Up to ' + PF.attach.PER_NOTE + ' files go with one note. Add the note, then attach the rest to another.' }; return; }
+        /* Files still being checked hold their place, so two additions at once can't pass the limit together. */
+        var slot = key + '|' + step;
+        if (attachmentsFor(key, step).length + (checking[slot] || 0) >= PF.attach.PER_NOTE) { state.attErr = { key: errKey, msg: 'Up to ' + PF.attach.PER_NOTE + ' files go with one note. Add the note, then attach the rest to another.' }; return; }
+        checking[slot] = (checking[slot] || 0) + 1;
         return headOf(f).then(function (head) {
+          checking[slot]--;
           if (g !== gen || state.runKey !== key) return;
           if (!PF.attach.sniff(head, ok.ext)) { state.attErr = { key: errKey, msg: '"' + ok.name + '" doesn\'t look like a .' + ok.ext + ' file inside, so it wasn\'t attached.' }; return; }
           state.pendingFiles.push({ id: U.randomId(8), key: key, step: step, file: f, name: ok.name, size: ok.size, kind: ok.kind });
@@ -2500,6 +2506,7 @@
       });
     }, Promise.resolve()).then(function () { if (g === gen) render(); });
   }
+  var checking = Object.create(null);
   function headOf(f) {
     var part = f.slice ? f.slice(0, 4096) : f;
     if (part.arrayBuffer) return part.arrayBuffer().then(function (b) { return new Uint8Array(b); }, function () { return new Uint8Array(0); });
@@ -2548,7 +2555,8 @@
     drawn.ids.forEach(function (id) {
       var el = document.getElementById(id); if (!el || el.value === baseOf(id) || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
       if (id === 'note-text') { d.note = el.value; return; }
-      if (String(el.value).trim()) part[id] = el.value; else delete part[id];
+      /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
+      part[id] = el.value;
     });
     if (!hasDraft(d)) delete state.stepDrafts[drawn.key + '|' + drawn.sel];
   }
@@ -2571,11 +2579,13 @@
     if (!drawn) return;
     var d = draftOf(drawn.key, drawn.sel, false);
     drawn.ids.forEach(function (id) {
-      var el = document.getElementById(id), mine = d ? (id === 'note-text' ? d.note : d[drawn.kind][id]) : null, want = mine || baseOf(id);
+      var el = document.getElementById(id), mine = d ? (id === 'note-text' ? d.note || null : Object.prototype.hasOwnProperty.call(d[drawn.kind], id) ? d[drawn.kind][id] : null) : null, want = mine != null ? mine : baseOf(id);
       if (!el || el.value === want) return;
       if (changed || (mine && !el.value)) el.value = want;
     });
   }
+  /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
+  function setView(v) { harvest(); state.view = v; }
   /* One way to select a step, for the mouse and the keyboard alike. An open Fill in is remembered with its step. */
   function selectStep(id) {
     if (state.sel !== id) {
@@ -2649,7 +2659,7 @@
 
   document.addEventListener('keydown', function (e) {
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { setView('run'); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -2730,7 +2740,7 @@
     /* C opens Correct this step on the selected step. */
     if (e.key === 'c' && state.sel && state.me && state.view === 'run') { e.preventDefault(); ACTIONS['corr-open'](state.sel, { dataset: { mode: 'correct' } }); return; }
     if (e.key === 'n' && state.sel) { state.refOpen = true; render(); var nt = document.getElementById('note-text'); if (nt) { e.preventDefault(); nt.focus(); } return; }
-    if (e.key === 'm') { if (state.view === 'run') savePanes(); state.view = state.view === 'mission' ? 'run' : 'mission'; render(); }
+    if (e.key === 'm') { if (state.view === 'run') savePanes(); setView(state.view === 'mission' ? 'run' : 'mission'); render(); }
   });
 
   render();
@@ -2739,7 +2749,7 @@
   function resumeEditor() {
     var id = resumeEdit; resumeEdit = null;
     var p = id && processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
-    state.view = 'process'; state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; render();
+    setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; render();
   }
   window.addEventListener('beforeunload', function (e) {
     var any = !!state.obPending || Object.keys(state.editors || {}).some(function (k) { return dirty(state.editors[k]); });

@@ -834,6 +834,10 @@ rule('Process page: a group decided twice at once says Needs review; an accepted
   ctx.processes = () => [p]; state.processId = 'release'; state.fixFilter = 'all';
   const html = V.process(ctx);
   assert.ok(/<span class="pill review">Needs review<\/span>/.test(html) && /two people decided at once/.test(html) && new RegExp('data-act="corr-applied" data-id="' + g.id + '"').test(html), 'it can be decided again');
+  state.fixFilter = 'open';
+  const open = V.process(ctx);
+  assert.ok(/Corrections · 1 open<\/h2>/.test(open) && /<span class="pill review">Needs review<\/span>/.test(open), 'Needs review stays under Open, and counts');
+  state.fixFilter = 'all';
   const legacy = html.slice(html.indexOf('Applied (legacy)'));
   assert.ok(/<span class="pill passed">Applied \(legacy\)<\/span>/.test(html) && /Flightdeck can't confirm which version has it/.test(legacy) && !/data-act="corr-/.test(legacy.slice(0, legacy.indexOf('</li>'))));
 });

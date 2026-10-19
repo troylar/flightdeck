@@ -1142,6 +1142,8 @@ html.rw-on #app { padding: 0; max-width: none; }
 .fixlist .corr-dl dd { margin-bottom: 6px; }
 h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .corr-runs summary { cursor: pointer; }
+/* Attach is a label for a hidden file input: the label shows the input's keyboard focus. */
+.row:has(> input[type="file"].sr:focus-visible) > label.btn { outline: 2px solid var(--focus); outline-offset: 2px; }
 .corr-runs ul { margin: 4px 0 0; padding-left: 18px; }
 .corr-alts { margin: 0; }
 .b-corr { background: var(--plan-soft); color: var(--plan); }
@@ -1270,6 +1272,8 @@ button.att:hover { border-color: var(--ink); }
   .corr-dl dd { margin-bottom: 4px; }
   .corr-menu-list { position: static; min-width: 0; margin-top: 4px; box-shadow: none; }
   .corrform .mini, .corrform .btn, .corrform .seg button { min-height: 44px; }
+  .fixlist .mini, .fixlist .btn, .fixlist .linkish, .corr-runs summary { min-height: 44px; }
+  .corr-runs summary { display: flex; align-items: center; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
