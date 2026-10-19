@@ -27,6 +27,7 @@ Team confidence: Folder health, a connection check between computers, and safer 
 - **Two drafts for one process are both shown** (Processes). The process page lists both and says which one it shows, so you settle it before publishing. Folder health lists them too.
 - **Step types and skills past the limit are reported** (Step types). The first ones by name are read, and the Step types and Skills pages and Folder health say how many weren't.
 - **A deleted run is never written back by itself** (Runs). The run says its file is gone from the team folder, the Runs page marks it, and nothing is saved. Restore it here writes it back only when you choose it, and the run's log says so. *Where:* The run, and Settings › Folder health
+- **A run file that reads again stops saying it can't be read** (Runs). As soon as the file reads again, the run says so and takes changes again. Your waiting change stays on screen with Try again until it's saved.
 
 ## 1.14.0 · Oct 18, 2026
 
