@@ -495,6 +495,73 @@ rule('App: in a step type, removing a field and undoing puts it back in place wi
   assert.ok(/Owner/.test(app.overlay()), 'Show all');
 });
 
+/* A key on an editor's separator: the stand-in has the separator's data, and closest finds it. */
+function splitKey(app, key, k, mods) { const sep = { tagName: 'DIV', dataset: { act: 'pane-split', id: key, split: key }, closest: sel => /split|data-act/.test(sel) ? sep : null }; let taken = false; app.keyOn(k, Object.assign({ preventDefault() { taken = true; } }, mods || {}), sep); return taken; }
+const splitTag = (app, key) => (new RegExp('<div class="pane-split"[^>]*data-split="' + key + '"[^>]*>').exec(app.html()) || [''])[0];
+const splitNow = (app, key) => +(/aria-valuenow="(\d+)"/.exec(splitTag(app, key)) || [])[1];
+const paneVar = (app, key) => { const m = new RegExp('class="fpe-panes[^"]*" style="[^"]*--pane-' + key + ':(\\d+)px').exec(app.html()); return m ? +m[1] : null; };
+
+rule('App: the step-type preview resizes from the keyboard, stays put through a redraw, is kept in this browser, and Enter puts it back', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const start = splitNow(app, 'tf'), min = +/aria-valuemin="(\d+)"/.exec(splitTag(app, 'tf'))[1], max = +/aria-valuemax="(\d+)"/.exec(splitTag(app, 'tf'))[1];
+  assert.ok(start > 0 && paneVar(app, 'tf') === null, 'the layout\'s own width to begin with');
+  assert.ok(splitKey(app, 'tf', 'ArrowLeft'), 'the key is taken'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 16, 'Left moves the divider left: the preview grows by 16px');
+  assert.strictEqual(splitNow(app, 'tf'), start + 16, 'and says so');
+  splitKey(app, 'tf', 'ArrowLeft', { shiftKey: true }); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 80, 'Shift moves 64px');
+  splitKey(app, 'tf', 'ArrowRight'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 64);
+  splitKey(app, 'tf', 'Home'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), min, 'Home: the narrowest');
+  splitKey(app, 'tf', 'ArrowRight', { shiftKey: true }); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), min, 'never narrower');
+  splitKey(app, 'tf', 'End'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), max, 'End: the widest');
+  splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
+  assert.strictEqual(splitNow(app, 'tf'), max, 'never wider');
+  assert.strictEqual(JSON.parse(app.store['preflight:panes']).tf, max, 'kept in this browser');
+  assert.ok(!app.files('').some(f => /pane/.test(f) || app.fs.files[f].t.indexOf('"tf":') >= 0), 'never in the team folder');
+  app.click('tf-add', 'f'); await app.tick();
+  assert.ok(/data-act="tf-open" data-id="f:/.test(app.html()) && paneVar(app, 'tf') === max, 'a redraw keeps it');
+  assert.ok(!splitKey(app, 'tf', 'a'), 'other keys are left alone');
+  splitKey(app, 'tf', 'Enter'); await app.tick();
+  assert.ok(paneVar(app, 'tf') === null && splitNow(app, 'tf') === start, 'Enter: the default again');
+  assert.ok(!('tf' in JSON.parse(app.store['preflight:panes'])), 'and nothing kept');
+  // Another window in this browser opens it at the width kept; a kept value that makes no sense is ignored.
+  const two = boot({ localStore: { 'preflight:panes': JSON.stringify({ tf: min + 40, parts: 'wide', ins: -3 }) } }); await two.tick(60); two.choose('person-casey'); await two.tick();
+  two.click('nav', 'types'); await two.tick(); two.click('new-type'); await two.tick();
+  assert.strictEqual(paneVar(two, 'tf'), min + 40);
+});
+
+rule('App: in the draft editor the parts and the inspector each keep their own width', async () => {
+  const app = await builderOn();
+  const ins = splitNow(app, 'ins'), parts = splitNow(app, 'parts');
+  assert.ok(ins > 0 && parts > 0);
+  splitKey(app, 'ins', 'ArrowLeft', { shiftKey: true }); await app.tick();
+  splitKey(app, 'parts', 'ArrowRight'); await app.tick();
+  assert.strictEqual(paneVar(app, 'ins'), ins + 64, 'Left widens the inspector, on the right');
+  assert.strictEqual(paneVar(app, 'parts'), parts + 16, 'Right widens the parts, on the left');
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.ok(paneVar(app, 'ins') === ins + 64 && paneVar(app, 'parts') === null, 'the Markdown view has the same inspector, and no parts');
+  app.click('ed-mode', 'builder'); await app.tick();
+  splitKey(app, 'parts', 'Enter'); await app.tick();
+  assert.ok(paneVar(app, 'parts') === null && paneVar(app, 'ins') === ins + 64, 'resetting one leaves the other');
+});
+
+rule('App: when the browser refuses storage, the separators still resize and nothing breaks', async () => {
+  const app = boot({ storageThrows: /panes/, localStore: { 'preflight:panes': '{"tf":500}' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const start = splitNow(app, 'tf');
+  assert.ok(start > 0);
+  splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 16, 'for this page');
+  splitKey(app, 'tf', 'Enter'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), null);
+  assert.strictEqual(app.store['preflight:panes'], '{"tf":500}', 'what was kept before is untouched');
+});
+
 rule('App: Undo and Redo keep what\'s typed in an open Add a step box, and refuse when the step it goes after would disappear', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md', PF = app.PF;
   app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
@@ -2270,7 +2337,7 @@ const enter = (app, id, value) => app.keyOn('Enter', {}, { tagName: 'INPUT', id,
 
 rule('App: a part dragged onto a line in the outline is added there, selected, with its text ready to type over', async () => {
   const app = await builderOn(), original = releaseText(app);
-  assert.ok(/<aside class="fpe-pane fpe-parts" aria-labelledby="ob-parts-h">/.test(app.html()) && /data-ob-part="must" aria-pressed="false"/.test(app.html()), 'the parts box is beside the outline');
+  assert.ok(/<aside class="fpe-pane fpe-parts" id="ob-parts" aria-labelledby="ob-parts-h">/.test(app.html()) && /data-ob-part="must" aria-pressed="false"/.test(app.html()), 'the parts box is beside the outline');
   dragPart(app, 'must', 'before:flags', 'step'); await app.tick();
   assert.ok(/<li class="ob-step sel ob-new" draggable="true" data-ob-step="new-must-do-step">/.test(app.html()), 'selected and flashed');
   assert.strictEqual(app.focused(), 'ob-text', 'its text box has focus');

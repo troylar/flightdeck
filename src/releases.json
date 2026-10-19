@@ -1,5 +1,28 @@
 [
   {
+    "version": "1.16.1",
+    "date": "2026-10-19",
+    "headline": "Make the editors' side panels wider or narrower",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Step types",
+        "title": "Resize the Run preview",
+        "before": "The Run preview beside the step-type form had a fixed width.",
+        "now": "Drag the line between the form and the preview to make the preview wider or narrower. Or focus the line and use the Left and Right arrow keys (Shift moves further), Home and End. Enter or a double-click puts it back. The form always keeps room. Your width is kept in this browser only.",
+        "where": "Step types › a step type, the line left of Run preview"
+      },
+      {
+        "kind": "improved",
+        "area": "Draft editor",
+        "title": "Resize the parts and the inspector",
+        "before": "The builder's Parts list and the inspector had fixed widths.",
+        "now": "The Parts list and the inspector each have a line you can drag or move with the arrow keys, the same way as the step-type preview, and each keeps its own width. The Markdown view uses the inspector's width too. When the parts are folded to icons, only the inspector resizes.",
+        "where": "A process page › Edit, the lines beside Parts and the inspector"
+      }
+    ]
+  },
+  {
     "version": "1.16.0",
     "date": "2026-10-19",
     "headline": "Apply a correction to the draft, then see which version has it",

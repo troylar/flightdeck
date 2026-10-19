@@ -16,6 +16,8 @@
   function lsGet(k, d) { try { var v = localStorage.getItem(LS + ':' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
   function applyTheme() { var root = document.documentElement; if (!root || !root.setAttribute) return; if (state.theme === 'light' || state.theme === 'dark') root.setAttribute('data-theme', state.theme); else root.removeAttribute('data-theme'); }
   function lsSet(k, v) { try { localStorage.setItem(LS + ':' + k, JSON.stringify(v)); } catch (e) { /* per-viewer convenience only */ } }
+  /* Editor sidebar widths this viewer chose (V.PANES): kept in this browser only, never in the team folder. */
+  function panesKept() { var v = lsGet('panes', {}), out = {}; if (v && typeof v === 'object') Object.keys(PF.views.PANES).forEach(function (k) { if (typeof v[k] === 'number' && isFinite(v[k])) out[k] = Math.round(v[k]); }); return out; }
   /* Home acknowledgments this viewer dismissed in this folder: only keys of the form PF.corrections.acks makes are kept. */
   var ACK_KEY = /^[ld]\.[a-z0-9][a-z0-9-]{0,59}\.[\w-]{1,60}(\.\d{1,9})?$/, ACK_MAX = 300;
   function acksDismissed() { var v = lsGet('acks:' + fsKey(), []); return Array.isArray(v) ? v.filter(function (k) { return typeof k === 'string' && ACK_KEY.test(k); }).slice(-ACK_MAX) : []; }
@@ -60,7 +62,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -794,7 +796,7 @@
   }
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
   var wasNarrow = null;
-  window.addEventListener('resize', function () { pinOffsets(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
+  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -932,6 +934,7 @@
     if (state.obPendingField && (!document.getElementById(state.obPendingField) || app.innerHTML.indexOf('id="' + state.obPendingField + '"') < 0)) dropPending();
     editorPage();
     runPage();
+    fitPanes();
     sheet();
     announce();
     tick();
@@ -969,6 +972,81 @@
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
   }
+  /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each sidebar on screen is measured: the width
+     the layout gives it, and the widest it can be while the main pane keeps V.MAIN_MIN. A change redraws, so the separator
+     says the real width and a chosen width is clamped to the window, while the width chosen is kept for a wider window. */
+  function fitPanes() {
+    var fit = {}, changed = false, seps = app.querySelectorAll ? app.querySelectorAll('.pane-split') : [];
+    Array.prototype.forEach.call(seps, function (sp) {
+      var key = sp.getAttribute('data-split'), spec = V.PANES[key], box = sp.parentNode, pane = spec && document.getElementById(spec.controls);
+      /* Hidden (the panes stack on a phone, or Parts is a rail) or not laid out: nothing to measure. */
+      if (!pane || !box || !box.clientWidth || !sp.offsetParent || window.getComputedStyle(sp).visibility === 'hidden') return;
+      var others = 0;
+      Array.prototype.forEach.call(box.children, function (c) { var k = c.getAttribute('data-split'), o = k && k !== key && V.PANES[k] && document.getElementById(V.PANES[k].controls); if (o) others += o.getBoundingClientRect().width; });
+      fit[key] = { w: Math.round(pane.getBoundingClientRect().width), max: Math.floor(box.clientWidth - others - V.MAIN_MIN) };
+    });
+    if (!Object.keys(fit).length) return;
+    Object.keys(fit).forEach(function (k) { var was = state.paneFit[k]; if (!was || was.w !== fit[k].w || was.max !== fit[k].max) changed = true; });
+    state.paneFit = fit;
+    if (changed) render();
+  }
+  function paneSet(key, w) {
+    var spec = V.PANES[key]; if (!spec) return;
+    if (w == null) delete state.panes[key];
+    else { var lim = V.paneW(ctx, key); state.panes[key] = Math.round(Math.max(lim.min, Math.min(lim.max, w))); }
+  }
+  /* While dragging, only the panes' variable and the separator's value change, written exactly as the view draws them. */
+  function paneLive(sp) {
+    var box = sp.parentNode, keys = Array.prototype.map.call(box.querySelectorAll(':scope > .pane-split'), function (x) { return x.getAttribute('data-split'); });
+    var css = V.paneStyle(ctx, keys);
+    if (css) box.setAttribute('style', css); else box.removeAttribute('style');
+    sp.setAttribute('aria-valuenow', String(V.paneW(ctx, sp.getAttribute('data-split')).w));
+  }
+  function paneDone(key) { lsSet('panes', state.panes); state.focus = '.pane-split[data-split="' + key + '"]'; render(); }
+  /* Left and Right move the separator 16px (Shift: 64px), Home and End go to the narrowest and widest, Enter puts it back. */
+  function paneKey(key, e) {
+    var spec = V.PANES[key], lim = V.paneW(ctx, key), step = e.shiftKey ? 64 : 16, dir = spec.end ? -1 : 1;
+    if (e.key === 'ArrowLeft') paneSet(key, lim.w - dir * step);
+    else if (e.key === 'ArrowRight') paneSet(key, lim.w + dir * step);
+    else if (e.key === 'Home') paneSet(key, lim.min);
+    else if (e.key === 'End') paneSet(key, lim.max);
+    else if (e.key === 'Enter') paneSet(key, null);
+    else return false;
+    paneDone(key);
+    return true;
+  }
+  /* Dragging: the pointer is captured, so a fast move past the editor's edge keeps resizing, and nothing is selected. */
+  var paneDrag = null;
+  document.addEventListener('pointerdown', function (e) {
+    var sp = e.target && e.target.closest && e.target.closest('.pane-split'), spec = sp && V.PANES[sp.getAttribute('data-split')];
+    if (!spec || e.button !== 0) return;
+    var pane = document.getElementById(spec.controls); if (!pane) return;
+    e.preventDefault();
+    sp.focus({ preventScroll: true });
+    try { sp.setPointerCapture(e.pointerId); } catch (x) { /* the drag still follows moves over the separator */ }
+    paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width };
+    document.documentElement.classList.add('pane-drag');
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    var dx = e.clientX - paneDrag.x;
+    paneSet(paneDrag.key, paneDrag.w + (V.PANES[paneDrag.key].end ? -dx : dx));
+    paneLive(paneDrag.sp);
+  });
+  function paneDragEnd(e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    var d = paneDrag; paneDrag = null;
+    document.documentElement.classList.remove('pane-drag');
+    try { d.sp.releasePointerCapture(d.id); } catch (x) { /* already released */ }
+    paneDone(d.key);
+  }
+  document.addEventListener('pointerup', paneDragEnd);
+  document.addEventListener('pointercancel', paneDragEnd);
+  document.addEventListener('dblclick', function (e) {
+    var sp = e.target && e.target.closest && e.target.closest('.pane-split');
+    if (!sp || !V.PANES[sp.getAttribute('data-split')]) return;
+    paneSet(sp.getAttribute('data-split'), null); paneDone(sp.getAttribute('data-split'));
+  });
   function savePanes() { var k = { key: state.runKey }; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el) k[id] = el.scrollTop; }); state.paneScroll = k; }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
      closing returns focus to the step it came from. */
@@ -3535,6 +3613,8 @@
 
   document.addEventListener('keydown', function (e) {
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+    var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
+    if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { setView('run'); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;

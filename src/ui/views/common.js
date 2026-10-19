@@ -129,6 +129,32 @@ PF.vk = (function () {
     return '<div class="undobar" role="toolbar" aria-label="Undo and history">' + h + '</div>';
   }
 
+  /* Editor sidebars people can resize. Each has its own width, kept per browser (state.panes); app.js fits each to the window
+     (state.paneFit: the width the layout gives it, and the widest it can be while the main pane keeps MAIN_MIN). end: the
+     sidebar is right of its separator, so moving the separator left widens it. def stands in until the layout is measured. */
+  var PANES = {
+    tf: { label: 'Resize preview', controls: 'tf-preview', end: true, min: 280, max: 720, def: 400 },
+    parts: { label: 'Resize parts', controls: 'ob-parts', end: false, min: 160, max: 400, def: 208 },
+    ins: { label: 'Resize inspector', controls: 'fpe-ins', end: true, min: 300, max: 720, def: 400 }
+  };
+  function paneW(ctx, key) {
+    var spec = PANES[key], fit = (ctx.state.paneFit || {})[key] || {}, pref = (ctx.state.panes || {})[key];
+    var max = Math.max(spec.min, Math.min(spec.max, typeof fit.max === 'number' ? fit.max : spec.max));
+    var set = typeof pref === 'number' && isFinite(pref);
+    var w = set ? pref : typeof fit.w === 'number' ? fit.w : spec.def;
+    return { w: Math.round(Math.max(spec.min, Math.min(max, w))), min: spec.min, max: max, set: set };
+  }
+  /* The panes' style attribute: app.js writes the same string while dragging, so a redraw finds nothing to change. */
+  function paneStyle(ctx, keys) {
+    return keys.filter(function (k) { return paneW(ctx, k).set; }).map(function (k) { return '--pane-' + k + ':' + paneW(ctx, k).w + 'px'; }).join(';');
+  }
+  function paneAttr(ctx, keys) { var s = paneStyle(ctx, keys); return s ? ' style="' + s + '"' : ''; }
+  function splitter(ctx, key) {
+    var spec = PANES[key], w = paneW(ctx, key);
+    return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag to resize. Arrow keys move it; Enter or a double-click puts it back."></div>';
+  }
+
   V.undoBar = undoBar;
+  V.PANES = PANES; V.MAIN_MIN = 360; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   V.top = top; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;
 })();

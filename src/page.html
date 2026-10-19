@@ -500,9 +500,20 @@ html.fpe-on #app { padding: 0; max-width: none; }
 .fpe-alerts:not(:empty) { padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .fpe-alerts .notice { margin: 0; }
 .fpe-theirs .source { max-height: 30vh; overflow: auto; }
-.fpe-panes { display: grid; grid-template-columns: 220px minmax(0, 1fr) minmax(320px, 420px); min-height: 0; }
-.fpe-panes.rail { grid-template-columns: 60px minmax(0, 1fr) minmax(320px, 420px); }
-.fpe-panes.md { grid-template-columns: minmax(0, 1fr) minmax(320px, 460px); }
+.fpe-panes { display: grid; grid-template-columns: var(--pane-parts, 220px) 0 minmax(0, 1fr) 0 var(--pane-ins, minmax(320px, 420px)); min-height: 0; }
+.fpe-panes.rail { grid-template-columns: 60px 0 minmax(0, 1fr) 0 var(--pane-ins, minmax(320px, 420px)); }
+.fpe-panes.md { grid-template-columns: minmax(0, 1fr) 0 var(--pane-ins, minmax(320px, 460px)); }
+/* The separators between an editor's panes (V.splitter): a zero-width column whose 10px grab area lies over the border and
+   the start of the pane after it, clear of the scroll bar before it. A bar shows on hover and focus. The width chosen is a
+   variable on the panes (--pane-<key>), so a redraw keeps it. */
+.pane-split { position: relative; z-index: 3; width: 0; min-width: 0; cursor: col-resize; touch-action: none; }
+.pane-split:focus-visible { outline: none; }
+.pane-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 10px; }
+.pane-split::after { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 4px; border-radius: 2px; background: transparent; pointer-events: none; transition: background-color .12s; }
+.pane-split:hover::after { background: var(--field); }
+.pane-split:focus-visible::after, html.pane-drag .pane-split:focus::after { background: var(--focus); }
+html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-select: none !important; user-select: none !important; }
+.fpe-panes.rail > .pane-split[data-split="parts"] { visibility: hidden; }
 .fpe-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
 .fpe-outline { padding: 0 16px 48px; }
 .fpe-outline > .ob { padding-top: 12px; }
@@ -535,7 +546,8 @@ html.fpe-on #app { padding: 0; max-width: none; }
 .fpe-panes.rail .ob-part { justify-content: center; padding: 6px 0; }
 .fpe-panes.rail .ob-pt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (min-width: 801px) and (max-width: 1100px) {
-  .fpe-panes, .fpe-panes.rail { grid-template-columns: 60px minmax(0, 1fr) minmax(300px, 360px); }
+  .fpe-panes, .fpe-panes.rail { grid-template-columns: 60px 0 minmax(0, 1fr) 0 var(--pane-ins, minmax(300px, 360px)); }
+  .fpe-panes > .pane-split[data-split="parts"] { visibility: hidden; }
   .ob-railbtn, .ob-blurb, .fpe-parts .ob-q, .fpe-parts h4, .fpe-parts .ob-none, .fpe-parts .ob-pgroup > p, .fpe-parts .ob-broken .small { display: none; }
   .fpe-parts-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .fpe-parts-head { padding: 8px 6px; align-items: center; }
@@ -592,6 +604,7 @@ html.fpe-on #app { padding: 0; max-width: none; }
   .fpe-head .btn { padding: 6px 10px; }
   .fpe-file { display: none; }
   .fpe-panes, .fpe-panes.rail, .fpe-panes.md { display: block; }
+  .pane-split { display: none; }
   .fpe-pane { overflow: visible; }
   .fpe-parts { display: none; }
   .fpe-outline { padding: 0 12px 24px; }
@@ -667,7 +680,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .fpe-type .fpe-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
 .tf-why { margin: 0; align-self: flex-end; font-size: 13px; color: var(--stop); font-weight: 600; }
 /* The form gets the room; the preview is a narrower column beside it. */
-.tf-panes { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 32vw, 440px); min-height: 0; }
+.fpe-panes.tf-panes { display: grid; grid-template-columns: minmax(0, 1fr) 0 var(--pane-tf, clamp(320px, 32vw, 440px)); min-height: 0; }
 .tf-formpane { padding: 16px 16px 64px; }
 .tf-form { max-width: 760px; margin: 0 auto; }
 .tf-preview { display: flex; flex-direction: column; gap: 10px; padding: 16px 16px 48px; border-left: 1px solid var(--line); background: var(--card); }
@@ -885,7 +898,8 @@ html.tfe-on #app { padding: 0; max-width: none; }
   .fpe-type .fpe-tools { gap: 6px; }
   .fpe-type .fpe-alerts:not(:empty) { padding: 8px 12px; }
   .fpe-type .fpe-pane { overflow: visible; }
-  .tf-panes { display: block; }
+  .fpe-panes.tf-panes { display: block; }
+  .tf-panes > .pane-split { display: none; }
   .tf-formpane { padding: 12px 12px 48px; }
   .tf-prevbtn { display: inline-flex; }
   /* The preview opens as a sheet over the form, so the place being edited stays put. */
@@ -1078,9 +1092,9 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .fpe-checks .ic { width: 16px; height: 16px; }
 @media (max-width: 1240px) { .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
 /* Panes: room for the outline at 1280; a narrower inspector. */
-.fpe-panes { grid-template-columns: 208px minmax(0, 1fr) clamp(320px, 27vw, 400px); }
-.fpe-panes.rail { grid-template-columns: 72px minmax(0, 1fr) clamp(320px, 27vw, 400px); }
-.fpe-panes.md { grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 460px); }
+.fpe-panes { grid-template-columns: var(--pane-parts, 208px) 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 27vw, 400px)); }
+.fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 27vw, 400px)); }
+.fpe-panes.md { grid-template-columns: minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 30vw, 460px)); }
 .fpe-tabpanel { padding: 16px 16px 48px; }
 .fpe-alerts .notice { padding: 6px 10px; font-size: 13px; }
 .fpe-alerts .notice .btn { padding: 4px 10px; }
@@ -1098,7 +1112,7 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .fpe-panes.rail .ob-findparts { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.1; padding: 6px 4px; text-align: center; }
 .fpe-panes.rail .ob-part:hover::after, .fpe-panes.rail .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
 @media (min-width: 801px) and (max-width: 1100px) {
-  .fpe-panes, .fpe-panes.rail { grid-template-columns: 72px minmax(0, 1fr) clamp(300px, 34vw, 360px); }
+  .fpe-panes, .fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(300px, 34vw, 360px)); }
   .ob-findparts { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.1; padding: 6px 4px; text-align: center; }
   .fpe-parts .ob-part:hover::after, .fpe-parts .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
 }

@@ -84,7 +84,7 @@
   /* The parts pane of the full-page editor: it folds to a rail of icons (remembered in this browser). */
   function partsPane(ctx, p) {
     var rail = !!ctx.state.partsRail;
-    return '<aside class="fpe-pane fpe-parts" aria-labelledby="ob-parts-h"><div class="fpe-parts-head"><div class="row between"><h2 id="ob-parts-h">Parts</h2>' +
+    return '<aside class="fpe-pane fpe-parts" id="ob-parts" aria-labelledby="ob-parts-h"><div class="fpe-parts-head"><div class="row between"><h2 id="ob-parts-h">Parts</h2>' +
       '<button type="button" class="mini ob-railbtn" data-act="ob-rail" aria-expanded="' + !rail + '" aria-controls="ob-plist" title="' + (rail ? 'Show part names' : 'Fold to icons') + '">' + I('swap') + '<span class="sr">' + (rail ? 'Show part names' : 'Fold the parts to icons') + '</span></button></div>' +
       '<p class="small ob-blurb">Drag one onto the checklist, or choose it and pick a place.</p>' + partsSearch(ctx, '') +
       '<button type="button" class="mini ob-findparts" data-act="ob-parts-open" title="Find parts">' + I('plus') + '<span>Find parts</span></button></div>' + partsList(ctx, p, '') + '</aside>';

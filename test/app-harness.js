@@ -60,7 +60,9 @@ function boot(opts) {
   appEl.querySelector = sel => { asked.push(sel); return sel === '.ob-form' && /class="panel stack ob-form"/.test(appEl._html) ? form : null; };
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
-  const storage = () => ({ getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
+  // storageThrows: a pattern of keys the browser refuses to read or write (blocked site data, a full quota): those calls throw.
+  const refuse = k => { if (opts.storageThrows && opts.storageThrows.test(k)) throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
+  const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
     hidden: false, title: '', body: element('body'), activeElement: null,
     getElementById: id => els[id] || null, querySelector: () => null, querySelectorAll: () => [], createElement: () => element('x'),
