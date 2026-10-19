@@ -1291,7 +1291,8 @@ PF.repo = (function () {
     if (typeof p.id !== 'string' || typeof p.process !== 'string') return 'is a plan without a text id and process';
     var bad = ['title', 'when', 'by', 'created', 'note'].filter(function (k) { return !textOr(p[k]); })[0];
     if (bad) return 'is a plan whose ' + bad + ' isn\'t text';
-    if (!(p.version == null || typeof p.version === 'string' || (typeof p.version === 'number' && isFinite(p.version)))) return 'is a plan whose version isn\'t a number';
+    /* A version is a version number (as the app reads it: a whole number from 1, or one written as digits). */
+    if (!(p.version == null || (typeof p.version === 'string' && /^[1-9]\d{0,5}$/.test(p.version)) || (typeof p.version === 'number' && p.version >= 1 && Math.floor(p.version) === p.version))) return 'is a plan whose version isn\'t a version number';
     if (!plainOf(p.details, function (x) { return typeof x === 'string' || (typeof x === 'number' && isFinite(x)); })) return 'is a plan whose details aren\'t text';
     if (!plainOf(p.roles, function (x) { return typeof x === 'string'; })) return 'is a plan whose roles aren\'t people IDs';
     return '';

@@ -1340,4 +1340,33 @@ rule('READ: a follow-up decision that isn\'t read as written (a note cut short, 
   }
 });
 
+
+rule('READ: a plan\'s version must be a version number; one the folder doesn\'t have is flagged, as the app falls back to the latest', async () => {
+  const at = 'proposals/plan-release-2026-10-24.json', edit = v => f => { const o = JSON.parse(f[at]); o.version = v; f[at] = JSON.stringify(o, null, 2); };
+  for (const v of ['v3', 1.5, -1, '1.0', true]) {
+    const r = agree(await readMem(REQ.runs, edit(v)));
+    assert.ok(r.code === 4 && has(r, at, 'malformed') && !r.json.data.planned.length, JSON.stringify(v) + ': ' + JSON.stringify(r.json.problems));
+  }
+  for (const [v, missing] of [[1, false], ['1', false], [null, false], [9, true]]) {
+    const r = agree(await readMem(REQ.runs, edit(v)));
+    const p = r.json.data.planned[0];
+    assert.ok(r.code === 0 && p, JSON.stringify(v) + ': ' + JSON.stringify(r.json.problems));
+    assert.strictEqual(p.versionMissing, missing, JSON.stringify(v));
+    assert.deepStrictEqual(p.startsOn, { version: 1, folder: rfBuilt.folder }, 'the version a person starting it gets, as the app picks it');
+  }
+});
+
+rule('READ: a step\'s marks come from its durable marks and the answers it still holds, and the run says whether that record is complete', async () => {
+  const at = 'runs/release/run1/run.json';
+  const old = f => { const o = JSON.parse(f[at]); delete o.marks; delete o.marksFrom; o.steps.approved.history = [{ s: 'blocked', by: 'person-casey', at: RF.NOW, reason: 'Waiting' }]; f[at] = JSON.stringify(o, null, 2); };
+  const r = agree(await readMem(REQ.run, old));
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems));
+  const run = r.json.data.run, step = run.steps.filter(s => s.id === 'approved')[0];
+  assert.deepStrictEqual(step.marks, ['blocked'], 'the block Insights counts');
+  assert.strictEqual(run.marksComplete, false, 'an older run: "no marks" means unknown, not none');
+  const now = agree(await readMem(REQ.run)).json.data.run;
+  assert.strictEqual(now.marksComplete, true, 'a run that kept marks from its start');
+  assert.strictEqual(agree(await readMem(REQ.runs, old)).json.data.runs.filter(x => x.key === 'release/run1')[0].marksComplete, false);
+});
+
 run();

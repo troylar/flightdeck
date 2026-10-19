@@ -136,8 +136,9 @@ Each step: `id` (stable across versions; keep these in your app's settings), `te
 | `progress` | `done` and `total`: steps answered |
 | `headline` | Where the run is, as the app says it: `status` (`working`, `ready`, `stopped`, `paused`, `complete`), `text` and `detail` |
 | `readOnly` | Why this copy can only show the run, or `null` |
+| `marksComplete` | `true` when the run kept marks from its start. When it's `false` (a run started before 1.15), a step with no `marks` may still have been blocked or redone in an answer the run no longer holds: read it as unknown, not as none. |
 
-Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, `changed` when the plan was edited after a decision) and `run` (the started run's key, once accepted).
+Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, `changed` when the plan was edited after a decision) `run` (the started run's key, once accepted), `startsOn` (`version` and `folder` a person starting it now gets, as the app picks it, or `null` when the process has no usable version) and `versionMissing` (`true` when the plan names a version the folder doesn't have, so the app would start it on the latest instead). A `version` that isn't a version number (like `v3` or `1.5`) makes the plan `malformed`.
 
 ### run
 
@@ -146,7 +147,7 @@ Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, 
 | Field | What it is |
 |---|---|
 | `roles` | Each `role` and its `person` |
-| `steps` | Each step, in checklist order: `id`, `phase`, `text`, `type`, `must`, `roles`, `state` (`open`, `done`, `na`, `blocked`, `recheck`), `by`, `at`, `reason`, `values` (what was recorded), `differently` (`note`, `by`, `at`, when it was done differently), `marks` (every deviation it had: `blocked`, `recheck`, `na`, `differently`), `child` (`process` and `id` of a linked child run) and `evidence` (what this run asks for on it) |
+| `steps` | Each step, in checklist order: `id`, `phase`, `text`, `type`, `must`, `roles`, `state` (`open`, `done`, `na`, `blocked`, `recheck`), `by`, `at`, `reason`, `values` (what was recorded), `differently` (`note`, `by`, `at`, when it was done differently), `marks` (every deviation it ever had, as How runs go counts them: its marks and the answers the run still holds, in the order `blocked`, `recheck`, `na`, `differently`; see `marksComplete`), `child` (`process` and `id` of a linked child run) and `evidence` (what this run asks for on it) |
 | `gates` | Each gate: `id`, `phase`, `title`, `status` (`open`, `ready`, `passed`, `waived`, `failed`, `review`, `locked`), `by`, `at`, `reason`, `approved` (the details it approved) |
 | `followUps` | The run's follow-ups, as in `followups` |
 

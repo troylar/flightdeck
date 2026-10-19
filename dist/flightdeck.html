@@ -6367,7 +6367,7 @@ PF.insights = (function () {
     });
   }
 
-  return { DEFS: DEFS, FEW: FEW, MIN_RATE: MIN_RATE, BUCKETS: BUCKETS, forProcess: forProcess, count: count, rated: rated, num: num, select: select, spec: spec, changed: changed,
+  return { evidence: evidence, DEFS: DEFS, FEW: FEW, MIN_RATE: MIN_RATE, BUCKETS: BUCKETS, forProcess: forProcess, count: count, rated: rated, num: num, select: select, spec: spec, changed: changed,
     matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted, hasProblems: hasProblems };
 })();
 
@@ -8571,7 +8571,7 @@ PF.appjson = (function () {
   var HEADLINE = { status: 'string', text: 'string', detail: 'string' };
   var SUMMARY = { key: 'string', id: 'string', process: 'string', title: 'string', version: 'number', folder: 'string', state: 'string', paused: 'boolean',
     created: 'string', ended: opt({ outcome: 'string', at: 'string', by: opt(PERSON) }), recorder: opt(PERSON), details: map('string'),
-    progress: { done: 'number', total: 'number' }, headline: HEADLINE, readOnly: opt('string') };
+    progress: { done: 'number', total: 'number' }, headline: HEADLINE, readOnly: opt('string'), marksComplete: 'boolean' };
   var DECISION = { status: 'string', by: opt(PERSON), at: 'string', rev: 'number', ticket: opt('string'), link: opt('string'), to: opt('string'), reason: opt('string'), note: opt('string') };
   var FOLLOWUP = { key: 'string', process: 'string', run: 'string', runTitle: 'string', runEnded: 'boolean', id: 'string', text: 'string', owner: opt(PERSON),
     ticket: 'string', step: 'string', at: 'string', status: 'string', label: 'string', tie: 'boolean', decision: opt(DECISION) };
@@ -8585,7 +8585,7 @@ PF.appjson = (function () {
         steps: [{ id: 'string', text: 'string', type: 'string', must: 'boolean', planned: 'boolean', roles: ['string'], binds: ['string'], sets: ['string'], fields: map('string'), track: opt('string'), timing: TIMING, evidence: [EVIDENCE] }],
         gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], timing: TIMING } }] },
     runs: { runs: [SUMMARY], planned: [{ id: 'string', process: 'string', title: 'string', version: opt('number'), when: opt('string'), by: 'string', created: opt('string'), note: 'string',
-      details: map('string'), roles: map('string'), status: 'string', run: opt('string') }] },
+      details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: 'boolean' }] },
     run: { run: opt(extend(SUMMARY, { roles: [ROLE],
       steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', must: 'boolean', roles: ['string'], state: 'string', by: opt(PERSON), at: opt('string'), reason: opt('string'),
         values: map('string'), differently: opt({ note: 'string', by: opt(PERSON), at: opt('string') }), marks: ['string'], child: opt({ process: 'string', id: 'string' }), evidence: [EVIDENCE] }],
@@ -8713,21 +8713,28 @@ PF.appjson = (function () {
     var mp = R.mapOf(r), t = R.totals(r, mp);
     return { key: r.process + '/' + r.id, id: s(r.id), process: s(r.process), title: s(r.title), version: +r.version || 0, folder: s(r.folder), state: s(r.state), paused: !!r.paused,
       created: s(r.created), ended: r.ended ? { outcome: s(r.ended.outcome), at: s(r.ended.at), by: nameOf(r.ended.by) } : null, recorder: nameOf(r.recorder && r.recorder.person),
-      details: strMap(r.details), progress: { done: t.done, total: t.total }, headline: headline(R.headline(r, mp)), readOnly: orNull(r._unrunnable) };
+      details: strMap(r.details), progress: { done: t.done, total: t.total }, headline: headline(R.headline(r, mp)), readOnly: orNull(r._unrunnable),
+      /* Whether marks were kept from the run's start: false means a step showing none may still have had some (unknown). */
+      marksComplete: r.marksFrom === 'start' };
   }
   function byCreated(a, b) { return a.created < b.created ? 1 : a.created > b.created ? -1 : a.key < b.key ? -1 : 1; }
   /* Plans as the app shows them: pending, accepted (started, with its run), declined, conflicting (two decisions disagree)
      or changed (edited after a decision). */
-  function plan(p) {
+  /* procs: the processes as loaded, to say which version a person starting the plan gets (P.forPlan, as the app picks it). */
+  function plan(p, procs) {
     var st = p._status, status = p._conflicting ? 'conflicting' : st ? s(st.status) : p._changedAfterDecision ? 'changed' : 'pending';
     var v = typeof p.version === 'number' ? p.version : /^\d+$/.test(s(p.version)) ? +p.version : null;
-    return { id: s(p.id), process: s(p.process), title: s(p.title || p.process), version: v, when: orNull(p.when), by: s(p.by), created: orNull(p.created), note: s(p.note),
+    var out = { id: s(p.id), process: s(p.process), title: s(p.title || p.process), version: v, when: orNull(p.when), by: s(p.by), created: orNull(p.created), note: s(p.note),
       details: strMap(p.details && typeof p.details === 'object' ? p.details : {}), roles: strMap(p.roles && typeof p.roles === 'object' ? p.roles : {}), status: status,
-      run: st && st.status === 'accepted' && st.run ? p.process + '/' + st.run : null };
+      run: st && st.status === 'accepted' && st.run ? p.process + '/' + st.run : null, startsOn: null, versionMissing: false };
+    var proc = (procs || []).filter(function (x) { return x.process === p.process; })[0], pick = proc && proc.index ? P.forPlan(proc.index, p.version, null) : { pub: null, missing: false };
+    out.startsOn = pick.pub ? { version: pick.pub.info.version, folder: s(pick.pub.info.folder) } : null;
+    out.versionMissing = !!pick.missing || (p.version != null && !pick.pub);
+    return out;
   }
-  function runs(runList, plans, nameOf) {
+  function runs(runList, plans, nameOf, procs) {
     return { runs: (runList || []).map(function (r) { return summary(r, nameOf); }).sort(byCreated),
-      planned: (plans || []).map(plan).sort(function (a, b) { return a.id < b.id ? -1 : 1; }) };
+      planned: (plans || []).map(function (p) { return plan(p, procs); }).sort(function (a, b) { return a.id < b.id ? -1 : 1; }) };
   }
   function followUp(x, nameOf) {
     var d = x.decision;
@@ -8738,6 +8745,9 @@ PF.appjson = (function () {
   }
   function followUps(items, nameOf) { return { followUps: (items || []).map(function (x) { return followUp(x, nameOf); }) }; }
   function rolePeople(r, roles, nameOf) { return (roles || []).map(function (ro) { return { role: s(ro), person: nameOf(r.roles[ro]) }; }); }
+  /* Every kind of mark a step ever had, as Insights counts them: its durable marks and the answers the run still holds. */
+  var MARK_ORDER = ['blocked', 'recheck', 'na', 'differently'];
+  function marksOf(r, id) { var set = PF.insights.evidence(r, id).set; return MARK_ORDER.filter(function (k) { return set[k]; }); }
   /* A run in full: each step's state with who and when, its values, and the evidence this run asks for (R.evidenceFor). */
   function run(r, items, nameOf) {
     var mp = R.mapOf(r), out = summary(r, nameOf), mine = F.forRun(items, r);
@@ -8749,7 +8759,7 @@ PF.appjson = (function () {
         out.steps.push({ id: s(st.id), phase: s(ph.id), text: s(st.text), type: s(st.type), must: !!st.must, roles: st.roles.map(s), state: a ? s(a.s) : 'open',
           by: a ? nameOf(a.by) : null, at: a ? orNull(a.at) : null, reason: a ? orNull(a.reason) : null, values: strMap(a && a.values),
           differently: a && a.differently ? { note: s(a.differently.note), by: nameOf(a.differently.by), at: orNull(a.differently.at) } : null,
-          marks: (r.marks && Object.prototype.hasOwnProperty.call(r.marks, st.id) ? r.marks[st.id] : []).map(s),
+          marks: marksOf(r, st.id),
           child: a && a.child ? { process: s(a.child.process), id: s(a.child.id) } : null, evidence: evidence(ev) });
       });
     });
@@ -10073,7 +10083,8 @@ PF.repo = (function () {
     if (typeof p.id !== 'string' || typeof p.process !== 'string') return 'is a plan without a text id and process';
     var bad = ['title', 'when', 'by', 'created', 'note'].filter(function (k) { return !textOr(p[k]); })[0];
     if (bad) return 'is a plan whose ' + bad + ' isn\'t text';
-    if (!(p.version == null || typeof p.version === 'string' || (typeof p.version === 'number' && isFinite(p.version)))) return 'is a plan whose version isn\'t a number';
+    /* A version is a version number (as the app reads it: a whole number from 1, or one written as digits). */
+    if (!(p.version == null || (typeof p.version === 'string' && /^[1-9]\d{0,5}$/.test(p.version)) || (typeof p.version === 'number' && p.version >= 1 && Math.floor(p.version) === p.version))) return 'is a plan whose version isn\'t a version number';
     if (!plainOf(p.details, function (x) { return typeof x === 'string' || (typeof x === 'number' && isFinite(x)); })) return 'is a plan whose details aren\'t text';
     if (!plainOf(p.roles, function (x) { return typeof x === 'string'; })) return 'is a plan whose roles aren\'t people IDs';
     return '';

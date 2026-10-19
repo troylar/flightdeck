@@ -771,7 +771,7 @@ async function readData(eng, adapter, req) {
       const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
       const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
-      return done(within([sub('runs'), 'proposals'], ['people.json']), A.runs(list, plans, nameOf), d.readAt);
+      return done(within([sub('runs'), 'proposals'], ['people.json']), A.runs(list, plans, nameOf, d.processes), d.readAt);
     }
     /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
     const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));

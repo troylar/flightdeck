@@ -590,6 +590,6 @@ PF.insights = (function () {
     });
   }
 
-  return { DEFS: DEFS, FEW: FEW, MIN_RATE: MIN_RATE, BUCKETS: BUCKETS, forProcess: forProcess, count: count, rated: rated, num: num, select: select, spec: spec, changed: changed,
+  return { evidence: evidence, DEFS: DEFS, FEW: FEW, MIN_RATE: MIN_RATE, BUCKETS: BUCKETS, forProcess: forProcess, count: count, rated: rated, num: num, select: select, spec: spec, changed: changed,
     matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted, hasProblems: hasProblems };
 })();
