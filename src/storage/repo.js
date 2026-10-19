@@ -32,7 +32,8 @@ PF.repo = (function () {
   /* What's already been read from a folder. Complete publications never change, and ended runs rarely do, so routine refreshes
      skip them; a deep refresh (the Refresh button) reads everything again. */
   var caches = typeof WeakMap === 'function' ? new WeakMap() : null;
-  function cacheOf(fs) { if (!caches) return { pubs: {}, ended: {}, notes: {}, approved: {}, bad: {} }; var c = caches.get(fs); if (!c) { c = { pubs: {}, ended: {}, notes: {}, approved: {}, bad: {} }; caches.set(fs, c); } return c; }
+  function newCache() { return { pubs: {}, ended: {}, notes: {}, approved: {}, bad: {}, intern: {} }; }
+  function cacheOf(fs) { fs = fs && fs._raw || fs; if (!caches) return newCache(); var c = caches.get(fs); if (!c) { c = newCache(); caches.set(fs, c); } return c; }
   /* Run at most n reads at once, so a folder with hundreds of runs doesn't flood OneDrive or the browser. */
   function limited(items, n, fn) {
     var out = new Array(items.length), i = 0;
@@ -91,38 +92,93 @@ PF.repo = (function () {
     }, Promise.resolve(res));
   }
 
-  function loadRuns(fs, cache, deep) {
+  /* Every run folder's result, by key ("process/id"), as the app accepts it (docs/design.md section 25):
+       fresh: read now, { run, build }   cached: unchanged ended run, { fileHash, sig, build }   unreadable: { why }
+     A run folder without run.json has no result. complete: every process folder in runs/ was listed, which is the only
+     thing that lets the app call a run it knew gone. The cache keeps frozen texts (entries), never an object the app shows
+     or changes: every cached result is built new from them. freshKeys: runs read in full this time whatever the cache says
+     (the app's runs whose last check failed, so only a real read can clear that). */
+  function loadRuns(fs, cache, deep, freshKeys) {
+    var force = {}; (freshKeys || []).forEach(function (k) { force[k] = true; });
     return fs.list('runs').then(function (procs) {
       return Promise.all(procs.filter(function (p) { return p.kind === 'dir'; }).map(function (p) {
         return fs.list('runs/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return p.name + '/' + i.name; }); });
       }));
     }).then(function (nested) {
       /* One limit across every process, so a folder with hundreds of runs never has more than 8 being read at once. */
-      var unreadable = [];
-      return limited([].concat.apply([], nested), 8, function (key) {
-        var hit = cache.ended[key], proc = key.split('/')[0], id = key.split('/')[1];
+      var unreadable = [], keys = [].concat.apply([], nested), listed = {};
+      keys.forEach(function (k) { listed[k] = true; });
+      /* A run folder that's gone is forgotten, so one that comes back under the same name is read again. */
+      Object.keys(cache.ended).forEach(function (k) { if (!listed[k]) delete cache.ended[k]; });
+      return limited(keys, 8, function (key) {
+        var hit = cache.ended[key], proc = key.split('/')[0], id = key.split('/')[1], bad = [];
         /* One run that can't be read (a placeholder OneDrive hasn't downloaded, a file being replaced) is listed as unreadable;
            the rest of the folder still loads. */
-        return go().then(null, function (e) { delete cache.ended[key]; unreadable.push({ path: 'runs/' + key + '/run.json', key: key, why: why(e) }); return null; });
+        return go().then(null, function (e) { delete cache.ended[key]; bad.push({ path: 'runs/' + key + '/run.json', key: key, why: why(e) }); return null; }).then(function (res) {
+          unreadable.push.apply(unreadable, bad);
+          return res || (bad.length ? { kind: 'unreadable', why: bad[0].why } : null);
+        });
         function go() {
-        /* An ended run is reread only if a file in it arrived, left, or changed size or time (a late note, a conflict copy). */
-        if (!deep && hit) return fingerprint(fs, 'runs/' + key).then(function (fp) { return fp === hit.fp && !(hit.run._recheckAt && Date.now() >= hit.run._recheckAt) ? hit.run : fresh(); });
-        return fresh();
+          /* An ended run is reread only if a file in it arrived, left, or changed size or time (a late note, a conflict copy). */
+          if (!deep && hit && !force[key]) return fingerprint(fs, 'runs/' + key).then(function (fp) { return fp === hit.fp && !(hit.entry.recheckAt && Date.now() >= hit.entry.recheckAt) ? cachedResult(hit.entry, cache) : read(); });
+          return read();
         }
-        /* Fingerprint before and after reading: the run is cached only if nothing changed in between, so a cached copy
+        /* Fingerprint before and after reading: the run is cached only if nothing changed in between, so a cached entry
            always matches the fingerprint it's checked against. */
-        function fresh() {
+        function read() {
           var before;
-          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return loadRun(fs, proc, id, cache, deep, true, unreadable); })
-            .then(function (run) {
+          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return readRun(fs, proc, id, cache, deep, true, bad); })
+            .then(function (entry) {
               return fingerprint(fs, 'runs/' + key).then(function (after) {
-                if (run && run.ended && after === before) cache.ended[key] = { run: run, fp: after }; else delete cache.ended[key];
-                return run;
+                if (entry && entry.ended && after === before) cache.ended[key] = { entry: entry, fp: after }; else delete cache.ended[key];
+                if (!entry) return null;
+                var run = build(entry, cache);
+                return { kind: 'fresh', run: run, fileHash: entry.fileHash, build: function () { return build(entry, cache); } };
               });
             });
         }
-      }).then(function (runs) { return { runs: runs.filter(Boolean), unreadable: unreadable }; });
+      }).then(function (list) {
+        var reads = {}, used = {};
+        keys.forEach(function (k, i) { if (list[i]) reads[k] = list[i]; });
+        Object.keys(cache.ended).forEach(function (k) { var e = cache.ended[k].entry; used[e.internKey] = true; });
+        Object.keys(reads).forEach(function (k) { if (reads[k].run) used[reads[k].run.folder + '|' + reads[k].run.mapHash] = true; });
+        Object.keys(cache.intern).forEach(function (k) { if (!used[k]) delete cache.intern[k]; });
+        return { reads: reads, keys: keys, complete: true, unreadable: unreadable };
+      });
     });
+  }
+  function cachedResult(entry, cache) {
+    return { kind: 'cached', fileHash: entry.fileHash, entry: entry, sig: sigOf(entry.fileHash, entry.notesSig, entry.conflicts, entry.unrunnable || badFor(cache, entry), entry.recheckAt),
+      build: function () { return build(entry, cache); } };
+  }
+  function badFor(cache, entry) { return (cache.bad || {})['publications/' + entry.process + '/' + entry.folder + '/'] || ''; }
+  /* What a displayed run and a cached result are compared by: the same file, notes, copies and read-only reason. */
+  function sigOf(fileHash, notesSig, conflicts, unrunnable, recheckAt) { return [fileHash || '', notesSig || '', (conflicts || []).join('/'), unrunnable || '', recheckAt || ''].join('|'); }
+  function runSig(run) { return sigOf(run._fileHash, run._notesSig, run._conflicts, run._unrunnable, run._recheckAt); }
+  /* A run object built from a cache entry's texts, the same way a fresh read builds one: new every time. Runs of one version
+     share one checklist text and one step-type object, but only when they're equal (cache.intern). */
+  function build(entry, cacheIn) {
+    var run = R.sanitize(json(entry.text)), base = entry.base;
+    if (!run._unrunnable && entry.unrunnable) run._unrunnable = entry.unrunnable;
+    var bad = cacheIn ? badFor(cacheIn, entry) : '';
+    if (bad && !run._unrunnable) run._unrunnable = bad;
+    run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
+    if (entry.recheckAt) run._recheckAt = entry.recheckAt;
+    var notes = [];
+    entry.notes.forEach(function (t) {
+      if (t == null) return;
+      t.split('\n').forEach(function (line) { var n = line.trim() && json(line); if (n && typeof n.text === 'string' && typeof n.id === 'string') notes.push(cleanNote(n, base)); });
+    });
+    run._notes = notes.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+    if (cacheIn) intern(run, cacheIn);
+    return run;
+  }
+  /* Interned step types are shared by many runs: frozen in tests (PF.run.mapMemo.freeze), so nothing may change them. */
+  function intern(run, cache) {
+    var k = run.folder + '|' + run.mapHash, e = cache.intern[k], tj = JSON.stringify(run.types);
+    if (!e) { e = cache.intern[k] = { snapshot: run.snapshot, typesJson: tj, types: json(tj) }; if (R.mapMemo && R.mapMemo.freeze && e.types) R.mapMemo.deepFreeze(e.types); }
+    if (run.snapshot === e.snapshot) run.snapshot = e.snapshot;
+    if (tj === e.typesJson) run.types = e.types;
   }
   /* Names, sizes and times of the files directly in a run folder: cheap to get, and different whenever anything in it changed. */
   function fingerprint(fs, dir) {
@@ -183,7 +239,13 @@ PF.repo = (function () {
      one run (the open one) also checks its own publication. */
   /* bad: a list that a run.json which can't be understood is added to (it's never just left out). */
   function loadRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
-    cacheIn = cacheIn || cacheOf(fs); fs = bounded(fs);
+    cacheIn = cacheIn || cacheOf(fs);
+    return readRun(fs, proc, id, cacheIn, deep, allRuns, bad).then(function (entry) { return entry ? build(entry, cacheIn) : null; });
+  }
+  /* A run folder read into a frozen entry: run.json's text, each notes file's text, the conflict copies found, and when to
+     look again at a save that may still be arriving. Objects are built from it (build), never kept in it. */
+  function readRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
+    cacheIn = cacheIn || cacheOf(fs); fs = bounded(fs, allRuns ? 'load' : 'open');
     var base = 'runs/' + proc + '/' + id + '/';
     function withPublication(res) {
       if (allRuns) return res;
@@ -196,15 +258,17 @@ PF.repo = (function () {
       var noteFiles = names.filter(function (n) { return /^notes-[\w-]+\.jsonl$/.test(n); });
       if (names.indexOf('run.json') < 0) return null;
       /* Notes files only grow, so one that hasn't changed size or time since the last read is taken from memory. */
-      var notesCache = (cacheIn || cacheOf(fs)).notes;
+      var notesCache = cacheIn.notes;
       function same(a, b) { return !!a && !!b && a.size === b.size && a.mtime === b.mtime; }
       function readNotes(n) {
         var path = base + n, hit = notesCache[path];
         if (!fs.stat) return fs.read(path);
         return fs.stat(path).then(function (st) {
           if (!deep && hit && same(hit, st)) return hit.file;
-          /* Cached only when the file didn't change while it was being read; otherwise it's read again next time. */
           return fs.read(path).then(function (f) {
+            /* A read that says its own size and time describes exactly the text it returned: remembered under those. */
+            if (f && f.size != null && f.mtime != null) { notesCache[path] = { size: f.size, mtime: f.mtime, file: { text: f.text, mtime: f.mtime } }; return f; }
+            /* Otherwise cached only when the file didn't change while it was being read; else it's read again next time. */
             return fs.stat(path).then(function (st2) { if (f && same(st, st2)) notesCache[path] = { size: st2.size, mtime: st2.mtime, file: f }; else delete notesCache[path]; return f; });
           });
         });
@@ -212,26 +276,23 @@ PF.repo = (function () {
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(readNotes))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
+        var notesTexts = res.slice(1).map(function (f) { return f ? f.text : null; });
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
            its own copy of the checklist happens to read. */
-        if (!run._unrunnable && res.pubProblem) run._unrunnable = res.pubProblem;
-        run._path = base; run._mtime = res[0].mtime; run._conflicts = extra; run._fileHash = U.hash(res[0].text);
-        var notes = [];
-        res.slice(1).forEach(function (f) {
-          if (!f) return;
-          f.text.split('\n').forEach(function (line) { var n = line.trim() && json(line); if (n && typeof n.text === 'string' && typeof n.id === 'string') notes.push(cleanNote(n, base)); });
-        });
-        run._notes = notes.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+        var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: U.hash(res[0].text),
+          notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
+          unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, conflicts: extra, recheckAt: 0 };
+        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
         var lineage = run.lineage || [], lost = names.filter(function (n) { var t = candidateTag(n); return t && lineage.indexOf(t) < 0; });
-        if (!lost.length) return run;
+        if (!lost.length) return done();
         var now = Date.now(), current = sameRun(res[0].text);
         return Promise.all(lost.map(function (n) {
           var age = fs.stat ? fs.stat(base + n).then(function (st) { return st ? st.mtime : now; }, function () { return now; }) : Promise.resolve(0);
           return age.then(function (mtime) {
             /* Still within the grace period: maybe a save in progress. Check again once it's old enough (finished runs too). */
-            if (now - mtime < config.candidateGraceMs) { var at = mtime + config.candidateGraceMs; run._recheckAt = run._recheckAt ? Math.min(run._recheckAt, at) : at; return null; }
+            if (now - mtime < config.candidateGraceMs) { var at = mtime + config.candidateGraceMs; entry.recheckAt = entry.recheckAt ? Math.min(entry.recheckAt, at) : at; return null; }
             /* A receipt whose contents are already the current version lost nothing (a late delivery, or a save older than the
                list remembers): it's removed instead of shown as a conflict. Names are unique per save, so this can't race. */
             return fs.read(base + n).then(function (f) {
@@ -242,12 +303,12 @@ PF.repo = (function () {
         }))
           .then(function (old) {
             old = old.filter(Boolean);
-            if (!old.length || !extra.length) { run._conflicts = run._conflicts.concat(old); return run; }
+            if (!old.length || !extra.length) { entry.conflicts = extra.concat(old); return done(); }
             /* A lost save that OneDrive already kept as its own conflict copy is listed once, not twice. */
             return Promise.all(extra.concat(old).map(function (n) { return fs.read(base + n).then(function (f) { return f ? f.text : '\u0000' + n; }, function () { return '\u0000' + n; }); })).then(function (h) {
               var known = h.slice(0, extra.length);
-              run._conflicts = run._conflicts.concat(old.filter(function (n, i) { return known.indexOf(h[extra.length + i]) < 0; }));
-              return run;
+              entry.conflicts = extra.concat(old.filter(function (n, i) { return known.indexOf(h[extra.length + i]) < 0; }));
+              return done();
             });
           });
       });
@@ -292,18 +353,52 @@ PF.repo = (function () {
   /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
      Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
      folder itself. */
-  function bounded(fs) {
+  function bounded(fs, lane) {
     if (fs._bounded) return fs;
-    var go = pool(8), b = Object.create(fs);
-    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof fs[m] === 'function') b[m] = function (p) { return go(function () { return fs[m](p); }); }; });
-    b._bounded = true;
+    lane = lane || 'load';
+    var raw = fs, ws = wrappers ? wrappers.get(raw) : null;
+    if (ws && ws[lane]) return ws[lane];
+    var go = poolOf(raw), b = Object.create(raw);
+    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof raw[m] === 'function') b[m] = function (p) { return go(lane, function () { return raw[m](p); }); }; });
+    b._bounded = lane; b._raw = raw;
+    if (wrappers) { ws = ws || {}; ws[lane] = b; wrappers.set(raw, ws); }
     return b;
   }
+  /* One pool of 8 per folder, shared by loading, the open run's reread, thumbnails and (later) export. Waiting calls start
+     in lane order: the open run first, then loading, then thumbnails (at most 4 at once), then export (at most 2), so
+     pictures or an export never slow the run being recorded. */
+  var LANES = ['open', 'load', 'thumb', 'export'], LANE_MAX = { open: 8, load: 8, thumb: 4, export: 2 };
+  var pools = typeof WeakMap === 'function' ? new WeakMap() : null, wrappers = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function poolOf(fs) {
+    fs = fs && fs._raw || fs;
+    var p = pools && pools.get(fs);
+    if (!p) { p = lanes(8); if (pools) pools.set(fs, p); }
+    return p;
+  }
+  function lanes(n) {
+    var active = 0, by = {}, q = {};
+    function next() {
+      while (active < n) {
+        var lane = null;
+        for (var i = 0; i < LANES.length && !lane; i++) { var l = LANES[i]; if (q[l] && q[l].length && (by[l] || 0) < LANE_MAX[l]) lane = l; }
+        if (!lane) return;
+        start(lane, q[lane].shift());
+      }
+    }
+    function start(lane, job) {
+      active++; by[lane] = (by[lane] || 0) + 1;
+      var end = function () { active--; by[lane]--; next(); };
+      Promise.resolve().then(job.fn).then(function (v) { end(); job.res(v); }, function (e) { end(); job.rej(e); });
+    }
+    return function (lane, fn) { if (!LANE_MAX[lane]) lane = 'load'; return new Promise(function (res, rej) { (q[lane] = q[lane] || []).push({ fn: fn, res: res, rej: rej }); next(); }); };
+  }
+  /* opts: { deep: read everything again (Refresh), fresh: run keys to read in full whatever the cache says }. The result's
+     reads (by run key) and runsComplete are what the app applies; runs is built from them only when someone asks for it. */
   function loadAll(fs, opts) {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!(opts && opts.deep), failed = {}, errs = [];
-    var EMPTY = [[], [], [], { runs: [], unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep), loadLegacy(fs),
+    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep, opts && opts.fresh), loadLegacy(fs),
       loadSkills(fs),
       loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }),
       loadStepTypes(fs), loadWorkflows(fs),
@@ -312,8 +407,7 @@ PF.repo = (function () {
       loadFollowUpDecisions(fs)
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       if (errs.length === PARTS.length) throw errs[0];
-      var unreadable = r[3].unreadable.concat(r[1].unreadable || []);
-      r[3] = r[3].runs;
+      var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
       r[9] = r[9].map(function (v) { var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; if (v.as === 'backup') o.as = 'backup'; return o; });
       var props = r[6], statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
@@ -328,10 +422,20 @@ PF.repo = (function () {
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
       });
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
-      r[3].forEach(function (run) { var bad = cache.bad && cache.bad['publications/' + run.process + '/' + run.folder + '/']; if (bad && !run._unrunnable) run._unrunnable = bad; });
-      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
+      keys.forEach(function (k) {
+        var x = reads[k]; if (!x) return;
+        if (x.kind === 'fresh') { var bad = cache.bad && cache.bad['publications/' + x.run.process + '/' + x.run.folder + '/']; if (bad && !x.run._unrunnable) x.run._unrunnable = bad; }
+        if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
+      });
+      var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString() };
+      /* Every run, as objects: fresh ones as read, cached ones built new. Built on first use, since the app applies reads instead. */
+      var runs = null;
+      Object.defineProperty(out, 'runs', { enumerable: true, configurable: true,
+        get: function () { if (!runs) runs = keys.map(function (k) { var x = reads[k]; return !x ? null : x.kind === 'fresh' ? x.run : x.kind === 'cached' ? x.build() : null; }).filter(Boolean); return runs; },
+        set: function (v) { runs = v; } });
+      return out;
     });
   }
   /* Decisions on corrections: corrections/<process>/<group>.<writer>.<rev>.json, each written once. Decisions on suggested
@@ -870,5 +974,5 @@ PF.repo = (function () {
     });
   }
 
-  return { historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

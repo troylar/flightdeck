@@ -957,4 +957,106 @@ rule('The examples folder in the browser reports file sizes in bytes, so history
   Object.keys(fs.files).filter(p => p.indexOf(dir + '/') === 0).forEach(p => assert.ok(TL.bytes(fs.files[p].t) <= TL.HIST.ROLL, p + ' is ' + TL.bytes(fs.files[p].t) + ' bytes'));
 });
 
+/* ---------- 1.17: read results, immutable cache entries, the shared pool, sizes from reads ---------- */
+async function endedRun(fs, id) {
+  const had = await repo.loadAll(fs), d = had.processes.length ? had : await published(fs);
+  const pub = d.processes[0].index.latest;
+  const r = R.create(pub, { title: 'Ended ' + id, details: { commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'casey-laptop', now: NOW, id });
+  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', NOW);
+  await repo.saveRun(fs, r, 'casey-laptop');
+  return r;
+}
+
+rule('Every run a refresh lists comes back as fresh, cached or unreadable, and only a complete listing of runs/ is marked complete', async () => {
+  const fs = folder(); await endedRun(fs, 'old1');
+  await fs.write('runs/release/bad1/run.json', '{"format": "preflight-run/2", "id": ');
+  const cold = await repo.loadAll(fs);
+  assert.strictEqual(cold.runsComplete, true, 'every process folder in runs/ was listed');
+  assert.strictEqual(cold.reads['release/old1'].kind, 'fresh');
+  assert.strictEqual(cold.reads['release/bad1'].kind, 'unreadable');
+  assert.ok(/isn't complete JSON/.test(cold.reads['release/bad1'].why));
+  const routine = await repo.loadAll(fs);
+  const c = routine.reads['release/old1'];
+  assert.strictEqual(c.kind, 'cached', 'an unchanged ended run is cached');
+  assert.strictEqual(c.fileHash, cold.reads['release/old1'].run._fileHash);
+  assert.ok(!('run' in c), 'a cached result carries no run object to install');
+  assert.strictEqual(c.sig, repo.runSig(cold.reads['release/old1'].run), 'its signature matches the fresh read it came from');
+});
+
+rule('A cached run is built new from the texts read, so changing one never changes what the folder said', async () => {
+  const fs = folder(); await endedRun(fs, 'old1');
+  const first = (await repo.loadAll(fs)).reads['release/old1'].run;
+  first.title = 'Changed on screen'; first._notes.push({ id: 'local', text: 'not in the folder' }); first.steps.x = { s: 'done' };
+  const d = await repo.loadAll(fs), c = d.reads['release/old1'];
+  const a = c.build(), b = c.build();
+  assert.notStrictEqual(a, b, 'a new object each time');
+  assert.strictEqual(a.title, 'Ended old1', 'the folder\'s text, not the changed object');
+  assert.ok(!a._notes.some(n => n.id === 'local') && !a.steps.x);
+  assert.strictEqual(d.runs.find(r => r.id === 'old1').title, 'Ended old1', 'the runs list is built the same way');
+  assert.ok(d.runs.find(r => r.id === 'old1') !== first);
+});
+
+rule('A run the app asks to read fresh skips the cache, so a fresh read can clear its failure', async () => {
+  const fs = folder(); await endedRun(fs, 'old1');
+  await repo.loadAll(fs);
+  assert.strictEqual((await repo.loadAll(fs)).reads['release/old1'].kind, 'cached');
+  assert.strictEqual((await repo.loadAll(fs, { fresh: ['release/old1'] })).reads['release/old1'].kind, 'fresh');
+});
+
+rule('A run folder that disappears from the listing is forgotten by the cache, so one that comes back is read again', async () => {
+  const fs = folder(); await endedRun(fs, 'old1');
+  await repo.loadAll(fs);
+  const saved = {}; Object.keys(fs.files).filter(p => p.indexOf('runs/release/old1/') === 0).forEach(p => { saved[p] = fs.files[p]; delete fs.files[p]; });
+  assert.ok(!(await repo.loadAll(fs)).reads['release/old1'], 'not listed, no result');
+  Object.assign(fs.files, saved);
+  assert.strictEqual((await repo.loadAll(fs)).reads['release/old1'].kind, 'fresh');
+});
+
+rule('Runs of one version share one checklist text and one step-type object, but only when they\'re equal', async () => {
+  const fs = folder(); await endedRun(fs, 'old1'); await endedRun(fs, 'old2');
+  const forged = JSON.parse(fs.files['runs/release/old2/run.json'].t); forged.id = 'odd1'; forged.snapshot += '\n'; forged.types = Object.assign({}, forged.types, { extra: { id: 'extra' } });
+  await fs.write('runs/release/odd1/run.json', JSON.stringify(forged));
+  const runs = (await repo.loadAll(fs)).runs, a = runs.find(r => r.id === 'old1'), b = runs.find(r => r.id === 'old2'), odd = runs.find(r => r.id === 'odd1');
+  assert.strictEqual(a.snapshot, b.snapshot); assert.strictEqual(a.types, b.types, 'the same object');
+  assert.notStrictEqual(odd.types, a.types, 'different types are never shared');
+  assert.ok(odd.snapshot !== a.snapshot, 'a different checklist keeps its own text');
+});
+
+rule('The folder\'s read gives the size and time of the very contents read, and a notes file read with its size isn\'t checked again', async () => {
+  const { folderHandle } = require('./app-harness');
+  const ffs = new PF.fs.FolderFS(folderHandle('team', { 'a/b.txt': 'hello' }));
+  const f = await ffs.read('a/b.txt');
+  assert.strictEqual(f.text, 'hello'); assert.strictEqual(f.size, 5); assert.ok(typeof f.mtime === 'number');
+  assert.strictEqual(await ffs.read('a/missing.txt'), null);
+  const mem = folder(); await mem.write('x.txt', 'é€');
+  assert.strictEqual((await mem.read('x.txt')).size, 5, 'the examples folder too, in bytes');
+  /* A notes file: stat to see if it changed, then read. Its size and time come with the read, so no second stat. */
+  await endedRun(mem, 'old1');
+  await repo.addNote(mem, { process: 'release', id: 'old1' }, 'casey-laptop', { id: 'n1', at: NOW, by: 'person-casey', step: 'x', text: 'hi' });
+  let stats = 0; const st = mem.stat.bind(mem); mem.stat = p => { if (/notes-/.test(p)) stats++; return st(p); };
+  await repo.loadRun(mem, 'release', 'old1');
+  assert.strictEqual(stats, 1, 'one stat for the notes file, before reading it');
+});
+
+rule('One pool per folder: at most 8 calls at once across loading, thumbnails and the open run, thumbnails at most 4, the open run first', async () => {
+  const fs = folder(), pool = repo.poolOf(fs);
+  assert.strictEqual(repo.poolOf(fs), pool, 'one per folder');
+  assert.notStrictEqual(repo.poolOf(folder()), pool);
+  let active = 0, most = 0, thumbs = 0, mostThumbs = 0; const order = [], gates = [];
+  const job = (lane, name) => pool(lane, () => { active++; most = Math.max(most, active); if (lane === 'thumb') { thumbs++; mostThumbs = Math.max(mostThumbs, thumbs); } order.push(name);
+    return new Promise(res => gates.push(() => { active--; if (lane === 'thumb') thumbs--; res(); })); });
+  const all = [];
+  for (let i = 0; i < 12; i++) all.push(job('thumb', 't' + i));
+  for (let i = 0; i < 12; i++) all.push(job('load', 'l' + i));
+  all.push(job('open', 'open'));
+  await new Promise(r => setTimeout(r, 0));
+  assert.strictEqual(active, 8); assert.ok(mostThumbs <= 4, 'thumbnails take at most 4');
+  gates.shift()();
+  await new Promise(r => setTimeout(r, 0));
+  assert.strictEqual(order[order.length - 1], 'open', 'the open run goes next');
+  while (gates.length) { gates.shift()(); await new Promise(r => setTimeout(r, 0)); }
+  await Promise.all(all);
+  assert.ok(most <= 8 && mostThumbs <= 4);
+});
+
 run();

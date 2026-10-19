@@ -24,7 +24,7 @@ Flightdeck reads and writes files in the team folder on your computer. OneDrive 
 
 ## What refreshing costs
 
-While a run is open, Flightdeck rereads only that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and finished runs and published versions are remembered rather than reread. **Refresh** in the top bar rereads everything. With 500 runs, a routine refresh reads about 10 files instead of about 2,000. A routine refresh also lists `connection/` and reads only the checks from the last 15 minutes; the Connection check page does that every 5 seconds while it's open. **Folder health** lists and checks every file, so it runs only when you open it or choose Check again.
+While a run is open, Flightdeck rereads only that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and finished runs and published versions are remembered rather than reread. **Refresh** in the top bar rereads everything. Opening a folder reads each notes file once, with its size, and pictures are read only when they scroll into view, a few at a time. **Folder health** says when refreshing has been slow on this computer three times in a row. With 500 runs, a routine refresh reads about 10 files instead of about 2,000. A routine refresh also lists `connection/` and reads only the checks from the last 15 minutes; the Connection check page does that every 5 seconds while it's open. **Folder health** lists and checks every file, so it runs only when you open it or choose Check again.
 
 ## What it can't promise
 

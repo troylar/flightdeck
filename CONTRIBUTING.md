@@ -18,7 +18,7 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 | `src/page.html` | Styles and the page shell | Colors are tokens with light and dark values. No external resources. |
 | `example-folder/` | A complete example team folder | Synthetic people only. Also built into the app as the examples. |
 | `test/fixtures/` | Run files from earlier versions | Never edit one; add a new fixture when the run format changes, so old runs keep loading. |
-| `tools/` | Small scripts | `type-table.js` writes the step-type table in `docs/map-format.md`; `baselines.js` records the shipped `AGENTS.md` and skills in `src/baselines.json`. |
+| `tools/` | Small scripts | `type-table.js` writes the step-type table in `docs/map-format.md`; `baselines.js` records the shipped `AGENTS.md` and skills in `src/baselines.json`; `big-folder.js` makes a big synthetic team folder for the perf tests (`--out <dir>` writes one to try). |
 
 `build.py` joins the files in a fixed order into one HTML file.
 
@@ -38,7 +38,8 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 - **Add a built-in step type:** keep `PF.types.VERSION` as it is. Every built-in is frozen into each publication's `types.json` with the current version, so raising it makes every new version unusable in older copies, even ones that use only `confirm`. A new type built from fields, kinds and settings older copies already know runs there from its frozen definition (`test/rules.test.js` checks this with a copy that lacks the type). Raise `VERSION`, together with `TYPES_VERSION` in `check_folder.py`, only when what an existing setting means changes.
 - **Add a Folder health check:** add it to `PF.health.check` in `src/core/health.js` with exactly one action and, when it has one, a `help` anchor that is a section of `docs/recovery.md` (a rule test checks both), plus an all-clear line for when it finds nothing. Add its threshold to `LIMITS` and to docs/design.md section 21.
 - **Change the connection check's wording:** never "synced" or "everyone" (a rule test checks); it proves one trip, nothing more.
-- **Change saving or loading:** add a case to `test/sync.test.js`. Its two simulated computers sync only when told to, which is how OneDrive behaves on release night.
+- **Change saving or loading:** add a case to `test/sync.test.js`. Its two simulated computers sync only when told to, which is how OneDrive behaves on release night. `test/perf.test.js` counts folder calls on a 2,000-run folder; its ceilings may only go down (lower them when a change earns it). `PERF=big` adds the 6,000-run profile.
+- **A long list on a page:** page it with `PF.vk.paged` (50 at a time, Show 50 more) rather than drawing everything; the first view of Runs draws at most 100 cards.
 
 ## Release notes: every user-visible change gets one
 

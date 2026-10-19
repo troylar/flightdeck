@@ -6,7 +6,7 @@ PF.health = (function () {
   var U = PF.util, M = PF.map, C = PF.contract;
   var HOUR = 3600000, DAY = 24 * HOUR;
   var LIMITS = { saveGraceMs: 2 * 60000, abandonedMs: 7 * DAY, handoffMs: 2 * HOUR, halfSyncMs: 2 * HOUR, tmpMs: 2 * HOUR, skewMs: 10 * 60000,
-    runsWarn: 500, runsStop: 2000, types: 100, skills: 500, runFiles: 500, attachBytes: 1024 * 1024 * 1024, pathChars: 200 };
+    runsWarn: 500, runsStop: 2000, types: 100, skills: 500, runFiles: 500, attachBytes: 1024 * 1024 * 1024, pathChars: 200, slowRefreshMs: 15000, slowRefreshes: 3 };
   /* Sections of docs/recovery.md (and the in-app view), by their anchors. */
   var HELP = { conflicts: 'a-run-has-conflict-copies', copies: 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', access: 'flightdeck-lost-access-to-the-folder',
     syncing: 'onedrive-isnt-syncing', backup: 'restoring-from-a-backup', left: 'someone-left-the-team', newer: 'a-newer-flightdeck-wrote-files',
@@ -234,6 +234,12 @@ PF.health = (function () {
     var st = d.stepTypes || {};
     if (st.skipped) cap('cap-types', 'warn', plural(st.skipped, 'step-type file') + ' not read', 'Flightdeck reads the first ' + LIMITS.types + ' files in step-types/. Remove types nobody uses, so every one you need is read.', ['step-types']);
     if (d.skillsSkipped) cap('cap-skills', 'warn', plural(d.skillsSkipped, 'skill registration') + ' not read', 'Flightdeck reads the first ' + LIMITS.skills + ' files in skills/. Remove registrations of skills nobody uses.', ['skills']);
+    /* Measured on this computer, not counted: the last 3 routine refreshes each took more than 15 seconds. */
+    var rms = (snap.refreshMs || []).slice(-LIMITS.slowRefreshes);
+    if (rms.length === LIMITS.slowRefreshes && rms.every(function (x) { return x > LIMITS.slowRefreshMs; })) {
+      var secs = Math.round(rms.reduce(function (a, b) { return a + b; }, 0) / rms.length / 1000);
+      cap('slow-refresh', 'warn', 'Refreshing takes about ' + secs + ' seconds on this computer', 'The last ' + LIMITS.slowRefreshes + ' refreshes each took more than ' + LIMITS.slowRefreshMs / 1000 + ' seconds. Changes from other computers show up later, and the app may feel slow. A smaller team folder reads faster.');
+    }
     if (scan) {
       var per = Object.create(null), attach = 0, longPaths = [];
       scan.list.forEach(function (f) {

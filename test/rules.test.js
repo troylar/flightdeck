@@ -394,9 +394,10 @@ rule('P1: Fill in can correct evidence on a checked step but never erase require
   assert.ok(/Build number: "123" → "124"/.test(r.log[r.log.length - 1].what), r.log[r.log.length - 1].what);
   R.done(r, map, 'm', 'a', NOW, { pr: 'https://bb/pr/1' });
   r.fields.m = undefined;
-  const md2 = map.phases[0].steps[1];
-  md2.fields.require = 'all';
-  assert.throws(() => R.setFields(r, map, 'm', { action: 'merge' }, null, 'a', NOW), /Merge commit is required/);
+  // A changed checklist is a parse of its own: the run's shared map can't be changed.
+  const own = M.parse(r.snapshot);
+  own.phases[0].steps[1].fields.require = 'all';
+  assert.throws(() => R.setFields(r, own, 'm', { action: 'merge' }, null, 'a', NOW), /Merge commit is required/);
 });
 
 rule('P1: only http, https and mailto links are ever rendered from a file', () => {
@@ -1591,7 +1592,7 @@ rule('A correction from a newer copy keeps its readable summary in the collectio
 });
 
 rule('Every correction field round-trips at the largest size it can be saved with, from one table of limits', () => {
-  const L = C.LIMITS, r = release(), map = R.mapOf(r);
+  const L = C.LIMITS, r = release(), map = M.parse(r.snapshot);
   map.meta.roles = Array.from({ length: 30 }, (_, i) => ('role' + i + '-').padEnd(L.role, 'x'));
   const roles = corr({ op: 'roles', roles: map.meta.roles.slice(0, 25), map }, r);
   assert.strictEqual(roles.change.to.length, 25, 'a checklist with many roles keeps them all');
@@ -2657,6 +2658,54 @@ rule('Follow-ups: any copy marker after the canonical name is a conflict copy, s
     same([y.status, y.label], ['open', 'Needs review'], name);
   });
   ['run1.fu1.w1.12.json', 'run1.fu1.w1.1.extra.json', 'run1.fu1.w1.json'].forEach(name => assert.strictEqual(F.cleanDecision(raw, 'release', name), null, name + ' is not rev 1'));
+});
+
+/* ---------- 1.17: one parse per checklist, and Folder health's refresh-time check ---------- */
+rule('A checklist is parsed once for every run that shares it, and its map can\'t be changed by anyone', () => {
+  R.mapMemo.clear();
+  const a = release(), b = release(); b.id = 'run2';
+  const before = R.mapMemo.stats().parses;
+  const ma = R.mapOf(a), mb = R.mapOf(b);
+  assert.strictEqual(ma, mb, 'one map for one checklist');
+  assert.strictEqual(R.mapMemo.stats().parses - before, 1, 'parsed once');
+  assert.ok(Object.isFrozen(ma) && Object.isFrozen(ma.phases[0]) && Object.isFrozen(ma.phases[0].steps[0]), 'deep-frozen while testing');
+  // Rules still work on a shared, frozen map.
+  done(a, ma, ma.phases[0].steps[0].id, 'person-casey', NOW);
+  assert.strictEqual(a.steps[ma.phases[0].steps[0].id].s, 'done');
+});
+
+rule('A run whose checklist text differs gets its own parse, even under the same version and fingerprint', () => {
+  R.mapMemo.clear();
+  const a = release(), odd = release(); odd.snapshot = odd.snapshot.replace('Release', 'Changed release');
+  const ma = R.mapOf(a), mo = R.mapOf(odd);
+  assert.notStrictEqual(ma, mo);
+  assert.strictEqual(mo.meta.title, M.parse(odd.snapshot).meta.title, 'parsed from its own text');
+  assert.strictEqual(R.mapOf(a), ma, 'the shared one stays');
+});
+
+rule('The parse memo keeps only checklists the loaded runs still use, with no fixed size to thrash', () => {
+  R.mapMemo.clear();
+  const runs = [];
+  for (let i = 0; i < 700; i++) { const r = release(); r.id = 'r' + i; r.folder = 'v1-f' + i; runs.push(r); R.mapOf(r); }
+  assert.strictEqual(R.mapMemo.stats().size, 700, 'every version that loaded runs use is kept');
+  const parses = R.mapMemo.stats().parses;
+  runs.forEach(r => R.mapOf(r));
+  assert.strictEqual(R.mapMemo.stats().parses, parses, 'none parsed again, however they interleave');
+  R.mapMemo.keep(runs.slice(0, 10));
+  assert.strictEqual(R.mapMemo.stats().size, 10, 'dropped when an accepted load no longer uses them');
+});
+
+rule('Folder health says when refreshing is slow on this computer, only after 3 slow refreshes in a row, and keeps its run thresholds', () => {
+  assert.strictEqual(H.LIMITS.runsWarn, 500); assert.strictEqual(H.LIMITS.runsStop, 2000, 'thresholds unchanged until there are measurements');
+  const slow = H.check(healthy(s => { s.refreshMs = [16000, 19000, 18500]; }), HNOW);
+  const i = slow.issues.find(x => x.id === 'slow-refresh');
+  assert.ok(i, 'reported');
+  assert.strictEqual(i.title, 'Refreshing takes about 18 seconds on this computer');
+  assert.strictEqual(i.severity, 'warn'); assert.strictEqual(i.help, 'the-folder-is-getting-big'); assert.strictEqual(i.action.id, 'the-folder-is-getting-big');
+  oneAction(slow);
+  assert.ok(!H.check(healthy(s => { s.refreshMs = [16000, 14000, 30000]; }), HNOW).issues.some(x => x.id === 'slow-refresh'), 'one quick refresh among them');
+  assert.ok(!H.check(healthy(s => { s.refreshMs = [16000, 30000]; }), HNOW).issues.some(x => x.id === 'slow-refresh'), 'fewer than 3');
+  assert.ok(!H.check(healthy(), HNOW).issues.some(x => x.id === 'slow-refresh'));
 });
 
 run();

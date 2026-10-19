@@ -78,9 +78,11 @@ function boot(opts) {
   const ctx = vm.createContext({
     window, document, localStorage: storage(), sessionStorage, navigator: opts.locks ? { locks: opts.locks } : {}, BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
-    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB
+    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver
   });
   vm.runInContext(script('pf-core'), ctx);
+  // Checklists parsed once are shared by every run of a version: frozen here, so a rule that changed one would fail a test.
+  if (ctx.PF.run.mapMemo) ctx.PF.run.mapMemo.freeze = true;
   // Remember the in-browser folder the app creates, so tests can plant files in it as "another computer" would.
   const PF = ctx.PF;
   let fsModule, app = null;

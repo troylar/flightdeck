@@ -4097,4 +4097,136 @@ rule('App: Saved history lists names in the history folder it didn\'t read, and 
   assert.ok(/title: Production release\n/.test(mdOf(app)), 'the change chosen was reversed');
 });
 
+/* ---------- 1.17: go() keeps what's typed, read results, paging, slow refreshes, lazy thumbnails ---------- */
+const endedPath = app => Object.keys(app.fs.files).find(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p) && JSON.parse(app.fs.files[p].t).ended);
+
+rule('go(): an unsent note survives going somewhere else and is there again on the way back; the step is unfolded, selected and flashed', async () => {
+  const app = await recordingRelease(), key = app.run().key;
+  app.click('select', 'approve'); await app.tick();
+  app.set('note-text', 'unsent words'); await app.tick();
+  app.click('go', '', { view: 'process', process: 'release' }); await app.tick();
+  assert.ok(/data-act="ptab"/.test(app.html()) && !/id="note-text"/.test(app.html()), 'on the process page');
+  app.click('go', '', { view: 'run', run: key, step: 'approve' }); await app.tick();
+  assert.strictEqual(app.selected(), 'approve');
+  assert.strictEqual(app.draft('note-text'), 'unsent words', 'the unsent note came back');
+  assert.ok(/<li class="step sel[^"]*\bflash\b[^"]*"[^>]*id="step-approve"/.test(app.html()), 'flashed');
+  assert.strictEqual(app.focused(), '[data-act="select"][data-id="approve"]', 'scrolled to, by focus');
+});
+
+rule('go(): text typed in a builder box and not applied refuses the jump, with the existing message, and stays', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Half typed'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()), 'says why');
+  assert.ok(/id="ob-text"/.test(app.html()) && app.draft('ob-text') === 'Half typed', 'still in the editor, with the typing');
+  assert.strictEqual(app.focused(), '#ob-text');
+});
+
+rule('go(): a correction with unsaved text, or a follow-up decision being typed, refuses the jump: "Finish or cancel this first."', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-blake'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(20);
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  app.input('corr-why', 'The cache warms slowly'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  assert.ok(/Finish or cancel this first\./.test(app.html()) && /id="corr-why"/.test(app.html()), 'still on the form');
+  app.click('corr-cancel'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  assert.ok(!/id="corr-why"/.test(app.html()), 'once canceled, it goes');
+});
+
+rule('go(): a read-only dialog is closed first; any other dialog is never replaced, and focus goes back to it', async () => {
+  const app = await builderOn();
+  app.click('help'); await app.tick();
+  assert.ok(app.overlay(), 'set-up: help is open');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'help closed');
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'and on Runs');
+  app.click('go', '', { view: 'process', process: 'release', ptab: 'edit' }); await app.tick();
+  app.click('ob-parts-open'); await app.tick();
+  const sheet = app.overlay();
+  assert.ok(sheet, 'set-up: the Add part sheet is open');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.strictEqual(app.overlay(), sheet, 'not replaced');
+  assert.ok(/Finish or cancel this first\./.test(app.live() + app.html()));
+});
+
+rule('go(): on a phone, an open step sheet is closed before going; keys typed while an input method is composing do nothing', async () => {
+  const app = boot({ narrow: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('select', 'approve'); await app.tick();
+  assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(app.html()), 'set-up: the step sheet is open');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(/id="rw-ins"[^>]*data-open="false"/.test(app.html()), 'closed, so the step is shown in the list');
+  assert.strictEqual(app.selected(), 'pods');
+  const wide = boot(); await wide.tick(60); wide.choose('person-casey'); await wide.tick();
+  wide.click('open-run', wide.run().key); await wide.tick();
+  const was = wide.selected();
+  wide.keyOn('j', { isComposing: true }); await wide.tick();
+  assert.strictEqual(wide.selected(), was, 'j while composing doesn\'t move');
+  wide.keyOn('j'); await wide.tick();
+  assert.notStrictEqual(wide.selected(), was, 'and does once composing ends');
+});
+
+rule('A run that couldn\'t be read is cleared only by reading its file again, never by what the cache remembers', async () => {
+  const app = boot(); await app.tick(60);
+  const path = endedPath(app), key = path.split('/').slice(1, 3).join('/'), good = Object.assign({}, app.fs.files[path]);
+  app.click('nav', 'runs'); await app.tick();
+  app.click('open-run', key); await app.tick();
+  app.fs.files[path] = { t: '{"format":"preflight-run/2","id":', m: good.m };
+  app.focus(); await app.tick(80);
+  assert.ok(/couldn(&#39;|')t be read/.test(app.html()), 'set-up: marked unreadable');
+  app.fs.files[path] = good;
+  app.click('nav', 'runs'); await app.tick();
+  const read = app.fs.read.bind(app.fs); let reads = 0; app.fs.read = p => { if (p === path) reads++; return read(p); };
+  app.focus(); await app.tick(80);
+  assert.ok(reads >= 1, 'its run.json was read again');
+  assert.ok(!/run file can(&#39;|')t be read/.test(app.html()), 'and only then cleared');
+});
+
+rule('Runs: 50 finished runs at first, Show 50 more adds the next ones and moves focus to the first new run', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const src = JSON.parse(app.fs.files[endedPath(app)].t);
+  for (let i = 0; i < 70; i++) { const c = Object.assign({}, src, { id: 'copy' + String(i).padStart(2, '0'), title: 'Copy ' + i }); c.ended = Object.assign({}, src.ended, { at: new Date(Date.parse(src.ended.at) - (i + 1) * 60000).toISOString() }); await app.fs.write('runs/' + src.process + '/' + c.id + '/run.json', JSON.stringify(c)); }
+  app.click('nav', 'runs'); app.click('refresh'); await app.tick(120);
+  const finished = () => { const h = app.html(), at = h.indexOf('<h2>Finished'); return (h.slice(at).match(/data-act="open-run"/g) || []).length; };
+  assert.strictEqual(finished(), 50);
+  assert.ok(/Showing 50 of \d+/.test(app.html()));
+  const next = /data-act="more" data-id="runs-ended" data-next="([^"]+)"/.exec(app.html())[1].replace(/&amp;/g, '&');
+  app.click('more', 'runs-ended', { next }); await app.tick();
+  assert.ok(finished() > 50, 'more shown');
+  assert.ok(/^\[data-act="open-run"\]\[data-id="[^"]+"\]$/.test(app.focused()), 'focus on the first new one: ' + app.focused());
+});
+
+rule('Folder health says when refreshing is slow on this computer after 3 slow routine refreshes', async () => {
+  const c = clock();
+  const app = boot({ Date: c.D }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const orig = app.PF.repo.loadAll;
+  app.PF.repo.loadAll = function (fs, o) { c.ahead(17000); return orig.call(this, fs, o); };
+  for (let i = 0; i < 3; i++) { c.ahead(31000); app.every(); await app.tick(40); }
+  app.PF.repo.loadAll = orig;
+  app.click('health'); await app.tick(200);
+  assert.ok(/Refreshing takes about 17 seconds on this computer/.test(app.html()), 'listed in Folder health');
+});
+
+rule('Thumbnails load only once they scroll into view, through the folder\'s shared pool', async () => {
+  const observers = [];
+  class IO { constructor(cb) { this.cb = cb; this.seen = []; observers.push(this); } observe(el) { this.seen.push(el); } unobserve() {} disconnect() { this.seen = []; } }
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('select', 'approve'); app.set('note-text', 'with a picture'); app.change('note-file', [png('pods.png')]); await app.tick();
+  app.click('add-note', 'approve'); await app.tick(80);
+  const blob = app.fs.blob.bind(app.fs); let blobs = 0; app.fs.blob = p => { if (/\/files\//.test(p)) blobs++; return blob(p); };
+  app.click('select', 'pods'); await app.tick(); app.click('select', 'approve'); await app.tick(40);
+  const m = /data-thumb="([^"]+)"/.exec(app.html());
+  assert.ok(m, 'a placeholder waits to be seen');
+  assert.strictEqual(blobs, 0, 'nothing read before it\'s seen');
+  observers.forEach(o => o.cb([{ isIntersecting: true, target: { dataset: { thumb: m[1].replace(/&amp;/g, '&') } } }], o));
+  await app.tick(40);
+  assert.strictEqual(blobs, 1, 'read once it\'s in view');
+});
+
 run();

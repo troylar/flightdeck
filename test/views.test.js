@@ -1695,4 +1695,43 @@ rule('Saved history: a step type entry with a malformed definition still draws, 
   assert.ok(/couldn.t be read/.test(h));
 });
 
+/* ---------- 1.17: Runs shows 50 at a time ---------- */
+function manyRuns(running, ended) {
+  const { r, ctx, state } = setup();
+  const runs = [];
+  for (let i = 0; i < running + ended; i++) {
+    const x = JSON.parse(JSON.stringify(r)); x.id = 'r' + i; x.title = 'Run ' + i; x._notes = []; x._conflicts = [];
+    if (i >= running) { x.state = 'completed'; x.ended = { outcome: 'Completed', at: new Date(Date.parse(NOW) - i * 60000).toISOString() }; }
+    runs.push(x);
+  }
+  ctx.data.runs = runs; state.view = 'runs'; state.filter = 'all'; ctx.fuList = () => []; V.fuList = V.fuList || (() => []);
+  return { ctx, state };
+}
+const cards = html => (html.match(/class="card" data-act="open-run"/g) || []).length;
+
+rule('Runs: the first view shows at most 50 running and 50 finished runs, says how many there are, and Show 50 more adds 50', () => {
+  const { ctx, state } = manyRuns(70, 1950);
+  let html = V.runs(ctx);
+  assert.strictEqual(cards(html), 100, 'at most 100 cards on the first view');
+  assert.ok(/Showing 50 of 1,950/.test(html) && /Showing 50 of 70/.test(html));
+  assert.ok(/<button class="btn" data-act="more" data-id="runs-ended"[^>]*>Show 50 more<\/button>/.test(html));
+  assert.ok(/data-act="more" data-id="runs-running"[^>]*>Show 20 more</.test(html), 'says how many more when it\'s fewer than 50');
+  state.more = { 'runs-ended': 100 };
+  html = V.runs(ctx);
+  assert.strictEqual(cards(html), 150); assert.ok(/Showing 100 of 1,950/.test(html));
+  // Newest first, and the next page continues where the first stopped.
+  assert.ok(html.indexOf('data-id="release/r70"') < html.indexOf('data-id="release/r71"'));
+});
+
+rule('Runs: a short list has no paging line, and growing to 500 cards still renders quickly', () => {
+  const small = manyRuns(3, 10);
+  const h = V.runs(small.ctx);
+  assert.ok(!/Showing \d/.test(h) && !/data-act="more"/.test(h) && cards(h) === 13);
+  const { ctx, state } = manyRuns(0, 1950);
+  state.more = { 'runs-ended': 500 };
+  const t = process.hrtime.bigint(); const html = V.runs(ctx); const ms = Number(process.hrtime.bigint() - t) / 1e6;
+  assert.strictEqual(cards(html), 500);
+  assert.ok(ms <= 250, 'rendered 500 cards in ' + ms.toFixed(0) + ' ms');
+});
+
 run();

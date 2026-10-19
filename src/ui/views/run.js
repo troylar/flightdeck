@@ -538,7 +538,7 @@
     var notes = (r._notes || []).filter(function (n) { return n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; });
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' + (notes.length ? '<ul class="tnotes">' + notes.map(function (n) {
       var made = (r.followUps || []).some(function (f) { return f.from === n.id; });
-      return '<li>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + '</div><div>' + U.mdInline(n.text) + '</div>' +
+      return '<li' + (s.flash && s.flash.notes && s.flash.notes.indexOf(n.id) >= 0 ? ' class="flash"' : '') + '>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + '</div><div>' + U.mdInline(n.text) + '</div>' +
         attachments(ctx, n.id, n.files, n.fileInfo, 'note') +
         (rec && r.state === 'running' && n.text ? (made ? '<span class="small">Follow-up added</span>' : '<button class="linkish" data-act="add-followup" data-text="' + esc(n.text.slice(0, 300)) + '" data-step="' + esc(st.id) + '" data-from="' + esc(n.id) + '">Make it a follow-up</button>') : '') + '</div></li>';
     }).join('') + '</ul>' : '<p class="small">No notes on this step yet.</p>');
