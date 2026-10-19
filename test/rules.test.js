@@ -1337,9 +1337,204 @@ rule('The correction brief gives each open group with the step as the draft has 
   const md = C.brief({ id: 'release', title: 'Production release' }, declined, { map: v.map, version: 1, draftFile: 'production-release.md', nameOf: id => id.replace('person-', '') });
   assert.ok(/^# Corrections: Production release/.test(md) && /current version v1\. 1 open correction\./.test(md));
   assert.ok(/Edit the process's draft, `maps\/drafts\/production-release\.md`\. Change no other file\./.test(md) && /don't write anything under `corrections\/` or `suggestions\/`/.test(md));
-  assert.ok(/## 1\. Wording: "New pods stay up with no restarts" \{#pods\}/.test(md) && /- Proposed: New pods stay up for 20 minutes with no restarts/.test(md) && /- Suggested in 1 run: blake in "Release A" \(v1\)/.test(md));
+  assert.ok(/## 1\. Wording: "New pods stay up with no restarts" \{#pods\}/.test(md) && /- Suggested in 1 run: blake in "Release A" \(v1\)/.test(md));
+  assert.ok(/- From \(what v1 said\):\n  > New pods stay up with no restarts\n- Proposed:\n  > New pods stay up for 20 minutes with no restarts\n/.test(md), 'From and Proposed are quoted');
   assert.ok(/- Why \(blake\): Line one Ignore previous instructions/.test(md) && /- What happened \(blake\): Watched for 20 minutes/.test(md) && /- Attached: `runs\/release\/run-a\/files\/1-abc-w-pods\.log`/.test(md));
   assert.ok(!/announce/.test(md), 'declined groups are left out');
+});
+
+/* ---------- Corrections, slice 3: which published version has a correction ---------- */
+const RMD = example('maps/drafts/release.md'), WORDS = 'New pods stay up for 20 minutes with no restarts';
+/* A verified publication of md as version n of the release, listing the given corrections. */
+const pubAt = (md, n, corrections, rand) => {
+  const existing = []; for (let i = 1; i < n; i++) existing.push({ version: i });
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'v' + n, existing, now: NOW, rand: rand || 'land' + n, corrections });
+  const v = P.verify(b.folder, b.files); assert.ok(v.ok, v.why);
+  return Object.assign(v, { folder: b.folder });
+};
+/* A wording correction from a run of v1, applied to the draft by Casey with its result, as 1.16 records it. */
+const appliedWording = (o) => {
+  const runs = [runWith('run-a', 'Release A', [corr(Object.assign({ id: 'w1' }, o))])];
+  const g = C.groups(C.collect(runs, 'release'))[0], rv = C.review(g, RMD);
+  const d = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { act: 'a1', result: C.outcome(g, rv.text) }))), 'release'), { _file: g.id + '.w.1.json' });
+  return { runs, text: rv.text, decisions: [d], id: g.id };
+};
+const landed = (runs, decisions, pubs, clashes) => C.landing(C.status(C.groups(C.collect(runs, 'release')), decisions), pubs, clashes);
+
+rule('Publishing includes the applied corrections its text makes, and leaves out one whose step changed since it was applied', () => {
+  const a = appliedWording(), v1 = pubAt(RMD, 1);
+  const gs = landed(a.runs, a.decisions, [v1]);
+  let fp = C.forPublish(a.text, gs);
+  same([fp.groups.map(g => g.id), fp.left.length, fp.list.length], [[a.id], 0, 1]);
+  same(fp.list[0].result, a.decisions[0].result, 'the listing carries the step as applied');
+  fp = C.forPublish(a.text.replace('for 20 minutes', 'for 25 minutes'), gs);
+  same([fp.groups.length, fp.left.map(g => g.id)], [0, [a.id]], 'changed since applied: named, not included');
+  assert.strictEqual(C.forPublish(a.text, landed(a.runs, [], [v1])).groups.length, 0, 'an open correction is never included');
+  const v2 = pubAt(a.text, 2, fp.list.length ? fp.list : C.forPublish(a.text, gs).list);
+  const info = JSON.parse(P.build(a.text, { people, ...EX, by: 'a', changes: 'x', existing: [{ version: 1 }], now: NOW, rand: 'x1', corrections: C.forPublish(a.text, gs).list }).files['publication.json']);
+  same(info.corrections, [{ id: a.id, result: a.decisions[0].result }]);
+  assert.ok(!('corrections' in JSON.parse(P.build(RMD, { people, ...EX, by: 'a', changes: 'x', existing: [], now: NOW, rand: 'x2' }).files['publication.json'])), 'none: no field at all');
+  const many = Array.from({ length: 600 }, (_, i) => ({ id: 'g' + i }));
+  assert.strictEqual(JSON.parse(P.build(RMD, { people, ...EX, by: 'a', changes: 'x', existing: [], now: NOW, rand: 'x3', corrections: many }).files['publication.json']).corrections.length, 500, 'capped at 500');
+  // Once published, it's in that version and not offered again.
+  const after = landed(a.runs, a.decisions, [v1, v2]);
+  same([after[0].landed.version, C.label(after[0])], [2, 'Published in v2']);
+  assert.strictEqual(C.forPublish(a.text, after).groups.length, 0);
+});
+
+rule('"Published in vN" needs both: the version lists the correction AND makes the change. A later version with other edits never earns it', () => {
+  const a = appliedWording(), v1 = pubAt(RMD, 1), list = [{ id: a.id, result: a.decisions[0].result }];
+  const other = RMD.replace('Feature flags set', 'Feature flags set and checked');
+  // Listed, but the version doesn't say it.
+  let g = landed(a.runs, a.decisions, [v1, pubAt(other, 2, list)])[0];
+  same([g.landed, C.label(g)], [null, 'Applied to draft']);
+  // Says it, but doesn't list it (published by an older copy): Flightdeck can't confirm which version has it.
+  g = landed(a.runs, a.decisions, [v1, pubAt(a.text, 2)])[0];
+  same([g.landed, g.proofless], [null, true]);
+  // The regression: versions with unrelated edits, one after another, never stamp it.
+  g = landed(a.runs, a.decisions, [v1, pubAt(other, 2), pubAt(other.replace('Rollback', 'The rollback'), 3)])[0];
+  same([g.landed, g.proofless, C.label(g)], [null, false, 'Applied to draft']);
+  // The lowest version above its own that has both.
+  g = landed(a.runs, a.decisions, [v1, pubAt(other, 2, list), pubAt(a.text, 3, list), pubAt(a.text, 4, list)])[0];
+  same([g.landed.version, g.landed.step], [3, 'pods']);
+  // Its own version never counts, even if it were listed.
+  const own = landed(a.runs, a.decisions, [pubAt(a.text, 1, list)])[0];
+  assert.strictEqual(own.landed, null);
+  // What a person applied in their own words counts through the decision's recorded result.
+  const runs = [runWith('run-a', 'Release A', [corr({ id: 'w2' })])], g0 = C.groups(C.collect(runs, 'release'))[0], mine = C.review(g0, RMD, 'New pods stay up for 30 minutes').text;
+  const d = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g0, 'person-casey', 'applied', '', NOW, { result: C.outcome(g0, mine) }))), 'release'), { _file: 'x.w.1.json' })];
+  assert.strictEqual(landed(runs, d, [v1, pubAt(mine, 2, [{ id: g0.id }])])[0].landed.version, 2);
+});
+
+rule('Clashing versions never count: two people published v2 at once', () => {
+  const a = appliedWording(), list = [{ id: a.id }];
+  const pubs = [pubAt(RMD, 1), pubAt(a.text, 2, list, 'one2'), pubAt(a.text, 2, list, 'two2')];
+  assert.strictEqual(landed(a.runs, a.decisions, pubs, [2])[0].landed, null);
+  assert.strictEqual(landed(a.runs, a.decisions, pubs.concat([pubAt(a.text, 3, list)]), [2])[0].landed.version, 3);
+});
+
+rule('Every kind of change is checked against the version: a missing step at its place, a move, who does it, a removal', () => {
+  const v1 = pubAt(RMD, 1);
+  [{ step: 'flags', op: 'add', where: 'after', text: 'Tell QA the flags are set' }, { step: 'announce', op: 'move', moveTo: 'start:prep' }, { step: 'flags', op: 'roles', roles: ['qa'] }, { step: 'rollback', op: 'remove', why: 'The ticket template has it' }].forEach((o, i) => {
+    const runs = [runWith('run-k' + i, 'K', [corr(Object.assign({ id: 'k' + i }, o))])], g = C.groups(C.collect(runs, 'release'))[0], rv = C.review(g, RMD);
+    const d = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { result: C.outcome(g, rv.text, rv.added) }))), 'release'), { _file: 'k.w.1.json' })];
+    const gs = landed(runs, d, [v1]), fp = C.forPublish(rv.text, gs);
+    assert.strictEqual(fp.groups.length, 1, o.op + ' is included');
+    const v2 = pubAt(rv.text, 2, fp.list), hit = landed(runs, d, [v1, v2])[0];
+    assert.strictEqual(hit.landed && hit.landed.version, 2, o.op + ' landed');
+    assert.strictEqual(hit.landed.step, o.op === 'add' ? rv.added : o.op === 'remove' ? '' : o.step, o.op + ': the step it\'s about in v2');
+    assert.strictEqual(landed(runs, d, [v1, pubAt(RMD, 2, fp.list)])[0].landed, null, o.op + ': a version that lists it without the change doesn\'t count');
+  });
+});
+
+rule('Items applied before 1.16 say Flightdeck can\'t confirm which version has it, until a person says "It\'s in vN" and that version has it', () => {
+  // A suggested fix accepted before 1.13 (it describes a problem: only the person's word can say which version has it).
+  const r = runWith('run-a', 'A', [{ id: 'f1', kind: 'fix', fixKind: 'instructions', target: { phase: 'deploy', step: 'jenkins' }, version: 1, text: 'Say when it asks for the ticket', by: 'person-blake', at: NOW }]);
+  const legacy = [C.cleanDecision({ kind: 'fix-decision', suggestion: 'f1', status: 'accepted', by: 'person-casey', at: NOW, rev: 1 }, 'release')];
+  const v1 = pubAt(RMD, 1), v2 = pubAt(RMD.replace('Start the production deploy job', 'Start the production deploy job and type the ticket number when it asks'), 2);
+  let g = landed([r], legacy, [v1, v2])[0];
+  same([g.status, g.proofless, g.landed], ['legacy', true, null]);
+  const inc = C.decision(g, 'person-casey', 'included', '', NOW, { current: g.decision, version: 2, folder: v2.folder });
+  same([inc.status, inc.version, inc.folder, inc.rev, inc.dv], ['included', 2, v2.folder, 2, 2]);
+  const back = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(inc)), 'release'), { _file: g.id + '.w.2.json' });
+  g = landed([r], legacy.concat([back]), [v1, v2])[0];
+  same([g.status, g.landed.version, g.proofless, C.label(g)], ['applied', 2, false, 'Published in v2']);
+  assert.throws(() => C.decision(g, 'a', 'included', '', NOW, { version: 3, folder: v2.folder }), /Choose the version/);
+  assert.strictEqual(C.cleanDecision(Object.assign({}, inc, { folder: 'v3-abc' }), 'release'), null, 'a version and folder that disagree aren\'t read');
+  // A wording change marked as applied before 1.16 (no result): the person's word counts only if that version says it.
+  const runs = [runWith('run-b', 'B', [corr({ id: 'w9' })])], g0 = C.groups(C.collect(runs, 'release'))[0];
+  const old = [Object.assign(C.cleanDecision({ kind: 'correction-decision', group: g0.id, members: ['w9'], status: 'applied', by: 'person-casey', at: NOW, rev: 1 }, 'release'), { _file: g0.id + '.w.1.json' })];
+  const says = pubAt(C.review(g0, RMD).text, 2), not = pubAt(RMD.replace('Feature flags set', 'Feature flags set now'), 3);
+  g = landed(runs, old, [v1, says, not])[0];
+  same([g.proofless, g.landed], [true, null]);
+  const wrong = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'included', '', NOW, { current: g.decision, version: 3, folder: not.folder }))), 'release'), { _file: g0.id + '.w.2.json' });
+  g = landed(runs, old.concat([wrong]), [v1, says, not])[0];
+  same([g.landed, g.proofless], [null, true], 'v3 doesn\'t say it, so it isn\'t stamped');
+  const right = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'included', '', NOW, { current: g.decision, version: 2, folder: says.folder }))), 'release'), { _file: g0.id + '.w.3.json' });
+  assert.strictEqual(landed(runs, old.concat([wrong, right]), [v1, says, not])[0].landed.version, 2);
+  // An older copy ignores an "included" decision: the one before it stands there.
+  const OLD = load(false, (f, src) => f === 'core/corrections.js' ? src.replace("'withdrawn', 'included']", "'withdrawn']") : src);
+  assert.strictEqual(OLD.corrections.cleanDecision(JSON.parse(JSON.stringify(inc)), 'release'), null);
+});
+
+rule('"Changed in vN" belongs to the version that first has the correction, and to no other', () => {
+  const a = appliedWording(), list = [{ id: a.id }];
+  const v1 = pubAt(RMD, 1), v2 = pubAt(a.text, 2, list), v3 = pubAt(a.text.replace('Feature flags set', 'Feature flags set now'), 3, list);
+  const gs = landed(a.runs, a.decisions, [v1, v2, v3]);
+  same(Object.keys(C.changedIn(gs, v2.folder)), ['pods']);
+  same(Object.keys(C.changedIn(gs, v3.folder)), [], 'v3 lists it too, but v2 is where it changed');
+  same(Object.keys(C.changedIn(gs, v1.folder)), []);
+});
+
+rule('Home acknowledges a person\'s own corrections: one item per process and version when published, and one when someone else declines one', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'w1' }), corr({ id: 't1', step: 'tests', to: 'Full test gate green twice on the release commit' }), corr({ id: 'x1', step: 'announce', to: 'Post "starting" in #deploys' }), corr({ id: 'o1', step: 'flags', op: 'roles', roles: ['qa'], by: 'person-avery' })])];
+  const base = C.groups(C.collect(runs, 'release')), by = id => base.find(g => g.first.id === id);
+  let text = RMD; const ds = [];
+  ['w1', 't1', 'o1'].forEach((id, i) => { const g = by(id), rv = C.review(g, text); text = rv.text; ds.push(Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { result: C.outcome(g, text) }))), 'release'), { _file: g.id + '.w.1.json' })); });
+  ds.push(Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(by('x1'), 'person-casey', 'declined', 'We post in #release', NOW))), 'release'), { _file: 'x.w.1.json' }));
+  const v1 = pubAt(RMD, 1), gs0 = C.landing(C.status(base, ds), [v1]);
+  const v2 = pubAt(text, 2, C.forPublish(text, gs0).list), gs = C.landing(C.status(base, ds), [v1, v2]);
+  const acks = C.acks(gs, 'person-blake', '2026-10-01T00:00:00.000Z');
+  same(acks.map(a => [a.kind, a.key, a.version || '', (a.groups || []).length, a.reason || '']), [
+    ['landed', 'l.release.' + v2.folder, 2, 2, ''],
+    ['declined', 'd.release.' + by('x1').id + '.1', '', 0, 'We post in #release']]);
+  same(C.acks(gs, 'person-avery', null).map(a => a.kind), ['landed'], 'Avery\'s own landed too');
+  same(C.acks(gs, 'person-casey', null), [], 'nothing of Casey\'s, and never your own decline');
+  same(C.acks(gs, 'person-blake', '2026-11-01T00:00:00.000Z'), [], 'only recent ones');
+  same(C.acks(gs, '', null), []);
+});
+
+rule('Review: a new step moved away from the place asked for doesn\'t count as published, even with the same text and ID', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'ad1', op: 'add', step: 'flags', where: 'after', text: 'Tell QA the flags are set' })])];
+  const g = C.groups(C.collect(runs, 'release'))[0], rv = C.review(g, RMD);
+  const d = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { result: C.outcome(g, rv.text, rv.added) }))), 'release'), { _file: 'a.w.1.json' })];
+  const moved = PF.outline.apply(rv.text, { op: 'moveTo', step: rv.added, to: { phase: 'verify', where: 'end', track: -1 } }).text;
+  assert.ok(moved && moved !== rv.text);
+  const v1 = pubAt(RMD, 1), gs = landed(runs, d, [v1]);
+  assert.strictEqual(C.forPublish(moved, gs).groups.length, 0, 'not included from a draft where it moved');
+  assert.strictEqual(landed(runs, d, [v1, pubAt(moved, 2, [{ id: g.id }])])[0].landed, null, 'a listing doesn\'t stamp it at the wrong place');
+  assert.strictEqual(landed(runs, d, [v1, pubAt(rv.text, 2, [{ id: g.id }])])[0].landed.version, 2, 'at its place it does');
+});
+
+rule('Review: a removal is published only once its step is gone; "Already addressed" says so and claims nothing', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'rm1', op: 'remove', step: 'rollback', why: 'The ticket template has it' })])];
+  const g = C.groups(C.collect(runs, 'release'))[0], v1 = pubAt(RMD, 1), kept = RMD.replace('{#rollback}', '{#rollback}\n  > Kept: the template has a link to it.');
+  // As 1.16 first recorded it: the signature of the step that's still there.
+  const forged = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { result: C.outcome(g, kept) }))), 'release'), { _file: 'r.w.1.json' })];
+  assert.strictEqual(C.forPublish(kept, landed(runs, forged, [v1])).groups.length, 0, 'not included while the step remains');
+  assert.strictEqual(landed(runs, forged, [v1, pubAt(kept, 2, [{ id: g.id }])])[0].landed, null, 'not stamped while the step remains');
+  // Already addressed: no result, its own label, never listed, never stamped by a version that keeps the step.
+  const ad = C.decision(g, 'person-casey', 'applied', '', NOW, { addressed: true });
+  assert.ok(!ad.result && ad.addressed === true);
+  const ds = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(ad)), 'release'), { _file: 'r.w.1.json' })];
+  const gs = landed(runs, ds, [v1]);
+  same([C.label(gs[0]), C.forPublish(kept, gs).groups.length, C.forPublish(kept, gs).left.length], ['Addressed differently', 0, 0]);
+  assert.strictEqual(landed(runs, ds, [v1, pubAt(kept, 2, [{ id: g.id }])])[0].landed, null);
+});
+
+rule('Review: "It\'s in vN" keeps the applied result, so wording a person applied in their own words is still recognized', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'ow1' })])], g0 = C.groups(C.collect(runs, 'release'))[0], mine = C.review(g0, RMD, 'New pods stay up for 30 minutes').text;
+  const d1 = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g0, 'person-casey', 'applied', '', NOW, { result: C.outcome(g0, mine) }))), 'release'), { _file: g0.id + '.w.1.json' });
+  const v1 = pubAt(RMD, 1), v2 = pubAt(mine, 2);
+  let g = landed(runs, [d1], [v1, v2])[0];
+  same([g.landed, g.proofless], [null, true], 'published by an older copy, unlisted');
+  const inc = C.decision(g, 'person-casey', 'included', '', NOW, { current: g.decision, version: 2, folder: v2.folder });
+  same(inc.result, d1.result, 'carried forward');
+  const d2 = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(inc)), 'release'), { _file: g0.id + '.w.2.json' });
+  g = landed(runs, [d1, d2], [v1, v2])[0];
+  assert.strictEqual(g.landed && g.landed.version, 2);
+});
+
+rule('A version that lists its corrections stays usable everywhere: older copies\' verify and the folder checker ignore the field', () => {
+  // PF.publish.verify and unrunnable are unchanged since 1.11.1, so this is what 1.11.1 and later copies do with it.
+  const a = appliedWording(), b = P.build(a.text, { people, ...EX, by: 'a', changes: 'x', existing: [{ version: 1 }], now: NOW, rand: 'old0', corrections: [{ id: a.id, result: a.decisions[0].result }, { id: 'g<script>' }] });
+  const v = P.verify(b.folder, b.files);
+  assert.ok(v.ok, v.why);
+  assert.strictEqual(P.unrunnable(v.md, v.types), '');
+  const run = R.create(v, { title: 'R', details: { ticket: 'T', commit: 'c', environment: 'p' }, by: 'a', session: 's', now: NOW });
+  assert.ok(!('corrections' in run), 'nothing of it goes into runs');
+  same(Object.keys(C.listed(v.info)), [a.id], 'only IDs this copy can read are listed');
+  same(Object.keys(C.listed({ corrections: 'nope' })), []);
 });
 
 rule('A step answered again links only the correction recorded with that answer; a later one-off answer stands on its own', () => {

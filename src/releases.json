@@ -2,7 +2,7 @@
   {
     "version": "1.16.0",
     "date": "2026-10-19",
-    "headline": "Apply a correction to the draft, after comparing it side by side",
+    "headline": "Apply a correction to the draft, then see which version has it",
     "changes": [
       {
         "kind": "new",
@@ -40,6 +40,42 @@
         "before": "Only the preview marked steps with open corrections.",
         "now": "The builder's rows say how many open corrections a step has. The Markdown view lists them above the text, with Go to line for each.",
         "where": "A process page › Edit"
+      },
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Published in vN",
+        "before": "An applied correction said Applied to draft forever. Nothing said which version had it.",
+        "now": "Publishing records which applied corrections the new version includes. A correction then says Published in v5, but only when v5 both lists it and really says it; a later version with other edits never counts. The publish panel says how many corrections the version includes and names any that changed since they were applied.",
+        "where": "A process page › Draft › Publish, and Corrections › All"
+      },
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Changed in vN, and why",
+        "now": "In runs of the version that first has a correction, its step says Changed in v5. Why is this here? shows what it said before and after, the reason, the runs that suggested it and who applied it.",
+        "where": "A run › the step's row and the selected step"
+      },
+      {
+        "kind": "new",
+        "area": "Home",
+        "title": "Hear back about your corrections",
+        "now": "When a correction you suggested is published, Home says so once per version, with View change. When someone declines one, Home says who and why. Dismiss hides it in this browser.",
+        "where": "Home › Your corrections"
+      },
+      {
+        "kind": "improved",
+        "area": "Corrections",
+        "title": "Say which version has an older correction",
+        "now": "For a correction applied before 1.16, Flightdeck says it can't confirm which version has it. It's in v5 records that, and Flightdeck still checks that v5 makes the change.",
+        "where": "A process page › Corrections › All"
+      },
+      {
+        "kind": "improved",
+        "area": "Corrections",
+        "title": "The correction brief quotes what the step said and what was proposed",
+        "now": "The brief for your AI assistant quotes From and Proposed as data, lists attached files' paths, and leaves out corrections already published.",
+        "where": "A process page › Corrections › Copy correction brief"
       }
     ]
   },

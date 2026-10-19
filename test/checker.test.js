@@ -160,4 +160,23 @@ rule('The checker reports the same versions as unusable as the app, with the sam
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+
+rule('A version that lists the corrections it includes (1.16) is complete for the checker and the app alike', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-check-'));
+  const d = new DiskFS(root);
+  await d.write('people.json', JSON.stringify(people));
+  const md = example('maps/drafts/release.md');
+  const v1 = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, corrections: [{ id: 'g0123456789abcdef', result: { step: 'pods', sig: '0123abcd' } }, { id: 'gfedcba9876543210' }] });
+  assert.ok(!v1.blockers, String(v1.blockers));
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'publications', 'release', v1.folder, 'publication.json'), 'utf8')).corrections.length, 2);
+  const app = await repo.loadAll(d, { deep: true });
+  const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+  assert.ok(app.processes[0].pubs[0].ok, 'the app runs it');
+  assert.strictEqual(out.publications.release.versions.find(v => v.folder === v1.folder).status, 'complete', 'the checker ignores the field');
+  assert.strictEqual(out.publications.release.current, v1.folder);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 run();

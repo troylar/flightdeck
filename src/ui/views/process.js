@@ -105,8 +105,7 @@
   /* ---------- corrections (docs/design.md section 19) ---------- */
   /* Every group of corrections on a process, with where it stands. The app memoizes this per folder read; views tests compute it. */
   function fixesOf(ctx, p) {
-    if (ctx.corrections) return ctx.corrections(p.id);
-    var C = PF.corrections; return C.status(C.groups(C.collect(ctx.data.runs, p.id)), ctx.data.corrDecisions);
+    return V.corrGroups(ctx, p.id);
   }
   /* Grouped by step in checklist order: each group is one proposed change, "Suggested in N runs" with the runs behind it,
      and two different changes to the same step are shown as alternatives. Anyone decides; declining needs a reason. */
@@ -152,8 +151,12 @@
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + g.members.map(function (m) {
       return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · v' + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
-    if (d) h += '<div class="small">' + esc({ applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
-    if (g.status === 'legacy') h += '<div class="small">Applied before 1.13. Flightdeck can\'t confirm which version has it.</div>';
+    if (d) h += '<div class="small">' + esc(d.addressed ? 'Marked as addressed differently' : { applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13', included: 'Said v' + d.version + ' has it' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
+    if (g.landed) h += '<div class="small">v' + esc(g.landed.version) + ' has it' + (g.landed.at ? ', published ' + esc(U.day(g.landed.at)) : '') + '.</div>';
+    if (g.proofless) {
+      var said = g.decision && g.decision.status === 'included' ? esc(nameOf(ctx, g.decision.by)) + ' said v' + esc(g.decision.version) + ' has it, but that version doesn\'t make this change. ' : '';
+      h += '<div class="small corr-proof">' + (said || (g.old ? 'Applied before 1.16. ' : 'A published version has this change but doesn\'t list it. ')) + 'Flightdeck can\'t confirm which version has it.</div>' + includedButtons(ctx, p, g);
+    }
     if (g.again) h += '<div class="small">Suggested again after it was ' + esc(g.again.status) + (g.again.reason ? ': ' + esc(g.again.reason) : '') + '</div>';
     if (g.tie) h += '<div class="small"><b>Needs review:</b> two people decided at once. Decide again to settle it.</div>';
     if (C.changedSince(g, corrBase(ctx, p).text)) h += '<div class="small corr-since"><span class="pill review">Changed since applied</span> The draft\'s step no longer matches what was applied.</div>';
@@ -166,6 +169,23 @@
     return h + '<div class="row">' + acts + '</div></li>';
   }
 
+  /* "It's in vN" for an item applied before 1.16: the published versions after the correction's own, newest first. */
+  function includedButtons(ctx, p, g) {
+    if (!ctx.state.me) return '';
+    var own = Math.min.apply(null, g.members.map(function (c) { return c.version || 0; }));
+    var vs = (p.all || []).filter(function (v) { return v.info.version > own && (p.clashes || []).indexOf(v.info.version) < 0; }).slice(0, 4);
+    if (!vs.length) return '';
+    return '<div class="row corr-in">' + vs.map(function (v) { return '<button class="mini" data-act="corr-included" data-id="' + esc(g.id) + '" data-folder="' + esc(v.info.folder) + '">It\'s in v' + v.info.version + '</button>'; }).join('') + '</div>';
+  }
+  /* What publishing this draft includes: applied corrections whose change it makes, and the applied ones it leaves out because
+     the draft no longer matches what was applied. */
+  function publishCorrections(ctx, p) {
+    var C = PF.corrections, fp = C.forPublish(p.draft.md, fixesOf(ctx, p));
+    if (!fp.groups.length && !fp.left.length) return '';
+    var name = function (g) { return '"' + esc(g.from || g.target.step || g.target.phase) + '"'; };
+    return '<p class="small corr-pub" role="status"><b>Included in this version: ' + fp.groups.length + ' correction' + (fp.groups.length === 1 ? '' : 's') + '.</b>' +
+      (fp.left.length ? ' Left out, changed since applied: ' + fp.left.map(name).join(', ') + '.' : '') + '</p>';
+  }
   /* The draft a correction is compared with and applied to: the editor's (what it started from, so applying and its Undo
      share one timeline), else the draft in the folder, else the latest version, which applying makes the draft. */
   function corrBase(ctx, p) {
@@ -270,7 +290,7 @@
       if (p.draftChanged) {
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
-          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>';
+          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishCorrections(ctx, p);
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
       h += '</section>';

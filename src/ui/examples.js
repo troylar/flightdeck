@@ -150,9 +150,12 @@ PF.examples = (function () {
         if (!r) return;
         var n = C.build(Object.assign({ id: U.randomId(10), at: at(o.ago), session: 'example-session', map: R.mapOf(r), version: +r.version, folder: r.folder }, o));
         notes.push([r, n]); if (decision) decided.push([r, n, decision]);
+        return n;
       };
-      correct(byTitle('Release 2026.10.09'), { ago: 8 * DAY - 30, by: 'person-avery', step: 'jenkins', op: 'wording', to: 'Start the production deploy job, and type the ticket number when it stops at stage 5', why: 'We waited at the console not knowing it wanted input.' },
+      /* Applied, then published in v2 (its note now says when the job asks for the ticket), so v2 lists it. */
+      var deployFix = correct(byTitle('Release 2026.10.09'), { ago: 8 * DAY - 30, by: 'person-avery', step: 'jenkins', op: 'describe', why: 'The job stopped at stage 5 and waited for the ticket number. Nothing said it would; we waited at the console not knowing it wanted input.' },
         { status: 'applied', by: 'person-casey', ago: 7 * DAY });
+      var groupOf = function (r, n) { return C.groups(C.collect([Object.assign({}, r, { _notes: [n] })], 'release'))[0]; };
       correct(byTitle('Release 2026.10.02'), { ago: 15 * DAY - 20, by: 'person-morgan', step: 'announce', op: 'move', moveTo: 'start:prep', why: 'So the team hears about it earlier.' },
         { status: 'declined', by: 'person-casey', ago: 14 * DAY, reason: 'We post only once the deploy is sure to start; the checks before it can still stop the release.' });
       var pods = { by: 'person-blake', step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts', why: 'The cache warms slowly after a restart.' };
@@ -167,14 +170,15 @@ PF.examples = (function () {
       }).then(function () {
         return files[REL] ? repo.loadAll(mem).then(function (d2) {
           var rp = d2.processes.filter(function (p) { return p.process === 'release'; })[0];
-          return repo.publish(mem, files[REL], { people: people, customTypes: d2.stepTypes.types, workflows: d2.jira.workflows, processes: ids, by: 'person-casey', changes: 'Deploy job: allow 25 minutes and say when to type the ticket number', existing: rp.index.all.map(function (x) { return x.info; }), now: at(30) });
+          var listed = deployFix ? [{ id: groupOf(byTitle('Release 2026.10.09'), deployFix).id }] : [];
+          return repo.publish(mem, files[REL], { people: people, customTypes: d2.stepTypes.types, workflows: d2.jira.workflows, processes: ids, by: 'person-casey', changes: 'Deploy job: allow 25 minutes and say when to type the ticket number', existing: rp.index.all.map(function (x) { return x.info; }), now: at(30), corrections: listed });
         }) : null;
       }).then(function () {
         return notes.reduce(function (pr, n) { return pr.then(function () { return repo.addNote(mem, n[0], 'example-session', n[1]); }); }, Promise.resolve());
       }).then(function () {
         /* Each decision is on the group its correction is in, the way the process page shows it. */
         return decided.reduce(function (pr, x) {
-          var g = C.groups(C.collect([Object.assign({}, x[0], { _notes: [x[1]] })], 'release'))[0], d = x[2];
+          var g = groupOf(x[0], x[1]), d = x[2];
           return pr.then(function () { return repo.decideCorrection(mem, C.decision(g, d.by, d.status, d.reason, d.ago ? at(d.ago) : new Date().toISOString(), { act: U.randomId(10) }), 'example-session'); });
         }, Promise.resolve());
       }).then(function () {

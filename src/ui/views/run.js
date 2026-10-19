@@ -72,6 +72,7 @@
     var notes = (r._notes || []).filter(function (n) { return n.step === s.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; }).length, dr = ctx.stepDraft && ctx.stepDraft(s.id);
     var nc = (r._notes || []).filter(function (n) { return n.step === s.id && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); }).length;
     if (nc) badges += '<span class="badge b-corr">' + (nc === 1 ? 'Correction proposed' : nc + ' corrections') + '</span>';
+    if (changedHere(ctx, r)[s.id]) badges += '<span class="badge b-changed">Changed in v' + esc(r.version) + '</span>';
     if (dr && (dr.open || String(dr.note || '').trim() || Object.keys(dr.record).length || Object.keys(dr.fields).length)) badges += '<span class="s-draft">Draft</span><span class="sr"> (typed, not saved yet)</span>';
     if (notes) badges += '<span class="s-notes">' + I('note') + notes + '<span class="sr"> note' + (notes === 1 ? '' : 's') + '</span></span>';
     var stamp = a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
@@ -293,12 +294,14 @@
   function corrPill(g, c) {
     if (c && c.oneOff) return '<span class="pill waived">One-off</span>';
     var st = g ? g.status : 'open';
-    return '<span class="pill ' + (g && g.tie ? 'review' : CPILL[st] || 'open') + '">' + esc(g ? C.label(g) : C.STATUS.open) + '</span>' + (g && st === 'declined' && g.decision && g.decision.reason ? '<span class="small corr-why-no">' + esc(g.decision.reason) + '</span>' : '');
+    return '<span class="pill ' + (g && g.tie ? 'review' : g && g.landed ? 'passed' : CPILL[st] || 'open') + '">' + esc(g ? C.label(g) : C.STATUS.open) + '</span>' + (g && st === 'declined' && g.decision && g.decision.reason ? '<span class="small corr-why-no">' + esc(g.decision.reason) + '</span>' : '');
   }
   /* The groups of a process by correction ID, from the app (memoized) or worked out here. */
-  function corrIndex(ctx, pid) {
-    var gs = ctx.corrections ? ctx.corrections(pid) : C.status(C.groups(C.collect(ctx.data.runs, pid)), ctx.data.corrDecisions);
-    return C.statusById(gs);
+  function corrIndex(ctx, pid) { return C.statusById(corrGroups(ctx, pid)); }
+  /* Every group on a process, with where it stands and which published version has it: from the app (memoized) or worked out here. */
+  function corrGroups(ctx, pid) {
+    if (ctx.corrections) return ctx.corrections(pid);
+    return C.forProcess(ctx.data.runs, pid, ctx.data.corrDecisions, ctx.processes().filter(function (x) { return x.id === pid; })[0]);
   }
   /* One correction as the run's record shows it: Checklist said, Suggested (a redline for new wording), Why, What happened,
      who and when, where it stands, and its files. */
@@ -320,7 +323,27 @@
     if (opts.followUp) h += opts.followUp;
     return h + '</li>';
   }
-  V.redline = redline; V.corrRow = corrRow; V.corrPill = corrPill; V.corrIndex = corrIndex;
+  /* Corrections first published in exactly this run's version, by the step they're about there. Only that version's runs
+     show "Changed in vN": a later version has the step as it is, with nothing new to explain. */
+  function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
+  /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
+  function provenance(ctx, r, map, st, g) {
+    var c = g.first, d = g.decision, ch = g.change, disc = 'prov:' + g.id, open = !!(ctx.state.disc && ctx.state.disc[disc]);
+    var dl = '';
+    if (ch.op === 'wording' && g.from) dl += '<dt>Before → after</dt><dd>' + redline(g.from, st.text) + '</dd>';
+    else {
+      if (g.from && ch.op !== 'add') dl += '<dt>Before</dt><dd>' + esc(g.from) + '</dd>';
+      var prop = C.proposal(c, map); if (prop) dl += '<dt>' + (ch.op === 'describe' || ch.op === 'screenshot' ? 'Change' : 'After') + '</dt><dd>' + esc(ch.op === 'add' ? 'Added' + (g.from ? ' after "' + g.from + '"' : '') + ': ' + st.text : prop) + '</dd>';
+    }
+    g.members.forEach(function (m) { if (m.why) dl += '<dt>' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
+    var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) {
+      return '<button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', v' + esc(m.version) + ')';
+    }).join(', ') + '</p>';
+    var who = d && d.by ? '<p class="small">' + (d.status === 'included' ? esc(nameOf(ctx, d.by)) + ' said v' + esc(d.version) + ' has it' : 'Applied by ' + esc(nameOf(ctx, d.by))) + (d.at ? ' ' + esc(U.day(d.at)) : '') + '.</p>' : '';
+    return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
+      (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
+  }
+  V.redline = redline; V.corrRow = corrRow; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -419,6 +442,8 @@
     h += '<div class="rw-ins-meta"><span class="type">' + I(t.icon) + esc(t.label) + '</span>' + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? 'N/A' : aState === 'blocked' ? 'Blocked' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
+    var chg = changedHere(ctx, r)[st.id];
+    if (chg) h += '<div class="rw-prov">' + chg.map(function (g) { return provenance(ctx, r, map, st, g); }).join('') + '</div>';
     if (aState === 'blocked' || aState === 'recheck') h += '<div class="notice ' + (aState === 'blocked' ? 'bad' : 'warn') + ' rw-why"><span><b>' + (aState === 'blocked' ? 'Blocked' : 'Needs a re-check') + ':</b> ' + esc(a.reason) + (a.by ? ' · ' + esc(nameOf(ctx, a.by)) + ' ' + U.hm(a.at) : '') + '</span></div>';
     if (s.keys && rec && work && aState !== 'done') h += '<p class="small rw-keys" aria-hidden="true">Space: check · N: note · B: blocked</p>';
 

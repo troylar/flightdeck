@@ -73,6 +73,7 @@
     h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : 'Nothing needs you right now.') : 'Choose who you are at the top right to see what needs you.', '', 'page-h');
     if (V.setupHome) h += V.setupHome(ctx);
     if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
+    h += acksPanel(ctx);
     var running = d.runs.filter(function (r) { return r.state === 'running'; });
     h += '<section class="panel" aria-labelledby="go-h"><h2 id="go-h">At a glance</h2><div class="glance">' +
       '<button class="tile" data-act="nav" data-id="runs"><span class="big">' + running.length + '</span><span>running</span></button>' +
@@ -85,6 +86,25 @@
       return '<li><span>' + esc(x.f.text) + (x.f.ticket ? ' <span class="cat">' + esc(x.f.ticket) + '</span>' : '') + '</span><span class="small">' + (x.f.owner ? esc(nameOf(ctx, x.f.owner)) + ' · ' : '') + esc(x.r.title) + '</span></li>';
     }).join('') + '</ul></section>';
     return h;
+  }
+
+  /* Quiet news about this person's own corrections: published in a version, or declined by someone else. Each has View
+     change and Dismiss (remembered in this browser). It never counts as something that needs them. */
+  function acksPanel(ctx) {
+    var me = ctx.state.me, C = PF.corrections;
+    var list = ctx.acks ? ctx.acks() : me ? [].concat.apply([], ctx.processes().map(function (p) { return C.acks(V.corrGroups(ctx, p.id), me, null); })) : [];
+    if (!list.length) return '';
+    var stepName = function (g) { return '"' + (g.from || g.target.step || g.target.phase) + '"'; };
+    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2><ul class="todos">' + list.map(function (a) {
+      var gs = a.groups || [a.group], title;
+      /* Plain text, escaped once where it's used. */
+      if (a.kind === 'landed') title = gs.length === 1 ? 'Your correction to ' + stepName(gs[0]) + ' is published in v' + a.version + '.'
+        : 'Your corrections to ' + stepName(gs[0]) + (gs.length === 2 ? ' and ' + stepName(gs[1]) : ' and ' + (gs.length - 1) + ' other steps') + ' are published in v' + a.version + '.';
+      else title = nameOf(ctx, a.by) + ' declined your correction: ' + a.reason;
+      var sub = ctx.processTitle(a.process) + (a.kind === 'declined' ? ' · ' + stepName(a.group) : '');
+      return '<li class="todo ack ' + a.kind + '"><div><b>' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
+        '<button class="mini" data-act="ack-dismiss" data-id="' + esc(a.key) + '" aria-label="Dismiss: ' + esc(title) + '">Dismiss</button></span></li>';
+    }).join('') + '</ul></section>';
   }
 
   /* ---------- Runs: everything running, planned and finished ---------- */

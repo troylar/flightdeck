@@ -2086,6 +2086,19 @@ rule('App: applying is refused while this window has unsaved edits to the draft,
   assert.strictEqual(decisions(app, id)[0].status, 'applied');
 });
 
+rule('App: Already addressed on a step that changed records no result and reads Addressed differently, never Published', async () => {
+  const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app), md = app.fs.files[path].t;
+  await app.fs.write(path, md.replace('  command: kubectl get pods -l app=web-app', '  command: kubectl get pods -l app=web-app -w'));
+  app.click('refresh'); await app.tick(100);
+  app.click('corr-review', id); await app.tick();
+  app.click('corr-addressed', id); await app.tick(80);
+  const [d] = decisions(app, id);
+  assert.deepStrictEqual([d.status, d.addressed, 'result' in d], ['applied', true, false]);
+  app.click('corr-filter', 'all'); await app.tick();
+  assert.ok(/<span class="pill ready">Addressed differently<\/span>/.test(app.html()) && /Marked as addressed differently by /.test(app.html()));
+  assert.ok(!/corr-pub/.test(app.html()) || /Included in this version: 0 corrections\.<\/b><\/p>/.test(app.html()), 'not counted for publishing');
+});
+
 rule('App: if the decision can\'t be written after the draft is saved, the next look finds it in the draft and Link records it', async () => {
   const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app);
   const orig = app.PF.repo.decideCorrection; let fails = 1;
@@ -2153,6 +2166,33 @@ rule('App: a correction to a process with no draft starts the draft from the lat
   assert.ok(/There&#39;s no draft yet: applying starts one from v2|There's no draft yet: applying starts one from v2/.test(app.overlay()));
   app.click('corr-apply', id); await app.tick(100);
   assert.ok(app.fs.files[path] && /for 20 minutes/.test(app.fs.files[path].t));
+});
+
+rule('App: publishing lists the corrections it includes; the author sees it on Home with View change, and Dismiss is remembered in this browser', async () => {
+  const app = await releasePage(), id = podsGroup(app);
+  app.click('corr-review', id); await app.tick();
+  app.click('corr-apply', id); await app.tick(100);
+  assert.ok(/<b>Included in this version: 1 correction\.<\/b>/.test(app.html()), 'the publish panel says what the version includes');
+  app.set('change-note', 'Watch new pods for 20 minutes'); app.click('publish', 'release'); await app.tick(100);
+  assert.ok(/Published v3\. [^<]*It includes 1 correction\./.test(app.html() + app.live()));
+  const rec = app.files('publications/release/').filter(p => /^publications\/release\/v3-[a-z0-9]+\/publication\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t))[0];
+  assert.deepStrictEqual(rec.corrections.map(c => [c.id, typeof c.result.sig]), [[id, 'string']]);
+  app.click('corr-filter', 'all'); await app.tick();
+  assert.ok(/<span class="pill passed">Published in v3<\/span>/.test(app.html()) && /<span class="pill passed">Published in v2<\/span>/.test(app.html()), 'this one in v3; the example\'s deploy fix in v2');
+  // Blake suggested it: Home says so, once per version.
+  app.choose('person-blake'); await app.tick(); app.click('home'); await app.tick(20);
+  const home = app.html();
+  assert.ok(/Your correction to &quot;New pods stay up with no restarts&quot; is published in v3\./.test(home), home.slice(home.indexOf('ack-h') - 40, home.indexOf('ack-h') + 600));
+  const key = /data-act="ack-dismiss" data-id="(l\.release\.v3-[a-z0-9]+)"/.exec(home)[1];
+  app.click('ack-view', key, { process: 'release' }); await app.tick(20);
+  assert.ok(/Corrections · \d+ open/.test(app.html()) && /Published in v3/.test(app.html()), 'View change opens its corrections, all of them');
+  app.click('home'); await app.tick(20);
+  app.click('ack-dismiss', key); await app.tick(20);
+  assert.ok(!new RegExp(key.replace(/\./g, '\\.')).test(app.html()), 'dismissed');
+  const stored = Object.keys(app.store).filter(k => /^preflight:acks:/.test(k));
+  assert.strictEqual(stored.length, 1); assert.deepStrictEqual(JSON.parse(app.store[stored[0]]), [key]);
+  app.click('ack-dismiss', '<img src=x>'); await app.tick();
+  assert.deepStrictEqual(JSON.parse(app.store[stored[0]]), [key], 'only keys Flightdeck makes are kept');
 });
 
 rule('App: Copy correction brief gives the AI assistant the open corrections with the draft\'s steps and the rules for editing', async () => {

@@ -896,6 +896,98 @@ rule('Process page: a group decided twice at once says Needs review; an accepted
   assert.ok(/<span class="pill passed">Applied \(legacy\)<\/span>/.test(html) && /Flightdeck can't confirm which version has it/.test(legacy) && !/data-act="corr-/.test(legacy.slice(0, legacy.indexOf('</li>'))));
 });
 
+/* Corrections slice 3: a wording correction from a run of v1, applied, and v2 published with it. Text people wrote is hostile. */
+function landedSetup(o) {
+  o = o || {};
+  const { ctx, state } = setup();
+  const v1 = ctx.data.processes[0].index.latest, r1 = R.create(v1, { title: 'Release <i>A</i>', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r1' });
+  r1._notes = [cr(r1, { id: 'w1', to: 'Change request approved by the <b>board</b>', why: 'The board <img src=x onerror=alert(1)> meets at 4' }), cr(r1, { id: 'x1', step: 'pods', to: 'New pods stay up <script>', by: 'person-blake' })];
+  const g = C.groups(C.collect([r1], 'release'))[0], text = C.review(g, v1.md).text;
+  const dApplied = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-avery', 'applied', '', NOW, { result: C.outcome(g, text) }))), 'release'), { _file: g.id + '.w.1.json' });
+  const declined = C.groups(C.collect([r1], 'release'))[1];
+  const dDeclined = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(declined, 'person-casey', 'declined', 'We watch <u>dashboards</u>', NOW))), 'release'), { _file: 'x.w.1.json' });
+  ctx.data.corrDecisions = [dApplied, dDeclined];
+  const p = { id: 'release', title: 'Production <em>release</em>', category: 'Releases', latest: v1, all: [v1], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: text }, draftChanged: true };
+  ctx.processes = () => [p]; ctx.data.runs = [r1];
+  let v2 = null, r2 = null;
+  if (!o.unpublished) {
+    const list = C.forPublish(text, C.forProcess([r1], 'release', ctx.data.corrDecisions, p)).list;
+    const b = P.build(text, { people, ...EX, by: 'person-avery', changes: 'Board wording', existing: [{ version: 1 }], now: NOW, rand: 'view0102', corrections: list });
+    v2 = Object.assign(P.verify(b.folder, b.files), { folder: b.folder });
+    p.latest = v2; p.all = [v2, v1]; p.draft = { file: 'release.md', md: text }; p.draftChanged = false;
+    r2 = R.create(v2, { title: 'Release 2', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r2' }); r2._notes = []; r2._conflicts = [];
+    ctx.data.runs = [r1, r2];
+  }
+  return { ctx, state, p, g, r1, r2, v1, v2 };
+}
+
+rule('Publishing says how many corrections the version includes, and names applied ones left out because they changed since', () => {
+  const { ctx, state, p, g } = landedSetup({ unpublished: true });
+  state.view = 'process'; state.processId = 'release'; state.me = 'person-blake';
+  let html = V.process(ctx);
+  assert.ok(/<p class="small corr-pub" role="status"><b>Included in this version: 1 correction\.<\/b><\/p>/.test(html), html.match(/corr-pub.{0,200}/));
+  p.draft.md = p.draft.md.replace('by the <b>board</b>', 'by the board chair');
+  html = V.process(ctx);
+  assert.ok(/<b>Included in this version: 0 corrections\.<\/b> Left out, changed since applied: "Change request approved for tonight&#39;s window"\./.test(html));
+});
+
+rule('Published in vN: the pill on the process page and the run\'s record, and "Changed in vN" with "Why is this here?" only on runs of that version', () => {
+  const { ctx, state, g, r1, r2 } = landedSetup();
+  state.view = 'process'; state.processId = 'release'; state.me = 'person-blake'; state.fixFilter = 'all';
+  let html = V.process(ctx);
+  assert.ok(/<span class="pill passed">Published in v2<\/span>/.test(html) && /v2 has it, published /.test(html));
+  // The run where it was suggested shows where it stands now.
+  state.view = 'run'; ctx.run = () => r1; state.sel = 'approved';
+  html = V.run(ctx);
+  assert.ok(/<span class="pill passed">Published in v2<\/span>/.test(insOf(html)));
+  assert.ok(!/Changed in v/.test(html), 'not on v1\'s runs');
+  // A run of v2: the chip on the row and in the step, with why it's there.
+  ctx.run = () => r2; state.sel = 'approved';
+  html = V.run(ctx);
+  assert.ok(/<span class="badge b-changed">Changed in v2<\/span>/.test(rowOf(html, 'approved')) && !/Changed in v2/.test(rowOf(html, 'pods')));
+  const ins = insOf(html);
+  assert.ok(new RegExp('<details class="prov-why" data-disc="prov:' + g.id + '"><summary class="small">Why is this here\\?</summary>').test(ins));
+  assert.ok(/<dt>Before → after<\/dt><dd><span class="redline">/.test(ins) && /<ins>by<\/ins>|<ins>/.test(ins), 'before and after, as a redline');
+  assert.ok(/<dt>Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
+  assert.ok(/Suggested in 1 run: <button class="linkish" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
+  state.disc = { ['prov:' + g.id]: true };
+  assert.ok(/data-disc="prov:[^"]+" open>/.test(insOf(V.run(ctx))), 'stays open across redraws');
+  // A v3 that lists it again isn't where it changed.
+  const b = P.build(r2.snapshot, { people, ...EX, by: 'person-avery', changes: 'Again', existing: [{ version: 1 }, { version: 2 }], now: NOW, rand: 'view0103', corrections: [{ id: g.id }] });
+  const v3 = Object.assign(P.verify(b.folder, b.files), { folder: b.folder }), r3 = R.create(v3, { title: 'Release 3', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r3' }); r3._notes = []; r3._conflicts = [];
+  ctx.processes()[0].all.unshift(v3); ctx.processes()[0].latest = v3; ctx.data.runs.push(r3); ctx.run = () => r3;
+  assert.ok(!/Changed in v/.test(V.run(ctx)), 'only the first version that has it');
+});
+
+rule('Home: "Your correction to … is published in vN" and "… declined your correction", each with View change and Dismiss, escaped', () => {
+  const { ctx, state } = landedSetup();
+  state.view = 'home'; state.me = 'person-blake'; ctx.data.plans = []; ctx.lostDrafts = () => [];
+  const html = V.home(ctx), panel = html.slice(html.indexOf('aria-labelledby="ack-h"'));
+  assert.ok(/<h2 id="ack-h">Your corrections<\/h2>/.test(html));
+  assert.ok(/<b>Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
+  assert.ok(/<b>Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
+  assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
+  assert.ok(!/things? need/.test(html.slice(0, html.indexOf('aria-labelledby="ack-h"'))) || /Nothing needs you right now\./.test(html), 'acknowledgments never count as needing you');
+  ctx.acks = () => [];
+  assert.ok(!/ack-h/.test(V.home(ctx)), 'dismissed: gone');
+  delete ctx.acks; state.me = 'person-avery';
+  assert.ok(!/Your corrections/.test(V.home(ctx)), 'only the author\'s');
+});
+
+rule('Process page: an item applied before 1.16 offers "It\'s in vN" for the versions after its own', () => {
+  const { ctx, state, p, v2 } = landedSetup();
+  // As if v2 had been published by an older copy: it makes the change but doesn't list it.
+  const b = P.build(v2.md, { people, ...EX, by: 'person-avery', changes: 'Board wording', existing: [{ version: 1 }], now: NOW, rand: 'view0104' });
+  const plain = Object.assign(P.verify(b.folder, b.files), { folder: b.folder });
+  p.all = [plain, p.all[1]]; p.latest = plain;
+  state.view = 'process'; state.processId = 'release'; state.me = 'person-blake'; state.fixFilter = 'all';
+  const html = V.process(ctx);
+  assert.ok(/A published version has this change but doesn&#39;t list it\. Flightdeck can&#39;t confirm which version has it\.|A published version has this change but doesn't list it\. Flightdeck can't confirm which version has it\./.test(html));
+  assert.ok(/data-act="corr-included" data-id="[^"]+" data-folder="v2-view0104">It's in v2<\/button>/.test(html));
+  state.me = '';
+  assert.ok(!/corr-included/.test(V.process(ctx)), 'only for someone who has said who they are');
+});
+
 /* The builder open on the release draft, for the parts box. */
 function partsSetup(types) {
   const { ctx, state } = setup();

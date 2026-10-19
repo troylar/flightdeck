@@ -1277,6 +1277,17 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .md-corr li { display: flex; flex-wrap: wrap; gap: 4px 10px; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .ca-cols { grid-template-columns: minmax(0, 1fr); } .ca-box { padding: 14px 16px; } }
 .b-corr { background: var(--plan-soft); color: var(--plan); }
+/* A correction first published in this run's version: "Changed in vN", with why it's there on request. */
+.b-changed { background: var(--go-soft); color: var(--go); }
+.rw-prov { display: flex; flex-direction: column; gap: 6px; }
+.prov { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--go); border-radius: 8px; background: var(--card); min-width: 0; }
+.prov-why { align-self: stretch; min-width: 0; }
+.prov-why summary { cursor: pointer; }
+.prov-why .corr-dl, .prov-why p { margin: 6px 0 0; overflow-wrap: anywhere; }
+.todo.ack { border-left-color: var(--go); } .todo.ack.declined { border-left-color: var(--muted); }
+.todo.ack > div { min-width: 0; flex: 1 1 240px; overflow-wrap: anywhere; }
+.corr-pub { margin: 6px 0 0; overflow-wrap: anywhere; }
+.corr-in { flex-wrap: wrap; gap: 6px; }
 .rw-diff { flex-wrap: wrap; }
 .rw-diff-t { display: block; margin-top: 2px; overflow-wrap: anywhere; }
 .r-corr .corrlist { margin-top: 4px; }
