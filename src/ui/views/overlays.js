@@ -56,7 +56,8 @@
     var on = ctx.state.keys;
     return '<div class="overlay" data-act="close-overlay"><div class="help" role="dialog" aria-modal="true" aria-labelledby="help-t"><h2 id="help-t">Keyboard</h2>' +
       '<p class="small">Single-key shortcuts are <b>' + (on ? 'on' : 'off') + '</b>. They only work outside text fields. <button class="mini" data-act="toggle-keys">' + (on ? 'Turn them off' : 'Turn them on') + '</button></p><dl>' +
-      '<dt>J / K</dt><dd>Next or previous step</dd><dt>Space</dt><dd>Mark the step done (recorder)</dd><dt>B</dt><dd>Blocked</dd><dt>N</dt><dd>Write a note</dd><dt>M</dt><dd>Screen share mode</dd><dt>Esc</dt><dd>Close or cancel</dd><dt>?</dt><dd>This help</dd></dl>' +
+      '<dt>J / K</dt><dd>Next or previous step</dd><dt>Space or X</dt><dd>Check the selected step, or open the evidence it needs (recorder). Then the next step in the phase is selected.</dd><dt>B</dt><dd>Blocked</dd><dt>N</dt><dd>Write a note on the selected step</dd><dt>C</dt><dd>Correct the selected step</dd><dt>M</dt><dd>Screen share mode</dd><dt>Esc</dt><dd>Close or cancel</dd><dt>?</dt><dd>This help</dd></dl>' +
+      '<p class="small">On a focused button, Space presses that button.</p>' +
       '<h3>In the draft editor and the step-type form</h3><p class="small">These work in text fields too. A builder box with typing not yet applied undoes that typing first.</p><dl>' +
       '<dt>Ctrl+Z · Cmd+Z</dt><dd>Undo, and say what was undone</dd><dt>Ctrl+Shift+Z · Cmd+Shift+Z · Ctrl+Y</dt><dd>Redo</dd><dt>Alt+Up / Alt+Down</dt><dd>Move the focused step or phase (builder)</dd></dl>' +
       '<button class="btn" data-act="close-overlay">Close</button></div></div>';
@@ -65,6 +66,15 @@
     var it = list[i];
     return '<div class="overlay" data-act="close-overlay" role="dialog" aria-modal="true" aria-label="Screenshot"><div class="lb-box"><div class="lb-bar"><span class="cap">' + esc(it.caption) + '</span><span class="small" style="color:#cfd6db">' + (i + 1) + ' of ' + list.length + '</span>' +
       (list.length > 1 ? '<button data-act="lb-step" data-id="-1" aria-label="Previous">‹ Prev</button><button data-act="lb-step" data-id="1" aria-label="Next">Next ›</button>' : '') + '<button data-act="close-overlay" id="lb-close">Close</button></div><div class="lb-media">' + ctx.img(it.src, it.caption, true) + '</div></div></div>';
+  }
+
+  /* A text attachment, shown as plain text: the app fills #att-text with textContent after drawing, so nothing in the file is
+     ever read as markup. */
+  function textPreview(name, path, cut, bytes, owner, from) {
+    return '<div class="overlay" data-act="close-overlay"><div class="tp-box" role="dialog" aria-modal="true" aria-labelledby="tp-t"><div class="tp-bar"><h2 id="tp-t">' + esc(name) + '</h2>' +
+      '<span class="small">' + esc(PF.attach.size(bytes)) + (cut ? ' · showing the first ' + esc(PF.attach.size(PF.attach.PREVIEW_MAX)) : '') + '</span>' +
+      '<button class="mini" data-act="att-save" data-id="' + esc(owner) + '" data-from="' + esc(from || 'note') + '" data-path="' + esc(path) + '">Save a copy</button><button class="mini" data-act="close-overlay" id="tp-close">Close</button></div>' +
+      '<pre class="tp-text" id="att-text" tabindex="0"></pre></div></div>';
   }
 
   /* ---------- History: what changed in an editor ---------- */
@@ -94,5 +104,5 @@
   }
 
   V.historyDrawer = historyDrawer;
-  V.releases = releases; V.semverCmp = semverCmp; V.help = help; V.lightbox = lightbox;
+  V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.lightbox = lightbox;
 })();

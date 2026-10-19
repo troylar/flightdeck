@@ -1,5 +1,5 @@
 /* Skills built from processes. A skill lives wherever its team keeps it (a Bitbucket repo, a local folder, anywhere); the team
-   folder records the mapping in skills/<name>.json, written by whoever (or whichever LLM) creates or updates the skill:
+   folder records the mapping in skills/<name>.json, written by whoever (or whichever AI assistant) creates or updates the skill:
 
    {
      "name": "release-deploy",                 the skill's name
@@ -13,7 +13,7 @@
    }
 
    Flightdeck never reads or writes the skill itself. It shows the mapping, says when a process change affects a skill, and
-   writes the brief an LLM needs to create or update one. A process version is ready for a skill when enough runs of it
+   writes the brief an AI assistant needs to create or update one. A process version is ready for a skill when enough runs of it
    completed cleanly and its owner signed it off (validations/). */
 PF.skills = (function () {
   'use strict';
@@ -146,7 +146,7 @@ PF.skills = (function () {
     return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
 
-  /* ---------- Briefs: what an LLM needs to create or update a skill. Plain Markdown to paste, or for an AI assistant to read. ---------- */
+  /* ---------- Briefs: what an AI assistant needs to create or update a skill. Plain Markdown to paste, or for an AI assistant to read. ---------- */
   function stepBlock(s, types) {
     var f = s.fields || {}, lines = ['- **' + s.id + '** {' + s.type + '} ' + s.text + (s.must ? ' (must do)' : '')];
     /* The evidence its frozen step type asks for here, so a change in what must be recorded is visible in the brief. */

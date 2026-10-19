@@ -143,20 +143,22 @@ PF.examples = (function () {
         ev: { 'close-last': { sprintLink: 'https://jira.example.com/secure/RapidBoard.jspa?rapidView=12&sprint=41', carriedOver: '3 issues' }, velocity: { value: '34', unit: 'points' }, 'carried-points': { value: '5', unit: 'points' }, capacity: { value: '38', unit: 'person-days' } },
         until: [1, 'meeting'], pausedNow: 'Waiting for the product owner to join planning', pausedAt: sprintStart / 10 });
 
-      /* Suggested fixes from release runs, one in each state: fixed in v2 (accepted before it was published), declined with a
-         reason, still open, and accepted into the draft after v2. */
-      var fixes = [], byTitle = function (t) { return runs.filter(function (x) { return x.title === t; })[0]; };
-      var fix = function (r, o, decided) {
+      /* Corrections from release runs, one in each state: applied to the draft, declined with a reason, and open (the same
+         wording suggested in two runs, and a missing step). */
+      var decided = [], byTitle = function (t) { return runs.filter(function (x) { return x.title === t; })[0]; }, C = PF.corrections;
+      var correct = function (r, o, decision) {
         if (!r) return;
-        var n = PF.fixes.build({ id: U.randomId(10), at: at(o.ago), by: o.by, session: 'example-session', kind: o.kind, phase: o.phase, step: o.step, where: o.where, text: o.text, version: +r.version });
-        notes.push([r, n]); if (decided) fixes.push([n, decided]);
+        var n = C.build(Object.assign({ id: U.randomId(10), at: at(o.ago), session: 'example-session', map: R.mapOf(r), version: +r.version, folder: r.folder }, o));
+        notes.push([r, n]); if (decision) decided.push([r, n, decision]);
       };
-      fix(byTitle('Release 2026.10.09'), { ago: 8 * DAY - 30, by: 'person-avery', kind: 'instructions', phase: 'deploy', step: 'jenkins', text: 'Say when the job asks for the ticket number. It stops at stage 5, and we waited at the console not knowing it wanted input.' },
-        { status: 'accepted', by: 'person-casey', ago: 7 * DAY, known: 1 });
-      fix(byTitle('Release 2026.10.02'), { ago: 15 * DAY - 20, by: 'person-morgan', kind: 'order', phase: 'prep', step: 'announce', text: 'Post "starting release" first, before the flag check, so the team hears about it earlier.' },
+      correct(byTitle('Release 2026.10.09'), { ago: 8 * DAY - 30, by: 'person-avery', step: 'jenkins', op: 'wording', to: 'Start the production deploy job, and type the ticket number when it stops at stage 5', why: 'We waited at the console not knowing it wanted input.' },
+        { status: 'applied', by: 'person-casey', ago: 7 * DAY });
+      correct(byTitle('Release 2026.10.02'), { ago: 15 * DAY - 20, by: 'person-morgan', step: 'announce', op: 'move', moveTo: 'start:prep', why: 'So the team hears about it earlier.' },
         { status: 'declined', by: 'person-casey', ago: 14 * DAY, reason: 'We post only once the deploy is sure to start; the checks before it can still stop the release.' });
-      fix(main, { ago: 30, by: 'person-blake', kind: 'instructions', phase: 'deploy', step: 'pods', text: 'Watch the pods for 20 minutes, not 10. The cache warms slowly after a restart; two earlier runs did it differently for this reason.' });
-      fix(main, { ago: 20, by: 'person-blake', kind: 'missing', phase: 'verify', text: 'Add a last check of the error budget dashboard before the ticket is closed.' }, { status: 'accepted', by: 'person-casey', known: 2 });
+      var pods = { by: 'person-blake', step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts', why: 'The cache warms slowly after a restart.' };
+      correct(byTitle('Release 2026.10.09'), Object.assign({ ago: 8 * DAY - 40 }, pods, { by: 'person-avery', why: '' }));
+      correct(main, Object.assign({ ago: 30 }, pods));
+      correct(main, { ago: 20, by: 'person-blake', step: 'close', op: 'add', where: 'after', text: 'Check the error budget dashboard before the ticket is closed' });
 
       return runs.reduce(function (pr, r) { return pr.then(function () { return repo.saveRun(mem, r, 'example-session'); }); }, Promise.resolve()).then(function () {
         /* Check-in v1 has enough clean runs; its owner signed it off as ready for a skill. */
@@ -170,8 +172,11 @@ PF.examples = (function () {
       }).then(function () {
         return notes.reduce(function (pr, n) { return pr.then(function () { return repo.addNote(mem, n[0], 'example-session', n[1]); }); }, Promise.resolve());
       }).then(function () {
-        /* Each acceptance knew of the versions published before it: v1 for the one v2 fixed, v2 for the one still in the draft. */
-        return fixes.reduce(function (pr, x) { var d = x[1]; return pr.then(function () { return repo.decideFix(mem, PF.fixes.decision({ process: 'release', id: x[0].id }, d.by, d.status, d.reason, d.ago ? at(d.ago) : new Date().toISOString(), { latestVersion: d.known }), 'example-session'); }); }, Promise.resolve());
+        /* Each decision is on the group its correction is in, the way the process page shows it. */
+        return decided.reduce(function (pr, x) {
+          var g = C.groups(C.collect([Object.assign({}, x[0], { _notes: [x[1]] })], 'release'))[0], d = x[2];
+          return pr.then(function () { return repo.decideCorrection(mem, C.decision(g, d.by, d.status, d.reason, d.ago ? at(d.ago) : new Date().toISOString(), { act: U.randomId(10) }), 'example-session'); });
+        }, Promise.resolve());
       }).then(function () {
         /* Next week's release, planned in the app by duplicating an earlier one, due in a few hours so it shows on Home. */
         var last = runs.filter(function (r) { return r.title === 'Release 2026.10.09'; })[0], due = new Date(Date.now() + 3 * 60 * MIN);

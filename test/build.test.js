@@ -50,6 +50,12 @@ rule('Release text can never close the page\'s script', () => {
   assert.deepStrictEqual(JSON.parse(js), [{ t: '</script><!--<script> \u2028 \u2029' }]);
 });
 
+rule('People see "your AI assistant", never "LLM", anywhere in the built app', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'flightdeck.html'), 'utf8').replace(/[A-Za-z0-9+/=]{200,}/g, '');
+  const hits = html.match(/.{0,40}\bLLMs?\b.{0,40}/g) || [];
+  assert.deepStrictEqual(hits, []);
+});
+
 rule('The built page carries the newest release as its version', () => {
   const html = fs.readFileSync(path.join(ROOT, 'dist', 'flightdeck.html'), 'utf8');
   assert.ok(html.includes('<meta name="flightdeck-version" content="' + GOOD[0].version + '">'));
