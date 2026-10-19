@@ -1330,11 +1330,13 @@
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
-  function refreshNow() { if (!state.fs || isBusy() || document.hidden) return; var now = since(); if (inRun()) { lastRun = now; lastAll = -Infinity; refreshRun(); } else { lastAll = now; load(); } }
-  window.addEventListener('focus', refreshNow);
+  /* resumed: after a gap, the whole folder is due too, so it's read right after the open run. A plain focus rereads only
+     the open run. */
+  function refreshNow(resumed) { if (!state.fs || isBusy() || document.hidden) return; var now = since(); if (inRun()) { lastRun = now; if (resumed === true) lastAll = -Infinity; refreshRun(); } else { lastAll = now; load(); } }
+  window.addEventListener('focus', function () { var gap = Date.now() - beat.wall; refreshNow(gap > 60000 || gap < -120000); });
   /* Coming back (the tab shown again, the page restored, the network back) after more than a minute on the wall clock
      without a beat (the computer slept): refresh at once. The folder's own clock (repo) then finds everything past its age. */
-  function resumed() { var gap = Date.now() - beat.wall; if (gap > 60000 || gap < 0) refreshNow(); else since(); }
+  function resumed() { var gap = Date.now() - beat.wall; if (gap > 60000 || gap < -120000) refreshNow(true); else since(); }
   document.addEventListener('visibilitychange', resumed);
   window.addEventListener('pageshow', resumed);
   window.addEventListener('online', resumed);

@@ -24,10 +24,10 @@ Flightdeck reads and writes files in the team folder on your computer. OneDrive 
 
 ## What refreshing costs
 
-While a run is open, Flightdeck rereads that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and how much each run costs depends on how long it's been, measured on this computer's own timer, never its clock (setting the clock back changes nothing):
+While a run is open, Flightdeck rereads that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and how much each run costs depends on how long it's been, measured on both this computer's timer and its clock, whichever says more time has passed. Setting the clock back never delays anything (a small step back, as time sync makes, is ignored; a big one makes Flightdeck read everything again), and time the computer spent asleep counts:
 
 - **Running runs and runs that ended in the last week** have their file sizes and times checked on every refresh, and are read again as soon as either changes.
-- **A finished run is checked at least every 10 minutes and read in full at least every hour; a running run you don't have open, at least every 5 minutes.** The checks are spread out, a share on each refresh, never all at once. Size and time are only a shortcut: an edit that keeps a file's size and time (which some sync tools and editors can do) still shows up by the next full read.
+- **A finished run is checked at least every 10 minutes and read in full at least every hour; a running run, at least every 5 minutes, including the one you have open, and however often you save or add notes yourself.** The checks are spread out, a share on each refresh, never all at once. Size and time are only a shortcut: an edit that keeps a file's size and time (which some sync tools and editors can do) still shows up by the next full read.
 - **Decisions** (corrections and follow-ups) are listed on every refresh. A new one is read at once; one already read is read again at least every hour; one that couldn't be read is tried on every refresh.
 - **Refresh** in the top bar reads everything now. So does **Folder health**.
 - While the tab is hidden, or Flightdeck is busy saving, nothing is read. When you come back, whatever went past its time while you were away is read first.

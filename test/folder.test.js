@@ -1269,4 +1269,39 @@ rule('A wall clock that jumps forward makes runs due; both clocks moving togethe
   assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'fresh', 'a jump forward on the wall clock makes it due');
 });
 
+/* ---------- 1.17 slice 1b second review: writes more often than refreshes, the open run's reread, small clock steps ---------- */
+async function noteCadence(saveEvery, loadEvery, openEvery) {
+  const fs = folder(), clock = ticking(), r = await started(fs);
+  await repo.addNote(fs, { process: 'release', id: 'run1' }, 'blake-laptop', { id: 'b1', at: NOW, by: 'person-blake', step: 'x', text: 'blake first' });
+  await repo.loadAll(fs, { clock });
+  sameSizeEdit(fs, 'runs/release/run1/notes-blake-laptop.jsonl', 'blake first', 'blake other');
+  const has = run => run && run._notes.some(n => n.text === 'blake other');
+  for (let t = 1000; t <= 60 * MIN; t += 1000) {
+    clock.ahead(1000);
+    if (saveEvery && t % saveEvery === 0) { r.details.commit = 'c' + t; await repo.saveRun(fs, r, 'casey-laptop'); }
+    if (openEvery && t % openEvery === 0 && has(await repo.loadRun(fs, 'release', 'run1'))) return t;
+    if (loadEvery && t % loadEvery === 0) { const res = (await repo.loadAll(fs, { clock })).reads['release/run1']; if (has(res.kind === 'fresh' ? res.run : res.build())) return t; }
+  }
+  return null;
+}
+for (const [save, every] of [[50000, 60000], [30000, 30000], [45000, 60000]]) {
+  rule('Saving every ' + save / 1000 + ' s with a refresh every ' + every / 1000 + ' s still reads a running run in full within 5 minutes', async () => {
+    const at = await noteCadence(save, every, 0);
+    assert.ok(at != null && at <= 5 * MIN + every, 'seen at ' + at);
+  });
+}
+rule('The open run\'s 5-second reread reads its notes in full past the 5-minute age, even while this window writes every 45 s', async () => {
+  const at = await noteCadence(45000, 0, 5000);
+  assert.ok(at != null && at <= 5 * MIN + 5000, 'seen at ' + at);
+});
+
+rule('A small step back on the wall clock (as time sync does) while elapsed time moves on costs a routine refresh; a big one makes everything due', async () => {
+  const fs = folder(), clock = ticking(); let wall = Date.parse(NOW); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock, now: wall });
+  sameSizeEdit(fs, 'runs/release/old1/run.json', 'Ended old1', 'Ended OLD1');
+  for (const back of [1, 500, 30000]) { clock.ahead(30000); wall += 30000 - 30000 - back; assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'cached', back + ' ms back: not everything'); }
+  clock.ahead(30000); wall -= 3 * MIN;
+  assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'fresh', '3 minutes back: everything is due');
+});
+
 run();

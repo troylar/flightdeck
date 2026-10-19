@@ -155,7 +155,10 @@ PF.repo = (function () {
         }
         /* full: read every file in full, bypassing the notes cache (Refresh, or past the run's maximum content age). */
         function read(full) {
-          var t0 = sched.now, all = deep || full;
+          /* However this read came about (a run not cached since this window wrote to it, sizes or times that changed), it's
+             a full read when the run's last full read is past its maximum age: writing more often than refreshing never
+             postpones it. */
+          var t0 = sched.now, all = deep || full || overdue(cache, key, t0);
           /* A folder whose reads don't give their own size and time: fingerprint before and after reading, and cache only if
              nothing changed in between. */
           if (!cache.sized || !fs.stat) {
@@ -188,8 +191,8 @@ PF.repo = (function () {
           /* A full read (every file read now, none from memory) starts the content age again; anything less keeps the age of
              the last full read, which outlives the entry (this window's own writes drop the entry, and must never extend the
              age: notes may still come from memory). Never read in full here: due at once. */
-          var age = all || entry.full ? t0 : cache.contentAt[key] != null ? cache.contentAt[key] : -Infinity;
-          cache.contentAt[key] = age;
+          var rec = cache.contentAt[key], age = all || entry.full ? t0 : rec ? rec.at : -Infinity;
+          cache.contentAt[key] = { at: age, ended: entry.ended };
           if (fp) cache.runs[key] = { entry: entry, fp: fp, metaAt: t0, contentAt: age };
           var run = build(entry, cache);
           return { kind: 'fresh', run: run, fileHash: entry.fileHash, build: function () { return build(entry, cache); } };
@@ -204,6 +207,19 @@ PF.repo = (function () {
         return { reads: reads, keys: keys, complete: true, unreadable: unreadable };
       });
     });
+  }
+  /* Whether a run's last full read (cache.contentAt, which outlives its cache entry) is past its maximum age at now, in the
+     folder's own elapsed time; a run never read in full, or an age that's ahead of now, is overdue. */
+  function overdue(cache, key, now) {
+    var rec = cache.contentAt[key]; if (!rec || now == null) return true;
+    return now - rec.at >= (rec.ended ? config.endedMs : config.liveMs) || now < rec.at;
+  }
+  /* The folder's elapsed time right now, without starting a new refresh: for the open run's reread between refreshes. A
+     clock that went back (elapsed at all, or the wall clock by more than 2 minutes) gives null: everything is overdue. */
+  function peekNow(cache) {
+    var c = cache.clk; if (!c) return null;
+    var dm = (cache.clockFn || elapsed)() - c.mono, dw = Date.now() - c.wall;
+    return dm < 0 || dw < -BACK_MS ? null : c.v + Math.max(0, dm, dw);
   }
   /* A run's stamps all came with its reads (or from memory under the same stamps). */
   function isExact(entry) { return ['run.json'].concat(entry.names.filter(function (n) { return /^notes-[\w-]+\.jsonl$/.test(n); })).every(function (n) { return entry.stamps[n] != null; }); }
@@ -235,8 +251,10 @@ PF.repo = (function () {
      maxMs) picks every key at or past maxMs since its last time, then the oldest others until this kind has had its share
      of the time since the last refresh: keys × elapsed / maxMs, carried over, so the work is spread evenly and each key
      comes up within maxMs. */
+  /* A wall clock that steps back less than this while elapsed time moves on is time sync, not a clock set back. */
+  var BACK_MS = 120000;
   function scheduler(cache, clock, deep, wall) {
-    var mono = clock(), c = cache.clk, dm = c ? mono - c.mono : 0, dw = c ? wall - c.wall : 0, back = dm < 0 || dw < 0;
+    var mono = clock(), c = cache.clk, dm = c ? mono - c.mono : 0, dw = c ? wall - c.wall : 0, back = dm < 0 || dw < -BACK_MS;
     var dt = Math.max(0, dm, dw), now = (c ? c.v : 0) + dt;
     cache.clk = { mono: mono, wall: wall, v: now }; cache.credit = cache.credit || {};
     return { now: now, wall: wall, deep: deep, due: function (name, keys, lastOf, maxMs) {
@@ -343,7 +361,14 @@ PF.repo = (function () {
   /* bad: a list that a run.json which can't be understood is added to (it's never just left out). */
   function loadRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
     cacheIn = cacheIn || cacheOf(fs);
-    return readRun(fs, proc, id, cacheIn, deep, allRuns, bad).then(function (entry) { return entry ? build(entry, cacheIn) : null; });
+    /* The open run's reread takes unchanged notes from memory, except past the run's maximum content age, when it reads
+       them all: the same age the refresh keeps, so this window's own writes never postpone it. */
+    var key = proc + '/' + id, now = peekNow(cacheIn), full = deep || (!!cacheIn.contentAt && !!cacheIn.contentAt[key] && overdue(cacheIn, key, now));
+    return readRun(fs, proc, id, cacheIn, full, allRuns, bad).then(function (entry) {
+      if (!entry) return null;
+      if ((full || entry.full) && now != null && cacheIn.contentAt) cacheIn.contentAt[key] = { at: now, ended: entry.ended };
+      return build(entry, cacheIn);
+    });
   }
   /* A run folder read into a frozen entry: run.json's text, each notes file's text, the conflict copies found, and when to
      look again at a save that may still be arriving. Objects are built from it (build), never kept in it. It also records
@@ -517,7 +542,8 @@ PF.repo = (function () {
   function loadAll(fs, opts) {
     opts = opts || {};
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
-    var sched = scheduler(cache, opts.clock || elapsed, deep, opts.now != null ? opts.now : Date.now());
+    cache.clockFn = opts.clock || elapsed;
+    var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
     var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
     /* The folder itself must list: one that can't is unreadable, never empty. */
     return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),

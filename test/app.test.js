@@ -5250,4 +5250,33 @@ rule('App: after the computer slept (elapsed timer paused, wall clock 8 hours on
   assert.ok(/RELEASE 2026\.09\.18/.test(app.html()), 'coming back after sleep reads what went past its age');
 });
 
+rule('App: focusing the window while a run is open rereads that run, never the whole folder each time', async () => {
+  const k = clocks(), app = boot({ Date: k.D, performance: k.perf }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(40);
+  const n = countLoads(app);
+  for (let s = 1; s <= 300; s++) { k.ahead(1000); if (s % 10 === 0) app.focus(); app.every(); await app.tick(5); }
+  assert.ok(n.loads <= 6, 'about one full refresh a minute, as without focusing: ' + n.loads);
+});
+
+rule('App: a run open in this window that also writes a note every 45 s still shows another computer\'s same-size note edit within its 5-minute age', async () => {
+  const k = clocks(), app = boot({ Date: k.D, performance: k.perf }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), [proc, id] = run.key.split('/'), np = run.path.replace('run.json', 'notes-blake-laptop.jsonl');
+  await app.fs.write(np, JSON.stringify({ id: 'b1', at: new Date().toISOString(), by: 'person-blake', step: 'announce', text: 'BLAKEFIRST' }) + '\n');
+  for (let i = 0; i < 70; i++) { k.ahead(1000); app.every(); await app.tick(5); }
+  app.click('select', 'announce'); await app.tick(20);
+  assert.ok(/BLAKEFIRST/.test(app.html()), 'set-up: the note shows on its step');
+  const f = app.fs.files[np]; app.fs.files[np] = { t: f.t.replace('BLAKEFIRST', 'BLAKEOTHER'), m: f.m };
+  let seen = null;
+  for (let s = 1; s <= 8 * 60 && seen == null; s++) {
+    k.ahead(1000);
+    if (s % 45 === 0) await app.PF.repo.addNote(app.fs, { process: proc, id }, 'casey-laptop', { id: 'c' + s, at: new Date().toISOString(), by: 'person-casey', step: 'announce', text: 'casey ' + s });
+    app.every(); await app.tick(5);
+    if (/BLAKEOTHER/.test(app.html())) seen = s;
+  }
+  assert.ok(seen != null && seen <= 6 * 60, 'shown at ' + seen + ' s');
+});
+
 run();
