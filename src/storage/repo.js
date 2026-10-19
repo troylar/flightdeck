@@ -1227,7 +1227,13 @@ PF.repo = (function () {
        decoded once. A file whose size changed between the two, or that turned into a link, is marked so; the recheck after
        collecting reads records again and stats the rest, and any file that changed is captured again, with everything that
        depends on it. */
-    var snaps = {}, done = {};
+    var snaps = {}, done = {}, decHash = {};
+    /* Everything the collection holds in memory is counted, as it's read: one budget for the whole collection (the cap in
+       the browser). Past it nothing more is kept: files not read yet are left out, named, and the pack is partial. */
+    var retained = { now: 0, peak: 0, limit: cap || (keepAll ? 1024 : 512) * 1048576, full: false };
+    function hold(n) { retained.now += n; if (retained.now > retained.peak) retained.peak = retained.now; }
+    /* Let go of a snapshot's bytes: what it held no longer counts. */
+    function forget(path) { var r = done[path]; if (r && r.bytes) r.bytes.forEach(function (u) { retained.now -= u.length; }); delete snaps[path]; delete done[path]; }
     function keeps(path, size) { return keepAll || (size <= recordMax && (!isAttachment(path) || /\.(png|jpe?g|gif|webp)$/i.test(path))); }
     function isAttachment(path) { return /^runs\/[^/]+\/[^/]+\/files\//.test(path); }
     function hashBlob(b, keep) {
@@ -1238,7 +1244,9 @@ PF.repo = (function () {
         return b.slice(off, Math.min(size, off + EV_CHUNK)).arrayBuffer().then(function (ab) {
           var u = new Uint8Array(ab);
           if (!u.length) throw new Error('A file ended early while it was read.');
-          h.update(u); crc = Z.crc32(u, crc); if (parts) parts.push(u); off += u.length;
+          /* Kept bytes are counted chunk by chunk: past the budget this file is let go, and nothing more is kept. */
+          if (parts && retained.now + u.length > retained.limit) { parts.forEach(function (x) { retained.now -= x.length; }); retained.full = true; if (b.close) b.close(); return { skipped: true }; }
+          h.update(u); crc = Z.crc32(u, crc); if (parts) { parts.push(u); hold(u.length); } off += u.length;
           return evYield().then(step);
         });
       }
@@ -1247,10 +1255,12 @@ PF.repo = (function () {
     function capture(path) {
       return statOf(path).then(function (size) {
         if (size == null) return { gone: true };
+        if (retained.full && keeps(path, size)) return { skipped: true, statSize: size };
         return ro.blob(path).then(null, function (e) { if (e && e.link) return null; throw e; }).then(function (b) {
           if (!b) return { gone: true, statSize: size };
           return hashBlob(b, keeps(path, size)).then(function (r) {
             r.statSize = size;
+            if (r.skipped) return r;
             if (r.bytes) { r.image = r.bytes.length ? E.imageType(path, r.bytes[0]) : ''; if (!isAttachment(path) && r.size <= recordMax) r.text = decoded(E.text(E.join(r.bytes))); }
             return r;
           });
@@ -1263,11 +1273,11 @@ PF.repo = (function () {
     }
     /* A record's text from its snapshot, sized first: one over the limit is never read. */
     function record(path, limit) {
-      if (done[path]) return Promise.resolve(done[path].text != null ? { text: done[path].text } : done[path].gone ? { missing: true } : { over: done[path].size });
+      if (done[path]) return Promise.resolve(done[path].text != null ? { text: done[path].text } : done[path].gone ? { missing: true } : done[path].skipped ? { skipped: true } : { over: done[path].size });
       return statOf(path).then(function (size) {
         if (size == null) return { missing: true };
         if (size > (limit || recordMax)) return { over: size };
-        return snapshot(path).then(function (r) { return r.gone ? { missing: true } : r.text != null ? { text: r.text } : { over: r.size }; });
+        return snapshot(path).then(function (r) { return r.gone ? { missing: true } : r.skipped ? { skipped: true } : r.text != null ? { text: r.text } : { over: r.size }; });
       });
     }
     function textOf(path) { return done[path] && done[path].text != null ? done[path].text : null; }
@@ -1329,19 +1339,24 @@ PF.repo = (function () {
       if (procCache[proc]) return procCache[proc];
       var dirs = ['corrections', 'suggestions'];
       /* Decisions are evidence: always read (each sized first), and packed when they belong to a selected run. */
-      var decisions = Promise.all(dirs.map(function (dir) {
+      var decisions = dirs.reduce(function (q, dir) { return q.then(function (acc) {
         return ro.list(dir + '/' + proc).then(function (items) {
-          return limited(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 8, function (n) {
+          /* One at a time, so at most one decision's bytes are held while they're classified. */
+          return limited(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 1, function (n) {
             var path = dir + '/' + proc + '/' + n;
             return record(path, DEC_MAX).then(function (r) {
               var o = r.text == null ? undefined : json(r.text), d = o === undefined ? null : C.cleanDecision(o, proc, n);
               if (d && (dir === 'suggestions') !== (d.kind === 'fix-decision')) d = null;
               if (d) { d._file = n; d._dir = dir; }
-              return { path: path, dir: dir, name: n, d: d };
+              /* Read one at a time and let go at once: only the cleaned decision (small) and its hash are kept. One that
+                 belongs to the pack is read again when the pack is read, and must have the same hash. */
+              if (done[path] && done[path].sha256) decHash[path] = done[path].sha256;
+              forget(path);
+              return { path: path, dir: dir, name: n, d: d, skipped: !!r.skipped };
             });
           });
-        });
-      })).then(function (x) { return x[0].concat(x[1]); });
+        }).then(function (got) { return acc.concat(got); });
+      }); }, Promise.resolve([]));
       /* Other runs and the versions are read only to work out where corrections stand: sizes first, within one budget. */
       var runMetas = ro.list('runs/' + proc).then(function (items) {
         return limited(items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return i.name; }).sort(), 8, function (id) {
@@ -1439,7 +1454,7 @@ PF.repo = (function () {
           p.decListing = ctx.decisions.map(function (x) { return x.path; }).sort();
           ctx.decisions.forEach(function (x) {
             var d = x.d;
-            if (!d) { add(x.path, { role: x.dir === 'suggestions' ? 'suggestion' : 'correction', label: x.dir === 'suggestions' ? 'A decision on a suggested fix (before 1.13)' : 'A decision on corrections', flag: 'couldn\'t be read; may relate to this run' }); return; }
+            if (!d) { add(x.path, { role: x.dir === 'suggestions' ? 'suggestion' : 'correction', label: x.dir === 'suggestions' ? 'A decision on a suggested fix (before 1.13)' : 'A decision on corrections', flag: x.skipped ? 'not read: the pack reached the most it may hold in memory here' : 'couldn\'t be read; may relate to this run' }); return; }
             if (d.kind === 'fix-decision' ? p.ids.fix[d.suggestion] : ((d.members || []).some(function (m) { return p.ids.corr[m]; }) || mineGroups[d.group] || p.ownGroups[d.group]))
               add(x.path, d.kind === 'fix-decision' ? { role: 'suggestion', label: 'A decision on a suggested fix (before 1.13)' } : { role: 'correction', label: 'A decision on corrections' });
           });
@@ -1517,7 +1532,8 @@ PF.repo = (function () {
       }, Promise.resolve()).then(function () {
         return limited(Object.keys(inPack), 8, function (path) {
           var s = done[path];
-          if (!s) return null;
+          if (!s || s.skipped) return null;
+          if (decHash[path] && s.sha256 !== decHash[path]) { inPack[path].forEach(function (k) { note(path, path.split('/').pop() + ' changed', k); }); return null; }
           if (s.gone || s.size !== s.statSize) { inPack[path].forEach(function (k) { note(path, changeOf(path, s), k); }); return null; }
           return statOf(path).then(function (z) {
             if (z == null || z !== s.size) { inPack[path].forEach(function (k) { note(path, changeOf(path, { gone: z == null, size: z, statSize: s.size }), k); }); return; }
@@ -1608,6 +1624,14 @@ PF.repo = (function () {
       plans.forEach(function (p) { p.files.forEach(function (f) { if (!all[f.path]) { all[f.path] = { path: f.path, size: f.size, role: f.role, label: f.label, flag: f.flag, runs: [] }; list.push(all[f.path]); } if (all[f.path].runs.indexOf(p.key) < 0) all[f.path].runs.push(p.key); }); });
       return list.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; });
     }
+    /* The estimate, before anything else is read in full: refused here if it can't fit. */
+    function fullEstimate() {
+      var list = assignPacks(fileList()), est = E.estimate(list, cap);
+      col.estimate = est.bytes || 0;
+      col.exclusions = exclusions();
+      if (!est.ok) throw new Error(est.why + ' Export fewer runs, or leave out attachments.');
+      return list;
+    }
     var keysAll = null;
     progress({ phase: 'list' });
     return runKeys().then(preEstimate).then(function (keys) {
@@ -1620,12 +1644,8 @@ PF.repo = (function () {
         peopleOut = [{ path: PF.people.FILE, reason: 'The people directory and its email fields are left out.' + (r.text != null ? ' The page shows names and IDs from it.' : ' It was too big to read for names, so the page shows IDs.') }];
       });
     }).then(function () {
-      /* The estimate, before anything else is read in full: refused here if it can't fit. */
-      var list = assignPacks(fileList()), est = E.estimate(list, cap);
-      col.estimate = est.bytes || 0;
-      col.exclusions = exclusions();
-      if (!est.ok) throw new Error(est.why + ' Export fewer runs, or leave out attachments.');
-      if (opts.plan) { col.files = list; col.runs = plans.map(function (p) { return { key: p.key }; }); return col; }
+      var list = fullEstimate();
+      if (opts.plan) { col.files = list; col.runs = plans.map(function (p) { return { key: p.key }; }); col.retained = { peak: retained.peak, limit: retained.limit }; return col; }
       var attempt = 1;
       function readAll() {
         var list = fileList(), n = 0;
@@ -1642,10 +1662,11 @@ PF.repo = (function () {
           /* Capture again what changed, and everything that depends on it: every run is planned again from the snapshots
              still valid, the process context worked out again. */
           attempt++;
-          paths.forEach(function (pth) { delete snaps[pth]; delete done[pth]; });
-          Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) { delete snaps[pth]; delete done[pth]; } }); });
-          procCache = {};
-          return planAll(keysAll).then(round);
+          paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
+          Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
+          procCache = {}; decHash = {};
+          /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
+          return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });
       }
       return round().then(function (left) {
@@ -1653,8 +1674,12 @@ PF.repo = (function () {
         col.unresolved = undated.slice();
         left.forEach(function (x) { var w = x.what.filter(function (v, i, a) { return a.indexOf(v) === i; }); col.unresolved.push('The run changed while this pack was made: ' + w.join(', ') + '.' + (plans.length > 1 ? ' (' + x.key + ')' : '')); });
         col.exclusions = exclusions();
+        var skipped = fileList().filter(function (f) { return done[f.path] && done[f.path].skipped; });
+        skipped.forEach(function (f) { col.exclusions.push({ path: f.path, reason: 'not read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')', size: done[f.path].statSize }); });
+        if (skipped.length) col.unresolved.push('The pack reached the most it may hold in memory here (' + E.size(retained.limit) + '), so ' + skipped.length + ' file' + (skipped.length === 1 ? ' wasn\'t' : 's weren\'t') + ' read. They\'re listed as left out. Export fewer runs, or leave out attachments.');
+        col.retained = { peak: retained.peak, limit: retained.limit };
         /* A file still gone after the last attempt is named in unresolved, never packed. */
-        col.files = assignPacks(fileList().filter(function (f) { return done[f.path] && !done[f.path].gone; })).map(function (f) {
+        col.files = assignPacks(fileList().filter(function (f) { return done[f.path] && !done[f.path].gone && !done[f.path].skipped; })).map(function (f) {
           var s = done[f.path];
           return Object.assign(f, { size: s.size, sha256: s.sha256, crc: s.crc, bytes: s.bytes, image: s.image || '' });
         });

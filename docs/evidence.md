@@ -55,6 +55,8 @@ The people directory and its email fields are left out. Original records and att
 - `flightdeck export` has only the ZIP limits. It streams: attachments are hashed 1 MB at a time and read again when the pack is written, checked against the same size, CRC and SHA-256; a file that changed in between stops the pack.
 - Records (run.json, notes, decisions, a version's files) are read in full only after their size is checked, never over 100 MB; a pack's size is first estimated from listings and sizes alone. No file is read before its size is checked (people.json too, up to 4 MB). Other runs and versions of the process, read only to work out where corrections stand, share one budget (64 MB, or a quarter of the cap). Past it, nothing is dropped: decisions on the run's own corrections are still packed (a correction's group is known from the correction alone), each correction's standing says "Can't be confirmed from this pack", and the pack is partial, saying why.
 - A picture shared by many runs (a version's screenshot) is shown once on the page; later runs point to it.
+- Everything the collection holds in memory is counted as it's read, against one budget (the cap in the browser; 1 GB, or 512 MB of records and pictures, on the command line). Decisions that don't belong to the pack are read one at a time and let go once they're sorted, keeping only what they say and their hash. Past the budget nothing more is read: what's left is listed as left out ("not read: the pack reached the most it may hold in memory here") and the pack is partial.
+- Every attempt starts with the same size check: a file added while a pack is checked is sized, and the cap applied, before a retry reads anything.
 
 ## The readable report
 

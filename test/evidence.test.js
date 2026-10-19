@@ -445,6 +445,7 @@ rule('No file is read before its size is checked, every version record a pack ke
   assert.deepStrictEqual(early, [], 'read before sized');
   assert.ok(!big.some(q => reads[q]) && !reads['people.json'], 'nothing over budget was read: ' + Object.keys(reads).filter(q => big.indexOf(q) >= 0 || q === 'people.json').join(', '));
   assert.ok(res.col.exclusions.some(x => x.path === 'people.json'), 'people.json is still named as left out');
+  assert.ok(res.col.retained && res.col.retained.peak <= res.col.retained.limit && res.col.retained.limit <= 150 * 1048576, 'held at most ' + JSON.stringify(res.col.retained));
 });
 
 rule('A UTF-8 byte-order mark on a record is read the same way everywhere: the pack is complete, and the original keeps it', async () => {
@@ -463,6 +464,40 @@ rule('A file and a folder whose names differ only in letter case can\'t both unp
   assert.ok(fileRec && fileRec.pack !== 'originals/runs/release/run1/extra' && z[fileRec.pack].data.toString() === 'file', fileRec && fileRec.pack);
   assert.ok(z['originals/runs/release/run1/EXTRA/report.txt']);
   assert.ok(/folder/.test((Z.checkNames(['a/x', 'A']) [0] || {}).why || ''), 'checkNames refuses a file named like a folder');
+});
+
+/* ---------- Third review (3ba32c5) ---------- */
+rule('Decisions unrelated to the pack are read one at a time and let go: what the collection holds in memory stays far below the budget', async () => {
+  const files = Object.assign({}, fixture.files);
+  for (let i = 0; i < 40; i++) files['corrections/release/z' + i + '.w9.1.json'] = Buffer.from(JSON.stringify({ kind: 'correction-decision', group: 'zz' + i, status: 'declined', reason: 'no', by: 'person-avery', at: NOW, rev: 1, members: ['other' + i], pad: 'x'.repeat(1000000) }));
+  const { res } = await pack(new BytesFS(files), { run: 'release/run1' }, { cap: 150 * 1048576 });
+  assert.strictEqual(res.status, 'complete', res.col.unresolved.join(' '));
+  assert.ok(!res.col.files.some(x => /\/z\d+\.w9/.test(x.path)), 'none of them is in the pack');
+  assert.ok(res.col.retained.peak <= 4 * 1048576 + res.col.files.reduce((a, f) => a + f.size, 0), 'held at most ' + (res.col.retained.peak / 1048576).toFixed(1) + ' MB');
+});
+
+rule('Files added while a pack is checked are sized and checked against the cap before a retry reads anything', async () => {
+  const big = 'runs/release/run1/files/20261017-eeeeee-w2-late.bin';
+  let lists = 0;
+  const reads = [];
+  const f = await folder({ hooks: { list: (q, x) => { if (q === 'runs/release/run1' && ++lists === 3) x.files.set(big, crypto.randomBytes(15 * 1048576)); }, blob: q => reads.push(q) } });
+  await assert.rejects(repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => {}, cap: 10 * 1048576 }), /limit/);
+  assert.ok(lists >= 4, 'the retry listed the folder again');
+  assert.ok(reads.indexOf(big) < 0, 'the new file was never read');
+});
+
+rule('The collection never holds more than its budget in memory: past it, nothing more is read and the pack is partial, saying what was left out', async () => {
+  const files = Object.assign({}, fixture.files);
+  for (let i = 0; i < 6; i++) files['runs/release/run1/files/20261017-ff' + i + '-w2-part.bin'] = crypto.randomBytes(1048576);
+  const f = new BytesFS(files), parts = [];
+  // A cap the estimate allows, with files that grow once they're listed, so only the accounting while reading can stop it.
+  const stat = f.stat.bind(f);
+  f.stat = q => /-part\.bin$/.test(q) ? stat(q).then(st => st && Object.assign({}, st, { size: 1 })) : stat(q);
+  const res = await repo.exportEvidence(f, { run: 'release/run1' }, { sink: u => parts.push(u), cap: 3 * 1048576, tz: 'UTC' }).then(r => r, e => ({ error: e }));
+  assert.ok(res.col, res.error && res.error.message);
+  assert.ok(res.col.retained.peak <= 3 * 1048576, 'peak ' + res.col.retained.peak);
+  assert.strictEqual(res.status, 'partial');
+  assert.ok(res.col.exclusions.some(x => /-part\.bin$/.test(x.path) && /memory/.test(x.reason)) && res.col.unresolved.some(u => /memory/.test(u)), JSON.stringify(res.col.unresolved));
 });
 
 run();
