@@ -697,6 +697,9 @@ rule('What a person applied (their own wording) is recognized on the next look, 
   const again = C.review(add, r.text, null, { applied });
   same([again.state, again.result.text], ['already', 'Verify twice']);
   assert.strictEqual(C.review(add, RELEASE, null, { applied }).state, 'clean', 'a record that the draft no longer matches is ignored');
+  // Moved somewhere else afterwards, the remembered step isn't where it was asked for: the normal review applies.
+  const moved = ok(O.apply(r.text, { op: 'moveTo', step: r.added, to: { phase: 'deploy', where: 'end', track: -1 } }));
+  assert.strictEqual(C.review(add, moved, null, { applied }).state, 'clean', 'not linked to a step at another place');
   const w = group({ step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' });
   const rw = C.review(w, RELEASE, 'New pods stay up for 30 minutes');
   assert.strictEqual(C.review(w, rw.text, null, { applied: C.outcome(w, rw.text) }).state, 'already');

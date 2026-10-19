@@ -4713,7 +4713,12 @@ PF.corrections = (function () {
   function resultStep(g, o, id) {
     if (g.change.op !== 'add') return draftStep(o, g.target.step);
     if (id) return draftStep(o, id);
-    var ch = g.change, want = norm(ch.text), anchor = draftStep(o, g.target.step), at = null;
+    var at = placed(g, o);
+    return at && norm(at.text) === norm(g.change.text) ? at : null;
+  }
+  /* The step at the place a missing step was asked for, whatever it says, or null. */
+  function placed(g, o) {
+    var ch = g.change, anchor = draftStep(o, g.target.step), at = null;
     if (ch.where !== 'end') {
       if (!anchor) return null;
       var ps = anchor.phase.steps, k = ps.indexOf(anchor);
@@ -4723,7 +4728,7 @@ PF.corrections = (function () {
       var tr = anchor ? anchor.track : ph.tracks.length - 1, grp = ph.steps.filter(function (x) { return x.track === tr; });
       at = grp[grp.length - 1] || null;
     }
-    return at && norm(at.text) === want ? at : null;
+    return at;
   }
   /* A fingerprint of what a group changes, as this text has it: the step's signature, and for a move, its place too. A
      decision records it, so a later change to that step shows as "Changed since applied". */
@@ -4761,8 +4766,9 @@ PF.corrections = (function () {
     if (t.manual) return Object.assign(out, { state: 'manual', reason: t.manual });
     /* What this window applied (perhaps in a person's own words) whose decision wasn't written yet: the draft has it. */
     var ap = opts && opts.applied;
-    if (edited == null && ap && ap.sig !== U.hash('gone') && outcome(g, text, ap.step).sig === ap.sig) {
-      var r1 = resultStep(g, o, ap.step);
+    var r1 = ap && resultStep(g, o, ap.step);
+    /* A remembered new step counts only where it was asked for; moved elsewhere, it's another step. */
+    if (edited == null && ap && ap.sig !== U.hash('gone') && outcome(g, text, ap.step).sig === ap.sig && (ch.op !== 'add' || (r1 && placed(g, o) === r1))) {
       if (ch.op === 'add') out.now = view(o, r1);
       return Object.assign(out, { state: 'already', result: view(o, r1), text: text });
     }
