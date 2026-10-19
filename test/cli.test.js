@@ -462,4 +462,32 @@ rule('A disk error at any step of a write leaves the file as it was, never missi
   });
 });
 
+rule('A file still waiting on an older merge also gets this version\'s new default, and counts until every copy is merged', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'Ours');
+  write(dir, '.flightdeck/updates/1.14.9/' + STATUS, 'an older default, not merged yet');
+  let r = cli('install', dir);
+  assert.strictEqual(r.code, 0, r.out);
+  const mine = '.flightdeck/updates/' + VER + '/';
+  assert.strictEqual(read(dir, mine + STATUS), EX[STATUS], 'this version\'s default is staged too');
+  assert.ok(read(dir, mine + 'README.md').includes(STATUS));
+  assert.strictEqual(read(dir, STATUS), 'Ours');
+  fs.unlinkSync(at(dir, '.flightdeck/updates/1.14.9/' + STATUS));
+  assert.strictEqual(cli('install', dir, '--check').code, 3, 'this version\'s copy still waits');
+  fs.unlinkSync(at(dir, mine + STATUS));
+  assert.strictEqual(cli('install', dir, '--check').code, 0, 'both merged: kept');
+});
+
+rule('An app update keeps a checked copy of the app it replaces, the old preflight.html too', () => {
+  const dir = tmp(), old = '<meta name="flightdeck-version" content="1.0.0">older app', legacy = '<meta name="preflight-version" content="1.7.0">legacy app';
+  fs.writeFileSync(path.join(dir, 'flightdeck.html'), old);
+  fs.writeFileSync(path.join(dir, 'preflight.html'), legacy);
+  const r = cli('install', dir, '--app-only');
+  assert.ok(r.code === 0 && /Copies of the files it replaced are in/.test(r.out), r.out);
+  const rep = at(dir, '.flightdeck/updates/' + VER + '/replaced'), run = path.join(rep, fs.readdirSync(rep)[0]);
+  assert.strictEqual(fs.readFileSync(path.join(run, 'flightdeck.html'), 'utf8'), old);
+  assert.strictEqual(fs.readFileSync(path.join(run, 'preflight.html'), 'utf8'), legacy);
+});
+
 run();

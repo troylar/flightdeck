@@ -182,8 +182,11 @@ function classify(t, files, base, force) {
     const parts = f.rel.split('/'), now = readInside(t.dir, parts), want = hash(managed(f.key, f.text));
     const item = { key: f.key, rel: f.rel, parts, text: f.text, now, want, staged: staged(t, f.rel) };
     if (now === null) return Object.assign(item, { status: t.record.files[f.key] ? 'missing' : 'new' });
-    if (item.staged.length && !force) return Object.assign(item, { status: 'merge', waiting: item.staged.map((x) => x.version).join(', ') });
     const have = hash(managed(f.key, now));
+    /* Still waiting on a merge. When this version's default is new to the person (not already staged, not what the file
+       already says), it's staged too, so an older pending merge never hides newer instructions. */
+    if (item.staged.length && !force) return Object.assign(item, { status: 'merge', waiting: item.staged.map((x) => x.version).join(', '),
+      stage: have !== want && !item.staged.some((x) => x.version === t.version || hash(managed(f.key, x.text)) === want) });
     if (have === want) return Object.assign(item, { status: 'current' });
     if ((base[f.baseKey || baselineKey(f.key)] || {})[have]) return Object.assign(item, { status: 'update' });
     if (force) return Object.assign(item, { status: 'forced' });
@@ -256,7 +259,7 @@ function contract(t, files, opts) {
   const items = classify(t, files, base, opts.force);
   if (opts.check) return items;
   for (const i of items) {
-    if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting)) {
+    if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
       continue;
     }
@@ -272,14 +275,14 @@ function contract(t, files, opts) {
     }
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
-  if (merges.some((i) => !i.waiting)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.staged.some((x) => x.version === t.version)), t));
+  if (merges.some((i) => !i.waiting || i.stage)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t));
   const rec = Object.assign({}, t.record.all || {});
   items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
   if (!t.record.ignored && t.record.version === t.version && JSON.stringify(rec) === JSON.stringify(t.record.all)) return items;
   safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
   return items;
 }
-/* Every file install replaces (and, with --force, the app) is first copied to a folder of its own under
+/* Every file install replaces, the app included, is first copied to a folder of its own under
    .flightdeck/updates/<version>/replaced/, made new for this run (never one an earlier run used), and the copy is read back.
    No checked copy, no replacement. */
 function keepCopy(t, parts, text) {
@@ -425,7 +428,7 @@ function main(argv) {
     t.changed = [];
     [[NAME, appS], [OLD, oldS]].forEach(([file, st]) => {
       if (st.status === 'current' || (file === OLD && !keepOld)) return;
-      if (force && st.text !== null) keepCopy(t, [file], st.text);
+      if (st.text !== null) keepCopy(t, [file], st.text);
       try { safeWrite(dir, [file], html, st.text); } catch (e) { if (!(e instanceof Changed)) throw e; t.changed.push(file); }
     });
     const appChanged = t.changed.slice();
