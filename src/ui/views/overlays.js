@@ -78,13 +78,11 @@
   }
 
   /* ---------- History: what changed in an editor ---------- */
-  /* o: { scope, tl, title, item (only changes to one step, phase or field), itemName }. Only "This session" exists for now; a
-     saved history read from the team folder comes later and plugs in as another source (o.sources), with a switch between them. */
+  /* o: { scope, tl, title, item (only changes to one step, phase or field), itemName, mode ('session' or 'saved'), saved
+     ({ state: 'loading' | 'ok' | 'error' | 'none', items from PF.timeline.order with publications placed, bad }), savedItem (the
+     item as saved history names it), compare (the saved entry whose Compare is open), compareMsg }. */
   function historyDrawer(ctx, o) {
-    var TL = PF.timeline, tl = o.tl || TL.create(), list = '', n = 0;
-    var cap = function (t) { return t.charAt(0).toUpperCase() + t.slice(1); };
-    var clip = function (t) { t = String(t); return t.length > 400 ? t.slice(0, 400) + '…' : t; };
-    var ba = function (b, a) { return '<details><summary class="small">Before and after</summary><div class="hist-ba"><div><b>Before</b><pre class="source">' + (b ? esc(clip(b)) : '<span class="small">(nothing)</span>') + '</pre></div><div><b>After</b><pre class="source">' + (a ? esc(clip(a)) : '<span class="small">(nothing)</span>') + '</pre></div></div></details>'; };
+    var TL = PF.timeline, tl = o.tl || TL.create(), list = '', n = 0, saved = o.mode === 'saved';
     var marks = tl.marks || [];
     for (var i = tl.entries.length; i >= 0; i--) {
       marks.forEach(function (m) { if (m.at === i && !o.item) list += '<li class="hist-mark">' + esc(m.why) + '</li>'; });
@@ -92,15 +90,88 @@
       if (o.item && e.items.indexOf(o.item) < 0) continue;
       n++;
       var st = i - 1 >= tl.pos ? 'Undone · Redo brings it back' : i - 1 < tl.barrier ? 'Can\'t be undone' : '';
-      list += '<li class="hist-entry' + (i - 1 >= tl.pos ? ' undone' : '') + '"><div class="hist-what">' + esc(cap(TL.describe(e))) + '</div><div class="small">You · ' + esc(U.hm(new Date(e.at).toISOString())) + (e.savedAs ? ' · saved' : '') + (st ? ' · ' + st : '') + '</div>' +
-        (e.show ? ba(e.show.before, e.show.after) : ba(e.del, e.ins)) + '</li>';
+      list += '<li class="hist-entry' + (i - 1 >= tl.pos ? ' undone' : '') + '"><div class="hist-what">' + esc(histCap(TL.describe(e))) + '</div><div class="small">You · ' + esc(U.hm(new Date(e.at).toISOString())) + (e.savedAs ? ' · saved' : '') + (st ? ' · ' + st : '') + '</div>' +
+        (e.show ? histBa(e.show.before, e.show.after) : histBa(e.del, e.ins)) + '</li>';
     }
     var filter = o.item ? '<p class="row"><span class="small">Only changes to <b>' + esc(o.itemName || o.item) + '</b></span><button type="button" class="mini" data-act="hist-item" data-id="">Show all</button></p>' : '';
+    var sw = '<div class="seg hist-switch" role="group" aria-label="Which history"><button type="button" data-act="hist-mode" data-id="session" aria-pressed="' + !saved + '">This session</button><button type="button" data-act="hist-mode" data-id="saved" aria-pressed="' + saved + '">Saved history</button></div>';
+    var body = saved ? '<h3>Saved history</h3><p class="small">' + (o.scope === 'type' ? 'Every save of this step type' : 'Every save of this draft') + ' kept in the team folder, newest first, in the order the saves build on each other.</p>' + filter + savedHistory(ctx, o)
+      : '<h3>This session</h3><p class="small">Changes made in this window since you opened it, newest first. They\'re kept until you close or reload the window.</p>' + filter +
+        (n ? '<ol class="hist-list">' + list + '</ol>' : '<p class="small">' + (o.item ? 'No changes to it yet in this session.' : 'No changes yet in this session.') + '</p>' + (list ? '<ol class="hist-list">' + list + '</ol>' : ''));
     return '<div class="overlay" data-act="close-overlay"><div class="help hist" role="dialog" aria-modal="true" aria-labelledby="hist-t">' +
       '<div class="row between"><h2 id="hist-t" tabindex="-1" style="margin:0">History <span class="small">' + esc(o.title || '') + '</span></h2><button type="button" class="mini" data-act="close-overlay">Close</button></div>' +
-      V.undoBar(o.scope, tl, { noHistory: true }) +
-      '<h3>This session</h3><p class="small">Changes made in this window since you opened it, newest first. They\'re kept until you close or reload the window.</p>' + filter +
-      (n ? '<ol class="hist-list">' + list + '</ol>' : '<p class="small">' + (o.item ? 'No changes to it yet in this session.' : 'No changes yet in this session.') + '</p>' + (list ? '<ol class="hist-list">' + list + '</ol>' : '')) + '</div></div>';
+      V.undoBar(o.scope, tl, { noHistory: true }) + sw + body + '</div></div>';
+  }
+  function histCap(t) { t = String(t); return t.charAt(0).toUpperCase() + t.slice(1); }
+  function histClip(t) { t = String(t); return t.length > 400 ? t.slice(0, 400) + '…' : t; }
+  function histBa(b, a, label) {
+    return '<details><summary class="small">' + esc(label || 'Before and after') + '</summary><div class="hist-ba"><div><b>Before</b><pre class="source">' + (b ? esc(histClip(b)) : '<span class="small">(nothing)</span>') + '</pre></div><div><b>After</b><pre class="source">' + (a ? esc(histClip(a)) : '<span class="small">(nothing)</span>') + '</pre></div></div></details>';
+  }
+  /* What a saved line says it was, in words. */
+  function histSource(e) {
+    if (e.source === 'restore') return e.version ? 'Restored from v' + e.version : 'Restored an earlier version';
+    if (e.source === 'reverse') return 'Reversed a saved change';
+    if (e.source === 'keep-mine') return 'Saved over another change';
+    if (e.source === 'new') return e.kind === 'type-edit' ? 'Created in Flightdeck' : 'Started the draft in Flightdeck';
+    if (e.source === 'correction') return 'Applied correction';
+    if (e.source === 'editor') return 'Saved in Flightdeck';
+    return 'Saved';
+  }
+  /* A draft's hunks that touch one step or phase (its {#id}), or all of them when none does. */
+  function histHunks(e, item) {
+    var hs = e.hunks || [], m = /^(step|phase):(.+)$/.exec(item || '');
+    if (!m) return hs;
+    var tag = '{#' + m[2] + '}', mine = hs.filter(function (h) { return h.del.concat(h.ins).some(function (l) { return l.indexOf(tag) >= 0; }); });
+    return mine.length ? mine : hs;
+  }
+  function histCompare(e, o, item) {
+    var TL = PF.timeline, rows = '';
+    if (e.kind === 'type-edit') TL.typeChanges(e.before, e.after).forEach(function (c) {
+      if (item && c.item !== item) return;
+      rows += '<span class="small"><b>' + esc(c.label) + '</b></span>\n' + (c.before ? '<span class="del">- ' + esc(c.before) + '</span>' : '') + (c.after ? '<span class="add">+ ' + esc(c.after) + '</span>' : '');
+    });
+    else histHunks(e, item).forEach(function (h) {
+      /* The unchanged lines a hunk carries to be found again show as they are. */
+      var a = 0, b = 0, same = function (l) { return '<span>  ' + esc(l) + '</span>\n'; };
+      while (a < h.del.length && a < h.ins.length && h.del[a] === h.ins[a]) a++;
+      while (b < h.del.length - a && b < h.ins.length - a && h.del[h.del.length - 1 - b] === h.ins[h.ins.length - 1 - b]) b++;
+      rows += '<span class="small">Line ' + (h.at + 1) + '</span>\n' + h.del.slice(0, a).map(same).join('') + h.del.slice(a, h.del.length - b).map(function (l) { return '<span class="del">- ' + esc(l) + '</span>'; }).join('') +
+        h.ins.slice(a, h.ins.length - b).map(function (l) { return '<span class="add">+ ' + esc(l) + '</span>'; }).join('') + h.del.slice(h.del.length - b).map(same).join('');
+    });
+    return '<div class="hist-cmp" id="hist-cmp-' + esc(e.ref) + '" tabindex="-1">' + (o.compareMsg ? '<p class="notice warn" role="status">' + esc(o.compareMsg) + '</p>' : '') +
+      (rows ? '<pre class="diff" aria-label="Compare: lines removed, then lines added">' + rows + '</pre>' : '<p class="small">' + (e.big ? 'This change was too big to keep line by line, so only its fingerprints were kept.' : e.badDef ? 'This save\'s step type couldn\'t be read from its history file.' : 'Nothing to compare for it.') + '</p>') + '</div>';
+  }
+  function savedEntry(ctx, o, e, item) {
+    var TL = PF.timeline, who = e.by ? nameOf(ctx, e.by) : 'Someone', ai = /^agent-/.test(e.writer), detail = '';
+    if (e.kind === 'type-edit' && e.badDef) detail = '<p class="small">This save\'s step type couldn\'t be read from its history file, so its fields aren\'t shown.</p>';
+    else if (e.kind === 'type-edit') {
+      var cs = TL.typeChanges(e.before, e.after).filter(function (c) { return !item || c.item === item; });
+      detail = e.big ? '<p class="small">Too big to keep field by field; only its fingerprints were kept.</p>' : cs.map(function (c) { return histBa(c.before, c.after, c.label); }).join('');
+    } else if (e.big) detail = '<p class="small">Too big to keep line by line; only its fingerprints were kept.</p>';
+    else detail = histHunks(e, item).map(function (h) { return histBa(h.del.join('\n'), h.ins.join('\n'), 'Line ' + (h.at + 1) + ': before and after'); }).join('');
+    var open = o.compare === e.ref, canReverse = PF.timeline.reversible(e);
+    return '<li class="hist-entry saved"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
+      (e.units.length ? '<ul class="hist-units small">' + e.units.map(function (u) { return '<li>' + esc(u) + '</li>'; }).join('') + '</ul>' : '') + detail +
+      '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.ref) + '" aria-expanded="' + open + '">Compare</button>' +
+      (canReverse ? '<button type="button" class="mini" data-act="hist-reverse" data-id="' + esc(e.ref) + '">Reverse this change</button>' : '') + '</div>' +
+      (open ? histCompare(e, o, item) : '') + '</li>';
+  }
+  function savedHistory(ctx, o) {
+    var s = o.saved || {}, item = o.savedItem || o.item, n = 0, list = '';
+    if (s.state === 'none') return '<p class="small">Saved history starts once this step type is saved.</p>';
+    if (s.state === 'error') return '<p class="small" role="status">Couldn\'t read the saved history: ' + esc(s.msg || '') + '</p>';
+    if (s.state !== 'ok') return '<p class="small" role="status">Reading the saved history…</p>';
+    s.items.forEach(function (x) {
+      if (x.gap) { if (!item) list += '<li class="hist-mark hist-outside"><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>'; return; }
+      if (x.pub) { if (!item) list += '<li class="hist-mark hist-pub"><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>'; return; }
+      if (item && x.entry.items.indexOf(item) < 0) return;
+      n++; list += savedEntry(ctx, o, x.entry, item);
+    });
+    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
+    if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
+    var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
+    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad + other;
+    return '<ol class="hist-list">' + list + '</ol>' + bad + other;
   }
 
   V.historyDrawer = historyDrawer;

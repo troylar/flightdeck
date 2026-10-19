@@ -18,6 +18,9 @@ Apply a correction to the draft, then see which version has it.
 - **Say what became of a follow-up** (Follow-ups). Mark a follow-up Done (with a link or note), Moved to a ticket, Moved to another run or plan, or Won't do (with a reason), and Reopen it if that changes. Anyone on the team can. Two people deciding at once shows as Needs review. *Where:* A run › Follow-ups, Home › Your follow-ups, and Runs › Follow-ups
 - **Every follow-up in one list** (Runs). See open follow-ups across all runs, oldest first, with who owns each, how long it's been open and its run. Switch to Yours or All. *Where:* Runs › Follow-ups
 - **Follow-ups open for more than 30 days** (Folder health). Folder health lists follow-ups that have been open for more than 30 days as worth a look, with Review follow-ups. *Where:* Settings › Folder health
+- **Saved history** (Draft editor). History has a This session | Saved history switch. Saved history lists every save of the draft kept in the team folder, from every computer, newest first: who saved it, how (saved, restored from a version, applied a correction), what changed, and where each version was published. A change made outside Flightdeck, by hand or by an AI assistant, is marked where it happened. *Where:* The draft editor › History › Saved history
+- **Reverse a saved change** (Draft editor). Reverse this change takes one saved change back out of the draft, if the lines it added are still there exactly. The draft then has unsaved changes, and Undo takes the reversal back. If the text changed since, Compare shows the change so you can edit it yourself. *Where:* The draft editor › History › Saved history
+- **Saved history of a step type** (Step types). A step type's History has Saved history too, with each save's changes field by field. A field's History shows only its own. *Where:* Step types › a type › History
 
 ### Improved
 

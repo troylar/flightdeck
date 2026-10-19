@@ -632,6 +632,14 @@ html.fpe-on #app { padding: 0; max-width: none; }
 .hist-ba { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 4px; }
 .hist-ba pre { margin: 2px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; }
 .hist summary { cursor: pointer; }
+.hist-switch { margin: 2px 0 0; flex-shrink: 0; }
+.hist-entry.saved { border-left-color: var(--ink); }
+.hist-units { margin: 4px 0; padding-left: 18px; }
+.hist-acts { margin-top: 6px; flex-wrap: wrap; }
+.hist-pub { border-top-style: solid; border-top-color: var(--go); color: var(--ink); }
+.hist-cmp { margin-top: 6px; }
+.hist-cmp .diff { max-height: 260px; margin: 4px 0 0; }
+.hist-cmp .notice { margin: 0; }
 @media (max-width: 600px) { .hist-ba { grid-template-columns: minmax(0, 1fr); } }
 /* The step-type editor: a page of its own, on the same shell as the draft editor (fpe-* names), scoped to .fpe-type so the
    two never fight over each other's rules. The app's top bar hides while it's open. */

@@ -3920,4 +3920,181 @@ rule('App: while one follow-up\'s decision saves, another\'s form stays open, ke
   assert.deepStrictEqual(mine.map(d => d.status).sort(), ['done', 'wont'], 'both saved');
 });
 
+/* ---------- Saved history (docs/design.md section 20, slice 2) ---------- */
+const histLines = (app, dir) => app.files(dir + '/').filter(p => /\.jsonl$/.test(p)).map(p => app.fs.files[p].t.trim().split('\n').filter(Boolean).map(l => JSON.parse(l))).reduce((a, b) => a.concat(b), []);
+
+rule('App: a successful save adds one line to this window\'s own history file; a refused save adds nothing', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', dir = 'history/drafts/release', H = app.PF.util.hash, original = app.fs.files[path].t;
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  let lines = histLines(app, dir);
+  assert.strictEqual(lines.length, 1, 'one line');
+  const l = lines[0], files = app.files(dir + '/');
+  assert.ok(files.length === 1 && /^history\/drafts\/release\/[a-z0-9]{10}\.jsonl$/.test(files[0]) && files[0].indexOf(l.writer) > 0, 'named for this window');
+  assert.ok(l.v === 1 && l.kind === 'draft-edit' && l.process === 'release' && l.by === 'person-casey' && l.source === 'editor' && l.seen === null, 'who and how');
+  assert.strictEqual(l.from, H(original)); assert.strictEqual(l.to, H(app.fs.files[path].t), 'the fingerprints before and after');
+  assert.ok(/The step deletion of "Rollback/.test(l.units[0]) && l.items.indexOf('step:rollback') >= 0 && l.hunks.some(h => h.del.some(x => /\{#rollback\}/.test(x))), 'what changed');
+  // Someone else changes the draft: the next save is refused, and no line is added.
+  const theirs = app.fs.files[path].t.replace('title: Production release', 'title: Theirs');
+  await app.fs.write(path, theirs);
+  app.click('ob-del', 'flags'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/Someone else changed this draft/.test(app.html()), 'refused');
+  assert.strictEqual(histLines(app, dir).length, 1, 'nothing added for the refused save');
+  // Keep mine saves over theirs: a line that says so, from their fingerprint.
+  app.click('draft-keep-mine'); await app.tick(80);
+  lines = histLines(app, dir);
+  assert.ok(lines.length === 2 && lines[1].source === 'keep-mine' && lines[1].seq > lines[0].seq && lines[1].seen === lines[0].id, 'kept mine, in order');
+  assert.strictEqual(lines[1].from, H(theirs), 'from their version');
+});
+
+rule('App: a history line that couldn\'t be written is kept and written ahead of the next save\'s', async () => {
+  const app = await builderOn(), dir = 'history/drafts/release';
+  const orig = app.fs.append; let fail = true;
+  app.fs.append = function (p, t) { return fail && /^history\//.test(p) ? Promise.reject(new Error('OneDrive is busy')) : orig.call(this, p, t); };
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(!/Unsaved changes/.test(app.html()) && !app.files(dir + '/').length, 'the draft saved; its history line didn\'t');
+  fail = false;
+  app.click('ob-del', 'flags'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const lines = histLines(app, dir);
+  assert.strictEqual(lines.length, 2, 'both lines');
+  assert.ok(lines[0].seq < lines[1].seq && lines[1].from === lines[0].to && /Rollback/.test(lines[0].units[0]) && /Feature flags/.test(lines[1].units[0]), 'the kept one first');
+  app.fs.append = orig;
+});
+
+rule('App: Saved history lists every save in the team folder, with a publication and an outside change in their places', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  // An AI assistant edits the draft by hand, then the person saves another change.
+  await app.fs.write(path, app.fs.files[path].t.replace('title: Production release', 'title: Production release <b>now</b>'));
+  app.focus(); await app.tick(80);
+  app.click('ob-del', 'flags'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  app.click('hist-open', 'draft'); await app.tick();
+  assert.ok(/<h3>This session<\/h3>/.test(app.overlay()) && /data-act="hist-mode" data-id="session" aria-pressed="true"/.test(app.overlay()), 'This session first');
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  const h = app.overlay();
+  assert.ok(/data-act="hist-mode" data-id="saved" aria-pressed="true"/.test(h) && /<h3>Saved history<\/h3>/.test(h), 'the switch');
+  const at = x => h.indexOf(x);
+  assert.ok(at('Feature flags') > 0 && at('Changed outside Flightdeck') > at('Feature flags') && at('Rollback commit') > at('Changed outside Flightdeck'), 'newest first, the outside change between the saves');
+  assert.ok((h.match(/Saved in Flightdeck/g) || []).length === 2 && /Casey/.test(h), 'who and how');
+  assert.ok(/data-act="hist-compare"/.test(h) && /Reverse this change/.test(h));
+  // One step's history: only the saves that touched it.
+  app.key('Escape'); await app.tick();
+  app.click('ob-sel', 'smoke'); await app.tick();
+  app.click('hist-open', 'draft', { item: 'step:smoke' }); await app.tick(40);
+  assert.ok(/<h3>Saved history<\/h3>/.test(app.overlay()) && /No saved changes to it yet/.test(app.overlay()), 'the switch is remembered; nothing for this step');
+  app.click('hist-item', 'step:flags'); await app.tick();
+  assert.ok(/Feature flags/.test(app.overlay()) && !/Rollback commit/.test(app.overlay()) && !/Changed outside/.test(app.overlay()), 'filtered to the step');
+});
+
+rule('App: Reverse this change undoes a saved change in the editor only when its lines are still there; otherwise Compare opens', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const saved = app.fs.files[path].t;
+  app.click('hist-open', 'draft'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  const id = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
+  app.click('hist-reverse', id); await app.tick();
+  assert.ok(/Reversed that change in the editor/.test(app.html()) && /Unsaved changes/.test(app.html()), 'reversed, not saved');
+  assert.strictEqual(app.fs.files[path].t, saved, 'nothing written');
+  app.key('Escape'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, original, 'saving it brings the step back exactly');
+  assert.strictEqual(histLines(app, 'history/drafts/release').pop().source, 'reverse', 'saved as a reversal');
+  // The lines around it changed since: Reverse refuses, leaves the text alone and opens Compare.
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  app.click('ed-mode', 'markdown'); await app.tick();
+  const edited = mdOf(app).replace('New features ship off', 'New features ship dark');
+  app.input('draft-editor', edited); await settle(app);
+  app.click('hist-open', 'draft'); await app.tick(40);
+  const newest = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
+  app.click('hist-reverse', newest); await app.tick();
+  assert.ok(/<p class="notice warn" role="status">The text changed since\. Compare and edit it yourself\.<\/p>/.test(app.overlay()), 'Compare, with why');
+  assert.ok(/id="hist-cmp-/.test(app.overlay()) && /<span class="del">- [^<]*Rollback commit/.test(app.overlay()), 'showing the change');
+  assert.strictEqual(mdOf(app), edited, 'the text is left as it was');
+});
+
+rule('App: a step type\'s saves are kept field by field, and a field\'s History shows only its own', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  app.input('tf-id', 'risk.level'); app.input('tf-label', 'Risk level'); await settle(app);
+  app.submit('type-form'); await app.tick(80);
+  app.input('tf-label', 'Risk level <i>now</i>'); await settle(app);
+  app.submit('type-form'); await app.tick(80);
+  const lines = histLines(app, 'history/step-types/risk.level');
+  assert.ok(lines.length === 2 && lines[0].source === 'new' && lines[0].from === null && lines[1].source === 'editor' && lines[1].from === lines[0].to, 'created, then saved');
+  assert.ok(lines[1].kind === 'type-edit' && lines[1].type === 'risk.level' && lines[1].before.label === 'Risk level' && lines[1].after.label === 'Risk level <i>now</i>' && lines[1].items.indexOf('type:label') >= 0, 'before and after');
+  app.click('hist-open', 'type'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  const h = app.overlay();
+  assert.ok(/Created in Flightdeck/.test(h) && /Saved in Flightdeck/.test(h) && /<summary class="small">Label<\/summary>/.test(h), 'field by field');
+  assert.ok(/Risk level &lt;i&gt;now&lt;\/i&gt;/.test(h) && !/<i>now<\/i>/.test(h), 'escaped');
+  assert.ok(!/Reverse this change/.test(h), 'step types have Compare, not Reverse');
+});
+
+rule('App: restoring a version is kept as Restored from vN', async () => {
+  const app = await builderOn();
+  app.click('ob-del', 'flags'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const folder = app.files('publications/release/').map(p => p.split('/')[2]).filter(f => /^v1-/.test(f))[0];
+  app.click('restore-draft', folder); await app.tick();
+  app.click('restore-draft', folder, { sure: '1' }); await app.tick(80);
+  const last = histLines(app, 'history/drafts/release').pop();
+  assert.ok(last.source === 'restore' && last.version === 1 && last.units[0] === 'Restored v1 as the draft');
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('hist-open', 'draft'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  assert.ok(/Restored from v1/.test(app.overlay()) && /Published v1/.test(app.overlay()), 'and the publication it matches is placed');
+});
+
+rule('App: Reverse this change waits, like Undo, while a builder box holds wording that isn\'t applied', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const saved = app.fs.files[path].t;
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Ask @qa before continuing'); await app.tick();
+  enter(app, 'ob-text', 'Ask @qa before continuing'); await app.tick();
+  assert.ok(/role="alert">Choose roles and run details with their buttons/.test(app.html()), 'set-up: refused, still typed');
+  app.click('hist-open', 'draft'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  const id = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
+  app.click('hist-reverse', id); await app.tick();
+  assert.strictEqual(app.draft('ob-text'), 'Ask @qa before continuing', 'the typing is kept');
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()), 'and it says why it waits');
+  assert.ok(!/data-ob-step="rollback"/.test(app.html()), 'nothing reversed');
+  assert.strictEqual(app.fs.files[path].t, saved);
+});
+
+rule('App: Saved history lists names in the history folder it didn\'t read, and Compare and Reverse act on the entry chosen when two share an ID', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', dir = 'history/drafts/release', TL = app.PF.timeline, H = app.PF.util.hash;
+  const base = app.fs.files[path].t, one = base.replace('title: Production release', 'title: One'), two = base.replace('title: Production release', 'title: Two');
+  const rec = (to, unit) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'dup1', process: 'release', writer: 'agent-helper', seq: 1, from: H(base), to: H(to), before: base, after: to, units: [unit], items: [] }));
+  await app.fs.write(dir + '/agent-helper.jsonl', rec(one, 'Made it One') + '\n');
+  await app.fs.write(dir + '/agent-helper (1).jsonl', rec(two, 'Made it Two') + '\n');
+  await app.fs.write(dir + '/notes.txt', 'x');
+  await app.fs.write(path, two); app.focus(); await app.tick(80);
+  app.click('hist-open', 'draft'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  let h = app.overlay();
+  assert.ok(/Not read, since they aren.t history files: notes\.txt/.test(h), 'the other name is listed');
+  assert.ok(!/older line/.test(h), 'nothing skipped here');
+  const refs = [...h.matchAll(/data-act="hist-compare" data-id="([\w-]+)"/g)].map(m => m[1]);
+  assert.ok(refs.length === 2 && refs[0] !== refs[1], 'each has its own reference');
+  app.click('hist-compare', refs[1]); await app.tick();
+  h = app.overlay();
+  assert.strictEqual((h.match(/id="hist-cmp-/g) || []).length, 1, 'only the one chosen opens');
+  // Reverse the one that made it Two (the newest, since the draft says Two).
+  const twoRef = /Made it Two[\s\S]*?data-act="hist-reverse" data-id="([\w-]+)"/.exec(h)[1];
+  app.click('hist-reverse', twoRef); await app.tick();
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.ok(/title: Production release\n/.test(mdOf(app)), 'the change chosen was reversed');
+});
+
 run();

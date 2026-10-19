@@ -697,6 +697,60 @@ PF.repo = (function () {
   }
 
 
+  /* ---------- Saved history of drafts and step types: history/drafts/<process>/ and history/step-types/<id>/ ----------
+     Each window appends only to its own <writer>.jsonl (then <writer>-2.jsonl past 512 KB), so every file keeps one writer.
+     No loader lists history/: it's read only when someone opens History. */
+  function historyDir(kind, id) { return (kind === 'type-edit' ? 'history/step-types/' : 'history/drafts/') + id; }
+  /* lines: JSON strings, appended in order. roll: { <dir>: n } this window's current file number per folder. A file takes lines
+     until the next would pass 512 KB, then the rest go to the next file, so a batch kept for a retry rolls over too. A batch
+     cut short by a failed append is retried whole; the lines that did land are read once (reading drops repeats). */
+  function appendHistory(fs, dir, writer, lines, roll) {
+    var TL = PF.timeline, n = roll[dir] || 1, i = 0;
+    var path = function () { return dir + '/' + TL.histFile(writer, n); };
+    var sizeOf = function () { return fs.stat ? fs.stat(path()).then(function (st) { return st ? st.size : 0; }) : Promise.resolve(0); };
+    function next(size) {
+      if (i >= lines.length) return Promise.resolve(path());
+      var chunk = '', b = size;
+      while (i < lines.length) { var t = lines[i] + '\n', tb = TL.bytes(t); if (TL.rolls(b, tb)) break; chunk += t; b += tb; i++; }
+      if (!chunk) { roll[dir] = ++n; return sizeOf().then(next); }
+      return fs.append(path(), chunk).then(function () { return next(b); });
+    }
+    return sizeOf().then(next);
+  }
+  /* Every history file in one folder (8 reads at a time), OneDrive's copies of them included ("w1 (1).jsonl", "w1-LAPTOP.jsonl"):
+     each file's newest 2,000 lines, a line over 80 KB skipped before it's parsed, each checked by PF.timeline.cleanEntry, then
+     put in the order PF.timeline.order gives from the file's current fingerprint (an entry in two files counts once), newest
+     2,000. Each entry gets `ref`, its own reference for the page (two entries may share an ID). Returns { items, bad (lines
+     looked at that couldn't be read), skipped (older lines not looked at), files, unknown (other names there, not read) }. */
+  function loadEditHistory(fs, dir, current) {
+    var TL = PF.timeline, H = TL.HIST;
+    return fs.list(dir).then(function (items) {
+      var files = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; }).sort();
+      var names = files.filter(function (n) { return /\.jsonl$/i.test(n) && n.length <= 200; }), unknown = files.filter(function (n) { return names.indexOf(n) < 0; }).slice(0, 20);
+      var bad = 0, skipped = 0;
+      return limited(names, H.FILES, function (n) {
+        return fs.read(dir + '/' + n).then(function (f) {
+          /* At most the newest 2,000 lines are looked at, readable or not; older ones are counted as skipped. */
+          var out = [], lines = f ? f.text.split('\n') : [], seen = 0;
+          for (var i = lines.length - 1; i >= 0; i--) {
+            var line = lines[i];
+            if (!line.trim()) continue;
+            if (++seen > H.READ) { skipped++; continue; }
+            if (line.length > H.LINE || TL.bytes(line) > H.LINE) { bad++; continue; }
+            var e = TL.cleanEntry(json(line), n);
+            if (e) out.push(e); else bad++;
+          }
+          return out.reverse();
+        }, function () { bad++; return []; });
+      }).then(function (lists) {
+        var items = TL.order([].concat.apply([], lists), current);
+        for (var i = 0, k = 0; i < items.length; i++) if (items[i].entry && ++k > H.READ) { items = items.slice(0, i); break; }
+        TL.refs(items);
+        return { items: items, bad: bad, skipped: skipped, files: names, unknown: unknown };
+      });
+    });
+  }
+
   /* ---------- Folder health: every file, on demand (never during routine refreshes) ---------- */
   /* At most n folder calls in flight at once, across a whole scan, so a big folder never floods OneDrive or the browser. */
   function pool(n) {
@@ -816,5 +870,5 @@ PF.repo = (function () {
     });
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

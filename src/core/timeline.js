@@ -151,6 +151,261 @@ PF.timeline = (function () {
     return hit;
   }
 
+  /* ---------- Saved history (slice 2): one file per writer under history/, never read by the draft or step-type loaders ----------
+     history/drafts/<process>/<writer>.jsonl and history/step-types/<id>/<writer>.jsonl get one line after each successful
+     checked save. Lines are ordered by the fingerprints they link (from → to), never by clocks: `at` is for display only. */
+  var HIST = { LINE: 81920, HUNKS: 65536, ROLL: 524288, READ: 2000, FILES: 8, UNITS: 20, ITEMS: 50, CONTEXT: 3 };
+  var SOURCES = ['editor', 'restore', 'reverse', 'keep-mine', 'new', 'correction'];
+  function bytes(s) {
+    var n = 0; s = String(s);
+    for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 ? (i++, 4) : 3; }
+    return n;
+  }
+  function count(list, block) {
+    var n = 0, at = -1;
+    if (!block.length) return { n: 0, at: -1 };
+    for (var i = 0; i + block.length <= list.length; i++) {
+      var k = 0; while (k < block.length && list[i + k] === block[k]) k++;
+      if (k === block.length) { n++; at = i; }
+    }
+    return { n: n, at: at };
+  }
+  /* The lines a save changed, as hunks { at (line in the text before), del, ins }, from PF.publish.diff. A hunk whose inserted
+     lines are empty or appear more than once in the text after takes up to 3 unchanged lines around it, so Reverse can find
+     it again exactly. */
+  function hunks(a, b) {
+    var x = String(a).split('\n'), y = String(b).split('\n'), n = x.length, m = y.length, head = 0, tail = 0;
+    while (head < n && head < m && x[head] === y[head]) head++;
+    while (tail < n - head && tail < m - head && x[n - 1 - tail] === y[m - 1 - tail]) tail++;
+    var mx = x.slice(head, n - tail), my = y.slice(head, m - tail), ops;
+    if (!mx.length && !my.length) return [];
+    if (!mx.length || !my.length || mx.length * my.length > 4000000) ops = mx.map(function (t) { return { op: '-', text: t }; }).concat(my.map(function (t) { return { op: '+', text: t }; }));
+    else ops = PF.publish.diff(mx.join('\n'), my.join('\n'));
+    var out = [], i = head, j = head, cur = null;
+    ops.forEach(function (o) {
+      if (o.op === ' ') { if (cur) { out.push(cur); cur = null; } i++; j++; return; }
+      if (!cur) cur = { at: i, yAt: j, del: [], ins: [] };
+      if (o.op === '-') { cur.del.push(o.text); i++; } else { cur.ins.push(o.text); j++; }
+    });
+    if (cur) out.push(cur);
+    out.forEach(function (h, k) {
+      var lo = k ? out[k - 1].yAt + out[k - 1].ins.length : 0, hi = k + 1 < out.length ? out[k + 1].yAt : m, pre = 0, post = 0;
+      while ((!h.ins.length || count(y, h.ins).n !== 1) && (pre < HIST.CONTEXT || post < HIST.CONTEXT)) {
+        if (pre < HIST.CONTEXT && h.yAt > lo) { h.yAt--; h.at--; h.del.unshift(y[h.yAt]); h.ins.unshift(y[h.yAt]); pre++; }
+        else if (post < HIST.CONTEXT && h.yAt + h.ins.length < hi) { var t = y[h.yAt + h.ins.length]; h.del.push(t); h.ins.push(t); post++; }
+        else break;
+      }
+    });
+    return out.map(function (h) { return { at: h.at, del: h.del, ins: h.ins }; });
+  }
+  /* Reverse a saved change in the text as it is now: each hunk's inserted lines must be found exactly once, without overlap.
+     Returns the new text, or null when the text changed since. */
+  function reverse(text, hs) {
+    if (!Array.isArray(hs) || !hs.length) return null;
+    var y = String(text).split('\n'), spots = [];
+    for (var i = 0; i < hs.length; i++) {
+      var c = count(y, hs[i].ins);
+      if (c.n !== 1) return null;
+      spots.push({ at: c.at, h: hs[i] });
+    }
+    spots.sort(function (p, q) { return p.at - q.at; });
+    for (i = 1; i < spots.length; i++) if (spots[i - 1].at + spots[i - 1].h.ins.length > spots[i].at) return null;
+    for (i = spots.length - 1; i >= 0; i--) Array.prototype.splice.apply(y, [spots[i].at, spots[i].h.ins.length].concat(spots[i].h.del));
+    return y.join('\n');
+  }
+  /* A step type's definition as a few readable rows, keyed by what they describe, for field-level before and after. */
+  /* Only text, numbers and switches are shown from a definition; anything else in a file reads as nothing. */
+  function prim(v) { return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'; }
+  function txt(v) { return prim(v) ? String(v) : ''; }
+  function rowText(r) {
+    if (!r || typeof r !== 'object') return '';
+    var t = (txt(r.label) || txt(r.name)) + (txt(r.name) ? ' (' + txt(r.name) + ')' : '') + ' · ' + (txt(r.kind) || 'text');
+    if (Array.isArray(r.options) && r.options.length) t += ' · options: ' + r.options.filter(prim).join(', ');
+    if (r.required) t += ' · usually filled in';
+    if (r.long) t += ' · long text';
+    return t;
+  }
+  var TYPE_KEYS = [['label', 'Label'], ['id', 'ID'], ['hint', 'What it\'s for'], ['icon', 'Icon'], ['group', 'Group'], ['tags', 'Tags']];
+  function typeRows(d) {
+    var out = {}, val = function (v) { return Array.isArray(v) ? v.filter(prim).map(String).join(' / ') : prim(v) ? String(v) : ''; };
+    if (!d || typeof d !== 'object') return out;
+    TYPE_KEYS.forEach(function (k) { if (d[k[0]] != null && d[k[0]] !== '') out['type:' + k[0]] = { label: k[1], text: k[0] === 'tags' && Array.isArray(d.tags) ? d.tags.join(', ') : val(d[k[0]]) }; });
+    var f = d.fields && typeof d.fields === 'object' ? d.fields : {};
+    if (Array.isArray(f)) f.forEach(function (r) { if (r && txt(r.name)) out['field:' + txt(r.name)] = { label: 'Field "' + (txt(r.label) || txt(r.name)) + '"', text: rowText(r) }; });
+    else Object.keys(f).forEach(function (n) { var r = f[n] || {}; out['field:' + n] = { label: 'Field "' + (txt(r.label) || n) + '"', text: rowText({ name: n, label: r.label, kind: r.kind, options: r.options, required: r.required }) }; });
+    (Array.isArray(d.record) ? d.record : []).forEach(function (r) { if (r && txt(r.name)) out['evidence:' + txt(r.name)] = { label: 'Evidence "' + (txt(r.label) || txt(r.name)) + '"', text: rowText(r) }; });
+    return out;
+  }
+  /* What changed between two definitions: [{ item, label, before, after }], in the order the form shows them. */
+  function typeChanges(a, b) {
+    var x = typeRows(a), y = typeRows(b), keys = Object.keys(x), out = [];
+    Object.keys(y).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); });
+    var rank = function (k) { return /^type:/.test(k) ? 0 : /^field:/.test(k) ? 1 : 2; };
+    keys.sort(function (p, q) { return rank(p) - rank(q); });
+    keys.forEach(function (k) {
+      var p = x[k] ? x[k].text : '', q = y[k] ? y[k].text : '';
+      if (p !== q) out.push({ item: k, label: (y[k] || x[k]).label, before: p, after: q });
+    });
+    if (a && b && !out.length && JSON.stringify(a) !== JSON.stringify(b)) out.push({ item: 'type:order', label: 'Order', before: '', after: '' });
+    return out;
+  }
+  /* One line of saved history (o: kind, id, process or type, writer, seq, by, at, from, to, seen, source, version, units, items,
+     and before/after: the draft's text, or the type's definition). Hunks over 64 KB keep only the fingerprints (big: true);
+     a line never passes 80 KB. */
+  function histLine(o) {
+    var draft = o.kind === 'draft-edit', e = { v: 1, kind: draft ? 'draft-edit' : 'type-edit', id: String(o.id) };
+    if (draft) e.process = String(o.process); else e.type = String(o.type);
+    e.writer = String(o.writer); e.seq = +o.seq || 0; e.by = String(o.by || '').slice(0, 80); e.at = String(o.at || '').slice(0, 40);
+    e.from = o.from || null; e.to = String(o.to); e.seen = o.seen || null; e.source = SOURCES.indexOf(o.source) >= 0 ? o.source : 'editor';
+    if (o.version) e.version = +o.version;
+    var items = (o.items || []).slice();
+    if (!draft) typeChanges(o.before, o.after).forEach(function (c) { if (items.indexOf(c.item) < 0) items.push(c.item); });
+    e.units = (o.units || []).slice(0, HIST.UNITS).map(function (u) { return String(u).slice(0, 200); });
+    e.items = items.filter(function (x, i) { return items.indexOf(x) === i; }).slice(0, HIST.ITEMS).map(function (x) { return String(x).slice(0, 120); });
+    if (draft) {
+      if (o.before != null) { var hs = hunks(o.before, o.after); if (bytes(JSON.stringify(hs)) <= HIST.HUNKS) e.hunks = hs; else e.big = true; }
+    } else if (bytes(JSON.stringify([o.before || null, o.after || null])) <= HIST.HUNKS) { e.before = o.before || null; e.after = o.after || null; }
+    else e.big = true;
+    if (bytes(JSON.stringify(e)) > HIST.LINE) { delete e.hunks; delete e.before; delete e.after; e.big = true; }
+    return e;
+  }
+  /* A value from a line, as plain data: no prototype, no __proto__ or constructor keys, depth and sizes capped. */
+  function plain(v, depth) {
+    if (typeof v === 'string') return v.slice(0, 4000);
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    if (typeof v === 'boolean' || v == null) return v == null ? null : v;
+    if (depth > 5 || typeof v !== 'object') return null;
+    if (Array.isArray(v)) return v.slice(0, 200).map(function (x) { return plain(x, depth + 1); });
+    var o = Object.create(null);
+    Object.keys(v).slice(0, 200).forEach(function (k) { if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') o[k] = plain(v[k], depth + 1); });
+    return o;
+  }
+  var HASH = /^[0-9a-f]{8}$/, ID = /^[\w-]{1,60}$/;
+  function strs(a, n, len) { return Array.isArray(a) ? a.filter(function (x) { return typeof x === 'string'; }).slice(0, n).map(function (x) { return x.slice(0, len); }) : []; }
+  /* Lines of a hunk exactly as written, or null if anything in them isn't text (a line is already at most 80 KB). */
+  function exact(a) { return Array.isArray(a) && a.length <= 20000 && a.every(function (x) { return typeof x === 'string'; }) ? a.slice() : null; }
+  /* A step type's definition from a line: only one that checks out as a team step type is used. */
+  function typeDef(d) {
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+    var c = plain(d, 0), errs;
+    try { errs = PF.types.checkCustom(JSON.parse(JSON.stringify(c))); } catch (e) { errs = ['unreadable']; }
+    return errs && errs.length ? undefined : c;
+  }
+  /* A line read from the folder, checked: the right types and lengths, or null. file is the file it came from (for order). */
+  function cleanEntry(o, file) {
+    if (!o || typeof o !== 'object' || Array.isArray(o) || o.v !== 1) return null;
+    if (o.kind !== 'draft-edit' && o.kind !== 'type-edit') return null;
+    if (typeof o.id !== 'string' || !ID.test(o.id) || typeof o.writer !== 'string' || !ID.test(o.writer) || typeof o.to !== 'string' || !HASH.test(o.to)) return null;
+    if (o.from != null && (typeof o.from !== 'string' || !HASH.test(o.from))) return null;
+    var e = Object.create(null), draft = o.kind === 'draft-edit';
+    e.v = 1; e.kind = o.kind; e.id = o.id;
+    if (draft) { if (typeof o.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(o.process)) return null; e.process = o.process; }
+    else { if (typeof o.type !== 'string' || !/^[\w.-]{1,60}$/.test(o.type)) return null; e.type = o.type; }
+    e.writer = o.writer; e.seq = typeof o.seq === 'number' && isFinite(o.seq) && o.seq >= 0 ? Math.floor(o.seq) : 0;
+    e.by = typeof o.by === 'string' ? o.by.slice(0, 80) : ''; e.at = typeof o.at === 'string' ? o.at.slice(0, 40) : '';
+    e.from = o.from || null; e.to = o.to; e.seen = typeof o.seen === 'string' && ID.test(o.seen) ? o.seen : null;
+    e.source = SOURCES.indexOf(o.source) >= 0 ? o.source : '';
+    if (typeof o.version === 'number' && isFinite(o.version) && o.version >= 1 && o.version < 1e6) e.version = Math.floor(o.version);
+    e.units = strs(o.units, HIST.UNITS, 200); e.items = strs(o.items, HIST.ITEMS, 120); e.big = o.big === true;
+    /* Hunks are kept exactly or not trusted: anything cut or odd leaves Compare (what could be read) but never Reverse. */
+    if (draft && Array.isArray(o.hunks)) {
+      e.hunks = [];
+      o.hunks.slice(0, 2000).forEach(function (h) {
+        var ok = h && typeof h === 'object' && typeof h.at === 'number' && isFinite(h.at) && h.at >= 0, del = ok && exact(h.del), ins = ok && exact(h.ins);
+        if (!del || !ins) e.cut = true;
+        if (!ok) return;
+        var x = Object.create(null); x.at = Math.floor(h.at); x.del = del || strs(h.del, 5000, 4000); x.ins = ins || strs(h.ins, 5000, 4000); e.hunks.push(x);
+      });
+      if (o.hunks.length > 2000) e.cut = true;
+    }
+    if (!draft) {
+      var b = typeDef(o.before), a = typeDef(o.after);
+      if (b === undefined || a === undefined) { e.badDef = true; e.before = null; e.after = null; } else { e.before = b; e.after = a; }
+    }
+    e.file = typeof file === 'string' ? file.slice(0, 200) : '';
+    /* The same line in two files (a OneDrive copy) is one entry; a different line under the same ID stays apart. */
+    var copy = Object.assign({}, e); delete copy.file;
+    e.key = e.writer + '\n' + e.id + '\n' + PF.util.hash(JSON.stringify(copy));
+    return e;
+  }
+  /* A reference for each entry that the page can use as an ID: from its content (the same on every read), made unique if two
+     entries' fingerprints ever meet. */
+  function refs(items) {
+    var taken = Object.create(null);
+    items.forEach(function (x) {
+      if (!x.entry) return;
+      var r = 'h' + PF.util.hash(x.entry.key || x.entry.writer + '\n' + x.entry.id), n = 1;
+      while (taken[r + (n > 1 ? '-' + n : '')]) n++;
+      r += n > 1 ? '-' + n : ''; taken[r] = true; x.entry.ref = r;
+    });
+    return items;
+  }
+  /* Whether Reverse may use an entry: a draft change kept line for line, exactly. */
+  function reversible(e) { return !!e && e.kind === 'draft-edit' && !e.big && !e.cut && Array.isArray(e.hunks) && e.hunks.length > 0; }
+  /* The order of saved history, newest first: from the file's current fingerprint, walk back through entries whose `to` is it
+     (of several, the latest in causal order). Where nothing leads on, it was changed outside Flightdeck. Entries off that chain
+     follow in causal order: after the entry they saw (seen), then by writer and seq, ties by file name. Never by clocks.
+     Returns [{ entry } | { gap: true }]. */
+  function order(list, current) {
+    var all = [], have = Object.create(null), kof = function (e) { return e.key || e.writer + '\n' + e.id; };
+    (list || []).forEach(function (e) { if (e && !have[kof(e)]) { have[kof(e)] = true; all.push(e); } });
+    var n = all.length, sk = all.map(function (e) { return { e: e, s: (e.file || '') + '\n' + ('000000000000' + e.seq).slice(-12) + '\n' + e.writer + '\n' + e.id + '\n' + kof(e) }; });
+    sk.sort(function (a, b) { return a.s < b.s ? -1 : a.s > b.s ? 1 : 0; });
+    all = sk.map(function (x) { return x.e; });
+    /* Edges: a writer's previous line, and every entry with the ID this one saw. Each node is placed once its edges are. */
+    var kids = [], indeg = [], byId = Object.create(null), i;
+    for (i = 0; i < n; i++) { kids.push([]); indeg.push(0); (byId[all[i].id] = byId[all[i].id] || []).push(i); }
+    var byWriter = all.map(function (e, j) { return j; }).sort(function (a, b) { var x = all[a], y = all[b]; return x.writer < y.writer ? -1 : x.writer > y.writer ? 1 : x.seq - y.seq || a - b; });
+    for (i = 1; i < n; i++) if (all[byWriter[i]].writer === all[byWriter[i - 1]].writer) { kids[byWriter[i - 1]].push(byWriter[i]); indeg[byWriter[i]]++; }
+    for (i = 0; i < n; i++) { var sn = all[i].seen && byId[all[i].seen]; if (sn) sn.forEach(function (j) { if (j !== i) { kids[j].push(i); indeg[i]++; } }); }
+    /* Kahn's algorithm, always taking the ready entry first in file order; a cycle (only a hand-made file has one) is broken at
+       the first entry left. */
+    var heap = [], done = [], placed = [], scan = 0;
+    var push = function (v) { heap.push(v); var c = heap.length - 1; while (c > 0) { var p = (c - 1) >> 1; if (heap[p] <= v) break; heap[c] = heap[p]; c = p; } heap[c] = v; };
+    var pop = function () { var top = heap[0], last = heap.pop(); if (heap.length) { var c = 0; for (;;) { var l = 2 * c + 1, r = l + 1, m = c; var mv = last; if (l < heap.length && heap[l] < mv) { m = l; mv = heap[l]; } if (r < heap.length && heap[r] < mv) m = r; if (m === c) break; heap[c] = heap[m]; c = m; } heap[c] = last; } return top; };
+    for (i = 0; i < n; i++) if (!indeg[i]) push(i);
+    while (placed.length < n) {
+      var pick = -1;
+      while (heap.length) { var h0 = pop(); if (!done[h0]) { pick = h0; break; } }
+      if (pick < 0) { while (done[scan]) scan++; pick = scan; }
+      done[pick] = true; placed.push(all[pick]);
+      kids[pick].forEach(function (k) { if (--indeg[k] === 0 && !done[k]) push(k); });
+    }
+    var rank = Object.create(null), byTo = Object.create(null);
+    placed.forEach(function (e, j) { rank[kof(e)] = j; (byTo[e.to] = byTo[e.to] || []).push(e); });
+    /* Each fingerprint's entries are already in causal order (placed), so the latest one not yet on the chain is found by a
+       cursor walking down from the end: every entry is passed once, however often the draft returned to a text. */
+    var used = Object.create(null), chain = [], h = current || null, cur = Object.create(null);
+    while (h && byTo[h]) {
+      var b = byTo[h], at = h in cur ? cur[h] : b.length - 1;
+      while (at >= 0 && used[kof(b[at])]) at--;
+      cur[h] = at - 1;
+      if (at < 0) break;
+      var best = b[at];
+      used[kof(best)] = true; chain.push(best); h = best.from;
+    }
+    var rest = placed.filter(function (e) { return !used[kof(e)]; }).reverse(), out = [], want = current || null;
+    chain.concat(rest).forEach(function (e) {
+      if (e.to !== want) out.push({ gap: true });
+      out.push({ entry: e }); want = e.from;
+    });
+    return out;
+  }
+  /* Publications go where the draft's fingerprint was the one they published: above the newest entry that saved it, each
+     version below the one after it. pubs: [{ version, hash, by, at }]. */
+  function placePublications(items, pubs) {
+    var out = items.slice(), floor = 0;
+    (pubs || []).slice().sort(function (a, b) { return b.version - a.version; }).forEach(function (p) {
+      for (var i = floor; i < out.length; i++) if (out[i].entry && out[i].entry.to === p.hash) { out.splice(i, 0, { pub: p }); floor = i + 1; return; }
+    });
+    return out;
+  }
+  /* The file a writer appends to: <writer>.jsonl, then <writer>-2.jsonl and on, each started when the last passes 512 KB. */
+  function histFile(writer, n) { return writer + (n > 1 ? '-' + n : '') + '.jsonl'; }
+  function rolls(size, add) { return size > 0 && size + add > HIST.ROLL; }
+
   return { MAX: MAX, MAX_CHARS: MAX_CHARS, PAUSE: PAUSE, create: create, patch: patch, record: record, close: close, barrier: barrier, peek: peek, undo: undo, redo: redo,
-    saved: saved, labelOf: labelOf, describe: describe, past: past, itemAt: itemAt };
+    saved: saved, labelOf: labelOf, describe: describe, past: past, itemAt: itemAt,
+    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order, reversible: reversible, refs: refs,
+    placePublications: placePublications, histFile: histFile, rolls: rolls };
 })();
