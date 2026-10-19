@@ -95,6 +95,10 @@ PF.search = (function () {
     return out;
   }
   function isLow(c) { return c >= 0xdc00 && c < 0xe000; }
+  /* Whether offset i is inside a character: between a surrogate pair, or before a combining mark of the letter before it. */
+  function inside(text, i) { return isLow(text.charCodeAt(i)) || MARK1.test(text.charAt(i)); }
+  /* An end offset moved forward until it no longer cuts a character. */
+  function safeEnd(text, to) { while (to < text.length && inside(text, to)) to++; return to; }
   /* The whole text as segments {t, hit}, in order: joined, they are the original text. */
   function mark(text, q) { text = String(text == null ? '' : text); return segments(text, ranges(text, q), 0, text.length); }
   /* A window of about max characters around the first hit, cut at spaces, with "…" where it was cut. */
@@ -107,8 +111,8 @@ PF.search = (function () {
     if (from > 0) { var sp = text.indexOf(' ', from); if (sp >= 0 && sp < first[0]) from = sp + 1; }
     if (to < text.length) { var sb = text.lastIndexOf(' ', to); if (sb > Math.max(from, first[1])) to = sb; }
     /* Never cut inside a character: not between a surrogate pair, and not before a combining mark (it stays with its letter). */
-    while (from > 0 && (isLow(text.charCodeAt(from)) || MARK1.test(text.charAt(from)))) from--;
-    while (to < text.length && (isLow(text.charCodeAt(to)) || MARK1.test(text.charAt(to)))) to++;
+    while (from > 0 && inside(text, from)) from--;
+    to = safeEnd(text, to);
     var out = segments(text, rs, from, to);
     if (from > 0) out.unshift({ t: '…', hit: false });
     if (to < text.length) out.push({ t: '…', hit: false });
@@ -122,7 +126,11 @@ PF.search = (function () {
   function target(o) { var t = {}; Object.keys(o).forEach(function (k) { if (o[k] != null && o[k] !== '') t[k] = o[k]; }); return t; }
   function field(list, t, w, step) { t = str(t); if (t) list.push(step ? { t: t, w: w, step: step } : { t: t, w: w }); }
   /* A long first line is cut at a space for the result's title; the whole text is still indexed. */
-  function clip(t, n) { if (t.length <= n) return t; var c = t.lastIndexOf(' ', n); return t.slice(0, c > n / 2 ? c : n).replace(/[\s.,;:]+$/, '') + '…'; }
+  function clip(t, n) {
+    if (t.length <= n) return t;
+    var c = t.lastIndexOf(' ', n), to = c > n / 2 ? c : safeEnd(t, n);
+    return to >= t.length ? t : t.slice(0, to).replace(/[\s.,;:]+$/, '') + '…';
+  }
   function fileNames(n) { return (n.files || []).map(function (f) { var i = own(n.fileInfo, f); return (i && i.name) || String(f).split('/').pop(); }); }
 
   function runDoc(r) {
@@ -227,16 +235,17 @@ PF.search = (function () {
   /* Sources from the app's accepted state. input = { runs, pubs (data.processes), drafts, people, stepTypes (custom types),
      skills, corrDecisions, followUps (PF.followups.list) }. Runs come first, each followed by its notes, so a build that's
      part way through has whole runs. Each source: { id, kind, sig, make() → documents }. */
-  /* A run and its notes are one group, with a cheap group signature: the run file's hash, rev, save time and title, and its
-     notes' fingerprint (repo's _notesSig, a hash of the notes files' texts). A group whose signature the index already has is
+  /* A run and its notes are one group, with a cheap group signature: the run file's hash, rev, save time and title, the app's
+     local version of the run (input.rev(r): it moves with every edit on screen, so an edit not saved yet, or whose save
+     failed, is indexed as shown, since edits change the run object in place), and its notes' fingerprint (repo's _notesSig, a hash of the notes files' texts). A group whose signature the index already has is
      skipped whole, without looking at its notes; memo (kept by the caller for one folder) reuses a group's sources while its
      signature holds, so a refresh that changed nothing builds almost nothing. */
   function notesPrint(r) { return r._notesSig != null ? r._notesSig : (r._notes || []).length ? U.hash((r._notes || []).map(noteSig).join('|')) : ''; }
-  function runGroup(r, memo) {
-    var key = r.process + '/' + r.id, g = 'run:' + key, gs = [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title, notesPrint(r), (r._notes || []).length].join('|');
+  function runGroup(r, memo, rev) {
+    var key = r.process + '/' + r.id, g = 'run:' + key, sig = [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title, rev ? rev(r) : ''].join('|'), gs = sig + '|' + notesPrint(r) + '|' + (r._notes || []).length;
     var hit = memo && memo[g];
     if (hit && hit.gs === gs) return hit.list;
-    var list = [{ id: g, kind: 'run', g: g, gs: gs, sig: [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title].join('|'), make: function () { return [runDoc(r)]; } }];
+    var list = [{ id: g, kind: 'run', g: g, gs: gs, sig: sig, make: function () { return [runDoc(r)]; } }];
     if (r._notes && r._notes.length) {
       var count = Object.create(null), th = U.hash(r.title || '');
       r._notes.forEach(function (n) { var x = noteSource(r, key, n, count[n.id] = (count[n.id] || 0) + 1, th); x.g = g; x.gs = gs; list.push(x); });
@@ -246,7 +255,7 @@ PF.search = (function () {
   }
   function docs(input, memo) {
     var out = [];
-    (input.runs || []).forEach(function (r) { var list = runGroup(r, memo); for (var i = 0; i < list.length; i++) out.push(list[i]); });
+    (input.runs || []).forEach(function (r) { var list = runGroup(r, memo, input.rev); for (var i = 0; i < list.length; i++) out.push(list[i]); });
     /* Follow-ups and decisions are read again on every refresh, as new objects: their signatures are their fields joined,
        which costs no hashing and still changes with any change of content. */
     (input.followUps || []).forEach(function (x) {
@@ -492,7 +501,13 @@ PF.search = (function () {
     var ctx = opts.context || {}, status = opts.status || {}, totals = Object.create(null);
     cand.forEach(function (n) { var k = ix.docs[n].kind; totals[k] = (totals[k] || 0) + 1; });
     function ctxOf(d) { return (ctx.run && d.run === ctx.run ? 2 : 0) + (ctx.process && d.process === ctx.process ? 1 : 0); }
-    cand.sort(function (a, b) { return score[b] - score[a] || a - b; });
+    /* Ties on the base score are broken here, before the cut, the same way as in the final order (context, then the most
+       recent, then the ID), so 500 equal runs keep the open one and the newest rather than the first indexed. */
+    var all = ix.docs;
+    cand.sort(function (a, b) {
+      var da = all[a], db = all[b];
+      return score[b] - score[a] || ctxOf(db) - ctxOf(da) || (da.at < db.at ? 1 : da.at > db.at ? -1 : 0) || (da.id < db.id ? -1 : da.id > db.id ? 1 : 0);
+    });
     /* Reranked (phrase, all words, context): the best RERANK overall, plus the best PER_KIND of every kind, so many results
        of one kind (500 runs named "Release") never push a process or a step that matches out of the list. */
     var kept = Object.create(null), pick = cand.filter(function (n, i) { var k = ix.docs[n].kind; kept[k] = (kept[k] || 0) + 1; return i < RERANK || kept[k] <= PER_KIND; });

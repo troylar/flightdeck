@@ -248,15 +248,16 @@
   function sxOpen() { return !!(state.overlay && state.overlay.search && state.sx); }
   function sxInput() {
     return { runs: data.runs, pubs: data.processes, drafts: data.drafts, people: data.people, stepTypes: (data.stepTypes || {}).types || {}, skills: data.skills,
-      corrDecisions: data.corrDecisions || [], followUps: ctx.followUps() };
+      corrDecisions: data.corrDecisions || [], followUps: ctx.followUps(), rev: function (r) { return edits(r.id); } };
   }
   function sxReset() { if (sx.job) sx.job.cancel(); sx = { gen: -1, ix: null, job: null, built: false, seen: null, memo: {}, vis: null, status: null }; }
-  /* What the index was last brought in line with: the data read, each run object and its file, and the people. */
-  function sxMark() { sx.seen = { data: data, runs: data.runs.slice(), h: data.runs.map(function (r) { return r._fileHash; }), people: data.people }; }
+  /* What the index was last brought in line with: the data read, each run object, its file and its local version (an edit
+     on screen changes the run in place, saved or not), and the people. */
+  function sxMark() { sx.seen = { data: data, runs: data.runs.slice(), h: data.runs.map(function (r) { return r._fileHash + '|' + edits(r.id); }), people: data.people }; }
   function sxStale() {
     var s = sx.seen, runs = data.runs;
     if (!s || s.data !== data || s.people !== data.people || s.runs.length !== runs.length) return true;
-    for (var i = 0; i < runs.length; i++) if (s.runs[i] !== runs[i] || s.h[i] !== runs[i]._fileHash) return true;
+    for (var i = 0; i < runs.length; i++) if (s.runs[i] !== runs[i] || s.h[i] !== runs[i]._fileHash + '|' + edits(runs[i].id)) return true;
     return false;
   }
   /* Works through the accepted data in slices: the first build, and every catch-up after the data changed. The first slice
@@ -327,13 +328,21 @@
     sx.vis = null;
     if (sx.gen !== gen || !sx.ix) sxIndex();
     /* Closing lets go of what the index was compared with, so a folder's data isn't kept alive by a closed palette. */
+    /* Set before the first render: that's the one that draws the box, so typing right after Ctrl+K lands in it. */
+    state.overlayFocus = '#sx-q';
     openOverlay({ search: true, html: function () { return V.search(ctx); }, onClose: function () { state.sx = null; sx.seen = null; } });
-    state.overlayFocus = '#sx-q'; render();
   }
-  /* Why a result can't be opened any more (its run, process or skill left the folder since it was listed), or ''. */
+  /* Why a result can't be opened any more (its run, process, version, step or skill left the folder since it was listed), or ''. */
   function sxGone(t) {
     if (t.view === 'run' && !ctx.findRun(t.run)) return 'That run isn\'t in this folder anymore.';
-    if (t.view === 'process' && !processes().some(function (p) { return p.id === t.process; })) return 'That process isn\'t in this folder anymore.';
+    if (t.view === 'process') {
+      var p = processes().filter(function (x) { return x.id === t.process; })[0];
+      if (!p) return 'That process isn\'t in this folder anymore.';
+      /* A version or step result names its exact publication; another version is never shown in its place. */
+      var v = t.mapVer ? (p.all || []).filter(function (x) { return x.folder === t.mapVer && x.ok && x.map; })[0] : null;
+      if (t.mapVer && !v) return 'That version isn\'t in this folder anymore.';
+      if (t.step && !(v && M.findStep(v.map, t.step))) return 'That step isn\'t in this folder anymore.';
+    }
     if (t.view === 'skill' && !(data.skills || []).some(function (x) { return (x.file || (x.skill && x.skill.name)) === t.skill; })) return 'That skill isn\'t in this folder anymore.';
     return '';
   }
@@ -443,9 +452,14 @@
   }
 
   /* ---------- loading ---------- */
+  /* What a redraw decision compares a run by: its file, what its notes files say (a note replaced at the same size and time
+     changes _notesSig, never the count), notes added here since the read, and its conflict copies by name. */
+  function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return x._file + x.at; }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
+      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
+      /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
+      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -734,7 +748,7 @@
   function refreshRun() {
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
-    var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
+    var before = shownSig(r), g = gen, revs = revsNow();
     var at = startRead(), key = r.process + '/' + r.id, bad = [];
     var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
@@ -746,7 +760,7 @@
       if (res.kind !== 'fresh') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (changed) flashChanged(cur, f);
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
-      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
+      if (shownSig(f) !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
     }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unreadable', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
@@ -1188,6 +1202,9 @@
       var tp = state.overlay && state.overlay.text != null && document.getElementById('att-text'); if (tp) tp.textContent = state.overlay.text;
       var want = state.overlayFocus || osel; state.overlayFocus = null;
       var back = want && overlayEl.querySelector(want); if (back) { back.focus(); if (os != null && back.setSelectionRange && !state.overlayFocus) try { back.setSelectionRange(os, os); } catch (e) { /* not a text field */ } }
+    } else if (state.overlayFocus) {
+      /* Focus asked for on a dialog whose content didn't change still goes there. */
+      var to = overlayEl.querySelector(state.overlayFocus); state.overlayFocus = null; if (to && document.activeElement !== to) to.focus();
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */

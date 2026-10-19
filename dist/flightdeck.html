@@ -6685,6 +6685,10 @@ PF.search = (function () {
     return out;
   }
   function isLow(c) { return c >= 0xdc00 && c < 0xe000; }
+  /* Whether offset i is inside a character: between a surrogate pair, or before a combining mark of the letter before it. */
+  function inside(text, i) { return isLow(text.charCodeAt(i)) || MARK1.test(text.charAt(i)); }
+  /* An end offset moved forward until it no longer cuts a character. */
+  function safeEnd(text, to) { while (to < text.length && inside(text, to)) to++; return to; }
   /* The whole text as segments {t, hit}, in order: joined, they are the original text. */
   function mark(text, q) { text = String(text == null ? '' : text); return segments(text, ranges(text, q), 0, text.length); }
   /* A window of about max characters around the first hit, cut at spaces, with "…" where it was cut. */
@@ -6697,8 +6701,8 @@ PF.search = (function () {
     if (from > 0) { var sp = text.indexOf(' ', from); if (sp >= 0 && sp < first[0]) from = sp + 1; }
     if (to < text.length) { var sb = text.lastIndexOf(' ', to); if (sb > Math.max(from, first[1])) to = sb; }
     /* Never cut inside a character: not between a surrogate pair, and not before a combining mark (it stays with its letter). */
-    while (from > 0 && (isLow(text.charCodeAt(from)) || MARK1.test(text.charAt(from)))) from--;
-    while (to < text.length && (isLow(text.charCodeAt(to)) || MARK1.test(text.charAt(to)))) to++;
+    while (from > 0 && inside(text, from)) from--;
+    to = safeEnd(text, to);
     var out = segments(text, rs, from, to);
     if (from > 0) out.unshift({ t: '…', hit: false });
     if (to < text.length) out.push({ t: '…', hit: false });
@@ -6712,7 +6716,11 @@ PF.search = (function () {
   function target(o) { var t = {}; Object.keys(o).forEach(function (k) { if (o[k] != null && o[k] !== '') t[k] = o[k]; }); return t; }
   function field(list, t, w, step) { t = str(t); if (t) list.push(step ? { t: t, w: w, step: step } : { t: t, w: w }); }
   /* A long first line is cut at a space for the result's title; the whole text is still indexed. */
-  function clip(t, n) { if (t.length <= n) return t; var c = t.lastIndexOf(' ', n); return t.slice(0, c > n / 2 ? c : n).replace(/[\s.,;:]+$/, '') + '…'; }
+  function clip(t, n) {
+    if (t.length <= n) return t;
+    var c = t.lastIndexOf(' ', n), to = c > n / 2 ? c : safeEnd(t, n);
+    return to >= t.length ? t : t.slice(0, to).replace(/[\s.,;:]+$/, '') + '…';
+  }
   function fileNames(n) { return (n.files || []).map(function (f) { var i = own(n.fileInfo, f); return (i && i.name) || String(f).split('/').pop(); }); }
 
   function runDoc(r) {
@@ -6817,16 +6825,17 @@ PF.search = (function () {
   /* Sources from the app's accepted state. input = { runs, pubs (data.processes), drafts, people, stepTypes (custom types),
      skills, corrDecisions, followUps (PF.followups.list) }. Runs come first, each followed by its notes, so a build that's
      part way through has whole runs. Each source: { id, kind, sig, make() → documents }. */
-  /* A run and its notes are one group, with a cheap group signature: the run file's hash, rev, save time and title, and its
-     notes' fingerprint (repo's _notesSig, a hash of the notes files' texts). A group whose signature the index already has is
+  /* A run and its notes are one group, with a cheap group signature: the run file's hash, rev, save time and title, the app's
+     local version of the run (input.rev(r): it moves with every edit on screen, so an edit not saved yet, or whose save
+     failed, is indexed as shown, since edits change the run object in place), and its notes' fingerprint (repo's _notesSig, a hash of the notes files' texts). A group whose signature the index already has is
      skipped whole, without looking at its notes; memo (kept by the caller for one folder) reuses a group's sources while its
      signature holds, so a refresh that changed nothing builds almost nothing. */
   function notesPrint(r) { return r._notesSig != null ? r._notesSig : (r._notes || []).length ? U.hash((r._notes || []).map(noteSig).join('|')) : ''; }
-  function runGroup(r, memo) {
-    var key = r.process + '/' + r.id, g = 'run:' + key, gs = [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title, notesPrint(r), (r._notes || []).length].join('|');
+  function runGroup(r, memo, rev) {
+    var key = r.process + '/' + r.id, g = 'run:' + key, sig = [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title, rev ? rev(r) : ''].join('|'), gs = sig + '|' + notesPrint(r) + '|' + (r._notes || []).length;
     var hit = memo && memo[g];
     if (hit && hit.gs === gs) return hit.list;
-    var list = [{ id: g, kind: 'run', g: g, gs: gs, sig: [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title].join('|'), make: function () { return [runDoc(r)]; } }];
+    var list = [{ id: g, kind: 'run', g: g, gs: gs, sig: sig, make: function () { return [runDoc(r)]; } }];
     if (r._notes && r._notes.length) {
       var count = Object.create(null), th = U.hash(r.title || '');
       r._notes.forEach(function (n) { var x = noteSource(r, key, n, count[n.id] = (count[n.id] || 0) + 1, th); x.g = g; x.gs = gs; list.push(x); });
@@ -6836,7 +6845,7 @@ PF.search = (function () {
   }
   function docs(input, memo) {
     var out = [];
-    (input.runs || []).forEach(function (r) { var list = runGroup(r, memo); for (var i = 0; i < list.length; i++) out.push(list[i]); });
+    (input.runs || []).forEach(function (r) { var list = runGroup(r, memo, input.rev); for (var i = 0; i < list.length; i++) out.push(list[i]); });
     /* Follow-ups and decisions are read again on every refresh, as new objects: their signatures are their fields joined,
        which costs no hashing and still changes with any change of content. */
     (input.followUps || []).forEach(function (x) {
@@ -7082,7 +7091,13 @@ PF.search = (function () {
     var ctx = opts.context || {}, status = opts.status || {}, totals = Object.create(null);
     cand.forEach(function (n) { var k = ix.docs[n].kind; totals[k] = (totals[k] || 0) + 1; });
     function ctxOf(d) { return (ctx.run && d.run === ctx.run ? 2 : 0) + (ctx.process && d.process === ctx.process ? 1 : 0); }
-    cand.sort(function (a, b) { return score[b] - score[a] || a - b; });
+    /* Ties on the base score are broken here, before the cut, the same way as in the final order (context, then the most
+       recent, then the ID), so 500 equal runs keep the open one and the newest rather than the first indexed. */
+    var all = ix.docs;
+    cand.sort(function (a, b) {
+      var da = all[a], db = all[b];
+      return score[b] - score[a] || ctxOf(db) - ctxOf(da) || (da.at < db.at ? 1 : da.at > db.at ? -1 : 0) || (da.id < db.id ? -1 : da.id > db.id ? 1 : 0);
+    });
     /* Reranked (phrase, all words, context): the best RERANK overall, plus the best PER_KIND of every kind, so many results
        of one kind (500 runs named "Release") never push a process or a step that matches out of the list. */
     var kept = Object.create(null), pick = cand.filter(function (n, i) { var k = ix.docs[n].kind; kept[k] = (kept[k] || 0) + 1; return i < RERANK || kept[k] <= PER_KIND; });
@@ -12031,15 +12046,16 @@ PF.examples = (function () {
   function sxOpen() { return !!(state.overlay && state.overlay.search && state.sx); }
   function sxInput() {
     return { runs: data.runs, pubs: data.processes, drafts: data.drafts, people: data.people, stepTypes: (data.stepTypes || {}).types || {}, skills: data.skills,
-      corrDecisions: data.corrDecisions || [], followUps: ctx.followUps() };
+      corrDecisions: data.corrDecisions || [], followUps: ctx.followUps(), rev: function (r) { return edits(r.id); } };
   }
   function sxReset() { if (sx.job) sx.job.cancel(); sx = { gen: -1, ix: null, job: null, built: false, seen: null, memo: {}, vis: null, status: null }; }
-  /* What the index was last brought in line with: the data read, each run object and its file, and the people. */
-  function sxMark() { sx.seen = { data: data, runs: data.runs.slice(), h: data.runs.map(function (r) { return r._fileHash; }), people: data.people }; }
+  /* What the index was last brought in line with: the data read, each run object, its file and its local version (an edit
+     on screen changes the run in place, saved or not), and the people. */
+  function sxMark() { sx.seen = { data: data, runs: data.runs.slice(), h: data.runs.map(function (r) { return r._fileHash + '|' + edits(r.id); }), people: data.people }; }
   function sxStale() {
     var s = sx.seen, runs = data.runs;
     if (!s || s.data !== data || s.people !== data.people || s.runs.length !== runs.length) return true;
-    for (var i = 0; i < runs.length; i++) if (s.runs[i] !== runs[i] || s.h[i] !== runs[i]._fileHash) return true;
+    for (var i = 0; i < runs.length; i++) if (s.runs[i] !== runs[i] || s.h[i] !== runs[i]._fileHash + '|' + edits(runs[i].id)) return true;
     return false;
   }
   /* Works through the accepted data in slices: the first build, and every catch-up after the data changed. The first slice
@@ -12110,13 +12126,21 @@ PF.examples = (function () {
     sx.vis = null;
     if (sx.gen !== gen || !sx.ix) sxIndex();
     /* Closing lets go of what the index was compared with, so a folder's data isn't kept alive by a closed palette. */
+    /* Set before the first render: that's the one that draws the box, so typing right after Ctrl+K lands in it. */
+    state.overlayFocus = '#sx-q';
     openOverlay({ search: true, html: function () { return V.search(ctx); }, onClose: function () { state.sx = null; sx.seen = null; } });
-    state.overlayFocus = '#sx-q'; render();
   }
-  /* Why a result can't be opened any more (its run, process or skill left the folder since it was listed), or ''. */
+  /* Why a result can't be opened any more (its run, process, version, step or skill left the folder since it was listed), or ''. */
   function sxGone(t) {
     if (t.view === 'run' && !ctx.findRun(t.run)) return 'That run isn\'t in this folder anymore.';
-    if (t.view === 'process' && !processes().some(function (p) { return p.id === t.process; })) return 'That process isn\'t in this folder anymore.';
+    if (t.view === 'process') {
+      var p = processes().filter(function (x) { return x.id === t.process; })[0];
+      if (!p) return 'That process isn\'t in this folder anymore.';
+      /* A version or step result names its exact publication; another version is never shown in its place. */
+      var v = t.mapVer ? (p.all || []).filter(function (x) { return x.folder === t.mapVer && x.ok && x.map; })[0] : null;
+      if (t.mapVer && !v) return 'That version isn\'t in this folder anymore.';
+      if (t.step && !(v && M.findStep(v.map, t.step))) return 'That step isn\'t in this folder anymore.';
+    }
     if (t.view === 'skill' && !(data.skills || []).some(function (x) { return (x.file || (x.skill && x.skill.name)) === t.skill; })) return 'That skill isn\'t in this folder anymore.';
     return '';
   }
@@ -12226,9 +12250,14 @@ PF.examples = (function () {
   }
 
   /* ---------- loading ---------- */
+  /* What a redraw decision compares a run by: its file, what its notes files say (a note replaced at the same size and time
+     changes _notesSig, never the count), notes added here since the read, and its conflict copies by name. */
+  function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return x._file + x.at; }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
+      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
+      /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
+      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -12517,7 +12546,7 @@ PF.examples = (function () {
   function refreshRun() {
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
-    var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
+    var before = shownSig(r), g = gen, revs = revsNow();
     var at = startRead(), key = r.process + '/' + r.id, bad = [];
     var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
@@ -12529,7 +12558,7 @@ PF.examples = (function () {
       if (res.kind !== 'fresh') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (changed) flashChanged(cur, f);
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
-      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
+      if (shownSig(f) !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
     }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unreadable', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
@@ -12971,6 +13000,9 @@ PF.examples = (function () {
       var tp = state.overlay && state.overlay.text != null && document.getElementById('att-text'); if (tp) tp.textContent = state.overlay.text;
       var want = state.overlayFocus || osel; state.overlayFocus = null;
       var back = want && overlayEl.querySelector(want); if (back) { back.focus(); if (os != null && back.setSelectionRange && !state.overlayFocus) try { back.setSelectionRange(os, os); } catch (e) { /* not a text field */ } }
+    } else if (state.overlayFocus) {
+      /* Focus asked for on a dialog whose content didn't change still goes there. */
+      var to = overlayEl.querySelector(state.overlayFocus); state.overlayFocus = null; if (to && document.activeElement !== to) to.focus();
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */

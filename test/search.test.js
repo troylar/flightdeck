@@ -226,4 +226,23 @@ rule('Search: an unchanged run is skipped as a whole on a later sync, and a chan
   assert.strictEqual(S.query(ix, 'wombats').total, 0, 'a run that\'s gone takes its notes with it');
 });
 
+rule('Search: among 500 runs that match equally, the open run and the newest one are kept before the list is cut', () => {
+  const runs = [];
+  for (let i = 0; i < 500; i++) runs.push(run1({ id: 'r' + String(i).padStart(3, '0'), title: 'Release train', _fileHash: 'h' + i, savedAt: new Date(Date.UTC(2026, 0, 1) + i * 3600000).toISOString() }));
+  const ix = built(input({ runs })), first = res => res.groups.find(g => g.kind === 'run').items[0].id;
+  assert.strictEqual(first(S.query(ix, 'release train')), 'run:release/r499', 'the newest run comes first');
+  assert.strictEqual(first(S.query(ix, 'release train', { context: { run: 'release/r450' } })), 'run:release/r450', 'the open run comes first');
+});
+
+rule('Search: a long note title is never cut inside an emoji or between a letter and its mark', () => {
+  const whole = t => Buffer.from(t, 'utf8').toString('utf8') === t;
+  [['emoji', 'a'.repeat(119) + '😀' + 'b'.repeat(20)], ['mark', 'a'.repeat(119) + 'é' + 'b'.repeat(20)]].forEach(([what, text]) => {
+    const ix = built(input({ runs: [run1({ _notes: [note({ text })] })] }));
+    const item = S.query(ix, 'aaaa').groups.find(g => g.kind === 'note').items[0];
+    assert.ok(whole(item.title), what + ': no lone surrogate: ' + JSON.stringify(item.title.slice(-4)));
+    assert.ok(!/e…$/.test(item.title), what + ': the mark stays with its letter: ' + JSON.stringify(item.title.slice(-4)));
+    assert.ok(/…$/.test(item.title), what + ': still clipped');
+  });
+});
+
 run();

@@ -5532,4 +5532,97 @@ rule('Search: while the folder is still being read, the palette says how far it 
   h.restore();
 });
 
+/* ---------- Search, second review ---------- */
+rule('Search: Ctrl+K puts focus in the search box, so typing right away lands there, also when it was already open', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const doc = app.doc, ov = app.el('overlay'), q = sxBox(app), drawn = () => /id="sx-q"/.test(ov.innerHTML);
+  q.focus = function () { doc.activeElement = this; };
+  ov.querySelector = sel => sel === '#sx-q' && drawn() ? q : null;
+  ov.contains = el => el === q && drawn();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.strictEqual(doc.activeElement, q, 'focus is in the search box');
+  const t = doc.activeElement; t.value = 'deploy'; app.fire('input', { target: t }); await app.tick(40);
+  assert.ok(/<mark>deploy<\/mark>/i.test(app.overlay()), 'what was typed is searched');
+  doc.activeElement = doc.body;
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.strictEqual(doc.activeElement, q, 'Ctrl+K on the open palette brings focus back to the box');
+});
+
+rule('Search: a result for a version or a step that left the folder says so and never opens another version', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const folders = [...new Set(app.files('publications/release/').map(p => p.split('/')[2]))].sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
+  const v1 = folders.find(f => /^v1-/.test(f)), latest = folders[folders.length - 1];
+  assert.ok(v1 && latest !== v1, 'set-up: release has v1 and a later version');
+  app.files('publications/release/' + v1 + '/').forEach(p => { delete app.fs.files[p]; });
+  app.click('refresh'); await app.tick(150);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  /* What a catch-up still under way can show: results listed before v1 was removed. */
+  const stale = [{ id: 'pub:release/' + v1, kind: 'version', title: 'Production release', sub: 'v1', text: '', target: { view: 'process', process: 'release', mapVer: v1 }, status: '', at: '' },
+    { id: 'step:release/' + latest + '/no-such-step', kind: 'step', title: 'Gone step', sub: '', text: '', target: { view: 'process', process: 'release', mapVer: latest, step: 'no-such-step' }, status: '', at: '' }];
+  const query = app.PF.search.query;
+  app.PF.search.query = function () { const r = query.apply(this, arguments); r.groups.unshift({ kind: 'version', label: 'Versions', total: 2, items: stale }); r.total += 2; return r; };
+  await sxType(app, 'production');
+  const home = app.html();
+  app.click('sx-open', stale[0].id); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'still open');
+  assert.ok(/That version isn(&#39;|')t in this folder anymore\./.test(app.overlay()), 'says the version is gone');
+  assert.strictEqual(app.html(), home, 'no other version was opened');
+  app.click('sx-open', stale[1].id); await app.tick(40);
+  app.PF.search.query = query;
+  assert.ok(/That step isn(&#39;|')t in this folder anymore\./.test(app.overlay()), 'says the step is gone');
+  assert.strictEqual(app.html(), home, 'and stayed put');
+});
+
+rule('Search: a ticket changed on the open run is found by its new value even when its save fails, and the old one no longer finds the run', async () => {
+  const app = await recordingRelease(), key = app.run().key, old = app.run().json.details.ticket;
+  assert.ok(old, 'set-up: the run has a ticket');
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, old);
+  assert.ok(sxIds(app).indexOf('run:' + key) >= 0, 'set-up: the old ticket finds the run');
+  app.key('Escape'); await app.tick();
+  const orig = app.PF.repo.saveRun;
+  app.PF.repo.saveRun = () => Promise.reject(new Error('offline'));
+  app.click('edit', 'detail:ticket'); app.set('edit-input', 'ABC-9876'); app.click('save-edit'); await app.tick(60);
+  assert.ok(/ABC-9876/.test(app.html()) && !/ABC-9876/.test(app.fs.files[app.run().path].t), 'set-up: shown, not saved');
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'ABC-9876');
+  assert.ok(sxIds(app).indexOf('run:' + key) >= 0, 'the new ticket finds the run');
+  await sxType(app, old);
+  assert.ok(sxIds(app).indexOf('run:' + key) < 0, 'the old ticket no longer does');
+  app.PF.repo.saveRun = orig;
+});
+
+rule('App: another computer replacing a note on the open run with one of the same size at the same time shows after the full reread, without selecting the step again', async () => {
+  const k = clocks(), app = boot({ Date: k.D, performance: k.perf }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), np = run.path.replace('run.json', 'notes-blake-laptop.jsonl');
+  await app.fs.write(np, JSON.stringify({ id: 'b1', at: new Date().toISOString(), by: 'person-blake', step: 'announce', text: 'BLAKEFIRST' }) + '\n');
+  for (let i = 0; i < 70; i++) { k.ahead(1000); app.every(); await app.tick(5); }
+  app.click('select', 'announce'); await app.tick(20);
+  assert.ok(/BLAKEFIRST/.test(app.html()), 'set-up: the note shows on its step');
+  const f = app.fs.files[np]; app.fs.files[np] = { t: f.t.replace('BLAKEFIRST', 'BLAKEOTHER'), m: f.m };
+  /* A running run is read in full every 5 minutes of elapsed time; nothing else on the page may be what redraws it. */
+  let seen = null;
+  for (let s = 1; s <= 12 * 60 && seen == null; s++) { k.ahead(1000); app.every(); await app.tick(5); if (/BLAKEOTHER/.test(app.html())) seen = s; }
+  assert.ok(seen != null && seen <= 6 * 60, 'the replaced note shows after the full reread, with the step still selected: ' + seen + ' s');
+  assert.ok(!/BLAKEFIRST/.test(app.html()), 'and the old text is gone');
+});
+
+rule('App: a follow-up decision another computer rewrites with one of the same size and time shows once it\'s read again, without leaving the page', async () => {
+  const k = clocks(), app = boot({ Date: k.D, performance: k.perf }); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1];
+  app.click('fu-pick', key, { status: 'wont' }); await app.tick();
+  app.set(app.PF.followups.formId(key) + '-reason', 'REASONFIRST'); app.click('fu-save', key); await app.tick(60);
+  app.click('nav', 'followups'); await app.tick(20);
+  app.click('fu-filter', 'all'); await app.tick();
+  assert.ok(/REASONFIRST/.test(app.html()), 'set-up: the decision shows');
+  const path = app.files('followups/release/').find(p => !/example-session/.test(p) && /REASONFIRST/.test(app.fs.files[p].t)), f = app.fs.files[path];
+  app.fs.files[path] = { t: f.t.replace('REASONFIRST', 'REASONOTHER'), m: f.m };
+  for (let s = 0; s < 4; s++) { k.ahead(30 * 60000); app.every(); await app.tick(60); }
+  const html = app.html();
+  assert.ok(/REASONOTHER/.test(html) && !/REASONFIRST/.test(html), 'the rewritten decision shows on the page that was open');
+});
+
 run();
