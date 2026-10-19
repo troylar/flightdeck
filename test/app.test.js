@@ -3398,7 +3398,7 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
   for (let seed = 1; seed <= (+process.env.SEEDS || 24); seed++) {
     let x = seed * 7919; const rnd = n => { x = (x * 48271) % 2147483647; return x % n; };
     const t = await heldRelease(), app = t.app;
-    const discarded = new Set(); let n = 0, gone = false, holds = [], lastGood = null, minRev = t.disk().rev, lastText = null, lastRev = 0;
+    const discarded = new Set(); let n = 0, gone = false, holds = [], lastGood = null, minRev = t.disk().rev, lastText = null, lastRev = 0, external = false;
     const log = [];
     const commitShown = () => { const m = /<span class="k">commit<\/span> <code>([^<]*)<\/code>/.exec(app.html()); return m ? m[1] : null; };
     for (let step = 0; step < 45; step++) {
@@ -3414,12 +3414,16 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
       else if (a === 'discard') {
         const shown = commitShown(), pending = /Your last change isn(&#39;|')t saved/.test(app.html());
         app.click('discard-unsaved'); await app.tick(5);
-        if (pending && !/Wait for the save to finish/.test(app.html()) && shown && !(before && before.details && before.details.commit === shown)) discarded.add(shown);
+        const ok = pending && !/Wait for the save to finish/.test(app.html());
+        if (ok && shown && !(before && before.details && before.details.commit === shown)) discarded.add(shown);
+        /* Discard goes back to the last saved file, exactly, when nothing outside this window wrote the file since. */
+        if (ok && lastText && !external) assert.strictEqual(commitShown(), JSON.parse(lastText).details.commit, 'Discard went back to something other than the last saved file · seed ' + seed + ' after ' + log.join(','));
       }
       else if (a === 'reread') { t.c.ahead(6000); app.every(); }
       else if (a === 'refresh') app.click('refresh');
-      else if (a === 'corrupt') { if (before && before !== 'broken') { lastGood = app.fs.files[t.path].t; app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() }; } }
-      else if (a === 'fix') { if (lastGood && t.disk() === 'broken') { app.fs.files[t.path] = { t: lastGood, m: Date.now() }; } }
+      else if (a === 'corrupt' || a === 'fix') external = true;
+      if (a === 'corrupt') { if (before && before !== 'broken') { lastGood = app.fs.files[t.path].t; app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() }; } }
+      if (a === 'fix') { if (lastGood && t.disk() === 'broken') { app.fs.files[t.path] = { t: lastGood, m: Date.now() }; } }
       await app.tick(30);
       const d = t.disk(), where = 'seed ' + seed + ' after ' + log.join(',');
       if (d && d !== 'broken') {
@@ -3428,6 +3432,7 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
         /* Every write this window makes is a new revision after the last one that landed: a restore never rewrites an older one. */
         const text = app.fs.files[t.path].t;
         if (lastText !== null && text !== lastText && a !== 'fix') assert.ok(d.rev > lastRev, 'revision ' + d.rev + ' written over revision ' + lastRev + ' · ' + where);
+        if (text !== lastText && a !== 'fix') external = false;
         lastText = text; lastRev = d.rev;
         minRev = Math.max(minRev, d.rev); gone = false;
       }
@@ -3442,6 +3447,25 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
       assert.ok(!/file is gone from the team folder|couldn't be read on the last check/.test(app.html()), 'final: a readable run in the folder is shown as gone or unreadable · seed ' + seed + ' · ' + log.join(','));
     }
   }
+});
+
+rule('App: Discard goes back to exactly what the save wrote, even when a later change was folded into that save', async () => {
+  const t = await heldRelease(), app = t.app;
+  const r1 = t.holdRead();
+  t.commit('SAVED-A'); await app.tick(20);
+  t.commit('SAVED-B'); await app.tick(20);
+  const w = t.hold(true);
+  r1.open(); await app.tick(20);
+  assert.strictEqual(t.disk().details.commit, 'SAVED-B', 'the first save wrote the run as it was by then: with B');
+  delete app.fs.files[t.path];
+  w.open(); await app.tick(80);
+  assert.ok(/file is gone from the team folder/.test(app.html()));
+  app.click('discard-unsaved'); await app.tick(60);
+  assert.ok(/SAVED-B/.test(app.html()), 'Discard shows what landed');
+  app.click('restore-missing'); await app.tick(80);
+  const d = t.disk();
+  assert.strictEqual(d.details.commit, 'SAVED-B', 'the restore writes what landed, not an older snapshot');
+  assert.ok(JSON.stringify(d.log).indexOf('SAVED-B') >= 0, 'with B\'s log entry');
 });
 
 run();

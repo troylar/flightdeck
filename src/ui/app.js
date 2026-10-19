@@ -917,8 +917,7 @@
     var fs = state.fs, g = gen, endBusy = busyStart(), rev = edits(r.id), pend = state.pendingSaves = state.pendingSaves || {};
     pend[r.id] = (pend[r.id] || 0) + 1;
     function settled() { endBusy(); if (g === gen) { pend[r.id]--; if (pend[r.id] <= 0) delete pend[r.id]; } }
-    var snap = null;
-    return queued(function () { snap = clone(r); return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function () {
+    return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function (wrote) {
       settled();
       if (g !== gen) return true;
       var key = r.process + '/' + r.id, done = edits(r.id) === rev;
@@ -926,8 +925,13 @@
       if (done && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
       /* What this save wrote is now the last version known to be in the folder: Discard goes back to it, and every read
          that started before it is too old to apply. */
-      ['rev', 'savedAt', '_fileHash', 'lineage'].forEach(function (f) { snap[f] = r[f]; }); snap._overflow = [];
-      baselines[r.id] = { run: snap }; runOutcome(key, 'run'); bump('~' + r.id);
+      var landed = wrote && wrote.text ? R.sanitize(JSON.parse(wrote.text)) : null;
+      if (landed) {
+        Object.keys(r).forEach(function (f) { if (f[0] === '_' && !(f in landed)) landed[f] = r[f]; });
+        landed._fileHash = U.hash(wrote.text); landed._overflow = [];
+        baselines[r.id] = { run: landed };
+      }
+      runOutcome(key, 'run'); bump('~' + r.id);
       render();
       return true;
     }, function (e) {

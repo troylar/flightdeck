@@ -469,7 +469,8 @@ PF.repo = (function () {
         .then(function () { return fs.write(path, text); })
         .then(function () {
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = U.hash(text); run.lineage = copy.lineage;
-          return cleanCandidates(fs, dir, copy.lineage).then(function () { return copy.savedAt; });
+          /* What was written, exactly: the run may change in memory while this save is under way. */
+          return cleanCandidates(fs, dir, copy.lineage).then(function () { return { savedAt: copy.savedAt, text: text }; });
         }, function (e) { return fs.remove(cand).then(function () { throw e; }, function () { throw e; }); });
     });
     }
