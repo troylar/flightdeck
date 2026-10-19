@@ -11,14 +11,18 @@
   /* The error points at its own field when core named one; otherwise at every field in the form. */
   function errFor(st, stepId, inputId) { var e = st.fieldErr; return e && e.id === stepId && (!e.field || e.field === inputId) ? 'ferr-' + stepId : ''; }
   function ferr(st, id) { return st.fieldErr && st.fieldErr.id === id ? '<p class="ferr" id="ferr-' + esc(id) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : ''; }
+  /* A box drawn from state (data-bound) always shows what it holds, so the page can't tell it was typed in: it says so with
+     data-typed, which go() treats as unsaved typing. */
+  function typedMark(v) { return (typeof v === 'string' ? v.trim() : v) ? ' data-typed' : ''; }
+  /* Evidence and Fill in boxes are kept as the step's draft when you leave (data-draft-kept), so leaving never asks first. */
   function fieldInput(id, d, value, enter, stepId, note, errId) {
     /* A hint (from a Jira workflow, for example) says what the value should be or where it comes from. */
     var hintId = d.hint ? 'hint-' + id : '', described = [errId, hintId].filter(Boolean).join(' ');
     var lab = '<label class="small" for="' + esc(id) + '">' + esc(d.label) + esc(note || '') + '</label>' + (d.hint ? '<span class="small hint" id="' + esc(hintId) + '">' + esc(d.hint) + '</span>' : ''),
       bad = (errId ? ' aria-invalid="true"' : '') + (described ? ' aria-describedby="' + esc(described) + '"' : '');
-    if (d.kind === 'choice') return '<span class="rf">' + lab + '<select id="' + esc(id) + '"' + bad + '><option value="">Choose…</option>' + (d.options || []).map(function (o) { return '<option' + (String(o).toLowerCase() === String(value || '').trim().toLowerCase() ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></span>';
-    if (d.kind === 'message' || d.kind === 'code' || d.long) return '<span class="rf">' + lab + '<textarea id="' + esc(id) + '"' + bad + ' maxlength="300" rows="' + (d.long ? 3 : 2) + '">' + esc(value) + '</textarea></span>';
-    return '<span class="rf">' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.max || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url" placeholder="https://"' : '') + '></span>';
+    if (d.kind === 'choice') return '<span class="rf" data-draft-kept>' + lab + '<select id="' + esc(id) + '"' + bad + '><option value="">Choose…</option>' + (d.options || []).map(function (o) { return '<option' + (String(o).toLowerCase() === String(value || '').trim().toLowerCase() ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></span>';
+    if (d.kind === 'message' || d.kind === 'code' || d.long) return '<span class="rf" data-draft-kept>' + lab + '<textarea id="' + esc(id) + '"' + bad + ' maxlength="300" rows="' + (d.long ? 3 : 2) + '">' + esc(value) + '</textarea></span>';
+    return '<span class="rf" data-draft-kept>' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.max || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url" placeholder="https://"' : '') + '></span>';
   }
   /* Step text inside a button: the same escaped Markdown, without links (a link can't sit inside a button). */
   function inlineText(t) { return U.mdInline(t).replace(/<a\b[^>]*>|<\/a>/g, ''); }
@@ -357,7 +361,7 @@
       (err && !shown[err.field] ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : '') +
       '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + esc(s.text) + '</p>';
     if (answer) {
-      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
+      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + typedMark(f.happened) + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
       h += '<span class="small" id="corr-scope-l">Should the checklist change?</span><div class="seg" role="group" aria-labelledby="corr-scope-l">' + [['just', 'Just this run'], ['fix', 'Fix the checklist too']].map(function (o) { return '<button type="button" data-act="corr-scope" data-id="' + o[0] + '" aria-pressed="' + (f.scope === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
     }
     var same = false;
@@ -369,10 +373,10 @@
         (f.menu ? '<span class="corr-menu-list" id="corr-menu" role="group" aria-label="Change something else">' + others.map(function (o) { return '<button type="button" class="mini" data-act="corr-op" data-id="' + o[0] + '">' + esc(o[1]) + '</button>'; }).join('') + '</span>' : '') + '</span></div>';
       if (f.op === 'wording') {
         same = String(f.to).replace(/\s+/g, ' ').trim() === s.text.replace(/\s+/g, ' ').trim();
-        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
+        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + typedMark(f.to !== s.text) + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
           (same ? '<p class="small corr-same" id="corr-same">No wording changed.</p>' : '<div class="corr-prev"><span class="small"><b>Before / After</b></span>' + redline(s.text, String(f.to).replace(/\s+/g, ' ').trim()) + '</div>');
       } else if (f.op === 'add') {
-        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
+        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + typedMark(f.text) + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
         var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
@@ -388,7 +392,7 @@
         h += '<p class="small">Replacing <b>' + esc(shot ? shot.caption : '') + '</b>. Attach the right one, or say what\'s wrong with it.</p>';
       } else if (f.op === 'remove') h += '<p class="small corr-warn"><b>Remove this step from future versions?</b> Runs already started keep it.</p>';
       var whyLabel = f.op === 'describe' ? 'What\'s wrong' : f.op === 'remove' ? 'Why remove it? (required)' : 'Why? (optional)';
-      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
+      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + typedMark(f.why) + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
       h += '<div class="row"><label class="btn" for="corr-file">' + I('clip') + (f.op === 'screenshot' ? 'Attach the right one' : 'Attach') + '</label><input type="file" id="corr-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr"><span class="small">or drop or paste files here</span></div>' + pendingList(ctx, files, 'corr:' + s.id);
     }
     var conseq = answer ? (fix ? 'Marks this step done differently and proposes a checklist correction.' : 'Marks this step done differently.') : 'Saves a proposal for the checklist. It doesn\'t answer the step.';
@@ -544,7 +548,7 @@
     }).join('') + '</ul>' : '<p class="small">No notes on this step yet.</p>');
     if (s.me) {
       var pend = ctx.attachments(runKey(r), st.id), ack = s.noteAck && s.noteAck.key === runKey(r) && s.noteAck.step === st.id;
-      h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +
+      h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" data-draft-kept maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +
         pendingList(ctx, pend, 'note:' + st.id) +
         '<div class="row"><button class="btn primary" data-act="add-note" data-id="' + esc(st.id) + '">Add note' + (pend.length ? ' with ' + pend.length + ' file' + (pend.length === 1 ? '' : 's') : '') + '</button><label class="btn" for="note-file">' + I('clip') + 'Attach</label><input type="file" id="note-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr">' +
         (ack ? '<span class="small rw-ack" role="status">' + I('check') + 'Note added to this step.</span>' : '') + '</div>' +

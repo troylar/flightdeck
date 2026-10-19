@@ -2748,7 +2748,7 @@
       state.relShownSeen = relSeen(); state.rel = { q: '', kind: '', area: '', sel: 0, detail: false };
       lsSet('seen-release', APP_VERSION); lsSet('toasted-release', APP_VERSION);
       if (state.msg && state.msg.act === 'whats-new') state.msg = null;
-      openOverlay({ readOnly: true, html: function () { return V.releases(ctx); }, onClose: function () { state.relShownSeen = null; } });
+      openOverlay({ html: function () { return V.releases(ctx); }, onClose: function () { state.relShownSeen = null; } });
       var q = document.getElementById('rel-search'); if (q) q.focus();
     },
     'rel-kind': function (id) { state.rel.kind = state.rel.kind === id ? '' : id; render(); },
@@ -2844,7 +2844,7 @@
     },
     'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? '.rw-menu > summary' : '.rw-tools > [data-act="run-details"]'; render(); },
     'run-fu': function (id) { state.fuOpen = !state.fuOpen; state.focus = '[data-act="run-fu"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
-    help: function () { openOverlay({ readOnly: true, html: function () { return V.help(ctx); } }); },
+    help: function () { openOverlay({ html: function () { return V.help(ctx); } }); },
     /* A quick way between the checklist and the selected step, for keyboards and screen readers. */
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
@@ -2916,13 +2916,13 @@
       var ov = caOv(); if (!ov || ov.gid !== id) return;
       var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
       var rv = PF.corrections.review(g, caBase(x.p));
-      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.err = null;
+      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.edit.from = ov.edit.text; ov.err = null;
       state.overlayFocus = ov.edit.text != null ? '#ca-edit' : '#ca-t'; render();
     },
     'corr-combine': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id) return;
       var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
-      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to }; ov.err = null;
+      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to, from: g.change.to }; ov.err = null;
       state.overlayFocus = '#ca-edit'; render();
     },
     'corr-edit-cancel': function () { var ov = caOv(); if (!ov) return; ov.edit = null; ov.combine = null; ov.err = null; state.overlayFocus = '#ca-t'; render(); },
@@ -3031,7 +3031,7 @@
         var cut = blob.size > PF.attach.PREVIEW_MAX;
         return blob.slice(0, PF.attach.PREVIEW_MAX).text().then(function (text) {
           if (!still()) return;
-          openOverlay({ readOnly: true, text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from); } });
+          openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from); } });
         });
       }, function (e) { if (g === gen) { say('Couldn\'t open "' + name + '": ' + e.message, 'bad'); render(); } });
     },
@@ -3207,7 +3207,7 @@
     var back = state.overlay && state.overlay.back, done = state.overlay && state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full); render();
     var el = back && document.querySelector(back); if (el) el.focus();
   }
-  function openLightbox(list, i) { openOverlay({ readOnly: true, list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
+  function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
   function copyText(text, pre, done) {
     var msg = document.getElementById('copy-msg');
     function fallback() { if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } if (msg) msg.textContent = 'Selected. Press Ctrl+C.'; }
@@ -3508,12 +3508,12 @@
      step sheet. Returns whether it went. */
   function go(t) {
     t = t || {};
-    if (state.overlay && !state.overlay.readOnly) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
-    if (state.overlay) closeOverlay();
-    for (var fi = 0; fi < TYPED_FORMS.length; fi++) {
-      var held = TYPED_FORMS[fi].typed && TYPED_FORMS[fi].typed();
-      if (held) { say(held.say || 'Finish or cancel this first.', 'warn'); state.focus = held.focus; render(); return false; }
+    var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
+    if (dirty) {
+      say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
+      state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
     }
+    if (state.overlay) closeOverlay();
     if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
     if (t.view === 'run') {
       if (!t.run || !ctx.findRun(t.run)) return false;
@@ -3538,34 +3538,35 @@
     ACTIONS.nav(t.view || 'home');
     return true;
   }
-  /* Every form typed into in place (not a dialog) and what leaving the screen does to it. go() asks each one in order: a
-     form whose typing would be lost says where it is ({focus, say}) and the jump waits; one kept as a draft says so
-     (kept), so nobody adds a check that would refuse it. A new inline form belongs here. */
-  function drawnText(id) {
-    var el = document.getElementById(id);
-    if (!el || !app.contains(el)) return '';
-    var v = String(el.value || ''), def = el.defaultValue != null ? String(el.defaultValue) : '';
-    return v.trim() && v !== def ? v : '';
+  /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
+     (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs
+     the one drawn as chosen, or the first). The page itself is the record, so a new form is covered without being listed.
+     A control drawn from state (data-bound) always matches what the page drew, so its view marks typing with data-typed
+     (the correction composer, an edited proposal). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
+     Fill in, the draft editor and the step-type form), boxes that are safe to leave (type="search", data-nav-safe), and
+     hidden or file inputs. */
+  function changedControl(el) {
+    if (el.type === 'checkbox' || el.type === 'radio') return !!el.checked !== !!el.defaultChecked;
+    if (el.tagName === 'SELECT' && el.options && el.options.length) {
+      if (el.multiple) return Array.prototype.some.call(el.options, function (o) { return o.selected !== o.defaultSelected; });
+      var d = 0; for (var i = 0; i < el.options.length; i++) if (el.options[i].defaultSelected) { d = i; break; }
+      return el.selectedIndex !== d;
+    }
+    return String(el.value == null ? '' : el.value) !== String(el.defaultValue == null ? '' : el.defaultValue);
   }
-  function heldIn(ids) { for (var i = 0; i < ids.length; i++) if (drawnText(ids[i])) return { focus: '#' + cssEsc(ids[i]) }; return null; }
-  var TYPED_FORMS = [
-    { name: 'builder box', typed: function () { var pf = state.obPending && state.obPendingField; return pf ? { focus: '#' + pf, say: 'Apply or clear what you typed in the box first (Enter applies it), then go there.' } : null; } },
-    { name: 'correction', typed: function () {
-      var f = state.corrForm; if (!f) return null;
-      var r = findRun(f.key), x = r ? M.findStep(R.mapOf(r), f.step) : null;
-      return String(f.text || '').trim() || String(f.why || '').trim() || String(f.happened || '').trim() || (x && f.to !== x.step.text) ? { focus: f.mode === 'differently' ? 'corr-happened' : 'corr-why' } : null;
-    } },
-    /* One box many forms share: a pause, block, waive or fail reason, a deadline, a sign-off note, a reason to decline a
-       correction, and a detail being edited. */
-    { name: 'reason box', typed: function () { return heldIn(['pick-input', 'edit-input']); } },
-    { name: 'follow-up decision', typed: function () { if (!state.fuPick) return null; var b = PF.followups.formId(state.fuPick.key); return heldIn(['note', 'link', 'ticket', 'to', 'reason'].map(function (k) { return b + '-' + k; })); } },
-    { name: 'new follow-up', typed: function () { return heldIn(['fu-text', 'fu-ticket']); } },
-    /* setView harvests these into per-run, per-step drafts, and they come back on the way back. */
-    { name: 'note, evidence and Fill in', kept: true },
-    /* The editors live in state.editors and state.typeForm, not on the screen, and survive leaving it. */
-    { name: 'draft editor and step-type form', kept: true }
-  ];
-  PF.typedForms = TYPED_FORMS;
+  function dirtyControl() {
+    var roots = state.overlay ? [app, overlayEl] : [app];
+    for (var r = 0; r < roots.length; r++) {
+      var list = roots[r].querySelectorAll ? roots[r].querySelectorAll('input, textarea, select') : [];
+      for (var i = 0; i < list.length; i++) {
+        var el = list[i];
+        if (/^(hidden|file|button|submit|reset|search)$/.test(el.type || '')) continue;
+        if (el.closest && el.closest('[data-draft-kept], [data-nav-safe]')) continue;
+        if ((el.hasAttribute && el.hasAttribute('data-typed')) || changedControl(el)) return el;
+      }
+    }
+    return null;
+  }
   function focusOverlay() {
     var el = overlayEl && overlayEl.querySelector && overlayEl.querySelector('input, textarea, select, button');
     if (el && el.focus) el.focus();
@@ -3748,7 +3749,7 @@
       }
     }
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === '?') { openOverlay({ readOnly: true, html: function () { return V.help(ctx); } }); return; }
+    if (e.key === '?') { openOverlay({ html: function () { return V.help(ctx); } }); return; }
     /* Single-letter shortcuts can be turned off (WCAG 2.1.4), and Space never steals a focused button's own action. */
     if (!state.keys) return;
     var onControl = document.activeElement && document.activeElement !== document.body && document.activeElement.closest('button, a, summary, select, [role="checkbox"]');

@@ -4137,7 +4137,7 @@ rule('go(): a correction with unsaved text, or a follow-up decision being typed,
   assert.ok(!/id="corr-why"/.test(app.html()), 'once canceled, it goes');
 });
 
-rule('go(): a read-only dialog is closed first; any other dialog is never replaced, and focus goes back to it', async () => {
+rule('go(): a dialog with nothing typed in it is closed first; one with typing in it is never replaced', async () => {
   const app = await builderOn();
   app.click('help'); await app.tick();
   assert.ok(app.overlay(), 'set-up: help is open');
@@ -4146,11 +4146,21 @@ rule('go(): a read-only dialog is closed first; any other dialog is never replac
   assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'and on Runs');
   app.click('go', '', { view: 'process', process: 'release', ptab: 'edit' }); await app.tick();
   app.click('ob-parts-open'); await app.tick();
-  const sheet = app.overlay();
-  assert.ok(sheet, 'set-up: the Add part sheet is open');
+  assert.ok(app.overlay(), 'set-up: the Add part sheet is open');
   app.click('go', '', { view: 'runs' }); await app.tick();
-  assert.strictEqual(app.overlay(), sheet, 'not replaced');
-  assert.ok(/Finish or cancel this first\./.test(app.live() + app.html()));
+  assert.strictEqual(app.overlay(), '', 'nothing typed in it: closed, nothing lost');
+  const b = boot(); await b.tick(80); b.choose('person-morgan'); await b.tick();
+  b.click('open-process', 'release'); await b.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(b.html())[1];
+  b.click('corr-review', id); await b.tick(20);
+  b.click('corr-ca-declining'); await b.tick();
+  const sheet = b.overlay();
+  assert.ok(/id="ca-reason"/.test(sheet), 'set-up: a reason box in the dialog');
+  b.set('ca-reason', 'Not this time'); await b.tick();
+  b.click('go', '', { view: 'runs' }); await b.tick();
+  assert.ok(/id="ca-reason"/.test(b.overlay()), 'not replaced');
+  assert.strictEqual(b.draft('ca-reason'), 'Not this time');
+  assert.ok(/Finish or cancel this first\./.test(b.live() + b.html()));
 });
 
 rule('go(): on a phone, an open step sheet is closed before going; keys typed while an input method is composing do nothing', async () => {
@@ -4268,11 +4278,60 @@ rule('go(): every inline form with typing refuses the jump: a pause reason, a fo
   refused(app, 'fu-text', 'Tidy the dashboard');
 });
 
-rule('go(): the forms go() checks come from one list that names every inline form, and the ones kept as drafts say so', async () => {
-  const app = boot(); await app.tick(60);
-  const names = app.PF.typedForms.map(f => f.name);
-  ['builder box', 'correction', 'reason box', 'follow-up decision', 'new follow-up', 'note, evidence and Fill in', 'draft editor and step-type form'].forEach(n => assert.ok(names.indexOf(n) >= 0, n));
-  app.PF.typedForms.forEach(f => assert.ok(typeof f.typed === 'function' || f.kept, f.name + ' is checked or kept'));
+rule('go(): a change note to publish, and a run\'s title and details on Start, refuse the jump with the typing kept', async () => {
+  let app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const d = 'maps/drafts/release.md'; await app.fs.write(d, app.fs.files[d].t.replace('title: Production release', 'title: Production release (new)'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick(20);
+  assert.ok(/id="change-note"/.test(app.html()), 'set-up: the publish form is there');
+  app.set('change-note', 'Clarify the deploy step'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  refused(app, 'change-note', 'Clarify the deploy step');
+  app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.set('run-title', 'Release 2026.11.06'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'run-title', 'Release 2026.11.06');
+  app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.set('detail-ticket', 'ABC-5000'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'detail-ticket', 'ABC-5000');
+});
+
+rule('go(): a choice left as drawn never blocks; a changed one does', async () => {
+  let app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  const role = /id="(role-[\w-]+)"/.exec(app.html())[1];
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()) && !/Finish or cancel this first/.test(app.html() + app.live()), 'an untouched role choice doesn\'t block');
+  app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.select(role, 'person-morgan'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && new RegExp('id="' + role + '"').test(app.html()), 'a changed one does');
+});
+
+rule('go(): with nothing typed, every screen and dialog of the examples lets you go', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const key = app.run().key;
+  const screens = [
+    ['home', () => app.click('nav', 'home')], ['runs', () => app.click('nav', 'runs')], ['follow-ups', () => app.click('nav', 'followups')],
+    ['processes', () => app.click('nav', 'processes')], ['skills', () => app.click('nav', 'skills')], ['step types', () => app.click('nav', 'types')],
+    ['settings', () => app.click('nav', 'settings')], ['process', () => app.click('open-process', 'release')],
+    ['process edit', () => { app.click('open-process', 'release'); app.click('ptab', 'edit'); }], ['process insights', () => { app.click('open-process', 'release'); app.click('ptab', 'insights'); }],
+    ['start', () => app.click('start', 'release')], ['run', () => app.click('open-run', key)], ['run, a step', () => { app.click('open-run', key); app.click('select', 'approve'); }],
+    ['run, pickup', () => { app.click('open-run', key); app.click('pickup'); }], ['finish', () => { app.click('open-run', key); app.click('finish'); }],
+    ['receipt', () => { app.click('open-run', key); app.click('receipt'); }], ['folder health', () => app.click('health')], ['connection check', () => app.click('connection')],
+    ['help', () => app.click('help')], ['what\'s new', () => app.click('whats-new')], ['add part sheet', () => { app.click('open-process', 'release'); app.click('ptab', 'edit'); app.click('ob-parts-open'); }]
+  ];
+  for (const [name, open] of screens) {
+    app.click('nav', 'home'); await app.tick(5); open(); await app.tick(20);
+    const before = app.live();
+    app.click('go', '', { view: 'skills' }); await app.tick(20);
+    assert.ok(!/Finish or cancel this first|Apply or clear/.test(app.live() === before ? app.html() : app.live() + app.html()), name + ': nothing typed, nothing blocks');
+    assert.ok(/<h1[^>]*>Skills<\/h1>/.test(app.html()) && app.overlay() === '', name + ': went');
+  }
 });
 
 rule('A thumbnail waiting for its turn never reads through a folder opened after it was queued', async () => {

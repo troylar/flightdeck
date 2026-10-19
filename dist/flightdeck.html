@@ -8265,7 +8265,7 @@ PF.vk = (function () {
     }
     if (ov.edit) {
       var txt = ch.op === 'wording' || ch.op === 'add';
-      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
+      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.edit && ov.edit.text !== ov.edit.from ? ' data-typed' : '') + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
       else h += '<p class="small">Applies "' + esc(prop) + '" to the step as the draft has it now.</p>';
       if (ov.combine) h += '<p class="small">Combining ' + ov.combine.length + ' proposals: applying marks each of them as applied.</p>';
       acts = '<button type="button" class="btn go" data-act="corr-apply" data-id="' + esc(g.id) + '" data-how="edit"' + dis + (rv.state === 'gone' || rv.state === 'manual' ? ' disabled' : '') + '>Apply to draft</button><button type="button" class="mini" data-act="corr-edit-cancel">Cancel</button>';
@@ -8417,14 +8417,18 @@ PF.vk = (function () {
   /* The error points at its own field when core named one; otherwise at every field in the form. */
   function errFor(st, stepId, inputId) { var e = st.fieldErr; return e && e.id === stepId && (!e.field || e.field === inputId) ? 'ferr-' + stepId : ''; }
   function ferr(st, id) { return st.fieldErr && st.fieldErr.id === id ? '<p class="ferr" id="ferr-' + esc(id) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : ''; }
+  /* A box drawn from state (data-bound) always shows what it holds, so the page can't tell it was typed in: it says so with
+     data-typed, which go() treats as unsaved typing. */
+  function typedMark(v) { return (typeof v === 'string' ? v.trim() : v) ? ' data-typed' : ''; }
+  /* Evidence and Fill in boxes are kept as the step's draft when you leave (data-draft-kept), so leaving never asks first. */
   function fieldInput(id, d, value, enter, stepId, note, errId) {
     /* A hint (from a Jira workflow, for example) says what the value should be or where it comes from. */
     var hintId = d.hint ? 'hint-' + id : '', described = [errId, hintId].filter(Boolean).join(' ');
     var lab = '<label class="small" for="' + esc(id) + '">' + esc(d.label) + esc(note || '') + '</label>' + (d.hint ? '<span class="small hint" id="' + esc(hintId) + '">' + esc(d.hint) + '</span>' : ''),
       bad = (errId ? ' aria-invalid="true"' : '') + (described ? ' aria-describedby="' + esc(described) + '"' : '');
-    if (d.kind === 'choice') return '<span class="rf">' + lab + '<select id="' + esc(id) + '"' + bad + '><option value="">Choose…</option>' + (d.options || []).map(function (o) { return '<option' + (String(o).toLowerCase() === String(value || '').trim().toLowerCase() ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></span>';
-    if (d.kind === 'message' || d.kind === 'code' || d.long) return '<span class="rf">' + lab + '<textarea id="' + esc(id) + '"' + bad + ' maxlength="300" rows="' + (d.long ? 3 : 2) + '">' + esc(value) + '</textarea></span>';
-    return '<span class="rf">' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.max || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url" placeholder="https://"' : '') + '></span>';
+    if (d.kind === 'choice') return '<span class="rf" data-draft-kept>' + lab + '<select id="' + esc(id) + '"' + bad + '><option value="">Choose…</option>' + (d.options || []).map(function (o) { return '<option' + (String(o).toLowerCase() === String(value || '').trim().toLowerCase() ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></span>';
+    if (d.kind === 'message' || d.kind === 'code' || d.long) return '<span class="rf" data-draft-kept>' + lab + '<textarea id="' + esc(id) + '"' + bad + ' maxlength="300" rows="' + (d.long ? 3 : 2) + '">' + esc(value) + '</textarea></span>';
+    return '<span class="rf" data-draft-kept>' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.max || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url" placeholder="https://"' : '') + '></span>';
   }
   /* Step text inside a button: the same escaped Markdown, without links (a link can't sit inside a button). */
   function inlineText(t) { return U.mdInline(t).replace(/<a\b[^>]*>|<\/a>/g, ''); }
@@ -8763,7 +8767,7 @@ PF.vk = (function () {
       (err && !shown[err.field] ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : '') +
       '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + esc(s.text) + '</p>';
     if (answer) {
-      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
+      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + typedMark(f.happened) + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
       h += '<span class="small" id="corr-scope-l">Should the checklist change?</span><div class="seg" role="group" aria-labelledby="corr-scope-l">' + [['just', 'Just this run'], ['fix', 'Fix the checklist too']].map(function (o) { return '<button type="button" data-act="corr-scope" data-id="' + o[0] + '" aria-pressed="' + (f.scope === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
     }
     var same = false;
@@ -8775,10 +8779,10 @@ PF.vk = (function () {
         (f.menu ? '<span class="corr-menu-list" id="corr-menu" role="group" aria-label="Change something else">' + others.map(function (o) { return '<button type="button" class="mini" data-act="corr-op" data-id="' + o[0] + '">' + esc(o[1]) + '</button>'; }).join('') + '</span>' : '') + '</span></div>';
       if (f.op === 'wording') {
         same = String(f.to).replace(/\s+/g, ' ').trim() === s.text.replace(/\s+/g, ' ').trim();
-        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
+        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + typedMark(f.to !== s.text) + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
           (same ? '<p class="small corr-same" id="corr-same">No wording changed.</p>' : '<div class="corr-prev"><span class="small"><b>Before / After</b></span>' + redline(s.text, String(f.to).replace(/\s+/g, ' ').trim()) + '</div>');
       } else if (f.op === 'add') {
-        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
+        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + typedMark(f.text) + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
         var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
@@ -8794,7 +8798,7 @@ PF.vk = (function () {
         h += '<p class="small">Replacing <b>' + esc(shot ? shot.caption : '') + '</b>. Attach the right one, or say what\'s wrong with it.</p>';
       } else if (f.op === 'remove') h += '<p class="small corr-warn"><b>Remove this step from future versions?</b> Runs already started keep it.</p>';
       var whyLabel = f.op === 'describe' ? 'What\'s wrong' : f.op === 'remove' ? 'Why remove it? (required)' : 'Why? (optional)';
-      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
+      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + typedMark(f.why) + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
       h += '<div class="row"><label class="btn" for="corr-file">' + I('clip') + (f.op === 'screenshot' ? 'Attach the right one' : 'Attach') + '</label><input type="file" id="corr-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr"><span class="small">or drop or paste files here</span></div>' + pendingList(ctx, files, 'corr:' + s.id);
     }
     var conseq = answer ? (fix ? 'Marks this step done differently and proposes a checklist correction.' : 'Marks this step done differently.') : 'Saves a proposal for the checklist. It doesn\'t answer the step.';
@@ -8950,7 +8954,7 @@ PF.vk = (function () {
     }).join('') + '</ul>' : '<p class="small">No notes on this step yet.</p>');
     if (s.me) {
       var pend = ctx.attachments(runKey(r), st.id), ack = s.noteAck && s.noteAck.key === runKey(r) && s.noteAck.step === st.id;
-      h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +
+      h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" data-draft-kept maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +
         pendingList(ctx, pend, 'note:' + st.id) +
         '<div class="row"><button class="btn primary" data-act="add-note" data-id="' + esc(st.id) + '">Add note' + (pend.length ? ' with ' + pend.length + ' file' + (pend.length === 1 ? '' : 's') : '') + '</button><label class="btn" for="note-file">' + I('clip') + 'Attach</label><input type="file" id="note-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr">' +
         (ack ? '<span class="small rw-ack" role="status">' + I('check') + 'Note added to this step.</span>' : '') + '</div>' +
@@ -9838,7 +9842,7 @@ PF.vk = (function () {
       return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
     if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '">' + V.obPartsPane(ctx, p) + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.builder(ctx, p, text) + '</section>' + ins + '</div>';
-    else h += '<div class="fpe-panes md"><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
+    else h += '<div class="fpe-panes md"><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
     return h + '</div>';
   }
 
@@ -9987,7 +9991,7 @@ PF.vk = (function () {
       '<input id="tf-tagadd" maxlength="30" list="tf-tag-list" placeholder="Add a tag" data-enter="tf-tag-add"' + (tagErr.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + tagErr.map(function (n) { return 'tf-err-' + n; }).concat(['tf-tagadd-help']).join(' ') + '"></div><datalist id="tf-tag-list">' + tagsAll.filter(function (t) { return tags.indexOf(t) < 0; }).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       errHtml('tf-tags', tags.length > 0) + '<p class="tf-help" id="tf-tagadd-help">Press Enter or type a comma; it\'s also added when you leave the box. Tags filter the Step types list.</p></div>';
     var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(tags.map(function (t) { return '#' + t; })).join(' · ');
-    h += '<div class="fpe-panes tf-panes"><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" novalidate>' +
+    h += '<div class="fpe-panes tf-panes"><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" data-draft-kept novalidate>' +
       '<section class="panel tf-card" aria-labelledby="tf-basics-h"><h2 id="tf-basics-h">Basics</h2>' +
       field('tf-label', 'What people call it', '<input id="tf-label" maxlength="40" value="' + esc(d.label) + '"' + attrs('tf-label', !!String(d.label || '').trim(), true) + '>', 'Shown on every step of this type, like Change request.', !!String(d.label || '').trim()) +
       idPart +
@@ -13625,7 +13629,7 @@ PF.examples = (function () {
       state.relShownSeen = relSeen(); state.rel = { q: '', kind: '', area: '', sel: 0, detail: false };
       lsSet('seen-release', APP_VERSION); lsSet('toasted-release', APP_VERSION);
       if (state.msg && state.msg.act === 'whats-new') state.msg = null;
-      openOverlay({ readOnly: true, html: function () { return V.releases(ctx); }, onClose: function () { state.relShownSeen = null; } });
+      openOverlay({ html: function () { return V.releases(ctx); }, onClose: function () { state.relShownSeen = null; } });
       var q = document.getElementById('rel-search'); if (q) q.focus();
     },
     'rel-kind': function (id) { state.rel.kind = state.rel.kind === id ? '' : id; render(); },
@@ -13721,7 +13725,7 @@ PF.examples = (function () {
     },
     'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? '.rw-menu > summary' : '.rw-tools > [data-act="run-details"]'; render(); },
     'run-fu': function (id) { state.fuOpen = !state.fuOpen; state.focus = '[data-act="run-fu"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
-    help: function () { openOverlay({ readOnly: true, html: function () { return V.help(ctx); } }); },
+    help: function () { openOverlay({ html: function () { return V.help(ctx); } }); },
     /* A quick way between the checklist and the selected step, for keyboards and screen readers. */
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
@@ -13793,13 +13797,13 @@ PF.examples = (function () {
       var ov = caOv(); if (!ov || ov.gid !== id) return;
       var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
       var rv = PF.corrections.review(g, caBase(x.p));
-      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.err = null;
+      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.edit.from = ov.edit.text; ov.err = null;
       state.overlayFocus = ov.edit.text != null ? '#ca-edit' : '#ca-t'; render();
     },
     'corr-combine': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id) return;
       var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
-      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to }; ov.err = null;
+      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to, from: g.change.to }; ov.err = null;
       state.overlayFocus = '#ca-edit'; render();
     },
     'corr-edit-cancel': function () { var ov = caOv(); if (!ov) return; ov.edit = null; ov.combine = null; ov.err = null; state.overlayFocus = '#ca-t'; render(); },
@@ -13908,7 +13912,7 @@ PF.examples = (function () {
         var cut = blob.size > PF.attach.PREVIEW_MAX;
         return blob.slice(0, PF.attach.PREVIEW_MAX).text().then(function (text) {
           if (!still()) return;
-          openOverlay({ readOnly: true, text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from); } });
+          openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from); } });
         });
       }, function (e) { if (g === gen) { say('Couldn\'t open "' + name + '": ' + e.message, 'bad'); render(); } });
     },
@@ -14084,7 +14088,7 @@ PF.examples = (function () {
     var back = state.overlay && state.overlay.back, done = state.overlay && state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full); render();
     var el = back && document.querySelector(back); if (el) el.focus();
   }
-  function openLightbox(list, i) { openOverlay({ readOnly: true, list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
+  function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
   function copyText(text, pre, done) {
     var msg = document.getElementById('copy-msg');
     function fallback() { if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } if (msg) msg.textContent = 'Selected. Press Ctrl+C.'; }
@@ -14385,12 +14389,12 @@ PF.examples = (function () {
      step sheet. Returns whether it went. */
   function go(t) {
     t = t || {};
-    if (state.overlay && !state.overlay.readOnly) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
-    if (state.overlay) closeOverlay();
-    for (var fi = 0; fi < TYPED_FORMS.length; fi++) {
-      var held = TYPED_FORMS[fi].typed && TYPED_FORMS[fi].typed();
-      if (held) { say(held.say || 'Finish or cancel this first.', 'warn'); state.focus = held.focus; render(); return false; }
+    var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
+    if (dirty) {
+      say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
+      state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
     }
+    if (state.overlay) closeOverlay();
     if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
     if (t.view === 'run') {
       if (!t.run || !ctx.findRun(t.run)) return false;
@@ -14415,34 +14419,35 @@ PF.examples = (function () {
     ACTIONS.nav(t.view || 'home');
     return true;
   }
-  /* Every form typed into in place (not a dialog) and what leaving the screen does to it. go() asks each one in order: a
-     form whose typing would be lost says where it is ({focus, say}) and the jump waits; one kept as a draft says so
-     (kept), so nobody adds a check that would refuse it. A new inline form belongs here. */
-  function drawnText(id) {
-    var el = document.getElementById(id);
-    if (!el || !app.contains(el)) return '';
-    var v = String(el.value || ''), def = el.defaultValue != null ? String(el.defaultValue) : '';
-    return v.trim() && v !== def ? v : '';
+  /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
+     (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs
+     the one drawn as chosen, or the first). The page itself is the record, so a new form is covered without being listed.
+     A control drawn from state (data-bound) always matches what the page drew, so its view marks typing with data-typed
+     (the correction composer, an edited proposal). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
+     Fill in, the draft editor and the step-type form), boxes that are safe to leave (type="search", data-nav-safe), and
+     hidden or file inputs. */
+  function changedControl(el) {
+    if (el.type === 'checkbox' || el.type === 'radio') return !!el.checked !== !!el.defaultChecked;
+    if (el.tagName === 'SELECT' && el.options && el.options.length) {
+      if (el.multiple) return Array.prototype.some.call(el.options, function (o) { return o.selected !== o.defaultSelected; });
+      var d = 0; for (var i = 0; i < el.options.length; i++) if (el.options[i].defaultSelected) { d = i; break; }
+      return el.selectedIndex !== d;
+    }
+    return String(el.value == null ? '' : el.value) !== String(el.defaultValue == null ? '' : el.defaultValue);
   }
-  function heldIn(ids) { for (var i = 0; i < ids.length; i++) if (drawnText(ids[i])) return { focus: '#' + cssEsc(ids[i]) }; return null; }
-  var TYPED_FORMS = [
-    { name: 'builder box', typed: function () { var pf = state.obPending && state.obPendingField; return pf ? { focus: '#' + pf, say: 'Apply or clear what you typed in the box first (Enter applies it), then go there.' } : null; } },
-    { name: 'correction', typed: function () {
-      var f = state.corrForm; if (!f) return null;
-      var r = findRun(f.key), x = r ? M.findStep(R.mapOf(r), f.step) : null;
-      return String(f.text || '').trim() || String(f.why || '').trim() || String(f.happened || '').trim() || (x && f.to !== x.step.text) ? { focus: f.mode === 'differently' ? 'corr-happened' : 'corr-why' } : null;
-    } },
-    /* One box many forms share: a pause, block, waive or fail reason, a deadline, a sign-off note, a reason to decline a
-       correction, and a detail being edited. */
-    { name: 'reason box', typed: function () { return heldIn(['pick-input', 'edit-input']); } },
-    { name: 'follow-up decision', typed: function () { if (!state.fuPick) return null; var b = PF.followups.formId(state.fuPick.key); return heldIn(['note', 'link', 'ticket', 'to', 'reason'].map(function (k) { return b + '-' + k; })); } },
-    { name: 'new follow-up', typed: function () { return heldIn(['fu-text', 'fu-ticket']); } },
-    /* setView harvests these into per-run, per-step drafts, and they come back on the way back. */
-    { name: 'note, evidence and Fill in', kept: true },
-    /* The editors live in state.editors and state.typeForm, not on the screen, and survive leaving it. */
-    { name: 'draft editor and step-type form', kept: true }
-  ];
-  PF.typedForms = TYPED_FORMS;
+  function dirtyControl() {
+    var roots = state.overlay ? [app, overlayEl] : [app];
+    for (var r = 0; r < roots.length; r++) {
+      var list = roots[r].querySelectorAll ? roots[r].querySelectorAll('input, textarea, select') : [];
+      for (var i = 0; i < list.length; i++) {
+        var el = list[i];
+        if (/^(hidden|file|button|submit|reset|search)$/.test(el.type || '')) continue;
+        if (el.closest && el.closest('[data-draft-kept], [data-nav-safe]')) continue;
+        if ((el.hasAttribute && el.hasAttribute('data-typed')) || changedControl(el)) return el;
+      }
+    }
+    return null;
+  }
   function focusOverlay() {
     var el = overlayEl && overlayEl.querySelector && overlayEl.querySelector('input, textarea, select, button');
     if (el && el.focus) el.focus();
@@ -14625,7 +14630,7 @@ PF.examples = (function () {
       }
     }
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === '?') { openOverlay({ readOnly: true, html: function () { return V.help(ctx); } }); return; }
+    if (e.key === '?') { openOverlay({ html: function () { return V.help(ctx); } }); return; }
     /* Single-letter shortcuts can be turned off (WCAG 2.1.4), and Space never steals a focused button's own action. */
     if (!state.keys) return;
     var onControl = document.activeElement && document.activeElement !== document.body && document.activeElement.closest('button, a, summary, select, [role="checkbox"]');

@@ -52,7 +52,32 @@ function boot(opts) {
   /* Thumbnail placeholders as nodes: the same node while it stays drawn, a new one once it's drawn again (as morph does). */
   const thumbs = new Map(), unq = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
   const drawnThumbs = () => [...appEl._html.matchAll(/data-thumb="([^"]*)"/g)].map(m => unq(m[1]));
+  /* Every form control drawn in a region, as the page has it now: what was typed (set(), select(), check()) on the ones a test
+     touched, the drawn value on the rest. defaultValue / defaultChecked are what the markup draws, as in a browser, and
+     closest() answers for the marks that say a control is kept as a draft or safe to leave. */
+  const controls = root => {
+    const html = root._html || '', out = [];
+    const spans = attr => { const r = []; const re = new RegExp('<(\\w+)\\b[^>]*\\s' + attr + '\\b[^>]*>', 'g'); let m; while ((m = re.exec(html))) { const tag = m[1]; let depth = 1, i = m.index + m[0].length; const tre = new RegExp('<(/?)' + tag + '\\b[^>]*>', 'g'); tre.lastIndex = i; let t; while (depth && (t = tre.exec(html))) depth += t[1] ? -1 : 1; r.push([m.index, t ? t.index : html.length]); } return r; };
+    const marked = ['data-draft-kept', 'data-nav-safe'].map(spans).reduce((a, b) => a.concat(b), []);
+    const re = /<(input|textarea|select)\b[^>]*>/g; let m;
+    while ((m = re.exec(html))) {
+      const tag = m[0], idm = /\sid="([^"]*)"/.exec(tag); if (!idm) continue;
+      const id = unq(idm[1]), typ = (/\stype="([^"]*)"/.exec(tag) || [])[1] || (m[1] === 'input' ? 'text' : m[1]);
+      const def = drawnValue(html, id), defChecked = /\schecked\b/.test(tag), at = m.index;
+      const el = inputs.has(id) || (els[id] && els[id]._touched) ? els[id] : { id, value: def, checked: defChecked, dataset: {} };
+      el.tagName = m[1].toUpperCase(); if (!inputs.has(id) || !el.type) el.type = typ;
+      Object.defineProperty(el, 'defaultValue', { configurable: true, get: () => def }); el.defaultChecked = defChecked;
+      el.hasAttribute = a => new RegExp('\\s' + a + '(=|\\s|>|$)').test(tag);
+      if (!el._ownClosest) el._ownClosest = el.closest || (() => null);
+      const own = el._ownClosest;
+      el.closest = sel => /data-draft-kept/.test(sel) ? (/\sdata-(draft-kept|nav-safe)\b/.test(tag) || marked.some(([a, b]) => at >= a && at < b) ? {} : null) : own.call(el, sel);
+      out.push(el);
+    }
+    return out;
+  };
+  els.overlay.querySelectorAll = sel => sel === 'input, textarea, select' ? controls(els.overlay) : [];
   appEl.querySelectorAll = sel => {
+    if (sel === 'input, textarea, select') return controls(appEl);
     if (sel === '[data-thumb]') { const now = drawnThumbs(); [...thumbs.keys()].forEach(k => { if (now.indexOf(k) < 0) thumbs.delete(k); }); return now.map(k => { if (!thumbs.has(k)) thumbs.set(k, { nodeType: 1, dataset: { thumb: k } }); return thumbs.get(k); }); }
     return /input|textarea|select/.test(sel) ? [...inputs].filter(onScreen).map(id => els[id]) : [];
   };
@@ -164,9 +189,9 @@ function boot(opts) {
     // What the app put into an element as plain text (textContent), never as markup.
     text: id => els[id] ? els[id].textContent : undefined,
     change(id, files) { (listeners.change || []).forEach(fn => fn({ target: { id, files, value: '' } })); },
-    select(id, value) { const el = get(id); el.value = value; (listeners.change || []).forEach(fn => fn({ target: el })); },
+    select(id, value) { const el = get(id); el.value = value; el._touched = true; (listeners.change || []).forEach(fn => fn({ target: el })); },
     // Turn a checkbox or switch on or off, as a click on it would.
-    check(id, on) { const el = get(id); el.type = 'checkbox'; el.checked = !!on; (listeners.change || []).forEach(fn => fn({ target: el })); },
+    check(id, on) { const el = get(id); el.type = 'checkbox'; el.checked = !!on; el._touched = true; (listeners.change || []).forEach(fn => fn({ target: el })); },
     // Fire any document event the app listens for (drag and drop, mouseover) with a stand-in event.
     fire(type, ev) { (listeners[type] || []).forEach(fn => fn(Object.assign({ preventDefault() {}, dataTransfer: { setData() {}, effectAllowed: '', dropEffect: '' } }, ev))); },
     choose(personId) { (listeners.change || []).forEach(fn => fn({ target: { id: 'me', value: personId } })); },
