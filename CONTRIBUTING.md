@@ -18,7 +18,7 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 | `src/page.html` | Styles and the page shell | Colors are tokens with light and dark values. No external resources. |
 | `example-folder/` | A complete example team folder | Synthetic people only. Also built into the app as the examples. |
 | `test/fixtures/` | Run files from earlier versions | Never edit one; add a new fixture when the run format changes, so old runs keep loading. |
-| `tools/` | Small scripts | `type-table.js` writes the step-type table in `docs/map-format.md`. |
+| `tools/` | Small scripts | `type-table.js` writes the step-type table in `docs/map-format.md`; `baselines.js` records the shipped `AGENTS.md` and skills in `src/baselines.json`. |
 
 `build.py` joins the files in a fixed order into one HTML file.
 
@@ -34,6 +34,7 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 - **Change the checklist format:** update `src/core/map.js`, `docs/map-format.md`, and `example-folder/AGENTS.md` together.
 - **Change the run format:** keep `sanitize()` in `src/core/run.js` accepting older files, add the new field to `KNOWN` in the same file (otherwise this copy treats runs that have it as written by a newer copy and opens them read-only), and add a fixture to `test/fixtures/`.
 - **Change a step type's properties:** a frozen type with a property, field kind or type version this copy doesn't know makes its version unusable (`types.understood`, mirrored in `check_folder.py`). Add new properties to both, and test them in `test/checker.test.js`.
+- **Change `example-folder/AGENTS.md` or a skill:** run `node tools/baselines.js --write`, so `flightdeck install` recognizes the new text as a Flightdeck default in folders that have it. A test fails until you do.
 - **Add a built-in step type:** keep `PF.types.VERSION` as it is. Every built-in is frozen into each publication's `types.json` with the current version, so raising it makes every new version unusable in older copies, even ones that use only `confirm`. A new type built from fields, kinds and settings older copies already know runs there from its frozen definition (`test/rules.test.js` checks this with a copy that lacks the type). Raise `VERSION`, together with `TYPES_VERSION` in `check_folder.py`, only when what an existing setting means changes.
 - **Change saving or loading:** add a case to `test/sync.test.js`. Its two simulated computers sync only when told to, which is how OneDrive behaves on release night.
 
@@ -46,6 +47,7 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 - **Each change:** `kind` (`new`, `improved` or `fixed`), `area`, `title`, `now`, and where they help, `before` and `where`. Write for the people running checklists, not for engineers: what they'll notice and where to find it. US English, plain words, no people's names, no employer or client names.
 - `build.py` validates the file and fails the build on a bad entry (out-of-order versions or dates, an unknown kind, a missing or misspelled field) and regenerates `CHANGELOG.md`. **Never edit `CHANGELOG.md` by hand**; a test fails if it differs from what the release file generates.
 - Release text is embedded with every `<` and line separator escaped, so it can't break out of the page's script; `test/build.test.js` proves it.
+- **Sync-touching releases need a rehearsal record.** A minor or major release that touches `src/storage/`, the run or notes formats, saving or sync code in `src/ui/app.js`, or the connection check ships only with a two-computer rehearsal record in `docs/rehearsals/<version>-<date>.md`. The script and the results template are in `docs/onedrive.md`, *Release gate*.
 - To ship, copy `dist/flightdeck.html` into the team folder as `flightdeck.html`. Anyone running an older copy sees "Flightdeck X is in the team folder" in the top bar.
 
 ## Before you commit

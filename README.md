@@ -54,11 +54,12 @@ Flightdeck keeps checklists and run records together, links to skills stored els
 npm install -g @troylar/flightdeck
 
 flightdeck open                        # opens the app on built-in examples
-flightdeck install ~/OneDrive/Team     # puts flightdeck.html in your team folder
-flightdeck skills  ~/OneDrive/Team     # adds the skills for your AI assistant there
+flightdeck install ~/OneDrive/Team     # puts flightdeck.html, AGENTS.md and the AI assistant skills in your team folder
 ```
 
 Then open `flightdeck.html` from the team folder, go to **Settings → Open team folder**, pick the same folder, and choose who you are in the top right. That's the whole setup.
+
+To update later, run `flightdeck install` again: it updates what's still a Flightdeck default and keeps what your team changed. [Updating Flightdeck](docs/updating.md) walks through it, including backups and mixed versions; [When something goes wrong](docs/recovery.md) covers conflict copies, lost folder access and restoring.
 
 > **Prefer no npm?** `flightdeck.html` is self-contained. Copy it anywhere and open it.
 
@@ -375,11 +376,20 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | Command | Does |
 |---|---|
 | `flightdeck open` | Opens the app on its built-in examples |
-| `flightdeck install <folder>` | Copies `flightdeck.html` into a team folder. Won't replace a newer copy or an unrecognized file without `--force`. Also updates a `preflight.html` already there |
-| `flightdeck skills <folder>` | Adds or updates the skills for your AI assistant in `<folder>/.flightdeck/skills`. Leaves files someone changed alone unless you add `--force` |
+| `flightdeck install <folder>` | Copies `flightdeck.html` into a team folder, and adds or updates `AGENTS.md` and the skills for your AI assistant in `.flightdeck/skills`. Won't replace a newer app or an unrecognized file without `--force`. Also updates a `preflight.html` already there |
+| `flightdeck skills <folder>` | Adds or updates only the skills, in `<folder>/.flightdeck/skills` |
 | `flightdeck skills --to <dir>` | The same, into any other folder you name (absolute or relative), such as your assistant's own skills folder or another repo. `<dir>` is created if it's missing |
+| `flightdeck backup <folder>` | Copies the whole team folder to `~/Flightdeck backups/<folder> backup <date> <time>/`, or under `--to <dir>`. Skips links and temporary files, and refuses a destination inside the folder |
 | `flightdeck path` | Prints where the app file is |
 | `flightdeck version` | Prints the version |
+
+| Option | Does |
+|---|---|
+| `--check` | With `install` or `skills`: lists what would change and changes nothing. Exit code 0: nothing to do; 2: updates to install; 3: files your team changed need merging; 1: a problem |
+| `--app-only` | With `install`: copies only `flightdeck.html` |
+| `--force` | Replaces a newer app, an unrecognized file, or files your team changed. Like every install, it first saves a checked copy of each file it replaces in `.flightdeck/updates/<version>/replaced/` |
+
+Install and skills sort every `AGENTS.md` and skill file the same way. A file that's still a Flightdeck default (this version's or an earlier one) is updated. A file your team changed is left alone. If this version changed that file's default too, the new default goes to `.flightdeck/updates/<version>/`, with a `README.md` holding a prompt for your AI assistant to merge it. In `AGENTS.md` only the part between the `flightdeck:begin` and `flightdeck:end` markers is Flightdeck's; Team notes, below it, are never touched. `.flightdeck/installed.json` records which defaults the folder is based on; it can make install more careful, never less. Every file install replaces is first copied to `.flightdeck/updates/<version>/replaced/`. A file that changes while install runs is left alone and install exits with 1. Nothing is written through a link or outside the folder (see [Updating Flightdeck](docs/updating.md) for the limits).
 
 <br>
 
@@ -403,8 +413,10 @@ step-types/            your team's own step types (create them in the app)
 jira/workflows.json    your real Jira workflows, with required fields
 proposals/             planned runs (from the app or your AI assistant), waiting for a person to start them
 images/                screenshots that checklists refer to
-AGENTS.md              the rules any AI assistant follows in this folder
+AGENTS.md              the rules any AI assistant follows in this folder (your own go under Team notes)
 .flightdeck/skills/    the Flightdeck skills for your AI assistant
+.flightdeck/installed.json   which Flightdeck defaults AGENTS.md and the skills are based on
+.flightdeck/updates/   new defaults waiting to be merged, and copies of files --force replaced
 ```
 
 </details>
@@ -415,7 +427,7 @@ Every file has exactly one writer, which keeps ordinary use of a shared folder f
 
 ## Skills for your AI assistant
 
-`flightdeck skills` installs these into the team folder's `.flightdeck/skills/`, or anywhere else with `--to <dir>`. They're plain `SKILL.md` files (a name, a description and instructions), so any assistant that supports skills can use them: install them where your assistant looks for skills, or point it at the folder. Then open the team folder with your assistant and ask for one by name:
+`flightdeck install` puts these in the team folder's `.flightdeck/skills/` (`flightdeck skills` does only the skills), or `flightdeck skills --to <dir>` puts them anywhere else. They're plain `SKILL.md` files (a name, a description and instructions), so any assistant that supports skills can use them: install them where your assistant looks for skills, or point it at the folder. Then open the team folder with your assistant and ask for one by name:
 
 | Skill | Does |
 |---|---|

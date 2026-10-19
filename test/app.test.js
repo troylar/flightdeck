@@ -3,7 +3,7 @@
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
-const { boot, gate, bus, locks } = require('./app-harness');
+const { boot, gate, bus, locks, folderHandle, memoryIDB } = require('./app-harness');
 
 // A file that really is a PNG: attachments are checked against their first bytes.
 const png = (name) => { const b = new Blob([new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82])], { type: 'image/png' }); if (name) b.name = name; return b; };
@@ -3077,6 +3077,26 @@ rule('App: random sequences of selecting, typing evidence, Fill in, checking, Do
       assert.ok(box.includes(typed[st].replace(/@/g, '@')), 'seed ' + seed + ': ' + st + ' still holds ' + typed[st]);
     }
   }
+});
+
+rule('App: a new team folder\'s starter checklist names whoever created it as its owner, and the folder records the defaults it started from', async () => {
+  const { example } = require('./harness'), cli = require('../bin/flightdeck.js');
+  const dir = folderHandle('Team');
+  const app = boot({ picker: dir, indexedDB: memoryIDB() });
+  await app.tick(60);
+  app.choose('person-blake'); await app.tick();
+  app.click('new-folder'); await app.tick(300);
+  const f = dir.files;
+  assert.strictEqual(app.PF.map.parse(f['maps/drafts/check-in.md']).meta.owner, 'person-blake');
+  assert.strictEqual(f['maps/drafts/check-in.md'], example('maps/drafts/check-in.md').replace(/^owner: .*$/m, 'owner: person-blake'), 'only the owner line differs from the starter');
+  assert.ok(/## Team notes/.test(f['AGENTS.md']), 'AGENTS.md comes with Team notes');
+  const rec = JSON.parse(f['.flightdeck/installed.json']), keys = Object.keys(f).filter(k => k === 'AGENTS.md' || k.startsWith('.flightdeck/skills/')).sort();
+  assert.strictEqual(rec.format, 'flightdeck-installed/1');
+  assert.strictEqual(rec.by, 'app');
+  assert.strictEqual(rec.version, cli.versionOf(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8')));
+  assert.deepStrictEqual(Object.keys(rec.files).sort(), keys);
+  keys.forEach(k => assert.strictEqual(rec.files[k], cli.hash(cli.managed(k, f[k])), k + ': the app and the command hash it the same way'));
+  assert.ok(/Created the team folder/.test(app.html() + app.live()), 'says it was created');
 });
 
 run();

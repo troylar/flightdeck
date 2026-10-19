@@ -50,7 +50,7 @@ Every file has exactly one writer, so OneDrive never has to merge two saves.
 
 ```
 <team folder>/
-  AGENTS.md                        the contract for any AI assistant
+  AGENTS.md                        the contract for any AI assistant: Flightdeck's part between markers, then the team's Team notes
   people.json                      shared people list
   maps/drafts/<process>.md         drafts (an AI assistant, or people in the app's editor; saves are checked)
   publications/<process>/v<N>/     immutable once written
@@ -66,7 +66,12 @@ Every file has exactly one writer, so OneDrive never has to merge two saves.
   corrections/<process>/<group>.<session>.<rev>.json   one decision on a group of corrections (written once by that window)
   suggestions/<process>/<id>.<session>.json   decisions on suggested fixes from before 1.13 (read, no longer written)
   proposals/<id>.json              planned runs: an AI assistant writes its own; Flightdeck writes plan-<process>-<random>.json once, for a person
+  .flightdeck/skills/...           the Flightdeck skills for AI assistants (flightdeck install or flightdeck skills)
+  .flightdeck/installed.json       which defaults AGENTS.md's managed part and the skills are based on (flightdeck install or skills; Flightdeck once, when it starts a new folder)
+  .flightdeck/updates/<version>/   new defaults the team must merge, with a README.md, and replaced/ copies from --force (flightdeck install or skills; deleted by whoever merges)
 ```
+
+`AGENTS.md` has two writers by design, split by its markers: `flightdeck install` owns the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->`, and the team owns Team notes below it. Install compares each contract file with `src/baselines.json` (every default ever shipped, by hash) and the folder's `installed.json`, so it updates only what is still a default; see docs/updating.md.
 
 A **session** is one browser window. A person on a laptop and on a remote desktop is two sessions, so two writers, so two files.
 

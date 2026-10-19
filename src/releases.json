@@ -1,5 +1,56 @@
 [
   {
+    "version": "1.15.0",
+    "date": "2026-10-18",
+    "headline": "Safer updates: install keeps your team's changes, says what it would do first, and backs up the team folder",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Command line",
+        "title": "install sets up the whole folder, and keeps your changes",
+        "before": "flightdeck install copied only flightdeck.html. The skills were a separate command, and skills --force replaced files your team had changed without keeping a copy.",
+        "now": "flightdeck install also adds or updates AGENTS.md and the skills for your AI assistant. Files still at an earlier default are updated; files your team changed are kept. When this version changed them too, the new default goes to .flightdeck/updates/1.15.0/ with a README.md to hand to your AI assistant. Add --app-only to install only the app.",
+        "where": "flightdeck install <team folder>"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "See what an update would do first",
+        "now": "Add --check to install or skills to see what would change, without changing anything. It exits with 0 when there's nothing to do, 2 when updates are ready, and 3 when files need merging, so a script can tell.",
+        "where": "flightdeck install <team folder> --check"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Back up a team folder",
+        "now": "flightdeck backup copies the whole team folder to a dated folder in Flightdeck backups in your home folder, or wherever you name with --to. It never copies links and never puts a backup inside the folder it backs up.",
+        "where": "flightdeck backup <team folder>"
+      },
+      {
+        "kind": "improved",
+        "area": "Command line",
+        "title": "Install keeps a copy of every file it replaces",
+        "now": "Before install or skills replaces any file, even with --force, it saves the old one under .flightdeck/updates/<version>/replaced/ and checks the copy, so nothing your team had is lost.",
+        "where": "flightdeck install or skills"
+      },
+      {
+        "kind": "improved",
+        "area": "Team folder",
+        "title": "AGENTS.md has a place for your team's own notes",
+        "now": "Flightdeck's instructions for AI assistants sit between two markers in AGENTS.md. Team notes, below them, are yours: updates never change them.",
+        "where": "AGENTS.md in the team folder"
+      },
+      {
+        "kind": "fixed",
+        "area": "Team folder",
+        "title": "A new team folder's starter checklist names you as owner",
+        "before": "Start a new team folder made the starter Check in code checklist with an example person as its owner.",
+        "now": "The starter checklist names whoever created the folder as its owner, and the folder records which Flightdeck set it up.",
+        "where": "Settings: Start a new team folder"
+      }
+    ]
+  },
+  {
     "version": "1.14.0",
     "date": "2026-10-18",
     "headline": "Five new step types: Jira sprints, deploys, health checks, GitHub pull requests and measurements",

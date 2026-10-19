@@ -67,4 +67,13 @@ rule('the built app carries both version stamps, so copies from before the renam
   assert.ok(legacy && now && legacy[1] === now[1], 'both stamps, same version');
 });
 
+rule('The baselines list this version\'s AGENTS.md and skills, and the built app carries exactly src/baselines.json', () => {
+  const B = require('../tools/baselines.js'), b = B.load();
+  assert.deepStrictEqual(B.problems(b, B.version()), []);
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'flightdeck.html'), 'utf8'), m = /var BASELINES = (\{.*\});\n/.exec(html);
+  assert.ok(m, 'the app embeds the baselines on one line');
+  assert.deepStrictEqual(JSON.parse(m[1]), b, 'run python build.py');
+  assert.ok(Object.keys(b.files['AGENTS.md#flightdeck']).length > 1, 'earlier releases are recorded too (node tools/baselines.js --backfill)');
+});
+
 run();
