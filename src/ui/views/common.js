@@ -148,6 +148,32 @@ PF.vk = (function () {
   function paneStyle(ctx, keys) {
     return keys.filter(function (k) { return paneW(ctx, k).set; }).map(function (k) { return '--pane-' + k + ':' + paneW(ctx, k).w + 'px'; }).join(';');
   }
+  /* All the sidebars of one panes container, fitted together to its width W in one pass. items, in markup order: { key, pref
+     (the width chosen, or none), measured (its width now), fixed (shown but not resizable here: Parts as a rail) }. A chosen
+     width is read from the choice, never from what was drawn, and a sidebar left at the layout's width keeps it, so fitting
+     what was drawn gives the same answer (no back and forth). Chosen widths give way in SHRINK order (the inspector first)
+     until the main pane has MAIN_MIN. Returns { key: { w, max } } for the resizable ones. */
+  var MAIN_MIN = 360, SHRINK = ['ins', 'tf', 'parts'];
+  function fitPanes(W, items) {
+    var w = {}, chosen = {}, total = 0, room = W - MAIN_MIN, out = {};
+    items.forEach(function (it) {
+      var spec = PANES[it.key];
+      chosen[it.key] = !it.fixed && typeof it.pref === 'number' && isFinite(it.pref);
+      w[it.key] = Math.round(chosen[it.key] ? Math.max(spec.min, Math.min(spec.max, it.pref)) : it.measured || 0);
+      total += w[it.key];
+    });
+    var excess = total - room;
+    SHRINK.forEach(function (k) {
+      if (excess <= 0 || !chosen[k]) return;
+      var cut = Math.min(excess, w[k] - PANES[k].min); w[k] -= cut; excess -= cut; total -= cut;
+    });
+    items.forEach(function (it) {
+      if (it.fixed) return;
+      var spec = PANES[it.key];
+      out[it.key] = { w: w[it.key], max: Math.max(spec.min, Math.min(spec.max, room - (total - w[it.key]))) };
+    });
+    return out;
+  }
   function paneAttr(ctx, keys) { var s = paneStyle(ctx, keys); return s ? ' style="' + s + '"' : ''; }
   function splitter(ctx, key) {
     var spec = PANES[key], w = paneW(ctx, key);
@@ -155,6 +181,6 @@ PF.vk = (function () {
   }
 
   V.undoBar = undoBar;
-  V.PANES = PANES; V.MAIN_MIN = 360; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
+  V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   V.top = top; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;
 })();

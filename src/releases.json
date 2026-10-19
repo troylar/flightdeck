@@ -19,6 +19,22 @@
         "before": "The builder's Parts list and the inspector had fixed widths.",
         "now": "The Parts list and the inspector each have a line you can drag or move with the arrow keys, the same way as the step-type preview, and each keeps its own width. The Markdown view uses the inspector's width too. When the parts are folded to icons, only the inspector resizes.",
         "where": "A process page › Edit, the lines beside Parts and the inspector"
+      },
+      {
+        "kind": "fixed",
+        "area": "Step types",
+        "title": "The step-type form has its room again",
+        "before": "On a wide screen the step-type form was squeezed into a narrow column and the Run preview took most of the page.",
+        "now": "The form takes most of the page and the preview is a narrower column beside it, as intended.",
+        "where": "Step types › a step type"
+      },
+      {
+        "kind": "fixed",
+        "area": "Examples",
+        "title": "Opens in a browser that blocks site storage",
+        "before": "In a browser set to block site data, Flightdeck stopped while setting up the examples and showed nothing.",
+        "now": "The examples open, and a message says they and your changes to them last only while the tab is open. A team folder still keeps everything.",
+        "where": "Opening Flightdeck"
       }
     ]
   },

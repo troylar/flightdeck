@@ -72,11 +72,18 @@ PF.fs = (function () {
   function MemoryFS(key, seed) {
     this.key = key; this.kind = 'memory'; this.name = 'Examples (this browser only)';
     var saved = null;
-    try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { saved = null; }
+    /* A browser that refuses storage (blocked site data) keeps the examples in this tab only: volatile. */
+    var raw = null;
+    try { raw = localStorage.getItem(key); } catch (e) { this.volatile = true; }
+    try { saved = JSON.parse(raw || 'null'); } catch (e) { saved = null; }
     this.files = saved || {};
     if (!saved && seed) { var self = this; Object.keys(seed).forEach(function (p) { self.files[p] = { t: seed[p], m: Date.now() }; }); this.persist(); }
   }
-  MemoryFS.prototype.persist = function () { try { localStorage.setItem(this.key, JSON.stringify(this.files)); return true; } catch (e) { return false; } };
+  MemoryFS.prototype.persist = function () {
+    if (this.volatile) return true;
+    try { localStorage.setItem(this.key, JSON.stringify(this.files)); return true; }
+    catch (e) { if (e && e.name === 'SecurityError') { this.volatile = true; return true; } return false; }
+  };
   MemoryFS.prototype.list = function (path) {
     var prefix = path ? path + '/' : '', seen = {}, out = [];
     Object.keys(this.files).forEach(function (p) {
@@ -91,7 +98,7 @@ PF.fs = (function () {
     split(path);
     var self = this;
     function put(t) { self.files[path] = { t: t, m: Date.now() }; if (!self.persist()) { delete self.files[path]; throw new Error('This browser\'s storage for the examples is full. Reset examples, or use a team folder.'); } }
-    if (typeof data === 'string') { put(data); return Promise.resolve(); }
+    if (typeof data === 'string') { try { put(data); } catch (e) { return Promise.reject(e); } return Promise.resolve(); }
     return data.arrayBuffer().then(function (buf) {
       var bytes = new Uint8Array(buf), bin = '';
       for (var i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));

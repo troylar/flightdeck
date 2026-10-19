@@ -562,6 +562,70 @@ rule('App: when the browser refuses storage, the separators still resize and not
   assert.strictEqual(app.store['preflight:panes'], '{"tf":500}', 'what was kept before is untouched');
 });
 
+/* A separator and its panes as a browser has them, for dragging: the live node is what the page finds now. */
+function dragSetup(app) {
+  const styles = [];
+  const box = { setAttribute: (k, v) => styles.push(v), removeAttribute: () => styles.push(null), querySelectorAll: () => [live.sep] };
+  const node = () => { const n = { tagName: 'DIV', dataset: { split: 'tf', act: 'pane-split', id: 'tf' }, parentNode: box, attrs: {}, captured: false,
+    getAttribute: k => k === 'data-split' ? 'tf' : n.attrs[k], setAttribute: (k, v) => { n.attrs[k] = v; }, focus() {}, setPointerCapture() { n.captured = true; }, releasePointerCapture() { n.captured = false; } };
+    n.closest = sel => /pane-split|data-split|data-act/.test(sel) ? n : null; return n; };
+  const live = { sep: node() };
+  app.el('tf-preview').getBoundingClientRect = () => ({ width: 400 });
+  const appEl = app.el('app'), q = appEl.querySelector;
+  appEl.querySelector = sel => /pane-split/.test(sel) ? live.sep : q(sel);
+  return { live, node, styles };
+}
+const ptr = (target, x, extra) => Object.assign({ target, pointerId: 7, button: 0, clientX: x }, extra || {});
+
+rule('App: dragging a separator follows the separator the page has now, and a separator gone mid-drag ends the drag', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const d = dragSetup(app), first = d.live.sep;
+  app.fire('pointerdown', ptr(first, 500));
+  assert.ok(first.captured && app.rootClasses().includes('pane-drag'), 'captured, and the page selects no text');
+  app.fire('pointermove', ptr(first, 450));
+  assert.strictEqual(d.styles.pop(), '--pane-tf:450px', 'moving left widens the preview');
+  // A redraw replaced the separator (its range changed): the drag goes on with the new one.
+  d.live.sep = d.node();
+  app.fire('pointermove', ptr(first, 440));
+  assert.ok(d.styles.pop() === '--pane-tf:460px' && d.live.sep.attrs['aria-valuenow'] === '460', 'the live separator says the width');
+  // It's gone (the panes stacked): the next move ends the drag instead of writing to a detached node.
+  d.live.sep = null;
+  app.fire('pointermove', ptr(first, 430));
+  assert.ok(!app.rootClasses().includes('pane-drag'), 'text can be selected again');
+  await app.tick();
+  assert.ok(/class="fpe-panes tf-panes" style="--pane-tf:460px"/.test(app.html()), 'the width reached is kept');
+});
+
+rule('App: a drag ends on release, cancel, lost capture or leaving the window, and text can always be selected again', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const d = dragSetup(app);
+  const ends = { pointerup: s => app.fire('pointerup', ptr(s, 480)), pointercancel: s => app.fire('pointercancel', ptr(s, 480)), lostpointercapture: s => app.fire('lostpointercapture', ptr(s, 480)), blur: () => app.winFire('blur') };
+  for (const [how, end] of Object.entries(ends)) {
+    const s = d.live.sep;
+    app.fire('pointerdown', ptr(s, 500));
+    assert.ok(app.rootClasses().includes('pane-drag'), how + ': dragging');
+    end(s);
+    assert.ok(!app.rootClasses().includes('pane-drag'), how + ' ends it');
+    const n = d.styles.length;
+    app.fire('pointermove', ptr(s, 300));
+    assert.strictEqual(d.styles.length, n, how + ': a later move resizes nothing');
+    await app.tick();
+  }
+});
+
+rule('App: a browser that refuses all storage still opens the examples, says they last only for this tab, and resizes', async () => {
+  const app = boot({ storageThrows: true, firstRun: true }); await app.tick(80);
+  assert.ok(app.fs && app.files('runs/').length > 3 && app.files('publications/').length > 3, 'the examples are there, with their run history');
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  assert.ok(/only while this tab is open/.test(app.html() + app.live()), 'and it says they aren\'t kept');
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const start = splitNow(app, 'tf');
+  splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 16);
+});
+
 rule('App: Undo and Redo keep what\'s typed in an open Add a step box, and refuse when the step it goes after would disappear', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md', PF = app.PF;
   app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();

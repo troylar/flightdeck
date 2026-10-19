@@ -539,7 +539,9 @@
   function seedExamples(mem) { mem.reset(EXAMPLES); return PF.examples.seed(mem, EXAMPLES); }
   function boot() {
     var mem = new PF.fs.MemoryFS(LS + ':examples', null);
-    var seeded = Object.keys(mem.files).length ? Promise.resolve() : seedExamples(mem);
+    /* A browser that refuses storage still gets the examples, kept in this tab only; a failed seed shows what failed. */
+    var seeded = Object.keys(mem.files).length ? Promise.resolve() : Promise.resolve().then(function () { return seedExamples(mem); }).catch(function (e) { say(e && e.message || 'The examples couldn\'t be set up.', 'warn'); });
+    if (mem.volatile) say('This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. To keep your work, use a team folder.', 'warn');
     var useMem = function () { return seeded.then(function () { return useFs(mem); }); };
     if (!canFolder) return useMem();
     return handles.get().then(function (rec) {
@@ -972,18 +974,26 @@
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
   }
-  /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each sidebar on screen is measured: the width
-     the layout gives it, and the widest it can be while the main pane keeps V.MAIN_MIN. A change redraws, so the separator
-     says the real width and a chosen width is clamped to the window, while the width chosen is kept for a wider window. */
+  /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
+     whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
+     once, so the separators say the real widths, and a chosen width is clamped to the window while the choice is kept. */
   function fitPanes() {
-    var fit = {}, changed = false, seps = app.querySelectorAll ? app.querySelectorAll('.pane-split') : [];
-    Array.prototype.forEach.call(seps, function (sp) {
-      var key = sp.getAttribute('data-split'), spec = V.PANES[key], box = sp.parentNode, pane = spec && document.getElementById(spec.controls);
-      /* Hidden (the panes stack on a phone, or Parts is a rail) or not laid out: nothing to measure. */
-      if (!pane || !box || !box.clientWidth || !sp.offsetParent || window.getComputedStyle(sp).visibility === 'hidden') return;
-      var others = 0;
-      Array.prototype.forEach.call(box.children, function (c) { var k = c.getAttribute('data-split'), o = k && k !== key && V.PANES[k] && document.getElementById(V.PANES[k].controls); if (o) others += o.getBoundingClientRect().width; });
-      fit[key] = { w: Math.round(pane.getBoundingClientRect().width), max: Math.floor(box.clientWidth - others - V.MAIN_MIN) };
+    var fit = {}, changed = false, boxes = [];
+    Array.prototype.forEach.call(app.querySelectorAll ? app.querySelectorAll('.pane-split') : [], function (sp) { if (sp.parentNode && boxes.indexOf(sp.parentNode) < 0) boxes.push(sp.parentNode); });
+    boxes.forEach(function (box) {
+      if (!box.clientWidth) return;
+      var items = [], shown = false;
+      Array.prototype.forEach.call(box.children, function (c) {
+        var k = c.getAttribute('data-split'), spec = k && V.PANES[k], pane = spec && document.getElementById(spec.controls);
+        /* Hidden where the panes stack (a phone): nothing there to fit. */
+        if (!pane || !c.offsetParent) return;
+        var fixed = window.getComputedStyle(c).visibility === 'hidden';
+        if (!fixed) shown = true;
+        items.push({ key: k, fixed: fixed, pref: state.panes[k], measured: pane.getBoundingClientRect().width });
+      });
+      if (!shown) return;
+      var f = V.fitPanes(box.clientWidth, items);
+      Object.keys(f).forEach(function (k) { fit[k] = f[k]; });
     });
     if (!Object.keys(fit).length) return;
     Object.keys(fit).forEach(function (k) { var was = state.paneFit[k]; if (!was || was.w !== fit[k].w || was.max !== fit[k].max) changed = true; });
@@ -1015,33 +1025,52 @@
     paneDone(key);
     return true;
   }
-  /* Dragging: the pointer is captured, so a fast move past the editor's edge keeps resizing, and nothing is selected. */
+  /* Dragging: the pointer is captured, so a fast move past the editor's edge keeps resizing, and nothing is selected. The drag
+     is known by its sidebar, and each move uses the separator the page has now (a redraw can replace it); if it's gone, or
+     the pointer is released, canceled, loses capture or the window loses focus, the drag ends and text can be selected again. */
   var paneDrag = null;
+  function rootClass(c, on) { var de = document.documentElement; if (de && de.classList) de.classList[on ? 'add' : 'remove'](c); }
+  function liveSplit(key) { return app.querySelector ? app.querySelector('.pane-split[data-split="' + key + '"]') : null; }
+  function paneCapture(sp, id) { try { sp.setPointerCapture(id); return true; } catch (x) { return false; } }
   document.addEventListener('pointerdown', function (e) {
     var sp = e.target && e.target.closest && e.target.closest('.pane-split'), spec = sp && V.PANES[sp.getAttribute('data-split')];
     if (!spec || e.button !== 0) return;
     var pane = document.getElementById(spec.controls); if (!pane) return;
     e.preventDefault();
+    if (paneDrag) paneDragEnd();
     sp.focus({ preventScroll: true });
-    try { sp.setPointerCapture(e.pointerId); } catch (x) { /* the drag still follows moves over the separator */ }
+    paneCapture(sp, e.pointerId);
     paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width };
-    document.documentElement.classList.add('pane-drag');
+    rootClass('pane-drag', true);
   });
   document.addEventListener('pointermove', function (e) {
     if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    var sp = liveSplit(paneDrag.key);
+    if (!sp) { paneDragEnd(); return; }
+    if (sp !== paneDrag.sp) { paneDrag.sp = sp; paneCapture(sp, paneDrag.id); }
     var dx = e.clientX - paneDrag.x;
     paneSet(paneDrag.key, paneDrag.w + (V.PANES[paneDrag.key].end ? -dx : dx));
-    paneLive(paneDrag.sp);
+    paneLive(sp);
   });
-  function paneDragEnd(e) {
-    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+  function paneDragEnd() {
+    if (!paneDrag) return;
     var d = paneDrag; paneDrag = null;
-    document.documentElement.classList.remove('pane-drag');
-    try { d.sp.releasePointerCapture(d.id); } catch (x) { /* already released */ }
+    rootClass('pane-drag', false);
+    var sp = liveSplit(d.key);
+    if (sp) try { sp.releasePointerCapture(d.id); } catch (x) { /* already released */ }
     paneDone(d.key);
   }
-  document.addEventListener('pointerup', paneDragEnd);
-  document.addEventListener('pointercancel', paneDragEnd);
+  function paneDragStop(e) { if (paneDrag && e.pointerId === paneDrag.id) paneDragEnd(); }
+  document.addEventListener('pointerup', paneDragStop);
+  document.addEventListener('pointercancel', paneDragStop);
+  /* Capture moves to the new separator when a redraw replaced the old one mid-drag; otherwise losing it ends the drag. */
+  document.addEventListener('lostpointercapture', function (e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    var sp = liveSplit(paneDrag.key);
+    if (sp && sp !== paneDrag.sp && paneCapture(sp, paneDrag.id)) { paneDrag.sp = sp; return; }
+    paneDragEnd();
+  });
+  window.addEventListener('blur', paneDragEnd);
   document.addEventListener('dblclick', function (e) {
     var sp = e.target && e.target.closest && e.target.closest('.pane-split');
     if (!sp || !V.PANES[sp.getAttribute('data-split')]) return;
@@ -2243,7 +2272,7 @@
     refresh: function () { load(true, true); },
     connect: function () { connect(); },
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; useFs(folderFs(rec)); } }); },
-    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }); },
+    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
     filter: function (id) { state.filter = id; render(); },
     /* Sign off the current version of a process as ready for a skill, with the run evidence it was signed on. */
     signoff: function (id) {

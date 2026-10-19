@@ -61,7 +61,7 @@ function boot(opts) {
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
   // storageThrows: a pattern of keys the browser refuses to read or write (blocked site data, a full quota): those calls throw.
-  const refuse = k => { if (opts.storageThrows && opts.storageThrows.test(k)) throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
+  const refuse = k => { if (opts.storageThrows === true || (opts.storageThrows && opts.storageThrows.test(k))) throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
   const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
     hidden: false, title: '', body: element('body'), activeElement: null,
@@ -69,6 +69,9 @@ function boot(opts) {
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
+  // The page's root element, for the classes the app puts on it (the editor's page, a separator being dragged).
+  const rootClasses = new Set();
+  document.documentElement = { classList: { add: (...c) => c.forEach(x => rootClasses.add(x)), remove: (...c) => c.forEach(x => rootClasses.delete(x)), contains: c => rootClasses.has(c) }, setAttribute() {}, removeAttribute() {} };
   const bodyClasses = new Set();
   document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
@@ -105,6 +108,9 @@ function boot(opts) {
     focused: () => asked.filter(x => x && x[0] !== '.').pop() || null,
     live: () => els.live.textContent || '',
     bodyClasses: () => [...bodyClasses],
+    rootClasses: () => [...rootClasses],
+    // A window event the app listens for (blur, resize…).
+    winFire(type, ev) { (winListeners[type] || []).forEach(fn => fn(Object.assign({}, ev || {}))); },
     // Whether the top bar is inert, and the form marked as a dialog (the phone's properties sheet).
     topInert: () => els.top.hasAttribute('inert'), formModal: () => formAttrs.role === 'dialog',
     // Change the window across the phone breakpoint, as resizing or rotating does.

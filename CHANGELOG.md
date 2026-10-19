@@ -11,6 +11,11 @@ Make the editors' side panels wider or narrower.
 - **Resize the Run preview** (Step types). Drag the line between the form and the preview to make the preview wider or narrower. Or focus the line and use the Left and Right arrow keys (Shift moves further), Home and End. Enter or a double-click puts it back. The form always keeps room. Your width is kept in this browser only. *Where:* Step types › a step type, the line left of Run preview
 - **Resize the parts and the inspector** (Draft editor). The Parts list and the inspector each have a line you can drag or move with the arrow keys, the same way as the step-type preview, and each keeps its own width. The Markdown view uses the inspector's width too. When the parts are folded to icons, only the inspector resizes. *Where:* A process page › Edit, the lines beside Parts and the inspector
 
+### Fixed
+
+- **The step-type form has its room again** (Step types). The form takes most of the page and the preview is a narrower column beside it, as intended. *Where:* Step types › a step type
+- **Opens in a browser that blocks site storage** (Examples). The examples open, and a message says they and your changes to them last only while the tab is open. A team folder still keeps everything. *Where:* Opening Flightdeck
+
 ## 1.16.0 · Oct 19, 2026
 
 Apply a correction to the draft, then see which version has it.

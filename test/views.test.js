@@ -496,6 +496,38 @@ rule('Editor sidebars: each has its own labeled separator, its width is a variab
   assert.ok(hit && +hit[1] >= 8, 'a hit area of at least 8px');
 });
 
+rule('Editor sidebars fit the window together, from the widths chosen, never from what was drawn last', () => {
+  const MAIN = V.MAIN_MIN, P = V.PANES, J = x => JSON.parse(JSON.stringify(x));
+  // The draft editor's panes at a width: Parts is a rail of 72px from 801 to 1100px, else resizable.
+  const builder = (W, prefs, measured) => [
+    W <= 1100 ? { key: 'parts', fixed: true, measured: 72 } : { key: 'parts', pref: prefs.parts, measured: measured.parts },
+    { key: 'ins', pref: prefs.ins, measured: measured.ins }
+  ];
+  const mainOf = (W, items, fit) => W - items.reduce((n, it) => n + (it.fixed ? it.measured : fit[it.key].w), 0);
+  // The case that swung back and forth: 1101px with {parts: 400, ins: 720} kept.
+  let items = builder(1101, { parts: 400, ins: 720 }, { parts: 160, ins: 341 });
+  const a = V.fitPanes(1101, items);
+  assert.deepStrictEqual([a.parts.w, a.ins.w], [400, 341], 'the inspector gives way first');
+  assert.strictEqual(mainOf(1101, items, a), MAIN, 'the outline keeps its 360px');
+  const b = V.fitPanes(1101, builder(1101, { parts: 400, ins: 720 }, { parts: 400, ins: 581 }));
+  assert.deepStrictEqual(J(b), J(a), 'what was drawn last makes no difference');
+  // Every window width: the main pane keeps 360px whenever the narrowest sidebars leave room, and a second pass changes nothing.
+  const kept = [{ parts: 400, ins: 720 }, { parts: 160, ins: 720 }, { parts: 400 }, { ins: 720 }, {}, { parts: 300, ins: 300 }];
+  for (let W = 800; W <= 2000; W++) kept.forEach(prefs => {
+    const defaults = { parts: 208, ins: Math.round(Math.max(320, Math.min(0.27 * W, 400))) };
+    const its = builder(W, prefs, defaults), fit = V.fitPanes(W, its);
+    const mins = its.reduce((n, it) => n + (it.fixed ? it.measured : prefs[it.key] == null ? it.measured : P[it.key].min), 0);
+    if (W - mins >= MAIN) assert.ok(mainOf(W, its, fit) >= MAIN, W + 'px ' + JSON.stringify(prefs) + ': main ' + mainOf(W, its, fit));
+    // Drawing the result and fitting again: chosen widths are read from what was chosen, unset ones measure the same default.
+    const again = V.fitPanes(W, builder(W, prefs, { parts: fit.parts ? fit.parts.w : 72, ins: fit.ins.w }));
+    assert.deepStrictEqual(J(again), J(fit), W + 'px ' + JSON.stringify(prefs) + ': a fixed point after one pass');
+    Object.keys(fit).forEach(k => assert.ok(fit[k].w >= P[k].min && fit[k].w <= fit[k].max && fit[k].max <= P[k].max, k + ' within its range at ' + W));
+  });
+  // The step-type preview alone.
+  const tf = V.fitPanes(1024, [{ key: 'tf', pref: 720, measured: 328 }]);
+  assert.deepStrictEqual(J(tf), { tf: { w: 1024 - MAIN, max: 1024 - MAIN } });
+});
+
 rule('Every built-in type can start a team type that passes the checks', () => {
   PF.types.LIST.forEach(t => {
     const def = V.typeDefOf(Object.assign(V.typeFormOf(t, false), { id: 'team.' + t.id.replace(/\./g, '-'), label: 'Team ' + t.label.slice(0, 30) }));
