@@ -6,6 +6,21 @@
     "changes": [
       {
         "kind": "improved",
+        "area": "Insights",
+        "title": "How runs go counts runs, one version at a time, and says what it left out",
+        "before": "Numbers mixed versions when phases shared a name, counted every answer instead of every run, and lost blocks whose answers were archived. Runs that couldn't be read were counted without a word.",
+        "now": "Each number belongs to one version, counts runs, and shows how many runs it's out of, as a percentage only from 5 runs. It says which runs it couldn't count and why, and which runs' history is incomplete. Choose a number to see the runs behind it, then Back to How runs go. Times are shown as dots on a line, with the same as a table.",
+        "where": "A process › How runs go, and the flight plan"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Filter runs",
+        "now": "Narrow the Runs page by process, version, outcome and the dates runs started. Each filter shows as a chip you can remove.",
+        "where": "Runs › Filter runs"
+      },
+      {
+        "kind": "improved",
         "area": "Runs",
         "title": "Runs load 50 at a time",
         "before": "The Runs page drew every run at once, which got slow with hundreds of runs.",

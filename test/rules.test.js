@@ -563,10 +563,11 @@ rule('Rotation and analytics: who has done which role, and how runs of a process
   const rot = R.rotation(runs, 'x');
   same(rot.roles, ['lead']);
   same([rot.grid['person-avery'].lead.count, rot.grid['person-blake'].lead.count], [2, 1]);
-  const an = R.analytics(runs, 'x');
-  same([an.runs, an.running, an.outcomes.Completed, an.medianMs], [3, 1, 2, 3600000]);
-  assert.strictEqual(an.steps[0].id, 'two');
-  assert.ok(an.steps[0].blocked >= 1 && an.steps[0].na >= 3);
+  // 1.17: analytics count runs, not answers, and only for one publication folder (PF.insights; test/insights.test.js).
+  assert.throws(() => R.analytics(runs, 'x'), /one publication folder/);
+  const an = R.analytics(runs, 'x', pub.info.folder, Date.parse(NOW));
+  same([an.runs, an.completed, an.medianMs], [3, 2, 3600000]);
+  same([an.steps[0].id, an.steps[0].offScript, an.steps[0].blocked, an.steps[0].na], ['two', 3, 1, 3], 'each run once: 1 run blocked, 3 runs N/A');
 });
 
 
@@ -575,8 +576,9 @@ rule('Analytics for one version count only runs of that publication, and list ev
   const v1 = pubOf(md(12)), other = Object.assign({}, v1, { info: Object.assign({}, v1.info, { folder: 'v2-other', version: 2 }) });
   const mk = (pub, id) => { const r = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: NOW, id }); const map = R.mapOf(r); for (let i = 0; i < 12; i++) R.na(r, map, 's' + i, 'a', NOW); return r; };
   const runs = [mk(v1, 'a1'), mk(other, 'b1'), mk(other, 'b2')];
-  same([R.analytics(runs, 'x').runs, R.analytics(runs, 'x', v1.info.folder).runs, R.analytics(runs, 'x', 'v2-other').runs], [3, 1, 2]);
-  const an = R.analytics(runs, 'x', v1.info.folder);
+  const at = Date.parse(NOW);
+  same([R.analytics(runs, 'x', v1.info.folder, at).runs, R.analytics(runs, 'x', 'v2-other', at).runs], [1, 2]);
+  const an = R.analytics(runs, 'x', v1.info.folder, at);
   same([an.steps.length, an.deviated.length], [10, 12]);
 });
 
@@ -586,10 +588,9 @@ rule('Analytics for one version time each phase by its ID, so two phases with th
   const r = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: NOW, id: 'rv' }), map = R.mapOf(r);
   R.done(r, map, 'a', 'a', at(1)); R.pass(r, map, 0, 'a', at(5));
   R.done(r, map, 'b', 'a', at(10)); R.pass(r, map, 1, 'a', at(65));
-  const an = R.analytics([r], 'x', pub.info.folder);
+  const an = R.analytics([r], 'x', pub.info.folder, Date.parse(NOW));
   same(an.phasesById.map(x => [x.id, x.medianMs]), [['r1', 5 * 60000], ['r2', 60 * 60000]]);
-  same(an.phases.map(x => x.title), ['Review'], 'the title-keyed table is unchanged');
-  assert.strictEqual(R.analytics([r], 'x').phasesById, undefined, 'only for one version');
+  assert.strictEqual(an.phases, undefined, '1.17: no table pooled by title');
 });
 
 // ---------- 1.8 review fixes ----------
@@ -696,9 +697,9 @@ rule('Analytics: file-derived names are just names, and earlier "did it differen
   const r = start(pubOf(md)), map = R.mapOf(r);
   R.done(r, map, 'a', 'a', NOW); R.differently(r, map, 'a', 'Used the other script', 'a', NOW); R.clear(r, map, 'a', 'a', NOW); R.done(r, map, 'a', 'a', NOW);
   R.pass(r, map, 0, 'a', NOW);
-  const an = R.analytics([r], 'x');
-  assert.strictEqual(an.phases[0].title, 'constructor');
-  assert.strictEqual(an.steps[0].differently, 1);
+  const res = PF.insights.forProcess({ runs: [r] }, 'x', { folder: r.folder, now: Date.parse(NOW), includeRunning: true });
+  assert.strictEqual(res.phases[0].title, 'constructor');
+  assert.strictEqual(R.analytics([r], 'x', r.folder, Date.parse(NOW)).steps[0].differently, 1, 'one run did it differently');
   R.rotation([Object.assign({}, r, { roles: { constructor: 'p' } })], 'x');
 });
 

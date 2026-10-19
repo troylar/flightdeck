@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 build.py
 node test/rules.test.js
+node test/insights.test.js
 node test/outline.test.js
 node test/timeline.test.js
 node test/folder.test.js

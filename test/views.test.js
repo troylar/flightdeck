@@ -608,6 +608,67 @@ function flightRun(pub, id, step) {
 }
 const skillOf = (name, steps, implementsV, s, errors) => ({ skill: { name, steps, implements: implementsV, process: 'release' }, status: { s }, errors: errors || [] });
 
+/* ---------- 1.17: How runs go (PF.insights; docs/design.md section 23) ---------- */
+function insightsSetup(n, each) {
+  const { ctx, state, p, latest } = flightSetup();
+  const runs = Array.from({ length: n }, (_, i) => { const r = flightRun(latest, 'in' + i); r.title = 'Run ' + i; r._fileHash = 'h' + i; if (each) each(r, i); return r; });
+  ctx.data.runs = runs; ctx.findRun = k => runs.filter(r => r.process + '/' + r.id === k)[0] || null;
+  ctx.followUps = () => []; ctx.corrections = () => [];
+  state.ptab = 'insights';
+  return { ctx, state, p, latest, runs };
+}
+rule('How runs go: a run title is escaped inside the chart\'s SVG title, the chart has a table equivalent, and under 5 runs only counts show', () => {
+  const { ctx, p, runs } = insightsSetup(3, (r, i) => { if (i === 0) r.title = '<img src=x onerror=alert(1)></title><script>bad()</script>'; if (i < 2) R.differently(r, R.mapOf(r), 'approved', 'Other way', 'person-casey', NOW); });
+  const html = V.insightsPage(ctx, p);
+  assert.ok(!/<img src=x|<script>bad/.test(html), 'nothing from a run is raw markup, in the SVG or anywhere');
+  assert.ok(/<title>&lt;img src=x onerror=alert\(1\)&gt;&lt;\/title&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;, under a minute<\/title>/.test(html), 'escaped in the dot\'s title');
+  assert.ok(/aria-label="&lt;img src=x/.test(html) && /data-act="go" data-view="run" data-run="release\/in0"/.test(html), 'each dot is a link to its run with an accessible name');
+  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
+  assert.ok(html.indexOf(PF.insights.FEW) >= 0, 'says it\'s too few for a rate');
+  const hot = html.slice(html.indexOf('id="ins-hot-h"'));
+  assert.ok(/data-act="ins-runs" data-id="step:approved:offScript">2 of 3 runs</.test(hot) && !/% · /.test(hot), 'counts, no percentages');
+  assert.ok(!/class="ins-fill"/.test(hot.slice(0, hot.indexOf('</section>'))), 'no bars under 5 runs');
+  assert.strictEqual(runs.length, 3);
+});
+rule('How runs go: from 5 runs each number has its own bar against its own denominator, never stacked', () => {
+  const { ctx, p } = insightsSetup(6, (r, i) => { const m = R.mapOf(r); if (i < 3) R.differently(r, m, 'approved', 'Other way', 'person-casey', NOW); });
+  const html = V.insightsPage(ctx, p), hot = html.slice(html.indexOf('id="ins-hot-h"'), html.indexOf('</section>', html.indexOf('id="ins-hot-h"')));
+  assert.ok(/50% · 3 of 6 runs/.test(hot), hot.slice(0, 600));
+  const bars = hot.match(/<svg class="ins-bar"[\s\S]*?<\/svg>/g) || [];
+  assert.ok(bars.length >= 2, 'Any off-script and Done differently each have a bar');
+  bars.forEach(b => { assert.strictEqual((b.match(/class="ins-fill"/g) || []).length, 1); assert.strictEqual((b.match(/class="ins-track"/g) || []).length, 1); });
+  assert.ok(/<rect class="ins-fill" width="50"/.test(hot), 'drawn to scale');
+});
+rule('How runs go: runs that couldn\'t be read, a load still under way and history incomplete are said, with the runs behind them', () => {
+  const { ctx, state, p, runs } = insightsSetup(3);
+  delete runs[2].marksFrom;
+  state.unread = { runs: { ['release/' + runs[0].id]: 'bad JSON' } }; state.reading = { done: 40, total: 2000 };
+  const html = V.insightsPage(ctx, p);
+  assert.ok(/1 run couldn&#39;t be read; its last copy isn&#39;t counted\./.test(html) && /data-act="ins-runs" data-id="ex:unread">Show it</.test(html), html.slice(0, 2000));
+  assert.ok(/Still reading runs \(40 of 2,000\)\. These numbers aren&#39;t final\./.test(html));
+  assert.ok(/1 run started before Flightdeck kept a full record/.test(html));
+  assert.ok(/data-act="ins-runs" data-id="runs:all">2</.test(html), 'two runs counted');
+  assert.ok(/How these are counted/.test(html) && /Ever blocked/.test(html), 'the definitions');
+});
+rule('Runs: the runs behind a number are exactly the ones clicked, with Back to How runs go, and a change since is said', () => {
+  const { ctx, state, runs } = insightsSetup(3, (r, i) => { if (i !== 1) R.differently(r, R.mapOf(r), 'approved', 'Other way', 'person-casey', NOW); });
+  const res = PF.insights.forProcess({ runs }, 'release', { now: Date.parse(NOW), folder: runs[0].folder });
+  state.view = 'runs'; state.filter = 'all'; state.runFilter = Object.assign(PF.insights.spec(res, 'step:approved:differently', runs), { cohort: true, back: { process: 'release', folder: runs[0].folder, scrollY: 0 } });
+  ctx.processTitle = id => id; ctx.data.plans = [];
+  let html = V.runs(ctx);
+  assert.ok(/data-act="ins-back"[^>]*>.*Back to How runs go/.test(html), 'Back');
+  assert.deepStrictEqual((html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).map(x => x.split('"')[3]), ['release/in0', 'release/in2']);
+  assert.ok(!/changed since/.test(html));
+  runs[2].rev = 9;
+  html = V.runs(ctx);
+  assert.ok(/1 of these runs changed since\./.test(html) && /data-act="ins-refresh"/.test(html), 'the banner');
+  assert.strictEqual((html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).length, 2, 'still the cohort clicked');
+  state.runFilter = { outcome: 'Completed', process: 'release' };
+  html = V.runs(ctx);
+  assert.ok(/<label for="rf-process">Process<\/label>/.test(html) && /<label for="rf-outcome">Outcome<\/label>/.test(html) && /<label for="rf-from">Started from<\/label>/.test(html), 'every filter has a label');
+  assert.ok(/Matching runs · 3/.test(html) && /data-act="rf-clear" data-id="outcome"/.test(html), 'chips to remove each filter');
+});
+
 rule('Flight plan: the Checklist | Flight plan switch shows the same version as a vertical route from Start to Landed', () => {
   const { ctx, state, p } = flightSetup();
   let html = V.checklistPanel(ctx, p);
@@ -675,12 +736,12 @@ rule('Flight plan: times and turbulence come only from runs of the version shown
   // Ten steps in the first two phases go off-script more than any step in the third, so a global top ten would hide it.
   mine.forEach(r => { const m = R.mapOf(r); ['approved', 'tests', 'flags', 'rollback', 'notes', 'announce', 'merge', 'jenkins', 'approve', 'pods'].forEach(id => R.differently(r, m, id, 'again', 'person-casey', NOW)); });
   R.differently(mine[0], R.mapOf(mine[0]), 'smoke', 'x', 'person-casey', NOW);
-  assert.ok(R.analytics(mine, 'release').steps.every(c => c.id !== 'smoke'), 'set-up: the third phase is outside the top ten');
+  assert.ok(R.analytics(mine, 'release', latest.info.folder, Date.parse(NOW)).steps.every(c => c.id !== 'smoke'), 'set-up: the third phase is outside the top ten');
   ctx.data.runs = mine.concat(theirs);
   let html = V.checklistPanel(ctx, p);
   assert.ok(/Typically under a minute/.test(html) && /From 3 runs of v1; paused time isn.t counted\./.test(html), 'numbers say which version they come from');
   assert.strictEqual((html.match(/<b>Turbulence<\/b>/g) || []).length, 3, 'every phase with deviations keeps its own, past the global top ten');
-  assert.ok(/off-script 3 times/.test(html) && !/off-script 4 times/.test(html), 'the older run\'s deviation is not added');
+  assert.ok(/off-script in 3 of 3 runs/.test(html) && !/of 4 runs/.test(html), 'the older run\'s deviation is not added, and each run counts once');
   p.draft = { file: 'release.md', md: latest.md.replace('Approve the deploy in Jenkins', 'Approve it') }; p.draftChanged = true;
   html = V.checklistPanel(ctx, p);
   assert.ok(!/Typically|Turbulence/.test(html) && /No runs of this version yet\./.test(html), 'a draft shows no history');

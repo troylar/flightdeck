@@ -8,10 +8,12 @@ Big team folders: they open and refresh faster, runs show 50 at a time, and Fold
 
 ### New
 
+- **Filter runs** (Runs). Narrow the Runs page by process, version, outcome and the dates runs started. Each filter shows as a chip you can remove. *Where:* Runs › Filter runs
 - **Says when refreshing is slow on this computer** (Folder health). When the last 3 refreshes each took more than 15 seconds, Folder health says how long refreshing takes here, with what to do about a big folder. *Where:* Settings › Folder health
 
 ### Improved
 
+- **How runs go counts runs, one version at a time, and says what it left out** (Insights). Each number belongs to one version, counts runs, and shows how many runs it's out of, as a percentage only from 5 runs. It says which runs it couldn't count and why, and which runs' history is incomplete. Choose a number to see the runs behind it, then Back to How runs go. Times are shown as dots on a line, with the same as a table. *Where:* A process › How runs go, and the flight plan
 - **Runs load 50 at a time** (Runs). Running and Finished each show 50 runs and say how many there are. Show 50 more adds the next ones and moves you to the first one added. *Where:* Runs
 - **Big team folders open faster, and show runs as they're read** (Team folder). Reading a file now gives its size too, so opening a big folder asks OneDrive about half as many things. Runs appear as they're read, and Home and Runs say "Still reading runs (640 of 2,000)" until it's done. A run not read yet is never shown as gone. Pictures are read when they scroll into view, a few at a time, after the run you're recording. *Where:* Opening a team folder, Home, Runs, and any page with pictures
 - **Refreshing a big team folder asks for much less** (Team folder). Running runs and runs that ended in the last week are checked on every refresh. Older runs are checked a share at a time, each one at least every 10 minutes, so a refresh asks OneDrive about 80% fewer things. A late note on an old run can take up to 10 minutes to show. Refresh in the top bar still reads everything at once. *Where:* Every team folder, while Flightdeck is open

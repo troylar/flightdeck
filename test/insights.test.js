@@ -1,0 +1,268 @@
+// Insights: how runs of one publication folder went, counted so every number says what it counts, out of how many runs, and
+// which runs it couldn't count. docs/design.md section 23.
+'use strict';
+const assert = require('assert');
+const fs = require('fs'), path = require('path');
+const { load, rule, run } = require('./harness');
+const PF = load(), R = PF.run, P = PF.publish, I = PF.insights, F = PF.followups;
+const NOW = '2026-10-17T21:00:00.000Z', T0 = Date.parse(NOW), NOW_MS = T0 + 40 * 86400000;
+const at = m => new Date(T0 + m * 60000).toISOString();
+const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
+
+const MD = ['---', 'process: x', 'title: X', 'context: commit', '---',
+  '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '- [ ] {confirm} Two {#two}', '## Gate: Ready {#ready}', '  approves: ^commit',
+  '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', '## Gate: Shipped {#shipped}'].join('\n');
+const pubOf = (md, rand) => { const b = P.build(md || MD, { people: [], by: 'a', changes: 'x', existing: [], now: NOW, rand: rand || 'aaaa1111' }); assert.ok(!b.blockers, String(b.blockers)); return P.verify(b.folder, b.files); };
+const PUB = pubOf();
+const FOLDER = PUB.info.folder;
+let n = 0;
+/* A run of pub played to the end: every step done, both gates passed (a minute apart from its start), ended Completed.
+   o.before(r, map) runs before the steps are answered; o.outcome, o.running, o.minutes change the ending. */
+function play(o) {
+  o = o || {};
+  const r = R.create(o.pub || PUB, { details: { commit: 'aaa' }, roles: {}, by: 'a', session: 's', now: at(0), id: o.id || 'r' + (++n), title: o.title || 'Run ' + n });
+  const map = R.mapOf(r);
+  if (o.before) o.before(r, map);
+  ['one', 'two'].forEach(id => { if (!r.steps[id] || r.steps[id].s !== 'done') R.done(r, map, id, 'a', at(1)); });
+  if (o.mid) o.mid(r, map);
+  if (o.running === 'early') return r;
+  R.pass(r, map, 0, 'a', at(10));
+  R.done(r, map, 'three', 'a', at(11));
+  if (o.running) return r;
+  R.pass(r, map, 1, 'a', at(o.minutes || 30));
+  R.end(r, map, o.outcome || 'Completed', 'a', 'A', at(o.minutes || 30));
+  r._fileHash = 'h' + r.id;
+  return r;
+}
+const forX = (input, opts) => I.forProcess(Object.assign({ runs: [] }, input), 'x', Object.assign({ now: NOW_MS, folder: FOLDER }, opts || {}));
+const step = (res, id) => res.steps.filter(s => s.id === id)[0];
+
+rule('Insights need an explicit now and a publication folder; the same input gives the same output', () => {
+  const runs = [play(), play()];
+  assert.throws(() => I.forProcess({ runs }, 'x', { folder: FOLDER }), /now/);
+  assert.throws(() => I.forProcess({ runs }, 'x', { now: NOW_MS }), /folder/);
+  same(forX({ runs }), forX({ runs }));
+});
+
+rule('A block archived out of a run\'s retained answers still counts, through the run\'s marks', () => {
+  const r = play({ before: (r, map) => {
+    R.block(r, map, 'one', 'Waiting', 'a', at(1));
+    for (let i = 0; i < 12; i++) { R.clear(r, map, 'one', 'a', at(1)); R.done(r, map, 'one', 'a', at(1)); }
+  } });
+  assert.ok(!r.steps.one.history.some(h => h.s === 'blocked'), 'set-up: the block is no longer in run.json\'s answers');
+  assert.ok(r.marks.one.indexOf('blocked') >= 0, 'set-up: the mark is');
+  const s = step(forX({ runs: [r, play()] }), 'one');
+  same([s.blocked.hits, s.blocked.n, s.offScript.hits], [1, 2, 1]);
+});
+
+rule('A run without marksFrom "start" and no retained deviation is history incomplete, never counted as clean', () => {
+  const legacy = play(); delete legacy.marksFrom; delete legacy.marks;
+  const legacyBlocked = play({ before: (r, map) => { R.block(r, map, 'one', 'x', 'a', at(1)); } }); delete legacyBlocked.marksFrom;
+  const res = forX({ runs: [legacy, legacyBlocked, play()] });
+  const s = step(res, 'one');
+  same([s.blocked.hits, s.blocked.n, s.blocked.incomplete], [1, 2, 1], 'the legacy run with nothing retained is left out of the denominator and counted apart');
+  same(s.blocked.incompleteKeys, ['x/' + legacy.id]);
+  same([s.offScript.hits, s.offScript.incomplete], [1, 1]);
+  assert.ok(/history incomplete/i.test(I.DEFS.filter(d => d.id === 'blocked')[0].denominator), 'the definition says so');
+});
+
+rule('A kept last copy of an unreadable run, a run whose file is gone and a run from a newer copy are left out of every number, and named', () => {
+  const ok = play(), unread = play(), gone = play(), newer = play();
+  newer._unrunnable = 'This run was saved by a newer copy of Flightdeck.';
+  const res = forX({ runs: [ok, unread, gone, newer], runStatus: { ['x/' + unread.id]: 'unread', ['x/' + gone.id]: 'missing' } });
+  assert.strictEqual(res.runs.n, 1);
+  same(res.duration.n, 1);
+  same(step(res, 'one').skipped.n, 1);
+  const lines = res.excluded.map(e => e.text);
+  assert.ok(lines.indexOf('1 run couldn\'t be read; its last copy isn\'t counted.') >= 0, lines.join(' | '));
+  assert.ok(lines.some(l => /^1 run's file is gone from the team folder/.test(l)), lines.join(' | '));
+  assert.ok(lines.some(l => /^1 run is from a newer Flightdeck/.test(l)), lines.join(' | '));
+  same(res.excluded.map(e => e.keys.length), [1, 1, 1]);
+});
+
+rule('Runs that couldn\'t be read at all on the last check say the numbers come from the last read', () => {
+  const res = forX({ runs: [play()], failedParts: { runs: 'denied' } });
+  assert.ok(res.notes.some(l => /runs folder couldn't be read/.test(l)), res.notes.join(' | '));
+});
+
+rule('Decisions that couldn\'t be read flag only the follow-up (or correction) numbers', () => {
+  const res = forX({ runs: [play(), play()], decisionsUnread: { followups: 2, corrections: 0 } });
+  assert.ok(/2 decisions couldn't be read; those follow-ups may show the wrong status\./.test(res.followUps.note), String(res.followUps.note));
+  assert.ok(!res.notes.some(l => /decision/.test(l)), 'not a note on every number');
+  assert.ok(!res.corrections.note, 'corrections aren\'t flagged by follow-up decisions');
+  const c = forX({ runs: [play()], decisionsUnread: { corrections: 1 } });
+  assert.ok(/1 decision on corrections couldn't be read/.test(c.corrections.note) && !c.followUps.note);
+});
+
+rule('An incomplete progressive load labels every number as not final', () => {
+  const res = forX({ runs: [play()], loading: { done: 640, total: 2000 } });
+  assert.strictEqual(res.final, false);
+  assert.ok(res.notes.indexOf('Still reading runs (640 of 2,000). These numbers aren\'t final.') >= 0, res.notes.join(' | '));
+  assert.strictEqual(forX({ runs: [play()] }).final, true);
+});
+
+rule('A run with a gate time before its phase began keeps its step counts and drops only that phase\'s time, with the reason', () => {
+  const bad = play({ before: (r, map) => { R.block(r, map, 'one', 'x', 'a', at(1)); } });
+  bad.gates.ready.at = at(-5);
+  const res = forX({ runs: [bad, play()] });
+  same([step(res, 'one').blocked.hits, step(res, 'one').blocked.n], [1, 2], 'its steps still count');
+  const prep = res.phases[0], ship = res.phases[1];
+  same([prep.n, prep.of], [1, 2]);
+  assert.ok(prep.excluded.some(e => /backward/.test(e.text) && e.keys[0] === 'x/' + bad.id), JSON.stringify(prep.excluded));
+  same(ship.n, 1, 'the next phase starts at that gate, so it is left out too');
+  assert.ok(ship.excluded.some(e => /earlier gate/.test(e.text)), JSON.stringify(ship.excluded));
+  same(res.duration.n, 2, 'the whole run\'s time is still good');
+});
+
+rule('Timing exclusions apply per metric: an unreadable start time drops the run from times only', () => {
+  const r = play(); r.created = 'not a time';
+  const res = forX({ runs: [r, play()] });
+  same([res.duration.n, res.phases[0].n, res.runs.n, step(res, 'one').skipped.n], [1, 1, 2, 2]);
+  assert.ok(res.duration.excluded.some(e => /time couldn't be read/.test(e.text)));
+});
+
+rule('Long runs are shown, not excluded', () => {
+  const res = forX({ runs: [play({ minutes: 60 * 24 * 45 })] });
+  same(res.duration.n, 1);
+  assert.ok(res.duration.median > 30 * 86400000);
+});
+
+rule('Phase time runs from the previous gate\'s settle time to this gate\'s, without paused time', () => {
+  const r = play({ mid: (r) => { R.pause(r, 'Lunch', 'a', at(2)); R.resume(r, 'a', at(6)); } });
+  const res = forX({ runs: [r] });
+  same([res.phases[0].median, res.phases[1].median], [6 * 60000, 20 * 60000]);
+});
+
+rule('A reopened gate leaves that phase\'s time out with a reason, and so does a missing earlier gate', () => {
+  const reopened = play({ running: true });
+  R.setDetail(reopened, R.mapOf(reopened), 'commit', 'bbb', 'a', at(12));
+  assert.strictEqual(reopened.gates.ready.s, 'review', 'set-up: the gate went back for review');
+  const noFirst = play(); delete noFirst.gates.ready;
+  const res = forX({ runs: [reopened, noFirst, play()] }, { includeRunning: true });
+  const prep = res.phases[0], ship = res.phases[1];
+  assert.ok(prep.excluded.some(e => /reopened/.test(e.text) && e.keys.indexOf('x/' + reopened.id) >= 0), JSON.stringify(prep.excluded));
+  assert.ok(prep.excluded.some(e => /wasn't passed or waived/.test(e.text) && e.keys.indexOf('x/' + noFirst.id) >= 0), JSON.stringify(prep.excluded));
+  assert.ok(ship.excluded.some(e => /earlier gate/.test(e.text) && e.keys.indexOf('x/' + noFirst.id) >= 0), 'its later phase is left out: it has no start');
+  same([prep.n, ship.n], [1, 1]);
+});
+
+rule('Two publication folders with the same version number never merge, and each is labeled a clash', () => {
+  const a = PUB, b = pubOf(MD, 'bbbb2222');
+  assert.strictEqual(a.info.version, b.info.version, 'set-up: both are v1');
+  const runs = [play({ pub: a }), play({ pub: b }), play({ pub: b })];
+  same([forX({ runs }).runs.n, forX({ runs }, { folder: b.info.folder }).runs.n], [1, 2]);
+  const list = I.folders(runs, 'x', [a, b], [1]);
+  same(list.map(f => [f.folder, f.version, f.clash, f.runs]).sort(), [[a.info.folder, 1, true, 1], [b.info.folder, 1, true, 2]].sort());
+});
+
+rule('Each metric has its own denominator: skipped counts runs with a current answer, the ever counts the runs that reached the step', () => {
+  const runs = [play(), play(), play({ running: 'early' })];
+  const r3 = runs[2]; R.pass(r3, R.mapOf(r3), 0, 'a', at(2)); R.block(r3, R.mapOf(r3), 'three', 'Not yet', 'a', at(3));
+  const res = forX({ runs }, { includeRunning: true });
+  const three = step(res, 'three');
+  same([three.skipped.n, three.blocked.n, three.blocked.hits], [3, 3, 1]);
+  const off = forX({ runs });
+  same([step(off, 'three').blocked.n, off.runs.n, off.runs.running], [2, 3, 1], 'running runs are left out of step numbers unless asked for, and still listed as runs');
+});
+
+rule('With running runs included, an unanswered step counts as reached only when it has a mark', () => {
+  const r = play({ running: 'early' }), map = R.mapOf(r);
+  R.pass(r, map, 0, 'a', at(2)); R.block(r, map, 'three', 'x', 'a', at(2)); R.clear(r, map, 'three', 'a', at(3));
+  const plain = play({ running: 'early' });
+  r.steps.three = { s: 'open' };
+  const s = step(forX({ runs: [r, plain] }, { includeRunning: true }), 'three');
+  same([s.blocked.n, s.blocked.hits, s.skipped.n], [1, 1, 0]);
+});
+
+rule('Any off-script is a union: never more than the sum of its parts, never less than any one of them', () => {
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const runs = Array.from({ length: 40 }, () => play({ before: (r, map) => {
+    if (rnd() < 0.3) R.block(r, map, 'one', 'x', 'a', at(1));
+    if (rnd() < 0.3) { R.clear(r, map, 'one', 'a', at(1)); R.na(r, map, 'one', 'a', at(1)); }
+    R.done(r, map, 'one', 'a', at(1));
+    if (rnd() < 0.3) R.differently(r, map, 'one', 'other way', 'a', at(1));
+  } }));
+  const s = step(forX({ runs }), 'one'), parts = ['blocked', 'redone', 'na', 'differently'].map(k => s[k].hits);
+  assert.ok(s.offScript.hits <= parts.reduce((a, b) => a + b, 0), 'at most the sum');
+  parts.forEach(p => assert.ok(s.offScript.hits >= p, 'at least each part'));
+  assert.ok(parts.filter(p => p > 0).length >= 2 && s.offScript.hits < parts.reduce((a, b) => a + b, 0), 'set-up: parts overlap');
+});
+
+rule('Rates show from 5 runs up; under 5 it\'s counts only', () => {
+  same([I.count(3, 4), I.count(3, 14), I.count(0, 0)], ['3 of 4 runs', '21% · 3 of 14 runs', 'No runs yet']);
+  assert.strictEqual(I.rated(4), false); assert.strictEqual(I.rated(5), true);
+  assert.strictEqual(I.FEW, 'Too few runs for a rate yet.');
+});
+
+rule('A drill-down keeps the runs behind the number clicked; a change to one of them is noticed, and current numbers come from the same spec', () => {
+  const runs = [play({ before: (r, map) => R.block(r, map, 'one', 'x', 'a', at(1)) }), play(), play({ before: (r, map) => R.block(r, map, 'one', 'x', 'a', at(1)) })];
+  const res = forX({ runs }), sel = I.select(res, 'step:one:blocked');
+  same(sel.keys, runs.filter(r => I.matches(r, { process: 'x', folder: FOLDER, path: 'step:one:blocked' })).map(r => 'x/' + r.id));
+  assert.ok(/One/.test(sel.label) && /blocked/.test(sel.label), sel.label);
+  const spec = I.spec(res, 'step:one:blocked', runs);
+  same([spec.keys.length, spec.asOf], [2, NOW_MS]);
+  assert.strictEqual(I.changed(spec, runs), 0);
+  runs[0].rev = 99;
+  assert.strictEqual(I.changed(spec, runs), 1, 'one of them changed');
+  assert.strictEqual(I.changed(spec, runs.slice(1)), 1, 'one is gone');
+  runs[1].marks = { one: ['blocked'] };
+  const again = I.select(forX({ runs }), spec.path);
+  same(again.keys.length, 3, 'current numbers recompute from the spec');
+  assert.strictEqual(I.select(res, 'nonsense'), null);
+});
+
+rule('Corrections count distinct runs of this folder per step, grouped by status', () => {
+  const runs = [play(), play(), play()];
+  const groups = [
+    { target: { step: 'one' }, status: 'open', members: [{ run: runs[0].id, folder: FOLDER }, { run: runs[0].id, folder: FOLDER }, { run: runs[1].id, folder: FOLDER }] },
+    { target: { step: 'one' }, status: 'applied', members: [{ run: runs[1].id, folder: FOLDER }, { run: 'elsewhere', folder: 'v9-other' }] }
+  ];
+  const s = step(forX({ runs, corrections: groups }), 'one');
+  same([s.corrections.hits, s.corrections.n, s.corrections.byStatus], [2, 3, { open: 2, applied: 1 }]);
+});
+
+rule('Follow-up ages are by the recorder\'s clock in buckets, and time to a decision uses the current decision', () => {
+  const runs = [play(), play(), play()], fus = [];
+  const days = d => new Date(NOW_MS - d * 86400000).toISOString();
+  [[runs[0], 'f1', 3], [runs[1], 'f2', 10], [runs[2], 'f3', 45]].forEach(([r, id, d]) => { R.addFollowUp(r, { id, text: 'Do ' + id }, 'a', days(d)); });
+  R.addFollowUp(runs[0], { id: 'f4', text: 'Broken time' }, 'a', 'garbage');
+  R.addFollowUp(runs[1], { id: 'f5', text: 'Decided' }, 'a', days(20));
+  const d1 = F.decision({ process: 'x', run: runs[1].id, id: 'f5' }, 'a', 'done', {}, days(19));
+  const d2 = F.decision({ process: 'x', run: runs[1].id, id: 'f5' }, 'a', 'wont', { reason: 'No' }, days(16), d1);
+  d1._file = 'a'; d2._file = 'b';
+  const res = forX({ runs, followUps: F.list(runs, [d1, d2]) });
+  same([res.followUps.open.n, res.followUps.open.buckets.map(b => b.keys.length)], [3, [1, 1, 1]]);
+  assert.ok(res.followUps.open.excluded.some(e => e.keys.length === 1), 'a time that can\'t be read is left out, and said');
+  same([res.followUps.decided.n, res.followUps.decided.median], [1, 4 * 86400000]);
+  assert.ok(/recorder's clock/.test(res.followUps.open.clock) && /deciders' clocks/.test(res.followUps.decided.clock));
+  const later = forX({ runs, followUps: F.list(runs, [d1, d2]) }, { now: NOW_MS + 30 * 86400000 });
+  same(later.followUps.open.buckets.map(b => b.keys.length), [0, 0, 3], 'now moves only the ages');
+});
+
+rule('Who has done each role counts runs of this folder only', () => {
+  const other = pubOf(MD, 'cccc3333');
+  const runs = [play(), play({ pub: other })];
+  runs[0].roles = { lead: 'person-avery' }; runs[1].roles = { lead: 'person-blake' };
+  same(Object.keys(forX({ runs }).roles.grid), ['person-avery']);
+});
+
+rule('Runs filters: process, folder, outcome and dates, with dates inclusive in local time', () => {
+  const a = play(), b = play({ outcome: 'Cancelled' }), c = play({ running: true });
+  const day = new Date(Date.parse(a.created)), ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const ids = f => I.filterRuns([a, b, c], f).map(r => r.id);
+  same(ids({ process: 'x', outcome: 'Completed' }), [a.id]);
+  same(ids({ outcome: 'running' }), [c.id]);
+  same(ids({ folder: 'v9-none' }), []);
+  same(ids({ from: ymd(day), through: ymd(day) }), [a.id, b.id, c.id], 'the same day, from and through');
+  same(ids({ from: ymd(new Date(day.getTime() + 86400000)) }), []);
+});
+
+rule('The table in docs/design.md section 23 matches DEFS', () => {
+  const md = fs.readFileSync(path.join(__dirname, '..', 'docs', 'design.md'), 'utf8');
+  const a = md.indexOf('<!-- insights-defs:begin -->'), b = md.indexOf('<!-- insights-defs:end -->');
+  assert.ok(a > 0 && b > a, 'the table has its markers');
+  const rows = md.slice(a, b).split('\n').filter(l => /^\| /.test(l)).slice(1).map(l => l.slice(2, -2).split(' | '));
+  same(rows, I.DEFS.map(d => [d.name, d.counts, d.denominator]));
+});
+
+run();

@@ -39,7 +39,6 @@
     if (n.kind === 'update') return '<div class="fp-line fp-stale">' + I('spark') + '<span>' + name + ' needs an update</span></div>';
     return '<div class="fp-line fp-follows">' + I('spark') + '<span>' + name + ' follows v' + n.skill.implements + '</span></div>';
   }
-  function offScript(c) { return c.blocked + c.differently + c.recheck + c.na; }
   function gateLabel(g) { return g.implicit ? 'then a check that the phase is done' : 'then gate ' + g.title; }
 
   function leg(ctx, map, p, i, an, notes) {
@@ -63,7 +62,7 @@
       if (count) lines += noteLine(x, count);
     });
     var rough = an && an.deviated.filter(function (c) { return ids.indexOf(c.id) >= 0; })[0];
-    if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(rough.text) + '" went off-script ' + plural(offScript(rough), 'time') + '</span></div>';
+    if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(rough.text) + '" went off-script in ' + esc(PF.insights.count(rough.offScript, rough.n)) + '</span></div>';
     p.steps.filter(function (s) { return s.type === 'run.process' && s.fields.process; }).forEach(function (s) {
       lines += '<div class="fp-line fp-conn">' + I('fork') + '<span><b>Connecting</b> ' + esc(titleOf(ctx, s.fields.process)) + '</span></div>';
     });
@@ -80,7 +79,7 @@
   function flightPlan(ctx, p, map, shown) {
     if (!map.phases.length) return '<p class="small">Add a phase to see the flight plan.</p>';
     var pub = shown && shown.pub ? shown.pub : null;
-    var an = pub ? R.analytics(ctx.data.runs || [], p.id, pub.info.folder) : null;
+    var an = pub ? R.analytics(V.insightsInput(ctx, p.id), p.id, pub.info.folder, ctx.now()) : null;
     if (an && !an.runs) an = null;
     var notes = skillNotes(p.skills, pub, p.latest), meta = map.meta;
     var h = '<ol class="fp" aria-label="Flight plan">';

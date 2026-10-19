@@ -2,7 +2,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const SRC = path.join(__dirname, '..', 'src');
-const FILES = ['core/util.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/run.js', 'core/corrections.js', 'core/followups.js', 'core/skills.js', 'core/attach.js', 'core/contract.js', 'core/people.js', 'core/health.js', 'core/connection.js', 'core/setup.js', 'storage/fs.js', 'storage/repo.js'];
+const FILES = ['core/util.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/run.js', 'core/corrections.js', 'core/followups.js', 'core/insights.js', 'core/skills.js', 'core/attach.js', 'core/contract.js', 'core/people.js', 'core/health.js', 'core/connection.js', 'core/setup.js', 'storage/fs.js', 'storage/repo.js'];
 
 /* edit(file, source) can change a module before it loads, to stand in for an older copy of Flightdeck. */
 function load(withViews, edit) {
@@ -12,7 +12,7 @@ function load(withViews, edit) {
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } }
   };
   vm.createContext(sandbox);
-  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/builder.js', 'ui/views/manage.js', 'ui/views/flight.js', 'ui/views/health.js', 'ui/views/setup.js']) : FILES).forEach(f => { const src = fs.readFileSync(path.join(SRC, f), 'utf8'); vm.runInContext(edit ? edit(f, src) : src, sandbox, { filename: f }); });
+  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/builder.js', 'ui/views/manage.js', 'ui/views/flight.js', 'ui/views/insights.js', 'ui/views/health.js', 'ui/views/setup.js']) : FILES).forEach(f => { const src = fs.readFileSync(path.join(SRC, f), 'utf8'); vm.runInContext(edit ? edit(f, src) : src, sandbox, { filename: f }); });
   // Checklists parsed once are shared by every run of a version: frozen in tests, so a rule that changed one would fail.
   if (sandbox.PF.run && sandbox.PF.run.mapMemo) sandbox.PF.run.mapMemo.freeze = true;
   return sandbox.PF;
