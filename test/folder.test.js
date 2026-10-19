@@ -805,4 +805,45 @@ rule('Saved history: each window appends to its own file, rolls over at 512 KB, 
   assert.ok(calls.max <= 8 && !calls.list.some(c => /notes\.txt/.test(c)));
 });
 
+rule('Saved history: OneDrive\'s copies of a history file are read too, entries seen twice count once, and other names are reported', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const rec = (id, seq, from, to) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id, process: 'release', writer: 'w1', seq, by: 'person-avery', at: NOW, from: H(from), to: H(to), before: from, after: to, units: [], items: [] }));
+  const l1 = rec('a1', 1, 'x\n', 'x\ny\n'), l2 = rec('a2', 2, 'x\ny\n', 'x\ny\nz\n'), l3 = rec('a3', 3, 'x\ny\nz\n', 'x\ny\nz\nq\n');
+  await fs.write(dir + '/w1.jsonl', l1 + '\n');
+  await fs.write(dir + '/w1 (1).jsonl', l1 + '\n' + l2 + '\n');
+  await fs.write(dir + '/w1-LAPTOP.jsonl', l2 + '\n' + l3 + '\n');
+  await fs.write(dir + '/readme.txt', 'hello');
+  const res = await repo.loadEditHistory(fs, dir, H('x\ny\nz\nq\n'));
+  same(res.items.map(x => x.gap ? 'gap' : x.entry.id), ['a3', 'a2', 'a1'], 'every entry once, no gap');
+  assert.strictEqual(res.bad, 0);
+  same(res.unknown, ['readme.txt'], 'a name that isn\'t a history file is reported, not read');
+});
+
+rule('Saved history: reading skips lines over 80 KB before parsing them, and reads only each file\'s newest lines', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const lines = [];
+  for (let i = 0; i < 3000; i++) lines.push(JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'e' + i, process: 'release', writer: 'w1', seq: i + 1, from: H('s' + i), to: H('s' + (i + 1)), units: [], items: [] })));
+  lines.splice(2999, 0, '{"v":1,"pad":"' + 'p'.repeat(90000) + '"}');
+  await fs.write(dir + '/w1.jsonl', lines.join('\n') + '\n');
+  const orig = JSON.parse; let parsed = 0, huge = 0;
+  JSON.parse = function (t) { parsed++; if (String(t).length > TL.HIST.LINE) huge++; return orig.apply(this, arguments); };
+  let res;
+  try { res = await repo.loadEditHistory(fs, dir, H('s3000')); } finally { JSON.parse = orig; }
+  assert.strictEqual(huge, 0, 'the oversized line was never parsed');
+  assert.ok(res.bad >= 1, 'and is counted as unreadable');
+  assert.ok(parsed <= TL.HIST.READ + 5, 'only the newest lines were parsed (' + parsed + ')');
+  assert.strictEqual(res.items[0].entry.id, 'e2999');
+});
+
+rule('Saved history: lines kept for a retry are split across files at 512 KB like any others', async () => {
+  const fs = folder(), TL = PF.timeline, dir = 'history/drafts/release', roll = {};
+  const recs = Array.from({ length: 10 }, (_, i) => JSON.stringify({ v: 1, i, pad: 'p'.repeat(60000) }));
+  await repo.appendHistory(fs, dir, 'w1', recs, roll);
+  const files = Object.keys(fs.files).filter(p => p.indexOf(dir + '/') === 0).sort();
+  assert.ok(files.length >= 2, 'rolled over');
+  files.forEach(p => assert.ok(TL.bytes(fs.files[p].t) <= TL.HIST.ROLL, p + ' stays under 512 KB'));
+  const back = files.sort((a, b) => (a.length - b.length) || (a < b ? -1 : 1)).map(p => fs.files[p].t.trim().split('\n').map(l => JSON.parse(l).i)).reduce((a, b) => a.concat(b), []);
+  same(back, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'every line once, in order');
+});
+
 run();

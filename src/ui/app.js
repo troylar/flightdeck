@@ -1596,19 +1596,23 @@
     for (var i = 0; i < sels.length; i++) { var el = sels[i] && (document.getElementById(sels[i]) || app.querySelector(sels[i])); if (el && el.focus) { if (document.activeElement !== el) el.focus({ preventScroll: true }); return; } }
   }
   function itemSel(item) { var m = /^(step|phase):(.+)$/.exec(item || ''); return m ? '[data-act="' + (m[1] === 'step' ? 'ob-sel' : 'ob-sel-phase') + '"][data-id="' + cssEsc(m[2]) + '"]' : null; }
+  /* Text typed in a builder box and not applied (or refused) isn't in the draft: anything that replaces the draft's text
+     (Undo, Redo, Reverse this change) would replace the box and lose it, so it waits until that text is applied or cleared.
+     An Add box keeps its text (see addAnchorKept). Returns true when it has to wait, having said why and gone to the box. */
+  function typedFirst(p, what) {
+    var pf = state.obPending === p.id && state.obPendingField;
+    if (!pf || /^ob-new-/.test(pf)) return false;
+    if (state.overlay) closeOverlay();
+    say('Apply or clear what you typed in the box first (Enter applies it), then ' + what + '.', 'warn');
+    state.focus = '#' + pf; render(); return true;
+  }
   /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
      to what changed (the step's row, the field, or the caret in the Markdown). Either way the message says what happened. */
   function tlMove(scope, redo, how) {
     var tl = tlFor(scope); if (!tl) return;
     var p = scope === 'draft' ? currentProcess() : null, ed = p && openEditor(p), f = scope === 'type' ? state.typeForm : null;
     if (p && builderBlocked(p)) return;
-    /* Text typed in a builder box and not applied (or refused) isn't in the draft: Undo would replace the box and lose it,
-       so it waits until that text is applied or cleared. An Add box keeps its text through Undo (below). */
-    var pf = p && state.obPending === p.id && state.obPendingField;
-    if (pf && !/^ob-new-/.test(pf)) {
-      say('Apply or clear what you typed in the box first (Enter applies it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn');
-      state.focus = '#' + pf; render(); return;
-    }
+    if (p && typedFirst(p, redo ? 'Redo' : 'Undo')) return;
     /* The step-type editor's Add boxes add what they hold first, so Undo takes that back like any other change. */
     if (f) flushAdds(f, true);
     var top = TL.peek(tl).undo;
@@ -1703,10 +1707,13 @@
     var ov = state.overlay, p = currentProcess();
     if (!ov || ov.hist !== 'draft' || !ov.saved || !ov.saved.items || !p) return;
     var x = ov.saved.items.filter(function (y) { return y.entry && y.entry.id === id; })[0], e = x && x.entry;
-    if (!e || stillSaving(p) || builderBlocked(p)) return;
+    if (!e || stillSaving(p) || builderBlocked(p) || typedFirst(p, 'Reverse this change')) return;
     var ed = openEditor(p);
     if (ed.conflict) { say('Someone else changed this draft while you were editing it. Settle that in the editor first.', 'warn'); render(); return; }
-    var cur = ed.text != null ? ed.text : ed.base, nt = e.big ? null : TL.reverse(cur, e.hunks);
+    var cur = ed.text != null ? ed.text : ed.base, nt = TL.reversible(e) ? TL.reverse(cur, e.hunks) : null;
+    /* A new step or phase being written in its Add box keeps its place, as with Undo. */
+    var adding = nt != null && state.obAdd && state.obAdd.pid === p.id && (val('ob-new-text') || val('ob-new-title')) ? state.obAdd : null;
+    if (adding && !addAnchorKept(adding, cur, nt)) { closeOverlay(); say('Add or cancel the new ' + (adding.kind === 'phase' ? 'phase' : 'step') + ' you\'re writing first: reversing that change would take away the place it goes.', 'warn'); state.focus = adding.kind === 'phase' ? 'ob-new-title' : 'ob-new-text'; render(); return; }
     if (nt == null || nt === cur) { ov.compare = e.id; ov.compareMsg = 'The text changed since. Compare and edit it yourself.'; state.overlayFocus = '#hist-cmp-' + cssEsc(e.id); render(); return; }
     var sel = obSnap(ed);
     learnIds(ed, ed.base); dropPending(); obClearErr();

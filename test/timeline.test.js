@@ -221,7 +221,7 @@ rule('Saved history: lines from the folder are checked, and anything odd is drop
   assert.strictEqual(TL.cleanEntry({ v: 2, kind: 'draft-edit' }), null, 'another format');
   assert.strictEqual(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'x', writer: 'w', to: 'nothex!!', process: 'release' }), null, 'a bad fingerprint');
   assert.strictEqual(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'x', writer: 'w', to: 'abcdef01', process: '../etc' }), null, 'a bad process');
-  const raw = JSON.parse('{"v":1,"kind":"type-edit","id":"x1","type":"risk.call","writer":"w1","seq":"7","to":"abcdef01","from":null,"units":["<b>u</b>",5],"items":["field:a"],"before":{"__proto__":{"polluted":true},"label":"A","constructor":"c"},"after":{"label":"B"},"source":"made-up"}');
+  const raw = JSON.parse('{"v":1,"kind":"type-edit","id":"x1","type":"risk.call","writer":"w1","seq":"7","to":"abcdef01","from":null,"units":["<b>u</b>",5],"items":["field:a"],"before":{"__proto__":{"polluted":true},"id":"risk.call","label":"A","constructor":"c"},"after":{"id":"risk.call","label":"B"},"source":"made-up"}');
   const e = TL.cleanEntry(raw, 'w1.jsonl');
   assert.ok(e && e.seq === 0 && e.source === '' && e.units.length === 1 && e.file === 'w1.jsonl');
   assert.ok(Object.getPrototypeOf(e.before) === null && !('polluted' in e.before) && e.before.constructor === undefined && e.before.label === 'A', 'no prototype, no __proto__ or constructor');
@@ -241,6 +241,43 @@ rule('Saved history: publications sit where the draft had the text they publishe
   const e2 = entry({ id: 'e2', writer: 'wina', seq: 2, from: H(t1), to: H(t2), before: t1, after: t2 });
   const out = TL.placePublications(TL.order([e1, e2], H(t2)), [{ version: 1, hash: H(t1), by: 'person-avery' }, { version: 9, hash: 'ffffffff' }]);
   same(out.map(x => x.pub ? 'v' + x.pub.version : x.entry.id), ['e2', 'v1', 'e1'], 'v1 above the save it published; an unknown one isn\'t placed');
+});
+
+rule('Saved history: a change to a very long line is kept exactly, and an entry whose lines were cut is never reversible', () => {
+  const long = 'x'.repeat(5000), a = 'top\n' + long + '\nend\n', b = 'top\n' + long + 'y\nend\n';
+  const e = entry({ id: 'l1', writer: 'wina', seq: 1, from: H(a), to: H(b), before: a, after: b });
+  assert.ok(!e.cut && e.hunks.some(h => h.del.indexOf(long) >= 0), 'the 5,000-character line is whole');
+  assert.strictEqual(TL.reverse(b, e.hunks), a, 'Reverse brings back exactly the text before');
+  const raw = JSON.parse(JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'l2', process: 'release', writer: 'wina', seq: 2, from: H(a), to: H(b), before: a, after: b, units: [], items: [] })));
+  raw.hunks[0].del.push(5);
+  const cut = TL.cleanEntry(raw, 'wina.jsonl');
+  assert.ok(cut && cut.cut && !TL.reversible(cut), 'a line that wasn\'t text: Compare only');
+  assert.ok(TL.reversible(e));
+});
+
+rule('Saved history: a step type\'s before or after that isn\'t a valid definition is dropped and flagged, so History can still show the entry', () => {
+  const raw = { v: 1, kind: 'type-edit', id: 't1', type: 'risk.call', writer: 'w1', seq: 1, from: null, to: 'abcdef01', before: { id: 'risk.call', label: { x: 1 }, fields: {}, record: [] }, after: { id: 'risk.call', label: 'Risk call', fields: { a: { label: ['x'], kind: 'text' } }, record: [] } };
+  const e = TL.cleanEntry(raw, 'w1.jsonl');
+  assert.ok(e && e.before === null && e.after === null && e.badDef, 'neither is used');
+  assert.doesNotThrow(() => TL.typeChanges(e.before, e.after));
+  assert.doesNotThrow(() => TL.typeChanges({ label: { x: 1 } }, { label: 'B', fields: { a: { label: { y: 2 } } }, record: [{ name: 'n', label: { z: 1 } }] }), 'and the rows never assume text');
+});
+
+rule('Saved history: ordering 10,000 entries stays fast (near-linear), the same as a small list would be ordered', () => {
+  const list = [];
+  let prev = H('start');
+  for (let i = 0; i < 10000; i++) {
+    const w = 'w' + (i % 7), to = H('state' + i);
+    list.push(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'e' + i, process: 'release', writer: w, seq: Math.floor(i / 7) + 1, from: prev, to, seen: i ? 'e' + (i - 1) : null, units: [], items: [] }, w + '.jsonl'));
+    prev = to;
+  }
+  const t = Date.now(), out = TL.order(list.slice().reverse(), prev), ms = Date.now() - t;
+  assert.ok(ms < 300, 'ordered in ' + ms + ' ms');
+  assert.strictEqual(out.length, 10000, 'one chain, no gaps');
+  assert.ok(out[0].entry.id === 'e9999' && out[9999].entry.id === 'e0');
+  // Off the chain too (no current fingerprint): causal order, still fast.
+  const t2 = Date.now(), off = TL.order(list, 'ffffffff');
+  assert.ok(Date.now() - t2 < 300 && off[1].entry.id === 'e9999' && off[10000].entry.id === 'e0');
 });
 
 run();

@@ -214,23 +214,26 @@ PF.timeline = (function () {
     return y.join('\n');
   }
   /* A step type's definition as a few readable rows, keyed by what they describe, for field-level before and after. */
+  /* Only text, numbers and switches are shown from a definition; anything else in a file reads as nothing. */
+  function prim(v) { return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'; }
+  function txt(v) { return prim(v) ? String(v) : ''; }
   function rowText(r) {
     if (!r || typeof r !== 'object') return '';
-    var t = String(r.label || r.name || '') + (r.name ? ' (' + r.name + ')' : '') + ' · ' + String(r.kind || 'text');
-    if (Array.isArray(r.options) && r.options.length) t += ' · options: ' + r.options.join(', ');
+    var t = (txt(r.label) || txt(r.name)) + (txt(r.name) ? ' (' + txt(r.name) + ')' : '') + ' · ' + (txt(r.kind) || 'text');
+    if (Array.isArray(r.options) && r.options.length) t += ' · options: ' + r.options.filter(prim).join(', ');
     if (r.required) t += ' · usually filled in';
     if (r.long) t += ' · long text';
     return t;
   }
   var TYPE_KEYS = [['label', 'Label'], ['id', 'ID'], ['hint', 'What it\'s for'], ['icon', 'Icon'], ['group', 'Group'], ['tags', 'Tags']];
   function typeRows(d) {
-    var out = {}, val = function (v) { return Array.isArray(v) ? v.join(' / ') : v == null ? '' : String(v); };
+    var out = {}, val = function (v) { return Array.isArray(v) ? v.filter(prim).map(String).join(' / ') : prim(v) ? String(v) : ''; };
     if (!d || typeof d !== 'object') return out;
     TYPE_KEYS.forEach(function (k) { if (d[k[0]] != null && d[k[0]] !== '') out['type:' + k[0]] = { label: k[1], text: k[0] === 'tags' && Array.isArray(d.tags) ? d.tags.join(', ') : val(d[k[0]]) }; });
     var f = d.fields && typeof d.fields === 'object' ? d.fields : {};
-    if (Array.isArray(f)) f.forEach(function (r) { if (r && r.name) out['field:' + r.name] = { label: 'Field "' + (r.label || r.name) + '"', text: rowText(r) }; });
-    else Object.keys(f).forEach(function (n) { var r = f[n] || {}; out['field:' + n] = { label: 'Field "' + (r.label || n) + '"', text: rowText({ name: n, label: r.label, kind: r.kind, options: r.options, required: r.required }) }; });
-    (Array.isArray(d.record) ? d.record : []).forEach(function (r) { if (r && r.name) out['evidence:' + r.name] = { label: 'Evidence "' + (r.label || r.name) + '"', text: rowText(r) }; });
+    if (Array.isArray(f)) f.forEach(function (r) { if (r && txt(r.name)) out['field:' + txt(r.name)] = { label: 'Field "' + (txt(r.label) || txt(r.name)) + '"', text: rowText(r) }; });
+    else Object.keys(f).forEach(function (n) { var r = f[n] || {}; out['field:' + n] = { label: 'Field "' + (txt(r.label) || n) + '"', text: rowText({ name: n, label: r.label, kind: r.kind, options: r.options, required: r.required }) }; });
+    (Array.isArray(d.record) ? d.record : []).forEach(function (r) { if (r && txt(r.name)) out['evidence:' + txt(r.name)] = { label: 'Evidence "' + (txt(r.label) || txt(r.name)) + '"', text: rowText(r) }; });
     return out;
   }
   /* What changed between two definitions: [{ item, label, before, after }], in the order the form shows them. */
@@ -279,6 +282,15 @@ PF.timeline = (function () {
   }
   var HASH = /^[0-9a-f]{8}$/, ID = /^[\w-]{1,60}$/;
   function strs(a, n, len) { return Array.isArray(a) ? a.filter(function (x) { return typeof x === 'string'; }).slice(0, n).map(function (x) { return x.slice(0, len); }) : []; }
+  /* Lines of a hunk exactly as written, or null if anything in them isn't text (a line is already at most 80 KB). */
+  function exact(a) { return Array.isArray(a) && a.length <= 20000 && a.every(function (x) { return typeof x === 'string'; }) ? a.slice() : null; }
+  /* A step type's definition from a line: only one that checks out as a team step type is used. */
+  function typeDef(d) {
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+    var c = plain(d, 0), errs;
+    try { errs = PF.types.checkCustom(JSON.parse(JSON.stringify(c))); } catch (e) { errs = ['unreadable']; }
+    return errs && errs.length ? undefined : c;
+  }
   /* A line read from the folder, checked: the right types and lengths, or null. file is the file it came from (for order). */
   function cleanEntry(o, file) {
     if (!o || typeof o !== 'object' || Array.isArray(o) || o.v !== 1) return null;
@@ -295,51 +307,68 @@ PF.timeline = (function () {
     e.source = SOURCES.indexOf(o.source) >= 0 ? o.source : '';
     if (typeof o.version === 'number' && isFinite(o.version) && o.version >= 1 && o.version < 1e6) e.version = Math.floor(o.version);
     e.units = strs(o.units, HIST.UNITS, 200); e.items = strs(o.items, HIST.ITEMS, 120); e.big = o.big === true;
+    /* Hunks are kept exactly or not trusted: anything cut or odd leaves Compare (what could be read) but never Reverse. */
     if (draft && Array.isArray(o.hunks)) {
-      e.hunks = o.hunks.slice(0, 2000).filter(function (h) { return h && typeof h === 'object' && typeof h.at === 'number' && isFinite(h.at) && h.at >= 0 && Array.isArray(h.del) && Array.isArray(h.ins); })
-        .map(function (h) { var x = Object.create(null); x.at = Math.floor(h.at); x.del = strs(h.del, 5000, 4000); x.ins = strs(h.ins, 5000, 4000); return x; });
-      if (e.hunks.length !== Math.min(o.hunks.length, 2000)) delete e.hunks;
+      e.hunks = [];
+      o.hunks.slice(0, 2000).forEach(function (h) {
+        var ok = h && typeof h === 'object' && typeof h.at === 'number' && isFinite(h.at) && h.at >= 0, del = ok && exact(h.del), ins = ok && exact(h.ins);
+        if (!del || !ins) e.cut = true;
+        if (!ok) return;
+        var x = Object.create(null); x.at = Math.floor(h.at); x.del = del || strs(h.del, 5000, 4000); x.ins = ins || strs(h.ins, 5000, 4000); e.hunks.push(x);
+      });
+      if (o.hunks.length > 2000) e.cut = true;
     }
-    if (!draft) { e.before = o.before && typeof o.before === 'object' ? plain(o.before, 0) : null; e.after = o.after && typeof o.after === 'object' ? plain(o.after, 0) : null; }
+    if (!draft) {
+      var b = typeDef(o.before), a = typeDef(o.after);
+      if (b === undefined || a === undefined) { e.badDef = true; e.before = null; e.after = null; } else { e.before = b; e.after = a; }
+    }
     e.file = typeof file === 'string' ? file.slice(0, 200) : '';
+    /* The same line in two files (a OneDrive copy) is one entry; a different line under the same ID stays apart. */
+    var copy = Object.assign({}, e); delete copy.file;
+    e.key = e.writer + '\n' + e.id + '\n' + PF.util.hash(JSON.stringify(copy));
     return e;
   }
+  /* Whether Reverse may use an entry: a draft change kept line for line, exactly. */
+  function reversible(e) { return !!e && e.kind === 'draft-edit' && !e.big && !e.cut && Array.isArray(e.hunks) && e.hunks.length > 0; }
   /* The order of saved history, newest first: from the file's current fingerprint, walk back through entries whose `to` is it
      (of several, the latest in causal order). Where nothing leads on, it was changed outside Flightdeck. Entries off that chain
      follow in causal order: after the entry they saw (seen), then by writer and seq, ties by file name. Never by clocks.
      Returns [{ entry } | { gap: true }]. */
   function order(list, current) {
-    var all = [], have = Object.create(null);
-    (list || []).forEach(function (e) { var k = e && e.writer + '\n' + e.id; if (e && !have[k]) { have[k] = true; all.push(e); } });
-    var key = function (e) { return (e.file || '') + '\n' + ('000000000000' + e.seq).slice(-12) + '\n' + e.writer + '\n' + e.id; };
-    all.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
-    var byId = Object.create(null), prev = [], last = Object.create(null);
-    all.forEach(function (e) { (byId[e.id] = byId[e.id] || []).push(e); });
-    /* Within one writer, lines follow their seq (all is sorted by file, then seq; a writer's files sort -2 after the first). */
-    var byWriter = all.slice().sort(function (a, b) { return a.writer < b.writer ? -1 : a.writer > b.writer ? 1 : a.seq - b.seq || (key(a) < key(b) ? -1 : 1); });
-    var placed = [], done = Object.create(null), n = all.length, idx = Object.create(null);
-    all.forEach(function (e, i) { idx[e.writer + '\n' + e.id] = i; });
-    byWriter.forEach(function (e) { prev[idx[e.writer + '\n' + e.id]] = last[e.writer] || null; last[e.writer] = e; });
-    var ready = function (e, i) {
-      if (prev[i] && !done[idx[prev[i].writer + '\n' + prev[i].id]]) return false;
-      return !(e.seen && byId[e.seen] && byId[e.seen].some(function (s) { return s !== e && !done[idx[s.writer + '\n' + s.id]]; }));
-    };
+    var all = [], have = Object.create(null), kof = function (e) { return e.key || e.writer + '\n' + e.id; };
+    (list || []).forEach(function (e) { if (e && !have[kof(e)]) { have[kof(e)] = true; all.push(e); } });
+    var n = all.length, sk = all.map(function (e) { return { e: e, s: (e.file || '') + '\n' + ('000000000000' + e.seq).slice(-12) + '\n' + e.writer + '\n' + e.id + '\n' + kof(e) }; });
+    sk.sort(function (a, b) { return a.s < b.s ? -1 : a.s > b.s ? 1 : 0; });
+    all = sk.map(function (x) { return x.e; });
+    /* Edges: a writer's previous line, and every entry with the ID this one saw. Each node is placed once its edges are. */
+    var kids = [], indeg = [], byId = Object.create(null), i;
+    for (i = 0; i < n; i++) { kids.push([]); indeg.push(0); (byId[all[i].id] = byId[all[i].id] || []).push(i); }
+    var byWriter = all.map(function (e, j) { return j; }).sort(function (a, b) { var x = all[a], y = all[b]; return x.writer < y.writer ? -1 : x.writer > y.writer ? 1 : x.seq - y.seq || a - b; });
+    for (i = 1; i < n; i++) if (all[byWriter[i]].writer === all[byWriter[i - 1]].writer) { kids[byWriter[i - 1]].push(byWriter[i]); indeg[byWriter[i]]++; }
+    for (i = 0; i < n; i++) { var sn = all[i].seen && byId[all[i].seen]; if (sn) sn.forEach(function (j) { if (j !== i) { kids[j].push(i); indeg[i]++; } }); }
+    /* Kahn's algorithm, always taking the ready entry first in file order; a cycle (only a hand-made file has one) is broken at
+       the first entry left. */
+    var heap = [], done = [], placed = [], scan = 0;
+    var push = function (v) { heap.push(v); var c = heap.length - 1; while (c > 0) { var p = (c - 1) >> 1; if (heap[p] <= v) break; heap[c] = heap[p]; c = p; } heap[c] = v; };
+    var pop = function () { var top = heap[0], last = heap.pop(); if (heap.length) { var c = 0; for (;;) { var l = 2 * c + 1, r = l + 1, m = c; var mv = last; if (l < heap.length && heap[l] < mv) { m = l; mv = heap[l]; } if (r < heap.length && heap[r] < mv) m = r; if (m === c) break; heap[c] = heap[m]; c = m; } heap[c] = last; } return top; };
+    for (i = 0; i < n; i++) if (!indeg[i]) push(i);
     while (placed.length < n) {
       var pick = -1;
-      for (var i = 0; i < n; i++) if (!done[i] && ready(all[i], i)) { pick = i; break; }
-      if (pick < 0) for (i = 0; i < n; i++) if (!done[i]) { pick = i; break; }
+      while (heap.length) { var h0 = pop(); if (!done[h0]) { pick = h0; break; } }
+      if (pick < 0) { while (done[scan]) scan++; pick = scan; }
       done[pick] = true; placed.push(all[pick]);
+      kids[pick].forEach(function (k) { if (--indeg[k] === 0 && !done[k]) push(k); });
     }
-    var rank = Object.create(null);
-    placed.forEach(function (e, i) { rank[e.writer + '\n' + e.id] = i; });
+    var rank = Object.create(null), byTo = Object.create(null);
+    placed.forEach(function (e, j) { rank[kof(e)] = j; (byTo[e.to] = byTo[e.to] || []).push(e); });
     var used = Object.create(null), chain = [], h = current || null;
-    while (h) {
+    while (h && byTo[h]) {
       var best = null;
-      for (i = 0; i < n; i++) { var c = all[i], ck = c.writer + '\n' + c.id; if (!used[ck] && c.to === h && (!best || rank[ck] > rank[best.writer + '\n' + best.id])) best = c; }
+      byTo[h].forEach(function (c) { if (!used[kof(c)] && (!best || rank[kof(c)] > rank[kof(best)])) best = c; });
       if (!best) break;
-      used[best.writer + '\n' + best.id] = true; chain.push(best); h = best.from;
+      used[kof(best)] = true; chain.push(best); h = best.from;
     }
-    var rest = placed.filter(function (e) { return !used[e.writer + '\n' + e.id]; }).reverse(), out = [], want = current || null;
+    var rest = placed.filter(function (e) { return !used[kof(e)]; }).reverse(), out = [], want = current || null;
     chain.concat(rest).forEach(function (e) {
       if (e.to !== want) out.push({ gap: true });
       out.push({ entry: e }); want = e.from;
@@ -361,6 +390,6 @@ PF.timeline = (function () {
 
   return { MAX: MAX, MAX_CHARS: MAX_CHARS, PAUSE: PAUSE, create: create, patch: patch, record: record, close: close, barrier: barrier, peek: peek, undo: undo, redo: redo,
     saved: saved, labelOf: labelOf, describe: describe, past: past, itemAt: itemAt,
-    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order,
+    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order, reversible: reversible,
     placePublications: placePublications, histFile: histFile, rolls: rolls };
 })();

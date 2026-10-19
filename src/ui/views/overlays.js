@@ -139,16 +139,17 @@
         h.ins.slice(a, h.ins.length - b).map(function (l) { return '<span class="add">+ ' + esc(l) + '</span>'; }).join('') + h.del.slice(h.del.length - b).map(same).join('');
     });
     return '<div class="hist-cmp" id="hist-cmp-' + esc(e.id) + '" tabindex="-1">' + (o.compareMsg ? '<p class="notice warn" role="status">' + esc(o.compareMsg) + '</p>' : '') +
-      (rows ? '<pre class="diff" aria-label="Compare: lines removed, then lines added">' + rows + '</pre>' : '<p class="small">' + (e.big ? 'This change was too big to keep line by line, so only its fingerprints were kept.' : 'Nothing to compare for it.') + '</p>') + '</div>';
+      (rows ? '<pre class="diff" aria-label="Compare: lines removed, then lines added">' + rows + '</pre>' : '<p class="small">' + (e.big ? 'This change was too big to keep line by line, so only its fingerprints were kept.' : e.badDef ? 'This save\'s step type couldn\'t be read from its history file.' : 'Nothing to compare for it.') + '</p>') + '</div>';
   }
   function savedEntry(ctx, o, e, item) {
     var TL = PF.timeline, who = e.by ? nameOf(ctx, e.by) : 'Someone', ai = /^agent-/.test(e.writer), detail = '';
-    if (e.kind === 'type-edit') {
+    if (e.kind === 'type-edit' && e.badDef) detail = '<p class="small">This save\'s step type couldn\'t be read from its history file, so its fields aren\'t shown.</p>';
+    else if (e.kind === 'type-edit') {
       var cs = TL.typeChanges(e.before, e.after).filter(function (c) { return !item || c.item === item; });
       detail = e.big ? '<p class="small">Too big to keep field by field; only its fingerprints were kept.</p>' : cs.map(function (c) { return histBa(c.before, c.after, c.label); }).join('');
     } else if (e.big) detail = '<p class="small">Too big to keep line by line; only its fingerprints were kept.</p>';
     else detail = histHunks(e, item).map(function (h) { return histBa(h.del.join('\n'), h.ins.join('\n'), 'Line ' + (h.at + 1) + ': before and after'); }).join('');
-    var open = o.compare === e.id, canReverse = e.kind === 'draft-edit' && !e.big && e.hunks && e.hunks.length;
+    var open = o.compare === e.id, canReverse = PF.timeline.reversible(e);
     return '<li class="hist-entry saved"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
       (e.units.length ? '<ul class="hist-units small">' + e.units.map(function (u) { return '<li>' + esc(u) + '</li>'; }).join('') + '</ul>' : '') + detail +
       '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.id) + '" aria-expanded="' + open + '">Compare</button>' +
@@ -166,9 +167,10 @@
       if (item && x.entry.items.indexOf(item) < 0) return;
       n++; list += savedEntry(ctx, o, x.entry, item);
     });
+    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
-    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad;
-    return '<ol class="hist-list">' + list + '</ol>' + bad;
+    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad + other;
+    return '<ol class="hist-list">' + list + '</ol>' + bad + other;
   }
 
   V.historyDrawer = historyDrawer;

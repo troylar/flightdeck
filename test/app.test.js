@@ -3956,4 +3956,23 @@ rule('App: restoring a version is kept as Restored from vN', async () => {
   assert.ok(/Restored from v1/.test(app.overlay()) && /Published v1/.test(app.overlay()), 'and the publication it matches is placed');
 });
 
+rule('App: Reverse this change waits, like Undo, while a builder box holds wording that isn\'t applied', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  app.click('ob-del', 'rollback'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const saved = app.fs.files[path].t;
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Ask @qa before continuing'); await app.tick();
+  enter(app, 'ob-text', 'Ask @qa before continuing'); await app.tick();
+  assert.ok(/role="alert">Choose roles and run details with their buttons/.test(app.html()), 'set-up: refused, still typed');
+  app.click('hist-open', 'draft'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  const id = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
+  app.click('hist-reverse', id); await app.tick();
+  assert.strictEqual(app.draft('ob-text'), 'Ask @qa before continuing', 'the typing is kept');
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()), 'and it says why it waits');
+  assert.ok(!/data-ob-step="rollback"/.test(app.html()), 'nothing reversed');
+  assert.strictEqual(app.fs.files[path].t, saved);
+});
+
 run();

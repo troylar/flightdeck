@@ -1593,4 +1593,12 @@ rule('Setup and Settings: people with the same name are told apart in every pick
   assert.ok(/>Avery Lee \(person-avery-2\)<\/option>/.test(V.top(s2.ctx)), 'the top bar\'s You are');
 });
 
+rule('Saved history: a step type entry with a malformed definition still draws, and says it couldn\'t be read', () => {
+  const { ctx } = setup(), TL = PF.timeline;
+  const e = TL.cleanEntry({ v: 1, kind: 'type-edit', id: 't1', type: 'risk.call', writer: 'w1', seq: 1, from: null, to: 'abcdef01', units: ['Changed'], before: { id: 'risk.call', label: { x: 1 } }, after: { id: 'risk.call', label: 'B' } }, 'w1.jsonl');
+  let h;
+  assert.doesNotThrow(() => { h = V.historyDrawer(ctx, { scope: 'type', tl: TL.create(), mode: 'saved', saved: { state: 'ok', items: [{ entry: e }] }, compare: 't1' }); });
+  assert.ok(/couldn.t be read/.test(h));
+});
+
 run();
