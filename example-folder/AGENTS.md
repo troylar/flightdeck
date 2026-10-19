@@ -1,6 +1,9 @@
+<!-- flightdeck:begin -->
 # Flightdeck team folder: instructions for AI assistants
 
-This folder holds the team's process checklists and runs for Flightdeck. Read this before changing anything here.
+This folder holds the team's process checklists and runs for Flightdeck. Read this before changing anything here, including the team's own notes at the end.
+
+`flightdeck install` updates the part of this file between the `flightdeck:begin` and `flightdeck:end` markers. The team's own instructions go under **Team notes**, below it, which Flightdeck never changes. Don't edit the part between the markers, `.flightdeck/installed.json` or anything in `.flightdeck/updates/`, unless a person asks you to merge a Flightdeck update (the `README.md` in `.flightdeck/updates/<version>/` says how).
 
 ## What you may write
 
@@ -140,3 +143,8 @@ Anyone in a run can correct a step: what the checklist said, what it should say,
 - To act on them, use the correction brief a person copies from the process page, or `/flightdeck-learn-from-runs`. Edit only the draft, keep step IDs, and tell a person which corrections you addressed so they can mark them applied.
 
 **Over OneDrive, what you read may be a minute behind.** A passed gate means "passed for those details, by that person, at that time", not "safe right now". Never take an irreversible action on the strength of a gate alone; a person confirms.
+<!-- flightdeck:end -->
+
+## Team notes
+
+Your team's own instructions for AI assistants go here. Flightdeck never changes this section.

@@ -221,5 +221,22 @@ PF.map = (function () {
     return Object.keys(seen).sort();
   }
 
-  return { parse: parse, check: check, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes };
+  /* A draft with front-matter values set ({ owner: 'person-riley' }), changing only those lines. A key without a line is
+     added at the end of the front matter; a draft without front matter gets one. The rest of the text, line endings
+     included, stays exactly as it was. */
+  function withMeta(md, set) {
+    var text = String(md || ''), keys = Object.keys(set || {}).filter(function (k) { return /^[\w-]+$/.test(k) && set[k] != null; });
+    function line(k) { return k + ': ' + String(set[k]).replace(/[\r\n]+/g, ' ').trim(); }
+    if (!keys.length) return text;
+    var m = /^---[ \t]*(\r?\n)([\s\S]*?)^---[ \t]*(?:\r?\n|$)/m.exec(text);
+    if (!m || m.index !== 0) return '---\n' + keys.map(line).join('\n') + '\n---\n' + text;
+    var nl = m[1], head = m[2], at = 3 + text.slice(3).indexOf(nl) + nl.length;
+    keys.forEach(function (k) {
+      var re = new RegExp('^' + k + ':.*$', 'm');
+      head = re.test(head) ? head.replace(re, function () { return line(k); }) : head + line(k) + nl;
+    });
+    return text.slice(0, at) + head + text.slice(at + m[2].length);
+  }
+
+  return { parse: parse, check: check, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();

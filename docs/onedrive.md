@@ -44,17 +44,114 @@ While a run is open, Flightdeck rereads only that run and its notes every 5 seco
 | `runs/<process>/<id>/files/*` | The window that attached the file, named with the time, a random part and that window, so two windows never write the same name. Written once. |
 | `corrections/<process>/<group>.<window>.<rev>.json` | Each decision on a correction is a new file named for the window and the decision's `rev`, written once; nobody edits another's, or their own. Two decided at once both stay, and the app says Needs review. |
 | `suggestions/<process>/*.json` | Decisions on suggested fixes from before 1.13. Read, no longer written. |
+| `AGENTS.md` | Between its `flightdeck:begin` and `flightdeck:end` markers: `flightdeck install`, run by the person who updates Flightdeck. Below them (Team notes): the team, one person at a time. |
+| `.flightdeck/skills/**` | `flightdeck install` or `flightdeck skills`, run by the person who updates Flightdeck. A team that changes a skill keeps one person editing it. |
+| `.flightdeck/installed.json` | `flightdeck install` or `flightdeck skills`, and Flightdeck once when it starts a new team folder. Records which defaults the folder's AGENTS.md and skills are based on. |
+| `.flightdeck/updates/<version>/` | `flightdeck install` or `flightdeck skills`: new defaults waiting to be merged, with a README.md, and copies of the files `--force` replaced. The person merging (or their AI assistant) deletes each copy when it's merged. |
 
-## Before the first real release
+## Release gate: the two-computer rehearsal
 
-Do a rehearsal on two computers with the real folder: start a run, follow it from the second computer, add notes from both, hand off recording, change the commit, block and unblock a step, pass a gate, and finish with a receipt. Then rehearse the bad night: pause OneDrive on one computer, take over from the other, resume OneDrive, and resolve the conflict copy in the app.
+The tests simulate two computers on a slow OneDrive, but only real OneDrive shows how it really behaves. So a release that could change how files travel between computers ships only after two people (or one person with two computers) rehearse it on real OneDrive and write down what happened.
 
-### Rehearse corrections on two computers
+**When it's required:** every minor or major release that touches `src/storage/`, the run or notes file formats, saving or sync code in `src/ui/app.js`, or the connection check. A patch that touches none of these doesn't need one. When in doubt, rehearse.
 
-1. On computer A, correct a step's wording in a running run and attach a log. After OneDrive syncs, computer B shows it in the run's Corrections and on the process page, with the file.
-2. On computer B, correct the same step with the same wording (spacing may differ; letter case may not). After sync, the process page shows them as one group with both people (a different run counts as "Suggested in 2 runs").
-3. Pause OneDrive on the recorder's computer, mark a step Done differently with Fix the checklist too, then resume. The answer and its correction should both arrive, and the receipt should join them.
-4. Pause OneDrive on both computers. Mark the same group as applied on A and decline it with a reason on B. Resume both: both decision files arrive, and the process page lists the group under Open as Needs review until someone decides again.
-5. Withdraw is offered only to the person who suggested every correction in the group. Check that someone else doesn't see it; a withdrawal written by anyone else is ignored and the group keeps its status (`test/rules.test.js` covers the file case).
+**What ships with the release:** a record in `docs/rehearsals/<version>-<date>.md`, made from the results template below. Use synthetic names in it (Avery, Blake), not the testers' real names. A release with a step that failed ships only once the failure is fixed and that part rehearsed again, or with the failure listed under its known limits.
 
-What the app can't prove for you: how long OneDrive takes to deliver a decision, and that nobody acted on a group's old status in the meantime.
+### The script (about 35 minutes)
+
+Two computers, A and B, both signed in to OneDrive with the same shared test folder synced locally (**Always keep on this device**), Edge or Chrome on each, and the same Flightdeck version on both (check What's new). Use a test copy of the team folder, never the real one. Write down anything that doesn't match "Expect", and the delays you see.
+
+Step 0 needs the connection check, which comes in a later 1.15 release. Until then, skip it and write "not available" in its row.
+
+**Before you start (3 min)**
+
+0. Run the connection check from A, then from B. Expect: each computer's check is answered by the other, and the page says how long the round trip took.
+1. On A: open `flightdeck.html`, choose **Open team folder**, and choose yourself under You are. Expect: the processes load.
+2. On B: the same, choosing a different person. Expect: the same processes.
+3. Note the version shown in What's new on both, and the OneDrive version (OneDrive menu → Settings → About).
+
+**A normal run (10 min)**
+
+4. A: start a run of the release checklist. Expect on B within about 30 seconds: the run appears under Runs.
+5. B: open the run. Expect: B follows ("Casey is recording. You can add notes.").
+6. A: check two steps. Expect on B within about 10 seconds: both show done, and the revision number matches A's.
+7. B: add a note with an attachment (a screenshot) on step 3. Expect on A: the note and its thumbnail appear, and opening the image works.
+   - 7b. Pause OneDrive on B. On B, add another note with an attachment, then resume OneDrive. Expect on A: the note may arrive before its file, showing **Missing**; the thumbnail replaces it once the file arrives.
+8. A: add a note on the same step. Expect on B: both notes, in order.
+9. A: change a run detail (the commit) in Details. Expect on both: the steps tied to it go back to re-check.
+10. A: mark a step Blocked with a reason, then unblock it. Expect on B: both changes, with the reason.
+11. A: **Correct this step** on one step (change the wording). B: the same on another step. Expect on both computers: both show in the process page's Corrections panel.
+12. A: **Hand off**. B: **Pick up recording**. Expect: B records and A follows; B continues from A's revision.
+    - 12b. B: close the browser in the middle of the run and open it again. Choose **Reconnect** if Flightdeck asks, open the run, then **Record here**. Expect: B records again from the latest revision, and nothing B did before closing is missing.
+13. B: pass a gate, finish the run, and open the Receipt. Expect: the same receipt on A after sync.
+
+**A bad night (14 min)**
+
+14. B: start a second run and check one step. Wait until A shows it.
+15. Pause OneDrive on B (OneDrive menu → Pause syncing → 2 hours).
+16. B: check two more steps. They're saved on B only.
+17. A: open that run, choose **Take over** (emergency), and check one different step.
+18. Resume OneDrive on B. Wait one to two minutes.
+19. Expect on both: the run shows a conflict copy panel (**Compare copies**). Nothing is silently lost: every step checked on A and B is in one of the copies.
+20. Recorder: compare, keep the right copy, and delete the other. Expect: both computers settle on the kept copy; the deleted copy's answers stay visible in the comparison until it's deleted.
+21. Pause OneDrive on A and edit a draft in the builder, then Save. On B, edit the same draft and Save. Resume A. Expect: one save is refused with "Someone else changed this draft", offering Keep mine and Take theirs. Undo never brings back text over the other person's change.
+- P. Pause OneDrive on A. Publish a new version of a checklist on A, then resume. Expect on B: until every file of the new version has arrived, the version is either not there or shown as still syncing. It's never offered for a run before it's complete.
+- R. With a run open on both computers, restore that run's `run.json` to an earlier version from OneDrive's version history (on the OneDrive website: the run's folder → `run.json` → Version history → Restore). Then the recorder checks a step. Expect: the save is refused and a conflict copy appears; both the restored version and the recorder's are there to compare. Nothing is silently lost.
+
+**Corrections from both computers (6 min)**
+
+22. A: in a running run, **Correct this step**'s wording and attach a log. Expect on B: it shows in the run's Corrections and on the process page, with the file. Then B corrects the same step with the same wording (spacing may differ; letter case may not). Expect: the process page shows one group with both people. Then pause OneDrive on the recorder's computer, mark a step **Done differently** with **Fix the checklist too**, and resume. Expect: the answer and its correction both arrive, and the receipt joins them.
+23. Pause OneDrive on both computers. Both: open the process page's Corrections panel and pick the same open group. A: **Mark as applied**. B: **Decline** with a reason. Resume both. Expect on both: both decisions arrive and the group shows **Needs review**, listed under Open, never silently decided. Also check that **Withdraw** is offered only to the person who suggested every correction in the group.
+
+**Accounting tally (2 min).** Go through every answer and note entered on either computer during the rehearsal. Each one must be in the run, in a conflict copy, or in a `replaced-*.json` file. One that's in none of them is a failed rehearsal, whatever else passed.
+
+What the app can't prove for you: how long OneDrive takes to deliver a change, and that nobody acted on something's old state in the meantime. That's why the record notes the delays you saw.
+
+### Results template
+
+Copy this into `docs/rehearsals/<version>-<date>.md` and fill it in.
+
+```markdown
+# Two-computer rehearsal: Flightdeck <version>
+
+- Version and commit: <version> (<git SHA>)
+- Date: <YYYY-MM-DD>
+- Tester(s): <synthetic names, for example Avery and Blake>
+- Computer A: <OS>, <browser and version>
+- Computer B: <OS>, <browser and version>
+- OneDrive client version: <A> / <B>
+- Test folder: <name>
+- Sync conditions: <same network or not, VPN, anything unusual>
+
+| # | Expect | Result (OK / what happened) | Delay seen | Evidence file |
+|---|---|---|---|---|
+| 0 | Each computer's connection check answered by the other | | | |
+| 1 | Processes load on A | | | |
+| 2 | Same processes on B | | | |
+| 3 | Same version on both | | | |
+| 4 | New run appears on B | | | |
+| 5 | B follows | | | |
+| 6 | Two steps done on B, same revision | | | |
+| 7 | Note and thumbnail on A; image opens | | | |
+| 7b | Missing, then the thumbnail | | | |
+| 8 | Both notes on B, in order | | | |
+| 9 | Commit change re-checks its steps on both | | | |
+| 10 | Blocked and unblocked on B, with the reason | | | |
+| 11 | Both corrections on both computers | | | |
+| 12 | B records from A's revision | | | |
+| 12b | Record here after reopening; nothing missing | | | |
+| 13 | Same receipt on A | | | |
+| 14 | Second run's step shows on A | | | |
+| 15-18 | Paused B, take over on A, resumed | | | |
+| 19 | Compare copies on both; every answer in a copy | | | |
+| 20 | Both settle on the kept copy | | | |
+| 21 | One draft save refused; Undo safe | | | |
+| P | Half-synced version never usable on B | | | |
+| R | Restored run.json gives a conflict copy | | | |
+| 22 | Corrections group with both people; Done differently joined | | | |
+| 23 | Needs review under Open on both; Withdraw only for the suggester | | | |
+
+- Accounting tally: <every answer and note found: yes, or what's missing>
+- Mismatches filed: <issue links>
+- Verdict: <Pass / Pass with known limits (list them) / Fail>
+```

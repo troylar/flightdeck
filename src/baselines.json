@@ -1,0 +1,158 @@
+{
+  "format": "flightdeck-baselines/1",
+  "hash": "sha256 of the text as UTF-8, after removing a byte-order mark and turning CRLF into LF; for AGENTS.md, only the part from <!-- flightdeck:begin --> through <!-- flightdeck:end --> (the whole file before 1.15)",
+  "files": {
+    ".flightdeck/skills/_flightdeck/check_folder.py": {
+      "c82aa44bab5b258f8c2ebfdb05bf3eb166f385b06b1780162cf2dbcb55608e47": [
+        "1.10.0",
+        "1.11.0"
+      ],
+      "8a583c05c1a8fefa56a091d5809e42dd635444a99bfd6b221af7ed9955cee275": [
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/_flightdeck/good-checklists.md": {
+      "10fc1f24c039d8a13a5df3e5bf56be051a7df3898835bdbd2df9b4049ab3f7d9": [
+        "1.10.0",
+        "1.11.0",
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/_flightdeck/map-format.md": {
+      "67a9b2bd6e942f4645f31401281fb39a554e7f52e0afba58bca7abd6035cbee7": [
+        "1.10.0"
+      ],
+      "1b10eee0cfa4761e688459ea1e14b98952fe28cc3e527c34a8139dcc7698c329": [
+        "1.11.0"
+      ],
+      "d5a07dea612dc9e89a66bc6929e97bc1198b2307e37c1dedce3b3b7530385029": [
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
+      "a360ead4084faaf55c7d55ee92726856fa53acb251a976a9320dbe9bd382e0ba": [
+        "1.10.0",
+        "1.11.0",
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
+      "49906618dfbc1616d7ac03629a7733b2722b01a5522dc6fb771845bfb206442e": [
+        "1.10.0"
+      ],
+      "3b0759d06d82e322dd750c64f7131f1f90766f88efa2e2ea144a840f3836554f": [
+        "1.11.0",
+        "1.11.1",
+        "1.12.0"
+      ],
+      "729d3f46760373a999dd202513008ebb9f1808f6b0095e7731681f9582a08f5c": [
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
+      "a2f9d0a0af95da47713d5425aaea637ea4479de1d0e5b69e3c51cfc04680fd68": [
+        "1.10.0",
+        "1.11.0",
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
+      "a3e1c58a71dc6856fca5f8deb0acc0155bcd77f5dee64d3220db33b9ab53c3e4": [
+        "1.10.0"
+      ],
+      "7d2e086dcede187b12cc39ae37e46cab0683dc0abbbd7a0fb860ba92ad370504": [
+        "1.11.0",
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-plan-run/SKILL.md": {
+      "e626ebf03d3d3edda5f40cd498c03e5e3a2e86b2d8899fe3548e18c6716db983": [
+        "1.10.0"
+      ],
+      "2aa4ea5f7f7ba069c9340d6ccc3a10246583e8fd6242abef891ca6ea17383141": [
+        "1.11.0",
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
+      "82503069c85a9f41cbb53bc8bea168702879690f205a78968d013b125d507e34": [
+        "1.10.0",
+        "1.11.0"
+      ],
+      "1c173f69e622b70d16cd0350562bd3340f8378bae800ead995985a69d0eee727": [
+        "1.11.1",
+        "1.12.0"
+      ],
+      "0f2b7710ab4e34217dccd4a2a6b867ef48b59aa0bc4f56a10a3ec00657a62519": [
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
+      "1a2a1b57e8657e3aac8b17749d5cf3887f52c99a7eddf751aed61e4407084a65": [
+        "1.10.0",
+        "1.11.0"
+      ],
+      "2b2d2fe6e56d763e6fefb10c9bd71df5333dbfa02ae34b47b2939680dc9453a5": [
+        "1.11.1",
+        "1.12.0",
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-status/SKILL.md": {
+      "c2070feed22435480d282f56c2ed9c486204968d5dda03cada060ae1d7d25336": [
+        "1.10.0",
+        "1.11.0"
+      ],
+      "68bd24ef5a03c47abcbacde3f7054ac684d14ee9080c9d10006d30e5cd18a609": [
+        "1.11.1",
+        "1.12.0"
+      ],
+      "639aecb23902f390ce0bdea44e88a9a3b44c9e5d9a5df5b692ec2f508353288e": [
+        "1.13.0",
+        "1.15.0"
+      ]
+    },
+    "AGENTS.md#flightdeck": {
+      "95f022f97b7538943766b5f3bb431cc6ebfde3cc24e71dda20e0fe4a2d0a744e": [
+        "1.10.0"
+      ],
+      "180f828aaafcc5c984943c7b746802ea1565c95c6d76fbc7a921432d2b256a5a": [
+        "1.11.0"
+      ],
+      "4920a27c7af2e6628597719a0c3bf1c8258cc7525923a38f8407f9fb2e17b609": [
+        "1.11.1",
+        "1.12.0"
+      ],
+      "640b1c8b472e9cc8eb2ba40640e4388773efb1345b910aec57cdab4b5cb8bf88": [
+        "1.13.0"
+      ],
+      "a6b8b7a85f75a4570db5a83e09839abe1d30cdd25e6b75885ddf53931076ff00": [
+        "1.15.0"
+      ]
+    }
+  }
+}

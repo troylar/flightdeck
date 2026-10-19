@@ -62,9 +62,12 @@ function boot(opts) {
     innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: !!opts.narrow && /max-width/.test(q) }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
+  // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
+  if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(opts.picker);
   const ctx = vm.createContext({
     window, document, localStorage: storage(), sessionStorage, navigator: opts.locks ? { locks: opts.locks } : {}, BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} }
+    setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB
   });
   vm.runInContext(script('pf-core'), ctx);
   // Remember the in-browser folder the app creates, so tests can plant files in it as "another computer" would.
@@ -160,7 +163,51 @@ function boot(opts) {
   return app;
 }
 
+/* A folder as the browser's File System Access API hands it over, kept in memory: files maps "a/b.txt" to its text. */
+function folderHandle(name, files) {
+  files = files || {};
+  const notFound = () => Object.assign(new Error('not found'), { name: 'NotFoundError' });
+  const dirs = new Set();
+  function dir(prefix, dname) {
+    const under = (p) => p.startsWith(prefix) && p.length > prefix.length;
+    return {
+      kind: 'directory', name: dname,
+      getDirectoryHandle(n, o) { const p = prefix + n + '/'; if (!(o && o.create) && ![...Object.keys(files), ...dirs].some(x => x.startsWith(p))) return Promise.reject(notFound()); dirs.add(p); return Promise.resolve(dir(p, n)); },
+      getFileHandle(n, o) { const p = prefix + n; if (!(p in files)) { if (!(o && o.create)) return Promise.reject(notFound()); files[p] = ''; } return Promise.resolve(file(p, n)); },
+      removeEntry(n) { if (!(prefix + n in files)) return Promise.reject(notFound()); delete files[prefix + n]; return Promise.resolve(); },
+      values() {
+        const names = new Map();
+        [...Object.keys(files), ...dirs].filter(under).forEach(p => { const rest = p.slice(prefix.length), i = rest.indexOf('/'); if (rest) names.set(i < 0 ? rest : rest.slice(0, i), i < 0 ? 'file' : 'directory'); });
+        const list = [...names].map(([n, kind]) => ({ name: n, kind }));
+        return { next: () => Promise.resolve(list.length ? { done: false, value: list.shift() } : { done: true }) };
+      },
+      queryPermission: () => Promise.resolve('granted'), requestPermission: () => Promise.resolve('granted'),
+      isSameEntry: (other) => Promise.resolve(other && other.name === dname)
+    };
+  }
+  function file(p, n) {
+    return {
+      kind: 'file', name: n,
+      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => Promise.resolve(files[p]) }),
+      createWritable(o) {
+        let buf = o && o.keepExistingData ? files[p] : '';
+        return Promise.resolve({ seek: () => Promise.resolve(), write: (d) => Promise.resolve(typeof d === 'string' ? d : d.text()).then(t => { buf += t; }), close: () => { files[p] = buf; return Promise.resolve(); } });
+      }
+    };
+  }
+  const root = dir('', name);
+  root.files = files;
+  return root;
+}
+/* A stand-in for indexedDB, enough for the app to remember a folder: one database of plain key-value stores. */
+function memoryIDB() {
+  const data = {};
+  const later = (q, v) => { setTimeout(() => { q.result = v; if (q.onsuccess) q.onsuccess(); }, 0); return q; };
+  const db = { transaction: () => { const tx = {}; tx.objectStore = () => ({ get: k => later({}, data[k]), put: (v, k) => { data[k] = v; setTimeout(() => tx.oncomplete && tx.oncomplete(), 0); } }); return tx; }, createObjectStore() {} };
+  return { open: () => later({}, db) };
+}
+
 /* A promise you resolve later: pause an async call at an exact point. */
 function gate() { let open; const p = new Promise(res => { open = res; }); return { p, open }; }
 
-module.exports = { boot, gate, bus, locks };
+module.exports = { boot, gate, bus, locks, folderHandle, memoryIDB };

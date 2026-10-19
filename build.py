@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Build dist/flightdeck.html: one self-contained file. Core logic, storage, screens, the example folder and the release
-notes are inlined. Also regenerates CHANGELOG.md from src/releases.json.
+"""Build dist/flightdeck.html: one self-contained file. Core logic, storage, screens, the example folder, the release
+notes and the contract baselines (src/baselines.json) are inlined. Also regenerates CHANGELOG.md from src/releases.json.
 
     python build.py                                  build dist/flightdeck.html and CHANGELOG.md
     python build.py --check-releases FILE            only validate FILE and print its changelog (used by the tests)
@@ -8,7 +8,7 @@ notes are inlined. Also regenerates CHANGELOG.md from src/releases.json.
 import base64, datetime, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent
-CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/skills.js", "core/attach.js"]
+CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/skills.js", "core/attach.js", "core/contract.js"]
 APP = ["storage/fs.js", "storage/repo.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
        "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/examples.js", "ui/app.js"]
 
@@ -102,6 +102,17 @@ def load_releases(path):
     return rel
 
 
+def load_baselines(path):
+    """src/baselines.json: every AGENTS.md and skill file Flightdeck has shipped, by content hash. tools/baselines.js writes it."""
+    b = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    if not isinstance(b, dict) or b.get("format") != "flightdeck-baselines/1" or not isinstance(b.get("files"), dict):
+        raise ValueError("baselines.json: format must be flightdeck-baselines/1 with a files object")
+    for f, hashes in b["files"].items():
+        if not isinstance(hashes, dict) or not all(re.fullmatch(r"[0-9a-f]{64}", h) and isinstance(v, list) and v and all(isinstance(x, str) and re.fullmatch(r"\d+\.\d+\.\d+", x) for x in v) for h, v in hashes.items()):
+            raise ValueError(f"baselines.json: {f} must map sha-256 hashes to lists of versions")
+    return b
+
+
 def read(rel_path):
     return (root / "src" / rel_path).read_text(encoding="utf-8")
 
@@ -112,6 +123,10 @@ def main():
     except (ValueError, json.JSONDecodeError) as e:
         sys.exit(str(e))
     version = releases[0]["version"]
+    try:
+        baselines = load_baselines(root / "src" / "baselines.json")
+    except (ValueError, json.JSONDecodeError) as e:
+        sys.exit(str(e))
 
     examples = {}
     ex = root / "example-folder"
@@ -126,6 +141,10 @@ def main():
 
     page = read("page.html")
     core = "\n".join(read(f) for f in CORE)
+    if core.count("/*@BASELINES@*/{}") != 1:
+        sys.exit("core/contract.js must contain the /*@BASELINES@*/{} placeholder exactly once")
+    # One line, so the command line can read it back out of the page.
+    core = core.replace("/*@BASELINES@*/{}", releases_js(baselines))
     app = "\n".join(read(f) for f in APP)
     blob = json.dumps(examples, ensure_ascii=False).replace("</", "<\\/")
     for marker in ("/*@EXAMPLES@*/{}", "/*@RELEASES@*/[]"):
@@ -153,7 +172,7 @@ def main():
     # Copies from before the rename look for preflight-version; both stamps let them see an update.
     page = page.replace(VERSION_META, f'<meta name="flightdeck-version" content="{version}"><meta name="preflight-version" content="{version}">')
     out = page.replace("/*@CORE@*/", script_safe(core)).replace("/*@APP@*/", script_safe(app))
-    for marker in ("/*@CORE@*/", "/*@APP@*/", "/*@EXAMPLES@*/", "/*@FONTS@*/", "/*@RELEASES@*/"):
+    for marker in ("/*@CORE@*/", "/*@APP@*/", "/*@EXAMPLES@*/", "/*@FONTS@*/", "/*@RELEASES@*/", "/*@BASELINES@*/"):
         if marker in out:
             sys.exit(f"unreplaced placeholder {marker}")
     (root / "dist").mkdir(exist_ok=True)

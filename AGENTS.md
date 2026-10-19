@@ -22,7 +22,7 @@ The team owns this code. Leave it easier to change than you found it.
 
 | Path | What it is | Rule |
 |---|---|---|
-| `src/core/` | `util`, `types`, `jira`, `map`, `outline` (the builder's line-preserving edits of a draft), `timeline` (Undo, Redo and History for the draft editor and the step-type form: text patches, typing units, baselines), `publish`, `run`, `corrections` (corrections recorded in runs: format, groups, decisions, the run's record), `skills`, `attach` (which files notes and corrections can carry, and how each is named and shown): every rule | Pure functions. No DOM, no files. Every rule has a test. |
+| `src/core/` | `util`, `types`, `jira`, `map`, `outline` (the builder's line-preserving edits of a draft), `timeline` (Undo, Redo and History for the draft editor and the step-type form: text patches, typing units, baselines), `publish`, `run`, `corrections` (corrections recorded in runs: format, groups, decisions, the run's record), `skills`, `attach` (which files notes and corrections can carry, and how each is named and shown), `contract` (what part of `AGENTS.md` and the skills a hash covers, and the embedded baselines): every rule | Pure functions. No DOM, no files. Every rule has a test. |
 | `src/storage/` | `fs` (folder access), `repo` (load, save, publish, conflicts, cache) | One writer per file, always. |
 | `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `builder` (the draft editor's outline builder), `run` (the run workspace: header, status strip, Phases, the checklist with Next up, and the inspector), `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
 | `src/page.html` | Styles, color tokens, page shell | Light and dark tokens; no external resources. |
@@ -30,7 +30,9 @@ The team owns this code. Leave it easier to change than you found it.
 | `example-folder/` | A complete team folder, built into the app as examples | Synthetic people only. Its `AGENTS.md` is the contract for working **in a team folder**; its `.flightdeck/skills/` are the Flightdeck skills for AI assistants that every new team folder gets (`flightdeck skills --to <dir>` installs them anywhere else). |
 | `test/` | `rules`, `outline`, `timeline`, `folder`, `sync`, `views`, `checker`, `app`, `build` and `cli` tests, `fixtures/`, `run.sh` | `sync.test.js` simulates two computers on a delayed OneDrive. |
 | `tools/type-table.js` | Writes the step-type table in `docs/map-format.md` | A test fails if docs and code disagree. |
-| `docs/` | `design.md` (the spec), `map-format.md`, `onedrive.md` | Update them in the same change as the code. |
+| `tools/baselines.js` | Writes `src/baselines.json`: every `AGENTS.md` and skill file shipped, by hash, which `flightdeck install` uses to tell an old default from a team's change | A test fails if this version's files aren't recorded. |
+| `bin/flightdeck.js` | The `flightdeck` command: install, skills, backup | No dependencies. Never writes through a link or outside the target folder. |
+| `docs/` | `design.md` (the spec), `map-format.md`, `onedrive.md` (including the release gate), `updating.md` and `recovery.md` (for team leads) | Update them in the same change as the code. |
 
 ## Commands
 
@@ -38,6 +40,7 @@ The team owns this code. Leave it easier to change than you found it.
 python build.py                    # build dist/flightdeck.html
 bash test/run.sh                   # build + every test + "one self-contained file" check (Git Bash on Windows)
 node tools/type-table.js --write   # after changing step types
+node tools/baselines.js --write    # after changing example-folder/AGENTS.md or a skill
 ```
 
 **A change is done only when `bash test/run.sh` passes**, `dist/flightdeck.html` is rebuilt, and the docs say what the code now does. Commit `dist/flightdeck.html` with the change. Show the test output; don't summarize it as "tests pass".
@@ -84,6 +87,7 @@ node tools/type-table.js --write   # after changing step types
 - **Saving, loading or sync:** read *Saving and sync rules* below first, then add a scenario to `test/sync.test.js` (two simulated computers that sync only when told) or `test/app.test.js` (the built app with races paused at exact points).
 - **Fingerprints, publication checks or plan decisions:** `example-folder/.flightdeck/skills/_flightdeck/check_folder.py` repeats them in Python for the skills; `test/checker.test.js` fails if it and the app disagree. Change both together.
 - **Screens:** `test/views.test.js` renders views without a browser; add a case for anything a run file or a failed save can make a screen show. Links go through `U.safeUrl`, everywhere.
+- **The assistant contract** (`example-folder/AGENTS.md` or anything in `example-folder/.flightdeck/skills/`): run `node tools/baselines.js --write` so `flightdeck install` recognizes the new text as a default. Keep Flightdeck's instructions between the `flightdeck:begin` and `flightdeck:end` markers in `AGENTS.md`; never put anything Flightdeck must update below them.
 - **Checklist syntax:** change `map.js`, `docs/map-format.md` and `example-folder/AGENTS.md` together, then run `node tools/type-table.js --write`. That also refreshes the skills' copy of the format, and a test fails if they differ. Check the `flightdeck-*` skills still describe the format correctly.
 - **UI text:** plain US English, short sentences, say what happens next. Write "Pass the gate", not "Submit". No emoji in UI text; the few status symbols (✓ ■ ↻ ⏱) are deliberate.
 - **Colors:** add a token to `:root` and both dark blocks in `page.html`. Form-field borders use `--field` (3:1 contrast).
@@ -138,3 +142,4 @@ Don't file or "fix" these choices without a change to `docs/design.md`. They nev
 - A user-visible change has its release entry, and `CHANGELOG.md` was regenerated by the build.
 - Nothing from a file reaches the page unescaped. No new external resource. No second writer.
 - For anything that touches sync: say plainly what still needs the real two-computer rehearsal in `docs/onedrive.md`.
+- **Release gate:** a minor or major release that touches `src/storage/`, the run or notes formats, saving or sync code in `app.js`, or the connection check ships only with a rehearsal record in `docs/rehearsals/` (see *Release gate* in `docs/onedrive.md`). You can't run it; say that it's needed.

@@ -390,13 +390,25 @@
         var known = ctx.peopleById[state.me], me = known ? known.name : state.me, id = known ? known.id : 'person-' + U.slug(me, 30);
         var people = [{ id: id, name: me, initials: me.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 3).toUpperCase(), email: '' }];
         var mine = JSON.stringify(people, null, 2) + '\n';
+        var C = PF.contract, contract = Object.keys(EXAMPLES).filter(function (k) { return k === C.AGENTS || /^\.flightdeck\/skills\//.test(k); });
+        /* Which defaults the folder started from, so flightdeck install can later tell them from the team's own changes.
+           Without hashing in this browser, the command falls back on the defaults every version shipped. */
+        var installed = function () {
+          var sub = typeof crypto !== 'undefined' && crypto.subtle;
+          if (!sub || typeof TextEncoder === 'undefined') return null;
+          return Promise.all(contract.map(function (k) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(k, EXAMPLES[k]))); })).then(function (ds) {
+            var files = {};
+            ds.forEach(function (d, i) { files[contract[i]] = C.hex(d); });
+            return fs.write('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
+          }, function () { return null; });
+        };
         /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
         return fs.write('people.json', mine)
           .then(function () { return fs.read('people.json'); })
           .then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Open team folder instead'); })
-          .then(function () { return fs.write('maps/drafts/check-in.md', EXAMPLES['maps/drafts/check-in.md']); })
-          .then(function () { return EXAMPLES['AGENTS.md'] ? fs.write('AGENTS.md', EXAMPLES['AGENTS.md']) : null; })
-          .then(function () { return Object.keys(EXAMPLES).filter(function (k) { return /^\.flightdeck\/skills\//.test(k); }).reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()); })
+          .then(function () { return fs.write('maps/drafts/check-in.md', PF.map.withMeta(EXAMPLES['maps/drafts/check-in.md'], { owner: id })); })
+          .then(function () { return contract.reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()); })
+          .then(function () { return installed(); })
           .then(function () { return handles.set(dir); })
           .then(function (rec) { if (t !== opening) return; state.me = id; lsSet('me', id); home(); return useFs(folderFs(rec)); })
           .then(function () { if (t !== opening) return; say('Created the team folder "' + dir.name + '" with you in people.json and a starter checklist. Add teammates to people.json, and keep the folder available offline in OneDrive.', 'good'); render(); });

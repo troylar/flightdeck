@@ -1682,4 +1682,29 @@ rule('Attachments: one rule for names and saved paths: every cleaned name makes 
   assert.ok(!A.pathOk(base + 'files/a..b.log', base) && !A.pathOk(base + 'files/../run.json', base) && !A.pathOk('runs/other/x/files/a.log', base) && !A.pathOk(base + 'files/a b.log', base), 'traversal, other runs and odd characters are refused');
 });
 
+rule('Setting a draft\'s owner changes only that front-matter line and keeps everything else, line endings included', () => {
+  const md = example('maps/drafts/check-in.md'), out = M.withMeta(md, { owner: 'person-riley' });
+  assert.strictEqual(M.parse(out).meta.owner, 'person-riley');
+  assert.strictEqual(out, md.replace(/^owner: .*$/m, 'owner: person-riley'), 'only the owner line changed');
+  const crlf = '---\r\nprocess: a\r\nowner: person-avery\r\n---\r\n\r\n## Do {#do}\r\n- [ ] {confirm} Step {#s}\r\n';
+  assert.strictEqual(M.withMeta(crlf, { owner: 'person-riley' }), crlf.replace('person-avery', 'person-riley'));
+  assert.strictEqual(M.withMeta(crlf, { backup: 'person-blake' }), crlf.replace('---\r\n\r\n', 'backup: person-blake\r\n---\r\n\r\n'), 'a missing key is added at the end of the front matter');
+  assert.strictEqual(M.withMeta('## Do {#do}\n', { owner: 'person-riley' }), '---\nowner: person-riley\n---\n## Do {#do}\n', 'a draft without front matter gets one');
+  assert.strictEqual(M.withMeta(md, { owner: 'a\nnotes: injected $& $1' }).split('\n').filter(l => /^notes:/.test(l)).length, 0, 'a value can\'t add a line');
+  assert.ok(M.withMeta(md, { owner: 'x $& y' }).includes('owner: x $& y'), 'a value is taken literally');
+  assert.strictEqual(M.withMeta(md, {}), md);
+  assert.strictEqual(M.withMeta('---\nowner: a\n---\nowner: b\n', { owner: 'c' }), '---\nowner: c\n---\nowner: b\n', 'the body is never touched');
+});
+
+rule('The Flightdeck part of AGENTS.md runs from its begin marker through its end marker; an AGENTS.md without them is all Flightdeck\'s', () => {
+  const C = PF.contract, t = '﻿Top\r\n' + C.BEGIN + '\r\nRules\r\n' + C.END + '\r\n## Team notes\r\nOurs\r\n';
+  assert.strictEqual(C.region(t).text, C.BEGIN + '\nRules\n' + C.END);
+  assert.strictEqual(C.managed('AGENTS.md', t), C.BEGIN + '\nRules\n' + C.END, 'Team notes never count');
+  assert.strictEqual(C.managed('AGENTS.md', 'Old\r\nrules\r\n'), 'Old\nrules\n');
+  assert.strictEqual(C.managed('.flightdeck/skills/x/SKILL.md', '﻿a\r\nb'), 'a\nb');
+  const shipped = example('AGENTS.md');
+  assert.ok(C.region(shipped).marked && /## Team notes\n/.test(shipped.slice(C.region(shipped).end)), 'the shipped AGENTS.md has markers and Team notes below them');
+  assert.strictEqual(C.hex(new Uint8Array([0, 15, 255])), '000fff');
+});
+
 run();
