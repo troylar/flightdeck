@@ -8,7 +8,7 @@
   function notices(ctx) { return K.notices(ctx, { noMe: true }); }
 
   /* The honest promise, word for word wherever roles come up (docs/design.md section 2; README FAQ). */
-  var PROMISE = 'Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist\'s owner signs off a version. They aren\'t security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.';
+  var PROMISE = 'Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist\'s owner (or its backup owner, while the owner is away) signs off a version. They aren\'t security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.';
 
   function ferr(st, field) {
     var e = st.fieldErr && st.fieldErr.id === 'setup' && st.fieldErr.field === field ? st.fieldErr : null;
@@ -40,17 +40,19 @@
 
   /* ---------- Start your team ---------- */
   function stepper(ctx, su, prog) {
+    /* On a phone only the current step's label shows, so every step carries its full name for screen readers. */
     return '<ol class="su-steps" aria-label="Setup steps">' + prog.steps.map(function (s, i) {
       var cur = s.id === su.step, can = s.done || cur || (su.created && i > 1);
-      var body = '<span class="su-n" aria-hidden="true">' + (s.done ? I('check') : i + 1) + '</span><span class="su-l">' + esc(s.short) + '</span>';
-      return '<li class="' + (s.done ? 'done' : '') + (cur ? ' cur' : '') + '">' + (can && !cur && su.created ? '<button type="button" data-act="setup-step" data-id="' + s.id + '">' + body + '<span class="sr">' + (s.done ? ', done' : '') + '</span></button>' : '<span' + (cur ? ' aria-current="step"' : '') + '>' + body + '<span class="sr">' + (s.done ? ', done' : '') + '</span></span>') + '</li>';
+      var name = 'Step ' + (i + 1) + ' of ' + prog.steps.length + ': ' + s.short + ', ' + (cur ? 'current' : s.done ? 'done' : 'not done yet');
+      var body = '<span class="su-n" aria-hidden="true">' + (s.done ? I('check') : i + 1) + '</span><span class="su-l" aria-hidden="true">' + esc(s.short) + '</span><span class="sr">' + esc(name) + '</span>';
+      return '<li class="' + (s.done ? 'done' : '') + (cur ? ' cur' : '') + '">' + (can && !cur && su.created ? '<button type="button" data-act="setup-step" data-id="' + s.id + '" aria-label="' + esc(name) + '">' + body + '</button>' : '<span' + (cur ? ' aria-current="step"' : '') + ' aria-label="' + esc(name) + '">' + body + '</span>') + '</li>';
     }).join('') + '</ol>';
   }
   function folderStep(ctx, su) {
     var h = '<h2 id="su-h" tabindex="-1">Choose the team folder</h2><p>Flightdeck keeps everything in one shared folder: checklists, runs and notes. Each person opens it on their own computer through OneDrive.</p>' +
       '<ol class="su-tips"><li>In OneDrive, make a new, empty folder, like <b>Team checklists</b>.</li><li>Share it with everyone who will run checklists.</li><li>Right-click it and choose <b>Always keep on this device</b>, so Flightdeck can read it offline.</li></ol>';
     if (su.err) h += '<div class="notice ' + (su.err.kind === 'team' ? 'warn' : 'bad') + '" role="alert"><span>' + esc(su.err.text) + '</span>' + (su.err.kind === 'team' ? '<button class="btn" data-act="setup-join-dir">Join this folder</button>' : '') + '</div>';
-    if (su.tested) return h + ok('Flightdeck can save files in <b>' + esc(su.dirName) + '</b>. It checked by writing a test file and removing it.') + '<div class="row su-actions"><button class="btn go" data-act="setup-next" data-id="people">Continue' + arrow() + '</button><button class="mini" data-act="setup-pick">Choose another folder</button></div>';
+    if (su.tested) return h + ok('Flightdeck can save files in <b>' + esc(su.dirName) + '</b>. It checked by writing a test file' + (su.leftover ? '.' : ' and removing it.')) + (su.leftover ? '<p class="notice warn" role="status">It couldn\'t remove the test file. Delete <code>' + esc(su.leftover) + '</code> from the folder when you can; it\'s harmless meanwhile.</p>' : '') + '<div class="row su-actions"><button class="btn go" data-act="setup-next" data-id="people">Continue' + arrow() + '</button><button class="mini" data-act="setup-pick">Choose another folder</button></div>';
     return h + '<div class="row su-actions"><button class="btn go" data-act="setup-pick"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Checking the folder…' : I('doc') + 'Choose the folder') + '</button></div>';
   }
   /* IDs as they'll be saved: made from names in order, "-2" on a clash. Shown before anything is written. */

@@ -314,7 +314,7 @@ PF.repo = (function () {
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []);
       r[3] = r[3].runs;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
-      r[9] = r[9].map(function (v) { return { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; });
+      r[9] = r[9].map(function (v) { var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; if (v.as === 'backup') o.as = 'backup'; return o; });
       var props = r[6], statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
       /* A decision counts only for the exact plan it was made on; if the plan changed afterwards, it's pending again. */
       plans.forEach(function (p) {
@@ -621,12 +621,14 @@ PF.repo = (function () {
   }
   /* people.json, changed by the folder owner or backup in Settings: checked against the version they saw, like a draft. */
   function savePeople(fs, text, expect, opts) { return saveChecked(fs, PF.people.FILE, text, expect, opts); }
-  /* Setup's write test: a file only this window writes, read back, then removed. A leftover one shows in Folder health. */
+  /* Setup's write test: a file only this window writes, read back, then removed. Resolves { removed } (and the path when it
+     stayed; Folder health lists it later as a leftover .tmp). */
   function writeTest(fs, writer) {
     var path = '.flightdeck/write-test-' + writer + '.tmp', text = 'Flightdeck checks it can save in this folder. This file is removed right away.\n';
-    return fs.write(path, text).then(function () { return fs.read(path); }).then(function (f) {
-      if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written');
-      return fs.remove(path).catch(function () { /* Folder health lists a leftover .tmp */ });
+    /* The file is always removed (or said to be left), whatever the read back found. */
+    var remove = function () { return fs.remove(path).then(function () { return { removed: true }; }, function () { return { removed: false, path: path }; }); };
+    return fs.write(path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
+      return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written'); return res; });
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */

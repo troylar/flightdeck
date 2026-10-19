@@ -4807,11 +4807,13 @@ PF.skills = (function () {
     return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup)); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
-     people.json. Returns "owner", "backup" or "". */
-  function signer(pub, people, me) {
+     people.json (as read; peopleUnread: this read of it failed). Returns "owner", "backup" or "". */
+  function signer(pub, people, me, peopleUnread) {
     var meta = pub.map.meta, owner = meta.owner, backup = meta.backup;
     if (!me) return '';
     if (!owner || owner === me) return 'owner';
+    /* The owner's absence must be read, never assumed: no backup sign-off while people.json can't be read or lists nobody. */
+    if (peopleUnread || !(people || []).length) return '';
     var o = (people || []).filter(function (p) { return p.id === owner; })[0];
     return backup && backup === me && (!o || o.inactive) ? 'backup' : '';
   }
@@ -5679,7 +5681,15 @@ PF.setup = (function () {
       'Thanks,', o.from].join('\n');
   }
 
-  return { STEPS: STEPS, TEMPLATES: TEMPLATES, progress: progress, starter: starter, assistantPrompt: assistantPrompt, invite: invite };
+  /* Whether a folder can start a new team: only operating-system clutter at its top, and in .flightdeck/ only this setup's own
+     write-test leftovers. Anything else (skills a team already has, installed.json) means it isn't new; nothing is replaced. */
+  var CLUTTER = { '.DS_Store': 1, 'desktop.ini': 1, 'Thumbs.db': 1 };
+  function emptyFolder(top, inFlightdeck) {
+    return (top || []).every(function (i) { return CLUTTER[i.name] || i.name === '.flightdeck'; }) &&
+      (inFlightdeck || []).every(function (i) { return i.kind === 'file' && /^write-test-[\w-]+\.tmp$/.test(i.name); });
+  }
+
+  return { STEPS: STEPS, emptyFolder: emptyFolder, TEMPLATES: TEMPLATES, progress: progress, starter: starter, assistantPrompt: assistantPrompt, invite: invite };
 })();
 
 if (typeof module !== 'undefined') module.exports = PF;
@@ -6116,7 +6126,7 @@ PF.repo = (function () {
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []);
       r[3] = r[3].runs;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
-      r[9] = r[9].map(function (v) { return { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; });
+      r[9] = r[9].map(function (v) { var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; if (v.as === 'backup') o.as = 'backup'; return o; });
       var props = r[6], statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
       /* A decision counts only for the exact plan it was made on; if the plan changed afterwards, it's pending again. */
       plans.forEach(function (p) {
@@ -6423,12 +6433,14 @@ PF.repo = (function () {
   }
   /* people.json, changed by the folder owner or backup in Settings: checked against the version they saw, like a draft. */
   function savePeople(fs, text, expect, opts) { return saveChecked(fs, PF.people.FILE, text, expect, opts); }
-  /* Setup's write test: a file only this window writes, read back, then removed. A leftover one shows in Folder health. */
+  /* Setup's write test: a file only this window writes, read back, then removed. Resolves { removed } (and the path when it
+     stayed; Folder health lists it later as a leftover .tmp). */
   function writeTest(fs, writer) {
     var path = '.flightdeck/write-test-' + writer + '.tmp', text = 'Flightdeck checks it can save in this folder. This file is removed right away.\n';
-    return fs.write(path, text).then(function () { return fs.read(path); }).then(function (f) {
-      if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written');
-      return fs.remove(path).catch(function () { /* Folder health lists a leftover .tmp */ });
+    /* The file is always removed (or said to be left), whatever the read back found. */
+    var remove = function () { return fs.remove(path).then(function () { return { removed: true }; }, function () { return { removed: false, path: path }; }); };
+    return fs.write(path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
+      return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written'); return res; });
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
@@ -6819,7 +6831,7 @@ PF.vk = (function () {
       var owner = p.latest && p.latest.map.meta.owner;
       if (p.draft && p.draftChanged && (!owner || owner === me)) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
       if (p.staleSkills) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The process changed since they were built.', 'open-process', p.id, 'See the skills');
-      var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me) : '';
+      var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && PF.skills.readiness(d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
     });
     var h = notices(ctx);
@@ -7007,8 +7019,8 @@ PF.vk = (function () {
       h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
     } else if (!ready.enough) {
       h += '<p class="small"><b>Not yet.</b> ' + ready.clean + ' of ' + ready.needed + ' clean runs of v' + pub.info.version + '.</p>';
-    } else if (PF.skills.signer(pub, ctx.data.people, st.me)) {
-      var asBackup = PF.skills.signer(pub, ctx.data.people, st.me) === 'backup';
+    } else if (PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people)) {
+      var asBackup = PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people) === 'backup';
       h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs of v' + pub.info.version + '. ' + (asBackup ? 'Its owner, ' + esc(nameOf(ctx, owner)) + ', is inactive or no longer on the team, so as its backup owner, you sign it off.' : 'As its owner, you sign it off.') + '</p>' + (st.pick && st.pick.kind === 'signoff'
         ? '<div class="row" data-scope="signoff"><label class="sr" for="pick-input">Note for the sign-off</label><input id="pick-input" maxlength="300" placeholder="Optional note" data-enter="signoff" data-id="' + esc(p.id) + '"><button class="btn go" data-act="signoff" data-id="' + esc(p.id) + '">Sign off</button><button class="mini" data-act="unpick">Cancel</button></div>'
         : '<button class="btn go" data-act="pick" data-kind="signoff" data-id="' + esc(p.id) + '">Sign off v' + pub.info.version + '</button>');
@@ -9061,7 +9073,7 @@ PF.vk = (function () {
   function notices(ctx) { return K.notices(ctx, { noMe: true }); }
 
   /* The honest promise, word for word wherever roles come up (docs/design.md section 2; README FAQ). */
-  var PROMISE = 'Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist\'s owner signs off a version. They aren\'t security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.';
+  var PROMISE = 'Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist\'s owner (or its backup owner, while the owner is away) signs off a version. They aren\'t security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.';
 
   function ferr(st, field) {
     var e = st.fieldErr && st.fieldErr.id === 'setup' && st.fieldErr.field === field ? st.fieldErr : null;
@@ -9093,17 +9105,19 @@ PF.vk = (function () {
 
   /* ---------- Start your team ---------- */
   function stepper(ctx, su, prog) {
+    /* On a phone only the current step's label shows, so every step carries its full name for screen readers. */
     return '<ol class="su-steps" aria-label="Setup steps">' + prog.steps.map(function (s, i) {
       var cur = s.id === su.step, can = s.done || cur || (su.created && i > 1);
-      var body = '<span class="su-n" aria-hidden="true">' + (s.done ? I('check') : i + 1) + '</span><span class="su-l">' + esc(s.short) + '</span>';
-      return '<li class="' + (s.done ? 'done' : '') + (cur ? ' cur' : '') + '">' + (can && !cur && su.created ? '<button type="button" data-act="setup-step" data-id="' + s.id + '">' + body + '<span class="sr">' + (s.done ? ', done' : '') + '</span></button>' : '<span' + (cur ? ' aria-current="step"' : '') + '>' + body + '<span class="sr">' + (s.done ? ', done' : '') + '</span></span>') + '</li>';
+      var name = 'Step ' + (i + 1) + ' of ' + prog.steps.length + ': ' + s.short + ', ' + (cur ? 'current' : s.done ? 'done' : 'not done yet');
+      var body = '<span class="su-n" aria-hidden="true">' + (s.done ? I('check') : i + 1) + '</span><span class="su-l" aria-hidden="true">' + esc(s.short) + '</span><span class="sr">' + esc(name) + '</span>';
+      return '<li class="' + (s.done ? 'done' : '') + (cur ? ' cur' : '') + '">' + (can && !cur && su.created ? '<button type="button" data-act="setup-step" data-id="' + s.id + '" aria-label="' + esc(name) + '">' + body + '</button>' : '<span' + (cur ? ' aria-current="step"' : '') + ' aria-label="' + esc(name) + '">' + body + '</span>') + '</li>';
     }).join('') + '</ol>';
   }
   function folderStep(ctx, su) {
     var h = '<h2 id="su-h" tabindex="-1">Choose the team folder</h2><p>Flightdeck keeps everything in one shared folder: checklists, runs and notes. Each person opens it on their own computer through OneDrive.</p>' +
       '<ol class="su-tips"><li>In OneDrive, make a new, empty folder, like <b>Team checklists</b>.</li><li>Share it with everyone who will run checklists.</li><li>Right-click it and choose <b>Always keep on this device</b>, so Flightdeck can read it offline.</li></ol>';
     if (su.err) h += '<div class="notice ' + (su.err.kind === 'team' ? 'warn' : 'bad') + '" role="alert"><span>' + esc(su.err.text) + '</span>' + (su.err.kind === 'team' ? '<button class="btn" data-act="setup-join-dir">Join this folder</button>' : '') + '</div>';
-    if (su.tested) return h + ok('Flightdeck can save files in <b>' + esc(su.dirName) + '</b>. It checked by writing a test file and removing it.') + '<div class="row su-actions"><button class="btn go" data-act="setup-next" data-id="people">Continue' + arrow() + '</button><button class="mini" data-act="setup-pick">Choose another folder</button></div>';
+    if (su.tested) return h + ok('Flightdeck can save files in <b>' + esc(su.dirName) + '</b>. It checked by writing a test file' + (su.leftover ? '.' : ' and removing it.')) + (su.leftover ? '<p class="notice warn" role="status">It couldn\'t remove the test file. Delete <code>' + esc(su.leftover) + '</code> from the folder when you can; it\'s harmless meanwhile.</p>' : '') + '<div class="row su-actions"><button class="btn go" data-act="setup-next" data-id="people">Continue' + arrow() + '</button><button class="mini" data-act="setup-pick">Choose another folder</button></div>';
     return h + '<div class="row su-actions"><button class="btn go" data-act="setup-pick"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Checking the folder…' : I('doc') + 'Choose the folder') + '</button></div>';
   }
   /* IDs as they'll be saved: made from names in order, "-2" on a clash. Shown before anything is written. */
@@ -9979,7 +9993,7 @@ PF.examples = (function () {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
-    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
+    state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -10058,7 +10072,18 @@ PF.examples = (function () {
   }
 
   /* ---------- Getting started (views/setup.js, core/setup.js) ---------- */
-  var CLUTTER = { '.DS_Store': 1, 'desktop.ini': 1, 'Thumbs.db': 1 };
+  /* A new team needs an empty folder (PF.setup.emptyFolder). Resolves '' when it is, else why not. */
+  function notEmpty(fs, name) {
+    return fs.list('').then(function (items) {
+      if (items.some(function (i) { return i.name === 'people.json'; })) return 'team';
+      var fd = items.some(function (i) { return i.name === '.flightdeck'; }) ? fs.list('.flightdeck') : Promise.resolve([]);
+      return fd.then(function (inFd) {
+        if (PF.setup.emptyFolder(items, inFd)) return '';
+        return items.every(function (i) { return PF.setup.emptyFolder([i], []); }) ? '"' + name + '" isn\'t empty: it already has Flightdeck files for AI assistants in .flightdeck/, which a new team would replace. If your team uses this folder, join it; otherwise choose an empty folder.'
+          : '"' + name + '" isn\'t empty. Choose an empty folder for a new team, or make a new one in OneDrive.';
+      });
+    });
+  }
   function setupProgress() {
     var fs = state.fs, answers = (state.setupAnswers || []).concat(((state.conn || {}).acks) || []);
     return PF.setup.progress({ folder: !!fs && fs.kind === 'folder', people: data.people, me: state.me, processes: data.processes, runs: data.runs, answers: answers });
@@ -10096,11 +10121,11 @@ PF.examples = (function () {
       if (t !== opening || state.setup !== su) return;
       var fs = new PF.fs.FolderFS(dir);
       su.err = null; su.tested = false; su.dir = null; su.busy = true; su.dirName = dir.name; render();
-      return fs.list('').then(function (items) {
+      return notEmpty(fs, dir.name).then(function (why) {
         if (t !== opening) return;
-        if (items.some(function (i) { return i.name === 'people.json'; })) { su.err = { kind: 'team', text: '"' + dir.name + '" already has a team in it. To use it, join it instead of starting a new one.' }; su.joinDir = dir; return; }
-        if (items.some(function (i) { return !CLUTTER[i.name] && i.name !== '.flightdeck'; })) { su.err = { text: '"' + dir.name + '" isn\'t empty. Choose an empty folder for a new team, or make a new one in OneDrive.' }; return; }
-        return repo.writeTest(fs, WRITER).then(function () { if (t !== opening) return; su.dir = dir; su.tested = true; });
+        if (why === 'team') { su.err = { kind: 'team', text: '"' + dir.name + '" already has a team in it. To use it, join it instead of starting a new one.' }; su.joinDir = dir; return; }
+        if (why) { su.err = { text: why }; return; }
+        return repo.writeTest(fs, WRITER).then(function (res) { if (t !== opening) return; su.dir = dir; su.tested = true; su.leftover = res && !res.removed ? res.path : null; });
       }).then(function () { su.busy = false; if (t === opening) { state.focus = su.tested ? '[data-act="setup-next"]' : 'su-h'; render(); } }, function (e) {
         su.busy = false; if (t !== opening) return;
         su.err = { text: 'Flightdeck couldn\'t save a test file in "' + dir.name + '" (' + (e && e.message || e) + '). Check that the folder is in OneDrive and that you can edit it, then choose it again.' }; render();
@@ -10129,8 +10154,8 @@ PF.examples = (function () {
     var doc = P.create(su.me, team, backup), mine = P.text(doc), myId = doc[0].id, dir = su.dir, fs = new PF.fs.FolderFS(dir), t = ++opening;
     su.busy = true; render();
     var init = function () {
-      return fs.list('').then(function (items) {
-        if (items.some(function (i) { return !CLUTTER[i.name] && i.name !== '.flightdeck'; })) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
+      return notEmpty(fs, dir.name).then(function (why) {
+        if (why) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
         /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
         return fs.write('people.json', mine).then(function () { return fs.read('people.json'); }).then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
       }).then(function () { return writeContract(fs); });
@@ -11446,7 +11471,7 @@ PF.examples = (function () {
     signoff: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], pub = p && p.latest;
       if (!pub || !state.me) return;
-      var as = PF.skills.signer(pub, data.people, state.me);
+      var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(data.runs, pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }

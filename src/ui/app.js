@@ -509,7 +509,7 @@
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
-    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
+    state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -588,7 +588,18 @@
   }
 
   /* ---------- Getting started (views/setup.js, core/setup.js) ---------- */
-  var CLUTTER = { '.DS_Store': 1, 'desktop.ini': 1, 'Thumbs.db': 1 };
+  /* A new team needs an empty folder (PF.setup.emptyFolder). Resolves '' when it is, else why not. */
+  function notEmpty(fs, name) {
+    return fs.list('').then(function (items) {
+      if (items.some(function (i) { return i.name === 'people.json'; })) return 'team';
+      var fd = items.some(function (i) { return i.name === '.flightdeck'; }) ? fs.list('.flightdeck') : Promise.resolve([]);
+      return fd.then(function (inFd) {
+        if (PF.setup.emptyFolder(items, inFd)) return '';
+        return items.every(function (i) { return PF.setup.emptyFolder([i], []); }) ? '"' + name + '" isn\'t empty: it already has Flightdeck files for AI assistants in .flightdeck/, which a new team would replace. If your team uses this folder, join it; otherwise choose an empty folder.'
+          : '"' + name + '" isn\'t empty. Choose an empty folder for a new team, or make a new one in OneDrive.';
+      });
+    });
+  }
   function setupProgress() {
     var fs = state.fs, answers = (state.setupAnswers || []).concat(((state.conn || {}).acks) || []);
     return PF.setup.progress({ folder: !!fs && fs.kind === 'folder', people: data.people, me: state.me, processes: data.processes, runs: data.runs, answers: answers });
@@ -626,11 +637,11 @@
       if (t !== opening || state.setup !== su) return;
       var fs = new PF.fs.FolderFS(dir);
       su.err = null; su.tested = false; su.dir = null; su.busy = true; su.dirName = dir.name; render();
-      return fs.list('').then(function (items) {
+      return notEmpty(fs, dir.name).then(function (why) {
         if (t !== opening) return;
-        if (items.some(function (i) { return i.name === 'people.json'; })) { su.err = { kind: 'team', text: '"' + dir.name + '" already has a team in it. To use it, join it instead of starting a new one.' }; su.joinDir = dir; return; }
-        if (items.some(function (i) { return !CLUTTER[i.name] && i.name !== '.flightdeck'; })) { su.err = { text: '"' + dir.name + '" isn\'t empty. Choose an empty folder for a new team, or make a new one in OneDrive.' }; return; }
-        return repo.writeTest(fs, WRITER).then(function () { if (t !== opening) return; su.dir = dir; su.tested = true; });
+        if (why === 'team') { su.err = { kind: 'team', text: '"' + dir.name + '" already has a team in it. To use it, join it instead of starting a new one.' }; su.joinDir = dir; return; }
+        if (why) { su.err = { text: why }; return; }
+        return repo.writeTest(fs, WRITER).then(function (res) { if (t !== opening) return; su.dir = dir; su.tested = true; su.leftover = res && !res.removed ? res.path : null; });
       }).then(function () { su.busy = false; if (t === opening) { state.focus = su.tested ? '[data-act="setup-next"]' : 'su-h'; render(); } }, function (e) {
         su.busy = false; if (t !== opening) return;
         su.err = { text: 'Flightdeck couldn\'t save a test file in "' + dir.name + '" (' + (e && e.message || e) + '). Check that the folder is in OneDrive and that you can edit it, then choose it again.' }; render();
@@ -659,8 +670,8 @@
     var doc = P.create(su.me, team, backup), mine = P.text(doc), myId = doc[0].id, dir = su.dir, fs = new PF.fs.FolderFS(dir), t = ++opening;
     su.busy = true; render();
     var init = function () {
-      return fs.list('').then(function (items) {
-        if (items.some(function (i) { return !CLUTTER[i.name] && i.name !== '.flightdeck'; })) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
+      return notEmpty(fs, dir.name).then(function (why) {
+        if (why) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
         /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
         return fs.write('people.json', mine).then(function () { return fs.read('people.json'); }).then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
       }).then(function () { return writeContract(fs); });
@@ -1976,7 +1987,7 @@
     signoff: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], pub = p && p.latest;
       if (!pub || !state.me) return;
-      var as = PF.skills.signer(pub, data.people, state.me);
+      var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(data.runs, pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }

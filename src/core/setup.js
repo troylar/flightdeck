@@ -69,5 +69,13 @@ PF.setup = (function () {
       'Thanks,', o.from].join('\n');
   }
 
-  return { STEPS: STEPS, TEMPLATES: TEMPLATES, progress: progress, starter: starter, assistantPrompt: assistantPrompt, invite: invite };
+  /* Whether a folder can start a new team: only operating-system clutter at its top, and in .flightdeck/ only this setup's own
+     write-test leftovers. Anything else (skills a team already has, installed.json) means it isn't new; nothing is replaced. */
+  var CLUTTER = { '.DS_Store': 1, 'desktop.ini': 1, 'Thumbs.db': 1 };
+  function emptyFolder(top, inFlightdeck) {
+    return (top || []).every(function (i) { return CLUTTER[i.name] || i.name === '.flightdeck'; }) &&
+      (inFlightdeck || []).every(function (i) { return i.kind === 'file' && /^write-test-[\w-]+\.tmp$/.test(i.name); });
+  }
+
+  return { STEPS: STEPS, emptyFolder: emptyFolder, TEMPLATES: TEMPLATES, progress: progress, starter: starter, assistantPrompt: assistantPrompt, invite: invite };
 })();

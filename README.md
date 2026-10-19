@@ -53,17 +53,24 @@ Flightdeck keeps checklists and run records together, links to skills stored els
 ```bash
 npm install -g @troylar/flightdeck
 
-flightdeck open                        # opens the app on built-in examples
-flightdeck install ~/OneDrive/Team     # puts flightdeck.html, AGENTS.md and the AI assistant skills in your team folder
+flightdeck open                        # opens the app: start your team, join one, or look around the examples
 ```
 
-Then open `flightdeck.html` from the team folder in Edge or Chrome. The first screen offers three ways in:
+**Starting a team?** In the app, choose **Start your team** and pick a new, empty shared OneDrive folder (an empty folder, so nothing already there is replaced). When setup is done, put Flightdeck in that folder so everyone opens the same version:
+
+```bash
+flightdeck install ~/OneDrive/Team     # adds flightdeck.html; keeps the AGENTS.md and skills setup wrote
+```
+
+**Joining a team?** Open `flightdeck.html` from your team's folder in Edge or Chrome.
+
+The first screen offers three ways in:
 
 - **Start your team** (the first person): pick an empty shared OneDrive folder (Flightdeck checks it can save there), add your people and a backup owner, publish a first checklist (Code check-in, Weekly review, blank, or one your AI assistant writes), do a first run on your own, then send a teammate the way in and check that their computer answers. Home shows **Getting started · N of 5** until all five are done; each step ticks itself from what's in the folder.
 - **Join your team's folder** (everyone else): open the folder and choose who you are. Not on the list? Copy a request to the folder owner; only the folder owner and backup owner change `people.json`.
 - **Look around the examples**: a made-up team, saved in this browser only.
 
-You don't need `flightdeck install` to start: the app writes `people.json`, `AGENTS.md` and the skills itself. Put `flightdeck.html` in the folder too, so everyone opens the same version.
+Setup writes `people.json`, `AGENTS.md` and the skills itself; `flightdeck install` afterwards only adds what's missing or still a default. Run it before setup and the folder isn't empty any more, so setup asks for another one.
 
 To update later, run `flightdeck install` again: it updates what's still a Flightdeck default and keeps what your team changed. [Updating Flightdeck](docs/updating.md) walks through it, including backups and mixed versions; [When something goes wrong](docs/recovery.md) covers conflict copies, lost folder access and restoring.
 
@@ -521,7 +528,7 @@ Select the step and choose **Correct this step** (or press C): change its wordin
 
 It's as private as the OneDrive folder it lives in, and no more. There's no server and no sign-in; nothing leaves your computers except through OneDrive.
 
-Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist's owner signs off a version. They aren't security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.
+Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist's owner (or its backup owner, while the owner is away) signs off a version. They aren't security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.
 
 Keep secrets, tokens and customer data out of checklists, notes and attachments.
 

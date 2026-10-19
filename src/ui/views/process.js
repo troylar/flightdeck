@@ -91,8 +91,8 @@
       h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
     } else if (!ready.enough) {
       h += '<p class="small"><b>Not yet.</b> ' + ready.clean + ' of ' + ready.needed + ' clean runs of v' + pub.info.version + '.</p>';
-    } else if (PF.skills.signer(pub, ctx.data.people, st.me)) {
-      var asBackup = PF.skills.signer(pub, ctx.data.people, st.me) === 'backup';
+    } else if (PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people)) {
+      var asBackup = PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people) === 'backup';
       h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs of v' + pub.info.version + '. ' + (asBackup ? 'Its owner, ' + esc(nameOf(ctx, owner)) + ', is inactive or no longer on the team, so as its backup owner, you sign it off.' : 'As its owner, you sign it off.') + '</p>' + (st.pick && st.pick.kind === 'signoff'
         ? '<div class="row" data-scope="signoff"><label class="sr" for="pick-input">Note for the sign-off</label><input id="pick-input" maxlength="300" placeholder="Optional note" data-enter="signoff" data-id="' + esc(p.id) + '"><button class="btn go" data-act="signoff" data-id="' + esc(p.id) + '">Sign off</button><button class="mini" data-act="unpick">Cancel</button></div>'
         : '<button class="btn go" data-act="pick" data-kind="signoff" data-id="' + esc(p.id) + '">Sign off v' + pub.info.version + '</button>');

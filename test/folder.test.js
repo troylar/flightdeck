@@ -708,4 +708,26 @@ rule('Folder: answers to connection checks of any age are read once each, and no
   same(await repo.loadAnswers(fs, seen), [], 'read once');
 });
 
+rule('Folder: a backup owner\'s sign-off keeps as: "backup" when read back, so it still counts', async () => {
+  const fs = folder(), d0 = await published(fs), pub = d0.processes[0].index.latest;
+  await repo.recordValidation(fs, pub, 'w1', 'person-avery', '', { completed: 3, clean: 3, runs: [] }, 'backup');
+  const d = await repo.loadAll(fs);
+  assert.strictEqual(d.validations[0].as, 'backup');
+  assert.strictEqual(PF.skills.signoffs(d.validations, pub).length, 1);
+  fs.files[Object.keys(fs.files).find(k => /^validations\//.test(k))].t = JSON.stringify(Object.assign(JSON.parse(fs.files[Object.keys(fs.files).find(k => /^validations\//.test(k))].t), { as: { evil: 1 } }));
+  assert.ok(!('as' in (await repo.loadAll(fs)).validations[0]), 'anything but "backup" is dropped');
+});
+
+rule('Folder: the write test always tries to remove its file and says whether it could', async () => {
+  const fs = folder(), path = k => Object.keys(fs.files).filter(x => /write-test/.test(x));
+  same(await repo.writeTest(fs, 'w1'), { removed: true });
+  const orig = fs.remove; fs.remove = () => Promise.reject(new Error('locked'));
+  same(await repo.writeTest(fs, 'w2'), { removed: false, path: '.flightdeck/write-test-w2.tmp' });
+  fs.remove = orig; delete fs.files['.flightdeck/write-test-w2.tmp'];
+  const read = fs.read; fs.read = p => /write-test/.test(p) ? Promise.resolve({ text: 'something else' }) : read.call(fs, p);
+  await assert.rejects(repo.writeTest(fs, 'w3'), /didn't read back/);
+  fs.read = read;
+  same(path(), [], 'removed even when it read back wrong');
+});
+
 run();

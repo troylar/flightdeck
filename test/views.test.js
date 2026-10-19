@@ -1399,4 +1399,14 @@ rule('Home: Getting started counts the steps done and offers the next one; finis
   assert.ok(!/Getting started/.test(V.home(ctx)));
 });
 
+rule('Setup: every step in the stepper has a full accessible name, even on a phone where only the current label shows', () => {
+  const { ctx, state } = setup(null, { view: 'setup', fs: { kind: 'folder', name: 'Team' } });
+  state.setup = { mode: 'start', step: 'run', created: true, me: { name: '', email: '' }, team: [], backup: '' };
+  ctx.setupProgress = () => { const g = PF.setup.progress({}); g.steps[0].done = g.steps[1].done = g.steps[2].done = true; return g; };
+  const html = V.setup(ctx);
+  assert.ok(/data-act="setup-step" data-id="people" aria-label="Step 2 of 5: People, done"/.test(html), html.slice(html.indexOf('su-steps'), html.indexOf('su-steps') + 600));
+  assert.ok(/aria-current="step" aria-label="Step 4 of 5: First run, current"/.test(html));
+  assert.ok(/aria-label="Step 5 of 5: Second computer, not done yet"/.test(html));
+});
+
 run();

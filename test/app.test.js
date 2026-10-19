@@ -3569,4 +3569,30 @@ rule('App: Discard goes back to exactly what the save wrote, even when a later c
   assert.ok(JSON.stringify(d.log).indexOf('SAVED-B') >= 0, 'with B\'s log entry');
 });
 
+rule('App: setup refuses a folder that already has Flightdeck files for AI assistants, and replaces nothing', async () => {
+  const files = { '.flightdeck/skills/flightdeck-status/SKILL.md': 'our own version' }, before = JSON.stringify(files), dir = folderHandle('Team', files);
+  const app = boot({ picker: dir, indexedDB: memoryIDB(), firstRun: true }); await app.tick(60);
+  app.click('setup-mode', 'start'); await app.tick();
+  app.click('setup-pick'); await app.tick(80);
+  assert.ok(/isn(&#39;|')t empty: it already has Flightdeck files/.test(app.html()), 'says why');
+  assert.ok(!/data-act="setup-next"/.test(app.html()));
+  assert.strictEqual(JSON.stringify(files), before);
+});
+
+rule('App: Getting started never counts an answer from another team folder', async () => {
+  const { example } = require('./harness');
+  const a = { 'people.json': example('people.json') }, b = { 'people.json': example('people.json') };
+  const opts = { picker: folderHandle('A', a), indexedDB: memoryIDB() }, app = boot(opts); await app.tick(60);
+  const t0 = new Date().toISOString();
+  a['connection/ack-abcd1234.wb.json'] = JSON.stringify(app.PF.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-blake', writer: 'wb', device: 'Windows · Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
+  app.choose('person-avery'); await app.tick();
+  app.click('connect'); await app.tick(200);
+  app.click('nav', 'home'); await app.tick(100);
+  assert.ok(/Getting started · 3 of 5/.test(app.html()), 'folder A: Blake answered');
+  opts.picker = folderHandle('B', b);
+  app.click('connect'); await app.tick(200);
+  app.click('nav', 'home'); await app.tick(100);
+  assert.ok(/Getting started · 2 of 5/.test(app.html()), 'folder B: nobody has answered here');
+});
+
 run();

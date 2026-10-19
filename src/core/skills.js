@@ -147,11 +147,13 @@ PF.skills = (function () {
     return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup)); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
-     people.json. Returns "owner", "backup" or "". */
-  function signer(pub, people, me) {
+     people.json (as read; peopleUnread: this read of it failed). Returns "owner", "backup" or "". */
+  function signer(pub, people, me, peopleUnread) {
     var meta = pub.map.meta, owner = meta.owner, backup = meta.backup;
     if (!me) return '';
     if (!owner || owner === me) return 'owner';
+    /* The owner's absence must be read, never assumed: no backup sign-off while people.json can't be read or lists nobody. */
+    if (peopleUnread || !(people || []).length) return '';
     var o = (people || []).filter(function (p) { return p.id === owner; })[0];
     return backup && backup === me && (!o || o.inactive) ? 'backup' : '';
   }

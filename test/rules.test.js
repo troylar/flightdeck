@@ -2238,4 +2238,25 @@ rule('Folder health: the folder owner and backup owner, and checklist backups, a
   [noOwner, away, noBackup, two, ownerGone].forEach(oneAction);
 });
 
+rule('Getting started: a folder counts as empty only with clutter and the write test\'s own leftovers, never other .flightdeck files', () => {
+  const E = SU.emptyFolder;
+  assert.ok(E([], []) && E([{ name: '.DS_Store' }, { name: '.flightdeck' }], [{ name: 'write-test-ab12.tmp', kind: 'file' }]));
+  assert.ok(!E([{ name: '.flightdeck' }], [{ name: 'skills', kind: 'dir' }]), 'skills a team already has are never replaced');
+  assert.ok(!E([{ name: '.flightdeck' }], [{ name: 'installed.json', kind: 'file' }]));
+  assert.ok(!E([{ name: 'notes.txt' }], []));
+});
+
+rule('Sign-off: when people.json couldn\'t be read, or lists nobody, nobody signs off as backup', () => {
+  const p = pub('release'), S = PF.skills, ppl = PP.clean(people).filter(x => x.id !== 'person-casey');
+  assert.strictEqual(S.signer(p, ppl, 'person-avery'), 'backup');
+  assert.strictEqual(S.signer(p, ppl, 'person-avery', true), '', 'people unreadable: the owner may be active');
+  assert.strictEqual(S.signer(p, [], 'person-avery'), '', 'an empty list proves nothing');
+  assert.strictEqual(S.signer(p, ppl, 'person-casey', true), 'owner', 'the owner still signs');
+});
+
+rule('The honest promise names the backup owner\'s sign-off too', () => {
+  const V = require('./harness').loadViews().views;
+  assert.ok(/backup owner, while the owner is away/.test(V.PROMISE), V.PROMISE);
+});
+
 run();
