@@ -114,7 +114,9 @@ function boot(opts) {
   const ctx = vm.createContext({
     window, document, localStorage: storage(), sessionStorage, navigator: opts.locks ? { locks: opts.locks } : {}, BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
-    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver
+    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
+    // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
+    performance: opts.performance
   });
   vm.runInContext(script('pf-core'), ctx);
   // Checklists parsed once are shared by every run of a version: frozen here, so a rule that changed one would fail a test.

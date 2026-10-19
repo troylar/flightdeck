@@ -2,7 +2,7 @@
   {
     "version": "1.17.0",
     "date": "2026-10-19",
-    "headline": "Big team folders: runs 50 at a time, fewer file checks, and a warning when refreshing is slow",
+    "headline": "Big team folders: they open and refresh faster, runs show 50 at a time, and Folder health warns when refreshing is slow",
     "changes": [
       {
         "kind": "improved",
@@ -22,10 +22,34 @@
       {
         "kind": "improved",
         "area": "Team folder",
-        "title": "Big team folders open with fewer file checks",
-        "before": "Opening a team folder checked each notes file's size again after reading it, and every picture on a page was read and shrunk at once.",
-        "now": "A notes file's size now comes with reading it, so opening a big folder asks OneDrive for about 10% fewer things. Pictures are read when they scroll into view, a few at a time, after the run you're recording.",
-        "where": "Opening a team folder, and any page with pictures"
+        "title": "Big team folders open faster, and show runs as they're read",
+        "before": "Opening a team folder checked every file's size before and after reading it, showed no runs until all of them were read, and read and shrank every picture on a page at once.",
+        "now": "Reading a file now gives its size too, so opening a big folder asks OneDrive about half as many things. Runs appear as they're read, and Home and Runs say \"Still reading runs (640 of 2,000)\" until it's done. A run not read yet is never shown as gone. Pictures are read when they scroll into view, a few at a time, after the run you're recording.",
+        "where": "Opening a team folder, Home, Runs, and any page with pictures"
+      },
+      {
+        "kind": "improved",
+        "area": "Team folder",
+        "title": "Refreshing a big team folder asks for much less",
+        "before": "Every refresh checked every file in every run, about 10,000 checks for a folder of 2,000 runs, every 30 seconds.",
+        "now": "Running runs and runs that ended in the last week are checked on every refresh. Older runs are checked a share at a time, each one at least every 10 minutes, so a refresh asks OneDrive about 80% fewer things. A late note on an old run can take up to 10 minutes to show. Refresh in the top bar still reads everything at once.",
+        "where": "Every team folder, while Flightdeck is open"
+      },
+      {
+        "kind": "improved",
+        "area": "Team folder",
+        "title": "An edit that keeps a file's size and time still shows up",
+        "before": "A finished run was read again only when one of its files changed size or time, so an edit that kept both never showed until you chose Refresh.",
+        "now": "Every finished run is read in full at least once an hour, and every running run you don't have open at least every 5 minutes, whatever its size and time say. Decisions on corrections and follow-ups are read again at least once an hour too.",
+        "where": "Every team folder, while Flightdeck is open"
+      },
+      {
+        "kind": "fixed",
+        "area": "Team folder",
+        "title": "Changing the clock or waking from sleep no longer delays refreshing",
+        "before": "If the computer's clock was set back, Flightdeck stopped refreshing until the clock caught up again.",
+        "now": "Setting the clock back doesn't delay refreshing, and after the computer sleeps, Flightdeck refreshes as soon as you come back and reads whatever went past its time first. While the tab is hidden nothing is read.",
+        "where": "Every team folder, while Flightdeck is open"
       }
     ]
   },
