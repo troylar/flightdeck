@@ -547,7 +547,7 @@
       h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +
         pendingList(ctx, pend, 'note:' + st.id) +
         '<div class="row"><button class="btn primary" data-act="add-note" data-id="' + esc(st.id) + '">Add note' + (pend.length ? ' with ' + pend.length + ' file' + (pend.length === 1 ? '' : 's') : '') + '</button><label class="btn" for="note-file">' + I('clip') + 'Attach</label><input type="file" id="note-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr">' +
-        (ack ? '<span class="small rw-ack" role="status">' + I('check') + 'Note added to this step.</span>' : '') + '</div>' +
+        (ack ? '<span class="small rw-ack" role="status">' + I('check') + 'Note added to this step.' + (ctx.state.fs && ctx.state.fs.volatile ? ' Kept in this tab only.' : '') + '</span>' : '') + '</div>' +
         '<p class="small">Images, PDF, text, logs and .zip, up to 10 MB each.</p></div>';
     }
     h += '</section>';

@@ -97,7 +97,7 @@ PF.fs = (function () {
   MemoryFS.prototype.write = function (path, data) {
     split(path);
     var self = this;
-    function put(t) { self.files[path] = { t: t, m: Date.now() }; if (!self.persist()) { delete self.files[path]; throw new Error('This browser\'s storage for the examples is full. Reset examples, or use a team folder.'); } }
+    function put(t) { self.files[path] = { t: t, m: Date.now() }; if (self.volatile) self.wrote = true; if (!self.persist()) { delete self.files[path]; throw new Error('This browser\'s storage for the examples is full. Reset examples, or use a team folder.'); } }
     if (typeof data === 'string') { try { put(data); } catch (e) { return Promise.reject(e); } return Promise.resolve(); }
     return data.arrayBuffer().then(function (buf) {
       var bytes = new Uint8Array(buf), bin = '';

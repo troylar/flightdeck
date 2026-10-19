@@ -660,6 +660,11 @@ html.tfe-on .top { display: none; }
 html.tfe-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.tfe-on, html.tfe-on body { overflow: hidden; } }
 .fpe-type.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); }
+/* The page shell's notice (examples kept in this tab only) sits above every screen; full-page editors start below it. */
+#keep:empty { display: none; }
+#keep { padding: 8px 16px; background: var(--paper); }
+#keep .notice { margin: 0 auto; max-width: 1200px; }
+.fpe, .fpe-type.fpe { top: var(--keep-h, 0px); }
 .fpe-type .fpe-head { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; grid-template-areas: "id tools save"; align-items: center; gap: 8px 12px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
 .fpe-type .fpe-id { grid-area: id; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .fpe-type .fpe-tools { grid-area: tools; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1543,6 +1548,7 @@ button.att:hover { border-color: var(--ink); }
 </style>
 </head>
 <body>
+<div id="keep"></div>
 <header class="top wrap"><div class="top-in" id="top"></div></header>
 <main class="wrap" id="app"></main>
 <div id="overlay"></div>

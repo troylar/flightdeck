@@ -781,11 +781,25 @@
   /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
   function say(text, kind, act) {
     /* In a tab that can't keep anything, a save says where it went. */
-    if (text && kind === 'good' && state.fs && state.fs.volatile) text = text.replace(/^Saved( \{[^}]*\}| your draft)?(?! for this tab only)/, 'Saved$1 for this tab only');
+    if (text && kind === 'good' && state.fs && state.fs.volatile) {
+      text = text.replace(/^Saved( \{[^}]*\}| your draft)?(?! for this tab only)/, 'Saved$1 for this tab only');
+      /* Anything else said after a write (a note, an answer, a correction, a follow-up) says where it went too. */
+      if (state.fs.wrote && !/this tab only/.test(text)) text = text.replace(/\s*$/, '') + ' Kept in this tab only.';
+    }
+    if (state.fs && state.fs.volatile) state.fs.wrote = false;
     state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
   function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
+  /* The page shell's own notice, outside every screen: the examples are kept in this tab only. */
+  var keepEl = document.getElementById('keep'), keepHtml = null;
+  function renderKeep() {
+    var h = V.tabOnly(ctx);
+    if (keepEl && h !== keepHtml) { keepEl.innerHTML = h; keepHtml = h; }
+    var root = document.documentElement;
+    if (keepEl && root && root.style) root.style.setProperty('--keep-h', (keepEl.offsetHeight || 0) + 'px');
+  }
   function renderTop() {
+    renderKeep();
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
     if (meVal) patch(topEl, V.top(ctx));
     pinOffsets();

@@ -619,7 +619,7 @@ rule('App: a browser that refuses all storage still opens the examples, says the
   const app = boot({ storageThrows: true, firstRun: true }); await app.tick(80);
   assert.ok(app.fs && app.files('runs/').length > 3 && app.files('publications/').length > 3, 'the examples are there, with their run history');
   app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
-  assert.ok(/only while this tab is open/.test(app.html() + app.live()), 'and it says they aren\'t kept');
+  assert.ok(/only while this tab is open/.test(app.keep()), 'and it says they aren\'t kept');
   app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
   const start = splitNow(app, 'tf');
   splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
@@ -629,7 +629,7 @@ rule('App: a browser that refuses all storage still opens the examples, says the
 rule('App: with storage and the folder memory both refused, the tab-only warning stays on every screen, and saves say they\'re for this tab only', async () => {
   const deny = () => { throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
   const app = boot({ storageThrows: true, firstRun: true, picker: {}, indexedDB: { open: deny } }); await app.tick(80);
-  const banner = () => /id="tab-only"[^>]*>[\s\S]*?only while this tab is open/.test(app.html());
+  const banner = () => /id="tab-only"[^>]*>[\s\S]*?only while this tab is open/.test(app.keep());
   assert.ok(/couldn(&#39;|')t read which team folder you used last/.test(app.html()), 'the folder-memory message is shown');
   assert.ok(banner(), 'and the tab-only warning with it');
   app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
@@ -647,6 +647,44 @@ rule('App: with storage and the folder memory both refused, the tab-only warning
   app.click('type-done'); await app.tick(); app.click('nav', 'processes'); await app.tick();
   app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
   assert.ok(banner(), 'in the draft editor');
+});
+
+rule('App: with storage blocked, the page shell shows the tab-only warning on every screen and dialog, apart from the screens', async () => {
+  const app = boot({ storageThrows: true, localStore: {} }); await app.tick(80);
+  const warned = where => assert.ok(/id="tab-only"[\s\S]*only while this tab is open/.test(app.keep()) && !/id="tab-only"/.test(app.html()), where + ': in the shell, once');
+  warned('welcome');
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  for (const id of ['home', 'runs', 'processes', 'skills', 'types', 'settings', 'followups']) { app.click('nav', id); await app.tick(); warned(id); }
+  app.click('health'); await app.tick(40); warned('Folder health');
+  app.click('connection'); await app.tick(40); warned('Connection check');
+  app.click('recovery'); await app.tick(); warned('When something goes wrong');
+  app.click('whats-new'); await app.tick(); warned('What\'s new dialog');
+  app.click('close-overlay'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick(); warned('step-type editor');
+  app.click('type-done'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); warned('process page');
+  app.click('hist-open', 'draft'); await app.tick(); warned('History dialog');
+  app.click('close-overlay'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick(); warned('draft editor');
+  app.click('ed-done'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); warned('run workspace');
+  app.setNarrow(true); await app.tick(); warned('phone layout');
+});
+
+rule('App: with storage blocked, adding a note and saving a run say they are kept in this tab only', async () => {
+  const app = boot({ storageThrows: true }); await app.tick(80);
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  assert.strictEqual(app.run().json.recorder.person, 'person-casey');
+  assert.ok(/Saved in this tab only \d+:\d\d/.test(app.html()) && !/Saved here/.test(app.html()), 'the strip says where it was saved');
+  app.click('select', 'approve'); app.set('note-text', 'a note'); app.click('add-note', 'approve'); await app.tick(40);
+  assert.ok(/Note added to &quot;[^&]*&quot;\. Kept in this tab only\./.test(app.live()) || /Note added[^<]*this tab only/.test(app.live()), 'the note says it is kept in this tab only: ' + app.live());
+  assert.ok(/Note added to this step\. Kept in this tab only\./.test(app.html()), 'and so does the step');
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.click('ed-mode', 'markdown'); await app.tick();
+  app.input('draft-editor', app.el('draft-editor').value + '\n'); await app.tick(40);
+  app.click('save-draft', 'release'); await app.tick(80);
+  assert.ok(/class="fpe-state[^"]*"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?Saved in this tab only</.test(app.html()), 'the draft editor\'s label says it too');
 });
 
 rule('App: Undo and Redo keep what\'s typed in an open Add a step box, and refuse when the step it goes after would disappear', async () => {

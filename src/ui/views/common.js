@@ -17,7 +17,7 @@ PF.vk = (function () {
     return ctx.state.fs && ctx.state.fs.volatile ? '<div class="notice warn" id="tab-only" role="note"><span><b>Kept in this tab only.</b> This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. To keep your work, use a team folder.</span></div>' : '';
   }
   function notices(ctx, opts) {
-    var h = tabOnly(ctx);
+    var h = '';
     /* A quiet message (a check said back, Copied) is only announced, never shown as a notice. */
     if (ctx.state.msg && !ctx.state.msg.quiet) h += '<div class="notice ' + (ctx.state.msg.kind || '') + '" role="status"><span>' + esc(ctx.state.msg.text) + '</span><span class="row">' + (ctx.state.msg.act ? '<button class="btn" data-act="' + esc(ctx.state.msg.act) + '"' + (ctx.state.msg.id ? ' data-id="' + esc(ctx.state.msg.id) + '"' : '') + '>' + esc(ctx.state.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
     var cur = /^(run|receipt|finish|mission)$/.test(ctx.state.view) && ctx.run();
@@ -40,12 +40,12 @@ PF.vk = (function () {
   /* Three different facts, never blurred: when this computer saved, when it last read the folder, and whether it can read it at all.
      None of them proves another computer has the change yet; OneDrive decides that. */
   function freshness(ctx, r, short) {
-    var st = ctx.state, now = ctx.now(), parts = [];
+    var st = ctx.state, now = ctx.now(), parts = [], here = st.fs && st.fs.volatile ? 'saved in this tab only ' : 'saved here ';
     if (st.folderErr) return '<span class="small" style="color:var(--stop)">Can\'t read the folder right now</span>';
     if ((r && ((st.unread || {}).runs || {})[r.process + '/' + r.id]) || Object.keys(ctx.data.failed || {}).length) return '<span class="small" style="color:var(--stop)">Part of the folder couldn\'t be read · checked ' + esc(U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
     /* The run screen's strip: the same two facts, in fewer words. */
-    if (short) return '<span class="small">' + esc((r && r.savedAt ? (ctx.recording && ctx.recording(r) ? 'Saved here ' : 'Last saved ') + U.hm(r.savedAt) + ' · ' : '') + 'Folder checked ' + U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
-    if (r && r.savedAt) parts.push('saved here ' + U.hm(r.savedAt) + ' (' + ago(r.savedAt, now) + ')');
+    if (short) return '<span class="small">' + esc((r && r.savedAt ? (ctx.recording && ctx.recording(r) ? 'S' + here.slice(1) : 'Last saved ') + U.hm(r.savedAt) + ' · ' : '') + 'Folder checked ' + U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
+    if (r && r.savedAt) parts.push(here + U.hm(r.savedAt) + ' (' + ago(r.savedAt, now) + ')');
     parts.push('folder checked ' + U.hm(st.runReadAt || ctx.data.readAt));
     return '<span class="small">' + esc(parts.join(' · ')) + (st.fs && st.fs.kind === 'folder' ? ' · OneDrive shares it with others' : '') + '</span>';
   }

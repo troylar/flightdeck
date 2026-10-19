@@ -35,7 +35,7 @@ function boot(opts) {
   // Tests start past the first-run welcome unless they ask for it (firstRun).
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
   const get = id => (els[id] = els[id] || element(id));
-  ['app', 'top', 'overlay', 'live'].forEach(get);
+  ['app', 'top', 'overlay', 'live', 'keep'].forEach(get);
   /* Like a real page: a redraw recreates the screen's inputs as their markup draws them, and the app's own code puts back what
      was typed. Only the boxes drawn now are on the page; one that isn't keeps its last value, so a test can still read it. */
   const appEl = els.app;
@@ -118,6 +118,8 @@ function boot(opts) {
     // Whether leaving the page now would ask first (beforeunload).
     leaveWarns() { let warned = false; (winListeners.beforeunload || []).forEach(fn => fn({ preventDefault() { warned = true; }, set returnValue(v) { warned = true; } })); return warned; },
     top: () => els.top.innerHTML,
+    // The page shell's own notice area (above the top bar, outside every screen): the tab-only warning.
+    keep: () => els.keep.innerHTML,
     overlay: () => els.overlay.innerHTML,
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
