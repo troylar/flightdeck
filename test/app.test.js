@@ -4123,7 +4123,7 @@ rule('go(): text typed in a builder box and not applied refuses the jump, with t
   assert.strictEqual(app.focused(), '#ob-text');
 });
 
-rule('go(): a correction with unsaved text, or a follow-up decision being typed, refuses the jump: "Finish or cancel this first."', async () => {
+rule('go(): a correction being written is kept for its run and step, comes back on return, and Cancel clears it', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-blake'); await app.tick();
   const { key } = app.run();
@@ -4131,10 +4131,13 @@ rule('go(): a correction with unsaved text, or a follow-up decision being typed,
   app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
   app.input('corr-why', 'The cache warms slowly'); await app.tick();
   app.click('go', '', { view: 'home' }); await app.tick();
-  assert.ok(/Finish or cancel this first\./.test(app.html()) && /id="corr-why"/.test(app.html()), 'still on the form');
+  assert.ok(!/id="corr-why"/.test(app.html()), 'it went');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(/<textarea id="corr-why"[^>]*>The cache warms slowly<\/textarea>/.test(app.html()), 'the correction is back, as written');
   app.click('corr-cancel'); await app.tick();
   app.click('go', '', { view: 'home' }); await app.tick();
-  assert.ok(!/id="corr-why"/.test(app.html()), 'once canceled, it goes');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(!/id="corr-why"/.test(app.html()), 'Cancel cleared it');
 });
 
 rule('go(): a dialog with nothing typed in it is closed first; one with typing in it is never replaced', async () => {
@@ -4380,6 +4383,66 @@ rule('go(): a step in the run already open is scrolled into view, on a phone too
     app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick(40);
     assert.ok(app.asked().slice(before).indexOf('#step-pods') >= 0, (narrow ? 'phone' : 'laptop') + ': revealed');
   }
+});
+
+/* ---------- 1.17 third review: input kept in app state survives leaving the screen ---------- */
+rule('A correction\'s "Move it to" and "Who should do it" choices come back after going elsewhere; switching folders clears them', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-blake'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(20);
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  app.click('corr-op', 'move'); await app.tick();
+  const opts = [...app.html().slice(app.html().indexOf('id="corr-move"')).split('</select>')[0].matchAll(/<option value="([^"]*)"/g)].map(m => m[1]).filter(Boolean);
+  const to = opts[opts.length - 1];
+  app.select('corr-move', to); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(!/id="corr-move"/.test(app.html()), 'it went');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(new RegExp('<option value="' + to.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"[^>]*selected').test(app.html()), 'the choice is back');
+  app.click('corr-op', 'roles'); await app.tick();
+  const role = /id="(corr-role-[\w-]+)"/.exec(app.html())[1];
+  app.check(role, !new RegExp('id="' + role + '"[^>]*checked').test(app.html())); await app.tick();
+  const was = new RegExp('id="' + role + '"[^>]*checked').test(app.html());
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.strictEqual(new RegExp('id="' + role + '"[^>]*checked').test(app.html()), was, 'the role choice is back');
+  app.click('reset-examples'); await app.tick(150);
+  app.choose('person-blake'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(20); app.click('select', 'pods'); await app.tick();
+  assert.ok(!/id="corr-move"|id="corr-roles"/.test(app.html()), 'a new folder starts clean');
+});
+
+rule('Files picked for a note with no text yet come back after going elsewhere; removing one clears it, and switching folders clears them', async () => {
+  const app = await recordingRelease(), key = app.run().key;
+  app.click('select', 'approve'); await app.tick();
+  app.change('note-file', [png('pods.png')]); await app.tick();
+  assert.ok(/aria-label="Waiting to attach"><li class="att">.*pods\.png/.test(app.html()), 'set-up: waiting to attach');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  app.click('go', '', { view: 'run', run: key, step: 'approve' }); await app.tick();
+  assert.ok(/aria-label="Waiting to attach"><li class="att">.*pods\.png/.test(app.html()), 'still waiting to attach');
+  const id = /data-act="att-remove" data-id="([^"]+)"/.exec(app.html())[1];
+  app.click('att-remove', id); await app.tick();
+  assert.ok(!/pods\.png/.test(app.html()), 'removed on request');
+  app.change('note-file', [png('again.png')]); await app.tick();
+  app.click('reset-examples'); await app.tick(150);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(20); app.click('select', 'approve'); await app.tick();
+  assert.ok(!/again\.png/.test(app.html()), 'a new folder starts clean');
+});
+
+rule('New process: what was submitted and refused comes back after going elsewhere; Cancel clears it', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'release'); app.set('np-title', 'Another release'); app.submit('new-process-form'); await app.tick(20);
+  assert.ok(/There(&#39;|')s already a process called "release"/.test(app.html() + app.live()), 'set-up: refused');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(!/id="np-id"/.test(app.html()), 'it went');
+  app.click('new-process'); await app.tick();
+  assert.ok(/id="np-title"[^>]*value="Another release"/.test(app.html()) && /id="np-id"[^>]*value="release"/.test(app.html()), 'the form is back as submitted');
+  app.click('np-cancel'); await app.tick();
+  app.click('new-process'); await app.tick();
+  assert.ok(/id="np-title"[^>]*value=""/.test(app.html()), 'Cancel cleared it');
 });
 
 run();

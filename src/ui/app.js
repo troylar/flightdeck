@@ -600,6 +600,8 @@
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear();
+    /* Input kept for return belongs to its folder: a new folder starts clean. */
+    state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
   }
@@ -2161,12 +2163,32 @@
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
   function home() { releaseUrls(state.urls); setView('home'); state.processId = null; state.runKey = null; resetRunUi(); }
-  function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; state.corrForm = null; }
+  /* Leaving a run's screen resets how it's shown, never what someone put in: input held in app state is kept for its
+     folder, run and step and comes back on return (docs/design.md section 25). The open Fill in goes to its step's draft
+     (as selecting another step does), a correction being written to corrDrafts, and files picked but not attached stay in
+     pendingFiles, which are already keyed by run and step. They're cleared only by Cancel, a successful save, or switching
+     folders (useFs). */
+  function resetRunUi() {
+    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; }
+    var cf = state.corrForm;
+    if (cf) (state.corrDrafts = state.corrDrafts || {})[draftKey(cf.key, cf.step)] = cf;
+    state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null;
+  }
+  /* The correction kept for a run (one step's, or the one for step and mode), taken out of the kept list as it goes back on screen. */
+  function takeCorrDraft(key, step, mode) {
+    var all = state.corrDrafts || {}, found = null;
+    Object.keys(all).forEach(function (k) { var f = all[k]; if (!found && f.key === key && (step == null || (f.step === step && f.mode === mode)) && k === draftKey(f.key, f.step)) found = k; });
+    if (!found) return null;
+    var f = all[found]; delete all[found]; return f;
+  }
+  function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
+    var kept = r && takeCorrDraft(key);
+    if (kept) { state.corrForm = kept; state.sel = kept.step; }
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
     window.scrollTo(0, 0);
   }
@@ -2457,7 +2479,9 @@
     'hist-compare': function (id) { var ov = state.overlay; if (!ov || !ov.hist) return; ov.compare = ov.compare === id ? null : id; ov.compareMsg = null; state.overlayFocus = '[data-act="hist-compare"][data-id="' + cssEsc(id) + '"]'; render(); },
     'hist-reverse': function (id) { reverseSaved(id); },
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
-    'new-process': function () { setView('new-process'); state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    /* What was submitted and refused stays until Cancel or the draft is created, so leaving and coming back keeps it. */
+    'new-process': function () { setView('new-process'); state.newProc = state.newProc || {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
     'new-type': function () { partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
@@ -2865,6 +2889,8 @@
       var mode = b && b.dataset.mode === 'differently' ? 'differently' : 'correct', open = state.corrForm;
       /* Choosing an open composer's button again only brings focus back to it; what's typed stays. */
       if (open && open.key === state.runKey && open.step === id && open.mode === mode) { selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(open.op); render(); return; }
+      var kept = takeCorrDraft(state.runKey, id, mode);
+      if (kept) { if (open) (state.corrDrafts = state.corrDrafts || {})[draftKey(open.key, open.step)] = open; state.corrForm = kept; selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(kept.op); render(); return; }
       /* Done differently is an answer: only the recorder, while the run isn't paused and the step's phase is open. */
       if (mode === 'differently' && !(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
       var op = b && PF.corrections.OPS.indexOf(b.dataset.op) >= 0 ? b.dataset.op : 'wording';
@@ -2881,7 +2907,7 @@
       state.focus = corrFocus(id); state.focusEnd = true; render();
     },
     'corr-scope': function (id) { var f = state.corrForm; if (!f) return; f.scope = id === 'fix' ? 'fix' : 'just'; state.fieldErr = null; state.focus = '[data-act="corr-scope"][data-id="' + f.scope + '"]'; render(); },
-    'corr-cancel': function () { var f = state.corrForm; state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
+    'corr-cancel': function () { var f = state.corrForm; if (f) dropCorrDraft(f); state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
     'corr-save': function () { saveCorrection(false); },
     'corr-done': function () { saveCorrection(true); },
     /* Deciding on a group of corrections: anyone; declining needs a reason; withdrawing is for whoever suggested it. */
@@ -2909,7 +2935,9 @@
     'corr-review': function (id) {
       var p = currentProcess(); if (!p || !state.me) return;
       state.overlayFocus = '#ca-t';
-      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); } });
+      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); },
+        /* Choices made in the dialog live in it: an edited result, alternatives being combined, or a decline started. */
+        held: function () { return !!(this.declining || this.combine || (this.edit && this.edit.text !== this.edit.from)); } });
     },
     'corr-apply': function (id, b) { var ov = caOv(); if (ov && ov.gid === id && !ov.busy) applyCorr(ov, b && b.dataset.how === 'edit' ? 'edit' : ''); },
     'corr-edit': function (id) {
@@ -3087,6 +3115,7 @@
     wrote.then(function () {
       endBusy(); f.sending = false; if (ng !== gen) { settled(); return; }
       state.pendingFiles = state.pendingFiles.filter(function (p) { return mine.indexOf(p) < 0; });
+      dropCorrDraft(f);
       if (state.corrForm === f) { state.corrForm = null; state.fieldErr = null; }
       var then = answer ? function () {
         /* The answer is made on the run that started it, whatever this window shows now, through the one answer path. */
@@ -3229,10 +3258,12 @@
     var md = V.starterMap(f), sfs = state.fs, g = gen;
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return;
+      var shown = state.newProc === f;
+      if (!res.conflict && shown) state.newProc = null;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || state.newProc !== f) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
+      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !shown) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
   });
   document.addEventListener('submit', function (e) {
@@ -3509,6 +3540,7 @@
   function go(t) {
     t = t || {};
     var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
+    if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
       state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
@@ -3541,8 +3573,8 @@
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs
      the one drawn as chosen, or the first). The page itself is the record, so a new form is covered without being listed.
-     A control drawn from state (data-bound) always matches what the page drew, so its view marks typing with data-typed
-     (the correction composer, an edited proposal). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
+     Input held in app state isn't this check's job: navigation keeps it (resetRunUi, corrDrafts, newProc), and a dialog
+     holding choices says so with held(). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
      Fill in, the draft editor and the step-type form), boxes that are safe to leave (type="search", data-nav-safe), and
      hidden or file inputs. */
   function changedControl(el) {
@@ -3562,7 +3594,7 @@
         var el = list[i];
         if (/^(hidden|file|button|submit|reset|search)$/.test(el.type || '')) continue;
         if (el.closest && el.closest('[data-draft-kept], [data-nav-safe]')) continue;
-        if ((el.hasAttribute && el.hasAttribute('data-typed')) || changedControl(el)) return el;
+        if (changedControl(el)) return el;
       }
     }
     return null;

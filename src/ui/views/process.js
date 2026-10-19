@@ -243,7 +243,7 @@
     }
     if (ov.edit) {
       var txt = ch.op === 'wording' || ch.op === 'add';
-      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.edit && ov.edit.text !== ov.edit.from ? ' data-typed' : '') + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
+      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
       else h += '<p class="small">Applies "' + esc(prop) + '" to the step as the draft has it now.</p>';
       if (ov.combine) h += '<p class="small">Combining ' + ov.combine.length + ' proposals: applying marks each of them as applied.</p>';
       acts = '<button type="button" class="btn go" data-act="corr-apply" data-id="' + esc(g.id) + '" data-how="edit"' + dis + (rv.state === 'gone' || rv.state === 'manual' ? ' disabled' : '') + '>Apply to draft</button><button type="button" class="mini" data-act="corr-edit-cancel">Cancel</button>';

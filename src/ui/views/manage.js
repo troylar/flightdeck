@@ -127,7 +127,7 @@
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
       '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label>' +
-      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="home">Cancel</button></div></form>';
+      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
   }
   /* The starting Markdown for a new process: front matter plus one phase to fill in. */
   function starterMap(f) {

@@ -8265,7 +8265,7 @@ PF.vk = (function () {
     }
     if (ov.edit) {
       var txt = ch.op === 'wording' || ch.op === 'add';
-      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.edit && ov.edit.text !== ov.edit.from ? ' data-typed' : '') + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
+      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
       else h += '<p class="small">Applies "' + esc(prop) + '" to the step as the draft has it now.</p>';
       if (ov.combine) h += '<p class="small">Combining ' + ov.combine.length + ' proposals: applying marks each of them as applied.</p>';
       acts = '<button type="button" class="btn go" data-act="corr-apply" data-id="' + esc(g.id) + '" data-how="edit"' + dis + (rv.state === 'gone' || rv.state === 'manual' ? ' disabled' : '') + '>Apply to draft</button><button type="button" class="mini" data-act="corr-edit-cancel">Cancel</button>';
@@ -8417,9 +8417,6 @@ PF.vk = (function () {
   /* The error points at its own field when core named one; otherwise at every field in the form. */
   function errFor(st, stepId, inputId) { var e = st.fieldErr; return e && e.id === stepId && (!e.field || e.field === inputId) ? 'ferr-' + stepId : ''; }
   function ferr(st, id) { return st.fieldErr && st.fieldErr.id === id ? '<p class="ferr" id="ferr-' + esc(id) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : ''; }
-  /* A box drawn from state (data-bound) always shows what it holds, so the page can't tell it was typed in: it says so with
-     data-typed, which go() treats as unsaved typing. */
-  function typedMark(v) { return (typeof v === 'string' ? v.trim() : v) ? ' data-typed' : ''; }
   /* Evidence and Fill in boxes are kept as the step's draft when you leave (data-draft-kept), so leaving never asks first. */
   function fieldInput(id, d, value, enter, stepId, note, errId) {
     /* A hint (from a Jira workflow, for example) says what the value should be or where it comes from. */
@@ -8767,7 +8764,7 @@ PF.vk = (function () {
       (err && !shown[err.field] ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : '') +
       '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + esc(s.text) + '</p>';
     if (answer) {
-      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + typedMark(f.happened) + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
+      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
       h += '<span class="small" id="corr-scope-l">Should the checklist change?</span><div class="seg" role="group" aria-labelledby="corr-scope-l">' + [['just', 'Just this run'], ['fix', 'Fix the checklist too']].map(function (o) { return '<button type="button" data-act="corr-scope" data-id="' + o[0] + '" aria-pressed="' + (f.scope === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
     }
     var same = false;
@@ -8779,10 +8776,10 @@ PF.vk = (function () {
         (f.menu ? '<span class="corr-menu-list" id="corr-menu" role="group" aria-label="Change something else">' + others.map(function (o) { return '<button type="button" class="mini" data-act="corr-op" data-id="' + o[0] + '">' + esc(o[1]) + '</button>'; }).join('') + '</span>' : '') + '</span></div>';
       if (f.op === 'wording') {
         same = String(f.to).replace(/\s+/g, ' ').trim() === s.text.replace(/\s+/g, ' ').trim();
-        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + typedMark(f.to !== s.text) + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
+        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
           (same ? '<p class="small corr-same" id="corr-same">No wording changed.</p>' : '<div class="corr-prev"><span class="small"><b>Before / After</b></span>' + redline(s.text, String(f.to).replace(/\s+/g, ' ').trim()) + '</div>');
       } else if (f.op === 'add') {
-        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + typedMark(f.text) + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
+        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
         var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
@@ -8798,7 +8795,7 @@ PF.vk = (function () {
         h += '<p class="small">Replacing <b>' + esc(shot ? shot.caption : '') + '</b>. Attach the right one, or say what\'s wrong with it.</p>';
       } else if (f.op === 'remove') h += '<p class="small corr-warn"><b>Remove this step from future versions?</b> Runs already started keep it.</p>';
       var whyLabel = f.op === 'describe' ? 'What\'s wrong' : f.op === 'remove' ? 'Why remove it? (required)' : 'Why? (optional)';
-      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + typedMark(f.why) + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
+      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
       h += '<div class="row"><label class="btn" for="corr-file">' + I('clip') + (f.op === 'screenshot' ? 'Attach the right one' : 'Attach') + '</label><input type="file" id="corr-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr"><span class="small">or drop or paste files here</span></div>' + pendingList(ctx, files, 'corr:' + s.id);
     }
     var conseq = answer ? (fix ? 'Marks this step done differently and proposes a checklist correction.' : 'Marks this step done differently.') : 'Saves a proposal for the checklist. It doesn\'t answer the step.';
@@ -9870,7 +9867,7 @@ PF.vk = (function () {
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
       '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label>' +
-      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="home">Cancel</button></div></form>';
+      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
   }
   /* The starting Markdown for a new process: front matter plus one phase to fill in. */
   function starterMap(f) {
@@ -11481,6 +11478,8 @@ PF.examples = (function () {
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear();
+    /* Input kept for return belongs to its folder: a new folder starts clean. */
+    state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
   }
@@ -13042,12 +13041,32 @@ PF.examples = (function () {
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
   function home() { releaseUrls(state.urls); setView('home'); state.processId = null; state.runKey = null; resetRunUi(); }
-  function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; state.corrForm = null; }
+  /* Leaving a run's screen resets how it's shown, never what someone put in: input held in app state is kept for its
+     folder, run and step and comes back on return (docs/design.md section 25). The open Fill in goes to its step's draft
+     (as selecting another step does), a correction being written to corrDrafts, and files picked but not attached stay in
+     pendingFiles, which are already keyed by run and step. They're cleared only by Cancel, a successful save, or switching
+     folders (useFs). */
+  function resetRunUi() {
+    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; }
+    var cf = state.corrForm;
+    if (cf) (state.corrDrafts = state.corrDrafts || {})[draftKey(cf.key, cf.step)] = cf;
+    state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null;
+  }
+  /* The correction kept for a run (one step's, or the one for step and mode), taken out of the kept list as it goes back on screen. */
+  function takeCorrDraft(key, step, mode) {
+    var all = state.corrDrafts || {}, found = null;
+    Object.keys(all).forEach(function (k) { var f = all[k]; if (!found && f.key === key && (step == null || (f.step === step && f.mode === mode)) && k === draftKey(f.key, f.step)) found = k; });
+    if (!found) return null;
+    var f = all[found]; delete all[found]; return f;
+  }
+  function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
+    var kept = r && takeCorrDraft(key);
+    if (kept) { state.corrForm = kept; state.sel = kept.step; }
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
     window.scrollTo(0, 0);
   }
@@ -13338,7 +13357,9 @@ PF.examples = (function () {
     'hist-compare': function (id) { var ov = state.overlay; if (!ov || !ov.hist) return; ov.compare = ov.compare === id ? null : id; ov.compareMsg = null; state.overlayFocus = '[data-act="hist-compare"][data-id="' + cssEsc(id) + '"]'; render(); },
     'hist-reverse': function (id) { reverseSaved(id); },
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
-    'new-process': function () { setView('new-process'); state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    /* What was submitted and refused stays until Cancel or the draft is created, so leaving and coming back keeps it. */
+    'new-process': function () { setView('new-process'); state.newProc = state.newProc || {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
     'new-type': function () { partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
@@ -13746,6 +13767,8 @@ PF.examples = (function () {
       var mode = b && b.dataset.mode === 'differently' ? 'differently' : 'correct', open = state.corrForm;
       /* Choosing an open composer's button again only brings focus back to it; what's typed stays. */
       if (open && open.key === state.runKey && open.step === id && open.mode === mode) { selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(open.op); render(); return; }
+      var kept = takeCorrDraft(state.runKey, id, mode);
+      if (kept) { if (open) (state.corrDrafts = state.corrDrafts || {})[draftKey(open.key, open.step)] = open; state.corrForm = kept; selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(kept.op); render(); return; }
       /* Done differently is an answer: only the recorder, while the run isn't paused and the step's phase is open. */
       if (mode === 'differently' && !(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
       var op = b && PF.corrections.OPS.indexOf(b.dataset.op) >= 0 ? b.dataset.op : 'wording';
@@ -13762,7 +13785,7 @@ PF.examples = (function () {
       state.focus = corrFocus(id); state.focusEnd = true; render();
     },
     'corr-scope': function (id) { var f = state.corrForm; if (!f) return; f.scope = id === 'fix' ? 'fix' : 'just'; state.fieldErr = null; state.focus = '[data-act="corr-scope"][data-id="' + f.scope + '"]'; render(); },
-    'corr-cancel': function () { var f = state.corrForm; state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
+    'corr-cancel': function () { var f = state.corrForm; if (f) dropCorrDraft(f); state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
     'corr-save': function () { saveCorrection(false); },
     'corr-done': function () { saveCorrection(true); },
     /* Deciding on a group of corrections: anyone; declining needs a reason; withdrawing is for whoever suggested it. */
@@ -13790,7 +13813,9 @@ PF.examples = (function () {
     'corr-review': function (id) {
       var p = currentProcess(); if (!p || !state.me) return;
       state.overlayFocus = '#ca-t';
-      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); } });
+      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); },
+        /* Choices made in the dialog live in it: an edited result, alternatives being combined, or a decline started. */
+        held: function () { return !!(this.declining || this.combine || (this.edit && this.edit.text !== this.edit.from)); } });
     },
     'corr-apply': function (id, b) { var ov = caOv(); if (ov && ov.gid === id && !ov.busy) applyCorr(ov, b && b.dataset.how === 'edit' ? 'edit' : ''); },
     'corr-edit': function (id) {
@@ -13968,6 +13993,7 @@ PF.examples = (function () {
     wrote.then(function () {
       endBusy(); f.sending = false; if (ng !== gen) { settled(); return; }
       state.pendingFiles = state.pendingFiles.filter(function (p) { return mine.indexOf(p) < 0; });
+      dropCorrDraft(f);
       if (state.corrForm === f) { state.corrForm = null; state.fieldErr = null; }
       var then = answer ? function () {
         /* The answer is made on the run that started it, whatever this window shows now, through the one answer path. */
@@ -14110,10 +14136,12 @@ PF.examples = (function () {
     var md = V.starterMap(f), sfs = state.fs, g = gen;
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return;
+      var shown = state.newProc === f;
+      if (!res.conflict && shown) state.newProc = null;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || state.newProc !== f) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
+      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !shown) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
   });
   document.addEventListener('submit', function (e) {
@@ -14390,6 +14418,7 @@ PF.examples = (function () {
   function go(t) {
     t = t || {};
     var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
+    if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
       state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
@@ -14422,8 +14451,8 @@ PF.examples = (function () {
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs
      the one drawn as chosen, or the first). The page itself is the record, so a new form is covered without being listed.
-     A control drawn from state (data-bound) always matches what the page drew, so its view marks typing with data-typed
-     (the correction composer, an edited proposal). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
+     Input held in app state isn't this check's job: navigation keeps it (resetRunUi, corrDrafts, newProc), and a dialog
+     holding choices says so with held(). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
      Fill in, the draft editor and the step-type form), boxes that are safe to leave (type="search", data-nav-safe), and
      hidden or file inputs. */
   function changedControl(el) {
@@ -14443,7 +14472,7 @@ PF.examples = (function () {
         var el = list[i];
         if (/^(hidden|file|button|submit|reset|search)$/.test(el.type || '')) continue;
         if (el.closest && el.closest('[data-draft-kept], [data-nav-safe]')) continue;
-        if ((el.hasAttribute && el.hasAttribute('data-typed')) || changedControl(el)) return el;
+        if (changedControl(el)) return el;
       }
     }
     return null;
