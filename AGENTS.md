@@ -106,7 +106,7 @@ The same goes for "map". Since 1.10.0 people see "checklist" for a process's wri
 
 ## Releases
 
-The npm package `@troylar/flightdeck` ships `dist/flightdeck.html`, `bin/flightdeck.js` (no dependencies), the README, the changelog and the license. `build.py` sets its version from `src/releases.json`. Check its contents with `npm pack --dry-run` before publishing; `prepublishOnly` runs the full test script. Nothing in the package may name an employer, a colleague or an internal system; the only person named is the package owner (the `@troylar` scope and the license).
+The npm package `@troylar/flightdeck` ships `dist/flightdeck.html`, `bin/flightdeck.js` (no dependencies), the README, the changelog and the license. `build.py` sets its version from `src/releases.json`. Check its contents with `npm pack --dry-run` before publishing; Run `./test/run.sh` before publishing; `prepublishOnly` only rebuilds, so a one-time password is still fresh when npm uploads (the full tests take longer than a code lasts). Nothing in the package may name an employer, a colleague or an internal system; the only person named is the package owner (the `@troylar` scope and the license).
 
 Every user-visible change adds an entry to `src/releases.json` in the same change (see CONTRIBUTING.md): patch for a fix, minor for new or improved, major for a file format older copies can't read. Write `now` for the people using Flightdeck, not for engineers. `python build.py` checks it and regenerates `CHANGELOG.md`; never edit that file by hand. The version shown in the app is the newest release.
 
