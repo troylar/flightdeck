@@ -1208,7 +1208,7 @@
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */
-      var c = overlayEl.querySelector('#tab-only-ok, #lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, .help [data-act="close-overlay"]');
+      var c = overlayEl.querySelector('#tab-only-ok, #lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, #ev-close, .help [data-act="close-overlay"]');
       if (c && !overlayEl.contains(document.activeElement)) c.focus();
       app.setAttribute('inert', ''); topEl.setAttribute('inert', '');
     } else { app.removeAttribute('inert'); topEl.removeAttribute('inert'); }
@@ -3434,6 +3434,9 @@
     'lb-step': function (d) { if (state.overlay && state.overlay.list) { var L = state.overlay.list.length; state.overlay.i = (state.overlay.i + (+d) + L) % L; render(); } },
     'close-overlay': function () { closeOverlay(); }
   };
+  /* Export evidence: the dialog's actions live in src/ui/exporter.js. */
+  var exporter = PF.exporter({ ctx: ctx, state: state, gen: function () { return gen; }, open: openOverlay, render: render, version: APP_VERSION });
+  Object.keys(exporter.actions).forEach(function (k) { ACTIONS[k] = exporter.actions[k]; });
   /* Reread the open run before taking over recording. Resolves to the run's key and generation, or null if the folder changed. */
   /* A correction by ID, from the open run's notes or, on a process page, from the process's corrections. */
   function corrById(id) {

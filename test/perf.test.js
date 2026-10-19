@@ -166,6 +166,62 @@ rule('Large folder: search builds, answers and updates within its time and memor
   assert.ok(!gc || heap <= SEARCH.heapMB * 1048576, 'index heap ' + mb(heap) + ' > ' + SEARCH.heapMB + ' MB');
 });
 
+/* Evidence export (docs/design.md section 24). The command line streams: a run with 50 MB of attachments takes at most 10 s,
+   and what it holds in memory outside the JS heap (arrayBuffers, external) stays far below the pack's size, because
+   attachments are hashed and copied 1 MB at a time and never kept. */
+const EXPORT = { cliMs: 10000, cliArrayBuffersMB: 24, oneRunMs: 1500, oneRunCalls: 400 };
+rule('Evidence export: the command line packs a run with 50 MB of attachments within 10 s, streaming, with memory reported', async () => {
+  const EV = require('./evidence-fixture'), os = require('os'), nodeFs = require('fs'), path = require('path'), crypto = require('crypto');
+  const files = Object.assign({}, (await EV.build(load())).files);
+  for (let i = 0; i < 5; i++) files['runs/release/run1/files/20261017-big' + i + '-w2-dump.bin'] = crypto.randomBytes(10 * 1048576);
+  const dir = EV.toDisk(files, nodeFs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-perf-'))), out = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-perf-out-'));
+  Object.keys(files).forEach(k => { delete files[k]; });
+  const cli = require('../bin/flightdeck.js'), KEYS = ['arrayBuffers', 'external', 'heapUsed'];
+  const timed = async (sampleGc) => {
+    const o = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-perf-out-'));
+    if (gc) gc();
+    const m0 = process.memoryUsage(), peak = {}; KEYS.forEach(k => { peak[k] = m0[k]; });
+    /* With a collection before each sample, the peak is what the export holds, not garbage waiting to be collected. */
+    const sample = setInterval(() => { if (sampleGc && gc) gc(); const m = process.memoryUsage(); KEYS.forEach(k => { peak[k] = Math.max(peak[k], m[k]); }); }, sampleGc ? 20 : 5);
+    const t = Date.now(), r = await cli.main(['export', dir, '--run', 'release/run1', '--out', o, '--tz', 'UTC']), ms = Date.now() - t;
+    clearInterval(sample);
+    const grew = {}; KEYS.forEach(k => { grew[k] = peak[k] - m0[k]; });
+    return { r, ms, grew, size: nodeFs.statSync(path.join(o, nodeFs.readdirSync(o)[0])).size };
+  };
+  const a = await timed(false), held = gc ? await timed(true) : null;
+  const say = g => 'arrayBuffers +' + mb(g.arrayBuffers) + ', external +' + mb(g.external) + ', heap +' + mb(g.heapUsed);
+  console.log('  export (command line): 50 MB of attachments, pack ' + mb(a.size) + ' in ' + a.ms + ' ms; peak with garbage: ' + say(a.grew) + (held ? '; held (collected before each sample): ' + say(held.grew) : ''));
+  assert.strictEqual(a.r.code, 0, a.r.out);
+  assert.ok(a.size > 50 * 1048576, 'every byte is in the pack');
+  assert.ok(a.ms <= EXPORT.cliMs, a.ms + ' ms > ' + EXPORT.cliMs);
+  if (held) assert.ok(held.grew.arrayBuffers <= EXPORT.cliArrayBuffersMB * 1048576 && held.grew.external <= EXPORT.cliArrayBuffersMB * 1048576, 'streams: held ' + say(held.grew));
+});
+
+rule('Evidence export on the 2,000-run folder: one run is collected with few folder calls, and a range past the byte cap is refused before any file is read', async () => {
+  const PF = load(), fs = bigFolder(PF, {}), E = PF.evidence;
+  const d = await PF.repo.loadAll(fs, { now: NOW });
+  const r = d.runs.find(x => x.ended && x._notes && x._notes.length > 2 && !x._unrunnable);
+  fs.reset();
+  let t = Date.now(), bytes = 0;
+  const res = await PF.repo.exportEvidence(fs, { run: r.process + '/' + r.id }, { sink: u => { bytes += u.length; }, attachments: false, tz: 'UTC', now: () => NOW, cap: E.capFor({ width: 1440 }) });
+  const ms = Date.now() - t;
+  console.log('  export (one run of 2,000, without attachments): ' + res.col.files.length + ' files, ' + mb(bytes) + ' in ' + ms + ' ms; ' + line('folder', fs));
+  assert.strictEqual(res.status, 'complete', res.col.unresolved.join(' '));
+  assert.ok(ms <= EXPORT.oneRunMs, ms + ' ms');
+  assert.ok(fs.total() <= EXPORT.oneRunCalls, fs.total() + ' calls');
+  // Virtual sizes: the estimate comes from listings and sizes alone, and a pack past the cap is refused before any read.
+  const counts = {};
+  d.runs.forEach(x => { counts[x.process] = (counts[x.process] || 0) + 1; });
+  const proc = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0], scope = { process: proc, from: '2025-01-01', through: '2026-10-19', tz: 'UTC' };
+  fs.reset(); t = Date.now();
+  const plan = await PF.repo.collectEvidence(fs, scope, { plan: true, cap: E.capFor({ width: 1440 }), now: () => NOW });
+  console.log('  export estimate for ' + plan.runs.length + ' runs of ' + proc + ': about ' + mb(plan.estimate) + ' from ' + plan.files.length + ' files, ' + (Date.now() - t) + ' ms, ' + line('folder', fs));
+  assert.strictEqual(fs.counts.blob, 0, 'the estimate reads no file in full');
+  fs.reset();
+  await assert.rejects(PF.repo.exportEvidence(fs, scope, { sink: () => {}, cap: Math.floor(plan.estimate / 2), now: () => NOW }), /over the .* limit here/);
+  assert.strictEqual(fs.counts.blob, 0, 'refused before reading');
+});
+
 rule('The big folder is the same, byte for byte, every time for a seed, and different for another seed', () => {
   const { generate } = require('../tools/big-folder');
   const a = generate(load(), { runs: 40, running: 5, recent: 5, seed: 5 }), b = generate(load(), { runs: 40, running: 5, recent: 5, seed: 5 });

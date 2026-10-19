@@ -5625,4 +5625,42 @@ rule('App: a follow-up decision another computer rewrites with one of the same s
   assert.ok(/REASONOTHER/.test(html) && !/REASONFIRST/.test(html), 'the rewritten decision shows on the page that was open');
 });
 
+rule('App: Export evidence plans, makes a pack with progress, offers its SHA-256, and never writes to the folder', async () => {
+  const app = boot({}); await app.tick(60);
+  const before = JSON.stringify(app.fs.files);
+  const k = Object.keys(app.fs.files).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p))[0].split('/').slice(1, 3).join('/');
+  app.click('ev-open', k); await app.tick(80);
+  let ov = app.overlay();
+  assert.ok(/up to \d/.test(ov) && /people directory and its email fields are left out/.test(ov), ov.slice(0, 800));
+  app.click('ev-make'); await app.tick(400);
+  ov = app.overlay();
+  assert.ok(/SHA-256 of this pack:<\/span><code id="ev-sha">[0-9a-f]{64}<\/code>/.test(ov) && /data-act="ev-save"/.test(ov), ov.slice(0, 1200));
+  assert.strictEqual(JSON.stringify(app.fs.files), before, 'nothing written to the team folder');
+  app.click('ev-format', 'report'); await app.tick();
+  app.click('close-overlay'); await app.tick();
+  assert.ok(!/ev-box/.test(app.overlay()), 'closed');
+});
+
+rule('App: Cancel stops an export and returns to the choices; closing the dialog stops it too', async () => {
+  const app = boot({}); await app.tick(60);
+  const k = Object.keys(app.fs.files).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p))[0].split('/').slice(1, 3).join('/');
+  app.click('ev-open', k); await app.tick(80);
+  app.click('ev-make'); app.click('ev-cancel'); await app.tick(200);
+  assert.ok(/data-act="ev-make"/.test(app.overlay()) && !/ev-sha/.test(app.overlay()), 'back to the choices, nothing made');
+  app.click('ev-make'); app.click('close-overlay'); await app.tick(200);
+  assert.strictEqual(app.overlay(), '', 'closing cancels; nothing reopens');
+});
+
+rule('App: Runs › Export evidence… asks for a process and two days, checks them, and plans the runs that started then', async () => {
+  const app = boot({}); await app.tick(60);
+  app.click('ev-range'); await app.tick();
+  assert.ok(/id="ev-proc"/.test(app.overlay()) && /time zone/.test(app.overlay()));
+  app.set('ev-proc', 'release').set('ev-from', '2026-11-02').set('ev-through', '2026-11-01');
+  app.click('ev-check'); await app.tick();
+  assert.ok(/after the last day/.test(app.overlay()) && /aria-invalid="true"/.test(app.overlay()));
+  app.set('ev-from', '2000-01-01').set('ev-through', '2099-12-31');
+  app.click('ev-check'); await app.tick(120);
+  assert.ok(/\d+ runs? · /.test(app.overlay()) && /Change the days/.test(app.overlay()), app.overlay().slice(0, 800));
+});
+
 run();

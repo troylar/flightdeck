@@ -1,0 +1,301 @@
+// Evidence export (docs/design.md section 24, docs/evidence.md): a read-only collector of the raw files, SHA-256 and ZIP
+// written in plain JavaScript, the hash graph, and a pack that an independent reader (Python's zipfile) accepts.
+'use strict';
+const assert = require('assert');
+const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto'), cp = require('child_process');
+const { load, rule, run } = require('./harness');
+const { BytesFS, build, NOW } = require('./evidence-fixture');
+const PF = load(), S = PF.sha256, Z = PF.zip, E = PF.evidence, repo = PF.repo;
+const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
+const sha = b => crypto.createHash('sha256').update(b).digest('hex');
+let fixture = null;
+async function folder(opts) { fixture = fixture || await build(load()); return new BytesFS(fixture.files, opts); }
+
+/* The pack as bytes, plus what exportEvidence said. */
+async function pack(fsx, scope, opts) {
+  const parts = [];
+  const res = await repo.exportEvidence(fsx, scope, Object.assign({ sink: u => { parts.push(Buffer.from(u)); }, now: () => Date.parse(NOW), tz: 'UTC' }, opts || {}));
+  return { zip: Buffer.concat(parts), res };
+}
+/* A small reader for the stored (uncompressed) zips these tests make: entries by name, from the central directory. */
+function unzip(buf) {
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  assert.ok(eocd >= 0, 'an end record');
+  const n = buf.readUInt16LE(eocd + 10), cdAt = buf.readUInt32LE(eocd + 16), out = {};
+  let p = cdAt;
+  for (let i = 0; i < n; i++) {
+    assert.strictEqual(buf.readUInt32LE(p), 0x02014b50);
+    const flags = buf.readUInt16LE(p + 8), method = buf.readUInt16LE(p + 10), crc = buf.readUInt32LE(p + 16), size = buf.readUInt32LE(p + 20);
+    const nl = buf.readUInt16LE(p + 28), xl = buf.readUInt16LE(p + 30), cl = buf.readUInt16LE(p + 32), off = buf.readUInt32LE(p + 42);
+    const name = buf.slice(p + 46, p + 46 + nl).toString('utf8');
+    assert.ok(flags & 0x800, 'UTF-8 names'); assert.strictEqual(method, 0, 'stored');
+    const lnl = buf.readUInt16LE(off + 26), lxl = buf.readUInt16LE(off + 28), data = buf.slice(off + 30 + lnl + lxl, off + 30 + lnl + lxl + size);
+    out[name] = { data, crc };
+    p += 46 + nl + xl + cl;
+  }
+  return out;
+}
+function python() { for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (e) { /* next */ } } return null; }
+const PY = python();
+
+/* ---------- SHA-256 ---------- */
+rule('SHA-256 in plain JavaScript gives Node\'s digests at the 55, 56 and 64-byte padding boundaries and on 1 MB', () => {
+  [0, 1, 3, 55, 56, 57, 63, 64, 65, 119, 120, 128, 1000].forEach(n => {
+    const b = Buffer.alloc(n, 0x61);
+    assert.strictEqual(S.hex(new Uint8Array(b)), sha(b), n + ' bytes');
+  });
+  assert.strictEqual(S.hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  assert.strictEqual(S.hex('é ✓ 𝄞'), sha(Buffer.from('é ✓ 𝄞', 'utf8')), 'text is hashed as UTF-8');
+  const mb = crypto.randomBytes(1048576);
+  assert.strictEqual(S.hex(new Uint8Array(mb)), sha(mb), '1 MB');
+});
+
+rule('SHA-256 is incremental: any split of the input into chunks gives the same digest', () => {
+  let seed = 7; const rnd = n => { seed = (seed * 1103515245 + 12345) >>> 0; return seed % n; };
+  for (let t = 0; t < 40; t++) {
+    const b = crypto.randomBytes(rnd(5000)), h = S.create();
+    for (let at = 0; at < b.length;) { const k = Math.min(b.length - at, rnd(200)); h.update(new Uint8Array(b.slice(at, at + k))); at += k; }
+    assert.strictEqual(h.digest(), sha(b), 'split ' + t);
+  }
+});
+
+/* ---------- ZIP ---------- */
+rule('CRC-32 matches the standard check value and zlib', () => {
+  assert.strictEqual(Z.crc32(new Uint8Array(Buffer.from('123456789'))), 0xcbf43926);
+  const b = crypto.randomBytes(70000), zlib = require('zlib');
+  if (zlib.crc32) assert.strictEqual(Z.crc32(new Uint8Array(b)), zlib.crc32(b));
+  assert.strictEqual(Z.crc32(new Uint8Array(b.slice(30000)), Z.crc32(new Uint8Array(b.slice(0, 30000)))), Z.crc32(new Uint8Array(b)), 'incremental');
+});
+
+rule('ZIP limits follow PKWARE without Zip64, checked with virtual sizes: entries, sizes, offsets and the central directory', () => {
+  const MAX = 0xFFFFFFFE;
+  assert.ok(Z.plan([{ name: 'a', size: MAX - 31 - 47 - 22 }]).ok, 'just under 4 GiB fits');
+  const big = Z.plan([{ name: 'a', size: 0xFFFFFFFF }]);
+  assert.ok(!big.ok && /a is 4 GB or more/.test(big.why), big.why);
+  const off = Z.plan([{ name: 'a', size: 0x80000000 }, { name: 'b', size: 0x7FFFFFF0 }, { name: 'c', size: 1 }]);
+  assert.ok(!off.ok && /past 4 GB/.test(off.why), 'a local header past 4 GiB: ' + off.why);
+  const cd = Z.plan([{ name: 'a', size: MAX - 100 }, { name: 'b', size: 0 }]);
+  assert.ok(!cd.ok, 'the central directory may not start or end past the limit: ' + cd.why);
+  const many = Array.from({ length: 65535 }, (_, i) => ({ name: 'f' + i, size: 0 }));
+  assert.ok(Z.plan(many).ok, '65,535 entries fit');
+  assert.ok(!Z.plan(many.concat([{ name: 'x', size: 0 }])).ok, '65,536 don\'t');
+  const p = Z.plan([{ name: 'ab', size: 10 }]);
+  assert.strictEqual(p.bytes, 30 + 2 + 10 + 46 + 2 + 22, 'headers counted exactly');
+  assert.ok(!Z.plan([{ name: 'a', size: 10 }], { cap: 100 }).ok, 'a byte cap refuses before building');
+});
+
+rule('ZIP names: relative, no "..", no leading slash, no backslash, no drive letter, at most 512 UTF-8 bytes, and unique ignoring case', () => {
+  ['../x', 'a/../b', '/x', 'a\\b', 'C:/x', 'c:x', '', 'a//b', './a', 'a/', 'x\u0000y'].forEach(n => assert.ok(Z.checkName(n), 'refused: ' + JSON.stringify(n)));
+  assert.strictEqual(Z.checkName('originals/runs/release/run1/run (1).json'), '');
+  assert.ok(Z.checkName('é'.repeat(257)), '514 bytes is too long');
+  assert.strictEqual(Z.checkName('é'.repeat(256)), '', '512 bytes is fine');
+  const bad = Z.checkNames(['a/B.png', 'a/b.png', 'c', 'c']);
+  same(bad.map(x => x.name), ['a/b.png', 'c']);
+  assert.ok(/differ only in letter case/.test(bad[0].why) && /twice/.test(bad[1].why));
+});
+
+rule('The ZIP writer counts every byte it writes: a declared size or CRC that doesn\'t match, a duplicate name or the cap stops it', async () => {
+  const parts = [], w = Z.writer({ sink: u => { parts.push(Buffer.from(u)); }, date: new Date(NOW) });
+  await w.add('a.txt', new Uint8Array(Buffer.from('hello')));
+  await assert.rejects(w.add('A.TXT', new Uint8Array(1)), /letter case/);
+  await w.begin('b.bin', 3, Z.crc32(new Uint8Array([1, 2, 3])));
+  await w.data(new Uint8Array([1, 2, 4]));
+  await assert.rejects(w.end(), /changed while/);
+  const w2 = Z.writer({ sink: () => {}, cap: 60 });
+  await assert.rejects(w2.add('a.txt', new Uint8Array(40)), /limit/);
+});
+
+/* ---------- The collector ---------- */
+rule('The collector reads only: with every mutating method throwing, a run with a redundant save receipt is collected and the folder is unchanged', async () => {
+  const f = await folder({ strict: true }), before = f.snapshot();
+  const col = await repo.collectEvidence(f, { run: 'release/run1' }, { now: () => Date.parse(NOW) });
+  assert.strictEqual(f.mutations.length, 0, f.mutations.join(', '));
+  assert.strictEqual(f.snapshot(), before);
+  assert.ok(col.files.some(x => x.path === 'runs/release/run1/run.json'));
+  const ro = repo.readOnly(f);
+  ['write', 'append', 'remove'].forEach(m => assert.throws(() => ro[m]('x', 'y'), /read-only/));
+  assert.ok(!ro.writeTest && !ro.url, 'only list, read, stat and blob');
+});
+
+rule('A pack keeps every file in the run folder; lineage receipts and temporary files are left out with their real reasons', async () => {
+  const f = await folder(), col = await repo.collectEvidence(f, { run: 'release/run1' }, { now: () => Date.parse(NOW) });
+  const has = p => col.files.filter(x => x.path === fixture.base + p)[0];
+  ['run.json', 'notes-w2.jsonl', 'history-w1.jsonl', 'run-LAPTOP.json', 'run (1).json', 'candidate-other-zzzz9999.json', 'files/20261017-aaaaaa-w2-shot.png', 'files/20261017-bbbbbb-w2-deploy.log'].forEach(p => assert.ok(has(p), p));
+  assert.ok(/may not be in run\.json/.test(has('candidate-other-zzzz9999.json').flag), 'the orphan receipt is flagged');
+  assert.ok(/OneDrive/.test(has('run-LAPTOP.json').label) && /OneDrive/.test(has('run (1).json').label));
+  const lin = col.exclusions.filter(x => /^runs\/release\/run1\/candidate-w1-/.test(x.path));
+  assert.ok(lin.length >= 1 && lin.every(x => x.reason === 'already included in run.json, which lists it in its lineage'), JSON.stringify(col.exclusions));
+  assert.ok(col.exclusions.some(x => x.path === fixture.base + 'run.json.1a2b.tmp' && x.reason === 'temporary file left by a save'));
+  assert.ok(col.exclusions.some(x => x.path === 'people.json' && /people directory and its email fields are left out/.test(x.reason)));
+  assert.ok(!col.files.some(x => x.path === 'people.json'));
+  const fu = col.files.filter(x => /^followups\//.test(x.path)).map(x => x.path).sort();
+  same(fu, ['followups/release/run1.fu1.w2.1-LAPTOP.json', 'followups/release/run1.fu1.w2.1.json', 'followups/release/run1.fu2.w3.1.json'], 'its follow-up decisions, OneDrive\'s copy and the unreadable one; never another run\'s');
+  assert.ok(/couldn't be read/.test(col.files.filter(x => x.path === 'followups/release/run1.fu2.w3.1.json')[0].flag));
+  assert.ok(col.files.some(x => x.path === 'suggestions/release/f1.w3.json'), 'the legacy decision on this run\'s suggested fix');
+  assert.ok(!col.files.some(x => x.path === 'suggestions/release/other.w3.json'), 'not one on another run\'s');
+  assert.ok(col.files.some(x => x.path === 'corrections/release/' + fixture.groupId + '.w4.1.json'));
+  assert.ok(/may relate to this run/.test(col.files.filter(x => x.path === 'corrections/release/zzz.w5.1.json')[0].flag), 'an unreadable decision is included and flagged');
+  ['map.md', 'types.json', 'publication.json'].forEach(n => assert.ok(col.files.some(x => x.path === 'publications/release/' + fixture.v1 + '/' + n), n));
+});
+
+rule('A malformed notes line is listed by its line number, and two notes with one ID both appear', async () => {
+  const { zip, res } = await pack(await folder(), { run: 'release/run1' });
+  const notes = res.col.runs[0].notes.filter(n => n.file === 'notes-w2.jsonl')[0];
+  same(notes.malformed, [4]);
+  const html = unzip(zip)['evidence.html'].data.toString('utf8');
+  assert.ok(html.includes('First note with the shared ID') && html.includes('Second note with the shared ID'));
+  assert.ok(/notes-w2\.jsonl.{0,200}line 4/s.test(html), 'the page names the line');
+});
+
+rule('evidence.html runs no script: exact CSP, no <script> tag, and markup in a note stays text', async () => {
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const html = unzip(zip)['evidence.html'].data.toString('utf8');
+  assert.ok(html.includes('<meta http-equiv="Content-Security-Policy" content="' + E.CSP + '">'));
+  assert.strictEqual(E.CSP, 'default-src \'none\'; img-src data:; style-src \'unsafe-inline\'');
+  assert.ok(!/<script/i.test(html), 'no script tag');
+  assert.ok(!/<img src=x/i.test(html) && html.includes('&lt;img src=x onerror=alert(2)&gt;') && html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  assert.ok(/<img [^>]*src="data:image\/png;base64,/.test(html), 'a picture is inline');
+});
+
+rule('A run file from a newer Flightdeck is packed as it is, and the page says it shows only what this copy understands', async () => {
+  const f = await folder(), p = fixture.base + 'run.json';
+  const o = JSON.parse(f.files.get(p).toString('utf8')); o.format = 'preflight-run/9'; o.newThing = { a: 1 };
+  f.files.set(p, Buffer.from(JSON.stringify(o)));
+  const { zip } = await pack(f, { run: 'release/run1' }), z = unzip(zip);
+  assert.ok(z['originals/' + p].data.equals(f.files.get(p)), 'the original bytes');
+  assert.ok(z['evidence.html'].data.toString('utf8').includes('This page shows only what this copy understands; the original files are complete.'));
+});
+
+rule('A missing run.json still gives a pack of what\'s there, marked partial', async () => {
+  const f = await folder(); f.files.delete(fixture.base + 'run.json');
+  const { zip, res } = await pack(f, { run: 'release/run1' });
+  assert.strictEqual(res.status, 'partial');
+  const z = unzip(zip);
+  assert.ok(z['originals/' + fixture.notesPath] && z['originals/' + fixture.base + 'run-LAPTOP.json']);
+  assert.ok(/run\.json is missing/.test(JSON.parse(z['manifest.json'].data).unresolved.join(' ')));
+});
+
+rule('"Published in v2" comes with v2\'s checklist, types and record; without them it reads "Can\'t be confirmed from this pack"', async () => {
+  let { zip, res } = await pack(await folder(), { run: 'release/run1' });
+  let z = unzip(zip), html = z['evidence.html'].data.toString('utf8');
+  const v2 = 'publications/release/' + fixture.v2 + '/';
+  ['map.md', 'types.json', 'publication.json'].forEach(n => assert.ok(z['originals/' + v2 + n], n));
+  const claim = res.col.runs[0].claims.filter(c => c.group === fixture.groupId)[0];
+  assert.ok(claim && claim.text === 'Published in v2' && claim.verified, JSON.stringify(res.col.runs[0].claims));
+  assert.ok(html.includes('Published in v2'));
+  const f = await folder(); f.files.delete(v2 + 'map.md');
+  ({ zip, res } = await pack(f, { run: 'release/run1' }));
+  html = unzip(zip)['evidence.html'].data.toString('utf8');
+  const c2 = res.col.runs[0].claims.filter(c => c.group === fixture.groupId)[0];
+  assert.ok(c2 && !c2.verified && /Can't be confirmed from this pack/.test(c2.status), JSON.stringify(c2));
+  assert.ok(html.includes('Can&#39;t be confirmed from this pack'));
+});
+
+rule('A run\'s frozen step types that differ from the version\'s types.json are flagged first, in red', async () => {
+  const f = await folder(), p = fixture.base + 'run.json';
+  const o = JSON.parse(f.files.get(p).toString('utf8')); o.types.confirm = Object.assign({}, o.types.confirm, { label: 'Changed by hand' });
+  f.files.set(p, Buffer.from(JSON.stringify(o)));
+  const { zip, res } = await pack(f, { run: 'release/run1' });
+  const chk = res.col.runs[0].checks;
+  assert.ok(chk.some(c => c.id === 'types' && c.ok === false) && chk.some(c => c.id === 'snapshot' && c.ok === true) && chk.some(c => c.id === 'mapHash' && c.ok === true), JSON.stringify(chk));
+  const html = unzip(zip)['evidence.html'].data.toString('utf8');
+  assert.ok(html.indexOf('class="bad"') >= 0 && html.indexOf('class="bad"') < html.indexOf('<h2'), 'shown before anything else');
+});
+
+rule('The hash graph: the manifest covers the payload, SHA256SUMS covers payload and manifest, and the pack\'s own digest is given outside it', async () => {
+  const { zip, res } = await pack(await folder(), { run: 'release/run1' }), z = unzip(zip);
+  const man = JSON.parse(z['manifest.json'].data), payload = Object.keys(z).filter(n => n !== 'manifest.json' && n !== 'SHA256SUMS');
+  same(man.files.map(x => x.pack).concat(man.generated.map(x => x.path)).sort(), payload.sort());
+  man.files.forEach(x => assert.strictEqual(sha(z[x.pack].data), x.sha256, x.pack));
+  man.generated.forEach(x => assert.strictEqual(sha(z[x.path].data), x.sha256, x.path));
+  const sums = z.SHA256SUMS.data.toString('utf8').trim().split('\n').map(l => /^([0-9a-f]{64}) {2}(.+)$/.exec(l));
+  assert.ok(sums.every(Boolean));
+  same(sums.map(m => m[2]).sort(), payload.concat(['manifest.json']).sort(), 'SHA256SUMS lists payload and manifest, not itself');
+  sums.forEach(m => assert.strictEqual(sha(z[m[2]].data), m[1], m[2]));
+  assert.strictEqual(res.digest, sha(zip), 'the digest shown is the zip\'s own');
+  assert.ok(!zip.includes(Buffer.from(res.digest)), 'never inside the pack');
+  const readme = z['README.txt'].data.toString('utf8');
+  assert.ok(readme.includes('Compare the pack\'s own digest with one you kept separately. An unsigned pack can\'t prove by itself that it hasn\'t changed, or who made it.'));
+  assert.ok(readme.includes(E.PRIVACY));
+  // sha256sum -c (or shasum) agrees, when the computer has one.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-sums-'));
+  Object.keys(z).forEach(n => { const p = path.join(dir, ...n.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, z[n].data); });
+  for (const tool of [['sha256sum', ['-c', 'SHA256SUMS']], ['shasum', ['-a', '256', '-c', 'SHA256SUMS']]]) {
+    try { cp.execFileSync(tool[0], tool[1], { cwd: dir, stdio: 'pipe' }); console.log('  (' + tool[0] + ' -c agrees)'); break; } catch (e) { if (e.code !== 'ENOENT') throw new Error(tool[0] + ' disagrees: ' + e.stdout + e.stderr); }
+  }
+});
+
+rule('An independent reader accepts the pack: Python\'s zipfile checks every CRC and the manifest\'s hashes', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-zip-')), file = path.join(dir, 'pack.zip');
+  fs.writeFileSync(file, zip);
+  cp.execFileSync(PY, ['-I', '-m', 'zipfile', '-t', file], { stdio: 'pipe' });
+  const out = cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), file], { encoding: 'utf8' });
+  assert.ok(/^ok \d+ entries/.test(out), out);
+});
+
+rule('A notes file that grows while it\'s collected is collected again, and once it settles the pack is complete', async () => {
+  let grows = 1;
+  const f = await folder({ hooks: { blob: (p, x) => { if (p === fixture.notesPath && grows-- > 0) x.files.set(p, Buffer.concat([x.files.get(p), Buffer.from('{"id":"late","at":"' + NOW + '","by":"person-blake","text":"late"}\n')])); } } });
+  const { res } = await pack(f, { run: 'release/run1' });
+  assert.strictEqual(res.status, 'complete');
+  assert.strictEqual(res.col.attempts, 2, 'collected twice');
+});
+
+rule('A notes file that keeps growing is retried twice, then the pack is partial and says so at the top', async () => {
+  const f = await folder({ hooks: { blob: (p, x) => { if (p === fixture.notesPath) x.files.set(p, Buffer.concat([x.files.get(p), Buffer.from('{"id":"late","at":"' + NOW + '","by":"person-blake","text":"late"}\n')])); } } });
+  const { zip, res } = await pack(f, { run: 'release/run1' });
+  assert.strictEqual(res.status, 'partial');
+  assert.strictEqual(res.col.attempts, 3);
+  const html = unzip(zip)['evidence.html'].data.toString('utf8');
+  assert.ok(/The run changed while this pack was made: notes-w2\.jsonl grew\./.test(html), 'named');
+  assert.ok(html.indexOf('notes-w2.jsonl grew') < html.indexOf('<h2'), 'at the top');
+});
+
+rule('Without attachments, they are listed with their size and marked left out, never read', async () => {
+  const f = await folder(), { zip, res } = await pack(f, { run: 'release/run1' }, { attachments: false });
+  const z = unzip(zip);
+  assert.ok(!z['originals/' + fixture.shot] && !z['originals/' + fixture.log]);
+  const ex = res.col.exclusions.filter(x => x.path === fixture.log)[0];
+  assert.ok(ex && ex.reason === 'left out, not hashed' && ex.size === 10, JSON.stringify(ex));
+});
+
+rule('The readable report is one page, labeled as not the evidence pack, and lists what it leaves out', async () => {
+  const parts = [];
+  const res = await repo.exportEvidence(await folder(), { run: 'release/run1' }, { format: 'report', sink: u => parts.push(Buffer.from(u)), now: () => Date.parse(NOW), tz: 'UTC' });
+  const html = Buffer.concat(parts).toString('utf8');
+  assert.ok(/\.html$/.test(res.name) && html.includes('A readable report, not the evidence pack') && /leaves out/.test(html) && !/<script/i.test(html));
+});
+
+rule('Dates are inclusive, from 00:00:00.000 to 23:59:59.999 of the through day in the chosen time zone', () => {
+  let r = E.dayRange('2026-10-17', '2026-10-17', 'UTC');
+  same([new Date(r.start).toISOString(), new Date(r.end).toISOString()], ['2026-10-17T00:00:00.000Z', '2026-10-17T23:59:59.999Z']);
+  r = E.dayRange('2026-10-17', '2026-10-18', 'America/New_York');
+  same([new Date(r.start).toISOString(), new Date(r.end).toISOString()], ['2026-10-17T04:00:00.000Z', '2026-10-19T03:59:59.999Z']);
+  r = E.dayRange('2026-11-01', '2026-11-01', 'America/New_York');
+  same([new Date(r.start).toISOString(), new Date(r.end).toISOString()], ['2026-11-01T04:00:00.000Z', '2026-11-02T04:59:59.999Z'], 'a 25-hour day');
+  assert.throws(() => E.dayRange('2026-10-18', '2026-10-17', 'UTC'), /after/);
+  assert.throws(() => E.dayRange('2026-02-30', '2026-03-01', 'UTC'), /real date/);
+  assert.throws(() => E.dayRange('2026-10-17', '2026-10-17', 'Mars/Base'), /time zone/);
+});
+
+rule('Browser caps: 500 MB on a desktop, 150 MB on a phone or low-memory device, and an over-cap pack is refused before anything is read', async () => {
+  same([E.capFor({ width: 1440, deviceMemory: 8 }), E.capFor({ width: 375, deviceMemory: 8 }), E.capFor({ width: 1440, deviceMemory: 4 })], [500 * 1048576, 150 * 1048576, 150 * 1048576]);
+  const f = await folder(), big = 'runs/release/run1/files/20261017-cccccc-w2-huge.log';
+  f.files.set(big, Buffer.alloc(1)); f.stat = p => Promise.resolve(p === big ? { size: 160 * 1048576, mtime: 1 } : BytesFS.prototype.stat.call(f, p));
+  const blob0 = f.calls.blob;
+  await assert.rejects(repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => {}, cap: E.capFor({ width: 375 }), maxFile: 1e12 }), /about 16\d\.\d MB.*150 MB/);
+  assert.strictEqual(f.calls.blob, blob0, 'nothing read');
+  const res = await repo.collectEvidence(f, { run: 'release/run1' }, { cap: 500 * 1048576, plan: true });
+  assert.ok(res.exclusions.some(x => x.path === big && /over 100 MB/.test(x.reason)), 'a single file over 100 MB is left out with its reason and size');
+});
+
+rule('Cancel stops collecting between chunks, and nothing is written', async () => {
+  let stop = false, wrote = 0;
+  const f = await folder({ hooks: { blob: () => { stop = true; } } });
+  await assert.rejects(repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => { wrote++; }, cancelled: () => stop }), e => e.cancelled === true);
+  assert.strictEqual(wrote, 0);
+});
+
+run();

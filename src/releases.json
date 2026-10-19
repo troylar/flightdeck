@@ -12,6 +12,20 @@
         "where": "Search in the top bar, on every page"
       },
       {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Export a run's evidence",
+        "now": "Make an evidence pack of one run, or of a process's runs between two days: a zip with the original files, a page to read, and SHA-256 hashes to check them by. It says what it left out and why, and anything that changed while it was made. Save it, and keep its SHA-256 somewhere separate. The people directory is left out; the records may still name people.",
+        "where": "A run's Receipt or its More menu, and Runs › Export evidence…"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "flightdeck export",
+        "now": "flightdeck export makes the same evidence pack from the command line, for one run (--run) or for the runs started between two days (--process, --from, --through, in --tz). It never changes the team folder, prints the pack's SHA-256, and exits 0 for a complete pack, 4 for a partial one and 1 when it made none.",
+        "where": "flightdeck export <team folder> --run <process>/<run id>"
+      },
+      {
         "kind": "improved",
         "area": "Runs",
         "title": "Runs load 50 at a time",

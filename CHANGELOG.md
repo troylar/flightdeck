@@ -9,6 +9,8 @@ Search everything with Ctrl+K, and big team folders open and refresh faster, sho
 ### New
 
 - **Search everything with Ctrl+K** (Search). Press Ctrl+K (Cmd+K on a Mac), or / when single-key shortcuts are on. Find runs, steps, notes, corrections, follow-ups, step types, skills and pages, grouped by kind, with your words highlighted. Accents don't matter. Choose a result to go straight there; anything you were typing is kept. Results update as the folder changes, and a run that couldn't be read is found from its last copy and marked. *Where:* Search in the top bar, on every page
+- **Export a run's evidence** (Runs). Make an evidence pack of one run, or of a process's runs between two days: a zip with the original files, a page to read, and SHA-256 hashes to check them by. It says what it left out and why, and anything that changed while it was made. Save it, and keep its SHA-256 somewhere separate. The people directory is left out; the records may still name people. *Where:* A run's Receipt or its More menu, and Runs › Export evidence…
+- **flightdeck export** (Command line). flightdeck export makes the same evidence pack from the command line, for one run (--run) or for the runs started between two days (--process, --from, --through, in --tz). It never changes the team folder, prints the pack's SHA-256, and exits 0 for a complete pack, 4 for a partial one and 1 when it made none. *Where:* flightdeck export <team folder> --run <process>/<run id>
 - **Says when refreshing is slow on this computer** (Folder health). When the last 3 refreshes each took more than 15 seconds, Folder health says how long refreshing takes here, with what to do about a big folder. *Where:* Settings › Folder health
 
 ### Improved
