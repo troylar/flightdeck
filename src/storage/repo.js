@@ -607,6 +607,19 @@ PF.repo = (function () {
     if (!/^[a-z0-9][a-z0-9-]{0,59}\.md$/.test(file)) return Promise.reject(new Error('A checklist file is named <process>.md, in lowercase letters, numbers and dashes.'));
     return saveChecked(fs, 'maps/drafts/' + file, md, expect, opts);
   }
+  /* A correction applied to a draft (docs/design.md section 19). o.base is the draft as it was compared (o.expect its
+     fingerprint, or null when there's no draft yet and base is the latest version: the draft is created from it). The result
+     is worked out again here and saved only over that same draft: if the draft changed since, nothing is written and the
+     conflict is returned, as for any draft save. o.edited is a person's own wording; o.confirmed says a person confirmed a
+     comparison that wasn't clean. o.text, when given, must be the result the window showed. */
+  function applyCorrection(fs, o, opts) {
+    var file = o.file || o.process + '.md', rv;
+    try { rv = PF.corrections.review(o.group, o.base, o.edited == null ? null : o.edited); } catch (e) { return Promise.reject(e); }
+    var ok = rv.text && rv.text !== o.base && (rv.state === 'clean' || (o.confirmed && rv.state === 'changed'));
+    if (!ok) return Promise.reject(new Error(rv.state === 'already' ? 'The draft already has this correction.' : rv.reason || 'This correction can\'t be applied to the draft as it is.'));
+    if (o.text != null && o.text !== rv.text) return Promise.reject(new Error('The draft changed since the comparison was shown. Look again.'));
+    return saveDraft(fs, file, rv.text, o.expect == null ? null : o.expect, opts).then(function (res) { res.text = rv.text; res.file = file; res.added = rv.added || ''; return res; });
+  }
   function saveStepType(fs, def, expect, opts) {
     var errs = PF.types.checkCustom(def);
     if (errs.length) return Promise.reject(new Error(errs[0]));
@@ -761,5 +774,5 @@ PF.repo = (function () {
     });
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

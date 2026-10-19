@@ -194,12 +194,14 @@ PF.corrections = (function () {
       return Object.assign(d, { kind: 'fix-decision', legacy: true, suggestion: o.suggestion, status: o.status === 'accepted' ? 'legacy' : o.status });
     }
     if (o.kind !== 'correction-decision' || typeof o.group !== 'string' || !ID.test(o.group) || DECIDE.indexOf(o.status) < 0) return null;
-    return Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '',
+    var r = o.result && typeof o.result === 'object' && /^[0-9a-f]{8}$/.test(o.result.sig || '') ? { step: typeof o.result.step === 'string' && CID.test(o.result.step) ? o.result.step : '', sig: o.result.sig } : null;
+    return Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: r,
       members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, 500) : [] });
   }
   /* A new decision on a group. Decisions are ordered by what the decider had seen, never by clocks: rev is one more than the
      decision this window shows (opts.current), and seen names that decision's file. Declining needs a reason; only the
-     author of every correction in the group can withdraw it. */
+     author of every correction in the group can withdraw it. An applied one records its result (opts.result, from outcome),
+     so a later change to that step shows; older copies ignore it. */
   function decision(g, by, status, reason, at, opts) {
     opts = opts || {};
     if (DECIDE.indexOf(status) < 0) throw fail('Unknown decision.');
@@ -207,8 +209,10 @@ PF.corrections = (function () {
     if (status === 'declined' && !reason) throw fail('Why not? The runs will show this.', 'corr-reason');
     if (status === 'withdrawn' && !canWithdraw(g, by)) throw fail('Only whoever suggested it can withdraw it.');
     var cur = opts.current || null;
-    return { kind: 'correction-decision', process: g.process, group: g.id, members: g.members.map(function (c) { return c.id; }), status: status, reason: reason.slice(0, REASON_MAX), by: by, at: at,
+    var d = { kind: 'correction-decision', process: g.process, group: g.id, members: g.members.map(function (c) { return c.id; }), status: status, reason: reason.slice(0, REASON_MAX), by: by, at: at,
       rev: (cur ? cur.rev || 0 : 0) + 1, seen: cur && cur._file || null, act: opts.act || '' };
+    if (status === 'applied' && opts.result) d.result = { step: opts.result.step || '', sig: opts.result.sig };
+    return d;
   }
   function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by; }); }
 
@@ -309,6 +313,180 @@ PF.corrections = (function () {
     return out;
   }
 
+  /* ---------- applying a group to the draft (slice 2) ---------- */
+  /* Operations the builder can make for a correction: everything but a screenshot, a described problem, a legacy fix and one
+     from a newer copy, which need a person in the editor. */
+  var APPLIES = { wording: 1, add: 1, move: 1, roles: 1, remove: 1 };
+  function manualWhy(g) {
+    var op = g.change.op;
+    return g.legacy || g.newer || (g.first && g.first.newer) ? 'It\'s a suggested fix from before 1.13, so it says what\'s wrong rather than what to change.'
+      : op === 'screenshot' ? 'A new screenshot goes into the folder by hand.' : op === 'describe' ? 'It describes a problem rather than a change.' : 'Flightdeck can\'t make this change for you.';
+  }
+  /* A step of the draft as the builder reads it, only when its ID is its own (two steps with one ID can't be told apart). */
+  function draftStep(o, id) { return id ? o.steps.filter(function (s) { return s.id === String(id).toLowerCase() && s.key === s.id; })[0] || null : null; }
+  function draftPhase(o, id) { return id ? o.phases.filter(function (p) { return p.id === id && p.key === p.id; })[0] || null : null; }
+  /* The builder's operations that make a group's change in this draft: { ops }, { gone: why } or { manual: why }. edited
+     replaces the proposed wording, or the new step's text, with what a person wrote. */
+  function toOps(g, text, edited) {
+    var ch = g.change, O = PF.outline, o = O.parse(text);
+    if (!APPLIES[ch.op] || g.legacy || g.newer) return { manual: manualWhy(g) };
+    if (o.unsupported) return { manual: 'The builder can\'t edit this draft safely: ' + o.unsupported };
+    /* Two steps with one ID can't be told apart: neither is changed, and neither counts as gone. */
+    var twice = [g.target.step, ch.op === 'move' && ch.to.after].filter(function (id) { return id && o.steps.filter(function (x) { return x.id === String(id).toLowerCase(); }).length > 1; })[0];
+    if (twice) return { manual: 'Two steps in the draft share the ID ' + twice + ', so Flightdeck can\'t tell which one this is about. Give one of them a new ID in the editor.' };
+    var s = draftStep(o, g.target.step), say = edited != null ? norm(edited) : null;
+    if (ch.op === 'add') {
+      var t = say != null ? say : ch.text;
+      if (ch.where !== 'end') return s ? { ops: [{ op: 'add', to: { after: s.key }, text: t }] } : { gone: 'The step it goes after isn\'t in the draft anymore.' };
+      var ph = s ? s.phase : draftPhase(o, g.target.phase);
+      if (!ph) return { gone: 'Its phase isn\'t in the draft anymore.' };
+      return { ops: [{ op: 'add', to: { phase: ph.key, track: s ? s.track : ph.tracks.length - 1, where: 'end' }, text: t }] };
+    }
+    if (!s) return { gone: 'This step isn\'t in the draft anymore.' };
+    if (ch.op === 'wording') return { ops: [{ op: 'edit', step: s.key, set: { text: say != null ? say : ch.to } }] };
+    if (ch.op === 'remove') return { ops: [{ op: 'delete', step: s.key }] };
+    if (ch.op === 'move') {
+      if (ch.to.after) { var a = draftStep(o, ch.to.after); return a ? { ops: [{ op: 'moveTo', step: s.key, to: { after: a.key } }] } : { gone: 'The step it goes after isn\'t in the draft anymore.' }; }
+      var tp = draftPhase(o, ch.to.phase);
+      if (!tp) return { gone: 'The phase it goes to isn\'t in the draft anymore.' };
+      return { ops: [{ op: 'moveTo', step: s.key, to: { phase: tp.key, track: ch.to.where === 'start' ? -1 : tp.tracks.length - 1, where: ch.to.where } }] };
+    }
+    /* Who does it: the step's own roles become the proposed ones. "Anyone" can't be said for a step whose lane has a role. */
+    var own = s.roles, want = ch.to, lane = s.track >= 0 ? s.phase.tracks[s.track].roles : [];
+    if (!want.length && lane.length) return { manual: 'Its lane gives it ' + lane.map(function (r) { return '@' + r; }).join(', ') + '; anyone can\'t be set for one step there.' };
+    var ops = own.filter(function (r) { return want.indexOf(r) < 0; }).map(function (r) { return { op: 'edit', step: s.key, set: { role: r, on: false } }; })
+      .concat(want.filter(function (r) { return own.indexOf(r) < 0; }).map(function (r) { return { op: 'edit', step: s.key, set: { role: r, on: true } }; }));
+    return { ops: ops };
+  }
+  /* Each operation in turn, through the builder's safety net. Returns { text, id } (id: a step it added) or { error }. */
+  function run(text, ops) {
+    var cur = text, id = '';
+    for (var i = 0; i < ops.length; i++) {
+      var res = PF.outline.apply(cur, ops[i]);
+      if (res.error) return { error: res.error };
+      if (ops[i].op === 'add') id = res.id;
+      cur = res.text;
+    }
+    return { text: cur, id: id };
+  }
+  /* Where a step is, in words: its phase and the step before it in its group. */
+  function placeOf(o, s) {
+    var prev = null; s.phase.steps.forEach(function (x, i, a) { if (x === s && i > 0 && a[i - 1].track === s.track) prev = a[i - 1]; });
+    var lane = s.track >= 0 ? s.phase.tracks[s.track].title : '';
+    return (prev ? 'After "' + prev.text + '"' : 'First') + ' in ' + (lane ? 'the ' + lane + ' lane of ' : '') + '"' + s.phase.title + '"';
+  }
+  function view(o, s) { return s ? { text: s.text, roles: s.roles.slice(), where: placeOf(o, s), id: s.id } : null; }
+  /* The step a group's result is about in this text: the step itself, or for a missing step, the one it adds (by its ID once
+     known, else by its text in the target phase). */
+  /* A new step is only the one asked for at the place asked for: right after its step, or last in that step's group (else
+     the phase's last group). The same text elsewhere is another step. */
+  function resultStep(g, o, id) {
+    if (g.change.op !== 'add') return draftStep(o, g.target.step);
+    if (id) return draftStep(o, id);
+    var at = placed(g, o);
+    return at && norm(at.text) === norm(g.change.text) ? at : null;
+  }
+  /* The step at the place a missing step was asked for, whatever it says, or null. */
+  function placed(g, o) {
+    var ch = g.change, anchor = draftStep(o, g.target.step), at = null;
+    if (ch.where !== 'end') {
+      if (!anchor) return null;
+      var ps = anchor.phase.steps, k = ps.indexOf(anchor);
+      at = k + 1 < ps.length && ps[k + 1].track === anchor.track ? ps[k + 1] : null;
+    } else {
+      var ph = anchor ? anchor.phase : draftPhase(o, g.target.phase); if (!ph) return null;
+      var tr = anchor ? anchor.track : ph.tracks.length - 1, grp = ph.steps.filter(function (x) { return x.track === tr; });
+      at = grp[grp.length - 1] || null;
+    }
+    return at;
+  }
+  /* A fingerprint of what a group changes, as this text has it: the step's signature, and for a move, its place too. A
+     decision records it, so a later change to that step shows as "Changed since applied". */
+  function outcome(g, text, id) {
+    var o = PF.outline.parse(text), s = resultStep(g, o, id);
+    if (!s) return { step: id || '', sig: U.hash('gone') };
+    var map = M.parse(text), sig = stepSig(map, s.id);
+    if (g.change.op === 'move') sig = U.hash(sig + '|' + placeOf(o, s));
+    return { step: s.id, sig: sig };
+  }
+  function isAlready(g, o) {
+    var ch = g.change, s = draftStep(o, g.target.step);
+    if (ch.op === 'remove') return !s;
+    if (ch.op === 'add') return !!resultStep(g, o);
+    if (!s) return false;
+    if (ch.op === 'wording') return norm(s.text) === norm(ch.to);
+    if (ch.op === 'roles') { var lane = s.track >= 0 ? s.phase.tracks[s.track].roles : []; return (s.roles.length ? s.roles : lane).slice().sort().join(' ') === ch.to.slice().sort().join(' '); }
+    if (ch.op === 'move') {
+      var i = s.phase.steps.indexOf(s), prev = i > 0 ? s.phase.steps[i - 1] : null;
+      if (ch.to.after) return !!prev && prev.id === ch.to.after;
+      var ps = s.phase.steps;
+      return s.phase.id === ch.to.phase && (ch.to.where === 'start' ? i === 0 : i === ps.length - 1);
+    }
+    return false;
+  }
+  /* The three-way comparison: what the run's version said (the group's own record), the draft now, and the draft with the
+     change made. state: clean (apply it), already (the draft has it: link the correction), changed (the step changed since
+     the run's version, or what it depends on did: a person edits or confirms the result), gone (the step isn't in the draft),
+     manual (a person makes it in the editor). edited: a person's own wording for the result. opts.applied: the outcome this
+     window applied, when its decision isn't written yet. */
+  function review(g, text, edited, opts) {
+    var o = PF.outline.parse(text), ch = g.change, s = draftStep(o, g.target.step), out = { state: 'clean', now: view(o, s), result: null, text: null, reason: '' };
+    if (ch.op === 'add' && s) out.now = { text: '', where: 'Not there yet. It would go ' + (ch.where === 'end' ? 'at the end of "' + s.phase.title + '"' : 'after "' + s.text + '"') + '.', roles: [], anchor: true };
+    var t = toOps(g, text, edited);
+    if (t.manual) return Object.assign(out, { state: 'manual', reason: t.manual });
+    /* What this window applied (perhaps in a person's own words) whose decision wasn't written yet: the draft has it. */
+    var ap = opts && opts.applied;
+    var r1 = ap && resultStep(g, o, ap.step);
+    /* A remembered new step counts only where it was asked for; moved elsewhere, it's another step. */
+    if (edited == null && ap && ap.sig !== U.hash('gone') && outcome(g, text, ap.step).sig === ap.sig && (ch.op !== 'add' || (r1 && placed(g, o) === r1))) {
+      if (ch.op === 'add') out.now = view(o, r1);
+      return Object.assign(out, { state: 'already', result: view(o, r1), text: text });
+    }
+    if (edited == null && isAlready(g, o)) {
+      var r0 = resultStep(g, o);
+      if (ch.op === 'add') out.now = view(o, r0);
+      return Object.assign(out, { state: 'already', result: ch.op === 'remove' ? null : view(o, r0), removed: ch.op === 'remove', text: text });
+    }
+    if (t.gone) return Object.assign(out, { state: 'gone', reason: t.gone });
+    if (!t.ops.length) return Object.assign(out, { state: 'already', result: out.now, text: text });
+    var res = run(text, t.ops);
+    if (res.error) return Object.assign(out, { state: 'manual', reason: res.error });
+    var o2 = PF.outline.parse(res.text), after = ch.op === 'add' ? draftStep(o2, res.id) : draftStep(o2, g.target.step);
+    Object.assign(out, { ops: t.ops, text: res.text, added: res.id || '', result: ch.op === 'remove' ? null : view(o2, after), removed: ch.op === 'remove' });
+    /* The step as the run saw it is the group's signature; for a new step, the step it goes after. */
+    var anchor = ch.op === 'add' && ch.where === 'end' ? null : s, map = M.parse(text);
+    if (anchor && g.sig && stepSig(map, anchor.id) !== g.sig) { out.state = 'changed'; out.reason = ch.op === 'add' ? 'The step it goes after changed in the draft since the run\'s version.' : 'This step changed in the draft since the run\'s version.'; }
+    return out;
+  }
+  /* Operations that undo a group's operations on the text they were made on: wording and roles back as they were, a moved
+     step back to its place, an added step deleted. A removed step can't be put back this way (null): the editor's Undo can. */
+  function inverse(text, ops, added) {
+    var o = PF.outline.parse(text), out = [];
+    for (var i = ops.length - 1; i >= 0; i--) {
+      var op = ops[i], s = op.step != null ? o.steps.filter(function (x) { return x.key === String(op.step); })[0] : null;
+      if (op.op === 'add') { if (!added) return null; out.push({ op: 'delete', step: added }); continue; }
+      if (!s || op.op === 'delete') return null;
+      if (op.op === 'edit' && 'text' in op.set) out.push({ op: 'edit', step: s.key, set: { text: s.parts.rest.replace(/\s*[@^][\w-]+/g, '').trim() } });
+      else if (op.op === 'edit' && 'role' in op.set) out.push({ op: 'edit', step: s.key, set: { role: op.set.role, on: !op.set.on } });
+      else if (op.op === 'moveTo') {
+        var ps = s.phase.steps, k = ps.indexOf(s), prev = k > 0 && ps[k - 1].track === s.track ? ps[k - 1] : null;
+        out.push({ op: 'moveTo', step: s.key, to: prev ? { after: prev.key } : { phase: s.phase.key, track: s.track, where: 'start' } });
+      } else return null;
+    }
+    return out;
+  }
+  /* An applied group whose step no longer matches what was applied (only decisions that recorded their result). */
+  function changedSince(g, text) {
+    var d = g.decision, r = d && d.result;
+    if (g.status !== 'applied' || !r || g.tie || text == null) return false;
+    return outcome(g, text, g.change.op === 'add' ? r.step : '').sig !== r.sig;
+  }
+  /* Open groups on one step that propose different changes: alternatives, each decided on its own. */
+  function alternatives(gs, g) {
+    var k = g.target.step || 'phase:' + g.target.phase;
+    return gs.filter(function (x) { return x.status === 'open' && x.change.op !== 'describe' && (x.target.step || 'phase:' + x.target.phase) === k; });
+  }
+
   /* Markdown for an AI assistant: the open groups with the step as the draft has it now, and how to edit. */
   function brief(proc, gs, opts) {
     opts = opts || {};
@@ -346,5 +524,6 @@ PF.corrections = (function () {
   }
 
   return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision,
-    decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary };
+    decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary,
+    toOps: toOps, review: review, inverse: inverse, outcome: outcome, changedSince: changedSince, alternatives: alternatives, applies: function (g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer; } };
 })();

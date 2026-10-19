@@ -1,5 +1,49 @@
 [
   {
+    "version": "1.16.0",
+    "date": "2026-10-19",
+    "headline": "Apply a correction to the draft, after comparing it side by side",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Review and apply",
+        "before": "A correction could only be marked as applied. Someone had to make the change in the draft by hand, or with an AI assistant, and nothing checked that the draft had it.",
+        "now": "Review and apply shows what the run's version said, the draft now and the result side by side, then makes the change in the draft and saves it. Only that step changes. If the step changed since the run, you edit or confirm the result first. If the draft already has it, Link this correction records that. A screenshot or a described problem opens the editor at that step instead.",
+        "where": "A process page › Corrections › Review and apply"
+      },
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Choose between two proposals, or combine them",
+        "now": "When people suggested different wording for one step, use one of them, or combine them into your own wording. Combining marks each of them as applied.",
+        "where": "Review and apply, on a step with two proposed changes"
+      },
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Undo an applied correction",
+        "now": "Applying is one change in the draft editor's history, named for the step, so Undo takes it back. The draft then has unsaved changes until you save it.",
+        "where": "The Undo button in the message, or the draft editor's Undo and History"
+      },
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Changed since applied",
+        "now": "A correction applied in Flightdeck remembers what the step said. If the step changes again in the draft, the correction says Changed since applied.",
+        "where": "A process page › Corrections › All"
+      },
+      {
+        "kind": "improved",
+        "area": "Draft editor",
+        "title": "Steps with open corrections are marked while you edit",
+        "before": "Only the preview marked steps with open corrections.",
+        "now": "The builder's rows say how many open corrections a step has. The Markdown view lists them above the text, with Go to line for each.",
+        "where": "A process page › Edit"
+      }
+    ]
+  },
+  {
     "version": "1.15.0",
     "date": "2026-10-18",
     "headline": "Team confidence: Folder health, a connection check between computers, and safer updates and backups",
