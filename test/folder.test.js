@@ -1234,4 +1234,39 @@ rule('Progressive loading: results come in batches, running runs first, with the
   assert.strictEqual(Object.keys(d.reads).length, 3);
 });
 
+/* ---------- 1.17 slice 1b review: local writes never extend an age; a sleeping monotonic clock ---------- */
+rule('This window saving every 4 minutes never extends a running run\'s 5-minute full read: another computer\'s same-size note edit still shows', async () => {
+  const fs = folder(), clock = ticking(), r = await started(fs);
+  await repo.addNote(fs, { process: 'release', id: 'run1' }, 'blake-laptop', { id: 'b1', at: NOW, by: 'person-blake', step: 'x', text: 'blake first' });
+  await repo.loadAll(fs, { clock });
+  sameSizeEdit(fs, 'runs/release/run1/notes-blake-laptop.jsonl', 'blake first', 'blake other');
+  let seenAt = null;
+  for (let s = 30; s <= 24 * 60 && seenAt == null; s += 30) {
+    clock.ahead(30000);
+    if (s % 240 === 0) { r.details.commit = 'c' + s; await repo.saveRun(fs, r, 'casey-laptop'); }
+    const res = (await repo.loadAll(fs, { clock })).reads['release/run1'];
+    const run = res.kind === 'fresh' ? res.run : res.build();
+    if (run._notes.some(n => n.text === 'blake other')) seenAt = s;
+  }
+  assert.ok(seenAt != null && seenAt <= 5 * 60, 'seen within 5 minutes of its last full read, whatever this window saved: ' + seenAt + ' s');
+});
+
+rule('A monotonic clock that paused while the computer slept: 8 hours on the wall clock make every run due', async () => {
+  const fs = folder(), clock = ticking(); let wall = Date.parse(NOW); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock, now: wall });
+  sameSizeEdit(fs, 'runs/release/old1/run.json', 'Ended old1', 'Ended OLD1');
+  clock.ahead(1000); wall += 8 * 3600000;
+  const res = (await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'];
+  assert.strictEqual(res.kind, 'fresh', 'asleep for 8 hours is 8 hours old'); assert.strictEqual(res.run.title, 'Ended OLD1');
+});
+
+rule('A wall clock that jumps forward makes runs due; both clocks moving together count the time once, never twice', async () => {
+  const fs = folder(), clock = ticking(); let wall = Date.parse(NOW); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock, now: wall });
+  sameSizeEdit(fs, 'runs/release/old1/run.json', 'Ended old1', 'Ended OLD1');
+  for (let i = 0; i < 60; i++) { clock.ahead(30000); wall += 30000; assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'cached', 'within the hour at ' + (i + 1) * 30 + ' s: counted once'); }
+  clock.ahead(30000); wall += 2 * 3600000;
+  assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'fresh', 'a jump forward on the wall clock makes it due');
+});
+
 run();

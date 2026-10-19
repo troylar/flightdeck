@@ -46,9 +46,9 @@
       {
         "kind": "fixed",
         "area": "Team folder",
-        "title": "Setting the computer's clock back no longer pauses refreshing",
+        "title": "Changing the clock or waking from sleep no longer delays refreshing",
         "before": "If the computer's clock was set back, Flightdeck stopped refreshing until the clock caught up again.",
-        "now": "Refreshing is timed by how long Flightdeck has been open, so changing the clock doesn't delay it. While the tab is hidden nothing is read; when you come back, whatever went past its time is read first.",
+        "now": "Setting the clock back doesn't delay refreshing, and after the computer sleeps, Flightdeck refreshes as soon as you come back and reads whatever went past its time first. While the tab is hidden nothing is read.",
         "where": "Every team folder, while Flightdeck is open"
       }
     ]

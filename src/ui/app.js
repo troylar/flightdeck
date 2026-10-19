@@ -1312,17 +1312,32 @@
   setInterval(tick, 1000);
 
   /* Refresh from the folder: often while a run is open, less often elsewhere, and when the window gets focus. */
-  /* Measured in elapsed time, so setting the computer's clock back never delays a refresh. */
+  /* Timed on both clocks: the time since the last beat is the larger of elapsed time (performance.now, which some systems
+     pause while the computer sleeps) and wall-clock time (which a person can set back), counted once. So setting the clock
+     back never delays a refresh, and waking from sleep never hides how long it's been. */
+  var beat = { mono: elapsed(), wall: Date.now(), v: 0 };
+  function since() {
+    var m = elapsed(), w = Date.now();
+    beat.v += Math.max(0, m - beat.mono, w - beat.wall); beat.mono = m; beat.wall = w;
+    return beat.v;
+  }
   var lastRun = -Infinity, lastAll = -Infinity;
   function inRun() { return state.view === 'run' || state.view === 'mission' || state.view === 'receipt' || state.view === 'finish'; }
   setInterval(function () {
+    var now = since();
     if (document.hidden || isBusy() || !state.fs || loading) return;
-    var now = elapsed();
     if ((state.view === 'connection' || (state.view === 'setup' && state.setup && state.setup.step === 'second')) && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
-  window.addEventListener('focus', function () { if (state.fs && !isBusy()) { if (inRun()) { lastRun = elapsed(); refreshRun(); } else { lastAll = elapsed(); load(); } } });
+  function refreshNow() { if (!state.fs || isBusy() || document.hidden) return; var now = since(); if (inRun()) { lastRun = now; lastAll = -Infinity; refreshRun(); } else { lastAll = now; load(); } }
+  window.addEventListener('focus', refreshNow);
+  /* Coming back (the tab shown again, the page restored, the network back) after more than a minute on the wall clock
+     without a beat (the computer slept): refresh at once. The folder's own clock (repo) then finds everything past its age. */
+  function resumed() { var gap = Date.now() - beat.wall; if (gap > 60000 || gap < 0) refreshNow(); else since(); }
+  document.addEventListener('visibilitychange', resumed);
+  window.addEventListener('pageshow', resumed);
+  window.addEventListener('online', resumed);
 
   /* ---------- saving ---------- */
   /* Resolves true once the change is in the team folder, false if it isn't. The save always goes to the folder the change was
@@ -2409,7 +2424,7 @@
     'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
     connection: function () {
       releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
-      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = elapsed(); loadConn();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = since(); loadConn();
     },
     /* Writing a run back after its file disappeared is only ever this explicit choice, and the run's log says so. */
     'restore-missing': function () {

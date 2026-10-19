@@ -5010,7 +5010,7 @@ rule('After every redraw, each thumbnail placeholder still waiting is watched or
 function clocks() {
   let off = 0, t = 1000;
   class D extends Date { constructor(...a) { if (a.length) super(...a); else super(Date.now() + off); } static now() { return Date.now() + off; } }
-  return { D, perf: { now: () => t }, ahead(ms) { off += ms; t += ms; }, wallBack(ms) { off -= ms; } };
+  return { D, perf: { now: () => t }, ahead(ms) { off += ms; t += ms; }, wallBack(ms) { off -= ms; }, wallAhead(ms) { off += ms; }, perfAhead(ms) { t += ms; } };
 }
 const SEPT = 'Release 2026.09.18';
 function runFile(app, title) { return Object.keys(app.fs.files).find(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p) && JSON.parse(app.fs.files[p].t).title === title); }
@@ -5239,6 +5239,15 @@ rule('App: in any order of batched reads, edits, refused saves, Discard, keeping
     if (!/Your last change isn(&#39;|')t saved/.test(html)) assert.strictEqual(commitShown(), disk().details.commit, 'final: the screen agrees with the folder · seed ' + seed + ' · ' + log.join(','));
     assert.ok(!discarded.has(disk().details.commit), 'final: no discarded change in the folder · seed ' + seed);
   }
+});
+
+rule('App: after the computer slept (elapsed timer paused, wall clock 8 hours on), coming back reads every run past its age', async () => {
+  const k = clocks(), app = await onRuns(k), path = runFile(app, SEPT);
+  k.ahead(31000); app.every(); await app.tick(60);
+  sameSizeEdit(app, path, SEPT, 'RELEASE 2026.09.18');
+  k.wallAhead(8 * 3600000); k.perfAhead(1000);
+  app.fire('visibilitychange'); app.focus(); app.every(); await app.tick(80);
+  assert.ok(/RELEASE 2026\.09\.18/.test(app.html()), 'coming back after sleep reads what went past its age');
 });
 
 run();

@@ -32,7 +32,7 @@ PF.repo = (function () {
   /* What's already been read from a folder. Complete publications never change, and ended runs rarely do, so routine refreshes
      skip them; a deep refresh (the Refresh button) reads everything again. */
   var caches = typeof WeakMap === 'function' ? new WeakMap() : null;
-  function newCache() { return { pubs: {}, runs: {}, notes: {}, approved: {}, bad: {}, intern: {}, dec: {} }; }
+  function newCache() { return { pubs: {}, runs: {}, notes: {}, approved: {}, bad: {}, intern: {}, dec: {}, contentAt: {} }; }
   function cacheOf(fs) { fs = fs && fs._raw || fs; if (!caches) return newCache(); var c = caches.get(fs); if (!c) { c = newCache(); caches.set(fs, c); } return c; }
   /* Run at most n reads at once, so a folder with hundreds of runs doesn't flood OneDrive or the browser. */
   function limited(items, n, fn) {
@@ -117,6 +117,7 @@ PF.repo = (function () {
       keys.forEach(function (k) { listed[k] = true; });
       /* A run folder that's gone is forgotten, so one that comes back under the same name is read again. */
       Object.keys(cache.runs).forEach(function (k) { if (!listed[k]) delete cache.runs[k]; });
+      Object.keys(cache.contentAt).forEach(function (k) { if (!listed[k]) delete cache.contentAt[k]; });
       var plan = planRuns(keys, cache, deep, force, sched), pr = o.priority || null;
       function rank(k) { if (pr) return pr[k] != null ? pr[k] : 2; var h = cache.runs[k]; return !h ? 2 : !h.entry.ended ? 0 : recent(h.entry, sched.wall) ? 1 : 3; }
       /* Reads first (overdue runs, after a hidden tab or a long pause), each group in priority order: running, recently
@@ -183,8 +184,13 @@ PF.repo = (function () {
         }
         function keep(entry, fp, t0, all) {
           if (!entry || !fp) delete cache.runs[key];
-          else { var was = cache.runs[key]; cache.runs[key] = { entry: entry, fp: fp, metaAt: t0, contentAt: all || entry.full || !was ? t0 : was.contentAt }; }
           if (!entry) return null;
+          /* A full read (every file read now, none from memory) starts the content age again; anything less keeps the age of
+             the last full read, which outlives the entry (this window's own writes drop the entry, and must never extend the
+             age: notes may still come from memory). Never read in full here: due at once. */
+          var age = all || entry.full ? t0 : cache.contentAt[key] != null ? cache.contentAt[key] : -Infinity;
+          cache.contentAt[key] = age;
+          if (fp) cache.runs[key] = { entry: entry, fp: fp, metaAt: t0, contentAt: age };
           var run = build(entry, cache);
           return { kind: 'fresh', run: run, fileHash: entry.fileHash, build: function () { return build(entry, cache); } };
         }
@@ -222,16 +228,21 @@ PF.repo = (function () {
     keys.forEach(function (k) { if (!plan[k]) plan[k] = 'skip'; });
     return plan;
   }
-  /* Elapsed time for one refresh of a folder. due(name, keys, lastOf, maxMs) picks every key at or past maxMs since its
-     last time (or with a last time after now: a clock that went back can't say how old anything is), then the oldest
-     others until this kind has had its share of the time since the last refresh: keys × elapsed / maxMs, carried over, so
-     the work is spread evenly and each key comes up within maxMs. */
+  /* Elapsed time for one refresh of a folder, from two clocks: the monotonic one (performance.now, which some systems pause
+     while the computer sleeps) and the wall clock (which a person can change). Time since the last refresh is the larger of
+     the two (counted once, never added), kept as the folder's own running total (cache.clk.v), which is what every age is
+     measured in. Either clock going backward can't say how old anything is, so everything is due. due(name, keys, lastOf,
+     maxMs) picks every key at or past maxMs since its last time, then the oldest others until this kind has had its share
+     of the time since the last refresh: keys × elapsed / maxMs, carried over, so the work is spread evenly and each key
+     comes up within maxMs. */
   function scheduler(cache, clock, deep, wall) {
-    var now = clock(), last = cache.lastPass, dt = last == null ? 0 : now - last;
-    cache.lastPass = now; cache.credit = cache.credit || {};
+    var mono = clock(), c = cache.clk, dm = c ? mono - c.mono : 0, dw = c ? wall - c.wall : 0, back = dm < 0 || dw < 0;
+    var dt = Math.max(0, dm, dw), now = (c ? c.v : 0) + dt;
+    cache.clk = { mono: mono, wall: wall, v: now }; cache.credit = cache.credit || {};
     return { now: now, wall: wall, deep: deep, due: function (name, keys, lastOf, maxMs) {
       if (!keys.length) { cache.credit[name] = 0; return []; }
-      var span = dt < 0 ? maxMs : Math.min(dt, maxMs), credit = Math.min(keys.length, (cache.credit[name] || 0) + keys.length * span / maxMs);
+      if (back) { cache.credit[name] = 0; return keys.slice(); }
+      var span = Math.min(dt, maxMs), credit = Math.min(keys.length, (cache.credit[name] || 0) + keys.length * span / maxMs);
       var sorted = keys.map(function (k, i) { return { k: k, t: lastOf(k), i: i }; }).sort(function (a, b) { return a.t - b.t || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0); });
       var out = sorted.filter(function (x) { return (x.o = now - x.t >= maxMs || now < x.t); });
       for (var i = 0; i < sorted.length && out.length < Math.floor(credit); i++) if (!sorted[i].o) out.push(sorted[i]);

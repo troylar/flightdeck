@@ -19,7 +19,7 @@ Big team folders: they open and refresh faster, runs show 50 at a time, and Fold
 
 ### Fixed
 
-- **Setting the computer's clock back no longer pauses refreshing** (Team folder). Refreshing is timed by how long Flightdeck has been open, so changing the clock doesn't delay it. While the tab is hidden nothing is read; when you come back, whatever went past its time is read first. *Where:* Every team folder, while Flightdeck is open
+- **Changing the clock or waking from sleep no longer delays refreshing** (Team folder). Setting the clock back doesn't delay refreshing, and after the computer sleeps, Flightdeck refreshes as soon as you come back and reads whatever went past its time first. While the tab is hidden nothing is read. *Where:* Every team folder, while Flightdeck is open
 
 ## 1.16.1 · Oct 19, 2026
 
