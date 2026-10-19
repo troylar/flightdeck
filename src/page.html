@@ -926,6 +926,18 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .fulist { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .fulist li { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: space-between; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
 .finish { display: grid; gap: 16px; max-width: 820px; }
+/* Follow-ups with what became of each (PF.followups): text and status, the decision, the actions, then the open form. */
+.fulist li.fu { flex-direction: column; align-items: stretch; gap: 6px; }
+.fulist:last-child { margin-bottom: 0; }
+.fu-main { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-width: 0; }
+.fu-text { overflow-wrap: anywhere; min-width: 0; }
+.fu-meta { flex-basis: 100%; }
+.fu-dec { overflow-wrap: anywhere; }
+.fu-acts { flex-wrap: wrap; gap: 6px; }
+.fu-form { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; max-width: 560px; }
+.fu-form-h { margin: 0; }
+.fu-crumbs { margin: 0 0 4px; color: var(--muted); }
+.fu-all { margin: 0 0 16px; }
 /* What's new: the release history. Two panes on a wide screen; on a phone, the list, then the chosen release. */
 .wn { position: relative; }
 .wn .ver { color: var(--muted); }

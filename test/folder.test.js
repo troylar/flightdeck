@@ -766,6 +766,82 @@ rule('Folder: when the write test neither reads back nor removes its file, the e
   await assert.rejects(repo.writeTest(fs, 'w9'), /\.flightdeck\/write-test-w9\.tmp/);
 });
 
+
+/* ---------- What became of follow-ups: decisions in followups/ (1.16) ---------- */
+async function withFollowUp(fs) {
+  const r = await started(fs);
+  R.addFollowUp(r, { id: 'fu1', text: 'Rotate the deploy password', owner: 'person-avery' }, 'person-casey', NOW);
+  await repo.saveRun(fs, r, 'casey-laptop');
+  return r;
+}
+rule('A follow-up decision is written once, in followups/, and loads back; a second file of the same name is refused', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  const runText = (await fs.read('runs/release/run1/run.json')).text;
+  const x = F.list([r], [])[0], rec = F.decision(x, 'person-blake', 'ticket', { ticket: 'ABC-42' }, NOW, null);
+  assert.strictEqual(await repo.decideFollowUp(fs, rec, 'blake-laptop'), 'followups/release/run1.fu1.blake-laptop.1.json');
+  await assert.rejects(repo.decideFollowUp(fs, rec, 'blake-laptop'), /already in the folder/);
+  await assert.rejects(repo.decideFollowUp(fs, Object.assign({}, rec, { run: '../run1' }), 'blake-laptop'), /can't be decided here/);
+  assert.strictEqual((await fs.read('runs/release/run1/run.json')).text, runText, 'run.json is unchanged');
+  const d = await repo.loadAll(fs);
+  same(d.fuDecisions.map(x => [x.status, x.ticket, x._file]), [['ticket', 'ABC-42', 'run1.fu1.blake-laptop.1.json']]);
+  same(d.runs[0].followUps.map(f => f.text), ['Rotate the deploy password']);
+  const y = F.list(d.runs, d.fuDecisions)[0];
+  same([y.status, y.label], ['ticket', 'Moved to a ticket']);
+});
+
+rule('A follow-up decision that can\'t be read is reported, never dropped; one this copy doesn\'t understand is too', async () => {
+  const fs = folder(); await withFollowUp(fs);
+  await fs.write('followups/release/run1.fu1.w1.1.json', '{ "kind": "followup-decision", ');
+  await fs.write('followups/release/run1.fu1.w2.1.json', JSON.stringify({ kind: 'followup-decision', process: 'release', run: 'run1', followUp: 'fu1', status: 'archived', by: 'p', at: NOW, rev: 1 }));
+  const d = await repo.loadAll(fs);
+  same(d.fuDecisions, []);
+  same(d.fuUnread.map(u => u._file).sort(), ['run1.fu1.w1.1.json', 'run1.fu1.w2.1.json']);
+});
+
+rule('Older copies never list followups/: deciding a follow-up leaves run.json and every file they read as it was', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'wont', { reason: 'Not needed' }, NOW, null), 'blake-laptop');
+  // A copy from before 1.16 is this copy without the follow-up decision loader.
+  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace('loadFollowUpDecisions(fs)\n    ].map(', 'Promise.resolve([])\n    ].map(') : src).repo;
+  const calls = faulty(fs);
+  const d = await OLD.loadAll(fs, { deep: true });
+  await OLD.loadRun(fs, 'release', 'run1');
+  assert.ok(calls.list.length > 10 && !calls.list.some(c => /followups/.test(c)), 'nothing under followups/ was listed or read');
+  same(d.runs[0].followUps.map(f => [f.id, f.text, f.owner]), [['fu1', 'Rotate the deploy password', 'person-avery']], 'the follow-up loads as it always did');
+  assert.ok(!d.runs[0]._unrunnable, 'and the run stays writable there');
+  assert.ok(!/followups/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')), 'check_folder.py knows nothing of it either');
+});
+
+
+rule('One odd follow-up decision file never hides the others: it\'s listed as unreadable and the rest load', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'done', {}, NOW, null), 'wa');
+  await fs.write('followups/release/run1.fu1.wb.1.json', JSON.stringify({ kind: 'followup-decision', process: 'release', run: { toString: 0 }, followUp: 'fu1', status: 'open', by: 'p', at: NOW, rev: 1 }).replace('{"toString":0}', '{"toString":0}'));
+  await fs.write('followups/release/stray.json', '{}');
+  const d = await repo.loadAll(fs);
+  assert.ok(!d.failed['follow-ups'], 'the part still reads');
+  same(d.fuDecisions.map(x => x._file), ['run1.fu1.wa.1.json']);
+  same(d.fuUnread.map(u => u._file).sort(), ['run1.fu1.wb.1.json', 'stray.json']);
+});
+
+rule('A follow-up decision is announced only once it reads back from the folder', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  const rec = F.decision(F.list([r], [])[0], 'person-blake', 'done', {}, NOW, null);
+  const write = fs.write.bind(fs);
+  fs.write = (p, t) => write(p, /^followups\//.test(p) ? '{ "half": ' : t);
+  await assert.rejects(repo.decideFollowUp(fs, rec, 'wa'), /didn't read back|didn’t read back/);
+});
+
+rule('Two saves of the same follow-up decision at once: one is written, the other refused', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  const x = F.list([r], [])[0];
+  const one = F.decision(x, 'person-blake', 'done', {}, NOW, null), two = F.decision(x, 'person-blake', 'wont', { reason: 'No' }, NOW, null);
+  const res = await Promise.allSettled([repo.decideFollowUp(fs, one, 'wa'), repo.decideFollowUp(fs, two, 'wa')]);
+  same(res.map(x => x.status).sort(), ['fulfilled', 'rejected']);
+  const kept = JSON.parse((await fs.read('followups/release/run1.fu1.wa.1.json')).text);
+  assert.strictEqual(kept.status, res[0].status === 'fulfilled' ? 'done' : 'wont', 'the file holds the one that was said to be written');
+});
+
 rule('Saved history: the draft and step-type loaders never list or read history/, so older copies never see it', async () => {
   const fs = folder(); await started(fs);
   // Files that would break a loader that read them: a draft-like .md and a step-type-like .json under history/.

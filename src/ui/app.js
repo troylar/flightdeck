@@ -105,6 +105,8 @@
       processes().forEach(function (p) { PF.corrections.acks(ctx.corrections(p.id), state.me, since).forEach(function (a) { if (gone.indexOf(a.key) < 0) out.push(a); }); });
       return out;
     },
+    /* Every follow-up with what became of it (PF.followups), worked out once per redraw. */
+    followUps: function () { return fuMemo || (fuMemo = PF.followups.list(data.runs, data.fuDecisions || [])); },
     corrections: function (pid) {
       if (!fixMemo[pid]) { var proc = processes().filter(function (x) { return x.id === pid; })[0]; fixMemo[pid] = PF.corrections.forProcess(data.runs, pid, data.corrDecisions, proc); }
       return fixMemo[pid];
@@ -206,7 +208,7 @@
       if (newer !== state.newer) { state.newer = newer; renderTop(); }
     }, function () {});
   }
-  var procCache = null, orphanSkills = [], fixMemo = Object.create(null);
+  var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null;
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
@@ -265,7 +267,7 @@
   /* ---------- loading ---------- */
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
+      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return x._file + x.at; }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -305,6 +307,7 @@
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
+      (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
       syncChildren();
@@ -316,7 +319,7 @@
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     var drafts = {};
@@ -524,7 +527,7 @@
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
+    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -848,7 +851,7 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
-    procCache = null; fixMemo = Object.create(null);
+    procCache = null; fixMemo = Object.create(null); fuMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -865,7 +868,7 @@
     state.tags = (state.tagsBy || {})[state.view] || [];
     var v = state.view;
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
-    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage, setup: V.setup };
+    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, followups: V.followUpsPage, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage, setup: V.setup };
     tfPreviewFits();
     if (drawn && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
     /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
@@ -2202,8 +2205,8 @@
     nav: function (id) {
       typeOpens++;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
-      if (['runs', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
-      releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi();
+      if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
+      releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
       /* A step-type form with changes stays for when you come back to Step types; an untouched one closes. */
       if (state.typeForm && !typeFormChanged(state.typeForm)) state.typeForm = null;
       state.focus = '[data-act="nav"][data-id="' + id + '"]'; render(); window.scrollTo(0, 0);
@@ -2615,6 +2618,17 @@
       mutate(function (r, map, me, now) { R.addFollowUp(r, { text: text, owner: owner, ticket: ticket, step: b && b.dataset.step || '', from: b && b.dataset.from || '' }, me, now); });
     },
     'remove-followup': function (id) { mutate(function (r, map, me, now) { R.removeFollowUp(r, id, me, now); }); },
+    /* What became of a follow-up: anyone on the team says, in a file of their own (decideFu). */
+    'fu-pick': function (id, b) {
+      var k = b && b.dataset.status; if (!PF.followups.LABEL[k] || k === 'open') return;
+      /* Each follow-up's form has its own boxes (PF.followups.formId); switching to another starts it empty. */
+      state.fuPick = { key: id, status: k }; state.fieldErr = null;
+      state.focus = PF.followups.formId(id) + '-' + { done: 'link', ticket: 'ticket', moved: 'to', wont: 'reason' }[k]; render();
+    },
+    'fu-cancel': function (id) { var k = state.fuPick && state.fuPick.status; state.fuPick = null; state.fieldErr = null; state.focus = k ? '[data-act="fu-pick"][data-id="' + cssEsc(id) + '"][data-status="' + k + '"]' : null; render(); },
+    'fu-save': function (id) { if (state.fuPick && state.fuPick.key === id) decideFu(id, state.fuPick.status); },
+    'fu-reopen': function (id) { decideFu(id, 'open'); },
+    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.fuPick = null; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
     /* Recovery: conflict copies sit next to run.json until someone keeps or deletes them. */
     'compare-copy': function (name) {
       var r = ctx.run(), g = gen, key = state.runKey; if (!r) return;
@@ -3028,6 +3042,37 @@
     queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
       if (gg !== gen) return; state.pick = null; state.fieldErr = null; if (state.view === 'process') state.focus = 'fx-h'; say(done, 'good'); return load(true);
     }, function (e) { if (gg !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
+  }
+  /* A decision on a follow-up is a new file written once, following the decision this window shows; run.json never changes. */
+  var FU_SAID = { open: 'Reopened. It\'s open again.', done: 'Marked done.', ticket: 'Marked as moved to a ticket.', moved: 'Marked as moved to another run.', wont: 'Marked won\'t do. The run shows why.' };
+  /* Saving is tracked per follow-up (state.fuSaving: key → true, one object per folder): another follow-up's form stays open
+     and saves on its own, and a save that finishes closes only its own form. */
+  function decideFu(key, status) {
+    var x = ctx.followUps().filter(function (y) { return y.key === key; })[0];
+    if (!x) return;
+    var saving = state.fuSaving || (state.fuSaving = {});
+    if (saving[key]) { say('Still saving what became of this one.', 'warn'); render(); return; }
+    if (!state.me) { say('Choose who you are first, at the top right.', 'warn'); render(); return; }
+    var base = PF.followups.formId(key), box = function (k) { return val(base + '-' + k); };
+    var rec, o = status === 'open' ? {} : { link: box('link'), note: box('note'), ticket: box('ticket'), to: box('to'), reason: box('reason') };
+    try { rec = PF.followups.decision(x, state.me, status, o, new Date().toISOString(), x.decision); }
+    catch (e) { if (e.field) { var fid = base + e.field.replace(/^fud/, ''); state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
+    var dfs = state.fs, gg = gen;
+    saving[key] = true; if (state.fieldErr && state.fieldErr.id.indexOf(base + '-') === 0) state.fieldErr = null; render();
+    /* Switching folders replaces state.fuSaving, so this only ever clears its own folder's entry. */
+    function settle() { delete saving[key]; }
+    queued(function () { return repo.decideFollowUp(dfs, rec, WRITER); }).then(function () {
+      settle();
+      if (gg !== gen) return;
+      say(FU_SAID[status], 'good');
+      /* Only this follow-up's form closes; one open for another follow-up keeps its place and its text. */
+      if (state.fuPick && state.fuPick.key === key) {
+        state.fuPick = null;
+        /* The row may leave the list (Home, Open): focus goes to the list's heading, else to the run's Follow-ups. */
+        state.focus = state.view === 'followups' ? 'fu-list-h' : state.view === 'home' ? 'page-h' : '[data-act="run-fu"]';
+      }
+      return load(true);
+    }, function (e) { settle(); if (gg !== gen) return; say('Couldn\'t save what became of it: ' + e.message, 'bad'); render(); });
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
   function recover(getCopy, logPrefix, cleanup) {

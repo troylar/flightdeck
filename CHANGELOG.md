@@ -15,6 +15,9 @@ Apply a correction to the draft, then see which version has it.
 - **Published in vN** (Corrections). Publishing records which applied corrections the new version includes. A correction then says Published in v5, but only when v5 both lists it and really says it; a later version with other edits never counts. The publish panel says how many corrections the version includes and names any that changed since they were applied. *Where:* A process page › Draft › Publish, and Corrections › All
 - **Changed in vN, and why** (Corrections). In runs of the version that first has a correction, its step says Changed in v5. Why is this here? shows what it said before and after, the reason, the runs that suggested it and who applied it. *Where:* A run › the step's row and the selected step
 - **Hear back about your corrections** (Home). When a correction you suggested is published, Home says so once per version, with View change. When someone declines one, Home says who and why. Dismiss hides it in this browser. *Where:* Home › Your corrections
+- **Say what became of a follow-up** (Follow-ups). Mark a follow-up Done (with a link or note), Moved to a ticket, Moved to another run or plan, or Won't do (with a reason), and Reopen it if that changes. Anyone on the team can. Two people deciding at once shows as Needs review. *Where:* A run › Follow-ups, Home › Your follow-ups, and Runs › Follow-ups
+- **Every follow-up in one list** (Runs). See open follow-ups across all runs, oldest first, with who owns each, how long it's been open and its run. Switch to Yours or All. *Where:* Runs › Follow-ups
+- **Follow-ups open for more than 30 days** (Folder health). Folder health lists follow-ups that have been open for more than 30 days as worth a look, with Review follow-ups. *Where:* Settings › Folder health
 - **Saved history** (Draft editor). History has a This session | Saved history switch. Saved history lists every save of the draft kept in the team folder, from every computer, newest first: who saved it, how (saved, restored from a version, applied a correction), what changed, and where each version was published. A change made outside Flightdeck, by hand or by an AI assistant, is marked where it happened. *Where:* The draft editor › History › Saved history
 - **Reverse a saved change** (Draft editor). Reverse this change takes one saved change back out of the draft, if the lines it added are still there exactly. The draft then has unsaved changes, and Undo takes the reversal back. If the text changed since, Compare shows the change so you can edit it yourself. *Where:* The draft editor › History › Saved history
 - **Saved history of a step type** (Step types). A step type's History has Saved history too, with each save's changes field by field. A field's History shows only its own. *Where:* Step types › a type › History
@@ -24,6 +27,12 @@ Apply a correction to the draft, then see which version has it.
 - **Steps with open corrections are marked while you edit** (Draft editor). The builder's rows say how many open corrections a step has. The Markdown view lists them above the text, with Go to line for each. *Where:* A process page › Edit
 - **Say which version has an older correction** (Corrections). For a correction applied before 1.16, Flightdeck says it can't confirm which version has it. It's in v5 records that, and Flightdeck still checks that v5 makes the change. *Where:* A process page › Corrections › All
 - **The correction brief quotes what the step said and what was proposed** (Corrections). The brief for your AI assistant quotes From and Proposed as data, lists attached files' paths, and leaves out corrections already published. *Where:* A process page › Corrections › Copy correction brief
+- **Your open follow-ups stay until they're dealt with** (Home). Home lists the open follow-ups you own, however old. Once one is done, moved or won't be done, it drops off. *Where:* Home › Your follow-ups
+- **Follow-ups show where they stand** (Receipt). The receipt and the finish page show each follow-up's status, and the text you copy for Jira says what became of it. *Where:* A run › Receipt
+
+### Fixed
+
+- **The example release watches new pods for 20 minutes everywhere** (Examples). The example step's expected result and timing say 20 minutes, and the correction its runs suggest puts the same 20 minutes in its wording. *Where:* The examples › Production release
 
 ## 1.15.0 · Oct 18, 2026
 

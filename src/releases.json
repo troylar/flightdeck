@@ -79,6 +79,51 @@
       },
       {
         "kind": "new",
+        "area": "Follow-ups",
+        "title": "Say what became of a follow-up",
+        "before": "Follow-ups showed on Home for 30 days and then disappeared, done or not.",
+        "now": "Mark a follow-up Done (with a link or note), Moved to a ticket, Moved to another run or plan, or Won't do (with a reason), and Reopen it if that changes. Anyone on the team can. Two people deciding at once shows as Needs review.",
+        "where": "A run › Follow-ups, Home › Your follow-ups, and Runs › Follow-ups"
+      },
+      {
+        "kind": "improved",
+        "area": "Home",
+        "title": "Your open follow-ups stay until they're dealt with",
+        "before": "Home listed every follow-up from runs that ended in the last 30 days.",
+        "now": "Home lists the open follow-ups you own, however old. Once one is done, moved or won't be done, it drops off.",
+        "where": "Home › Your follow-ups"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Every follow-up in one list",
+        "now": "See open follow-ups across all runs, oldest first, with who owns each, how long it's been open and its run. Switch to Yours or All.",
+        "where": "Runs › Follow-ups"
+      },
+      {
+        "kind": "improved",
+        "area": "Receipt",
+        "title": "Follow-ups show where they stand",
+        "now": "The receipt and the finish page show each follow-up's status, and the text you copy for Jira says what became of it.",
+        "where": "A run › Receipt"
+      },
+      {
+        "kind": "new",
+        "area": "Folder health",
+        "title": "Follow-ups open for more than 30 days",
+        "now": "Folder health lists follow-ups that have been open for more than 30 days as worth a look, with Review follow-ups.",
+        "where": "Settings › Folder health"
+      },
+      {
+        "kind": "fixed",
+        "area": "Examples",
+        "title": "The example release watches new pods for 20 minutes everywhere",
+        "before": "An example correction proposed watching new pods for 20 minutes while the step's expected result and timing said 10.",
+        "now": "The example step's expected result and timing say 20 minutes, and the correction its runs suggest puts the same 20 minutes in its wording.",
+        "where": "The examples › Production release"
+      },
+      {
+        "kind": "new",
         "area": "Draft editor",
         "title": "Saved history",
         "before": "History listed only the changes made in this window, and they were gone once it closed.",

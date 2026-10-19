@@ -2468,4 +2468,195 @@ rule('People: a name shared by two people is shown with their email, else their 
   assert.strictEqual(PP.label(all[2], all), 'Riley');
 });
 
+/* ---------- What became of follow-ups (core/followups.js) ---------- */
+const F = PF.followups;
+function fuRun(n) {
+  const r = release();
+  r.id = 'run' + (n || 1);
+  R.addFollowUp(r, { id: 'fu1', text: 'Rotate the deploy password', owner: 'person-avery' }, 'person-casey', '2026-09-01T10:00:00.000Z');
+  R.addFollowUp(r, { id: 'fu2', text: 'Ask for a standing window', owner: 'person-blake' }, 'person-casey', '2026-10-16T10:00:00.000Z');
+  return r;
+}
+const fuItem = (r, id) => F.list([r], []).filter(x => x.id === id)[0];
+const decided = (rec, writer) => Object.assign(JSON.parse(JSON.stringify(rec)), { _file: F.fileName(rec, writer) });
+
+rule('Follow-ups: a decision is a file of its own, named for the run, the follow-up, the window and its rev; run.json never changes', () => {
+  const r = fuRun(), before = JSON.stringify(r), x = fuItem(r, 'fu1');
+  const d = F.decision(x, 'person-blake', 'done', { link: 'https://example.com/pr/12', note: 'Rotated' }, NOW, null);
+  same([d.kind, d.process, d.run, d.followUp, d.status, d.rev, d.seen, d.link, d.note], ['followup-decision', 'release', 'run1', 'fu1', 'done', 1, null, 'https://example.com/pr/12', 'Rotated']);
+  assert.strictEqual(F.fileName(d, 'w8d2k4'), 'run1.fu1.w8d2k4.1.json');
+  assert.strictEqual(JSON.stringify(r), before, 'deciding never touches the run');
+});
+
+rule('Follow-ups: every disposition needs what makes it mean something; Won\'t do needs a reason', () => {
+  const x = fuItem(fuRun(), 'fu1'), err = (st, o) => { try { F.decision(x, 'person-blake', st, o, NOW, null); return null; } catch (e) { return [e.field || '', e.message]; } };
+  same(err('wont', {}), ['fud-reason', 'Why won\'t it be done? Say why.']);
+  same(err('wont', { reason: '   ' }), ['fud-reason', 'Why won\'t it be done? Say why.']);
+  assert.strictEqual(F.decision(x, 'person-blake', 'wont', { reason: ' Covered  by the contract tests ' }, NOW).reason, 'Covered by the contract tests');
+  assert.strictEqual(err('ticket', {})[0], 'fud-ticket');
+  assert.strictEqual(err('ticket', { ticket: 'not a ticket' })[0], 'fud-ticket');
+  assert.strictEqual(F.decision(x, 'p', 'ticket', { ticket: 'abc-123' }, NOW).ticket, 'ABC-123');
+  assert.strictEqual(F.decision(x, 'p', 'ticket', { ticket: 'https://jira.example.com/browse/ABC-9' }, NOW).link, 'https://jira.example.com/browse/ABC-9');
+  assert.strictEqual(err('moved', {})[0], 'fud-to');
+  assert.strictEqual(err('moved', { to: 'release/run1' })[0], 'fud-to', 'not the run it came from');
+  same(F.decision(x, 'p', 'moved', { to: 'release/run7' }, NOW).to, { run: 'release/run7' });
+  same(F.decision(x, 'p', 'moved', { to: 'plan:plan-release-next' }, NOW).to, { plan: 'plan-release-next' });
+  assert.strictEqual(F.decision(x, 'p', 'moved', { link: 'https://example.com/next' }, NOW).link, 'https://example.com/next');
+  assert.strictEqual(err('done', { link: 'javascript:alert(1)' })[0], 'fud-link', 'links stay http(s)');
+  assert.ok(F.decision(x, 'p', 'done', {}, NOW), 'Done needs nothing more');
+  assert.ok(err('done', {}) === null && /who you are/.test((() => { try { F.decision(x, '', 'done', {}, NOW); } catch (e) { return e.message; } })()), 'someone has to say who they are');
+  assert.strictEqual(err('lost', {})[1], 'Unknown decision.');
+});
+
+rule('Follow-ups: decisions are ordered by rev and what was seen, never by clocks; two at the same rev are Needs review until someone decides again', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1');
+  const a = decided(F.decision(x, 'person-blake', 'done', {}, '2026-10-17T22:00:00.000Z', null), 'wa');
+  let y = F.list([r], [a]).filter(z => z.id === 'fu1')[0];
+  same([y.status, y.label, y.tie], ['done', 'Done', false]);
+  // A later decision made on a computer whose clock is behind still wins: it saw the first one.
+  const b = decided(F.decision(y, 'person-casey', 'wont', { reason: 'Not needed after all' }, '2026-10-17T08:00:00.000Z', y.decision), 'wb');
+  same([b.rev, b.seen], [2, 'run1.fu1.wa.1.json']);
+  y = F.list([r], [b, a]).filter(z => z.id === 'fu1')[0];
+  same([y.status, y.decision.reason], ['wont', 'Not needed after all']);
+  // Two decided at once from the same state: one is picked the same way everywhere, and the follow-up stays open as Needs review.
+  const c = decided(F.decision(y, 'person-avery', 'ticket', { ticket: 'ABC-7' }, NOW, a), 'wc');
+  assert.strictEqual(c.rev, 2);
+  const t1 = F.list([r], [a, b, c]).filter(z => z.id === 'fu1')[0], t2 = F.list([r], [c, b, a]).filter(z => z.id === 'fu1')[0];
+  same([t1.status, t1.tie, t1.label, t1.decision._file], ['open', true, 'Needs review', 'run1.fu1.wc.2.json']);
+  same(t2.decision._file, t1.decision._file, 'the same pick whatever order the files arrive in');
+  const d = decided(F.decision(t1, 'person-casey', 'wont', { reason: 'Decided together' }, NOW, t1.decision), 'wb');
+  y = F.list([r], [a, b, c, d]).filter(z => z.id === 'fu1')[0];
+  same([d.rev, y.status, y.tie], [3, 'wont', false]);
+});
+
+rule('Follow-ups: Reopen makes a resolved follow-up open again, and it shows on its owner\'s Home again', () => {
+  const r = fuRun(), x = fuItem(r, 'fu2');
+  const a = decided(F.decision(x, 'person-blake', 'done', {}, NOW, null), 'wa');
+  let all = F.list([r], [a]);
+  assert.ok(!F.mine(all, 'person-blake').length, 'resolved drops off');
+  const y = all.filter(z => z.id === 'fu2')[0], b = decided(F.decision(y, 'person-blake', 'open', {}, NOW, y.decision), 'wa');
+  all = F.list([r], [a, b]);
+  same(F.mine(all, 'person-blake').map(z => [z.id, z.status, z.label]), [['fu2', 'open', 'Open']]);
+});
+
+rule('Follow-ups: Home lists open ones you own however old, and drops resolved ones', () => {
+  const r = fuRun(); r.ended = { at: '2026-09-01T11:00:00.000Z', outcome: 'Completed', by: 'person-casey' };
+  const all = F.list([r], []), now = Date.parse(NOW);
+  same(F.mine(all, 'person-avery').map(x => x.id), ['fu1'], 'open 46 days and still on Home');
+  assert.strictEqual(F.ageDays(F.mine(all, 'person-avery')[0], now), 46);
+  same(F.mine(all, ''), []);
+  const done = decided(F.decision(all[0], 'person-blake', 'done', {}, NOW), 'wa');
+  same(F.mine(F.list([r], [done]), 'person-avery'), []);
+  same(F.stale(F.list([r], [done]), now), [], 'resolved is never stale');
+});
+
+rule('Follow-ups: a decision read from disk is checked; odd files, unknown statuses and unsafe links never count', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1'), rec = F.decision(x, 'person-blake', 'ticket', { ticket: 'ABC-12' }, NOW, null), name = F.fileName(rec, 'wa');
+  assert.ok(F.cleanDecision(JSON.parse(JSON.stringify(rec)), 'release', name));
+  assert.strictEqual(F.cleanDecision(rec, 'check-in', name), null, 'another process\'s folder');
+  assert.strictEqual(F.cleanDecision(rec, 'release', 'run9.fu1.wa.1.json'), null, 'a file named for another follow-up');
+  assert.strictEqual(F.cleanDecision(Object.assign({}, rec, { status: 'archived' }), 'release', name), null);
+  assert.strictEqual(F.cleanDecision(Object.assign({}, rec, { status: 'wont' }), 'release', name), null, 'Won\'t do without a reason');
+  const bad = F.cleanDecision(Object.assign({}, rec, { status: 'done', link: 'javascript:alert(1)', note: 'x'.repeat(900) }), 'release', name);
+  same([bad.link, bad.note.length], [undefined, 300]);
+  assert.ok(!F.decidable('release', 'run 1', 'fu1') && !F.decidable('Release', 'run1', 'fu1') && F.decidable('release', 'run1', 'fu1'));
+});
+
+rule('Folder health: follow-ups open for more than 30 days are worth a look, with Review follow-ups', () => {
+  const rep = H.check(healthy((s, r) => { R.addFollowUp(r, { id: 'old1', text: 'Rotate the deploy password', owner: 'person-avery' }, 'person-casey', new Date(HNOW - 31 * DAY).toISOString()); R.addFollowUp(r, { id: 'new1', text: 'Fresh', owner: 'person-avery' }, 'person-casey', new Date(HNOW - DAY).toISOString()); }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'followups-stale')[0];
+  same([i.severity, i.title, i.action], ['warn', '1 follow-up open for more than 30 days', { act: 'nav', id: 'followups', label: 'Review follow-ups' }]);
+  assert.ok(/"Rotate the deploy password" from "Release 1", added 31 days ago/.test(i.detail), i.detail);
+  oneAction(rep);
+  const resolved = H.check(healthy((s, r) => {
+    R.addFollowUp(r, { id: 'old1', text: 'Rotate', owner: 'person-avery' }, 'person-casey', new Date(HNOW - 31 * DAY).toISOString());
+    s.data.fuDecisions = [decided(F.decision({ process: 'release', run: r.id, id: 'old1' }, 'person-blake', 'wont', { reason: 'Not ours' }, NOW), 'wa')];
+  }), HNOW);
+  assert.ok(!resolved.issues.some(x => x.id === 'followups-stale') && resolved.clear.some(c => c.id === 'followups'), 'decided ones are fine');
+  const unread = H.check(healthy(s => { s.data.fuUnread = [{ _unread: true, dir: 'followups', process: 'release', _file: 'run1.fu1.wa.1.json' }]; }), HNOW);
+  assert.ok(unread.issues.some(x => x.id === 'unreadable' && x.paths.indexOf('followups/release/run1.fu1.wa.1.json') >= 0), 'a decision that can\'t be read is reported');
+});
+
+rule('Follow-ups: what became of one reads plainly, naming the run or plan it moved to', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1'), say = (st, o) => F.detail(F.list([r], [decided(F.decision(x, 'p', st, o, NOW), 'wa')])[0], k => ({ 'plan:plan-next': 'Release 2026.10.23', 'release/run7': 'Release 7' })[k] || '');
+  assert.strictEqual(say('moved', { to: 'plan:plan-next' }), 'Moved to "Release 2026.10.23" (planned)');
+  assert.strictEqual(say('moved', { to: 'release/run7' }), 'Moved to "Release 7"');
+  assert.strictEqual(say('moved', { to: 'release/run8' }), 'Moved to release/run8');
+  assert.strictEqual(say('ticket', { ticket: 'ABC-5' }), 'Moved to ABC-5');
+  assert.strictEqual(say('wont', { reason: 'Not ours' }), 'Won\'t do: Not ours');
+});
+
+rule('The text receipt says what became of each follow-up', () => {
+  const r = fuRun(), map = R.mapOf(r);
+  const t = R.receipt(r, map, id => id, NOW, [], null, f => f.id === 'fu1' ? 'Moved to ABC-12' : 'Open');
+  assert.ok(/- Rotate the deploy password \(person-avery\) · Moved to ABC-12/.test(t) && /- Ask for a standing window \(person-blake\) · Open/.test(t), t);
+});
+
+
+/* ---------- Follow-ups: review fixes ---------- */
+rule('Follow-ups: each follow-up\'s form has its own element IDs, so what was typed for one never goes with another', () => {
+  const a = F.formId('release/run1/fu1'), b = F.formId('release/run1/fu2');
+  assert.ok(/^fud-[A-Za-z0-9_]+$/.test(a) && /^fud-[A-Za-z0-9_]+$/.test(b), a + ' ' + b);
+  assert.notStrictEqual(a, b);
+  assert.strictEqual(F.formId('release/run1/fu1'), a, 'the same on every redraw');
+});
+
+rule('Follow-ups: a decision file with odd values is never thrown on: strings only, else it isn\'t one', () => {
+  const ok = { kind: 'followup-decision', process: 'release', run: 'run1', followUp: 'fu1', status: 'done', by: 'p', at: NOW, rev: 1 };
+  const odd = [{ run: { toString: 0 } }, { followUp: { toString: 0 } }, { by: { toString: 0 } }, { at: 5 }, { status: { toString: 0 } }, { seen: { toString: 0 } }, { link: { toString: 0 } }, { note: 7 }, { to: { run: { toString: 0 } } }, { to: { plan: [] } }, { ticket: {} }, { reason: { toString: 0 } }];
+  odd.forEach(o => {
+    let d; assert.doesNotThrow(() => { d = F.cleanDecision(Object.assign({}, ok, o), 'release', 'run1.fu1.w1.1.json'); }, JSON.stringify(Object.keys(o)));
+    assert.ok(d === null || (typeof d.run === 'string' && typeof d.by === 'string' && (d.link === undefined || typeof d.link === 'string') && (d.note === undefined || typeof d.note === 'string')), JSON.stringify(o));
+  });
+  assert.doesNotThrow(() => F.cleanDecision(ok, 'release', { toString: 0 }));
+  assert.strictEqual(F.cleanDecision(Object.assign({}, ok, { by: 'x'.repeat(500) }), 'release', 'run1.fu1.w1.1.json').by.length, 80, 'lengths are capped');
+});
+
+rule('Follow-ups: OneDrive\'s conflict copies of a decision count as decisions, so a same-rev clash shows Needs review', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1');
+  const a = decided(F.decision(x, 'person-blake', 'done', {}, NOW, null), 'w1');
+  const copy = F.cleanDecision(JSON.parse(JSON.stringify(F.decision(x, 'person-casey', 'open', {}, NOW, null))), 'release', 'run1.fu1.w1.1-LAPTOP.json');
+  assert.ok(copy, 'a computer-name copy is a decision');
+  assert.ok(F.cleanDecision(JSON.parse(JSON.stringify(a)), 'release', 'run1.fu1.w1.1 (1).json'), 'and so is " (1)"');
+  const y = F.list([r], [a, copy]).filter(z => z.id === 'fu1')[0];
+  same([y.status, y.tie, y.label], ['open', true, 'Needs review']);
+  assert.strictEqual(F.cleanDecision(JSON.parse(JSON.stringify(a)), 'release', 'notes.json'), null, 'other names aren\'t decisions');
+});
+
+rule('Follow-ups: a rev is a whole number from 1 up to a million; anything else isn\'t a decision', () => {
+  const ok = { kind: 'followup-decision', process: 'release', run: 'run1', followUp: 'fu1', status: 'done', by: 'p', at: NOW };
+  [1e100, 0, -1, 1.5, '2', NaN, Infinity, 1000001].forEach(rev => assert.strictEqual(F.cleanDecision(Object.assign({ rev }, ok), 'release', 'run1.fu1.w1.1.json'), null, String(rev)));
+  assert.strictEqual(F.cleanDecision(Object.assign({ rev: 1000000 }, ok), 'release', 'run1.fu1.w1.1000000.json').rev, 1000000);
+  const x = fuItem(fuRun(), 'fu1');
+  assert.throws(() => F.decision(x, 'p', 'done', {}, NOW, { rev: 1000000, _file: 'run1.fu1.w1.1000000.json' }), /too many decisions/);
+});
+
+rule('The team folder\'s AGENTS.md says two follow-up decisions at the same rev show as Needs review', () => {
+  const line = example('AGENTS.md').split('\n').filter(l => /`followups\/`/.test(l))[0];
+  assert.ok(line && /same `rev`/.test(line) && /Needs review/.test(line), line);
+});
+
+
+rule('Follow-ups: form IDs never collide: distinct keys always give distinct IDs, made only of safe characters', () => {
+  const a = F.formId('release/run1/fu-1gjb2p0'), b = F.formId('release/run1/fu-qcuj43');
+  assert.notStrictEqual(a, b, 'two keys whose hashes once matched');
+  const keys = ['release/run1/fu1', 'release/run1/fu_1', 'release/run1_fu1', 'release/run1/fu-1', 'a/b/c', 'a/b_/c', 'a_/b/c'];
+  const ids = keys.map(F.formId);
+  assert.strictEqual(new Set(ids).size, keys.length, ids.join(' '));
+  ids.forEach(id => assert.ok(/^fud-[A-Za-z0-9_]+$/.test(id), id));
+});
+
+rule('Follow-ups: any copy marker after the canonical name is a conflict copy, spaces and combined markers included', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1');
+  const a = decided(F.decision(x, 'person-blake', 'done', {}, NOW, null), 'w1');
+  const raw = JSON.parse(JSON.stringify(F.decision(x, 'person-casey', 'open', {}, NOW, null)));
+  ['run1.fu1.w1.1-LAPTOP José.json', 'run1.fu1.w1.1-LAPTOP (1).json', 'run1.fu1.w1.1 (2) (3).json', 'run1.fu1.w1.1-DESKTOP-AB12.json'].forEach(name => {
+    const c = F.cleanDecision(raw, 'release', name);
+    assert.ok(c, name + ' is a decision');
+    const y = F.list([r], [a, c]).filter(z => z.id === 'fu1')[0];
+    same([y.status, y.label], ['open', 'Needs review'], name);
+  });
+  ['run1.fu1.w1.12.json', 'run1.fu1.w1.1.extra.json', 'run1.fu1.w1.json'].forEach(name => assert.strictEqual(F.cleanDecision(raw, 'release', name), null, name + ' is not rev 1'));
+});
+
 run();

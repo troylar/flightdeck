@@ -288,7 +288,7 @@ PF.repo = (function () {
 
   /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
      A folder that can't be listed, or where every part fails, is an unreadable folder. */
-  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections'];
+  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups'];
   /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
      Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
      folder itself. */
@@ -301,14 +301,15 @@ PF.repo = (function () {
   }
   function loadAll(fs, opts) {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!(opts && opts.deep), failed = {}, errs = [];
-    var EMPTY = [[], [], [], { runs: [], unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], []];
+    var EMPTY = [[], [], [], { runs: [], unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
     /* The folder itself must list: one that can't is unreadable, never empty. */
     return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep), loadLegacy(fs),
       loadSkills(fs),
       loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
-      loadCorrectionDecisions(fs)
+      loadCorrectionDecisions(fs),
+      loadFollowUpDecisions(fs)
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       if (errs.length === PARTS.length) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []);
@@ -328,7 +329,8 @@ PF.repo = (function () {
       });
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       r[3].forEach(function (run) { var bad = cache.bad && cache.bad['publications/' + run.process + '/' + run.folder + '/']; if (bad && !run._unrunnable) run._unrunnable = bad; });
-      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
+      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString() };
     });
   }
@@ -367,6 +369,46 @@ PF.repo = (function () {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
       return fs.write(path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
     });
+  }
+  /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
+     decided. run.json never changes. Like corrections' decisions, they're few and tiny, so each refresh reads them all; a file
+     that can't be read is reported in fuUnread, never dropped, so its follow-up doesn't quietly look open again. */
+  function loadFollowUpDecisions(fs) {
+    return fs.list('followups').then(function (procs) {
+      return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); }).map(function (p) {
+        return fs.list('followups/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name }; }); });
+      }));
+    }).then(function (nested) {
+      return limited([].concat.apply([], nested), 8, function (x) {
+        var unread = { _unread: true, dir: 'followups', process: x.process, _file: x.name };
+        /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
+        return fs.read('followups/' + x.process + '/' + x.name).then(function (f) {
+          if (!f) return null;
+          try { return PF.followups.cleanDecision(json(f.text), x.process, x.name) || unread; } catch (e) { return unread; }
+        }).then(null, function () { return unread; });
+      });
+    }).then(function (list) { return list.filter(Boolean); });
+  }
+  /* A decision on a follow-up, in a new file named for its run, the follow-up, this window and the decision's rev. Written
+     once. A shared folder has no create-if-absent, so: a name is claimed in this window before it's checked (only this window
+     writes names with its own window part, so two saves of one name can only race here, and the second is refused), the
+     file must be absent, and after writing it must read back as exactly this decision, else the save is refused. */
+  function decideFollowUp(fs, rec, writer) {
+    var F = PF.followups;
+    if (!rec || rec.kind !== 'followup-decision' || !F.decidable(rec.process, rec.run, rec.followUp) || typeof writer !== 'string' || !/^[\w-]{1,40}$/.test(writer) || !F.revOk(rec.rev)) return Promise.reject(new Error('That follow-up can\'t be decided here.'));
+    var name = F.fileName(rec, writer), path = 'followups/' + rec.process + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
+    var claims = fs._fuClaims || (fs._fuClaims = {});
+    if (claims[path]) return Promise.reject(new Error('A decision with that name is already being saved. Look again, then decide.'));
+    claims[path] = true;
+    function release(v) { delete claims[path]; return v; }
+    return fs.read(path).then(function (f) {
+      if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
+      return fs.write(path, text);
+    }).then(function () { return fs.read(path); }).then(function (f) {
+      var back = f ? F.cleanDecision(json(f.text), rec.process, name) : null;
+      if (!back || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
+      return path;
+    }).then(release, function (e) { release(); throw e; });
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
@@ -828,5 +870,5 @@ PF.repo = (function () {
     });
   }
 
-  return { historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

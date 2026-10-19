@@ -63,7 +63,7 @@ PF.health = (function () {
     var failed = Object.keys(d.failed || {});
     if (failed.length) add({ id: 'read-failed', severity: 'stop', area: 'Reading', title: 'Part of the team folder couldn\'t be read', detail: 'Flightdeck kept what it read before for ' + failed.join(', ') + '. ' + d.failed[failed[0]], paths: failed, action: help(HELP.syncing, 'What to do'), help: HELP.syncing });
     var unread = (d.unreadable || []).slice(), scanUnread = scan ? scan.unreadable || [] : [];
-    (d.corrUnread || []).forEach(function (u) { if (!u.kept) unread.push({ path: u.dir + '/' + u.process + '/' + u._file, why: 'couldn\'t be read' }); });
+    (d.corrUnread || []).concat(d.fuUnread || []).forEach(function (u) { if (!u.kept) unread.push({ path: u.dir + '/' + u.process + '/' + u._file, why: 'couldn\'t be read' }); });
     scanUnread.forEach(function (u) { if (!unread.some(function (x) { return x.path === u.path; })) unread.push(u); });
     var runUnread = unread.filter(function (u) { return /^runs\//.test(u.path) || u.path === 'people.json'; }), otherUnread = unread.filter(function (u) { return runUnread.indexOf(u) < 0; });
     if (runUnread.length) add({ id: 'unreadable-runs', severity: 'stop', area: 'Files', title: runUnread.length === 1 ? (runUnread[0].path === 'people.json' ? 'people.json can\'t be read' : 'A run file can\'t be read') : plural(runUnread.length, 'file') + ' that runs depend on can\'t be read',
@@ -164,6 +164,13 @@ PF.health = (function () {
     stuck.forEach(function (s) { add({ id: 'half:' + s.path, severity: 'warn', area: 'Checklists', title: s.path.split('/').slice(1).join(' ') + ' has been incomplete for ' + span(s.age), detail: s.why + ' Nobody can start a run on it. Check that OneDrive is syncing on the computer that published it.', paths: [s.path], action: help(HELP.syncing), help: HELP.syncing }); });
     if (arriving.length) add({ id: 'arriving', severity: 'info', area: 'Checklists', title: plural(arriving.length, 'published version') + ' still arriving', detail: 'Some of ' + (arriving.length === 1 ? 'its' : 'their') + ' files haven\'t reached this computer yet. They can be used once they all arrive.', paths: arriving, action: { act: 'health-again', id: '', label: 'Check again' }, help: HELP.syncing });
     if (!clashes && !stuck.length && !arriving.length) ok('pubs', 'Every published version is complete, with no clashing numbers.');
+
+    /* ---- follow-ups: disappearing from Home isn't resolution ---- */
+    var oldFus = PF.followups.stale(PF.followups.list(runs, d.fuDecisions || []), now);
+    if (oldFus.length) add({ id: 'followups-stale', severity: 'warn', area: 'Follow-ups', title: plural(oldFus.length, 'follow-up') + ' open for more than 30 days',
+      detail: 'The oldest is "' + oldFus[0].text + '" from "' + oldFus[0].runTitle + '", added ' + span(now - Date.parse(oldFus[0].at)) + ' ago. Mark each one done, moved or won\'t do, so what\'s open is what\'s real.',
+      paths: oldFus.map(function (x) { return 'runs/' + x.process + '/' + x.run + '/run.json'; }).filter(function (x, i, a) { return a.indexOf(x) === i; }), action: { act: 'nav', id: 'followups', label: 'Review follow-ups' } });
+    else ok('followups', 'No follow-up has been open for more than 30 days.');
 
     /* ---- runs: hand-offs, abandoned, leftovers ---- */
     var handoffs = 0, abandoned = 0;

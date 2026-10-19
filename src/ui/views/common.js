@@ -81,7 +81,7 @@ PF.vk = (function () {
   /* ---------- top bar ---------- */
   /* The sections, always in the top bar. Every screen belongs to one, so where you are is always lit. */
   var NAV = [['home', 'Home'], ['runs', 'Runs'], ['processes', 'Processes'], ['skills', 'Skills'], ['types', 'Step types'], ['settings', 'Settings']];
-  var SECTION = { setup: 'home', health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'skills', skill: 'skills', types: 'types', settings: 'settings' };
+  var SECTION = { setup: 'home', health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', followups: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'skills', skill: 'skills', types: 'types', settings: 'settings' };
   function sectionOf(view) { return SECTION[view] || 'home'; }
   function top(ctx) {
     var st = ctx.state, fs = st.fs, cur = sectionOf(st.view), h = '<button class="brand" data-act="nav" data-id="home" aria-label="Flightdeck home"><span class="brand-mark" aria-hidden="true"></span>Flightdeck</button>';

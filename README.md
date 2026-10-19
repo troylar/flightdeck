@@ -421,6 +421,7 @@ runs/                  one folder per run: run.json, everyone's notes and correc
 skills/                skill registrations: each skill's source, what it implements
 validations/           owners' sign-offs that a version is ready for a skill
 corrections/           decisions on corrections (applied, declined, reopened, withdrawn), each a file written once
+followups/             what became of each follow-up (done, moved, won't do, reopened), each a file written once
 suggestions/           decisions on suggested fixes from before 1.13 (still read)
 step-types/            your team's own step types (create them in the app)
 jira/workflows.json    your real Jira workflows, with required fields

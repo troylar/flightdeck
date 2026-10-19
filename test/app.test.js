@@ -3823,6 +3823,103 @@ rule('App: Getting started never counts an answer from another team folder', asy
   assert.ok(/Getting started · 2 of 5/.test(app.html()), 'folder B: nobody has answered here');
 });
 
+
+rule('App: anyone says what became of a follow-up in a file of its own; Won\'t do needs a reason, Home drops it, Reopen brings it back, run.json never changes', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  assert.ok(/Your follow-ups · 1/.test(app.html()) && /Add a cache warm-up to the deploy job/.test(app.html()), 'Morgan\'s open follow-up is on Home');
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1], runKey = key.split('/').slice(0, 2).join('/');
+  const runFile = 'runs/' + runKey + '/run.json', runText = app.fs.files[runFile].t;
+  const mine = () => app.files('followups/release/').filter(p => !/example-session/.test(p)).sort();
+  app.click('fu-pick', key, { status: 'wont' }); await app.tick();
+  const B = app.PF.followups.formId(key), N = () => app.html().split(B).join('fud');
+  assert.ok(/id="fud-reason"/.test(N()) && /aria-expanded="true" aria-controls="fud-form"/.test(N()), 'the form opens under its button');
+  app.click('fu-save', key); await app.tick(20);
+  assert.ok(/id="ferr-fud-reason" role="alert">Why won&#39;t it be done\? Say why\./.test(N()), 'a reason is required');
+  assert.strictEqual(mine().length, 0, 'nothing written');
+  app.set(B + '-reason', 'The new cache warms itself'); app.click('fu-save', key); await app.tick(60);
+  assert.strictEqual(mine().length, 1);
+  const d = JSON.parse(app.fs.files[mine()[0]].t);
+  assert.deepStrictEqual([d.kind, d.status, d.reason, d.by, d.rev, d.seen], ['followup-decision', 'wont', 'The new cache warms itself', 'person-morgan', 1, null]);
+  assert.ok(/^followups\/release\/[\w-]+\.[\w-]+\.[\w-]+\.1\.json$/.test(mine()[0]));
+  assert.ok(!/Your follow-ups/.test(app.html()) && /Marked won&#39;t do|Marked won't do/.test(app.html() + app.live()), 'it drops off Home');
+  app.click('nav', 'followups'); await app.tick(20);
+  app.click('fu-filter', 'all'); await app.tick();
+  assert.ok(/<span class="pill locked">Won&#39;t do<\/span>/.test(app.html()) && /Won't do: The new cache warms itself · Morgan/.test(app.html()), 'all of them, with what became of it');
+  app.click('fu-reopen', key); await app.tick(60);
+  assert.strictEqual(mine().length, 2, 'one new file per decision');
+  const d2 = JSON.parse(app.fs.files[mine().filter(p => /\.2\.json$/.test(p))[0]].t);
+  assert.deepStrictEqual([d2.status, d2.rev, d2.seen], ['open', 2, mine()[0].split('/').pop()]);
+  app.click('nav', 'home'); await app.tick(20);
+  assert.ok(/Your follow-ups · 1/.test(app.html()), 'reopened, it\'s back on Home');
+  assert.strictEqual(app.fs.files[runFile].t, runText, 'run.json is unchanged');
+});
+
+
+rule('App: what was typed in one follow-up\'s form never goes with another\'s', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('nav', 'followups'); await app.tick(20);
+  const keys = [...app.html().matchAll(/data-act="fu-pick" data-id="([^"]+)" data-status="done"/g)].map(m => m[1]);
+  assert.ok(keys.length >= 2, 'set-up: two open follow-ups');
+  const F = app.PF.followups, [a, b] = keys;
+  app.click('fu-pick', a, { status: 'done' }); await app.tick();
+  app.set(F.formId(a) + '-link', 'https://example.com/a-evidence'); app.set(F.formId(a) + '-note', 'A note'); await app.tick();
+  app.click('fu-pick', b, { status: 'done' }); await app.tick();
+  assert.ok(app.html().indexOf('id="' + F.formId(b) + '-link"') >= 0 && app.html().indexOf('id="' + F.formId(a) + '-link"') < 0, 'only B\'s form, with its own boxes');
+  app.click('fu-save', b); await app.tick(60);
+  const file = app.files('followups/release/').filter(p => !/example-session/.test(p))[0], d = JSON.parse(app.fs.files[file].t);
+  assert.strictEqual(d.followUp, b.split('/')[2]);
+  assert.ok(!d.link && !d.note, 'B saved none of A\'s evidence: ' + JSON.stringify(d));
+});
+
+rule('App: a follow-up decision that finishes after switching folders leaves the new folder able to decide', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  const orig = app.PF.repo.decideFollowUp, g = gate();
+  // Only this window's decision waits; the examples' own seeding writes straight through.
+  app.PF.repo.decideFollowUp = function (fs, rec, writer) { const args = arguments; return writer === 'example-session' ? orig.apply(this, args) : g.p.then(() => orig.apply(this, args)); };
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="done"/.exec(app.html())[1];
+  app.click('fu-pick', key, { status: 'done' }); await app.tick();
+  app.click('fu-save', key); await app.tick();
+  app.click('reset-examples');
+  for (let i = 0; i < 50 && !/Examples reset\./.test(app.html() + app.live()); i++) await app.tick(20);
+  assert.ok(/Examples reset\./.test(app.html() + app.live()), 'set-up: the folder switched while the decision was saving');
+  g.open(); await app.tick(40);
+  app.PF.repo.decideFollowUp = orig;
+  app.choose('person-morgan'); await app.tick();
+  const k2 = /data-act="fu-pick" data-id="([^"]+)" data-status="done"/.exec(app.html())[1];
+  app.click('fu-pick', k2, { status: 'done' }); await app.tick();
+  assert.ok(!/fu-save[^>]*disabled/.test(app.html()), 'Save isn\'t stuck');
+  const before = app.files('followups/release/').length;
+  app.click('fu-save', k2); await app.tick(60);
+  assert.strictEqual(app.files('followups/release/').length, before + 1, 'the new folder\'s decision is written');
+});
+
+
+rule('App: while one follow-up\'s decision saves, another\'s form stays open, keeps its text and saves on its own', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('nav', 'followups'); await app.tick(20);
+  const [a, b] = [...app.html().matchAll(/data-act="fu-pick" data-id="([^"]+)" data-status="done"/g)].map(m => m[1]);
+  const F = app.PF.followups, orig = app.PF.repo.decideFollowUp, g = gate();
+  app.PF.repo.decideFollowUp = function (fs, rec) { const args = arguments; return rec.run + '/' + rec.followUp === a.split('/').slice(1).join('/') ? g.p.then(() => orig.apply(this, args)) : orig.apply(this, args); };
+  app.click('fu-pick', a, { status: 'done' }); await app.tick();
+  app.click('fu-save', a); await app.tick();
+  app.click('fu-pick', b, { status: 'wont' }); await app.tick();
+  const box = F.formId(b) + '-reason';
+  assert.ok(app.html().indexOf('id="' + box + '"') >= 0, 'B\'s form opens while A saves');
+  assert.ok(!new RegExp('data-act="fu-save" data-id="' + b.replace(/\//g, '\\/') + '"[^>]*disabled').test(app.html()), 'B\'s Save is enabled');
+  app.set(box, 'Not ours any more'); await app.tick();
+  g.open(); await app.tick(60);
+  assert.ok(app.html().indexOf('id="' + box + '"') >= 0, 'A finishing leaves B\'s form open');
+  assert.strictEqual(app.draft(box), 'Not ours any more', 'with its text');
+  app.click('fu-save', b); await app.tick(60);
+  app.PF.repo.decideFollowUp = orig;
+  const mine = app.files('followups/release/').filter(p => !/example-session/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+  assert.deepStrictEqual(mine.map(d => d.status).sort(), ['done', 'wont'], 'both saved');
+});
+
 /* ---------- Saved history (docs/design.md section 20, slice 2) ---------- */
 const histLines = (app, dir) => app.files(dir + '/').filter(p => /\.jsonl$/.test(p)).map(p => app.fs.files[p].t.trim().split('\n').filter(Boolean).map(l => JSON.parse(l))).reduce((a, b) => a.concat(b), []);
 

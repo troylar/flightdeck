@@ -58,8 +58,8 @@ roles: release-lead, qa, backend
 - [!] {run.command} New pods stay up with no restarts @backend {#pods}
   command: kubectl get pods -l app=web-app
   where: Your terminal
-  expected: RESTARTS is 0 for every new pod after 10 minutes
-  expect: 10m
+  expected: RESTARTS is 0 for every new pod after 20 minutes
+  expect: 20m
 
 ## Gate: Deployed · owner @release-lead {#deployed}
   approves: `^commit` running in ^environment

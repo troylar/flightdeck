@@ -368,7 +368,7 @@ const LANES = [
 rule('Parts: a new lane is its heading and one first step, at the end of a phase or before another lane, with its role', () => {
   const end = O.addTrack(RELEASE, { phase: 'deploy' }, { title: 'Smoke checks', role: 'qa', text: 'Run the smoke tests' });
   same(changes(RELEASE, ok(end)), { removed: [], added: ['### Track: Smoke checks @qa {#smoke-checks}', '- [ ] {confirm} Run the smoke tests {#run-the-smoke-tests}'] });
-  assert.ok(/expect: 10m\n### Track: Smoke checks/.test(end.text), 'after the last step, before the gate');
+  assert.ok(/expect: 20m\n### Track: Smoke checks/.test(end.text), 'after the last step, before the gate');
   const x = M.findStep(M.parse(end.text), 'run-the-smoke-tests');
   assert.ok(x.phase.id === 'deploy' && x.step.track === 'smoke-checks' && x.step.roles[0] === 'qa', 'the step is in the lane and works as its role');
   assert.strictEqual(end.id, 'smoke-checks'); assert.strictEqual(end.track, 0);

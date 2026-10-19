@@ -34,7 +34,7 @@ PF.examples = (function () {
     }).then(function () { return repo.loadAll(mem); }).then(function (d) {
       var pub = function (id) { var p = d.processes.filter(function (x) { return x.process === id; })[0]; return p && p.index.latest; };
       if (!pub('release') || !pub('check-in')) return;
-      var W = d.jira.workflows, runs = [], notes = [];
+      var W = d.jira.workflows, runs = [], notes = [], fuDecided = [];
       var pr = function (link) { var o = {}; o[PF.jira.key('Pull request')] = link; return o; };
 
       /* Play a run: answer steps in order from `start` minutes ago, with the quirks real runs have. */
@@ -76,6 +76,8 @@ PF.examples = (function () {
         if (o.started) { var s = R.mapOf(r).phases[o.until[0]].steps.filter(function (x) { return x.id === o.until[1]; })[0]; R.start(r, map, s.id, who(s), at(o.started)); }
         if (o.blockAt) R.block(r, map, o.until[1], o.blockAt, o.by, next(2));
         if (o.pausedNow) R.pause(r, o.pausedNow, o.by, at(o.pausedAt || 5));
+        /* Follow-ups the run turned up, added while finishing it; what became of each is decided later (fuDecided). */
+        (o.fus || []).forEach(function (f) { var item = R.addFollowUp(r, f, o.by, next(1)); if (f.then) fuDecided.push([r, item, f.then]); });
         if (o.outcome) R.end(r, map, o.outcome, o.by, nameOf(o.by), next(1));
         else R.handOff(r, o.by, o.by, next(0));
         runs.push(r);
@@ -103,13 +105,18 @@ PF.examples = (function () {
       play(pub('release'), { title: 'Release 2026.09.18', start: 29 * DAY, pace: 5, by: 'person-morgan', details: { ticket: 'ABC-4590', commit: '5e01c7a', environment: 'production' },
         roles: { 'release-lead': 'person-morgan', qa: 'person-blake', backend: 'person-casey' }, outcome: 'Completed', ev: { approved: { number: 'CHG0040113' } } });
       play(pub('release'), { title: 'Release 2026.09.25', start: 22 * DAY, pace: 4, by: 'person-casey', details: { ticket: 'ABC-4633', commit: '0b7d2e9', environment: 'production' }, roles: team1,
-        quirks: { block: { tests: 'Gate run failed on a flaky contract test' } }, until: [1, 'pods'], blockAt: 'Pods restarting after the deploy; rolled back to 5e01c7a', outcome: 'Stopped early', ev: { approved: { number: 'CHG0040388' } } });
+        quirks: { block: { tests: 'Gate run failed on a flaky contract test' } }, until: [1, 'pods'],
+        fus: [{ text: 'Find out why new pods restart after a deploy', owner: 'person-avery', then: { status: 'ticket', by: 'person-avery', ago: 20 * DAY, ticket: 'ABC-4641' } }], blockAt: 'Pods restarting after the deploy; rolled back to 5e01c7a', outcome: 'Stopped early', ev: { approved: { number: 'CHG0040388' } } });
       play(pub('release'), { title: 'Release 2026.10.02', start: 15 * DAY, pace: 6, by: 'person-blake', details: { ticket: 'ABC-4680', commit: '7c3a1f0', environment: 'production' },
         roles: { 'release-lead': 'person-blake', qa: 'person-casey', backend: 'person-morgan' }, outcome: 'Completed', ev: { approved: { number: 'CHG0040702' } },
-        quirks: { diff: { pods: 'Watched the pods for 20 minutes, not 10: the cache warms slowly after a restart' }, na: ['announce'] } });
+        quirks: { diff: { pods: 'Two pods restarted at minute 12; restarted them by hand and watched another 20 minutes' }, na: ['announce'] },
+        fus: [{ text: 'Add a cache warm-up to the deploy job', owner: 'person-morgan' }] });
       play(pub('release'), { title: 'Release 2026.10.09', start: 8 * DAY, pace: 4, by: 'person-casey', details: { ticket: 'ABC-4722', commit: 'e4c90b2', environment: 'production' }, roles: team1,
         outcome: 'Completed', ev: { approved: { number: 'CHG0041030' } },
-        quirks: { block: { approve: 'Approver was in another meeting; Jenkins nearly rolled back' }, diff: { pods: 'Checked restarts in the dashboard instead of kubectl; the jump box was down' }, pause: [1, 25, 'Waiting for the change board to confirm the window'] } });
+        quirks: { block: { approve: 'Approver was in another meeting; Jenkins nearly rolled back' }, diff: { pods: 'Checked restarts in the dashboard instead of kubectl; the jump box was down' }, pause: [1, 25, 'Waiting for the change board to confirm the window'] },
+        fus: [{ text: 'Fix the jump box so kubectl works again', owner: 'person-casey', then: { status: 'done', by: 'person-morgan', ago: 6 * DAY, note: 'Rebuilt it from the current image.' } },
+          { text: 'Ask the change board for a standing release window', owner: 'person-casey' },
+          { text: 'Rehearse the rollback before the next release', owner: 'person-blake', then: { status: 'moved', by: 'person-casey', ago: 15, to: 'plan:plan-release-example-next' } }] });
 
       /* Today's release, in progress. Its release-notes check-in ran as a linked child run, which also shows a Jira
          transition whose required fields came from the run. Earlier, the run was paused while the change board met. */
@@ -131,7 +138,8 @@ PF.examples = (function () {
 
       /* Earlier check-ins, for their own history. */
       play(pub('check-in'), { title: 'Check in the login fix', start: 6 * DAY, pace: 3, by: 'person-blake', details: { branch: 'fix/login-timeout', commit: '91aa0d3', story: 'ABC-4701' }, roles: { author: 'person-blake', reviewer: 'person-casey' }, outcome: 'Completed',
-        ev: { 'move-story': pr('https://bitbucket.example.com/projects/WA/repos/web-app/pull-requests/398') }, quirks: { block: { gate: 'Two tests failed after the rebase' } } });
+        ev: { 'move-story': pr('https://bitbucket.example.com/projects/WA/repos/web-app/pull-requests/398') }, quirks: { block: { gate: 'Two tests failed after the rebase' } },
+        fus: [{ text: 'Add a test for the login timeout', owner: 'person-blake', then: { status: 'wont', by: 'person-casey', ago: 5 * DAY, reason: 'The contract tests cover it since ABC-4710.' } }] });
 
       /* An incident in progress, its Stabilize phase split into a fix track and a comms track. */
       if (pub('incident')) play(pub('incident'), { title: 'Chat replies timing out', start: 18, pace: 2, by: 'person-morgan', details: { alert: 'ALERT-2291 chat latency p95 > 8s' },
@@ -158,7 +166,7 @@ PF.examples = (function () {
       var groupOf = function (r, n) { return C.groups(C.collect([Object.assign({}, r, { _notes: [n] })], 'release'))[0]; };
       correct(byTitle('Release 2026.10.02'), { ago: 15 * DAY - 20, by: 'person-morgan', step: 'announce', op: 'move', moveTo: 'start:prep', why: 'So the team hears about it earlier.' },
         { status: 'declined', by: 'person-casey', ago: 14 * DAY, reason: 'We post only once the deploy is sure to start; the checks before it can still stop the release.' });
-      var pods = { by: 'person-blake', step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts', why: 'The cache warms slowly after a restart.' };
+      var pods = { by: 'person-blake', step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts', why: 'Say how long to watch in the step itself: the cache warms slowly, and restarts show up after 10 minutes.' };
       correct(byTitle('Release 2026.10.09'), Object.assign({ ago: 8 * DAY - 40 }, pods, { by: 'person-avery', why: '' }));
       correct(main, Object.assign({ ago: 30 }, pods));
       correct(main, { ago: 20, by: 'person-blake', step: 'close', op: 'add', where: 'after', text: 'Check the error budget dashboard before the ticket is closed' });
@@ -192,6 +200,13 @@ PF.examples = (function () {
             details: { ticket: 'ABC-4760', environment: 'production' }, roles: last.roles, when: due.toISOString(), note: 'Same team as the last release.',
             from: 'release/' + last.id, by: 'person-casey', created: at(20) });
         });
+      }).then(function () {
+        /* What became of some follow-ups: one moved to a ticket, one done, one moved to next week's plan, one won't do. */
+        var F = PF.followups;
+        return fuDecided.reduce(function (pr, x) {
+          var r = x[0], f = x[1], d = x[2], item = { process: r.process, run: r.id, id: f.id };
+          return pr.then(function () { return repo.decideFollowUp(mem, F.decision(item, d.by, d.status, d, at(d.ago), null), 'example-session'); });
+        }, Promise.resolve());
       });
     });
   }
