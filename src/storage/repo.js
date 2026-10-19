@@ -6,12 +6,13 @@ PF.repo = (function () {
   function json(text) { try { return JSON.parse(text); } catch (e) { return undefined; } }
   function readJson(fs, path) { return fs.read(path).then(function (f) { return f ? json(f.text) : null; }); }
 
+  /* The people list as the app shows it, carrying the file's own document and fingerprint, so the folder owner's changes in
+     Settings are applied to exactly what was read and saved only over that (repo.savePeople). */
   function loadPeople(fs) {
-    return readJson(fs, 'people.json').then(function (o) {
-      var list = Array.isArray(o) ? o : o && Array.isArray(o.people) ? o.people : [];
-      return list.filter(function (p) { return p && typeof p.id === 'string' && typeof p.name === 'string'; }).map(function (p) {
-        return { id: p.id, name: p.name.slice(0, 60), initials: String(p.initials || p.name.split(/\s+/).map(function (w) { return w[0]; }).join('')).slice(0, 3).toUpperCase(), email: String(p.email || ''), inactive: !!p.inactive };
-      });
+    return fs.read(PF.people.FILE).then(function (f) {
+      var o = f ? json(f.text) : null, out = PF.people.clean(o);
+      out.hash = f ? U.hash(f.text) : null; out.doc = o === undefined ? null : o;
+      return out;
     });
   }
 
@@ -611,10 +612,22 @@ PF.repo = (function () {
     if (errs.length) return Promise.reject(new Error(errs[0]));
     return saveChecked(fs, 'step-types/' + def.id + '.json', JSON.stringify(def, null, 2) + '\n', expect, opts);
   }
-  /* A person's sign-off that a published version is ready for a skill, in their window's own file. */
-  function recordValidation(fs, pub, session, by, note, evidence) {
+  /* A person's sign-off that a published version is ready for a skill, in their window's own file. as: "backup" when the
+     checklist's backup owner signs while its owner is inactive or gone (older copies count only the owner's). */
+  function recordValidation(fs, pub, session, by, note, evidence, as) {
     var rec = { kind: 'validation', process: pub.map.meta.process, version: pub.info.version, folder: pub.info.folder, by: by, at: new Date().toISOString(), note: String(note || '').slice(0, 300), evidence: evidence };
+    if (as === 'backup') rec.as = 'backup';
     return fs.write('validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
+  }
+  /* people.json, changed by the folder owner or backup in Settings: checked against the version they saw, like a draft. */
+  function savePeople(fs, text, expect, opts) { return saveChecked(fs, PF.people.FILE, text, expect, opts); }
+  /* Setup's write test: a file only this window writes, read back, then removed. A leftover one shows in Folder health. */
+  function writeTest(fs, writer) {
+    var path = '.flightdeck/write-test-' + writer + '.tmp', text = 'Flightdeck checks it can save in this folder. This file is removed right away.\n';
+    return fs.write(path, text).then(function () { return fs.read(path); }).then(function (f) {
+      if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written');
+      return fs.remove(path).catch(function () { /* Folder health lists a leftover .tmp */ });
+    });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
   function savePlan(fs, plan, opts) {
@@ -705,6 +718,17 @@ PF.repo = (function () {
       });
     });
   }
+  /* Answers of any age still in connection/ (kept 7 days), for Getting started: the second computer counts once another
+     person answered. Only names not read before (seen), at most 20 a time. */
+  function loadAnswers(fs, seen) {
+    var CN = PF.connection;
+    return fs.list(CN.DIR).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && !seen[i.name] && (CN.parseName(i.name) || {}).kind === 'ack'; }).map(function (i) { return i.name; }).slice(0, 20);
+      return limited(names, 8, function (n) {
+        return fs.read(CN.DIR + '/' + n).then(function (f) { return { name: n, rec: f ? CN.clean(json(f.text), n) : null }; }, function () { return { name: n, rec: null }; });
+      });
+    });
+  }
   /* Each check and each answer is a new file named for its window, written once: never over a file that's there. */
   function writeOnce(fs, path, rec) {
     var text = JSON.stringify(rec, null, 2) + '\n';
@@ -735,5 +759,5 @@ PF.repo = (function () {
     });
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

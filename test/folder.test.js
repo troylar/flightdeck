@@ -671,4 +671,41 @@ rule('A run whose file is gone from the folder is never written back by a save; 
   assert.ok(fs.files['runs/release/run2/run.json']);
 });
 
+/* ---------- people.json, the write test and answers (1.15) ---------- */
+rule('Folder: people keep their folder role, and the list carries the file\'s fingerprint for a checked save', async () => {
+  const fs = folder(), d = await repo.loadAll(fs);
+  same(d.people.map(p => p.folderRole), ['owner', 'backup', '', '']);
+  assert.strictEqual(d.people.hash, PF.util.hash(people));
+  same(d.people.doc, JSON.parse(people));
+  const next = PF.people.add(d.people.doc, 'Jordan Lee', '').doc;
+  assert.ok((await repo.savePeople(fs, PF.people.text(next), d.people.hash)).ok);
+  const theirs = (await fs.read('people.json')).text;
+  await fs.write('people.json', theirs.replace('Jordan Lee', 'Jordan L.'));
+  const res = await repo.savePeople(fs, PF.people.text(next), d.people.hash);
+  assert.ok(res.conflict, 'a list changed since it was read is never saved over');
+  assert.ok(/Jordan L\./.test((await fs.read('people.json')).text));
+});
+
+rule('Folder: the write test leaves nothing behind, and a sign-off by the backup owner says so', async () => {
+  const fs = folder();
+  await repo.writeTest(fs, 'w123');
+  assert.deepStrictEqual(Object.keys(fs.files).filter(k => /write-test/.test(k)), []);
+  const d = await published(fs), pub = d.processes[0].index.latest;
+  await repo.recordValidation(fs, pub, 'w1', 'person-avery', '', { completed: 3, clean: 3, runs: [] }, 'backup');
+  await repo.recordValidation(fs, pub, 'w2', 'person-casey', '', { completed: 3, clean: 3, runs: [] });
+  const v = Object.keys(fs.files).filter(k => /^validations\//.test(k)).map(k => JSON.parse(fs.files[k].t));
+  same(v.map(x => [x.by, x.as || null]).sort(), [['person-avery', 'backup'], ['person-casey', null]]);
+});
+
+rule('Folder: answers to connection checks of any age are read once each, and nothing else in connection/ is', async () => {
+  const fs = folder(), CN = PF.connection, now = Date.now();
+  await repo.sendProbe(fs, { id: 'abcd1234', n: 1, by: 'person-avery', writer: 'wa', device: 'Mac · Chrome', at: new Date(now).toISOString(), app: '1.15.0', run: null, seen: [] }, now);
+  const ack = { probe: 'abcd1234', probeFile: CN.probeName(now, 'abcd1234', 'wa'), by: 'person-blake', writer: 'wb', device: 'Windows · Edge', at: new Date(now).toISOString(), firstSeenAt: new Date(now).toISOString(), app: '1.15.0', run: null, folderReadAt: new Date(now).toISOString() };
+  await repo.sendAck(fs, ack);
+  const seen = {}, got = await repo.loadAnswers(fs, seen);
+  same(got.map(x => x.rec && x.rec.by), ['person-blake']);
+  got.forEach(x => { seen[x.name] = true; });
+  same(await repo.loadAnswers(fs, seen), [], 'read once');
+});
+
 run();

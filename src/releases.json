@@ -97,6 +97,42 @@
         "before": "If someone deleted or moved a run's file while it was open in another window, that window's next change quietly wrote the run back.",
         "now": "The run says its file is gone from the team folder, the Runs page marks it, and nothing is saved. Restore it here writes it back only when you choose it, and the run's log says so.",
         "where": "The run, and Settings › Folder health"
+      },
+      {
+        "kind": "new",
+        "area": "Getting started",
+        "title": "Start your team, join, or look around",
+        "now": "The first screen offers Start your team, Join your team's folder and Look around the examples. Starting walks you through five steps: a shared folder Flightdeck checks it can save in, your people and a backup owner, a first checklist, a first run on your own, and a second computer.",
+        "where": "The first screen; Settings, Start a new team"
+      },
+      {
+        "kind": "new",
+        "area": "Getting started",
+        "title": "Getting started on Home until your team is set up",
+        "now": "The folder owner sees Getting started, N of 5, with Continue on the next step. Each step ticks itself from what's in the team folder, and a stamp says when your team is set up.",
+        "where": "Home"
+      },
+      {
+        "kind": "new",
+        "area": "People",
+        "title": "Join a team folder and choose who you are",
+        "now": "Open the team's folder and pick your name from its people. Not on the list? Copy a request to the folder owner. Joining never changes the people list.",
+        "where": "The first screen, Join your team's folder"
+      },
+      {
+        "kind": "new",
+        "area": "People",
+        "title": "A folder owner and backup owner keep the people list",
+        "now": "The folder owner and backup owner add people, mark them inactive or active, and choose the backup in Settings. IDs are made from names once and never change, and nobody is ever deleted. A change is refused if people.json changed since you opened the page. Roles prevent ordinary mistakes; they aren't security.",
+        "before": "You edited people.json by hand.",
+        "where": "Settings, People"
+      },
+      {
+        "kind": "new",
+        "area": "Skills",
+        "title": "A backup owner can sign off while the owner is away",
+        "now": "A checklist can name a backup: owner. While its owner is inactive or gone from the people list, the backup owner signs off versions as ready for a skill. Folder health says when a checklist or the folder needs a new owner.",
+        "where": "The process page, Ready for a skill?"
       }
     ]
   },

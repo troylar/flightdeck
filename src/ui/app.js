@@ -57,7 +57,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -106,6 +106,10 @@
     /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
     health: function (full) { return healthReport(full); },
     recovery: RECOVERY, writer: WRITER,
+    /* Getting started, worked out from the folder (PF.setup.progress); setupCard is null when Home shouldn't show it. */
+    setupProgress: function () { return setupProgress(); },
+    setupCard: function () { return setupShown() ? setupProgress() : null; },
+    setupTemplate: function (id) { return setupTemplate(id); },
     device: function () { return PF.connection.device(navigator.userAgent, state.deviceName); },
     /* Connection checks from other windows that this one hasn't answered or put off. */
     connPending: function () { return state.conn ? PF.connection.pending(state.conn, WRITER, state.connDismissed).filter(function (p) { return !(state.connAnswering || {})[p._file]; }) : []; },
@@ -251,7 +255,7 @@
 
   /* ---------- loading ---------- */
   function signature(d) {
-    return JSON.stringify([d.people.length, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
+    return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
       d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
@@ -296,6 +300,7 @@
       if (changed || force || wasErr) render(); else renderTop();
       syncChildren();
       loadConn();
+      loadSetupAnswers();
     }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
@@ -565,46 +570,176 @@
     }, function () { /* picker closed */ });
   }
 
-  /* Start a new team folder: an empty folder gets people.json with you in it, a starter map and the assistant contract. */
-  function newFolder() {
-    if (!state.me) { say('Type your name at the top right first, so the new folder starts with you in its people list.', 'warn'); render(); return; }
-    var t = ++opening;
+  /* The assistant contract a new team folder starts with: AGENTS.md (Flightdeck's part and Team notes), the skills, and
+     .flightdeck/installed.json saying which defaults they are, so flightdeck install can later tell them from the team's own
+     changes. Without hashing in this browser, the command falls back on the defaults every version shipped. */
+  function writeContract(fs) {
+    var C = PF.contract, contract = Object.keys(EXAMPLES).filter(function (k) { return k === C.AGENTS || /^\.flightdeck\/skills\//.test(k); });
+    var installed = function () {
+      var sub = typeof crypto !== 'undefined' && crypto.subtle;
+      if (!sub || typeof TextEncoder === 'undefined') return null;
+      return Promise.all(contract.map(function (k) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(k, EXAMPLES[k]))); })).then(function (ds) {
+        var files = {};
+        ds.forEach(function (d, i) { files[contract[i]] = C.hex(d); });
+        return fs.write('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
+      }, function () { return null; });
+    };
+    return contract.reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()).then(installed);
+  }
+
+  /* ---------- Getting started (views/setup.js, core/setup.js) ---------- */
+  var CLUTTER = { '.DS_Store': 1, 'desktop.ini': 1, 'Thumbs.db': 1 };
+  function setupProgress() {
+    var fs = state.fs, answers = (state.setupAnswers || []).concat(((state.conn || {}).acks) || []);
+    return PF.setup.progress({ folder: !!fs && fs.kind === 'folder', people: data.people, me: state.me, processes: data.processes, runs: data.runs, answers: answers });
+  }
+  function setupHidden() { return !!lsGet('setup-hidden:' + fsKey(), false); }
+  /* Home's Getting started is for the folder owner and backup owner, in a real team folder, until they hide it. */
+  function setupShown() {
+    var fs = state.fs, me = state.me && data.people.filter(function (p) { return p.id === state.me; })[0];
+    return !!fs && fs.kind === 'folder' && !!me && !me.inactive && !!me.folderRole && !setupHidden();
+  }
+  function setupTemplate(id) {
+    var t = PF.setup.TEMPLATES.filter(function (x) { return x.id === id; })[0], base = id === 'check-in' ? EXAMPLES['maps/drafts/check-in.md'] : t && t.md;
+    if (!base) return '';
+    var r = PF.people.roles(data.people), bk = r.backup && !r.backup.inactive && r.backup.id !== state.me ? r.backup.id : null;
+    return PF.setup.starter(base, state.me, bk);
+  }
+  function setupState(mode, step) { state.setup = { mode: mode, step: step || (mode === 'start' ? 'folder' : mode === 'join' ? 'open' : ''), me: { name: '', email: '' }, team: [{ k: 't1', name: '', email: '' }], backup: '', kn: 1 }; return state.setup; }
+  /* Answers to connection checks still in the folder (up to 7 days), read once each, while Getting started isn't done. */
+  var answersBusy = false;
+  function loadSetupAnswers() {
+    if (answersBusy || !setupShown() || setupProgress().complete) return;
+    var fs = state.fs, g = gen, seen = state.setupSeen = state.setupSeen || {};
+    answersBusy = true;
+    repo.loadAnswers(fs, seen).then(function (got) {
+      answersBusy = false; if (g !== gen) return;
+      var more = false;
+      got.forEach(function (x) { seen[x.name] = true; if (x.rec) { (state.setupAnswers = state.setupAnswers || []).push(x.rec); more = true; } });
+      if (more) render();
+    }, function () { answersBusy = false; });
+  }
+  /* Step 1: an empty folder Flightdeck can write to (a test file written, read back and removed). */
+  function setupPick() {
+    var su = state.setup, t = ++opening;
     window.showDirectoryPicker({ id: 'preflight', mode: 'readwrite' }).then(function (dir) {
-      if (t !== opening) return;
+      if (t !== opening || state.setup !== su) return;
       var fs = new PF.fs.FolderFS(dir);
-      /* Two windows starting a new folder at once take turns, and the second finds it no longer empty. */
-      var init = function () { return fs.list('').then(function (items) {
-        /* Only operating-system clutter may already be there; anything else (including hidden folders) means it isn't new. */
-        var clutter = { '.DS_Store': 1, 'desktop.ini': 1, 'Thumbs.db': 1 };
-        if (items.some(function (i) { return !clutter[i.name]; })) { say('"' + dir.name + '" isn\'t empty. Choose an empty folder for a new team folder, or use Open team folder for an existing one.', 'warn'); render(); return; }
-        var known = ctx.peopleById[state.me], me = known ? known.name : state.me, id = known ? known.id : 'person-' + U.slug(me, 30);
-        var people = [{ id: id, name: me, initials: me.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 3).toUpperCase(), email: '' }];
-        var mine = JSON.stringify(people, null, 2) + '\n';
-        var C = PF.contract, contract = Object.keys(EXAMPLES).filter(function (k) { return k === C.AGENTS || /^\.flightdeck\/skills\//.test(k); });
-        /* Which defaults the folder started from, so flightdeck install can later tell them from the team's own changes.
-           Without hashing in this browser, the command falls back on the defaults every version shipped. */
-        var installed = function () {
-          var sub = typeof crypto !== 'undefined' && crypto.subtle;
-          if (!sub || typeof TextEncoder === 'undefined') return null;
-          return Promise.all(contract.map(function (k) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(k, EXAMPLES[k]))); })).then(function (ds) {
-            var files = {};
-            ds.forEach(function (d, i) { files[contract[i]] = C.hex(d); });
-            return fs.write('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
-          }, function () { return null; });
-        };
-        /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
-        return fs.write('people.json', mine)
-          .then(function () { return fs.read('people.json'); })
-          .then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Open team folder instead'); })
-          .then(function () { return fs.write('maps/drafts/check-in.md', PF.map.withMeta(EXAMPLES['maps/drafts/check-in.md'], { owner: id })); })
-          .then(function () { return contract.reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()); })
-          .then(function () { return installed(); })
-          .then(function () { return handles.set(dir); })
-          .then(function (rec) { if (t !== opening) return; state.me = id; lsSet('me', id); home(); return useFs(folderFs(rec)); })
-          .then(function () { if (t !== opening) return; say('Created the team folder "' + dir.name + '" with you in people.json and a starter checklist. Add teammates to people.json, and keep the folder available offline in OneDrive.', 'good'); render(); });
-      }); };
-      return (LOCKS ? lock('preflight:new-folder', init) : init()).catch(function (e) { if (t !== opening) return; say('The new team folder wasn\'t finished: ' + e.message + '. Check what\'s in "' + dir.name + '", empty it, and try again.', 'bad'); render(); });
+      su.err = null; su.tested = false; su.dir = null; su.busy = true; su.dirName = dir.name; render();
+      return fs.list('').then(function (items) {
+        if (t !== opening) return;
+        if (items.some(function (i) { return i.name === 'people.json'; })) { su.err = { kind: 'team', text: '"' + dir.name + '" already has a team in it. To use it, join it instead of starting a new one.' }; su.joinDir = dir; return; }
+        if (items.some(function (i) { return !CLUTTER[i.name] && i.name !== '.flightdeck'; })) { su.err = { text: '"' + dir.name + '" isn\'t empty. Choose an empty folder for a new team, or make a new one in OneDrive.' }; return; }
+        return repo.writeTest(fs, WRITER).then(function () { if (t !== opening) return; su.dir = dir; su.tested = true; });
+      }).then(function () { su.busy = false; if (t === opening) { state.focus = su.tested ? '[data-act="setup-next"]' : 'su-h'; render(); } }, function (e) {
+        su.busy = false; if (t !== opening) return;
+        su.err = { text: 'Flightdeck couldn\'t save a test file in "' + dir.name + '" (' + (e && e.message || e) + '). Check that the folder is in OneDrive and that you can edit it, then choose it again.' }; render();
+      });
     }, function () { /* picker closed */ });
+  }
+  function setupErr(field, msg) { state.fieldErr = { id: 'setup', field: field, msg: msg }; state.focus = field; render(); }
+  /* Step 2: people.json (you as folder owner, the backup owner), AGENTS.md, the skills and installed.json, into the folder
+     tested in step 1, which must still have no team in it. */
+  function createTeam() {
+    var su = state.setup, P = PF.people;
+    if (!su || !su.dir || su.busy) return;
+    state.fieldErr = null;
+    try { P.checkName(su.me.name); } catch (e) { return setupErr('su-me-name', 'Type your name.'); }
+    try { P.checkEmail(su.me.email); } catch (e) { return setupErr('su-me-email', e.message); }
+    var team = [], backup = -1;
+    for (var i = 0; i < su.team.length; i++) {
+      var x = su.team[i], named = String(x.name || '').trim();
+      if (!named && !String(x.email || '').trim()) continue;
+      if (!named) return setupErr('su-name-' + x.k, 'Type their name, or remove this row.');
+      try { P.checkName(x.name); } catch (e) { return setupErr('su-name-' + x.k, e.message); }
+      try { P.checkEmail(x.email); } catch (e) { return setupErr('su-email-' + x.k, e.message); }
+      if (su.backup === x.k) backup = team.length;
+      team.push(x);
+    }
+    var doc = P.create(su.me, team, backup), mine = P.text(doc), myId = doc[0].id, dir = su.dir, fs = new PF.fs.FolderFS(dir), t = ++opening;
+    su.busy = true; render();
+    var init = function () {
+      return fs.list('').then(function (items) {
+        if (items.some(function (i) { return !CLUTTER[i.name] && i.name !== '.flightdeck'; })) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
+        /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
+        return fs.write('people.json', mine).then(function () { return fs.read('people.json'); }).then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
+      }).then(function () { return writeContract(fs); });
+    };
+    (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
+      if (t !== opening) return;
+      state.me = myId; lsSet('me', myId); state.needsReconnect = null;
+      return useFs(folderFs(rec)).then(function () {
+        if (t !== opening) return;
+        su.busy = false; su.created = true; su.step = 'checklist'; su.dir = null; state.focus = 'su-h';
+        say('Created the team folder "' + dir.name + '" with ' + doc.length + (doc.length === 1 ? ' person' : ' people') + '. Next, your first checklist.', 'good'); render(); window.scrollTo(0, 0);
+      });
+    }).catch(function (e) { su.busy = false; if (t !== opening) return; say('The team folder wasn\'t created: ' + e.message + '. Check what\'s in "' + dir.name + '", and try again.', 'bad'); render(); });
+  }
+  /* Step 3: the starter as a draft with real owner and backup IDs, then published as v1 or opened in the editor. A draft
+     with the same name already there is never replaced. */
+  function setupChecklist(id, edit) {
+    var su = state.setup, md = setupTemplate(id);
+    if (!su || su.busy || !md || !state.fs || !state.me) return;
+    var pid = M.parse(md).meta.process, sfs = state.fs, g = gen, by = state.me;
+    su.busy = true; render();
+    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Done, then publish it.', 'good'); render(); window.scrollTo(0, 0); };
+    queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
+      if (g !== gen) return null;
+      if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Processes.', 'warn'); render(); return null; }
+      return load(true).then(function () {
+        if (g !== gen) return null;
+        var p = processes().filter(function (x) { return x.id === pid; })[0];
+        if (edit) { su.busy = false; open(); return null; }
+        if (p && p.latest && !p.draftChanged) { su.busy = false; say(p.title + ' is published already.', 'good'); render(); return null; }
+        var people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
+        return queued(function () {
+          return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString() }); });
+        }).then(function (pub) {
+          if (g !== gen) return null;
+          su.busy = false;
+          if (pub.blockers) { say(pub.blockers[0], 'warn'); render(); return null; }
+          say('Published ' + (M.parse(md).meta.title || pid) + ' v' + pub.version + '. Next, run it once.', 'good'); state.focus = 'su-h';
+          return load(true);
+        });
+      });
+    }).catch(function (e) { if (g !== gen) return; su.busy = false; say('Couldn\'t ' + (edit ? 'create' : 'publish') + ' the checklist: ' + e.message, 'bad'); render(); });
+  }
+  function setupAppCheck() {
+    var fs = state.fs, g = gen, su = state.setup;
+    if (!fs || fs.kind !== 'folder' || !su) return;
+    var has = function (n) { return fs.stat(n).then(function (x) { return !!x; }, function () { return false; }); };
+    has('flightdeck.html').then(function (a) { return a || has('preflight.html'); }).then(function (a) { if (g !== gen || state.setup !== su) return; su.hasApp = a; render(); });
+  }
+  /* Join: open the folder the team uses, then choose who you are. Nothing is written. */
+  function setupOpen(dir) {
+    var su = state.setup, t = ++opening;
+    (dir ? Promise.resolve(dir) : window.showDirectoryPicker({ id: 'preflight', mode: 'readwrite' })).then(function (d) {
+      if (t !== opening) return;
+      su.busy = true; su.err = null; render();
+      return handles.set(d).catch(function () { return { dir: d, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
+        if (t !== opening) return;
+        state.needsReconnect = null;
+        return useFs(folderFs(rec)).then(function () {
+          if (t !== opening) return;
+          su.busy = false; su.mode = 'join'; su.step = 'who'; state.focus = 'su-h'; render(); window.scrollTo(0, 0);
+        });
+      });
+    }, function () { /* picker closed */ }).catch(function (e) { if (t !== opening) return; su.busy = false; su.err = { text: 'Couldn\'t open the folder: ' + (e && e.message || e) }; render(); });
+  }
+  /* Settings, People: one change at a time to exactly the people.json on screen, saved only over that (like a draft). */
+  function changePeople(act, id, fn, done) {
+    var P = PF.people, people = data.people, why = P.allowed(people, state.me, act, id);
+    if (why) { state.peopleErr = why; render(); return; }
+    if (state.peopleSaving) { state.peopleErr = 'Still saving the last change.'; render(); return; }
+    var res; try { res = fn(people.doc); } catch (e) { state.peopleErr = e.message; render(); return; }
+    var sfs = state.fs, g = gen, expect = people.hash;
+    state.peopleSaving = true; state.peopleErr = null; render();
+    queued(function () { return repo.savePeople(sfs, P.text(res.doc), expect, { lock: LOCKS ? lock : null }); }).then(function (out) {
+      state.peopleSaving = false; if (g !== gen) return null;
+      if (out.conflict) state.peopleErr = out.afterWrite ? 'Something else wrote people.json at the same moment. Check the list below; make your change again if it isn\'t there.' : 'people.json changed since this page was drawn, so your change wasn\'t saved. Here is the list as it is now; make your change again.';
+      else { state.pick = null; if (done) done(res.person); }
+      return load(true);
+    }, function (e) { state.peopleSaving = false; if (g !== gen) return; state.peopleErr = 'Couldn\'t save people.json: ' + e.message; render(); });
   }
 
   /* ---------- rendering ---------- */
@@ -702,10 +837,12 @@
     state.tags = (state.tagsBy || {})[state.view] || [];
     var v = state.view;
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
-    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage };
+    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage, setup: V.setup };
     tfPreviewFits();
     if (drawn && drawn.fs === fsKey() && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
-    var page = (PAGES[v] || V.home)(ctx), was = drawn;
+    /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
+    var welcome = v === 'home' && state.fs && state.fs.kind === 'memory' && !state.needsReconnect && !state.lookAround;
+    var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
     patch(app, page);
     noteDrawn(page);
     /* Boxes drafts own (evidence, Fill in, the note) are carried by their step's draft, never from another step or form. */
@@ -904,7 +1041,7 @@
   setInterval(function () {
     if (document.hidden || isBusy() || !state.fs || loading) return;
     var now = Date.now();
-    if (state.view === 'connection' && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
+    if ((state.view === 'connection' || (state.view === 'setup' && state.setup && state.setup.step === 'second')) && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
@@ -1839,10 +1976,11 @@
     signoff: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], pub = p && p.latest;
       if (!pub || !state.me) return;
-      if (pub.map.meta.owner && pub.map.meta.owner !== state.me) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version.', 'warn'); render(); return; }
+      var as = PF.skills.signer(pub, data.people, state.me);
+      if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(data.runs, pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
-      queued(function () { return repo.recordValidation(sfs, pub, WRITER, state.me, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }); }).then(function () {
+      queued(function () { return repo.recordValidation(sfs, pub, WRITER, state.me, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null); }).then(function () {
         if (sg !== gen) return; state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
       }, function (e) { if (sg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
@@ -2324,7 +2462,65 @@
     'toggle-keys': function () { state.keys = !state.keys; lsSet('keys', state.keys); render(); },
     'start-mode': function (id, b) { state.startMode[b.dataset.process] = id; render(); },
     'show-roles': function () { state.showRoles = !state.showRoles; render(); },
-    'new-folder': function () { newFolder(); },
+    'new-folder': function () { ACTIONS['setup-mode']('start'); },
+    /* ---------- Getting started ---------- */
+    'setup-mode': function (id) {
+      if (id === 'examples') { state.lookAround = true; lsSet('look-around', true); state.setup = null; home(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); return; }
+      if (id === 'welcome') { state.setup = null; state.lookAround = false; lsSet('look-around', false); state.fieldErr = null; home(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); return; }
+      if ((id !== 'start' && id !== 'join') || !canFolder) return;
+      setView('setup'); state.runKey = null; state.processId = null; resetRunUi(); state.fieldErr = null;
+      setupState(id); state.focus = 'su-h'; render(); window.scrollTo(0, 0);
+    },
+    /* Home's Continue (and Settings): the start flow at that step, in the team folder that's open. */
+    'setup-continue': function (id) {
+      var su = setupState('start', id); su.created = true; lsSet('setup-hidden:' + fsKey(), false);
+      setView('setup'); state.runKey = null; state.processId = null; resetRunUi();
+      if (id === 'second') setupAppCheck();
+      state.focus = 'su-h'; render(); window.scrollTo(0, 0);
+    },
+    'setup-step': function (id) {
+      var su = state.setup; if (!su || PF.setup.STEPS.every(function (x) { return x.id !== id; })) return;
+      if (su.created && (id === 'folder' || id === 'people')) { su.step = 'checklist'; } else su.step = id;
+      if (su.step === 'second') setupAppCheck();
+      state.fieldErr = null; state.focus = 'su-h'; render(); window.scrollTo(0, 0);
+    },
+    'setup-next': function (id) { ACTIONS['setup-step'](id); },
+    'setup-pick': function () { setupPick(); },
+    'setup-join-dir': function () { var su = state.setup, d = su && su.joinDir; if (!d) return; su.mode = 'join'; su.step = 'open'; su.err = null; setupOpen(d); },
+    'setup-add-row': function () { var su = state.setup; if (!su || su.team.length >= 30) return; su.kn++; su.team.push({ k: 't' + su.kn, name: '', email: '' }); state.focus = 'su-name-t' + su.kn; render(); },
+    'setup-del-row': function (id) {
+      var su = state.setup; if (!su) return;
+      var i = su.team.map(function (x) { return x.k; }).indexOf(id); if (i < 0) return;
+      su.team.splice(i, 1); if (su.backup === id) su.backup = '';
+      if (!su.team.length) { su.kn++; su.team.push({ k: 't' + su.kn, name: '', email: '' }); }
+      state.focus = '[data-act="setup-add-row"]'; render();
+    },
+    'setup-tpl': function (id) { var su = state.setup; if (!su) return; su.tpl = id; state.focus = '[data-act="setup-tpl"][data-id="' + id + '"]'; render(); },
+    'setup-publish': function (id) { setupChecklist(id, false); },
+    'setup-edit': function (id) { setupChecklist(id, true); },
+    'setup-run': function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; if (!p || !p.latest) return; state.startMode[id] = 'solo'; ACTIONS.start(id); },
+    'setup-app-check': function () { setupAppCheck(); },
+    'setup-copy': function (id) {
+      var pre = document.getElementById({ prompt: 'su-prompt', invite: 'su-invite', request: 'su-request' }[id] || '');
+      if (!pre) return;
+      copyText(pre.textContent, pre, id === 'request' ? 'Copied. Send it to them by chat or email.' : id === 'invite' ? 'Copied. Send it by chat or email.' : 'Copied. Paste it to your AI assistant.');
+    },
+    'setup-open': function () { setupOpen(null); },
+    'setup-who': function (id) {
+      var p = data.people.filter(function (x) { return x.id === id && !x.inactive; })[0]; if (!p) return;
+      state.me = id; lsSet('me', id); state.setup = null; home();
+      say('Welcome, ' + p.name.split(' ')[0] + '. Home shows what needs you; Runs and Processes have the rest.', 'good'); state.focus = 'page-h'; render(); window.scrollTo(0, 0);
+    },
+    'setup-hide': function () { lsSet('setup-hidden:' + fsKey(), true); state.focus = 'page-h'; render(); },
+    'setup-finish': function () { home(); state.setup = null; state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
+    /* ---------- Settings, People (the folder owner and backup owner) ---------- */
+    'people-active': function (id, b) {
+      var on = !!(b && b.dataset && b.dataset.on);
+      changePeople(on ? 'active' : 'inactive', id, function (doc) { return PF.people.setActive(doc, id, on, state.me); }, function (p) { say(p.name + (on ? ' is active again.' : ' is marked inactive. Their name stays on everything they did.'), 'good'); });
+    },
+    'people-backup': function (id) { changePeople('backup', id, function (doc) { return PF.people.setRole(doc, id, 'backup'); }, function (p) { say(p.name + ' is the backup owner now.', 'good'); }); },
+    'people-owner': function (id) { changePeople('owner', id, function (doc) { return PF.people.setRole(doc, id, 'owner'); }, function (p) { say(p.name + ' is the folder owner now.', 'good'); }); },
+    'people-err-dismiss': function () { state.peopleErr = null; render(); },
     /* Choosing a step shows it in the inspector (on a phone, as a sheet). Previous and Next in the inspector keep focus there
        and bring the step's row into view in the checklist. */
     select: function (id, b) {
@@ -2664,6 +2860,17 @@
       function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });
 
+  /* Getting started's people, and Settings' Add a person. */
+  document.addEventListener('submit', function (e) {
+    if (e.target.id === 'setup-people-form') { e.preventDefault(); createTeam(); return; }
+    if (e.target.id !== 'people-add-form') return;
+    e.preventDefault();
+    var P = PF.people, add = state.peopleAdd || { name: val('pa-name'), email: val('pa-email') };
+    state.fieldErr = null;
+    try { P.checkName(add.name); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-name', msg: err.message }; state.focus = 'pa-name'; render(); return; }
+    try { P.checkEmail(add.email); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-email', msg: err.message }; state.focus = 'pa-email'; render(); return; }
+    changePeople('add', null, function (doc) { return P.add(doc, add.name, add.email); }, function (p) { state.peopleAdd = null; state.focus = 'pa-name'; say('Added ' + p.name + ' as ' + p.id + '. They choose their name when they open the folder.', 'good'); });
+  });
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'plan-form') return;
@@ -2719,6 +2926,17 @@
       if (was !== !!state.obPending) scheduleRender();
     }
     if (e.target.id === 'ob-part-q' || e.target.id === 'ob-part-q2') { state.obQ = String(e.target.value || '').slice(0, 60); render(); }
+    /* Getting started's forms keep what's typed in their state, so ID previews and the request follow the names. */
+    var su = state.setup, sm = /^su-(me|name|email|rq)-?(name|email|t\d+)?$/.exec(e.target.id || '');
+    if (su && sm) {
+      var v = String(e.target.value || '');
+      if (sm[1] === 'me') su.me[sm[2]] = v;
+      else if (sm[1] === 'rq') (su.request = su.request || {})[sm[2]] = v;
+      else su.team.forEach(function (x) { if (x.k === sm[2]) x[sm[1]] = v; });
+      if (state.fieldErr && state.fieldErr.id === 'setup' && state.fieldErr.field === e.target.id) state.fieldErr = null;
+      render();
+    }
+    if (e.target.id === 'pa-name' || e.target.id === 'pa-email') { (state.peopleAdd = state.peopleAdd || { name: '', email: '' })[e.target.id.slice(3)] = String(e.target.value || ''); if (state.fieldErr && state.fieldErr.field === e.target.id) state.fieldErr = null; render(); }
   });
   /* The browser's own Undo and Redo (the Edit menu, a context menu) in the draft editor and step-type form go to the timeline,
      so there is one history, never two that disagree. Leaving the editor ends the typing unit. */
@@ -2748,6 +2966,8 @@
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
+    if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }
+    if (e.target.id === 'su-to' && state.setup) { state.setup.to = e.target.value; render(); }
     /* In Fill in, changing a choice (like a Jira action) redraws the form so the fields that choice needs appear. */
     if (/^fld-/.test(e.target.id || '') && state.pick && state.pick.kind === 'fields') {
       var vals = {}; document.querySelectorAll('[id^="fld-"]').forEach(function (el) { vals[el.id.slice(4)] = el.value; });

@@ -1336,4 +1336,67 @@ rule('The run\'s conflict copies and its More menu lead to the guide and to Fold
   assert.ok(/data-act="health">Folder health</.test(html));
 });
 
+/* ---------- Getting started and Settings, People (1.15) ---------- */
+rule('Setup: the welcome offers Start, Join and the examples, and a browser that can\'t open folders can only look around', () => {
+  const { ctx, state } = setup(null, { view: 'home', me: '' });
+  let html = V.setup(ctx);
+  ['start', 'join', 'examples'].forEach(id => assert.ok(new RegExp('data-act="setup-mode" data-id="' + id + '"').test(html), id));
+  assert.ok(!/Choose who you are at the top right/.test(html), 'no who-are-you nag on the welcome');
+  ctx.canFolder = false; html = V.setup(ctx);
+  assert.ok(/data-id="start" disabled/.test(html) && /data-id="join" disabled/.test(html) && !/data-id="examples" disabled/.test(html));
+  assert.ok(/can't open folders/.test(html));
+});
+
+rule('Setup: the people step shows each ID before anything is written, -2 on a clash, the backup choice and the honest promise', () => {
+  const { ctx, state } = setup(null, { view: 'setup', me: '' });
+  state.setup = { mode: 'start', step: 'people', dirName: 'Team <b>', tested: true, me: { name: 'Riley Park', email: '' }, team: [{ k: 't1', name: 'Sam Fox', email: '' }, { k: 't2', name: 'Sam Fox', email: '' }, { k: 't3', name: '', email: '' }], backup: 't2' };
+  ctx.setupProgress = () => PF.setup.progress({});
+  const html = V.setup(ctx);
+  assert.ok(/Saved as <code>person-riley-park<\/code>/.test(html) && /person-sam-fox<\/code>/.test(html) && /person-sam-fox-2<\/code>/.test(html));
+  assert.ok(/<option value="t2" selected>Sam Fox<\/option>/.test(html) && !/value="t3"/.test(html), 'only named teammates can be backup');
+  assert.ok(html.indexOf(PF.util.esc(V.PROMISE)) > 0 && /They aren't security/.test(V.PROMISE) && /set by how you share it in OneDrive/.test(V.PROMISE));
+  assert.ok(/Team &lt;b&gt;/.test(html), 'the folder name is escaped');
+  assert.strictEqual((html.match(/<li class="done/g) || []).length, 1, 'before the folder is created, only the tested folder is done');
+  assert.ok(/for="su-me-name"/.test(html) && /for="su-name-t1"/.test(html) && /for="su-backup"/.test(html), 'every box is labeled');
+});
+
+rule('Setup: Who are you lists active people only, and the request for someone not listed names the folder owner', () => {
+  const { ctx, state } = setup(null, { view: 'setup', me: '', fs: { kind: 'folder', name: 'Team' } });
+  ctx.data.people = people.map(p => p.id === 'person-morgan' ? Object.assign({}, p, { inactive: true }) : p);
+  ctx.peopleById = Object.fromEntries(ctx.data.people.map(p => [p.id, p]));
+  state.setup = { mode: 'join', step: 'who', request: { name: 'Jordan <x>' } };
+  const html = V.setup(ctx);
+  assert.ok(/data-act="setup-who" data-id="person-avery"/.test(html) && !/data-id="person-morgan"/.test(html));
+  assert.ok(/Ask Avery Lee to add you/.test(html) && /Hi Avery,/.test(html) && /Name: Jordan &lt;x&gt;/.test(html));
+});
+
+rule('Settings, People: the folder owner gets Add a person and per-person changes; anyone else sees who to ask', () => {
+  const { ctx, state } = setup(null, { view: 'settings', me: 'person-avery' });
+  let html = V.peoplePanel(ctx);
+  assert.ok(/id="people-add-form"/.test(html) && /Folder owner/.test(html) && /Backup owner/.test(html));
+  assert.ok(/data-act="people-active" data-id="person-casey"/.test(html) && !/data-act="people-active" data-id="person-avery"/.test(html), 'never yourself');
+  assert.ok(/data-act="people-backup" data-id="person-casey"/.test(html) && !/data-act="people-backup" data-id="person-blake"/.test(html));
+  assert.ok(!/data-act="[^"]*(delete|remove)/.test(html), 'nobody is ever deleted');
+  state.peopleAdd = { name: 'Casey' };
+  assert.ok(/person-casey-2/.test(V.peoplePanel(ctx)), 'the new ID is shown before saving');
+  state.me = 'person-casey';
+  html = V.peoplePanel(ctx);
+  assert.ok(!/people-add-form|data-act="people-/.test(html));
+  assert.ok(/Avery Lee \(folder owner\) and Blake Ortiz \(backup owner\) change this list/.test(html));
+});
+
+rule('Home: Getting started counts the steps done and offers the next one; finished, it says the team is set up', () => {
+  const { ctx } = setup(null, { view: 'home' });
+  ctx.setupCard = () => PF.setup.progress({ folder: true, people: PF.people.clean(people).filter(p => p.id !== 'person-avery'), me: 'person-blake', processes: [], runs: [], answers: [] });
+  let html = V.home(ctx);
+  assert.ok(/Getting started · 1 of 5/.test(html), 'without a folder owner, people isn\'t done');
+  ctx.setupCard = () => PF.setup.progress({ folder: true, people: PF.people.clean(people), me: 'person-avery', processes: [], runs: [], answers: [] });
+  html = V.home(ctx);
+  assert.ok(/Getting started · 2 of 5/.test(html) && /data-act="setup-continue" data-id="checklist"/.test(html) && /aria-valuenow="2"/.test(html));
+  ctx.setupCard = () => ({ complete: true, steps: [], count: 5, total: 5 });
+  assert.ok(/Your team is set up/.test(V.home(ctx)));
+  ctx.setupCard = () => null;
+  assert.ok(!/Getting started/.test(V.home(ctx)));
+});
+
 run();
