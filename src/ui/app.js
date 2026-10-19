@@ -911,7 +911,7 @@
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */
-      var c = overlayEl.querySelector('#lb-close, #rel-close, #ob-sheet-close, #tp-close, .help [data-act="close-overlay"]');
+      var c = overlayEl.querySelector('#lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, .help [data-act="close-overlay"]');
       if (c && !overlayEl.contains(document.activeElement)) c.focus();
       app.setAttribute('inert', ''); topEl.setAttribute('inert', '');
     } else { app.removeAttribute('inert'); topEl.removeAttribute('inert'); }
@@ -1227,7 +1227,8 @@
     /* When it ends, the controls it disabled come back, also if someone left this folder and returned meanwhile. */
     var done = function () { delete state.draftSaving[sk]; if (fsKey() === key) scheduleRender(); };
     render();
-    queued(function () { return repo.saveDraft(sfs, file, text, expectHash, { lock: LOCKS ? lock : null }); }).then(function (res) {
+    var write = opts.write || function (f, name, t, h, o) { return repo.saveDraft(f, name, t, h, o); };
+    queued(function () { return write(sfs, file, text, expectHash, { lock: LOCKS ? lock : null }); }).then(function (res) {
       done();
       /* Only this process's editor in its own folder is touched, whatever is on screen now, even after a folder switch. */
       var ed = editorOf(p.id, key), here = g === gen && state.processId === p.id && fsKey() === key;
@@ -1253,13 +1254,83 @@
       if (g !== gen) return;
       if (opts.replace) dropPending();
       if (opts.replace && here) { state.mapVer = null; state.focus = 'cl-h'; }
-      say(okMsg, 'good');
+      say(okMsg, 'good', opts.act);
       /* In the editor a save is confirmed by a quiet check beside Save (and still announced), not a notice. */
       if (!opts.replace && state.view === 'process' && state.ptab === 'edit' && state.processId === p.id) state.msg.quiet = true;
       /* A quiet check beside Save, for a moment. */
       if (!opts.replace) { var mark = state.justSaved = { pid: p.id }; setTimeout(function () { if (state.justSaved === mark) { state.justSaved = null; scheduleRender(); } }, 1600); }
-      return load(true);
+      /* What has to follow the save (an applied correction's decision) happens only once the draft is in the folder. */
+      return Promise.resolve(opts.after ? opts.after(res) : null).then(function () { if (g === gen) return load(true); });
     }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message, 'bad'); render(); });
+  }
+  /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
+  function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
+  function caFind(pid, gid) {
+    var p = processes().filter(function (x) { return x.id === pid; })[0], all = p ? ctx.corrections(p.id) : [];
+    return { p: p, all: all, g: all.filter(function (x) { return x.id === gid; })[0] || null };
+  }
+  function caErr(ov, msg, field) { ov.err = { msg: msg, field: field || 'ca-acts' }; state.overlayFocus = field ? '#' + field : '#ca-t'; render(); }
+  /* The draft a correction is compared with: the editor's starting point, the same one the dialog shows (views corrBase). */
+  function caBase(p) { var ed = editorOf(p.id); return ed ? ed.base : p.draft ? p.draft.md : p.latest ? p.latest.md : ''; }
+  /* Why nothing may be applied to this draft right now, or ''. Unsaved edits in this window come first: applying over them
+     would mix the correction into changes nobody has saved. */
+  function caBlocked(p) {
+    var dw = draftUnread(p); if (dw) return dw + ' Nothing is applied until it reads again.';
+    if (state.draftSaving[edKey(p.id)]) return 'Still saving this draft. Try again in a moment.';
+    var ed = editorOf(p.id);
+    if (ed && ed.conflict) return 'Someone else changed this draft while you were editing it. Settle that in the editor first.';
+    if (dirty(ed) || state.obPending === p.id) return 'You have unsaved changes to this draft. Save or discard them in the editor first.';
+    return '';
+  }
+  /* A decision of applied, with the result it records, written once; Link, Already addressed and Mark as applied in the dialog. */
+  function caDecide(ov, status, reason, msg, result) {
+    var x = caFind(ov.pid, ov.gid), g = x.g; if (!g || !state.me) return;
+    var rec;
+    try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), { current: g.decision, act: U.randomId(10), result: result }); }
+    catch (e) { caErr(ov, e.message, status === 'declined' ? 'ca-reason' : null); return; }
+    var dfs = state.fs, gg = gen;
+    ov.busy = true;
+    queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
+      if (gg !== gen) return; if (caOv() === ov) closeOverlay(); state.focus = 'fx-h'; say(msg, 'good'); return load(true);
+    }, function (e) { if (gg !== gen) return; ov.busy = false; if (caOv() === ov) caErr(ov, 'Couldn\'t save the decision: ' + e.message); else { say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); } });
+  }
+  /* Applies a group, or a person's edit of it, to the draft: one named change on the draft editor's timeline (so Undo takes it
+     back), saved only over the exact draft it was compared with, then the decision. If the decision can't be written, the
+     draft already has the change: the next look shows "already" with Link this correction. */
+  function applyCorr(ov, how) {
+    var x = caFind(ov.pid, ov.gid), p = x.p, g = x.g, C = PF.corrections; if (!g || !p || !state.me) return;
+    var why = caBlocked(p); if (why) { caErr(ov, why); return; }
+    var ed = openEditor(p), base = ed.base, op = g.change.op, edited = null;
+    if (how === 'edit' && (op === 'wording' || op === 'add')) {
+      var el = document.getElementById('ca-edit'); edited = String(el ? el.value : ov.edit ? ov.edit.text : '').replace(/\s+/g, ' ').trim();
+      if (!edited) { caErr(ov, op === 'add' ? 'Say what the new step is.' : 'Say what the step should say.', 'ca-edit'); return; }
+    }
+    var rv = C.review(g, base, edited);
+    if (rv.state === 'manual' || rv.state === 'gone' || !rv.text) { caErr(ov, rv.reason || 'This can\'t be applied here.', edited != null && rv.state === 'manual' ? 'ca-edit' : null); return; }
+    /* Only a clean comparison applies on its own; anything else needs the person's edit or confirmation (how === 'edit'). */
+    if (how !== 'edit' && rv.state !== 'clean') { caErr(ov, 'The draft changed since this was shown. Look at the comparison again.'); return; }
+    if (rv.text === base) { caErr(ov, 'That\'s what the draft says now. Choose Cancel, then Already addressed.', edited != null ? 'ca-edit' : null); return; }
+    var subj = (rv.now && rv.now.text) || g.from || '', lb = TL.labelOf({ op: 'applyCorrection' }), others = C.alternatives(x.all, g).filter(function (y) { return y.id !== g.id; });
+    var ids = how === 'edit' && ov.combine ? ov.combine : [g.id], gs = ids.map(function (id) { return x.all.filter(function (y) { return y.id === id; })[0]; }).filter(Boolean);
+    var before = obSnap(ed);
+    learnIds(ed, ed.base); dropPending();
+    TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });
+    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null;
+    var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
+    closeOverlay(); state.focus = 'fx-h';
+    saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
+      act: { act: 'tl-undo', id: 'draft', label: 'Undo' },
+      write: function (f, file, t, h, o) { return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
+      after: function () {
+        if (gg !== gen) return null;
+        return gs.reduce(function (pr, y) {
+          return pr.then(function () {
+            var rec = C.decision(y, me, 'applied', '', new Date().toISOString(), { current: y.decision, act: U.randomId(10), result: C.outcome(y, text, y === g ? added : '') });
+            return queued(function () { return repo.decideCorrection(dfs, rec, WRITER); });
+          });
+        }, Promise.resolve()).catch(function (e) { if (gg === gen) say('The draft has the correction, but marking it as applied didn\'t save: ' + e.message + ' Review it again and choose Link this correction.', 'warn'); });
+      }
+    });
   }
   /* ---------- the outline builder ---------- */
   /* No builder edits while a restore replaces the draft (the same rule as typing, where the editor isn't even shown). */
@@ -1511,6 +1582,8 @@
       say(locked ? 'Earlier changes can\'t be undone: the ' + (p ? 'draft' : 'step type') + ' was replaced since. History shows where.' : r.error, 'warn'); render(); return;
     }
     var k = TL.peek(tl), words = (redo ? 'Redid ' : 'Undid ') + TL.describe(r.entry) + '.';
+    /* Undo of an applied correction from the process page: the draft is now unsaved, so the editor shows it. */
+    if (p && state.view === 'process' && state.ptab !== 'edit') state.ptab = 'edit';
     if (p) {
       ed.text = r.text; obClearErr(); state.planFormReset = !adding; state.obPlace = null; state.obAsk = null; state.obFlash = null;
       if (r.sel && 'obSel' in r.sel) {
@@ -2609,6 +2682,60 @@
     'corr-decline': function (id) { decideCorr(id, 'declined', val('pick-input'), 'Declined. The runs show why.'); },
     'corr-reopen': function (id) { decideCorr(id, 'open', '', 'Reopened.'); },
     'corr-withdraw': function (id, b) { decideCorr(id, 'withdrawn', '', 'Withdrawn.', b && b.dataset.process); },
+    /* Applying a correction to the draft: the comparison dialog and what it offers in each state. */
+    'corr-review': function (id) {
+      var p = currentProcess(); if (!p || !state.me) return;
+      state.overlayFocus = '#ca-t';
+      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); } });
+    },
+    'corr-apply': function (id, b) { var ov = caOv(); if (ov && ov.gid === id && !ov.busy) applyCorr(ov, b && b.dataset.how === 'edit' ? 'edit' : ''); },
+    'corr-edit': function (id) {
+      var ov = caOv(); if (!ov || ov.gid !== id) return;
+      var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
+      var rv = PF.corrections.review(g, caBase(x.p));
+      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.err = null;
+      state.overlayFocus = ov.edit.text != null ? '#ca-edit' : '#ca-t'; render();
+    },
+    'corr-combine': function (id) {
+      var ov = caOv(); if (!ov || ov.gid !== id) return;
+      var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
+      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to }; ov.err = null;
+      state.overlayFocus = '#ca-edit'; render();
+    },
+    'corr-edit-cancel': function () { var ov = caOv(); if (!ov) return; ov.edit = null; ov.combine = null; ov.err = null; state.overlayFocus = '#ca-t'; render(); },
+    'corr-link': function (id) {
+      var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
+      var x = caFind(ov.pid, ov.gid); if (!x.g) return;
+      var base = caBase(x.p), rv = PF.corrections.review(x.g, base);
+      if (rv.state !== 'already') { caErr(ov, 'The draft changed since this was shown. Look at the comparison again.'); return; }
+      caDecide(ov, 'applied', '', 'Linked: the draft already has this correction.', PF.corrections.outcome(x.g, base, rv.result ? rv.result.id : ''));
+    },
+    'corr-addressed': function (id) {
+      var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
+      var x = caFind(ov.pid, ov.gid); if (!x.g) return;
+      caDecide(ov, 'applied', '', 'Marked as applied to the draft.', PF.corrections.applies(x.g) ? PF.corrections.outcome(x.g, caBase(x.p)) : null);
+    },
+    'corr-ca-declining': function () { var ov = caOv(); if (!ov) return; ov.declining = true; ov.err = null; state.overlayFocus = '#ca-reason'; render(); },
+    'corr-ca-cancel': function () { var ov = caOv(); if (!ov) return; ov.declining = false; ov.err = null; state.overlayFocus = '#ca-t'; render(); },
+    'corr-ca-decline': function () { var ov = caOv(); if (!ov || ov.busy) return; caDecide(ov, 'declined', val('ca-reason'), 'Declined. The runs show why.'); },
+    'corr-open-editor': function (id) {
+      var ov = caOv(), pid = ov ? ov.pid : state.processId, gid = ov ? ov.gid : id;
+      if (ov) closeOverlay();
+      var x = caFind(pid, gid); if (!x.p || !x.g) return;
+      ACTIONS.ptab('edit'); if (state.ptab !== 'edit') return;
+      var ed = editorOf(x.p.id), o = PF.outline.parse(ed ? (ed.text != null ? ed.text : ed.base) : ''), s = x.g.target.step && o.steps.filter(function (y) { return y.id === x.g.target.step; })[0];
+      if (!s) return;
+      if (state.builder && !o.unsupported) { ACTIONS['ob-sel'](s.key); return; }
+      ACTIONS['corr-goto-line'](String(s.line + 1));
+    },
+    /* The Markdown's Open corrections list: select the step's first line and bring it into view. */
+    'corr-goto-line': function (id) {
+      var ta = document.getElementById('draft-editor'), n = +id; if (!ta || !(n >= 1)) return;
+      var lines = ta.value.split('\n'), start = 0;
+      for (var i = 0; i < n - 1 && i < lines.length; i++) start += lines[i].length + 1;
+      ta.focus(); ta.setSelectionRange(start, start + (lines[n - 1] || '').length);
+      var lh = parseFloat(window.getComputedStyle ? getComputedStyle(ta).lineHeight : '') || 20; ta.scrollTop = Math.max(0, (n - 4) * lh);
+    },
     'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
     'copy-corr-brief': function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
@@ -2926,6 +3053,7 @@
 
   document.addEventListener('input', function (e) {
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
+    if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */

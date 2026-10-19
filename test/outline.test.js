@@ -560,4 +560,111 @@ rule('Builder: a step whose ID is a name objects already have (constructor) keep
   assert.strictEqual(O.addStep(md, { phase: 'p' }, { text: 'Constructor' }).id, 'constructor-2', 'and it counts as taken');
 });
 
+// ---------- applying a correction to the draft (corrections slice 2) ----------
+const C = PF.corrections, RMAP = M.parse(RELEASE);
+let cn = 0;
+/* A group of one correction made in a run of the example release, as the process page has it. */
+function group(o, map) {
+  const n = C.build(Object.assign({ id: 'c' + (++cn), at: '2026-10-17T21:00:00.000Z', by: 'person-blake', map: map || RMAP, version: 1, folder: 'v1-abc' }, o));
+  return C.status(C.groups(C.collect([{ process: 'release', id: 'r1', title: 'Release', version: 1, folder: 'v1-abc', _notes: [n] }], 'release')), [])[0];
+}
+const KINDS = [
+  [{ step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' }, 'pods'],
+  [{ step: 'flags', op: 'add', where: 'after', text: 'Tell QA the flags are set' }, null],
+  [{ step: 'flags', op: 'add', where: 'end', text: 'Tell QA the flags are set' }, null],
+  [{ step: 'announce', op: 'move', moveTo: 'start:prep' }, 'announce'],
+  [{ step: 'flags', op: 'move', moveTo: 'after:rollback' }, 'flags'],
+  [{ step: 'flags', op: 'roles', roles: ['qa'] }, 'flags'],
+  [{ step: 'rollback', op: 'remove', why: 'The ticket template has it' }, 'rollback']
+];
+
+rule('Applying a correction changes only its own step\'s lines, and the draft then has it', () => {
+  KINDS.forEach(([o, id]) => {
+    const g = group(o), r = C.review(g, RELEASE);
+    assert.strictEqual(r.state, 'clean', o.op + ': ' + r.reason);
+    const ch = changes(RELEASE, r.text), own = l => /\{#(\w[\w-]*)\}/.exec(l);
+    // Every line it removed or added is the step's own first line, or a new step.
+    if (o.op === 'move') {
+      // A move takes the step's whole block (its fields and notes) and nothing else: without that block, both read the same.
+      const without = t => { const x = O.parse(t), s = x.steps.find(y => y.id === id); return x.lines.slice(0, s.line).concat(x.lines.slice(s.end)).join('\n'); };
+      assert.strictEqual(without(r.text), without(RELEASE), o.op);
+      same(sorted(lines(r.text)), sorted(lines(RELEASE)));
+    } else ch.removed.concat(ch.added).forEach(l => assert.ok(id ? own(l) && own(l)[1] === id : /Tell QA the flags are set/.test(l), o.op + ' touched ' + l));
+    healthy(RELEASE, r.text, o.op);
+    assert.strictEqual(C.review(g, r.text).state, 'already', o.op + ' is then already in the draft');
+  });
+  const ids0 = ids(RELEASE), after = C.review(group(KINDS[0][0]), RELEASE).text;
+  same(ids(after), ids0, 'every step ID is kept');
+});
+
+rule('The comparison says clean, already, changed, gone or manual, and never offers a change it can\'t make', () => {
+  const words = group({ step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' });
+  assert.strictEqual(C.review(words, RELEASE).state, 'clean');
+  same([C.review(words, RELEASE).now.text, C.review(words, RELEASE).result.text], ['New pods stay up with no restarts', 'New pods stay up for 20 minutes with no restarts']);
+  // Someone already wrote it, with other spacing.
+  const had = RELEASE.replace('New pods stay up with no restarts', 'New pods stay up  for 20 minutes with no restarts');
+  assert.strictEqual(C.review(words, had).state, 'already');
+  // The step changed since the run's version: a person edits or confirms the result.
+  const moved = RELEASE.replace('  command: kubectl get pods -l app=web-app', '  command: kubectl get pods -l app=web-app -w');
+  const ch = C.review(words, moved);
+  same([ch.state, /changed in the draft/.test(ch.reason), !!ch.text], ['changed', true, true]);
+  // The step is gone from the draft.
+  const gone = O.apply(RELEASE, { op: 'delete', step: 'pods' }).text;
+  assert.strictEqual(C.review(words, gone).state, 'gone');
+  // A removal is already made when the step is gone.
+  assert.strictEqual(C.review(group({ step: 'pods', op: 'remove', why: 'Covered by the dashboard' }), gone).state, 'already');
+  // Screenshots, described problems and suggested fixes from before 1.13 are made by a person in the editor.
+  assert.strictEqual(C.review(group({ step: 'pods', op: 'describe', why: 'The command is wrong' }), RELEASE).state, 'manual');
+  const legacy = C.groups(C.collect([{ process: 'release', id: 'r1', title: 'R', version: 1, _notes: [{ id: 'fx', kind: 'fix', step: 'pods', text: 'Wrong', at: 'x', by: 'a' }] }], 'release'))[0];
+  assert.strictEqual(C.review(legacy, RELEASE).state, 'manual');
+  // A change the builder's safety net refuses is manual too, with the builder's reason.
+  const odd = RELEASE.replace('- [!] {run.command} New pods stay up with no restarts @backend {#pods}\n', '- [!] {run.command} New pods stay up with no restarts @backend {#pods}\n<!-- x -->\n');
+  const r = C.review(words, odd);
+  assert.ok(r.state === 'manual' || r.state === 'clean', r.state);
+  // Who does it: "anyone" can't be said for one step of a lane with a role.
+  const laned = ['---', 'process: release', 'title: T', 'roles: a, b', '---', '', '## P {#p}', '### Track: L @a {#l}', '- [ ] {confirm} One {#one}', ''].join('\n');
+  const lmap = M.parse(laned);
+  const anyone = group({ step: 'one', op: 'roles', roles: ['b'] }, lmap);
+  anyone.change = { op: 'roles', to: [] };
+  assert.strictEqual(C.review(anyone, laned).state, 'manual');
+});
+
+rule('A person\'s own wording replaces the proposal, through the same checks as the builder', () => {
+  const g = group({ step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' });
+  const r = C.review(g, RELEASE, 'New pods stay up for 30 minutes');
+  same([r.state, r.result.text], ['clean', 'New pods stay up for 30 minutes']);
+  assert.strictEqual(C.review(g, RELEASE, 'Ask @backend').state, 'manual', '@roles stay out of the wording');
+  const add = group({ step: 'flags', op: 'add', where: 'after', text: 'Tell QA' });
+  assert.strictEqual(C.review(add, RELEASE, 'Tell QA and the on-call').result.text, 'Tell QA and the on-call');
+});
+
+rule('Undoing an applied correction\'s operations gives back the draft exactly', () => {
+  KINDS.filter(([o]) => o.op !== 'remove').forEach(([o]) => {
+    const r = C.review(group(o), RELEASE), inv = C.inverse(RELEASE, r.ops, r.added);
+    assert.ok(inv, o.op);
+    let t = r.text; inv.forEach(op => { t = ok(O.apply(t, op)); });
+    assert.strictEqual(t, RELEASE, o.op + ' round-trips');
+  });
+  const rm = C.review(group({ step: 'rollback', op: 'remove', why: 'x' }), RELEASE);
+  assert.strictEqual(C.inverse(RELEASE, rm.ops, rm.added), null, 'a removed step comes back only through the editor\'s Undo');
+});
+
+rule('An applied correction records its result, and a later change to that step shows as changed since applied', () => {
+  const g = group({ step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' }), text = C.review(g, RELEASE).text;
+  const d = Object.assign(C.decision(g, 'person-casey', 'applied', '', '2026-10-17T22:00:00.000Z', { act: 'a1', result: C.outcome(g, text) }), { _file: g.id + '.w.1.json' });
+  const clean = C.cleanDecision(JSON.parse(JSON.stringify(d)), 'release', d._file);
+  same(clean.result, d.result, 'the result is read back');
+  const [ap] = C.status([g], [Object.assign(clean, { _file: d._file })]);
+  assert.strictEqual(C.changedSince(ap, text), false);
+  assert.strictEqual(C.changedSince(ap, text.replace('for 20 minutes', 'for 25 minutes')), true);
+  // A decision without a result (Mark as applied before 1.16) is never flagged.
+  const [old] = C.status([g], [Object.assign(C.cleanDecision(Object.assign({}, d, { result: undefined }), 'release'), { _file: 'x.json' })]);
+  assert.strictEqual(C.changedSince(old, RELEASE), false);
+  // A new step is followed by its ID, even when a person reworded it while applying.
+  const add = group({ step: 'flags', op: 'add', where: 'after', text: 'Tell QA' }), ra = C.review(add, RELEASE, 'Tell QA and the on-call');
+  const da = C.cleanDecision(JSON.parse(JSON.stringify(C.decision(add, 'a', 'applied', '', 'x', { result: C.outcome(add, ra.text, ra.added) }))), 'release');
+  const [aa] = C.status([add], [Object.assign(da, { _file: 'y.json' })]);
+  assert.strictEqual(C.changedSince(aa, ra.text), false);
+});
+
 run();

@@ -266,6 +266,35 @@ rule('A correction goes in its author\'s own notes file; each decision is a new 
   same(Object.keys(fs.files).filter(p => p.indexOf('corrections/') === 0).length, 2);
 });
 
+rule('Applying a correction saves the draft only over the exact draft it was compared with, and starts a draft from the latest version when there is none', async () => {
+  const fs = folder(), r = await started(fs), C = PF.corrections, U = PF.util;
+  const n = C.build({ id: 'c1', at: NOW, by: 'person-blake', session: 'blake-laptop', map: R.mapOf(r), step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts', version: 1, folder: r.folder });
+  await repo.addNote(fs, r, 'blake-laptop', n);
+  const g = C.status(C.groups(C.collect((await repo.loadAll(fs)).runs, 'release')), [])[0];
+  const base = fs.files['maps/drafts/release.md'].t;
+  // Someone (or an AI assistant) changed the draft after it was compared: nothing is written.
+  const theirs = base.replace('Rollback commit written', 'Rollback commit and steps written');
+  await fs.write('maps/drafts/release.md', theirs);
+  const refused = await repo.applyCorrection(fs, { process: 'release', file: 'release.md', base, expect: U.hash(base), group: g });
+  same([!!refused.conflict, refused.theirs === theirs, fs.files['maps/drafts/release.md'].t === theirs], [true, true, true]);
+  // Over the draft as it is, it's saved and read back.
+  const res = await repo.applyCorrection(fs, { process: 'release', file: 'release.md', base: theirs, expect: U.hash(theirs), group: g });
+  assert.ok(res.ok && /New pods stay up for 20 minutes with no restarts @backend \{#pods\}/.test(fs.files['maps/drafts/release.md'].t));
+  // Applying again: the draft already has it, so it's refused rather than written twice.
+  await assert.rejects(() => repo.applyCorrection(fs, { process: 'release', file: 'release.md', base: res.text, expect: res.hash, group: g }), /already has this correction/);
+  // A result that doesn't match what the window showed is refused.
+  await assert.rejects(() => repo.applyCorrection(fs, { process: 'release', file: 'release.md', base: theirs, expect: U.hash(theirs), group: g, text: 'something else' }), /changed since/);
+  // No draft: it starts from the latest version, and an existing file of that name is never replaced.
+  await fs.remove('maps/drafts/release.md');
+  const pub = (await repo.loadAll(fs)).processes[0].index.latest;
+  const made = await repo.applyCorrection(fs, { process: 'release', file: null, base: pub.md, expect: null, group: g });
+  same([made.ok, made.file], [true, 'release.md']);
+  assert.strictEqual(fs.files['maps/drafts/release.md'].t, C.review(g, pub.md).text);
+  await fs.write('maps/drafts/release.md', 'written meanwhile');
+  const again = await repo.applyCorrection(fs, { process: 'release', file: null, base: pub.md, expect: null, group: g });
+  same([!!again.conflict, fs.files['maps/drafts/release.md'].t], [true, 'written meanwhile']);
+});
+
 rule('Corrections decisions and decisions on suggested fixes from before 1.13 both load; one that can\'t be read is reported, not dropped', async () => {
   const fs = folder(), r = await started(fs), C = PF.corrections;
   await repo.addNote(fs, r, 'blake-laptop', { id: 'fx1', at: NOW, by: 'person-blake', session: 'blake-laptop', step: 'jenkins', text: 'Say when it asks', files: [], kind: 'fix', fixKind: 'instructions', target: { phase: 'deploy', step: 'jenkins' }, version: 1 });

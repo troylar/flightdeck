@@ -116,7 +116,7 @@
     var open = all.filter(function (g) { return g.status === 'open'; });
     var showAll = st.fixFilter === 'all', list = showAll ? all : open, map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
     var h = '<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>' +
-      '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Mark one as applied once the draft has it.</p>' +
+      '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Review one to apply it to the draft, or mark it as applied once the draft has it.</p>' +
       '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="corr-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
     var unread = (ctx.data.corrUnread || []).filter(function (u) { return u.process === p.id; });
     if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>corrections/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some corrections may show the wrong status until it syncs.') + '</span></div>';
@@ -156,13 +156,88 @@
     if (g.status === 'legacy') h += '<div class="small">Applied before 1.13. Flightdeck can\'t confirm which version has it.</div>';
     if (g.again) h += '<div class="small">Suggested again after it was ' + esc(g.again.status) + (g.again.reason ? ': ' + esc(g.again.reason) : '') + '</div>';
     if (g.tie) h += '<div class="small"><b>Needs review:</b> two people decided at once. Decide again to settle it.</div>';
+    if (C.changedSince(g, corrBase(ctx, p).text)) h += '<div class="small corr-since"><span class="pill review">Changed since applied</span> The draft\'s step no longer matches what was applied.</div>';
     if (!st.me || g.status === 'legacy') return h + '</li>';
     if (declining) return h + '<div class="row">' + ferr(st, 'corr-decline') + '<label class="sr" for="pick-input">Why not? The runs will show this.</label><input id="pick-input" maxlength="300" placeholder="Why not? The runs will show this." data-enter="corr-decline" data-id="' + esc(g.id) + '"' + (st.fieldErr && st.fieldErr.id === 'corr-decline' ? ' aria-invalid="true" aria-describedby="ferr-corr-decline"' : '') + '><button class="btn" data-act="corr-decline" data-id="' + esc(g.id) + '">Decline</button><button class="mini" data-act="unpick">Cancel</button></div></li>';
     var acts = '';
-    if (g.status === 'open' || g.tie) acts += '<button class="mini" data-act="corr-applied" data-id="' + esc(g.id) + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + esc(g.id) + '">Decline</button>';
+    if (g.status === 'open' || g.tie) acts += '<button class="btn" data-act="corr-review" data-id="' + esc(g.id) + '">' + (C.applies(g) ? 'Review and apply' : 'Review') + '</button><button class="mini" data-act="corr-applied" data-id="' + esc(g.id) + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + esc(g.id) + '">Decline</button>';
     if (g.status !== 'open' || g.tie) acts += '<button class="mini" data-act="corr-reopen" data-id="' + esc(g.id) + '">Reopen</button>';
     if (g.status === 'open' && C.canWithdraw(g, st.me)) acts += '<button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>';
     return h + '<div class="row">' + acts + '</div></li>';
+  }
+
+  /* The draft a correction is compared with and applied to: the editor's (what it started from, so applying and its Undo
+     share one timeline), else the draft in the folder, else the latest version, which applying makes the draft. */
+  function corrBase(ctx, p) {
+    var st = ctx.state, ed = st.editor && st.editor.pid === p.id && st.editor.fsKey === ctx.fsKey ? st.editor : null;
+    var text = ed ? ed.base : p.draft ? p.draft.md : p.latest ? p.latest.md : '';
+    return { text: text, ed: ed, dirty: !!(ed && ed.text != null && ed.text !== ed.base) || st.obPending === p.id, conflict: !!(ed && ed.conflict),
+      saving: (st.draftSaving || {})[ctx.fsKey + '\n' + p.id], fresh: !p.draft };
+  }
+  /* One column of the comparison: the step's wording, and who does it or where it is when that's what changes. */
+  function caCol(id, head, v, op, other) {
+    var body;
+    if (!v) body = '<p class="ca-none">' + esc(other) + '</p>';
+    else {
+      body = v.text ? '<p class="ca-text">' + (v.redFrom != null && v.redFrom !== v.text ? V.redline(v.redFrom, v.text) : esc(v.text)) + '</p>' : '';
+      if (op === 'roles' || v.rolesToo) body += '<p class="small">Who: ' + (v.roles.length ? esc(v.roles.map(function (r) { return '@' + r; }).join(', ')) : 'anyone') + '</p>';
+      if ((op === 'move' || op === 'add') && v.where) body += '<p class="small">' + esc(v.where) + '</p>';
+    }
+    return '<section class="ca-col" aria-labelledby="' + id + '"><h3 id="' + id + '">' + head + '</h3>' + body + '</section>';
+  }
+  /* The dialog that applies one group of corrections to the draft: From the run's vN | Draft now | Proposed result, and
+     what can be done in the state it's in. Nothing is applied that isn't clean unless the person edits or confirms it. */
+  function corrApply(ctx, ov) {
+    var st = ctx.state, C = PF.corrections, p = ctx.processes().filter(function (x) { return x.id === ov.pid; })[0];
+    var gs = p ? fixesOf(ctx, p) : [], g = gs.filter(function (x) { return x.id === ov.gid; })[0];
+    var box = function (inner) { return '<div class="overlay" data-act="close-overlay"><div class="ca-box" role="dialog" aria-modal="true" aria-labelledby="ca-t">' + inner + '</div></div>'; };
+    var bar = function (t) { return '<div class="ca-bar"><h2 id="ca-t" tabindex="-1">' + t + '</h2><button type="button" class="mini" id="ca-close" data-act="close-overlay">Close</button></div>'; };
+    if (!g || (g.status !== 'open' && !g.tie)) return box(bar('Apply a correction') + '<p>' + (g ? 'This correction was decided meanwhile: ' + esc(C.label(g)) + '.' : 'This correction isn\'t here anymore.') + '</p>');
+    var base = corrBase(ctx, p), c = g.first, ch = g.change, edited = ov.edit ? ov.edit.text : null;
+    var rv = C.review(g, base.text, ov.edit && ov.edit.text != null && (ch.op === 'wording' || ch.op === 'add') ? edited : null), stepName = c.from || (rv.now && rv.now.text) || '';
+    var h = bar('Apply to the draft: ' + (stepName ? '“' + esc(stepName) + '”' : 'step ' + esc(g.target.step || g.target.phase)));
+    h += '<p class="small"><span class="badge b-plan">' + esc(C.OP_LABEL[ch.op]) + '</span> Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + (base.fresh ? ' · There\'s no draft yet: applying starts one from v' + esc(p.latest ? p.latest.info.version : '') + '.' : '') + '</p>';
+    var stateLine = { clean: '', already: 'This is already in the draft.', changed: rv.reason, gone: rv.reason || 'This step isn\'t in the draft anymore.', manual: 'Flightdeck can\'t apply this one for you. ' + rv.reason }[rv.state];
+    if (ov.edit) stateLine = 'Your edit is applied as written. Check it against the draft now.';
+    if (stateLine) h += '<div class="notice ' + (rv.state === 'already' && !ov.edit ? 'good' : 'warn') + '" role="status"><span>' + esc(stateLine) + '</span></div>';
+    /* The run's version: its own record of what the step said and the change it proposed. */
+    var from = { text: g.from, roles: [], where: '' }, prop = C.proposal(c, null);
+    var result = rv.result ? Object.assign({}, rv.result, { redFrom: rv.now && !rv.now.anchor ? rv.now.text : null }) : null;
+    var said = '<section class="ca-col" aria-labelledby="ca-h-from"><h3 id="ca-h-from">From the run\'s v' + esc(c.version) + '</h3>' + (from.text ? '<p class="ca-text">' + esc(from.text) + '</p>' : '<p class="ca-none">Not recorded.</p>') +
+      '<p class="small">Suggested: ' + (ch.op === 'wording' ? esc(ch.to) : esc(prop || c.why || '')) + '</p></section>';
+    h += '<div class="ca-cols">' + said +
+      caCol('ca-h-now', 'Draft now', rv.now && (rv.now.text || rv.now.where) ? rv.now : null, ch.op, 'Not in the draft.') +
+      caCol('ca-h-res', 'Proposed result', result, ch.op, rv.removed ? 'Removed from the checklist.' : rv.state === 'manual' ? 'Made by hand in the editor.' : rv.state === 'gone' ? 'Nothing to change.' : 'Nothing to change.') + '</div>';
+    var err = ov.err ? '<p class="ferr" id="ferr-' + esc(ov.err.field) + '" role="alert">' + esc(ov.err.msg) + '</p>' : '';
+    if (base.conflict) h += '<div class="notice bad" role="alert"><span>Someone else changed this draft while you were editing it. Settle that in the editor first.</span></div>';
+    else if (base.dirty) h += '<div class="notice warn" role="alert"><span>You have unsaved changes to this draft. Save or discard them in the editor first, so applying can\'t mix with them.</span><button type="button" class="mini" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Open the editor</button></div>';
+    else if (base.saving) h += '<p class="small" role="status">Saving the draft…</p>';
+    var blocked = base.conflict || base.dirty || !!base.saving || !st.me, dis = blocked ? ' disabled' : '';
+    var alts = C.alternatives(gs, g), combine = alts.length > 1 && alts.every(function (x) { return x.change.op === 'wording'; });
+    var acts = '';
+    if (ov.declining) {
+      acts = '<label class="sr" for="ca-reason">Why not? The runs will show this.</label><input id="ca-reason" maxlength="300" placeholder="Why not? The runs will show this." data-enter="corr-ca-decline" data-id="' + esc(g.id) + '"' + (ov.err && ov.err.field === 'ca-reason' ? ' aria-invalid="true" aria-describedby="ferr-ca-reason"' : '') + '>' +
+        '<button type="button" class="btn" data-act="corr-ca-decline" data-id="' + esc(g.id) + '">Decline</button><button type="button" class="mini" data-act="corr-ca-cancel">Cancel</button>';
+      return box(h + (ov.err && ov.err.field === 'ca-reason' ? err : '') + '<div class="row ca-acts">' + acts + '</div>');
+    }
+    if (ov.edit) {
+      var txt = ch.op === 'wording' || ch.op === 'add';
+      if (txt) h += '<label class="field" for="ca-edit">' + (ch.op === 'add' ? 'The new step' : 'Proposed result') + '<textarea id="ca-edit" rows="3" maxlength="2000"' + (ov.err && ov.err.field === 'ca-edit' ? ' aria-invalid="true" aria-describedby="ferr-ca-edit"' : '') + '>' + esc(edited != null ? edited : '') + '</textarea></label>' + (ov.err && ov.err.field === 'ca-edit' ? err : '');
+      else h += '<p class="small">Applies "' + esc(prop) + '" to the step as the draft has it now.</p>';
+      if (ov.combine) h += '<p class="small">Combining ' + ov.combine.length + ' proposals: applying marks each of them as applied.</p>';
+      acts = '<button type="button" class="btn go" data-act="corr-apply" data-id="' + esc(g.id) + '" data-how="edit"' + dis + (rv.state === 'gone' || rv.state === 'manual' ? ' disabled' : '') + '>Apply to draft</button><button type="button" class="mini" data-act="corr-edit-cancel">Cancel</button>';
+      if (rv.state === 'manual' || rv.state === 'gone') h += '<p class="small">' + esc(rv.reason) + '</p>';
+      return box(h + (ov.err && ov.err.field !== 'ca-edit' ? err : '') + '<div class="row ca-acts">' + acts + '</div>');
+    }
+    var apply = function (label) { return '<button type="button" class="btn go" data-act="corr-apply" data-id="' + esc(g.id) + '"' + dis + '>' + label + '</button>'; };
+    var addressed = '<button type="button" class="btn" data-act="corr-addressed" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Already addressed</button>';
+    if (rv.state === 'clean') acts = alts.length > 1 ? apply('Use this proposal') + (combine ? '<button type="button" class="btn" data-act="corr-combine" data-id="' + esc(g.id) + '"' + dis + '>Combine into a new proposal</button>' : '') : apply('Apply to draft');
+    else if (rv.state === 'already') acts = '<button type="button" class="btn go" data-act="corr-link" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Link this correction</button>';
+    else if (rv.state === 'changed') acts = '<button type="button" class="btn go" data-act="corr-edit" data-id="' + esc(g.id) + '"' + dis + '>Edit proposed result</button>' + addressed;
+    else if (rv.state === 'gone') acts = addressed + '<button type="button" class="btn" data-act="corr-ca-declining" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Decline</button>';
+    else acts = '<button type="button" class="btn go" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Open in the editor</button><button type="button" class="btn" data-act="corr-addressed" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Mark as applied</button>';
+    if (alts.length > 1 && rv.state === 'clean') h += '<p class="small">' + (alts.length === 2 ? 'Two' : alts.length) + ' proposed changes to this step. Use one, or combine them into your own wording.</p>';
+    return box(h + err + '<div class="row ca-acts">' + acts + '</div>');
   }
 
   function process(ctx) {
@@ -283,5 +358,5 @@
     return h;
   }
 
-  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice;
+  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice;
 })();

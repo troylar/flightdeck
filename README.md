@@ -173,7 +173,7 @@ The **Builder** edits a draft as an outline: drag a step or press Alt+Up / Alt+D
 </td>
 <td valign="top">
 
-**Corrections** on the process page, grouped by step: the same correction from several runs shows once, "Suggested in 3 runs". Mark one as applied, decline it with a reason, or reopen it, and copy a correction brief for your AI assistant.
+**Corrections** on the process page, grouped by step: the same correction from several runs shows once, "Suggested in 3 runs". **Review and apply** compares what the run's version said, the draft now and the result side by side, then applies it to the draft in one click as one change you can undo; if the draft already has it, **Link this correction**. Mark one as applied, decline it with a reason, or reopen it, and copy a correction brief for your AI assistant. The draft editor marks the steps with open corrections.
 
 <a href="https://github.com/troylar/flightdeck/blob/main/docs/images/corrections-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/corrections-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/corrections-light.png" alt="Corrections on the process page: a wording change suggested in two runs, with the runs listed, and a missing step, each with Mark as applied and Decline, then Copy correction brief"></picture></a>
 
@@ -245,7 +245,7 @@ A step can **set** a run detail: the merge step records the release tag, and eve
 <td valign="top">
 
 ### Runs that teach the checklist
-Every block, every re-check and every step **done differently** (with what happened) is kept. Anyone in a run can **correct a step**: what the checklist said, what it should say, and files to show why. Corrections are part of the run's record and its receipt, and wait on the process page, where anyone marks them applied or declines them with a reason; one click copies a correction brief for your AI assistant. A process's **How runs go** shows typical time per phase, the steps that go off-script most, and who has never held which role yet, so the next rotation is obvious.
+Every block, every re-check and every step **done differently** (with what happened) is kept. Anyone in a run can **correct a step**: what the checklist said, what it should say, and files to show why. Corrections are part of the run's record and its receipt, and wait on the process page, where anyone applies them to the draft (after a side-by-side comparison), marks them applied or declines them with a reason; one click copies a correction brief for your AI assistant. A process's **How runs go** shows typical time per phase, the steps that go off-script most, and who has never held which role yet, so the next rotation is obvious.
 
 </td>
 </tr>

@@ -2024,6 +2024,95 @@ rule('App: on the process page anyone marks a correction applied, declines it wi
   assert.ok(!/fix-accept|suggestions\//.test(app.html()));
 });
 
+/* The release process page as Morgan, with the example's open corrections. */
+async function releasePage(opts) {
+  const app = boot(opts); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(20);
+  return app;
+}
+const podsGroup = app => /data-act="corr-review" data-id="([\w-]+)"/.exec(app.html())[1];
+const decisions = (app, id) => app.files('corrections/release/' + id + '.').filter(p => !/example-session/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+
+rule('App: Apply to draft compares three ways, saves the draft as one undoable change, then records the decision with its result', async () => {
+  const app = await releasePage(), path = 'maps/drafts/release.md', before = app.fs.files[path].t, id = podsGroup(app);
+  app.click('corr-review', id); await app.tick();
+  const ov = app.overlay();
+  assert.ok(/role="dialog"/.test(ov) && /From the run&#39;s v\d|From the run's v\d/.test(ov) && />Draft now</.test(ov) && />Proposed result</.test(ov), 'the three columns');
+  assert.ok(/<ins>for 20 minutes </.test(ov) && /data-act="corr-apply"[^>]*>Apply to draft</.test(ov));
+  app.click('corr-apply', id); await app.tick(100);
+  const after = app.fs.files[path].t;
+  assert.ok(/New pods stay up for 20 minutes with no restarts @backend \{#pods\}/.test(after));
+  assert.strictEqual(after.split('\n').length, before.split('\n').length, 'only the step\'s line changed');
+  const [d] = decisions(app, id);
+  assert.deepStrictEqual([d.status, d.by, d.rev, typeof d.result.sig], ['applied', 'person-morgan', 1, 'string']);
+  assert.ok(!app.overlay() && /Applied correction to &quot;New pods stay up with no restarts&quot;\. Saved to the draft\./.test(app.html()), app.html().slice(0, 0));
+  assert.ok(/Corrections · 1 open/.test(app.html()));
+  // One entry on the draft editor's timeline, named for what it did; Undo takes it back as an unsaved change in the editor.
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Undid the applied correction to &quot;New pods stay up with no restarts&quot;\./.test(app.html()) && /Unsaved changes/.test(app.html()), 'undone in the editor, not saved');
+  assert.strictEqual(app.fs.files[path].t, after, 'Undo never writes by itself');
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, before);
+  app.click('ptab', 'overview'); await app.tick(40); app.click('corr-filter', 'all'); await app.tick();
+  assert.ok(/Changed since applied/.test(app.html()), 'the applied group no longer matches the draft');
+});
+
+rule('App: applying is refused while this window has unsaved edits to the draft, and needs a person\'s edit when the step changed', async () => {
+  const app = await releasePage({ localStore: { 'preflight:builder': 'false' } }), path = 'maps/drafts/release.md', id = podsGroup(app);
+  app.click('ptab', 'edit'); await app.tick();
+  const md = app.fs.files[path].t;
+  app.input('draft-editor', md.replace('Rollback commit written', 'Rollback commit and steps written')); await app.tick(300);
+  assert.ok(/Open corrections · 2/.test(app.html()) && /data-act="corr-goto-line" data-id="\d+">Go to line \d+</.test(app.html()), 'the Markdown lists open corrections with their lines');
+  app.click('ptab', 'overview'); await app.tick();
+  app.click('corr-review', id); await app.tick();
+  assert.ok(/You have unsaved changes to this draft/.test(app.overlay()) && /data-act="corr-apply"[^>]*disabled/.test(app.overlay()));
+  app.click('corr-apply', id); await app.tick(60);
+  assert.strictEqual(app.fs.files[path].t, md, 'nothing written');
+  assert.ok(/role="alert">You have unsaved changes to this draft\. Save or discard/.test(app.overlay()));
+  app.click('close-overlay'); await app.tick();
+  app.click('revert-draft', 'release'); await app.tick(40);
+  // The step changed in the folder since the runs' version: Apply isn't offered; an edit of the result is.
+  await app.fs.write(path, md.replace('  command: kubectl get pods -l app=web-app', '  command: kubectl get pods -l app=web-app -w'));
+  app.click('refresh'); await app.tick(100);
+  app.click('corr-review', id); await app.tick();
+  assert.ok(/This step changed in the draft since the run/.test(app.overlay()) && !/data-act="corr-apply"/.test(app.overlay()) && /Edit proposed result/.test(app.overlay()) && /Already addressed/.test(app.overlay()));
+  app.click('corr-apply', id); await app.tick(60);
+  assert.ok(!/for 20 minutes/.test(app.fs.files[path].t), 'not applied without the person');
+  app.click('corr-edit', id); await app.tick();
+  app.input('ca-edit', 'New pods stay up for 25 minutes with no restarts');
+  app.click('corr-apply', id, { how: 'edit' }); await app.tick(100);
+  assert.ok(/New pods stay up for 25 minutes with no restarts @backend \{#pods\}/.test(app.fs.files[path].t) && /-w$/m.test(app.fs.files[path].t), 'their edit, on the draft as it is now');
+  assert.strictEqual(decisions(app, id)[0].status, 'applied');
+});
+
+rule('App: if the decision can\'t be written after the draft is saved, the next look finds it in the draft and Link records it', async () => {
+  const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app);
+  const orig = app.PF.repo.decideCorrection; let fails = 1;
+  app.PF.repo.decideCorrection = function () { if (fails-- > 0) return Promise.reject(new Error('OneDrive is offline')); return orig.apply(this, arguments); };
+  app.click('corr-review', id); await app.tick();
+  app.click('corr-apply', id); await app.tick(100);
+  assert.ok(/for 20 minutes/.test(app.fs.files[path].t), 'the draft has it');
+  assert.ok(/marking it as applied didn&#39;t save: OneDrive is offline|marking it as applied didn't save: OneDrive is offline/.test(app.html()));
+  assert.strictEqual(decisions(app, id).length, 0);
+  app.click('corr-review', id); await app.tick();
+  assert.ok(/This is already in the draft\./.test(app.overlay()) && /data-act="corr-link"[^>]*>Link this correction</.test(app.overlay()));
+  app.click('corr-link', id); await app.tick(80);
+  const [d] = decisions(app, id);
+  assert.deepStrictEqual([d.status, !!d.result], ['applied', true]);
+  assert.ok(/Linked: the draft already has this correction\./.test(app.html()) && !app.overlay());
+  app.PF.repo.decideCorrection = orig;
+});
+
+rule('App: a correction to a process with no draft starts the draft from the latest version', async () => {
+  const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app);
+  await app.fs.remove(path); app.click('refresh'); await app.tick(100);
+  app.click('corr-review', id); await app.tick();
+  assert.ok(/There&#39;s no draft yet: applying starts one from v2|There's no draft yet: applying starts one from v2/.test(app.overlay()));
+  app.click('corr-apply', id); await app.tick(100);
+  assert.ok(app.fs.files[path] && /for 20 minutes/.test(app.fs.files[path].t));
+});
+
 rule('App: Copy correction brief gives the AI assistant the open corrections with the draft\'s steps and the rules for editing', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-casey'); await app.tick();

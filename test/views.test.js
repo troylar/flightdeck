@@ -822,6 +822,60 @@ rule('Process page: Corrections · N open grouped by step, Suggested in N runs, 
   assert.ok(!/Corrections ·/.test(V.process(ctx)), 'no panel without corrections');
 });
 
+rule('Applying a correction: the dialog compares the run\'s version, the draft now and the result, says when the draft has it already, and escapes what people wrote', () => {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest, r1 = R.create(latest, { title: 'R', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r1' });
+  r1._notes = [cr(r1, { id: 'w1', to: 'Change request <b>approved</b> & signed' }), cr(r1, { id: 'w2', to: 'Change request approved by the board', by: 'person-avery' }), cr(r1, { id: 'd1', step: 'pods', op: 'describe', why: 'Odd <img src=x>' })];
+  ctx.data.runs = [r1];
+  const p = { id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: latest.md }, draftChanged: false };
+  ctx.processes = () => [p]; state.processId = 'release'; state.me = 'person-blake'; ctx.data.corrDecisions = [];
+  const gs = C.status(C.groups(C.collect([r1], 'release')), []), by = id => gs.find(g => g.first.id === id), w1 = by('w1'), w2 = by('w2'), d1 = by('d1');
+  let html = V.process(ctx);
+  assert.ok(new RegExp('data-act="corr-review" data-id="' + w1.id + '">Review and apply<').test(html) && new RegExp('data-act="corr-review" data-id="' + d1.id + '">Review<').test(html));
+  let ov = V.corrApply(ctx, { pid: 'release', gid: w1.id });
+  assert.ok(/role="dialog" aria-modal="true" aria-labelledby="ca-t"/.test(ov) && /<h3 id="ca-h-from">From the run's v1<\/h3>/.test(ov) && /<h3 id="ca-h-now">Draft now<\/h3>/.test(ov) && /<h3 id="ca-h-res">Proposed result<\/h3>/.test(ov));
+  assert.ok(/Change request &lt;b&gt;approved&lt;\/b&gt; &amp; signed/.test(ov) && !/<b>approved<\/b>/.test(ov), 'escaped');
+  assert.ok(/>Use this proposal</.test(ov) && /data-act="corr-combine"/.test(ov) && /Two proposed changes to this step/.test(ov), 'alternatives: use one or combine them');
+  // Already in the draft: Link, nothing to apply.
+  p.draft.md = latest.md.replace('Change request approved for tonight\'s window', 'Change request approved by the board');
+  ov = V.corrApply(ctx, { pid: 'release', gid: w2.id });
+  assert.ok(/This is already in the draft\./.test(ov) && /data-act="corr-link"[^>]*>Link this correction</.test(ov) && !/data-act="corr-apply"/.test(ov));
+  // A described problem: made by hand.
+  ov = V.corrApply(ctx, { pid: 'release', gid: d1.id });
+  assert.ok(/Flightdeck can&#39;t apply this one for you\./.test(ov) && />Open in the editor</.test(ov) && />Mark as applied</.test(ov) && !/data-act="corr-apply"/.test(ov));
+  // Editing: the result in a labeled box, with its error next to it.
+  p.draft.md = latest.md;
+  ov = V.corrApply(ctx, { pid: 'release', gid: w1.id, edit: { text: 'A <i>' }, err: { field: 'ca-edit', msg: 'Leave out @roles' } });
+  assert.ok(/<label class="field" for="ca-edit">Proposed result<textarea id="ca-edit"[^>]*aria-invalid="true" aria-describedby="ferr-ca-edit">A &lt;i&gt;<\/textarea>/.test(ov) && /id="ferr-ca-edit" role="alert">Leave out @roles/.test(ov));
+  // Unsaved edits in this window: Apply is off, and says why.
+  state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md + '\nmore' };
+  ov = V.corrApply(ctx, { pid: 'release', gid: w1.id });
+  assert.ok(/You have unsaved changes to this draft/.test(ov) && /data-act="corr-apply"[^>]*disabled/.test(ov));
+  // Markers: the builder's rows and the Markdown's Open corrections list with Go to line.
+  state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: null }; state.ptab = 'edit';
+  html = V.process(ctx);
+  assert.ok(/data-ob-step="approved"[\s\S]*?<span class="badge b-warn">2 open corrections<\/span>/.test(html) && /data-ob-step="pods"[\s\S]*?<span class="badge b-warn">1 open correction<\/span>/.test(html.slice(html.indexOf('data-ob-step="pods"'))));
+  state.builder = false; html = V.process(ctx);
+  const line = latest.md.split('\n').findIndex(l => /\{#approved\}/.test(l)) + 1;
+  assert.ok(/<summary class="small">Open corrections · 3<\/summary>/.test(html) && new RegExp('Wording: Change request approved for tonight&#39;s window</span><button type="button" class="linkish" data-act="corr-goto-line" data-id="' + line + '">Go to line ' + line + '<').test(html));
+  state.builder = true; state.ptab = null; state.editor = null;
+});
+
+rule('Process page: an applied correction whose step changed in the draft since says so', () => {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest, r1 = R.create(latest, { title: 'R', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r1' });
+  r1._notes = [cr(r1, { id: 'w1' })];
+  ctx.data.runs = [r1];
+  const g = C.groups(C.collect([r1], 'release'))[0], applied = C.review(g, latest.md).text;
+  ctx.data.corrDecisions = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-avery', 'applied', '', NOW, { result: C.outcome(g, applied) }))), 'release'), { _file: 'g.w.1.json' })];
+  const p = { id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: applied }, draftChanged: true };
+  ctx.processes = () => [p]; state.processId = 'release'; state.fixFilter = 'all';
+  assert.ok(!/Changed since applied/.test(V.process(ctx)));
+  p.draft.md = applied.replace('by the board', 'by the change board');
+  assert.ok(/<span class="pill review">Changed since applied<\/span>/.test(V.process(ctx)));
+  state.fixFilter = 'open';
+});
+
 rule('Process page: a group decided twice at once says Needs review; an accepted suggested fix from before 1.13 is Applied (legacy), with no actions', () => {
   const { ctx, state } = setup();
   const latest = ctx.data.processes[0].index.latest, r1 = R.create(latest, { title: 'R', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r1' });
