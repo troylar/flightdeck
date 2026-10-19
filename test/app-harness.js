@@ -119,6 +119,7 @@ function boot(opts) {
     performance: opts.performance
   });
   vm.runInContext(script('pf-core'), ctx);
+  vm.runInContext(script('pf-storage'), ctx);
   // Checklists parsed once are shared by every run of a version: frozen here, so a rule that changed one would fail a test.
   if (ctx.PF.run.mapMemo) ctx.PF.run.mapMemo.freeze = true;
   // Remember the in-browser folder the app creates, so tests can plant files in it as "another computer" would.

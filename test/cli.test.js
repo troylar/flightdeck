@@ -490,4 +490,197 @@ rule('An app update keeps a checked copy of the app it replaces, the old preflig
   assert.strictEqual(fs.readFileSync(path.join(run, 'preflight.html'), 'utf8'), legacy);
 });
 
+/* ---------- flightdeck export ---------- */
+const EV = require('./evidence-fixture');
+let evFiles = null;
+async function teamFolder(edit) {
+  evFiles = evFiles || (await EV.build(require('./harness').load())).files;
+  const files = Object.assign({}, evFiles);
+  if (edit) edit(files);
+  return EV.toDisk(files, tmp());
+}
+const zipsIn = (d) => fs.existsSync(d) ? fs.readdirSync(d) : [];
+function pyCheck(file) {
+  for (const c of ['python3', 'python']) {
+    try { return cp().execFileSync(c, ['-I', path.join(__dirname, 'check_pack.py'), file], { encoding: 'utf8' }); } catch (e) { if (e.code !== 'ENOENT') throw new Error(String(e.stdout) + String(e.stderr)); }
+  }
+  return 'skipped';
+}
+function cp() { return require('child_process'); }
+
+rule('export --run makes a pack outside the team folder, prints its SHA-256 to keep separately, and changes nothing in the folder', async () => {
+  const dir = await teamFolder(), out = tmp(), before = EV.tree(dir);
+  const r = cli('export', dir, '--run', 'release/run1', '--out', out, '--tz', 'UTC');
+  assert.strictEqual(r.code, 0, r.out);
+  const zips = zipsIn(out);
+  assert.strictEqual(zips.length, 1, zips.join(', '));
+  assert.ok(/\.zip$/.test(zips[0]) && !/partial/.test(zips[0]));
+  const digest = /SHA-256 of this pack: ([0-9a-f]{64})/.exec(r.out);
+  assert.ok(digest, r.out);
+  assert.strictEqual(digest[1], require('crypto').createHash('sha256').update(fs.readFileSync(path.join(out, zips[0]))).digest('hex'));
+  assert.ok(/Keep it somewhere separate/.test(r.out) && /people directory and its email fields are left out/.test(r.out), r.out);
+  assert.ok(/^ok|skipped/.test(pyCheck(path.join(out, zips[0]))));
+  assert.deepStrictEqual(EV.tree(dir), before, 'the team folder tree is identical');
+});
+
+rule('export exit codes: 4 for a partial pack (run.json missing), 1 with no file left for a run that isn\'t there', async () => {
+  const dir = await teamFolder((f) => { delete f['runs/release/run1/run.json']; }), out = tmp();
+  let r = cli('export', dir, '--run', 'release/run1', '--out', out);
+  assert.strictEqual(r.code, 4, r.out);
+  assert.ok(/partial/i.test(r.out) && /run\.json is missing/.test(r.out), r.out);
+  assert.strictEqual(zipsIn(out).filter(n => /\.zip$/.test(n)).length, 1);
+  const out2 = tmp();
+  r = cli('export', dir, '--run', 'release/nope', '--out', out2);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.deepStrictEqual(zipsIn(out2), [], 'nothing left behind');
+  r = cli('export', dir, '--out', out2);
+  assert.ok(r.code === 1 && /--run|--process/.test(r.out), r.out);
+});
+
+rule('export refuses an --out inside the team folder', async () => {
+  const dir = await teamFolder();
+  const r = cli('export', dir, '--run', 'release/run1', '--out', path.join(dir, 'packs'));
+  assert.ok(r.code === 1 && /inside the team folder/.test(r.out), r.out);
+  assert.ok(!fs.existsSync(path.join(dir, 'packs')));
+});
+
+rule('export --from and --through are inclusive days in --tz, compared with when each run started', async () => {
+  const dir = await teamFolder((f) => {
+    const t = f['runs/release/run1/run.json'].toString('utf8');
+    f['runs/release/run2/run.json'] = Buffer.from(t.replace(/"id": "run1"/, '"id": "run2"').replace(/"created": "[^"]+"/, '"created": "2026-10-18T00:00:00.000Z"'));
+  });
+  const runsIn = (...a) => {
+    const out = tmp(), r = cli('export', dir, '--process', 'release', '--out', out, ...a);
+    if (r.code === 1) return { code: 1, runs: [], out: r.out };
+    const zip = fs.readFileSync(path.join(out, zipsIn(out)[0])), man = JSON.parse(zipEntry(zip, 'manifest.json'));
+    return { code: r.code, runs: man.runs.map(x => x.key).sort(), tz: man.scope.tz, out: r.out };
+  };
+  let x = runsIn('--from', '2026-10-17', '--through', '2026-10-17', '--tz', 'UTC');
+  assert.deepStrictEqual(x.runs, ['release/run1'], x.out);
+  assert.strictEqual(x.tz, 'UTC');
+  x = runsIn('--from', '2026-10-18', '--through', '2026-10-18', '--tz', 'UTC');
+  assert.deepStrictEqual(x.runs, ['release/run2'], 'midnight belongs to the day it starts');
+  x = runsIn('--from', '2026-10-18', '--through', '2026-10-18', '--tz', 'Asia/Tokyo');
+  assert.deepStrictEqual(x.runs, ['release/run1', 'release/run2'], 'both are the 18th in Tokyo');
+  x = runsIn('--from', '2026-10-17', '--through', '2026-10-17', '--tz', 'America/New_York');
+  assert.deepStrictEqual(x.runs, ['release/run1', 'release/run2'], 'both are the 17th in New York');
+  x = runsIn('--from', '2026-10-19', '--through', '2026-10-20', '--tz', 'UTC');
+  assert.ok(x.code === 1 && /No runs/.test(x.out), x.out);
+  assert.ok(/--from/.test(cli('export', dir, '--process', 'release', '--through', '2026-10-17').out));
+  assert.ok(cli('export', dir, '--process', 'release', '--from', '2026-10-17', '--through', '2026-10-17', '--tz', 'Nowhere/Here').code === 1);
+});
+
+rule('export reads through no link: a linked parent folder is refused, and a file that is a link is skipped and named', async () => {
+  const outside = tmp();
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'outside the team folder');
+  const dir = await teamFolder();
+  fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, 'runs/release/run1/files/linked.log'));
+  const out = tmp(), r = cli('export', dir, '--run', 'release/run1', '--out', out);
+  assert.strictEqual(r.code, 0, r.out);
+  const zip = fs.readFileSync(path.join(out, zipsIn(out)[0]));
+  assert.ok(!zip.includes(Buffer.from('outside the team folder')), 'never followed');
+  assert.ok(JSON.parse(zipEntry(zip, 'manifest.json')).exclusions.some(x => /linked\.log$/.test(x.path) && /link/.test(x.reason)));
+  const dir2 = await teamFolder(), real = path.join(tmp(), 'release');
+  fs.renameSync(path.join(dir2, 'runs', 'release'), real);
+  fs.symlinkSync(real, path.join(dir2, 'runs', 'release'));
+  const out2 = tmp(), r2 = cli('export', dir2, '--run', 'release/run1', '--out', out2);
+  assert.ok(r2.code === 1 && /link/.test(r2.out), r2.out);
+  assert.deepStrictEqual(zipsIn(out2), []);
+});
+
+rule('The export read adapter skips a file swapped for a link after the folder was listed', async () => {
+  const dir = await teamFolder(), outside = tmp(), A = require('../bin/flightdeck.js').readAdapter(fs.realpathSync(dir));
+  fs.writeFileSync(path.join(outside, 'secret.txt'), 'secret');
+  const names = (await A.list('runs/release/run1/files')).map(i => i.name);
+  const victim = 'runs/release/run1/files/' + names[0];
+  fs.unlinkSync(path.join(dir, victim)); fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, victim));
+  await assert.rejects(A.blob(victim), /link/);
+  assert.ok(A.links.some(p => p === victim));
+});
+
+rule('An interrupted export leaves no partial file, and exits 1', async () => {
+  const dir = await teamFolder((f) => { f['runs/release/run1/files/20261017-dddddd-w2-big.bin'] = require('crypto').randomBytes(48 * 1048576); });
+  const out = tmp(), child = cp().spawn(process.execPath, [BIN, 'export', dir, '--run', 'release/run1', '--out', out], { stdio: 'pipe' });
+  const code = await new Promise((res) => {
+    let sent = false;
+    const look = setInterval(() => { if (!sent && zipsIn(out).some(n => /\.partial$/.test(n))) { sent = true; child.kill('SIGINT'); } }, 2);
+    child.on('exit', (c) => { clearInterval(look); res(sent ? c : 'finished before it could be interrupted'); });
+  });
+  assert.strictEqual(code, 1);
+  assert.deepStrictEqual(zipsIn(out), [], 'no .partial, no .zip');
+});
+
+function zipEntry(buf, name) {
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])), n = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  for (let i = 0; i < n; i++) {
+    const size = buf.readUInt32LE(p + 20), nl = buf.readUInt16LE(p + 28), xl = buf.readUInt16LE(p + 30), cl = buf.readUInt16LE(p + 32), off = buf.readUInt32LE(p + 42);
+    if (buf.slice(p + 46, p + 46 + nl).toString('utf8') === name) { const l = buf.readUInt16LE(off + 26) + buf.readUInt16LE(off + 28); return buf.slice(off + 30 + l, off + 30 + l + size).toString('utf8'); }
+    p += 46 + nl + xl + cl;
+  }
+  return null;
+}
+
+/* ---------- Review fixes (78edf20) ---------- */
+rule('export --out through a link into the team folder is refused before anything is created', async () => {
+  const dir = await teamFolder(), side = tmp();
+  fs.mkdirSync(path.join(dir, 'reports'));
+  fs.symlinkSync(path.join(dir, 'reports'), path.join(side, 'out-link'));
+  const before = EV.tree(dir), r = cli('export', dir, '--run', 'release/run1', '--out', path.join(side, 'out-link', 'new-dir', 'deeper'));
+  assert.ok(r.code === 1 && /inside the team folder/.test(r.out), r.out);
+  assert.ok(!fs.existsSync(path.join(dir, 'reports', 'new-dir')), 'nothing created in the team folder');
+  assert.deepStrictEqual(EV.tree(dir), before);
+});
+
+rule('export never removes a .partial file it didn\'t create, and two exports in the same second get different names', async () => {
+  const dir = await teamFolder(), out = tmp(), C = require('../bin/flightdeck.js');
+  let theirs = null;
+  const orig = fs.openSync;
+  fs.openSync = function (p, flags) { if (flags === 'wx' && /\.partial$/.test(String(p))) { theirs = String(p); fs.writeFileSync(theirs, 'another export'); } return orig.apply(fs, arguments); };
+  let r;
+  try { r = await C.main(['export', dir, '--run', 'release/run1', '--out', out]); } catch (e) { r = { code: 1, out: e.message }; } finally { fs.openSync = orig; }
+  assert.ok(theirs && r.code === 1, r.out);
+  assert.strictEqual(fs.readFileSync(theirs, 'utf8'), 'another export', 'left as it was');
+  const out2 = tmp();
+  cli('export', dir, '--run', 'release/run1', '--out', out2); cli('export', dir, '--run', 'release/run1', '--out', out2);
+  const names = zipsIn(out2);
+  assert.strictEqual(names.length, 2);
+  assert.ok(names.every(n => /-[a-z0-9]{6}\.zip$/.test(n) && !/\(2\)/.test(n)), names.join(', '));
+});
+
+rule('The export read adapter refuses a file reached through a parent folder swapped for a link while it was opened, even if the folder is put back', async () => {
+  const dir = fs.realpathSync(await teamFolder()), outside = tmp(), A = require('../bin/flightdeck.js').readAdapter(dir);
+  const files = path.join(dir, 'runs/release/run1/files'), name = (await A.list('runs/release/run1/files')).map(i => i.name).filter(n => /\.log$/.test(n))[0];
+  fs.writeFileSync(path.join(outside, name), 'outside the team folder');
+  /* The swap lands after the folders were checked and before the file's own lstat; it's put back once the file is open. */
+  const target = path.join(files, name), origL = fs.lstatSync, origO = fs.openSync;
+  let swapped = false, swaps = 0, armed = false;
+  fs.lstatSync = function (p) { if (String(p) === target && armed) { armed = false; swapped = true; swaps++; fs.renameSync(files, files + '.real'); fs.symlinkSync(outside, files); } return origL.apply(fs, arguments); };
+  fs.openSync = function (p) { try { return origO.apply(fs, arguments); } finally { if (String(p) === target && swapped) { fs.unlinkSync(files); fs.renameSync(files + '.real', files); swapped = false; } } };
+  try {
+    armed = true; await assert.rejects(A.blob('runs/release/run1/files/' + name), /link/);
+    armed = true; await assert.rejects(A.read('runs/release/run1/files/' + name), /link/);
+  } finally { fs.lstatSync = origL; fs.openSync = origO; if (swapped) { fs.unlinkSync(files); fs.renameSync(files + '.real', files); } }
+  assert.strictEqual(swaps, 2, 'the swap happened both times');
+  const ok = await A.read('runs/release/run1/files/' + name);
+  assert.ok(ok && !/outside/.test(ok.text), 'the real file reads normally afterwards');
+});
+
+/* ---------- Second review (48f49d7) ---------- */
+rule('The export read adapter checks the team folder itself: replaced by a link, nothing is read through it', async () => {
+  const dir = fs.realpathSync(await teamFolder()), A = require('../bin/flightdeck.js').readAdapter(dir), outside = fs.realpathSync(await teamFolder());
+  fs.writeFileSync(path.join(outside, 'runs/release/run1/run.json'), '{"outside": true}');
+  fs.renameSync(dir, dir + '.real'); fs.symlinkSync(outside, dir);
+  try {
+    await assert.rejects(A.read('runs/release/run1/run.json'), /link/);
+    await assert.rejects(A.list('runs/release'), /link/);
+  } finally { fs.unlinkSync(dir); fs.renameSync(dir + '.real', dir); }
+});
+
+rule('export reads a run.json with a UTF-8 byte-order mark like any other: a complete pack', async () => {
+  const dir = await teamFolder((f) => { f['runs/release/run1/run.json'] = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), f['runs/release/run1/run.json']]); });
+  const out = tmp(), r = cli('export', dir, '--run', 'release/run1', '--out', out);
+  assert.strictEqual(r.code, 0, r.out);
+});
+
 run();

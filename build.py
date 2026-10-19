@@ -8,9 +8,12 @@ notes and the contract baselines (src/baselines.json) are inlined. Also regenera
 import base64, datetime, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent
-CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/followups.js", "core/insights.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/people.js", "core/health.js", "core/connection.js", "core/setup.js", "core/search.js"]
-APP = ["storage/fs.js", "storage/repo.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
-       "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/views/insights.js", "ui/views/health.js", "ui/views/setup.js", "ui/examples.js", "ui/app.js"]
+CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/followups.js", "core/insights.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/people.js", "core/health.js", "core/connection.js", "core/setup.js", "core/search.js", "core/sha256.js", "core/zip.js", "core/evidence.js"]
+# The whole of storage/repo.js, once, in its own block between core and app: `flightdeck export` runs core and storage from
+# this file, in node:vm, without the screens. fs.js (the browser's folder access) stays with the app.
+STORAGE = ["storage/repo.js"]
+APP = ["storage/fs.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
+       "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/views/insights.js", "ui/views/health.js", "ui/views/setup.js", "ui/views/evidence.js", "ui/exporter.js", "ui/examples.js", "ui/app.js"]
 
 # ---- release notes: validate, then embed. A bad entry fails the build rather than shipping a broken page. ----
 KINDS = {"new": "New", "improved": "Improved", "fixed": "Fixed"}
@@ -145,6 +148,7 @@ def main():
         sys.exit("core/contract.js must contain the /*@BASELINES@*/{} placeholder exactly once")
     # One line, so the command line can read it back out of the page.
     core = core.replace("/*@BASELINES@*/{}", releases_js(baselines))
+    storage = "\n".join(read(f) for f in STORAGE)
     app = "\n".join(read(f) for f in APP)
     blob = json.dumps(examples, ensure_ascii=False).replace("</", "<\\/")
     for marker in ("/*@EXAMPLES@*/{}", "/*@RELEASES@*/[]", "/*@RECOVERY@*/''"):
@@ -173,8 +177,10 @@ def main():
         sys.exit("page.html must contain the version meta placeholder exactly once")
     # Copies from before the rename look for preflight-version; both stamps let them see an update.
     page = page.replace(VERSION_META, f'<meta name="flightdeck-version" content="{version}"><meta name="preflight-version" content="{version}">')
-    out = page.replace("/*@CORE@*/", script_safe(core)).replace("/*@APP@*/", script_safe(app))
-    for marker in ("/*@CORE@*/", "/*@APP@*/", "/*@EXAMPLES@*/", "/*@FONTS@*/", "/*@RELEASES@*/", "/*@BASELINES@*/", "/*@RECOVERY@*/"):
+    if page.count("/*@STORAGE@*/") != 1:
+        sys.exit("page.html must contain the /*@STORAGE@*/ placeholder exactly once")
+    out = page.replace("/*@CORE@*/", script_safe(core)).replace("/*@STORAGE@*/", script_safe(storage)).replace("/*@APP@*/", script_safe(app))
+    for marker in ("/*@CORE@*/", "/*@STORAGE@*/", "/*@APP@*/", "/*@EXAMPLES@*/", "/*@FONTS@*/", "/*@RELEASES@*/", "/*@BASELINES@*/", "/*@RECOVERY@*/"):
         if marker in out:
             sys.exit(f"unreplaced placeholder {marker}")
     (root / "dist").mkdir(exist_ok=True)

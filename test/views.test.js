@@ -2053,4 +2053,37 @@ rule('Search palette: empty, nothing found, still reading, and a run that couldn
   assert.ok(/Folder last read \d{1,2}:\d{2}:\d{2}/.test(bad), 'when the folder was last read');
 });
 
+rule('Export evidence dialog: every stage is labeled, everything from files is escaped, and the pack\'s SHA-256 is offered to keep separately', () => {
+  const { ctx } = setup();
+  const E = PF.evidence, base = { evidence: true, scope: { run: 'release/run1' }, title: '<script>x</script> night', tz: 'UTC', attachments: true, format: 'pack', form: {} };
+  ctx.findRun = () => ctx.data.runs[0];
+  let h = V.evidence(ctx, Object.assign({}, base, { stage: 'plan' }));
+  assert.ok(/role="dialog"/.test(h) && /aria-labelledby="ev-t"/.test(h) && /id="ev-close"/.test(h) && !/<script>x/.test(h) && /&lt;script&gt;x/.test(h));
+  const plan = { keys: ['release/run1'], estimate: 13 * 1048576, attach: { n: 4, bytes: 12.4 * 1048576 }, exclusions: [{ path: 'people.json', reason: 'x' }, { path: 'runs/release/run1/<b>.tmp', reason: 'temporary file left by a save' }] };
+  h = V.evidence(ctx, Object.assign({}, base, { stage: 'ready', plan, window: { unsaved: true } }));
+  assert.ok(/1 run · \d+ answers? · \d+ notes? · 4 attachments \(12\.4 MB\) · up to 13 MB/.test(h), h.slice(0, 600));
+  assert.ok(h.includes(U(E.PRIVACY)), 'the privacy line, before anything is made');
+  assert.ok(/This window has a change that isn(&#39;|')t in the team folder yet\. The pack holds only what(&#39;|')s saved in the folder\./.test(h) && /data-act="ev-wait"/.test(h));
+  assert.ok(/role="switch"[^>]*aria-checked="true"/.test(h) && /data-act="ev-format" data-id="report" aria-pressed="false"/.test(h));
+  assert.ok(/1 file left out/.test(h) && /&lt;b&gt;\.tmp/.test(h), 'people.json is said once, in the privacy line; the rest are listed, escaped');
+  h = V.evidence(ctx, Object.assign({}, base, { stage: 'work', progress: { phase: 'read', done: 3, total: 14 } }));
+  assert.ok(/Reading 3 of 14 files… Hashing…/.test(h) && /data-act="ev-cancel"/.test(h) && /<progress[^>]*value="21"/.test(h));
+  h = V.evidence(ctx, Object.assign({}, base, { stage: 'done', result: { name: 'evidence-<x>.zip', digest: 'ab'.repeat(32), size: 2048, status: 'partial', unresolved: ['The run changed while this pack was made: <i>notes-w3.jsonl</i> grew.'] } }));
+  assert.ok(/data-act="ev-save"/.test(h) && h.includes('SHA-256 of this pack:') && h.includes('ab'.repeat(32)) && /Keep it somewhere separate/.test(h) && /data-act="ev-copy"/.test(h));
+  assert.ok(/Partial\./.test(h) && /&lt;i&gt;notes-w3\.jsonl/.test(h) && /evidence-&lt;x&gt;\.zip/.test(h));
+  h = V.evidence(ctx, Object.assign({}, base, { stage: 'ask', scope: {}, form: { process: '', from: '2026-10-01', through: '2026-10-31' }, err: 'The first day (2026-11-01) is after the last day (2026-10-31).', fieldErr: 'ev-through' }));
+  assert.ok(/<label for="ev-proc">/.test(h) && /<label for="ev-from">/.test(h) && /<label for="ev-through">/.test(h) && /id="ev-through"[^>]*aria-invalid="true" aria-describedby="ev-err"/.test(h) && /id="ev-err" role="alert"/.test(h));
+  function U(t) { return PF.util.esc(t); }
+});
+
+rule('Export evidence is offered on the receipt, in the run\'s More menu and on Runs', () => {
+  const { ctx, state } = setup(r => { r.ended = { outcome: 'Completed', by: 'person-casey', at: NOW }; r.state = 'completed'; });
+  state.view = 'receipt';
+  assert.ok(/data-act="ev-open" data-id="release\/run1"/.test(V.receipt(ctx)));
+  state.view = 'run';
+  assert.ok(/data-act="ev-open" data-id="release\/run1"/.test(V.run(ctx)));
+  ctx.fuList = () => []; V.fuList = () => [];
+  assert.ok(/data-act="ev-range"/.test(V.runs(Object.assign(ctx, { state: Object.assign(state, { view: 'runs', filter: 'all' }) }))));
+});
+
 run();

@@ -1461,6 +1461,33 @@ button.att:hover { border-color: var(--ink); }
 .att-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .att-list .att { display: flex; background: var(--card); }
 .att-list .att .mini { margin-left: auto; }
+.ev-box { background: var(--card); color: var(--ink); border-radius: 12px; padding: 18px 20px; width: min(560px, 100%); max-height: calc(100vh - var(--keep-h) - 32px); overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
+.ev-box p { margin: 0; }
+.ev-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ev-bar h2 { margin: 0; font-size: 18px; }
+.ev-what { font-weight: 600; overflow-wrap: anywhere; }
+.ev-count { font-size: 15px; }
+.ev-privacy { border-left: 3px solid var(--line); padding-left: 10px; }
+.ev-form { display: flex; flex-direction: column; gap: 6px; }
+.ev-form select, .ev-form input { width: 100%; box-sizing: border-box; }
+.ev-days { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ev-days span { display: flex; flex-direction: column; gap: 4px; }
+.ev-opts { display: flex; flex-direction: column; gap: 8px; }
+.ev-switch { display: inline-flex; align-items: center; gap: 10px; background: none; border: 0; padding: 4px 0; color: var(--ink); font: inherit; text-align: left; }
+.ev-knob { width: 34px; height: 20px; border-radius: 10px; border: 1px solid var(--field); background: var(--chip); position: relative; flex: none; }
+.ev-knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+.ev-switch[aria-checked="true"] .ev-knob { background: var(--ink); border-color: var(--ink); }
+.ev-switch[aria-checked="true"] .ev-knob::after { left: 16px; background: var(--paper); }
+.ev-left ul { margin: 6px 0 0; padding-left: 18px; }
+.ev-left code, .ev-digest code { overflow-wrap: anywhere; word-break: break-all; }
+.ev-bar-p { width: 100%; height: 10px; }
+.ev-digest { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.ev-digest code { font-family: var(--mono); font-size: 13px; user-select: all; }
+@media (max-width: 800px) {
+  .overlay:has(.ev-box) { place-items: end stretch; padding: 0; }
+  .ev-box { width: 100%; border-radius: 14px 14px 0 0; max-height: calc(100vh - var(--keep-h)); padding: 16px; }
+  .ev-days { grid-template-columns: minmax(0, 1fr); }
+}
 .tp-box { background: var(--card); color: var(--ink); border-radius: 12px; width: min(900px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .tp-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .tp-bar h2 { margin: 0; font-size: 18px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -1652,6 +1679,9 @@ body { padding-top: var(--keep-h); }
 var PF = {};
 /*@CORE@*/
 if (typeof module !== 'undefined') module.exports = PF;
+</script>
+<script id="pf-storage">
+/*@STORAGE@*/
 </script>
 <script id="pf-app">
 /*@APP@*/

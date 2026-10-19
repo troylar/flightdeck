@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 /* The flightdeck command: puts the one-file app where a team uses it. No dependencies, nothing runs on install, and it
    never touches the network. Every command works on plain files: copy the app and the AI assistant contract (AGENTS.md
-   and the skills) into a team folder, add or update the skills anywhere else, back up a team folder, or open the app. */
+   and the skills) into a team folder, add or update the skills anywhere else, back up a team folder, export a run's
+   evidence, or open the app. */
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const vm = require('vm');
 
 const APP = path.join(__dirname, '..', 'dist', 'flightdeck.html');
 const NAME = 'flightdeck.html', OLD = 'preflight.html', SKILLS = '.flightdeck/skills', AGENTS = 'AGENTS.md';
 const BEGIN = '<!-- flightdeck:begin -->', END = '<!-- flightdeck:end -->';
-/* --check exit codes, for scripts: nothing to do, updates to install, files that need a person (or an assistant) to merge. */
-const EXIT = { none: 0, error: 1, updates: 2, merge: 3 };
+/* --check exit codes, for scripts: nothing to do, updates to install, files that need a person (or an assistant) to merge.
+   export: 0 a complete pack, 4 a partial pack (made, with what's unresolved listed), 1 no pack (any partial file removed). */
+const EXIT = { none: 0, error: 1, updates: 2, merge: 3, partial: 4 };
 
 class Refused extends Error {}
 /* A file that changed between the moment install read it and the moment it would replace it. */
@@ -320,13 +323,11 @@ function exitFor(statuses) {
   return statuses.some((s) => ['update', 'new', 'missing', 'forced'].includes(s)) ? EXIT.updates : EXIT.none;
 }
 
-/* Copy a team folder to <dest>/<name> backup <date time>/. Links are skipped, never followed, and so are temporary files. */
-function backup(src, toArg) {
-  const parent = expand(toArg || path.join(require('os').homedir(), 'Flightdeck backups'));
+/* Whether p is the folder src or inside it, judged by what each folder above p is (device and inode), never by spelling:
+   on a file system that ignores letter case, "Team" and "TEAM" are the same folder. Missing parts are skipped. */
+function withinOf(src) {
   const me = fs.statSync(src);
-  /* Whether p is the folder or inside it, judged by what each folder above p is (device and inode), never by spelling:
-     on a file system that ignores letter case, "Team" and "TEAM" are the same folder. Missing parts are skipped. */
-  const within = (p) => {
+  return (p) => {
     for (let cur = p; ; cur = path.dirname(cur)) {
       let st = null;
       try { st = fs.statSync(cur); } catch (e) { /* not there yet */ }
@@ -334,6 +335,12 @@ function backup(src, toArg) {
       if (path.dirname(cur) === cur) return false;
     }
   };
+}
+
+/* Copy a team folder to <dest>/<name> backup <date time>/. Links are skipped, never followed, and so are temporary files. */
+function backup(src, toArg) {
+  const parent = expand(toArg || path.join(require('os').homedir(), 'Flightdeck backups'));
+  const within = withinOf(src);
   const inside = 'the backup can\'t go inside the folder it backs up. Choose another place with --to.';
   if (within(parent)) fail(inside);
   try { fs.mkdirSync(parent, { recursive: true }); } catch (e) { fail('couldn\'t create "' + parent + '": ' + e.message); }
@@ -371,6 +378,199 @@ function backup(src, toArg) {
 }
 function size(n) { return n < 1024 ? n + ' bytes' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
 
+/* ---------- flightdeck export: an evidence pack (docs/evidence.md) ---------- */
+/* The app's own rules, from this installed package's dist/flightdeck.html and nowhere else (never a team folder's copy):
+   its core and storage blocks, run in node:vm without the screens. */
+function engine() {
+  const html = app(), block = (id) => {
+    const m = new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html);
+    if (!m) fail('the app file in this install has no ' + id + ' block (' + APP + '). Reinstall the package.');
+    return m[1];
+  };
+  const ctx = vm.createContext({ console, setTimeout, clearTimeout, Blob, TextEncoder, TextDecoder, performance: { now: () => performance.now() } });
+  vm.runInContext(block('pf-core'), ctx, { filename: 'flightdeck.html#pf-core' });
+  vm.runInContext(block('pf-storage'), ctx, { filename: 'flightdeck.html#pf-storage' });
+  return { PF: ctx.PF, version: versionOf(html) };
+}
+/* The team folder for the collector: list, read, stat and blob, read-only, and never through a link. Every folder on the
+   way to a path is checked with lstat (a linked folder is refused), a link in a listing is reported as a link and never
+   opened, and a file is opened without following a link and must be the very file lstat saw (device and inode), so one
+   swapped for a link after it was listed is refused too. links collects what was skipped. */
+function readAdapter(root) {
+  const NOFOLLOW = fs.constants.O_NOFOLLOW || 0, links = [];
+  function linkErr(rel) { const e = new Refused('refusing to read through a link: ' + rel); e.link = true; if (links.indexOf(rel) < 0) links.push(rel); return e; }
+  function partsOf(p) {
+    const a = p ? String(p).split('/') : [];
+    a.forEach((x) => { if (!x || x === '.' || x === '..' || /[\\\u0000]/.test(x)) fail('refusing an unexpected path: ' + p); });
+    return a;
+  }
+  /* The real folder at these parts, or null when it isn't there, with each folder's identity (device and inode) on the way. */
+  function dirAt(a) {
+    let cur = root;
+    /* The team folder itself first: replaced by a link, nothing is read through it. */
+    const top = lstatOrNull(root);
+    if (!top || top.isSymbolicLink() || !top.isDirectory()) throw linkErr('the team folder');
+    const ids = [top.dev + ':' + top.ino];
+    for (let i = 0; i < a.length; i++) {
+      cur = path.join(cur, a[i]);
+      const st = lstatOrNull(cur);
+      if (!st) return null;
+      if (st.isSymbolicLink()) throw linkErr(a.slice(0, i + 1).join('/'));
+      if (!st.isDirectory()) return null;
+      ids.push(st.dev + ':' + st.ino);
+    }
+    return { cur, ids };
+  }
+  /* Node has no openat, so a folder swapped for a link (and maybe put back) is caught by walking again after the open:
+     every folder must still be the same real folder, and the file at the path the one that was opened. */
+  function sameWalk(a, ids, rel) {
+    const again = dirAt(a);
+    if (!again || again.ids.join('/') !== ids.join('/')) throw linkErr(rel);
+    return again.cur;
+  }
+  function fileAt(p) {
+    const a = partsOf(p), name = a.pop(), dir = dirAt(a);
+    if (!dir) return null;
+    const full = path.join(dir.cur, name), st = lstatOrNull(full);
+    if (!st) return null;
+    if (st.isSymbolicLink()) throw linkErr(p);
+    return st.isFile() ? { full, st, a, ids: dir.ids, name } : null;
+  }
+  function open(p) {
+    const f = fileAt(p);
+    if (!f) return null;
+    let fd;
+    try { fd = fs.openSync(f.full, fs.constants.O_RDONLY | NOFOLLOW); } catch (e) { if (e.code === 'ELOOP') throw linkErr(p); if (e.code === 'ENOENT') return null; throw e; }
+    try {
+      const st = fs.fstatSync(fd), now = lstatOrNull(path.join(sameWalk(f.a, f.ids, p), f.name));
+      if (!st.isFile() || st.ino !== f.st.ino || st.dev !== f.st.dev || !now || now.isSymbolicLink() || now.ino !== st.ino || now.dev !== st.dev) throw linkErr(p);
+      return { fd, st };
+    } catch (e) { fs.closeSync(fd); throw e; }
+  }
+  return {
+    links,
+    list: (p) => new Promise((res) => {
+      const a = partsOf(p), dir = dirAt(a);
+      if (!dir) return res([]);
+      const entries = fs.readdirSync(dir.cur, { withFileTypes: true });
+      sameWalk(a, dir.ids, p || '.');
+      res(entries.map((e) => {
+        const rel = (p ? p + '/' : '') + e.name;
+        if (e.isSymbolicLink()) { if (links.indexOf(rel) < 0) links.push(rel); return { name: e.name, kind: 'link' }; }
+        return e.isDirectory() ? { name: e.name, kind: 'dir' } : e.isFile() ? { name: e.name, kind: 'file' } : null;
+      }).filter(Boolean));
+    }),
+    stat: (p) => new Promise((res) => {
+      let f = null;
+      try { f = fileAt(p); } catch (e) { if (!e.link) throw e; }
+      res(f ? { size: f.st.size, mtime: f.st.mtimeMs } : null);
+    }),
+    read: (p) => new Promise((res) => {
+      const o = open(p);
+      if (!o) return res(null);
+      /* Decoded as a browser decodes a file (TextDecoder: UTF-8, a byte-order mark dropped), so every reader sees the same text. */
+      try { const data = fs.readFileSync(o.fd); res({ text: new TextDecoder('utf-8').decode(data), size: data.length, mtime: o.st.mtimeMs }); } finally { fs.closeSync(o.fd); }
+    }),
+    /* A file to read a piece at a time, from the descriptor opened above; close() when done. */
+    blob: (p) => new Promise((res) => {
+      const o = open(p);
+      if (!o) return res(null);
+      let closed = false;
+      res({
+        size: o.st.size,
+        slice: (a, b) => ({ arrayBuffer: () => new Promise((ok) => {
+          const buf = Buffer.alloc(Math.max(0, b - a));
+          let got = 0;
+          while (got < buf.length) { const n = fs.readSync(o.fd, buf, got, buf.length - got, a + got); if (!n) break; got += n; }
+          ok(buf.buffer.slice(buf.byteOffset, buf.byteOffset + got));
+        }) }),
+        close: () => { if (!closed) { closed = true; fs.closeSync(o.fd); } }
+      });
+    })
+  };
+}
+/* Where packs go: the nearest folder of --out that exists, resolved, must be outside the team folder before anything is
+   created; then each missing folder is made one at a time, and each must be a real folder (not a link), still outside. */
+function outFolder(want, within) {
+  const inTeam = 'the pack can\'t go inside the team folder. Choose another place with --out.';
+  const rest = [];
+  let cur = want;
+  while (!lstatOrNull(cur)) { rest.unshift(path.basename(cur)); const up = path.dirname(cur); if (up === cur) break; cur = up; }
+  let at;
+  try { at = fs.realpathSync(cur); } catch (e) { fail('"' + cur + '" can\'t be used for the pack: ' + e.message); }
+  if (!fs.statSync(at).isDirectory()) fail('"' + cur + '" isn\'t a folder.');
+  if (within(at)) fail(inTeam);
+  for (const part of rest) {
+    if (!part || part === '.' || part === '..') fail('"' + want + '" isn\'t a plain folder path.');
+    at = path.join(at, part);
+    try { fs.mkdirSync(at); } catch (e) { if (e.code !== 'EEXIST') fail('couldn\'t create "' + at + '": ' + e.message); }
+    const st = lstatOrNull(at);
+    if (!st || st.isSymbolicLink() || !st.isDirectory()) fail('refusing to write through a link: ' + at);
+    if (within(at)) fail(inTeam);
+  }
+  const real = fs.realpathSync(at);
+  if (within(real)) fail(inTeam);
+  return real;
+}
+/* The pack goes to <out>/<name>.partial, created exclusively and written as it's made, then gets its final name without
+   replacing anything (" (2)" and on when the name is taken). Canceled (Ctrl+C) or failed, the partial file is removed. */
+async function exportPack(opt) {
+  const dir = folderArg(opt.folder, 'export');
+  if (!opt.run && !opt.process) fail('say which runs: --run <process>/<run id>, or --process <process> --from YYYY-MM-DD --through YYYY-MM-DD');
+  if (opt.process && (!opt.from || !opt.through)) fail('give the days with --from YYYY-MM-DD and --through YYYY-MM-DD (both included)');
+  const { PF, version } = engine(), E = PF.evidence;
+  const tz = opt.tz || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  if (!E.zoneOk(tz)) fail('"' + tz + '" isn\'t a time zone this computer knows. Use a name like Europe/London or America/New_York.');
+  const out = outFolder(expand(opt.out || path.join(require('os').homedir(), 'Flightdeck evidence')), withinOf(dir));
+  const scope = opt.run ? { run: opt.run } : { process: opt.process, from: opt.from, through: opt.through, tz };
+  let fd = null, partial = null, canceled = false;
+  const onSig = () => { canceled = true; };
+  process.on('SIGINT', onSig); process.on('SIGTERM', onSig);
+  const cleanup = () => {
+    if (fd !== null) { try { fs.closeSync(fd); } catch (e) { /* already failing */ } fd = null; }
+    if (partial) { try { fs.unlinkSync(partial); } catch (e) { /* gone already */ } partial = null; }
+  };
+  try {
+    const res = await PF.repo.exportEvidence(readAdapter(dir), scope, {
+      tz, app: version, madeWith: 'command line', attachments: !opt.noAttachments, keepBytes: false, pool: false,
+      cancelled: () => canceled,
+      /* Marked for cleanup only once this process created it: a file already there is never touched. */
+      begin: (name) => { const p = path.join(out, name + '.partial'); fd = fs.openSync(p, 'wx'); partial = p; },
+      sink: (u8) => {
+        const b = Buffer.from(u8.buffer, u8.byteOffset, u8.length);
+        for (let off = 0; off < b.length;) { const n = fs.writeSync(fd, b, off, b.length - off); if (!(n > 0)) throw new Error('the disk accepted no more bytes'); off += n; }
+      }
+    });
+    fs.fsyncSync(fd); fs.closeSync(fd); fd = null;
+    let final = path.join(out, res.name);
+    for (let n = 2; ; n++) {
+      try { fs.linkSync(partial, final); break; } catch (e) {
+        if (e.code === 'EEXIST') { final = path.join(out, res.name.replace(/(\.\w+)$/, ' (' + n + ')$1')); continue; }
+        /* A disk without hard links: rename, after checking the name is free. */
+        if (fs.existsSync(final)) { final = path.join(out, res.name.replace(/(\.\w+)$/, ' (' + n + ')$1')); continue; }
+        fs.renameSync(partial, final); partial = null; break;
+      }
+    }
+    if (partial) { fs.unlinkSync(partial); partial = null; }
+    const col = res.col, lines = [];
+    lines.push((col.status === 'partial' ? 'Made a PARTIAL evidence pack' : 'Made an evidence pack') + ' of ' + col.runs.length + ' run' + (col.runs.length === 1 ? '' : 's') + ' (' + col.files.length + ' original files, ' + size(res.bytes) + '): ' + final);
+    lines.push('SHA-256 of this pack: ' + res.digest);
+    lines.push('Keep it somewhere separate. Anyone checking the pack later compares it with the one you kept; the pack can\'t prove by itself that it hasn\'t changed.');
+    if (col.status === 'partial') { lines.push('Partial, because:'); col.unresolved.forEach((u) => lines.push('  ' + u)); }
+    if (col.exclusions.length) lines.push('Left out: ' + col.exclusions.length + ' file' + (col.exclusions.length === 1 ? '' : 's') + ', each with its reason in manifest.json.');
+    lines.push(E.PRIVACY);
+    lines.push('Days and times are in ' + tz + '.');
+    return { out: lines.join('\n'), code: col.status === 'partial' ? EXIT.partial : 0 };
+  } catch (e) {
+    cleanup();
+    if (e && e.cancelled) fail('export canceled. No pack was made.');
+    throw e instanceof Refused ? e : new Refused(e && e.message || String(e));
+  } finally {
+    cleanup();
+    process.removeListener('SIGINT', onSig); process.removeListener('SIGTERM', onSig);
+  }
+}
+
 const HELP = `flightdeck: team process checklists, in one HTML file
 
   flightdeck open                     open the app (it starts on built-in examples)
@@ -379,6 +579,11 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck skills <team folder>     add or update only the skills, in <team folder>/.flightdeck/skills
   flightdeck skills --to <folder>     add or update them in any other folder (an assistant's skills folder, a repo)
   flightdeck backup <team folder>     copy the whole folder to ~/Flightdeck backups (or --to <folder>)
+  flightdeck export <team folder> --run <process>/<run id>
+                                      make an evidence pack of one run in ~/Flightdeck evidence (or --out <folder>)
+  flightdeck export <team folder> --process <process> --from YYYY-MM-DD --through YYYY-MM-DD [--tz Area/City]
+                                      make one of the runs started on those days, both included, in --tz
+                                      (this computer's time zone unless you say)
   flightdeck path                     print where the app file is
   flightdeck version                  print this version
 
@@ -386,6 +591,10 @@ const HELP = `flightdeck: team process checklists, in one HTML file
               2: updates to install; 3: files your team changed that need merging; 1: an error
   --app-only  install only ${NAME}, not AGENTS.md or the skills
   --force     replace a newer app, an unrecognized file, or contract files your team changed
+  --no-attachments   export: list attachments with their sizes instead of packing them
+
+export never changes the team folder and never writes a pack into it. It prints the pack's SHA-256: keep it somewhere
+separate. Exit code 0: a complete pack; 4: a partial pack (made, with what changed or is missing listed); 1: no pack.
 
 Every file install replaces is first copied to .flightdeck/updates/<version>/replaced/ and read back.
 
@@ -396,7 +605,10 @@ function main(argv) {
   const out = [];
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
-  const args = argv.filter((a, i) => !a.startsWith('--') && !(ti >= 0 && i === ti + 1));
+  /* Flags that take a value: the value is never read as a command or a folder. */
+  const VALUED = ['--to', '--run', '--process', '--from', '--through', '--tz', '--out'], val = {};
+  VALUED.forEach((f) => { const i = argv.indexOf(f); if (i >= 0) { if (!argv[i + 1] || argv[i + 1].startsWith('--')) fail('say what goes after ' + f); val[f] = argv[i + 1]; } });
+  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VALUED.indexOf(argv[i - 1]) >= 0));
   const force = argv.includes('--force'), check = argv.includes('--check'), appOnly = argv.includes('--app-only');
   const cmd = args[0];
   if (!cmd || cmd === 'help' || argv.includes('--help')) return { out: HELP, code: 0 };
@@ -487,6 +699,7 @@ function main(argv) {
     if (r.links || r.tmp) out.push('Skipped ' + [r.links ? r.links + ' link' + (r.links === 1 ? '' : 's') : '', r.tmp ? r.tmp + ' temporary file' + (r.tmp === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') + '.');
     return { out: out.join('\n'), code: 0 };
   }
+  if (cmd === 'export') return exportPack({ folder: args[1], run: val['--run'], process: val['--process'], from: val['--from'], through: val['--through'], tz: val['--tz'], out: val['--out'], noAttachments: argv.includes('--no-attachments') });
   if (cmd === 'open') {
     app();
     /* The path is passed as data to a launcher, never through a shell (cmd would expand %VARIABLES% in it). */
@@ -500,13 +713,11 @@ function main(argv) {
 }
 
 if (require.main === module) {
+  const done = (r) => { if (r.out) process.stdout.write(r.out + '\n'); process.exitCode = r.code; };
+  const failed = (e) => { process.stderr.write('flightdeck: ' + (e instanceof Refused ? e.message : (e && e.message) || String(e)) + '\n'); process.exitCode = EXIT.error; };
   try {
     const r = main(process.argv.slice(2));
-    if (r.out) process.stdout.write(r.out + '\n');
-    process.exitCode = r.code;
-  } catch (e) {
-    process.stderr.write('flightdeck: ' + (e instanceof Refused ? e.message : (e && e.message) || String(e)) + '\n');
-    process.exitCode = EXIT.error;
-  }
+    if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
+  } catch (e) { failed(e); }
 }
-module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples };
+module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, engine };

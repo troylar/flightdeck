@@ -393,6 +393,8 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | `flightdeck skills <folder>` | Adds or updates only the skills, in `<folder>/.flightdeck/skills` |
 | `flightdeck skills --to <dir>` | The same, into any other folder you name (absolute or relative), such as your assistant's own skills folder or another repo. `<dir>` is created if it's missing |
 | `flightdeck backup <folder>` | Copies the whole team folder to `~/Flightdeck backups/<folder> backup <date> <time>/`, or under `--to <dir>`. Skips links and temporary files, and refuses a destination inside the folder |
+| `flightdeck export <folder> --run <process>/<id>` | Makes an evidence pack of one run in `~/Flightdeck evidence/` (or `--out <dir>`, never inside the team folder): a zip of the original files, a readable `evidence.html`, `manifest.json`, `SHA256SUMS` and a `README.txt`. Prints the pack's SHA-256 to keep somewhere separate. Reads only; never changes the team folder |
+| `flightdeck export <folder> --process <id> --from YYYY-MM-DD --through YYYY-MM-DD` | The same for every run of a process started on those days, both included, in `--tz Area/City` (this computer's time zone unless you say) |
 | `flightdeck path` | Prints where the app file is |
 | `flightdeck version` | Prints the version |
 
@@ -401,6 +403,9 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | `--check` | With `install` or `skills`: lists what would change and changes nothing. Exit code 0: nothing to do; 2: updates to install; 3: files your team changed need merging; 1: a problem |
 | `--app-only` | With `install`: copies only `flightdeck.html` |
 | `--force` | Replaces a newer app, an unrecognized file, or files your team changed. Like every install, it first saves a checked copy of each file it replaces in `.flightdeck/updates/<version>/replaced/` |
+| `--no-attachments` | With `export`: lists attachments with their sizes instead of packing them |
+
+`export` exits with 0 for a complete pack, 4 for a partial one (made, and it lists at the top what changed or was missing while it read), and 1 when it made no pack. It writes `<name>.zip.partial` as it goes and renames it only when it's done; Ctrl+C or a failure removes it. It uses only the code in its own installed `flightdeck.html`, never a team folder's copy, and never reads through a link. The people directory and its email fields are left out; original records and attachments may contain personal information. A pack isn't signed: checking its hashes shows whether its files still match, and comparing its SHA-256 with the one you kept shows whether the pack is the one you made. See [Evidence packs](docs/evidence.md).
 
 Install and skills sort every `AGENTS.md` and skill file the same way. A file that's still a Flightdeck default (this version's or an earlier one) is updated. A file your team changed is left alone. If this version changed that file's default too, the new default goes to `.flightdeck/updates/<version>/`, with a `README.md` holding a prompt for your AI assistant to merge it. In `AGENTS.md` only the part between the `flightdeck:begin` and `flightdeck:end` markers is Flightdeck's; Team notes, below it, are never touched. `.flightdeck/installed.json` records which defaults the folder is based on; it can make install more careful, never less. Every file install replaces is first copied to `.flightdeck/updates/<version>/replaced/`. A file that changes while install runs is left alone and install exits with 1. Nothing is written through a link or outside the folder (see [Updating Flightdeck](docs/updating.md) for the limits).
 
