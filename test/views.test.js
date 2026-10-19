@@ -445,6 +445,89 @@ rule('Step types page lists every type; the form checks a new one as you build i
   assert.ok(!/tf-save-why/.test(html) && /options&quot;: \[/.test(html) && /\{risk\.level\} What to do/.test(html) && /<dt>Level<\/dt>/.test(html), 'ready; the checklist line and the run card preview it');
 });
 
+rule('Editor sidebars: each has its own labeled separator, its width is a variable on the panes, and the separator hides where the panes stack', () => {
+  const { ctx, state } = setup();
+  const seps = html => html.match(/<div class="pane-split"[^>]*>/g) || [];
+  const attr = (tag, k) => { const m = new RegExp('\\s' + k + '="([^"]*)"').exec(tag); return m ? m[1] : null; };
+  const isSeparator = (tag, key, label, controls) => {
+    assert.strictEqual(attr(tag, 'role'), 'separator', key + ' is a separator');
+    assert.strictEqual(attr(tag, 'aria-orientation'), 'vertical');
+    assert.strictEqual(attr(tag, 'aria-label'), label);
+    assert.strictEqual(attr(tag, 'aria-controls'), controls);
+    assert.strictEqual(attr(tag, 'tabindex'), '0', 'reached with Tab');
+    assert.strictEqual(attr(tag, 'data-split'), key);
+    const now = +attr(tag, 'aria-valuenow'), min = +attr(tag, 'aria-valuemin'), max = +attr(tag, 'aria-valuemax');
+    assert.ok(min > 0 && min <= now && now <= max, key + ' says its width and range: ' + [min, now, max]);
+    return { now, min, max };
+  };
+  // The step-type editor: one between the form and the Run preview.
+  ctx.processes = () => []; ctx.data.stepTypes = { types: {}, errors: [] }; state.view = 'types';
+  state.typeForm = { def: { id: 'risk.level', label: 'Risk level', hint: '', icon: 'check', fields: [], record: [] }, existing: null, baseHash: null };
+  let html = V.types(ctx);
+  assert.strictEqual(seps(html).length, 1);
+  const tf = isSeparator(seps(html)[0], 'tf', 'Resize preview', 'tf-preview');
+  assert.ok(html.indexOf('class="pane-split"') > html.indexOf('tf-formpane') && html.indexOf('class="pane-split"') < html.indexOf('id="tf-preview"'), 'between the form and the preview');
+  assert.ok(/<div class="fpe-panes tf-panes">/.test(html), 'nothing chosen: the layout\'s own width');
+  state.panes = { tf: 520 }; html = V.types(ctx);
+  assert.ok(/<div class="fpe-panes tf-panes" style="--pane-tf:520px">/.test(html) && attr(seps(html)[0], 'aria-valuenow') === '520', 'a chosen width');
+  state.panes = { tf: 99999 }; html = V.types(ctx);
+  assert.ok(new RegExp('style="--pane-tf:' + tf.max + 'px"').test(html), 'never wider than its maximum');
+  state.panes = { tf: '<b>' }; html = V.types(ctx);
+  assert.ok(/<div class="fpe-panes tf-panes">/.test(html) && !/--pane-tf:/.test(html), 'a stored value that isn\'t a number is ignored');
+  // The draft editor: the parts and the inspector each have their own.
+  const latest = ctx.data.processes[0].index.latest;
+  const p = { id: 'release', title: 'Production release', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: latest.md }, draftChanged: false };
+  ctx.processes = () => [p]; ctx.data.validations = []; state.view = 'process'; state.processId = 'release'; state.ptab = 'edit';
+  state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: null };
+  state.panes = { parts: 260, ins: 480 }; html = V.process(ctx);
+  assert.strictEqual(seps(html).length, 2);
+  isSeparator(seps(html)[0], 'parts', 'Resize parts', 'ob-parts'); isSeparator(seps(html)[1], 'ins', 'Resize inspector', 'fpe-ins');
+  assert.ok(/<aside class="fpe-pane fpe-parts" id="ob-parts"/.test(html) && /<aside class="fpe-pane fpe-ins" id="fpe-ins"/.test(html), 'what each one resizes');
+  assert.ok(/<div class="fpe-panes" style="--pane-parts:260px;--pane-ins:480px">/.test(html), 'each width its own');
+  state.builder = false; html = V.process(ctx);
+  assert.strictEqual(seps(html).length, 1, 'Markdown: only the inspector');
+  assert.ok(/<div class="fpe-panes md" style="--pane-ins:480px">/.test(html) && attr(seps(html)[0], 'data-split') === 'ins');
+  // Where the panes stack (phones) and where the parts fold to a rail, there's nothing to drag.
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  const phone = css.split('@media (max-width: 800px)').slice(1).map(b => b.slice(0, b.indexOf('\n}')));
+  assert.ok(phone.some(b => /\.pane-split \{ display: none; \}/.test(b)), 'hidden on phones');
+  assert.ok(/\.fpe-panes\.rail > \.pane-split\[data-split="parts"\][^{]*\{ visibility: hidden; \}/.test(css), 'the rail has no parts separator');
+  const hit = /\.pane-split::before \{[^}]*width: (\d+)px/.exec(css);
+  assert.ok(hit && +hit[1] >= 8, 'a hit area of at least 8px');
+});
+
+rule('Editor sidebars fit the window together, from the widths chosen, never from what was drawn last', () => {
+  const MAIN = V.MAIN_MIN, P = V.PANES, J = x => JSON.parse(JSON.stringify(x));
+  // The draft editor's panes at a width: Parts is a rail of 72px from 801 to 1100px, else resizable.
+  const builder = (W, prefs, measured) => [
+    W <= 1100 ? { key: 'parts', fixed: true, measured: 72 } : { key: 'parts', pref: prefs.parts, measured: measured.parts },
+    { key: 'ins', pref: prefs.ins, measured: measured.ins }
+  ];
+  const mainOf = (W, items, fit) => W - items.reduce((n, it) => n + (it.fixed ? it.measured : fit[it.key].w), 0);
+  // The case that swung back and forth: 1101px with {parts: 400, ins: 720} kept.
+  let items = builder(1101, { parts: 400, ins: 720 }, { parts: 160, ins: 341 });
+  const a = V.fitPanes(1101, items);
+  assert.deepStrictEqual([a.parts.w, a.ins.w], [400, 341], 'the inspector gives way first');
+  assert.strictEqual(mainOf(1101, items, a), MAIN, 'the outline keeps its 360px');
+  const b = V.fitPanes(1101, builder(1101, { parts: 400, ins: 720 }, { parts: 400, ins: 581 }));
+  assert.deepStrictEqual(J(b), J(a), 'what was drawn last makes no difference');
+  // Every window width: the main pane keeps 360px whenever the narrowest sidebars leave room, and a second pass changes nothing.
+  const kept = [{ parts: 400, ins: 720 }, { parts: 160, ins: 720 }, { parts: 400 }, { ins: 720 }, {}, { parts: 300, ins: 300 }];
+  for (let W = 800; W <= 2000; W++) kept.forEach(prefs => {
+    const defaults = { parts: 208, ins: Math.round(Math.max(320, Math.min(0.27 * W, 400))) };
+    const its = builder(W, prefs, defaults), fit = V.fitPanes(W, its);
+    const mins = its.reduce((n, it) => n + (it.fixed ? it.measured : prefs[it.key] == null ? it.measured : P[it.key].min), 0);
+    if (W - mins >= MAIN) assert.ok(mainOf(W, its, fit) >= MAIN, W + 'px ' + JSON.stringify(prefs) + ': main ' + mainOf(W, its, fit));
+    // Drawing the result and fitting again: chosen widths are read from what was chosen, unset ones measure the same default.
+    const again = V.fitPanes(W, builder(W, prefs, { parts: fit.parts ? fit.parts.w : 72, ins: fit.ins.w }));
+    assert.deepStrictEqual(J(again), J(fit), W + 'px ' + JSON.stringify(prefs) + ': a fixed point after one pass');
+    Object.keys(fit).forEach(k => assert.ok(fit[k].w >= P[k].min && fit[k].w <= fit[k].max && fit[k].max <= P[k].max, k + ' within its range at ' + W));
+  });
+  // The step-type preview alone.
+  const tf = V.fitPanes(1024, [{ key: 'tf', pref: 720, measured: 328 }]);
+  assert.deepStrictEqual(J(tf), { tf: { w: 1024 - MAIN, max: 1024 - MAIN } });
+});
+
 rule('Every built-in type can start a team type that passes the checks', () => {
   PF.types.LIST.forEach(t => {
     const def = V.typeDefOf(Object.assign(V.typeFormOf(t, false), { id: 'team.' + t.id.replace(/\./g, '-'), label: 'Team ' + t.label.slice(0, 30) }));

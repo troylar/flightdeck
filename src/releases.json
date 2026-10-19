@@ -1,5 +1,52 @@
 [
   {
+    "version": "1.16.1",
+    "date": "2026-10-19",
+    "headline": "Make the editors' side panels wider or narrower",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Step types",
+        "title": "Resize the Run preview",
+        "before": "The Run preview beside the step-type form had a fixed width.",
+        "now": "Drag the line between the form and the preview to make the preview wider or narrower. Or focus the line and use the Left and Right arrow keys (Shift moves further), Home and End. Enter or a double-click puts it back. The form always keeps room. Your width is kept in this browser only.",
+        "where": "Step types › a step type, the line left of Run preview"
+      },
+      {
+        "kind": "improved",
+        "area": "Draft editor",
+        "title": "Resize the parts and the inspector",
+        "before": "The builder's Parts list and the inspector had fixed widths.",
+        "now": "The Parts list and the inspector each have a line you can drag or move with the arrow keys, the same way as the step-type preview, and each keeps its own width. The Markdown view uses the inspector's width too. When the parts are folded to icons, only the inspector resizes.",
+        "where": "A process page › Edit, the lines beside Parts and the inspector"
+      },
+      {
+        "kind": "fixed",
+        "area": "Step types",
+        "title": "The step-type form has its room again",
+        "before": "On a wide screen the step-type form was squeezed into a narrow column and the Run preview took most of the page.",
+        "now": "The form takes most of the page and the preview is a narrower column beside it, as intended.",
+        "where": "Step types › a step type"
+      },
+      {
+        "kind": "fixed",
+        "area": "Keyboard",
+        "title": "Dialogs fit the window",
+        "before": "On a short window, the Keyboard shortcuts dialog ran off the bottom and hid its Close button.",
+        "now": "Dialogs stay inside the window and scroll when their content is longer.",
+        "where": "Keyboard shortcuts, and History"
+      },
+      {
+        "kind": "fixed",
+        "area": "Examples",
+        "title": "Opens in a browser that blocks site storage",
+        "before": "In a browser set to block site data, Flightdeck stopped while setting up the examples and showed nothing.",
+        "now": "The examples open, and a short dialog explains once that they and your changes to them last only while the tab is open. After that, a Tab only badge at the top of the window stays in view on every screen, dialog and phone step panel. The run's save status and the editors' labels say Saved in this tab only. A team folder still keeps everything.",
+        "where": "Opening Flightdeck"
+      }
+    ]
+  },
+  {
     "version": "1.16.0",
     "date": "2026-10-19",
     "headline": "Apply a correction to the draft, then see which version has it",

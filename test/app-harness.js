@@ -35,7 +35,7 @@ function boot(opts) {
   // Tests start past the first-run welcome unless they ask for it (firstRun).
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
   const get = id => (els[id] = els[id] || element(id));
-  ['app', 'top', 'overlay', 'live'].forEach(get);
+  ['app', 'top', 'overlay', 'live', 'tab-badge'].forEach(get);
   /* Like a real page: a redraw recreates the screen's inputs as their markup draws them, and the app's own code puts back what
      was typed. Only the boxes drawn now are on the page; one that isn't keeps its last value, so a test can still read it. */
   const appEl = els.app;
@@ -60,13 +60,18 @@ function boot(opts) {
   appEl.querySelector = sel => { asked.push(sel); return sel === '.ob-form' && /class="panel stack ob-form"/.test(appEl._html) ? form : null; };
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
-  const storage = () => ({ getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
+  // storageThrows: a pattern of keys the browser refuses to read or write (blocked site data, a full quota): those calls throw.
+  const refuse = k => { if (opts.storageThrows === true || (opts.storageThrows && opts.storageThrows.test(k))) throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
+  const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
     hidden: false, title: '', body: element('body'), activeElement: null,
     getElementById: id => els[id] || null, querySelector: () => null, querySelectorAll: () => [], createElement: () => element('x'),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
+  // The page's root element, for the classes the app puts on it (the editor's page, a separator being dragged).
+  const rootClasses = new Set();
+  document.documentElement = { classList: { add: (...c) => c.forEach(x => rootClasses.add(x)), remove: (...c) => c.forEach(x => rootClasses.delete(x)), contains: c => rootClasses.has(c) }, setAttribute() {}, removeAttribute() {} };
   const bodyClasses = new Set();
   document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
@@ -103,6 +108,9 @@ function boot(opts) {
     focused: () => asked.filter(x => x && x[0] !== '.').pop() || null,
     live: () => els.live.textContent || '',
     bodyClasses: () => [...bodyClasses],
+    rootClasses: () => [...rootClasses],
+    // A window event the app listens for (blur, resize…).
+    winFire(type, ev) { (winListeners[type] || []).forEach(fn => fn(Object.assign({}, ev || {}))); },
     // Whether the top bar is inert, and the form marked as a dialog (the phone's properties sheet).
     topInert: () => els.top.hasAttribute('inert'), formModal: () => formAttrs.role === 'dialog',
     // Change the window across the phone breakpoint, as resizing or rotating does.
@@ -110,6 +118,9 @@ function boot(opts) {
     // Whether leaving the page now would ask first (beforeunload).
     leaveWarns() { let warned = false; (winListeners.beforeunload || []).forEach(fn => fn({ preventDefault() { warned = true; }, set returnValue(v) { warned = true; } })); return warned; },
     top: () => els.top.innerHTML,
+    // The page shell's tab-only badge (fixed above every screen, sheet and dialog), and whether anything made it inert.
+    badge: () => els['tab-badge'].innerHTML,
+    badgeInert: () => els['tab-badge'].hasAttribute('inert'),
     overlay: () => els.overlay.innerHTML,
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
