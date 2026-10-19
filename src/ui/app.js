@@ -713,6 +713,7 @@
     queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return null;
       if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Processes.', 'warn'); render(); return null; }
+      if (res.ok) logSave(sfs, fsKey(), { kind: 'draft-edit', id: pid, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       return load(true).then(function () {
         if (g !== gen) return null;
         var p = processes().filter(function (x) { return x.id === pid; })[0];
@@ -1223,6 +1224,30 @@
   /* One save of a draft at a time: a second save would start from the same fingerprint and conflict with this window's own
      first save, and edits typed during a restore would be replaced by it. While a restore saves, the draft can't be edited. */
   state.draftSaving = {};
+  /* ---------- saved history (docs/design.md section 20, slice 2): a line in this window's own history file per save ----------
+     Written through the write queue after a save succeeded, never for a refused one. A line that couldn't be written stays in
+     memory, per folder and history folder (so it outlives the editor being replaced after a save), and goes ahead of the next. */
+  var histSeq = 0, histRoll = {}, histPending = {}, histSeen = {};
+  function histKey(key, dir) { return key + '\n' + dir; }
+  function capFirst(t) { t = String(t); return t.charAt(0).toUpperCase() + t.slice(1); }
+  /* The changes a save carries that weren't saved before, as History labels and items. */
+  function histUnits(carried) {
+    var fresh = carried.filter(function (e) { return !e.savedAs; }), items = [];
+    fresh.forEach(function (e) { e.items.forEach(function (x) { if (items.indexOf(x) < 0) items.push(x); }); });
+    return { units: fresh.map(function (e) { return capFirst(TL.describe(e)); }), items: items, reverse: fresh.length > 0 && fresh.every(function (e) { return e.kind === 'reverse'; }) };
+  }
+  function logSave(sfs, key, o) {
+    var dir = repo.historyDir(o.kind, o.id), k = histKey(key, dir), rec;
+    try { rec = TL.histLine(Object.assign({}, o, { id: U.randomId(10), process: o.id, type: o.id, writer: WRITER, seq: ++histSeq, by: state.me || '', at: new Date().toISOString(), seen: histSeen[k] || null })); } catch (e) { return; }
+    histSeen[k] = rec.id;
+    var pend = histPending[k] = histPending[k] || [];
+    pend.push(JSON.stringify(rec));
+    queued(function () {
+      if (!pend.length) return;
+      var lines = pend.slice();
+      return repo.appendHistory(sfs, dir, WRITER, lines, histRoll[key] = histRoll[key] || {}).then(function () { pend.splice(0, lines.length); }, function () { /* kept for the next save */ });
+    });
+  }
   function saveDraftText(p, text, expectHash, okMsg, opts) {
     opts = opts || {};
     var sfs = state.fs, g = gen, key = fsKey(), file = p.draft ? p.draft.file : p.id + '.md', sk = edKey(p.id, key);
@@ -1233,6 +1258,9 @@
     /* The changes this save carries, so History can say they were saved; typing after it starts a new unit. */
     var ed0 = editorOf(p.id, key), carried = ed0 && ed0.tl ? ed0.tl.entries.slice(0, ed0.tl.pos) : [];
     if (ed0 && ed0.tl) TL.close(ed0.tl);
+    /* For the saved history: the text this save replaces (the one whose fingerprint it expects) and what it carries. */
+    var hu = histUnits(carried), before = expectHash == null ? '' : [ed0 && ed0.base, ed0 && ed0.conflict && ed0.conflict.theirs, p.draft && p.draft.md].filter(function (t) { return t != null && U.hash(t) === expectHash; })[0];
+    var hsource = opts.source || (expectHash == null ? 'new' : hu.reverse ? 'reverse' : 'editor');
     /* When it ends, the controls it disabled come back, also if someone left this folder and returned meanwhile. */
     var done = function () { delete state.draftSaving[sk]; if (fsKey() === key) scheduleRender(); };
     render();
@@ -1259,6 +1287,7 @@
       else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
       if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
       else TL.saved(carried, res.hash);
+      logSave(sfs, key, { kind: 'draft-edit', id: p.id, from: expectHash, to: res.hash, before: before == null ? null : before, after: text, source: hsource, version: opts.version, units: opts.units || hu.units, items: hu.items });
       if (ed.tl) learnIds(ed, text);
       if (g !== gen) return;
       if (opts.replace) dropPending();
@@ -1333,7 +1362,7 @@
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
-      act: { act: 'tl-undo', id: 'draft', label: 'Undo' },
+      act: { act: 'tl-undo', id: 'draft', label: 'Undo' }, source: 'correction',
       /* Not saved: the change waits in the editor as unsaved, so the editor opens rather than hiding it. */
       failed: function () { if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
       write: function (f, file, t, h, o) { return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
@@ -1567,19 +1596,23 @@
     for (var i = 0; i < sels.length; i++) { var el = sels[i] && (document.getElementById(sels[i]) || app.querySelector(sels[i])); if (el && el.focus) { if (document.activeElement !== el) el.focus({ preventScroll: true }); return; } }
   }
   function itemSel(item) { var m = /^(step|phase):(.+)$/.exec(item || ''); return m ? '[data-act="' + (m[1] === 'step' ? 'ob-sel' : 'ob-sel-phase') + '"][data-id="' + cssEsc(m[2]) + '"]' : null; }
+  /* Text typed in a builder box and not applied (or refused) isn't in the draft: anything that replaces the draft's text
+     (Undo, Redo, Reverse this change) would replace the box and lose it, so it waits until that text is applied or cleared.
+     An Add box keeps its text (see addAnchorKept). Returns true when it has to wait, having said why and gone to the box. */
+  function typedFirst(p, what) {
+    var pf = state.obPending === p.id && state.obPendingField;
+    if (!pf || /^ob-new-/.test(pf)) return false;
+    if (state.overlay) closeOverlay();
+    say('Apply or clear what you typed in the box first (Enter applies it), then ' + what + '.', 'warn');
+    state.focus = '#' + pf; render(); return true;
+  }
   /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
      to what changed (the step's row, the field, or the caret in the Markdown). Either way the message says what happened. */
   function tlMove(scope, redo, how) {
     var tl = tlFor(scope); if (!tl) return;
     var p = scope === 'draft' ? currentProcess() : null, ed = p && openEditor(p), f = scope === 'type' ? state.typeForm : null;
     if (p && builderBlocked(p)) return;
-    /* Text typed in a builder box and not applied (or refused) isn't in the draft: Undo would replace the box and lose it,
-       so it waits until that text is applied or cleared. An Add box keeps its text through Undo (below). */
-    var pf = p && state.obPending === p.id && state.obPendingField;
-    if (pf && !/^ob-new-/.test(pf)) {
-      say('Apply or clear what you typed in the box first (Enter applies it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn');
-      state.focus = '#' + pf; render(); return;
-    }
+    if (p && typedFirst(p, redo ? 'Redo' : 'Undo')) return;
     /* The step-type editor's Add boxes add what they hold first, so Undo takes that back like any other change. */
     if (f) flushAdds(f, true);
     var top = TL.peek(tl).undo;
@@ -1635,12 +1668,60 @@
   }
   function openHistory(scope, item) {
     var tl = tlFor(scope); if (!tl) return;
-    openOverlay({ hist: scope, item: item || null, html: function () {
-      var o = this, t = tlFor(o.hist), p = currentProcess(), f = state.typeForm, name = o.item;
+    var ov = { hist: scope, item: item || null, mode: state.histMode === 'saved' ? 'saved' : 'session', html: function () {
+      var o = this, t = tlFor(o.hist), p = currentProcess(), f = state.typeForm, name = o.item, savedItem = o.item;
+      /* A field or evidence row is known in the form by its row; in saved history, by its name. */
+      if (o.item && o.hist === 'type' && f) { var rm = /^(field|evidence):(.+)$/.exec(o.item), row = rm && (rm[1] === 'field' ? f.def.fields : f.def.record).filter(function (r) { return String(r.k) === rm[2]; })[0]; if (row) savedItem = rm[1] + ':' + row.name; }
       if (o.item && o.hist === 'draft' && p) { var m = /^(step|phase):(.+)$/.exec(o.item), ed = editorOf(p.id); if (m && ed) { var x = PF.outline.parse(ed.text != null ? ed.text : ed.base)[m[1] === 'step' ? 'steps' : 'phases'].filter(function (y) { return y.key === m[2]; })[0]; if (x) name = m[1] + ' "' + String(m[1] === 'step' ? x.text : x.title).replace(/\*\*|__|`/g, '') + '"'; } }
       if (o.item && o.hist === 'type' && f) { var c = tfControl(f.def, 'tf-' + (/^field:/.test(o.item) ? 'f-' : 'r-') + o.item.split(':')[1] + '-name'); if (c) name = c.name.replace(/^name of /, ''); }
-      return V.historyDrawer(ctx, { scope: o.hist, tl: t, item: o.item, itemName: name, title: o.hist === 'draft' ? (p ? 'Draft of ' + p.title : '') : f ? (f.existing ? '{' + f.existing + '}' : 'New step type') : '' });
-    } });
+      return V.historyDrawer(ctx, { scope: o.hist, tl: t, item: o.item, itemName: name, savedItem: savedItem, mode: o.mode, saved: o.saved, compare: o.compare, compareMsg: o.compareMsg,
+        title: o.hist === 'draft' ? (p ? 'Draft of ' + p.title : '') : f ? (f.existing ? '{' + f.existing + '}' : 'New step type') : '' });
+    } };
+    openOverlay(ov);
+    if (ov.mode === 'saved') loadSavedHistory(ov);
+  }
+  /* The saved history of the draft or step type open in the editor, read from history/ now (never in routine refreshes). It
+     starts from the fingerprint of the file as this window last read it, and places the draft's publications by theirs. */
+  function loadSavedHistory(ov) {
+    var sfs = state.fs, g = gen, key = fsKey(), p = currentProcess(), f = state.typeForm, dir, current, pubs = [];
+    if (ov.hist === 'draft') {
+      if (!p || !sfs) return;
+      dir = repo.historyDir('draft-edit', p.id); current = p.draft ? U.hash(p.draft.md) : null;
+      pubs = (p.all || []).map(function (x) { return { version: x.info.version, hash: x.info.mapHash, by: x.info.publishedBy, at: x.info.publishedAt }; });
+    } else {
+      if (!f || !f.existing || !sfs) { ov.saved = { state: 'none' }; render(); return; }
+      dir = repo.historyDir('type-edit', f.existing); current = f.baseHash;
+    }
+    var mark = ov.saved = { state: 'loading' }; render();
+    repo.loadEditHistory(sfs, dir, current).then(function (res) {
+      if (g !== gen || ov.saved !== mark) return;
+      var first = res.items.filter(function (x) { return x.entry; })[0];
+      if (first) histSeen[histKey(key, dir)] = first.entry.id;
+      ov.saved = { state: 'ok', items: ov.hist === 'draft' ? TL.placePublications(res.items, pubs) : res.items, bad: res.bad, skipped: res.skipped, unknown: res.unknown, dir: dir };
+      if (state.overlay === ov) render();
+    }, function (e) { if (g !== gen || ov.saved !== mark) return; ov.saved = { state: 'error', msg: e && e.message || String(e) }; if (state.overlay === ov) render(); });
+  }
+  /* Reverse one saved change in the editor's text: only when every line it inserted is still there, exactly once. The draft
+     is then unsaved, and Undo takes the reversal back. Otherwise Compare opens on that change. */
+  function reverseSaved(id) {
+    var ov = state.overlay, p = currentProcess();
+    if (!ov || ov.hist !== 'draft' || !ov.saved || !ov.saved.items || !p) return;
+    var x = ov.saved.items.filter(function (y) { return y.entry && y.entry.ref === id; })[0], e = x && x.entry;
+    if (!e || stillSaving(p) || builderBlocked(p) || typedFirst(p, 'Reverse this change')) return;
+    var ed = openEditor(p);
+    if (ed.conflict) { say('Someone else changed this draft while you were editing it. Settle that in the editor first.', 'warn'); render(); return; }
+    var cur = ed.text != null ? ed.text : ed.base, nt = TL.reversible(e) ? TL.reverse(cur, e.hunks) : null;
+    /* A new step or phase being written in its Add box keeps its place, as with Undo. */
+    var adding = nt != null && state.obAdd && state.obAdd.pid === p.id && (val('ob-new-text') || val('ob-new-title')) ? state.obAdd : null;
+    if (adding && !addAnchorKept(adding, cur, nt)) { closeOverlay(); say('Add or cancel the new ' + (adding.kind === 'phase' ? 'phase' : 'step') + ' you\'re writing first: reversing that change would take away the place it goes.', 'warn'); state.focus = adding.kind === 'phase' ? 'ob-new-title' : 'ob-new-text'; render(); return; }
+    if (nt == null || nt === cur) { ov.compare = e.ref; ov.compareMsg = 'The text changed since. Compare and edit it yourself.'; state.overlayFocus = '#hist-cmp-' + cssEsc(e.ref); render(); return; }
+    var sel = obSnap(ed);
+    learnIds(ed, ed.base); dropPending(); obClearErr();
+    TL.record(tlOf(ed), cur, nt, { kind: 'reverse', lines: true, label: 'reversal of a saved change', items: e.items.slice(), selBefore: sel });
+    ed.text = nt; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obPlace = null;
+    if (state.view === 'process' && state.ptab !== 'edit') state.ptab = 'edit';
+    say('Reversed that change in the editor. It isn\'t saved yet: save the draft to keep it.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+    state.overlayFocus = '#hist-t'; render();
   }
   /* A value as the outline ops apply it (lineValue): line breaks become spaces and the ends are trimmed; spaces inside
      (a command's arguments) are its content. */
@@ -1920,20 +2001,23 @@
     if (!f.existing && (T.get(def.id) || ((data.stepTypes || {}).types || {})[def.id])) { say('There\'s already a step type {' + def.id + '}. Choose another ID, or edit that one.', 'warn'); render(); return; }
     if (f.saving) { say('Still saving this step type. Try again in a moment.', 'warn'); render(); return; }
     var sfs = state.fs, g = gen, carried = f.tl ? f.tl.entries.slice(0, f.tl.pos) : [], savedDef = JSON.parse(JSON.stringify(f.def));
+    var expect = f.baseHash, hu = histUnits(carried), hbefore = expect == null ? null : f.baseDef || null, hsource = f.keepMine ? 'keep-mine' : expect == null ? 'new' : 'editor';
     if (f.tl) TL.close(f.tl);
     f.saving = true; render();
-    queued(function () { return repo.saveStepType(sfs, def, f.baseHash, { lock: LOCKS ? lock : null }); }).then(function (res) {
+    queued(function () { return repo.saveStepType(sfs, def, expect, { lock: LOCKS ? lock : null }); }).then(function (res) {
       f.saving = false;
       /* The form is updated in its own folder even if someone switched folders meanwhile; only the screen waits. */
       var here = g === gen, open = typeForms[f.fsKey] === f;
       if (res.conflict) { f.conflict = res; f.closeAfterSave = false; if (here) render(); return; }
       TL.saved(carried, res.hash);
+      f.keepMine = false;
+      logSave(sfs, f.fsKey, { kind: 'type-edit', id: def.id, from: expect, to: res.hash, before: hbefore, after: def, source: hsource, units: hu.units, items: [] });
       /* Saved. If the form changed while it saved, it stays open on the saved version, with those changes still unsaved. */
       if (open && V.typeFormSnapshot(f.def) !== savedSnap) {
         /* If the ID was changed while it saved, the form now describes a different, unsaved type; keep it a new one. */
         /* An ID still made from the label is the saved one now: changing the label later doesn't make it another type. */
         var sameId = !f.def.idSet || (f.def.id || '').trim() === def.id;
-        if (sameId) { var keepTail = typeTail(f); f.def.id = def.id; f.justSaved = Date.now(); }
+        if (sameId) { var keepTail = typeTail(f); f.def.id = def.id; f.justSaved = Date.now(); f.baseDef = def; }
         f.existing = sameId ? def.id : null; f.baseHash = sameId ? res.hash : null; f.initial = sameId ? savedSnap : '';
         if (sameId) f.tlTail = keepTail;
         if (!here) return;
@@ -1944,7 +2028,7 @@
       if (open) {
         /* The saved ID can differ from what was typed (spaces trimmed); the history keeps what was typed, so it still applies. */
         var tail = typeTail(f);
-        f.existing = def.id; f.def.id = def.id; f.tlTail = tail; f.baseHash = res.hash; f.initial = savedSnap; f.tried = false; f.idEdit = false; f.leaving = false; f.justSaved = Date.now();
+        f.existing = def.id; f.def.id = def.id; f.tlTail = tail; f.baseHash = res.hash; f.baseDef = def; f.initial = savedSnap; f.tried = false; f.idEdit = false; f.leaving = false; f.justSaved = Date.now();
         keepTypeTl(f, def.id, savedDef, res.hash);
       }
       if (!here) return;
@@ -2158,7 +2242,7 @@
       if (sure) expect = state.pick.expect;
       state.pick = null;
       state.planFormReset = true;
-      saveDraftText(p, v.md, expect, 'Restored v' + v.info.version + ' as the draft. Edit it, then publish a new version.', { replace: true, why: 'You restored v' + v.info.version + ' as the draft here. Earlier changes can\'t be undone.' });
+      saveDraftText(p, v.md, expect, 'Restored v' + v.info.version + ' as the draft. Edit it, then publish a new version.', { replace: true, why: 'You restored v' + v.info.version + ' as the draft here. Earlier changes can\'t be undone.', source: 'restore', version: v.info.version, units: ['Restored v' + v.info.version + ' as the draft'] });
     },
     /* Saving keeps you in the editor: focus goes back to the text, since the Save button is disabled while it saves. */
     'save-draft': function () { var p = currentProcess(); if (!p) return; var ed = openEditor(p); state.focus = 'draft-editor'; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.'); },
@@ -2174,7 +2258,7 @@
       var ed = editorOf(state.processId); if (!ed || ed.text == null) return;
       saveDraftText({ id: state.processId, title: state.processId, draft: null }, ed.text, null, 'Saved your draft again.');
     },
-    'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.'); },
+    'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.', { source: 'keep-mine' }); },
     'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
     /* ---------- the outline builder: every change is an operation on the editor's text (PF.outline) ---------- */
     'ed-mode': function (id) {
@@ -2280,6 +2364,13 @@
     'tl-redo': function (id) { if (id === 'draft' || id === 'type') tlMove(id, true, 'button'); },
     'hist-open': function (id, b) { if (id === 'draft' || id === 'type') openHistory(id, b && b.dataset && b.dataset.item); },
     'hist-item': function (id) { if (!state.overlay || !state.overlay.hist) return; state.overlay.item = id || null; state.overlayFocus = '#hist-t'; render(); },
+    'hist-mode': function (id) {
+      var ov = state.overlay; if (!ov || !ov.hist) return;
+      ov.mode = state.histMode = id === 'saved' ? 'saved' : 'session'; state.overlayFocus = '[data-act="hist-mode"][data-id="' + ov.mode + '"]';
+      if (ov.mode === 'saved' && (!ov.saved || ov.saved.state !== 'loading')) loadSavedHistory(ov); else render();
+    },
+    'hist-compare': function (id) { var ov = state.overlay; if (!ov || !ov.hist) return; ov.compare = ov.compare === id ? null : id; ov.compareMsg = null; state.overlayFocus = '[data-act="hist-compare"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'hist-reverse': function (id) { reverseSaved(id); },
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     'new-process': function () { setView('new-process'); state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
@@ -2296,7 +2387,8 @@
         var o = null; try { o = f ? JSON.parse(f.text) : null; } catch (e) { o = null; }
         var errs = o ? T.checkCustom(o) : ['it can\'t be read'];
         if (!o || errs.length) { say('step-types/' + id + '.json ' + (errs[0] || 'has a problem') + '. Fix the file, or ask your AI assistant to.', 'warn'); render(); return; }
-        setView('types'); state.typeForm = resumeTypeTl(typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)), id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
+        var tf = typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)); tf.baseDef = o;
+        setView('types'); state.typeForm = resumeTypeTl(tf, id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
       }, function (e) { if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
     'tf-add': function (id, b) {
@@ -2369,12 +2461,12 @@
       /* Closing without saving: unsaved changes are dropped, so they can't be undone over the file when it's opened again. */
       if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseHash); }
       state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
-    'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { f.baseHash = f.conflict.theirsHash; f.conflict = null; saveType(); } },
+    'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
     'type-take-theirs': function () {
       var f = state.typeForm; if (!f || !f.conflict || f.saving) return;
       var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; }
       if (!o || T.checkCustom(o).length) { say('Their version can\'t be used as a step type' + (f.conflict.theirs == null ? ' (the file was deleted)' : '') + '. Keep yours, or cancel.', 'warn'); render(); return; }
-      f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true;
+      f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.baseDef = o; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true;
       if (f.tl) TL.barrier(f.tl, 'You took their version here. Earlier changes can\'t be undone.');
       render();
     },
@@ -3011,6 +3103,7 @@
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
+      logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
       return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || state.newProc !== f) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });

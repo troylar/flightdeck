@@ -153,4 +153,140 @@ rule('Timeline: text moved by dragging is one change, so one Undo puts it back w
   assert.strictEqual(tl.entries.length, 2);
 });
 
+/* ---------- Saved history (slice 2) ---------- */
+const H = PF.util.hash;
+/* A saved-history entry as a window writes it, read back as the folder gives it. */
+function entry(o, file) { return TL.cleanEntry(JSON.parse(JSON.stringify(TL.histLine(Object.assign({ kind: 'draft-edit', process: 'release', by: 'person-avery', at: '2026-10-19T09:00:00.000Z', source: 'editor', units: [], items: [] }, o)))), file || o.writer + '.jsonl'); }
+const v = n => 'line ' + n + '\n';
+
+rule('Saved history: entries are ordered by the fingerprints they link, never by their clocks', () => {
+  const t0 = 'start\n', t1 = t0 + v(1), t2 = t1 + v(2), t3 = t2 + v(3);
+  // Clocks disagree: the newest save says it happened first.
+  const e1 = entry({ id: 'e1', writer: 'wina', seq: 1, from: H(t0), to: H(t1), before: t0, after: t1, at: '2026-10-19T12:00:00.000Z' });
+  const e2 = entry({ id: 'e2', writer: 'winb', seq: 1, from: H(t1), to: H(t2), before: t1, after: t2, seen: 'e1', at: '2026-10-19T08:00:00.000Z' });
+  const e3 = entry({ id: 'e3', writer: 'wina', seq: 2, from: H(t2), to: H(t3), before: t2, after: t3, seen: 'e2', at: '2020-01-01T00:00:00.000Z' });
+  const ids = TL.order([e1, e3, e2], H(t3)).map(x => x.gap ? 'gap' : x.entry.id);
+  same(ids, ['e3', 'e2', 'e1'], 'newest first along the chain');
+});
+
+rule('Saved history: where nothing leads to the file as it is, it says it was changed outside Flightdeck', () => {
+  const t0 = 'a\n', t1 = 'a\nb\n', t2 = 'a\nb\nc\n', hand = 'a\nB\nc\n';
+  const e1 = entry({ id: 'e1', writer: 'wina', seq: 1, from: H(t0), to: H(t1), before: t0, after: t1 });
+  const e2 = entry({ id: 'e2', writer: 'wina', seq: 2, from: H(t1), to: H(t2), before: t1, after: t2, seen: 'e1' });
+  same(TL.order([e1, e2], H(hand)).map(x => x.gap ? 'gap' : x.entry.id), ['gap', 'e2', 'e1'], 'an AI assistant or a hand edit after the last save');
+  // A gap in the middle: the file was changed outside between two saves.
+  const e3 = entry({ id: 'e3', writer: 'winb', seq: 1, from: H(hand), to: H(hand + 'd\n'), before: hand, after: hand + 'd\n', seen: 'e2' });
+  same(TL.order([e3, e1, e2], H(hand + 'd\n')).map(x => x.gap ? 'gap' : x.entry.id), ['e3', 'gap', 'e2', 'e1']);
+});
+
+rule('Saved history: saves that reach the same text are ordered the same way on every computer, whatever order the files are read in', () => {
+  const t0 = 'x\n', t1 = 'x\ny\n';
+  // Two computers make the same change from the same draft; a third save follows one of them.
+  const a = entry({ id: 'aaa', writer: 'wina', seq: 1, from: H(t0), to: H(t1), before: t0, after: t1 });
+  const b = entry({ id: 'bbb', writer: 'winb', seq: 1, from: H(t0), to: H(t1), before: t0, after: t1 });
+  const c = entry({ id: 'ccc', writer: 'winc', seq: 1, from: H(t1), to: H(t0), before: t1, after: t0, seen: 'bbb' });
+  const want = JSON.stringify(TL.order([a, b, c], H(t0)));
+  [[b, a, c], [c, b, a], [c, a, b], [b, c, a]].forEach(l => assert.strictEqual(JSON.stringify(TL.order(l, H(t0))), want, 'same order'));
+  assert.strictEqual(TL.order([a, b, c], H(t0))[0].entry.id, 'ccc');
+  // The same line read twice (OneDrive delivered a copy) counts once.
+  assert.strictEqual(TL.order([a, a, b], H(t1)).filter(x => x.entry).length, 2);
+});
+
+rule('Saved history: a big change keeps only its fingerprints, and no line passes 80 KB', () => {
+  const t0 = 'x\n', big = Array.from({ length: 3000 }, (_, i) => '- [ ] {confirm} Step number ' + i + ' with some words {#s' + i + '}').join('\n');
+  const e = TL.histLine({ kind: 'draft-edit', id: 'big1', process: 'release', writer: 'wina', seq: 1, from: H(t0), to: H(big), before: t0, after: big, source: 'editor', units: [], items: [] });
+  assert.ok(e.big && !e.hunks && e.from === H(t0) && e.to === H(big), 'hashes kept, lines dropped');
+  assert.ok(TL.bytes(JSON.stringify(e)) <= TL.HIST.LINE);
+  const small = TL.histLine({ kind: 'draft-edit', id: 's1', process: 'release', writer: 'wina', seq: 2, from: H(t0), to: H(t0 + 'y\n'), before: t0, after: t0 + 'y\n', units: [], items: [] });
+  assert.ok(!small.big && small.hunks.length === 1);
+  const tbig = TL.histLine({ kind: 'type-edit', id: 't1', type: 'risk.call', writer: 'wina', seq: 3, from: null, to: H('z'), before: null, after: { label: 'R', hint: 'x'.repeat(70000) } });
+  assert.ok(tbig.big && !tbig.after && TL.bytes(JSON.stringify(tbig)) <= TL.HIST.LINE, 'a type definition too');
+});
+
+rule('Saved history: Reverse applies only when the lines a change inserted are still there, exactly once', () => {
+  const a = '## Deploy {#deploy}\n- [ ] {confirm} One {#one}\n\n- [ ] {confirm} Two {#two}\n', b = a.replace('Two {#two}', 'Two, then check {#two}');
+  const hs = TL.hunks(a, b);
+  assert.strictEqual(TL.reverse(b, hs), a, 'reversed exactly');
+  const later = b.replace('One {#one}', 'One, first {#one}');
+  assert.strictEqual(TL.reverse(later, hs), a.replace('One {#one}', 'One, first {#one}'), 'a change elsewhere is kept');
+  assert.strictEqual(TL.reverse(b.replace('then check', 'then look'), hs), null, 'the inserted line changed since');
+  assert.strictEqual(TL.reverse(b + b, hs), null, 'found twice: refused, never guessed');
+  // A deleted step comes back where it was, found by the lines around it.
+  const c = a.replace('- [ ] {confirm} One {#one}\n\n', ''), hd = TL.hunks(a, c);
+  assert.ok(hd.every(h => h.ins.length), 'a deletion carries the lines around it');
+  assert.strictEqual(TL.reverse(c, hd), a);
+});
+
+rule('Saved history: lines from the folder are checked, and anything odd is dropped or capped, never trusted', () => {
+  assert.strictEqual(TL.cleanEntry({ v: 2, kind: 'draft-edit' }), null, 'another format');
+  assert.strictEqual(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'x', writer: 'w', to: 'nothex!!', process: 'release' }), null, 'a bad fingerprint');
+  assert.strictEqual(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'x', writer: 'w', to: 'abcdef01', process: '../etc' }), null, 'a bad process');
+  const raw = JSON.parse('{"v":1,"kind":"type-edit","id":"x1","type":"risk.call","writer":"w1","seq":"7","to":"abcdef01","from":null,"units":["<b>u</b>",5],"items":["field:a"],"before":{"__proto__":{"polluted":true},"id":"risk.call","label":"A","constructor":"c"},"after":{"id":"risk.call","label":"B"},"source":"made-up"}');
+  const e = TL.cleanEntry(raw, 'w1.jsonl');
+  assert.ok(e && e.seq === 0 && e.source === '' && e.units.length === 1 && e.file === 'w1.jsonl');
+  assert.ok(Object.getPrototypeOf(e.before) === null && !('polluted' in e.before) && e.before.constructor === undefined && e.before.label === 'A', 'no prototype, no __proto__ or constructor');
+  assert.strictEqual(({}).polluted, undefined);
+});
+
+rule('Saved history: a writer rolls over to a new file at 512 KB', () => {
+  assert.strictEqual(TL.histFile('abc', 1), 'abc.jsonl');
+  assert.strictEqual(TL.histFile('abc', 3), 'abc-3.jsonl');
+  assert.ok(!TL.rolls(0, 600000), 'an empty file takes any line');
+  assert.ok(TL.rolls(TL.HIST.ROLL - 10, 20) && !TL.rolls(TL.HIST.ROLL - 30, 20));
+});
+
+rule('Saved history: publications sit where the draft had the text they published', () => {
+  const t0 = 'a\n', t1 = 'a\nb\n', t2 = 'a\nb\nc\n';
+  const e1 = entry({ id: 'e1', writer: 'wina', seq: 1, from: H(t0), to: H(t1), before: t0, after: t1 });
+  const e2 = entry({ id: 'e2', writer: 'wina', seq: 2, from: H(t1), to: H(t2), before: t1, after: t2 });
+  const out = TL.placePublications(TL.order([e1, e2], H(t2)), [{ version: 1, hash: H(t1), by: 'person-avery' }, { version: 9, hash: 'ffffffff' }]);
+  same(out.map(x => x.pub ? 'v' + x.pub.version : x.entry.id), ['e2', 'v1', 'e1'], 'v1 above the save it published; an unknown one isn\'t placed');
+});
+
+rule('Saved history: a change to a very long line is kept exactly, and an entry whose lines were cut is never reversible', () => {
+  const long = 'x'.repeat(5000), a = 'top\n' + long + '\nend\n', b = 'top\n' + long + 'y\nend\n';
+  const e = entry({ id: 'l1', writer: 'wina', seq: 1, from: H(a), to: H(b), before: a, after: b });
+  assert.ok(!e.cut && e.hunks.some(h => h.del.indexOf(long) >= 0), 'the 5,000-character line is whole');
+  assert.strictEqual(TL.reverse(b, e.hunks), a, 'Reverse brings back exactly the text before');
+  const raw = JSON.parse(JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'l2', process: 'release', writer: 'wina', seq: 2, from: H(a), to: H(b), before: a, after: b, units: [], items: [] })));
+  raw.hunks[0].del.push(5);
+  const cut = TL.cleanEntry(raw, 'wina.jsonl');
+  assert.ok(cut && cut.cut && !TL.reversible(cut), 'a line that wasn\'t text: Compare only');
+  assert.ok(TL.reversible(e));
+});
+
+rule('Saved history: a step type\'s before or after that isn\'t a valid definition is dropped and flagged, so History can still show the entry', () => {
+  const raw = { v: 1, kind: 'type-edit', id: 't1', type: 'risk.call', writer: 'w1', seq: 1, from: null, to: 'abcdef01', before: { id: 'risk.call', label: { x: 1 }, fields: {}, record: [] }, after: { id: 'risk.call', label: 'Risk call', fields: { a: { label: ['x'], kind: 'text' } }, record: [] } };
+  const e = TL.cleanEntry(raw, 'w1.jsonl');
+  assert.ok(e && e.before === null && e.after === null && e.badDef, 'neither is used');
+  assert.doesNotThrow(() => TL.typeChanges(e.before, e.after));
+  assert.doesNotThrow(() => TL.typeChanges({ label: { x: 1 } }, { label: 'B', fields: { a: { label: { y: 2 } } }, record: [{ name: 'n', label: { z: 1 } }] }), 'and the rows never assume text');
+});
+
+rule('Saved history: ordering 10,000 entries stays fast (near-linear), the same as a small list would be ordered', () => {
+  const list = [];
+  let prev = H('start');
+  for (let i = 0; i < 10000; i++) {
+    const w = 'w' + (i % 7), to = H('state' + i);
+    list.push(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'e' + i, process: 'release', writer: w, seq: Math.floor(i / 7) + 1, from: prev, to, seen: i ? 'e' + (i - 1) : null, units: [], items: [] }, w + '.jsonl'));
+    prev = to;
+  }
+  const t = Date.now(), out = TL.order(list.slice().reverse(), prev), ms = Date.now() - t;
+  assert.ok(ms < 300, 'ordered in ' + ms + ' ms');
+  assert.strictEqual(out.length, 10000, 'one chain, no gaps');
+  assert.ok(out[0].entry.id === 'e9999' && out[9999].entry.id === 'e0');
+  // Off the chain too (no current fingerprint): causal order, still fast.
+  const t2 = Date.now(), off = TL.order(list, 'ffffffff');
+  assert.ok(Date.now() - t2 < 300 && off[1].entry.id === 'e9999' && off[10000].entry.id === 'e0');
+});
+
+rule('Saved history: a draft that went back and forth between two texts 10,000 times still orders fast', () => {
+  const A = H('text a'), B = H('text b'), list = [];
+  for (let i = 0; i < 10000; i++) list.push(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'e' + i, process: 'release', writer: 'w1', seq: i + 1, from: i % 2 ? B : A, to: i % 2 ? A : B, seen: i ? 'e' + (i - 1) : null, units: [], items: [] }, 'w1.jsonl'));
+  const t = Date.now(), out = TL.order(list, A), ms = Date.now() - t;
+  assert.ok(ms < 300, 'ordered in ' + ms + ' ms');
+  assert.strictEqual(out.filter(x => x.entry).length, 10000);
+  assert.ok(out[0].entry.id === 'e9999' && !out.some(x => x.gap), 'one chain, newest first');
+});
+
 run();

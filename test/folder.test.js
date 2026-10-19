@@ -766,4 +766,119 @@ rule('Folder: when the write test neither reads back nor removes its file, the e
   await assert.rejects(repo.writeTest(fs, 'w9'), /\.flightdeck\/write-test-w9\.tmp/);
 });
 
+rule('Saved history: the draft and step-type loaders never list or read history/, so older copies never see it', async () => {
+  const fs = folder(); await started(fs);
+  // Files that would break a loader that read them: a draft-like .md and a step-type-like .json under history/.
+  await fs.write('history/drafts/release/w1.jsonl', '{"v":1}\n');
+  await fs.write('history/drafts/release/notes.md', '---\nprocess: other\ntitle: Not a draft\n---\n');
+  await fs.write('history/step-types/risk.call/w1.jsonl', '{"v":1}\n');
+  await fs.write('history/step-types/bad.json', '{ not json');
+  const calls = faulty(fs);
+  const d = await repo.loadAll(fs, { deep: true });
+  await repo.loadStepTypes(fs);
+  await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(calls.list.length > 10 && !calls.list.some(c => /history\//.test(c)), 'nothing under history/ was listed or read');
+  assert.strictEqual(d.drafts.length, 1, 'only maps/drafts/');
+  assert.ok(!d.stepTypes.errors.length, 'no step type from history/');
+  assert.ok(!/history/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')), 'the skills\' checker doesn\'t read it either');
+});
+
+rule('Saved history: each window appends to its own file, rolls over at 512 KB, and reading checks every line', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, roll = {}, dir = repo.historyDir('draft-edit', 'release');
+  assert.strictEqual(dir, 'history/drafts/release');
+  assert.strictEqual(repo.historyDir('type-edit', 'risk.call'), 'history/step-types/risk.call');
+  const line = (id, seq, from, to) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id, process: 'release', writer: 'w1', seq, by: 'person-avery', at: NOW, from: H(from), to: H(to), before: from, after: to, source: 'editor', units: ['The move of "Smoke tests"'], items: ['step:smoke'] }));
+  assert.strictEqual(await repo.appendHistory(fs, dir, 'w1', [line('a1', 1, 'x\n', 'x\ny\n')], roll), dir + '/w1.jsonl');
+  assert.strictEqual(await repo.appendHistory(fs, dir, 'w1', [line('a2', 2, 'x\ny\n', 'x\ny\nz\n')], roll), dir + '/w1.jsonl', 'the same file');
+  // Grow the file past 512 KB: the next line starts w1-2.jsonl, and the full file is never rewritten.
+  const full = fs.files[dir + '/w1.jsonl'].t;
+  fs.files[dir + '/w1.jsonl'].t = full + ' '.repeat(TL.HIST.ROLL) + '\n';
+  assert.strictEqual(await repo.appendHistory(fs, dir, 'w1', [line('a3', 3, 'x\ny\nz\n', 'x\ny\nz\nq\n')], roll), dir + '/w1-2.jsonl');
+  assert.ok(fs.files[dir + '/w1.jsonl'].t.indexOf(full) === 0, 'the first file keeps everything');
+  await fs.write(dir + '/w2.jsonl', 'not json\n{"v":1,"kind":"draft-edit","id":"x","writer":"w2","to":"zz"}\n' + line('b1', 1, 'x\ny\nz\nq\n', 'x\ny\nz\nq\nr\n').replace('"writer":"w1"', '"writer":"w2"') + '\n');
+  await fs.write(dir + '/notes.txt', 'not a history file');
+  const calls = faulty(fs, { delay: 2 });
+  const res = await repo.loadEditHistory(fs, dir, H('x\ny\nz\nq\nr\n'));
+  same(res.items.map(x => x.gap ? 'gap' : x.entry.id), ['b1', 'a3', 'a2', 'a1'], 'all writers, along the chain');
+  assert.strictEqual(res.bad, 2, 'two lines couldn\'t be read');
+  same(res.files, ['w1-2.jsonl', 'w1.jsonl', 'w2.jsonl']);
+  assert.ok(calls.max <= 8 && !calls.list.some(c => /notes\.txt/.test(c)));
+});
+
+rule('Saved history: OneDrive\'s copies of a history file are read too, entries seen twice count once, and other names are reported', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const rec = (id, seq, from, to) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id, process: 'release', writer: 'w1', seq, by: 'person-avery', at: NOW, from: H(from), to: H(to), before: from, after: to, units: [], items: [] }));
+  const l1 = rec('a1', 1, 'x\n', 'x\ny\n'), l2 = rec('a2', 2, 'x\ny\n', 'x\ny\nz\n'), l3 = rec('a3', 3, 'x\ny\nz\n', 'x\ny\nz\nq\n');
+  await fs.write(dir + '/w1.jsonl', l1 + '\n');
+  await fs.write(dir + '/w1 (1).jsonl', l1 + '\n' + l2 + '\n');
+  await fs.write(dir + '/w1-LAPTOP.jsonl', l2 + '\n' + l3 + '\n');
+  await fs.write(dir + '/readme.txt', 'hello');
+  const res = await repo.loadEditHistory(fs, dir, H('x\ny\nz\nq\n'));
+  same(res.items.map(x => x.gap ? 'gap' : x.entry.id), ['a3', 'a2', 'a1'], 'every entry once, no gap');
+  assert.strictEqual(res.bad, 0);
+  same(res.unknown, ['readme.txt'], 'a name that isn\'t a history file is reported, not read');
+});
+
+rule('Saved history: reading skips lines over 80 KB before parsing them, and reads only each file\'s newest lines', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const lines = [];
+  for (let i = 0; i < 3000; i++) lines.push(JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'e' + i, process: 'release', writer: 'w1', seq: i + 1, from: H('s' + i), to: H('s' + (i + 1)), units: [], items: [] })));
+  lines.splice(2999, 0, '{"v":1,"pad":"' + 'p'.repeat(90000) + '"}');
+  await fs.write(dir + '/w1.jsonl', lines.join('\n') + '\n');
+  const orig = JSON.parse; let parsed = 0, huge = 0;
+  JSON.parse = function (t) { parsed++; if (String(t).length > TL.HIST.LINE) huge++; return orig.apply(this, arguments); };
+  let res;
+  try { res = await repo.loadEditHistory(fs, dir, H('s3000')); } finally { JSON.parse = orig; }
+  assert.strictEqual(huge, 0, 'the oversized line was never parsed');
+  assert.ok(res.bad >= 1, 'and is counted as unreadable');
+  assert.ok(parsed <= TL.HIST.READ + 5, 'only the newest lines were parsed (' + parsed + ')');
+  assert.strictEqual(res.items[0].entry.id, 'e2999');
+});
+
+rule('Saved history: lines kept for a retry are split across files at 512 KB like any others', async () => {
+  const fs = folder(), TL = PF.timeline, dir = 'history/drafts/release', roll = {};
+  const recs = Array.from({ length: 10 }, (_, i) => JSON.stringify({ v: 1, i, pad: 'p'.repeat(60000) }));
+  await repo.appendHistory(fs, dir, 'w1', recs, roll);
+  const files = Object.keys(fs.files).filter(p => p.indexOf(dir + '/') === 0).sort();
+  assert.ok(files.length >= 2, 'rolled over');
+  files.forEach(p => assert.ok(TL.bytes(fs.files[p].t) <= TL.HIST.ROLL, p + ' stays under 512 KB'));
+  const back = files.sort((a, b) => (a.length - b.length) || (a < b ? -1 : 1)).map(p => fs.files[p].t.trim().split('\n').map(l => JSON.parse(l).i)).reduce((a, b) => a.concat(b), []);
+  same(back, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'every line once, in order');
+});
+
+rule('Saved history: reading looks at each file\'s newest 2,000 lines at most, however many of them are unreadable', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const good = JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'ok1', process: 'release', writer: 'w1', seq: 1, from: H('a'), to: H('b'), units: [], items: [] }));
+  await fs.write(dir + '/w1.jsonl', good + '\n' + Array.from({ length: 25000 }, (_, i) => '{"v":2,"n":' + i + '}').join('\n') + '\n');
+  const orig = JSON.parse; let parsed = 0;
+  JSON.parse = function () { parsed++; return orig.apply(this, arguments); };
+  let res;
+  try { res = await repo.loadEditHistory(fs, dir, H('b')); } finally { JSON.parse = orig; }
+  assert.ok(parsed <= TL.HIST.READ, 'parsed ' + parsed + ' lines');
+  assert.strictEqual(res.bad, TL.HIST.READ, 'the lines looked at that couldn\'t be read');
+  assert.strictEqual(res.skipped, 25001 - TL.HIST.READ, 'older lines are counted as not looked at');
+});
+
+rule('Saved history: two entries with one ID each get their own reference, so Compare and Reverse act on the one chosen', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const rec = (to, units) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'same1', process: 'release', writer: 'w1', seq: 1, from: H('a\n'), to: H(to), before: 'a\n', after: to, units, items: [] }));
+  await fs.write(dir + '/w1.jsonl', rec('a\nb\n', ['First']) + '\n');
+  await fs.write(dir + '/w1 (1).jsonl', rec('a\nc\n', ['Second']) + '\n');
+  const res = await repo.loadEditHistory(fs, dir, H('a\nc\n'));
+  const refs = res.items.filter(x => x.entry).map(x => x.entry.ref);
+  assert.ok(refs.length === 2 && refs[0] !== refs[1] && refs.every(r => /^[\w-]{1,40}$/.test(r)), 'distinct, usable as an ID');
+  const again = await repo.loadEditHistory(fs, dir, H('a\nc\n'));
+  same(again.items.filter(x => x.entry).map(x => x.entry.ref), refs, 'the same on every read');
+});
+
+rule('The examples folder in the browser reports file sizes in bytes, so history files roll over at 512 KB of text however it\'s written', async () => {
+  const fs = folder(), TL = PF.timeline, dir = 'history/drafts/release';
+  await fs.write('x.txt', 'é€😀');
+  assert.strictEqual((await fs.stat('x.txt')).size, 2 + 3 + 4);
+  const recs = Array.from({ length: 10 }, (_, i) => JSON.stringify({ v: 1, i, pad: 'é'.repeat(30000) }));
+  await repo.appendHistory(fs, dir, 'w1', recs.slice(0, 5), {});
+  const roll = {}; await repo.appendHistory(fs, dir, 'w1', recs.slice(5), roll);
+  Object.keys(fs.files).filter(p => p.indexOf(dir + '/') === 0).forEach(p => assert.ok(TL.bytes(fs.files[p].t) <= TL.HIST.ROLL, p + ' is ' + TL.bytes(fs.files[p].t) + ' bytes'));
+});
+
 run();

@@ -408,6 +408,29 @@ rule('History lists this session\'s changes newest first, marks the baseline, an
   assert.ok(/Only changes to <b>step &quot;A&quot;<\/b>/.test(one) && /data-act="hist-item" data-id="">Show all/.test(one) && !/The typing in/.test(one), 'one item, with Show all');
 });
 
+rule('Saved history in the History dialog: everything from the files is escaped, and gaps, publications and sources are said in words', () => {
+  const { ctx } = setup(), TL = PF.timeline, H = PF.util.hash;
+  const raw = { v: 1, kind: 'draft-edit', id: 'e1', process: 'release', writer: 'agent-helper', seq: 1, by: '<img src=x onerror=1>', at: '2026-10-19T09:00:00.000Z', from: H('a'), to: H('b'), seen: null, source: 'restore', version: 4,
+    units: ['<script>alert(1)</script>'], items: ['step:a'], hunks: [{ at: 0, del: ['- [ ] {confirm} <b>Old</b> {#a}'], ins: ['- [ ] {confirm} "New" & <i>x</i> {#a}'] }] };
+  const e = TL.cleanEntry(JSON.parse(JSON.stringify(raw)), 'agent-helper.jsonl');
+  const items = TL.placePublications(TL.refs(TL.order([e], H('c'))), [{ version: 5, hash: H('b'), by: 'person-avery', at: '2026-10-19T10:00:00.000Z' }]);
+  const o = { scope: 'draft', tl: TL.create(), mode: 'saved', saved: { state: 'ok', items, bad: 2 }, compare: e.ref, compareMsg: 'The text changed since. Compare and edit it yourself.' };
+  const h = V.historyDrawer(ctx, o);
+  assert.ok(/data-act="hist-mode" data-id="saved" aria-pressed="true"/.test(h) && /data-act="hist-mode" data-id="session" aria-pressed="false"/.test(h), 'a two-way switch');
+  assert.ok(!/<script>|<img src=x|<b>Old<\/b>|<i>x<\/i>/.test(h) && /&lt;script&gt;/.test(h) && /&lt;img src=x/.test(h) && /&quot;New&quot; &amp; &lt;i&gt;/.test(h), 'escaped everywhere, the diff included');
+  const at = x => h.indexOf(x);
+  assert.ok(at('Changed outside Flightdeck') > 0 && at('Published v5') > at('Changed outside Flightdeck') && at('Restored from v4') > at('Published v5'), 'outside change, then the publication above the save it published');
+  assert.ok(/\(AI assistant\)/.test(h) && /2 lines in the history files couldn.t be read/.test(h), 'an AI assistant\'s own file, and unread lines counted');
+  assert.ok(/The text changed since\. Compare and edit it yourself\./.test(h) && /<span class="del">- /.test(h) && /<span class="add">\+ /.test(h), 'Compare');
+  const one = V.historyDrawer(ctx, Object.assign({}, o, { item: 'step:b', compare: null }));
+  assert.ok(/No saved changes to it yet/.test(one) && !/Changed outside/.test(one), 'filtered to one step');
+  assert.ok(/Reading the saved history/.test(V.historyDrawer(ctx, Object.assign({}, o, { saved: { state: 'loading' } }))));
+  assert.ok(/Couldn.t read the saved history: no &lt;access&gt;/.test(V.historyDrawer(ctx, Object.assign({}, o, { saved: { state: 'error', msg: 'no <access>' } }))));
+  const big = TL.cleanEntry(Object.assign({}, raw, { id: 'e2', hunks: undefined, big: true }), 'w.jsonl');
+  const hb = V.historyDrawer(ctx, Object.assign({}, o, { saved: { state: 'ok', items: TL.refs([{ entry: big }]) }, compare: null }));
+  assert.ok(/Too big to keep line by line/.test(hb) && !/Reverse this change/.test(hb), 'a big change has no Reverse');
+});
+
 rule('Step types page lists every type; the form checks a new one as you build it', () => {
   const { ctx, state } = setup();
   ctx.processes = () => []; ctx.data.stepTypes = { types: { 'risk.call': PF.types.customType({ id: 'risk.call', label: 'Risk call', record: [{ name: 'call', label: 'Call', kind: 'text' }] }) }, errors: [{ file: 'bad.json', errors: ['"label" must be 1-40 characters'] }] };
@@ -1568,6 +1591,14 @@ rule('Setup and Settings: people with the same name are told apart in every pick
   s2.ctx.setupProgress = () => PF.setup.progress({}); s2.ctx.processes = () => []; s2.ctx.releases = { list: [], version: 'dev' };
   assert.ok(/>Avery Lee \(avery@example\.com\)<\/option>/.test(V.setup(s2.ctx)) && />Avery Lee \(person-avery-2\)<\/option>/.test(V.setup(s2.ctx)), 'who is opening it');
   assert.ok(/>Avery Lee \(person-avery-2\)<\/option>/.test(V.top(s2.ctx)), 'the top bar\'s You are');
+});
+
+rule('Saved history: a step type entry with a malformed definition still draws, and says it couldn\'t be read', () => {
+  const { ctx } = setup(), TL = PF.timeline;
+  const e = TL.cleanEntry({ v: 1, kind: 'type-edit', id: 't1', type: 'risk.call', writer: 'w1', seq: 1, from: null, to: 'abcdef01', units: ['Changed'], before: { id: 'risk.call', label: { x: 1 } }, after: { id: 'risk.call', label: 'B' } }, 'w1.jsonl');
+  let h;
+  assert.doesNotThrow(() => { h = V.historyDrawer(ctx, { scope: 'type', tl: TL.create(), mode: 'saved', saved: { state: 'ok', items: TL.refs([{ entry: e }]) }, compare: TL.refs([{ entry: e }])[0].entry.ref }); });
+  assert.ok(/couldn.t be read/.test(h));
 });
 
 run();
