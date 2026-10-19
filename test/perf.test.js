@@ -106,6 +106,34 @@ rule('Large folder: the Runs page parses each checklist once and draws at most 1
   assert.ok(renderMs <= 250, 'first Runs page in ' + renderMs.toFixed(0) + ' ms');
 });
 
+/* Insights (docs/design.md section 23) on the same folder: every process and version, then the worst case the plan budgets,
+   one version of one process with 500 runs, on its longest checklist. Times are asserted here because the page draws them on
+   every redraw of How runs go. */
+const INSIGHTS_500_MS = 150, INSIGHTS_ALL_MS = 1000;
+rule('Large folder: insights for every version of every process, and for one version with 500 runs within ' + INSIGHTS_500_MS + ' ms', async () => {
+  const PF = load(), fs = bigFolder(PF, {}), I = PF.insights, R = PF.run;
+  const d = await PF.repo.loadAll(fs, { now: NOW });
+  const status = {}; Object.keys(d.reads).forEach(k => { if (d.reads[k].kind === 'unreadable') status[k] = 'unread'; });
+  const input = { runs: d.runs, runStatus: status, followUps: PF.followups.list(d.runs, d.fuDecisions || []), corrections: [] };
+  const pairs = [...new Set(d.runs.map(r => r.process + '|' + r.folder))].map(x => x.split('|'));
+  R.mapMemo.clear();
+  let t = process.hrtime.bigint(), counted = 0;
+  pairs.forEach(([p, f]) => { counted += I.forProcess(input, p, { now: NOW, folder: f }).runs.n; });
+  const allMs = Number(process.hrtime.bigint() - t) / 1e6;
+  console.log('  insights: ' + pairs.length + ' versions, ' + counted + ' runs counted, ' + allMs.toFixed(0) + ' ms in all (' + (allMs / pairs.length).toFixed(2) + ' ms each)');
+  assert.ok(counted >= d.runs.length - 10, 'every readable run lands in exactly one version: ' + counted);
+  // The longest checklist with runs, its runs copied to 500 (new IDs), ended, half with a deviation archived to marks.
+  const steps = r => PF.map.steps(R.mapOf(r)).length;
+  const base = d.runs.filter(r => r.ended && !r._unrunnable && !status[r.process + '/' + r.id]).sort((a, b) => steps(b) - steps(a))[0];
+  const many = Array.from({ length: 500 }, (_, i) => { const c = JSON.parse(JSON.stringify(base)); c.id = 'p' + i; c.snapshot = base.snapshot; c.types = base.types; if (i % 2) c.marks = { [Object.keys(c.steps)[0]]: ['blocked'] }; if (i % 7 === 0) delete c.marksFrom; return c; });
+  const one = { runs: many, followUps: [], corrections: [] }, times = [];
+  R.mapMemo.clear();
+  for (let i = 0; i < 3; i++) { t = process.hrtime.bigint(); const res = I.forProcess(one, base.process, { now: NOW, folder: base.folder }); times.push(Number(process.hrtime.bigint() - t) / 1e6); assert.strictEqual(res.runs.n, 500); }
+  console.log('  insights, one version, 500 runs, ' + steps(base) + ' steps: ' + times.map(x => x.toFixed(1)).join(' / ') + ' ms (first includes the parse)');
+  assert.ok(times[0] <= INSIGHTS_500_MS, 'first: ' + times[0].toFixed(1) + ' ms');
+  assert.ok(allMs <= INSIGHTS_ALL_MS, 'every version: ' + allMs.toFixed(0) + ' ms');
+});
+
 /* Search (docs/design.md section 22) on the 2,000-run folder: a build in 8 ms slices ≤ 400 ms of work, a query ≤ 30 ms at
    the 95th percentile, one run's update ≤ 5 ms, and the index's memory within its budget. */
 const SEARCH = { buildMs: 400, queryP95Ms: 30, updateMs: 5, heapMB: 80, refreshMs: 20 };

@@ -633,7 +633,7 @@ PF.run = (function () {
     return child.ended.outcome === 'Completed' ? 'done' : 'blocked';
   }
 
-  /* ---------- Across runs: rotation history and analytics ---------- */
+  /* ---------- Across runs: rotation history, and the Flight plan's analytics (an adapter over PF.insights) ---------- */
   function rotation(runs, processId) {
     var grid = Object.create(null), roles = [];
     runs.filter(function (r) { return r.process === processId && r.state !== 'cancelled'; }).forEach(function (r) {
@@ -646,44 +646,21 @@ PF.run = (function () {
     });
     return { roles: roles.sort(), grid: grid };
   }
-  function median(xs) { if (!xs.length) return null; var s = xs.slice().sort(function (a, b) { return a - b; }), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
-  /* folder, when given, keeps only runs of that one publication, so the numbers describe exactly that version. */
-  function analytics(runs, processId, folder) {
-    var mine = runs.filter(function (r) { return r.process === processId && (!folder || r.folder === folder); }), ended = mine.filter(function (r) { return r.ended; });
-    /* Keys come from files (outcomes, phase titles, step IDs), so the tallies have no prototype: a phase called "constructor" is just a phase. */
-    var out = { runs: mine.length, running: mine.length - ended.length, outcomes: Object.create(null), medianMs: null, phases: [], steps: [], gates: { waived: 0, failed: 0 } };
-    ended.forEach(function (r) { out.outcomes[r.ended.outcome] = (out.outcomes[r.ended.outcome] || 0) + 1; });
-    out.medianMs = median(ended.filter(function (r) { return r.ended.outcome === 'Completed'; }).map(function (r) { return activeMs(r, r.created, new Date(r.ended.at).getTime()); }));
-    var steps = Object.create(null), phases = Object.create(null), byId = Object.create(null);
-    mine.forEach(function (r) {
-      var map; try { map = mapOf(r); } catch (e) { return; }
-      var prev = r.created;
-      map.phases.forEach(function (p) {
-        var g = r.gates[p.gate.id];
-        if (g && (g.s === 'passed' || g.s === 'waived') && g.at) {
-          var ms = activeMs(r, prev, new Date(g.at).getTime());
-          (phases[p.title] = phases[p.title] || []).push(ms);
-          /* Within one publication a phase ID is unique, so two phases with the same title keep their own times. */
-          if (folder) (byId[p.id] = byId[p.id] || []).push(ms);
-          prev = g.at;
-        }
-        if (g && g.s === 'waived') out.gates.waived++;
-        if (g && g.s === 'failed') out.gates.failed++;
-        p.steps.forEach(function (st) {
-          var a = r.steps[st.id]; if (!a) return;
-          var c = steps[st.id] = steps[st.id] || { id: st.id, text: st.text, blocked: 0, na: 0, differently: 0, recheck: 0 };
-          c.text = st.text;
-          [a].concat(a.history || []).forEach(function (h) { if (h.s === 'blocked') c.blocked++; if (h.s === 'na') c.na++; if (h.s === 'recheck') c.recheck++; if (h.differently) c.differently++; });
-        });
-      });
-    });
-    out.phases = Object.keys(phases).map(function (t) { return { title: t, medianMs: median(phases[t]), n: phases[t].length }; });
-    if (folder) out.phasesById = Object.keys(byId).map(function (id) { return { id: id, medianMs: median(byId[id]), n: byId[id].length }; });
-    /* Every step that went off-script, most first; the table shows the top ten, the flight plan each phase's own top one. */
-    out.deviated = Object.keys(steps).map(function (k) { return steps[k]; }).filter(function (c) { return c.blocked + c.na + c.differently + c.recheck > 0; })
-      .sort(function (a, b) { return (b.blocked + b.differently + b.recheck + b.na) - (a.blocked + a.differently + a.recheck + a.na); });
-    out.steps = out.deviated.slice(0, 10);
-    return out;
+  /* The Flight plan's numbers for one publication folder, from PF.insights (docs/design.md section 23): typical phase times,
+     the typical completed run and the steps that most often go off-script, each counted once per run against its own
+     denominator. A folder is required: versions are never pooled. Runs still going count, since the flight plan shows a
+     version as it's being flown. input: the runs, or PF.insights' input. */
+  function analytics(input, processId, folder, now) {
+    if (!folder) throw new Error('Analytics are for one publication folder; versions are never pooled.');
+    var res = PF.insights.forProcess(Array.isArray(input) ? { runs: input } : input, processId, { folder: folder, now: now, includeRunning: true });
+    var deviated = res.steps.filter(function (s) { return s.offScript.hits > 0; }).map(function (s, i) {
+      return { id: s.id, text: s.text, phase: s.phase, offScript: s.offScript.hits, n: s.offScript.n, q: s.offScript.q, blocked: s.blocked.hits, redone: s.redone.hits, na: s.na.hits, differently: s.differently.hits, at: i };
+    }).sort(function (a, b) { return b.offScript - a.offScript || a.at - b.at; });
+    /* Every number keeps its qualifications (q: what it counted and what it left out, and why), and the runs left out of
+       everything and a load still under way are passed on, so the flight plan says what the numbers don't include. */
+    return { runs: res.runs.n, ended: res.runs.n - res.runs.running, running: res.runs.running, medianMs: res.duration.median, completed: res.duration.n, durationQ: res.duration.q,
+      phasesById: res.phases.map(function (p) { return { id: p.id, medianMs: p.median, n: p.n, of: p.of, q: p.q }; }),
+      deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
   function end(r, map, outcome, who, whoName, now) {
@@ -867,6 +844,21 @@ PF.run = (function () {
     r._unrunnable = 'This run was saved by a newer copy of Flightdeck, in a format this copy can\'t read. Update Flightdeck to see or record it.';
     return r;
   }
+  /* The times in a run file that sanitize can't read, from the file as parsed (docs/design.md section 23). Sanitize keeps
+     1.16's shapes, so every copy reads and writes the same file: it drops a pause, the pause under way, a log entry or an
+     end whose time it can't read, and makes such a start 1970. Insights needs to know, so this says what was dropped, for
+     this load only (_badTimes is never saved): once any copy saves the run, those records are gone, as they always were.
+     null when every time could be read. */
+  function badTimes(o, r) {
+    var b = {}, n = 0, bad = function (v) { return v != null && !isoOrNull(v); };
+    if (bad(o.created)) { b.created = true; n++; }
+    if (o.ended && typeof o.ended === 'object' && OUTCOMES[o.ended.outcome] && !r.ended) { b.ended = o.ended.outcome; n++; }
+    if (Array.isArray(o.pauses) && o.pauses.slice(0, 500).some(function (p) { return p && (!isoOrNull(p.from) || !isoOrNull(p.to)); })) { b.pauses = true; n++; }
+    if (o.paused && typeof o.paused === 'object' && r.state === 'running' && !r.paused) { b.paused = true; n++; }
+    var lost = (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).filter(function (l) { return l && typeof l === 'object' && !isoOrNull(l.at); });
+    if (lost.length) { b.log = lost.map(function (l) { return { what: str(l.what, 300) }; }); n++; }
+    return n ? b : null;
+  }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
     var r = {
@@ -915,6 +907,7 @@ PF.run = (function () {
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
     if (o.ended && OUTCOMES[o.ended.outcome] && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
+    var bt = badTimes(o, r); if (bt) r._badTimes = bt;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */

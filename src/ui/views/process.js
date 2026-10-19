@@ -37,26 +37,8 @@
     if (!rows.length) rows.push('<li><span class="lvl ok">Good</span><span>Ready to publish.</span></li>');
     return '<ul class="checks">' + rows.join('') + '</ul>';
   }
-  /* How runs of this process have gone, and who has held each role: from the runs in the folder, nothing stored. */
-  function insights(ctx, p) {
-    var an = R.analytics(ctx.data.runs, p.id);
-    if (!an.runs) return '';
-    var outs = Object.keys(an.outcomes).map(function (k) { return an.outcomes[k] + ' ' + k.toLowerCase(); }).join(' · ');
-    var h = '<section class="panel"><h2>' + I('chart') + 'How runs go</h2><p class="small">' + an.runs + ' run' + (an.runs === 1 ? '' : 's') + (an.running ? ', ' + an.running + ' still going' : '') + (outs ? ' · ' + esc(outs) : '') +
-      (an.medianMs != null ? ' · typical completed run ' + U.clock(an.medianMs) + ' (paused time not counted)' : '') + (an.gates.waived || an.gates.failed ? ' · gates waived ' + an.gates.waived + ', failed ' + an.gates.failed : '') + '</p>';
-    var top = Math.max.apply(null, an.phases.map(function (x) { return x.medianMs || 0; }).concat([1]));
-    if (an.phases.length) h += '<h3>Typical time per phase</h3><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Phase</th><th scope="col">Median</th><th scope="col"><span class="sr">Relative</span></th><th scope="col">Runs</th></tr></thead><tbody>' + an.phases.map(function (x) {
-      return '<tr><td>' + esc(x.title) + '</td><td>' + U.clock(x.medianMs) + '</td><td><span class="bar" style="width:' + Math.max(2, Math.round(120 * x.medianMs / top)) + 'px"></span></td><td>' + x.n + '</td></tr>';
-    }).join('') + '</tbody></table></div>';
-    if (an.steps.length) h += '<h3>Steps that often go off-script</h3><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Step</th><th scope="col">Blocked</th><th scope="col">Did differently</th><th scope="col">Re-checked</th><th scope="col">Not needed</th></tr></thead><tbody>' + an.steps.map(function (c) {
-      return '<tr><td>' + esc(c.text) + '</td><td>' + c.blocked + '</td><td>' + c.differently + '</td><td>' + c.recheck + '</td><td>' + c.na + '</td></tr>';
-    }).join('') + '</tbody></table></div><p class="small">These are good places to change the checklist. The flightdeck-learn-from-runs skill for your AI assistant reads the same runs.</p>';
-    var rot = R.rotation(ctx.data.runs, p.id), people = Object.keys(rot.grid);
-    if (rot.roles.length && people.length) h += '<h3>Who has done each role</h3><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + rot.roles.map(function (ro) { return '<th scope="col">' + esc(ro) + '</th>'; }).join('') + '</tr></thead><tbody>' + people.sort(function (a, b) { return nameOf(ctx, a).localeCompare(nameOf(ctx, b)); }).map(function (pid) {
-      return '<tr><th scope="row">' + esc(nameOf(ctx, pid)) + '</th>' + rot.roles.map(function (ro) { var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + '</tr>';
-    }).join('') + '</tbody></table></div><p class="small">"Never" is a good place to rotate someone in. Starting a run suggests whoever did a role least recently.</p>';
-    return h + '</section>';
-  }
+  /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
+  function insights(ctx, p) { return V.insightsPage(ctx, p); }
   /* The team's own step types and Jira workflows, with anything in those files that couldn't be used. */
   /* Jira workflows the folder defines (step types have their own page). */
   function teamSetup(ctx) {

@@ -109,6 +109,8 @@
     },
     /* Every follow-up with what became of it (PF.followups), worked out once per redraw. */
     followUps: function () { return fuMemo || (fuMemo = PF.followups.list(data.runs, data.fuDecisions || [])); },
+    /* Insights (views/insights.js) worked out once per redraw, like the follow-ups. */
+    get insightsMemo() { return insMemo; },
     corrections: function (pid) {
       if (!fixMemo[pid]) { var proc = processes().filter(function (x) { return x.id === pid; })[0]; fixMemo[pid] = PF.corrections.forProcess(data.runs, pid, data.corrDecisions, proc); }
       return fixMemo[pid];
@@ -395,7 +397,7 @@
       if (newer !== state.newer) { state.newer = newer; renderTop(); }
     }, function () {});
   }
-  var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null;
+  var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null);
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
@@ -787,6 +789,8 @@
     state.reading = { done: 0, total: null };
     /* Input kept for return belongs to its folder: a new folder starts clean. */
     state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
+    /* A drill-down's runs and the version picked on How runs go belong to this folder. */
+    state.runFilter = null; state.insFolder = {};
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     if (fs.volatile) explainTabOnly();
     return load(true, true);
@@ -1131,7 +1135,7 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
-    procCache = null; fixMemo = Object.create(null); fuMemo = null;
+    procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null);
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -2607,6 +2611,29 @@
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; useFs(folderFs(rec)); } }); },
     'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
     filter: function (id) { state.filter = id; render(); },
+    /* ---------- Insights (docs/design.md section 23): the runs behind a number, and back ---------- */
+    'ins-runs': function (path) { insightRuns(path); },
+    'ins-back': function () {
+      var f = state.runFilter, b = f && f.back; if (!b) return;
+      if (!go({ view: 'process', process: b.process, ptab: 'insights' })) return;
+      state.runFilter = null; (state.insFolder = state.insFolder || {})[b.process] = b.folder;
+      state.focus = b.focus || 'ins-h'; render();
+      setTimeout(function () { window.scrollTo(0, b.scrollY || 0); }, 0);
+    },
+    /* The same number, worked out again from what's loaded now: the cohort is replaced, Back still goes where it went. */
+    'ins-refresh': function () {
+      var f = state.runFilter; if (!f || !f.cohort) return;
+      var res = V.insightsOf(ctx, f.process, f.folder, f.includeRunning), sp = PF.insights.spec(res, f.path, data.runs);
+      if (!sp) { say('That number isn\'t shown any more.', 'warn'); render(); return; }
+      state.runFilter = Object.assign(sp, { cohort: true, back: f.back }); state.more = Object.assign({}, state.more, { 'runs-cohort': 0 });
+      say('Showing the current ' + sp.keys.length + ' run' + (sp.keys.length === 1 ? '' : 's') + '.', 'good'); state.focus = 'rf-h'; render();
+    },
+    'rf-clear': function (id) {
+      var f = state.runFilter;
+      if (!f || f.cohort || id === 'all') state.runFilter = null;
+      else { f = state.runFilter = Object.assign({}, f); delete f[id]; if (id === 'process') delete f.folder; }
+      state.focus = 'page-h'; render();
+    },
     /* Sign off the current version of a process as ready for a skill, with the run evidence it was signed on. */
     signoff: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], pub = p && p.latest;
@@ -3757,6 +3784,13 @@
   }, true);
   document.addEventListener('change', function (e) {
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0 }); render(); }
+    if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
+      var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
+      if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
+      if (rk === 'process') delete rf.folder;
+      state.runFilter = rf; state.more = Object.assign({}, state.more, { 'runs-filtered': 0 }); render();
+    }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
@@ -3895,6 +3929,17 @@
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
   function setView(v) { leaveContext(); state.view = v; }
+  /* A number in How runs go opens the runs behind it on the Runs page, as they are now; the cohort is kept, not re-asked
+     (PF.insights.spec), and Back returns to the version and the place on the page. */
+  function insightRuns(path) {
+    var pid = state.processId, p = currentProcess(); if (!p) return;
+    var list = V.insightsFolders(ctx, p), folder = V.insightsChosen(ctx, p, list); if (!folder) return;
+    var sp = PF.insights.spec(V.insightsOf(ctx, pid, folder, false), path, data.runs); if (!sp) return;
+    var back = { process: pid, folder: folder, scrollY: window.scrollY || window.pageYOffset || 0, focus: '[data-act="ins-runs"][data-id="' + cssEsc(path) + '"]' };
+    if (!go({ view: 'runs' })) return;
+    state.runFilter = Object.assign(sp, { cohort: true, back: back }); state.more = Object.assign({}, state.more, { 'runs-cohort': 0 });
+    state.focus = 'rf-h'; render(); window.scrollTo(0, 0);
+  }
   /* Go straight to something: { view, process, ptab, mapVer, run, step, note, filter }. It goes through setView, so typed
      evidence, an open Fill in and an unsent note are kept as drafts and come back. It refuses rather than lose input: text
      typed in a builder box and not applied, a correction or follow-up decision with text in it, or a dialog that isn't

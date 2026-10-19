@@ -151,7 +151,7 @@ rule('App: a process shows as a flight plan, and choosing a phase in it goes bac
   assert.ok(/No runs of this version yet\./.test(app.html()) && !/Typically/.test(app.html()) && /<b>Connecting<\/b>/.test(app.html()), 'the current version has no runs of its own yet; its linked check-in shows');
   const v1 = /data-act="view-version" data-id="(v1-[^"]+)"/.exec(app.html())[1];
   app.click('view-version', v1); await app.tick();
-  assert.ok(/<ol class="fp"/.test(app.html()) && /Typically/.test(app.html()) && /From \d+ runs of v1;/.test(app.html()), 'v1, which the example runs used, shows their times');
+  assert.ok(/<ol class="fp"/.test(app.html()) && /Typically/.test(app.html()) && /From \d+ finished runs? of v1\./.test(app.html()), 'v1, which the example runs used, shows their times');
   app.click('flight', 'list'); await app.tick();
   assert.ok(/class="ph"/.test(app.html()) && !/class="fp"/.test(app.html()), 'and back');
   app.click('flight', 'plan'); await app.tick();
@@ -5283,6 +5283,59 @@ rule('App: a run open in this window that also writes a note every 45 s still sh
     if (/BLAKEOTHER/.test(app.html())) seen = s;
   }
   assert.ok(seen != null && seen <= 6 * 60, 'shown at ' + seen + ' s');
+});
+
+/* ---------- 1.17: insights (docs/design.md section 23) ---------- */
+rule('Insights: a number opens exactly the runs behind it on Runs, a change since is said, and Back to How runs go returns to the version picked', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'insights'); await app.tick();
+  const v1 = /<option value="(v1-[^"]+)" selected>/.exec(app.html());
+  assert.ok(v1, 'the version with runs is picked');
+  const m = /data-act="ins-runs" data-id="(step:pods:offScript)">(\d+) of (\d+) runs</.exec(app.html());
+  assert.ok(m, 'Any off-script on a step, out of its own runs');
+  app.click('ins-runs', m[1]); await app.tick();
+  let html = app.html();
+  assert.ok(/id="ins-banner"/.test(html) && /Back to How runs go/.test(html), 'the banner');
+  const shown = (html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).map(x => x.split('"')[3]);
+  assert.strictEqual(shown.length, +m[2], 'exactly the runs counted');
+  assert.ok(!/changed since/.test(html));
+  // Another computer changes one of them.
+  const path = 'runs/' + shown[0] + '/run.json', o = JSON.parse(app.fs.files[path].t);
+  o.rev = (o.rev || 0) + 1; o.title = o.title + ' (edited)';
+  app.fs.files[path] = Object.assign({}, app.fs.files[path], { t: JSON.stringify(o, null, 2), m: Date.now() + 1000 });
+  app.click('refresh'); await app.tick(80);
+  html = app.html();
+  assert.ok(/1 of these runs changed since\./.test(html) && /data-act="ins-refresh"/.test(html), 'the change is said');
+  assert.strictEqual((html.match(/data-act="open-run"/g) || []).length, +m[2], 'still the cohort clicked, not asked again');
+  app.click('ins-refresh'); await app.tick();
+  assert.ok(!/changed since/.test(app.html()), 'current numbers');
+  app.click('ins-back'); await app.tick();
+  html = app.html();
+  assert.ok(/How runs go/.test(html) && new RegExp('<option value="' + v1[1] + '" selected>').test(html), 'back on the version picked');
+  assert.ok(!/id="ins-banner"/.test(html));
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(!/id="ins-banner"/.test(app.html()) && /Finished/.test(app.html()), 'Back leaves Runs unfiltered');
+});
+
+rule('Insights: picking another version redraws the numbers for that folder only; Runs filters narrow the list and each chip removes one', async () => {
+  const app = boot(); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'insights'); await app.tick();
+  const v2 = /<option value="(v2-[^"]+)"/.exec(app.html())[1];
+  app.select('ins-folder', v2); await app.tick();
+  assert.ok(new RegExp('<option value="' + v2 + '" selected>').test(app.html()) && /data-id="runs:all"/.test(app.html()) === false, 'v2 has no runs of its own: nothing borrowed from v1');
+  app.click('nav', 'runs'); await app.tick();
+  app.select('rf-process', 'release'); await app.tick();
+  app.select('rf-outcome', 'Completed'); await app.tick();
+  let html = app.html();
+  const n = +/Matching runs · (\d+)/.exec(html)[1];
+  assert.ok(n > 0 && (html.match(/data-act="open-run"/g) || []).length === n, 'only matching runs');
+  app.click('rf-clear', 'outcome'); await app.tick();
+  assert.ok(+/Matching runs · (\d+)/.exec(app.html())[1] > n, 'the chip removed one filter');
+  app.click('rf-clear', 'all'); await app.tick();
+  assert.ok(!/Matching runs/.test(app.html()) && /Finished/.test(app.html()));
 });
 
 
