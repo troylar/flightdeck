@@ -30,6 +30,14 @@
       },
       {
         "kind": "fixed",
+        "area": "Keyboard",
+        "title": "Dialogs fit the window",
+        "before": "On a short window, the Keyboard shortcuts dialog ran off the bottom and hid its Close button.",
+        "now": "Dialogs stay inside the window and scroll when their content is longer.",
+        "where": "Keyboard shortcuts, and History"
+      },
+      {
+        "kind": "fixed",
         "area": "Examples",
         "title": "Opens in a browser that blocks site storage",
         "before": "In a browser set to block site data, Flightdeck stopped while setting up the examples and showed nothing.",
