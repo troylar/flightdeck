@@ -3483,6 +3483,18 @@ PF.timeline = (function () {
     e.key = e.writer + '\n' + e.id + '\n' + PF.util.hash(JSON.stringify(copy));
     return e;
   }
+  /* A reference for each entry that the page can use as an ID: from its content (the same on every read), made unique if two
+     entries' fingerprints ever meet. */
+  function refs(items) {
+    var taken = Object.create(null);
+    items.forEach(function (x) {
+      if (!x.entry) return;
+      var r = 'h' + PF.util.hash(x.entry.key || x.entry.writer + '\n' + x.entry.id), n = 1;
+      while (taken[r + (n > 1 ? '-' + n : '')]) n++;
+      r += n > 1 ? '-' + n : ''; taken[r] = true; x.entry.ref = r;
+    });
+    return items;
+  }
   /* Whether Reverse may use an entry: a draft change kept line for line, exactly. */
   function reversible(e) { return !!e && e.kind === 'draft-edit' && !e.big && !e.cut && Array.isArray(e.hunks) && e.hunks.length > 0; }
   /* The order of saved history, newest first: from the file's current fingerprint, walk back through entries whose `to` is it
@@ -3516,11 +3528,15 @@ PF.timeline = (function () {
     }
     var rank = Object.create(null), byTo = Object.create(null);
     placed.forEach(function (e, j) { rank[kof(e)] = j; (byTo[e.to] = byTo[e.to] || []).push(e); });
-    var used = Object.create(null), chain = [], h = current || null;
+    /* Each fingerprint's entries are already in causal order (placed), so the latest one not yet on the chain is found by a
+       cursor walking down from the end: every entry is passed once, however often the draft returned to a text. */
+    var used = Object.create(null), chain = [], h = current || null, cur = Object.create(null);
     while (h && byTo[h]) {
-      var best = null;
-      byTo[h].forEach(function (c) { if (!used[kof(c)] && (!best || rank[kof(c)] > rank[kof(best)])) best = c; });
-      if (!best) break;
+      var b = byTo[h], at = h in cur ? cur[h] : b.length - 1;
+      while (at >= 0 && used[kof(b[at])]) at--;
+      cur[h] = at - 1;
+      if (at < 0) break;
+      var best = b[at];
       used[kof(best)] = true; chain.push(best); h = best.from;
     }
     var rest = placed.filter(function (e) { return !used[kof(e)]; }).reverse(), out = [], want = current || null;
@@ -3545,7 +3561,7 @@ PF.timeline = (function () {
 
   return { MAX: MAX, MAX_CHARS: MAX_CHARS, PAUSE: PAUSE, create: create, patch: patch, record: record, close: close, barrier: barrier, peek: peek, undo: undo, redo: redo,
     saved: saved, labelOf: labelOf, describe: describe, past: past, itemAt: itemAt,
-    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order, reversible: reversible,
+    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order, reversible: reversible, refs: refs,
     placePublications: placePublications, histFile: histFile, rolls: rolls };
 })();
 
@@ -6404,7 +6420,9 @@ PF.fs = (function () {
       put('data:' + (data.type || 'application/octet-stream') + ';base64,' + btoa(bin));
     });
   };
-  MemoryFS.prototype.stat = function (path) { var f = this.files[path]; return Promise.resolve(f ? { size: f.t.length, mtime: f.m } : null); };
+  /* Sizes in bytes as a real folder reports them (UTF-8), not in JavaScript characters. */
+  function utf8(s) { var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 ? (i++, 4) : 3; } return n; }
+  MemoryFS.prototype.stat = function (path) { var f = this.files[path]; return Promise.resolve(f ? { size: utf8(f.t), mtime: f.m } : null); };
   MemoryFS.prototype.append = function (path, text) { var f = this.files[path]; return this.write(path, (f ? f.t : '') + text); };
   MemoryFS.prototype.blob = function (path) {
     var f = this.files[path];
@@ -7099,19 +7117,22 @@ PF.repo = (function () {
   /* Every history file in one folder (8 reads at a time), OneDrive's copies of them included ("w1 (1).jsonl", "w1-LAPTOP.jsonl"):
      each file's newest 2,000 lines, a line over 80 KB skipped before it's parsed, each checked by PF.timeline.cleanEntry, then
      put in the order PF.timeline.order gives from the file's current fingerprint (an entry in two files counts once), newest
-     2,000. Returns { items, bad (lines that couldn't be read), files, unknown (other names there, not read) }. */
+     2,000. Each entry gets `ref`, its own reference for the page (two entries may share an ID). Returns { items, bad (lines
+     looked at that couldn't be read), skipped (older lines not looked at), files, unknown (other names there, not read) }. */
   function loadEditHistory(fs, dir, current) {
     var TL = PF.timeline, H = TL.HIST;
     return fs.list(dir).then(function (items) {
       var files = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; }).sort();
       var names = files.filter(function (n) { return /\.jsonl$/i.test(n) && n.length <= 200; }), unknown = files.filter(function (n) { return names.indexOf(n) < 0; }).slice(0, 20);
-      var bad = 0;
+      var bad = 0, skipped = 0;
       return limited(names, H.FILES, function (n) {
         return fs.read(dir + '/' + n).then(function (f) {
-          var out = [], lines = f ? f.text.split('\n') : [];
-          for (var i = lines.length - 1; i >= 0 && out.length < H.READ; i--) {
+          /* At most the newest 2,000 lines are looked at, readable or not; older ones are counted as skipped. */
+          var out = [], lines = f ? f.text.split('\n') : [], seen = 0;
+          for (var i = lines.length - 1; i >= 0; i--) {
             var line = lines[i];
             if (!line.trim()) continue;
+            if (++seen > H.READ) { skipped++; continue; }
             if (line.length > H.LINE || TL.bytes(line) > H.LINE) { bad++; continue; }
             var e = TL.cleanEntry(json(line), n);
             if (e) out.push(e); else bad++;
@@ -7121,7 +7142,8 @@ PF.repo = (function () {
       }).then(function (lists) {
         var items = TL.order([].concat.apply([], lists), current);
         for (var i = 0, k = 0; i < items.length; i++) if (items[i].entry && ++k > H.READ) { items = items.slice(0, i); break; }
-        return { items: items, bad: bad, files: names, unknown: unknown };
+        TL.refs(items);
+        return { items: items, bad: bad, skipped: skipped, files: names, unknown: unknown };
       });
     });
   }
@@ -8905,7 +8927,7 @@ PF.vk = (function () {
       rows += '<span class="small">Line ' + (h.at + 1) + '</span>\n' + h.del.slice(0, a).map(same).join('') + h.del.slice(a, h.del.length - b).map(function (l) { return '<span class="del">- ' + esc(l) + '</span>'; }).join('') +
         h.ins.slice(a, h.ins.length - b).map(function (l) { return '<span class="add">+ ' + esc(l) + '</span>'; }).join('') + h.del.slice(h.del.length - b).map(same).join('');
     });
-    return '<div class="hist-cmp" id="hist-cmp-' + esc(e.id) + '" tabindex="-1">' + (o.compareMsg ? '<p class="notice warn" role="status">' + esc(o.compareMsg) + '</p>' : '') +
+    return '<div class="hist-cmp" id="hist-cmp-' + esc(e.ref) + '" tabindex="-1">' + (o.compareMsg ? '<p class="notice warn" role="status">' + esc(o.compareMsg) + '</p>' : '') +
       (rows ? '<pre class="diff" aria-label="Compare: lines removed, then lines added">' + rows + '</pre>' : '<p class="small">' + (e.big ? 'This change was too big to keep line by line, so only its fingerprints were kept.' : e.badDef ? 'This save\'s step type couldn\'t be read from its history file.' : 'Nothing to compare for it.') + '</p>') + '</div>';
   }
   function savedEntry(ctx, o, e, item) {
@@ -8916,11 +8938,11 @@ PF.vk = (function () {
       detail = e.big ? '<p class="small">Too big to keep field by field; only its fingerprints were kept.</p>' : cs.map(function (c) { return histBa(c.before, c.after, c.label); }).join('');
     } else if (e.big) detail = '<p class="small">Too big to keep line by line; only its fingerprints were kept.</p>';
     else detail = histHunks(e, item).map(function (h) { return histBa(h.del.join('\n'), h.ins.join('\n'), 'Line ' + (h.at + 1) + ': before and after'); }).join('');
-    var open = o.compare === e.id, canReverse = PF.timeline.reversible(e);
+    var open = o.compare === e.ref, canReverse = PF.timeline.reversible(e);
     return '<li class="hist-entry saved"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
       (e.units.length ? '<ul class="hist-units small">' + e.units.map(function (u) { return '<li>' + esc(u) + '</li>'; }).join('') + '</ul>' : '') + detail +
-      '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.id) + '" aria-expanded="' + open + '">Compare</button>' +
-      (canReverse ? '<button type="button" class="mini" data-act="hist-reverse" data-id="' + esc(e.id) + '">Reverse this change</button>' : '') + '</div>' +
+      '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.ref) + '" aria-expanded="' + open + '">Compare</button>' +
+      (canReverse ? '<button type="button" class="mini" data-act="hist-reverse" data-id="' + esc(e.ref) + '">Reverse this change</button>' : '') + '</div>' +
       (open ? histCompare(e, o, item) : '') + '</li>';
   }
   function savedHistory(ctx, o) {
@@ -8935,6 +8957,7 @@ PF.vk = (function () {
       n++; list += savedEntry(ctx, o, x.entry, item);
     });
     var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
+    if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
     if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad + other;
     return '<ol class="hist-list">' + list + '</ol>' + bad + other;
@@ -12082,7 +12105,7 @@ PF.examples = (function () {
       if (g !== gen || ov.saved !== mark) return;
       var first = res.items.filter(function (x) { return x.entry; })[0];
       if (first) histSeen[histKey(key, dir)] = first.entry.id;
-      ov.saved = { state: 'ok', items: ov.hist === 'draft' ? TL.placePublications(res.items, pubs) : res.items, bad: res.bad, dir: dir };
+      ov.saved = { state: 'ok', items: ov.hist === 'draft' ? TL.placePublications(res.items, pubs) : res.items, bad: res.bad, skipped: res.skipped, unknown: res.unknown, dir: dir };
       if (state.overlay === ov) render();
     }, function (e) { if (g !== gen || ov.saved !== mark) return; ov.saved = { state: 'error', msg: e && e.message || String(e) }; if (state.overlay === ov) render(); });
   }
@@ -12091,7 +12114,7 @@ PF.examples = (function () {
   function reverseSaved(id) {
     var ov = state.overlay, p = currentProcess();
     if (!ov || ov.hist !== 'draft' || !ov.saved || !ov.saved.items || !p) return;
-    var x = ov.saved.items.filter(function (y) { return y.entry && y.entry.id === id; })[0], e = x && x.entry;
+    var x = ov.saved.items.filter(function (y) { return y.entry && y.entry.ref === id; })[0], e = x && x.entry;
     if (!e || stillSaving(p) || builderBlocked(p) || typedFirst(p, 'Reverse this change')) return;
     var ed = openEditor(p);
     if (ed.conflict) { say('Someone else changed this draft while you were editing it. Settle that in the editor first.', 'warn'); render(); return; }
@@ -12099,7 +12122,7 @@ PF.examples = (function () {
     /* A new step or phase being written in its Add box keeps its place, as with Undo. */
     var adding = nt != null && state.obAdd && state.obAdd.pid === p.id && (val('ob-new-text') || val('ob-new-title')) ? state.obAdd : null;
     if (adding && !addAnchorKept(adding, cur, nt)) { closeOverlay(); say('Add or cancel the new ' + (adding.kind === 'phase' ? 'phase' : 'step') + ' you\'re writing first: reversing that change would take away the place it goes.', 'warn'); state.focus = adding.kind === 'phase' ? 'ob-new-title' : 'ob-new-text'; render(); return; }
-    if (nt == null || nt === cur) { ov.compare = e.id; ov.compareMsg = 'The text changed since. Compare and edit it yourself.'; state.overlayFocus = '#hist-cmp-' + cssEsc(e.id); render(); return; }
+    if (nt == null || nt === cur) { ov.compare = e.ref; ov.compareMsg = 'The text changed since. Compare and edit it yourself.'; state.overlayFocus = '#hist-cmp-' + cssEsc(e.ref); render(); return; }
     var sel = obSnap(ed);
     learnIds(ed, ed.base); dropPending(); obClearErr();
     TL.record(tlOf(ed), cur, nt, { kind: 'reverse', lines: true, label: 'reversal of a saved change', items: e.items.slice(), selBefore: sel });

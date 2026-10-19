@@ -3975,4 +3975,29 @@ rule('App: Reverse this change waits, like Undo, while a builder box holds wordi
   assert.strictEqual(app.fs.files[path].t, saved);
 });
 
+rule('App: Saved history lists names in the history folder it didn\'t read, and Compare and Reverse act on the entry chosen when two share an ID', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md', dir = 'history/drafts/release', TL = app.PF.timeline, H = app.PF.util.hash;
+  const base = app.fs.files[path].t, one = base.replace('title: Production release', 'title: One'), two = base.replace('title: Production release', 'title: Two');
+  const rec = (to, unit) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'dup1', process: 'release', writer: 'agent-helper', seq: 1, from: H(base), to: H(to), before: base, after: to, units: [unit], items: [] }));
+  await app.fs.write(dir + '/agent-helper.jsonl', rec(one, 'Made it One') + '\n');
+  await app.fs.write(dir + '/agent-helper (1).jsonl', rec(two, 'Made it Two') + '\n');
+  await app.fs.write(dir + '/notes.txt', 'x');
+  await app.fs.write(path, two); app.focus(); await app.tick(80);
+  app.click('hist-open', 'draft'); await app.tick();
+  app.click('hist-mode', 'saved'); await app.tick(40);
+  let h = app.overlay();
+  assert.ok(/Not read, since they aren.t history files: notes\.txt/.test(h), 'the other name is listed');
+  assert.ok(!/older line/.test(h), 'nothing skipped here');
+  const refs = [...h.matchAll(/data-act="hist-compare" data-id="([\w-]+)"/g)].map(m => m[1]);
+  assert.ok(refs.length === 2 && refs[0] !== refs[1], 'each has its own reference');
+  app.click('hist-compare', refs[1]); await app.tick();
+  h = app.overlay();
+  assert.strictEqual((h.match(/id="hist-cmp-/g) || []).length, 1, 'only the one chosen opens');
+  // Reverse the one that made it Two (the newest, since the draft says Two).
+  const twoRef = /Made it Two[\s\S]*?data-act="hist-reverse" data-id="([\w-]+)"/.exec(h)[1];
+  app.click('hist-reverse', twoRef); await app.tick();
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.ok(/title: Production release\n/.test(mdOf(app)), 'the change chosen was reversed');
+});
+
 run();

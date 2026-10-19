@@ -1697,7 +1697,7 @@
       if (g !== gen || ov.saved !== mark) return;
       var first = res.items.filter(function (x) { return x.entry; })[0];
       if (first) histSeen[histKey(key, dir)] = first.entry.id;
-      ov.saved = { state: 'ok', items: ov.hist === 'draft' ? TL.placePublications(res.items, pubs) : res.items, bad: res.bad, dir: dir };
+      ov.saved = { state: 'ok', items: ov.hist === 'draft' ? TL.placePublications(res.items, pubs) : res.items, bad: res.bad, skipped: res.skipped, unknown: res.unknown, dir: dir };
       if (state.overlay === ov) render();
     }, function (e) { if (g !== gen || ov.saved !== mark) return; ov.saved = { state: 'error', msg: e && e.message || String(e) }; if (state.overlay === ov) render(); });
   }
@@ -1706,7 +1706,7 @@
   function reverseSaved(id) {
     var ov = state.overlay, p = currentProcess();
     if (!ov || ov.hist !== 'draft' || !ov.saved || !ov.saved.items || !p) return;
-    var x = ov.saved.items.filter(function (y) { return y.entry && y.entry.id === id; })[0], e = x && x.entry;
+    var x = ov.saved.items.filter(function (y) { return y.entry && y.entry.ref === id; })[0], e = x && x.entry;
     if (!e || stillSaving(p) || builderBlocked(p) || typedFirst(p, 'Reverse this change')) return;
     var ed = openEditor(p);
     if (ed.conflict) { say('Someone else changed this draft while you were editing it. Settle that in the editor first.', 'warn'); render(); return; }
@@ -1714,7 +1714,7 @@
     /* A new step or phase being written in its Add box keeps its place, as with Undo. */
     var adding = nt != null && state.obAdd && state.obAdd.pid === p.id && (val('ob-new-text') || val('ob-new-title')) ? state.obAdd : null;
     if (adding && !addAnchorKept(adding, cur, nt)) { closeOverlay(); say('Add or cancel the new ' + (adding.kind === 'phase' ? 'phase' : 'step') + ' you\'re writing first: reversing that change would take away the place it goes.', 'warn'); state.focus = adding.kind === 'phase' ? 'ob-new-title' : 'ob-new-text'; render(); return; }
-    if (nt == null || nt === cur) { ov.compare = e.id; ov.compareMsg = 'The text changed since. Compare and edit it yourself.'; state.overlayFocus = '#hist-cmp-' + cssEsc(e.id); render(); return; }
+    if (nt == null || nt === cur) { ov.compare = e.ref; ov.compareMsg = 'The text changed since. Compare and edit it yourself.'; state.overlayFocus = '#hist-cmp-' + cssEsc(e.ref); render(); return; }
     var sel = obSnap(ed);
     learnIds(ed, ed.base); dropPending(); obClearErr();
     TL.record(tlOf(ed), cur, nt, { kind: 'reverse', lines: true, label: 'reversal of a saved change', items: e.items.slice(), selBefore: sel });

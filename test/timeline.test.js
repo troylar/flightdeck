@@ -280,4 +280,13 @@ rule('Saved history: ordering 10,000 entries stays fast (near-linear), the same 
   assert.ok(Date.now() - t2 < 300 && off[1].entry.id === 'e9999' && off[10000].entry.id === 'e0');
 });
 
+rule('Saved history: a draft that went back and forth between two texts 10,000 times still orders fast', () => {
+  const A = H('text a'), B = H('text b'), list = [];
+  for (let i = 0; i < 10000; i++) list.push(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'e' + i, process: 'release', writer: 'w1', seq: i + 1, from: i % 2 ? B : A, to: i % 2 ? A : B, seen: i ? 'e' + (i - 1) : null, units: [], items: [] }, 'w1.jsonl'));
+  const t = Date.now(), out = TL.order(list, A), ms = Date.now() - t;
+  assert.ok(ms < 300, 'ordered in ' + ms + ' ms');
+  assert.strictEqual(out.filter(x => x.entry).length, 10000);
+  assert.ok(out[0].entry.id === 'e9999' && !out.some(x => x.gap), 'one chain, newest first');
+});
+
 run();

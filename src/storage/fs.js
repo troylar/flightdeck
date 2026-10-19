@@ -98,7 +98,9 @@ PF.fs = (function () {
       put('data:' + (data.type || 'application/octet-stream') + ';base64,' + btoa(bin));
     });
   };
-  MemoryFS.prototype.stat = function (path) { var f = this.files[path]; return Promise.resolve(f ? { size: f.t.length, mtime: f.m } : null); };
+  /* Sizes in bytes as a real folder reports them (UTF-8), not in JavaScript characters. */
+  function utf8(s) { var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 ? (i++, 4) : 3; } return n; }
+  MemoryFS.prototype.stat = function (path) { var f = this.files[path]; return Promise.resolve(f ? { size: utf8(f.t), mtime: f.m } : null); };
   MemoryFS.prototype.append = function (path, text) { var f = this.files[path]; return this.write(path, (f ? f.t : '') + text); };
   MemoryFS.prototype.blob = function (path) {
     var f = this.files[path];

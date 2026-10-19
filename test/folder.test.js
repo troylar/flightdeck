@@ -846,4 +846,39 @@ rule('Saved history: lines kept for a retry are split across files at 512 KB lik
   same(back, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'every line once, in order');
 });
 
+rule('Saved history: reading looks at each file\'s newest 2,000 lines at most, however many of them are unreadable', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const good = JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'ok1', process: 'release', writer: 'w1', seq: 1, from: H('a'), to: H('b'), units: [], items: [] }));
+  await fs.write(dir + '/w1.jsonl', good + '\n' + Array.from({ length: 25000 }, (_, i) => '{"v":2,"n":' + i + '}').join('\n') + '\n');
+  const orig = JSON.parse; let parsed = 0;
+  JSON.parse = function () { parsed++; return orig.apply(this, arguments); };
+  let res;
+  try { res = await repo.loadEditHistory(fs, dir, H('b')); } finally { JSON.parse = orig; }
+  assert.ok(parsed <= TL.HIST.READ, 'parsed ' + parsed + ' lines');
+  assert.strictEqual(res.bad, TL.HIST.READ, 'the lines looked at that couldn\'t be read');
+  assert.strictEqual(res.skipped, 25001 - TL.HIST.READ, 'older lines are counted as not looked at');
+});
+
+rule('Saved history: two entries with one ID each get their own reference, so Compare and Reverse act on the one chosen', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, dir = 'history/drafts/release';
+  const rec = (to, units) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id: 'same1', process: 'release', writer: 'w1', seq: 1, from: H('a\n'), to: H(to), before: 'a\n', after: to, units, items: [] }));
+  await fs.write(dir + '/w1.jsonl', rec('a\nb\n', ['First']) + '\n');
+  await fs.write(dir + '/w1 (1).jsonl', rec('a\nc\n', ['Second']) + '\n');
+  const res = await repo.loadEditHistory(fs, dir, H('a\nc\n'));
+  const refs = res.items.filter(x => x.entry).map(x => x.entry.ref);
+  assert.ok(refs.length === 2 && refs[0] !== refs[1] && refs.every(r => /^[\w-]{1,40}$/.test(r)), 'distinct, usable as an ID');
+  const again = await repo.loadEditHistory(fs, dir, H('a\nc\n'));
+  same(again.items.filter(x => x.entry).map(x => x.entry.ref), refs, 'the same on every read');
+});
+
+rule('The examples folder in the browser reports file sizes in bytes, so history files roll over at 512 KB of text however it\'s written', async () => {
+  const fs = folder(), TL = PF.timeline, dir = 'history/drafts/release';
+  await fs.write('x.txt', 'é€😀');
+  assert.strictEqual((await fs.stat('x.txt')).size, 2 + 3 + 4);
+  const recs = Array.from({ length: 10 }, (_, i) => JSON.stringify({ v: 1, i, pad: 'é'.repeat(30000) }));
+  await repo.appendHistory(fs, dir, 'w1', recs.slice(0, 5), {});
+  const roll = {}; await repo.appendHistory(fs, dir, 'w1', recs.slice(5), roll);
+  Object.keys(fs.files).filter(p => p.indexOf(dir + '/') === 0).forEach(p => assert.ok(TL.bytes(fs.files[p].t) <= TL.HIST.ROLL, p + ' is ' + TL.bytes(fs.files[p].t) + ' bytes'));
+});
+
 run();

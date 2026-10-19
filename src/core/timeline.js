@@ -328,6 +328,18 @@ PF.timeline = (function () {
     e.key = e.writer + '\n' + e.id + '\n' + PF.util.hash(JSON.stringify(copy));
     return e;
   }
+  /* A reference for each entry that the page can use as an ID: from its content (the same on every read), made unique if two
+     entries' fingerprints ever meet. */
+  function refs(items) {
+    var taken = Object.create(null);
+    items.forEach(function (x) {
+      if (!x.entry) return;
+      var r = 'h' + PF.util.hash(x.entry.key || x.entry.writer + '\n' + x.entry.id), n = 1;
+      while (taken[r + (n > 1 ? '-' + n : '')]) n++;
+      r += n > 1 ? '-' + n : ''; taken[r] = true; x.entry.ref = r;
+    });
+    return items;
+  }
   /* Whether Reverse may use an entry: a draft change kept line for line, exactly. */
   function reversible(e) { return !!e && e.kind === 'draft-edit' && !e.big && !e.cut && Array.isArray(e.hunks) && e.hunks.length > 0; }
   /* The order of saved history, newest first: from the file's current fingerprint, walk back through entries whose `to` is it
@@ -361,11 +373,15 @@ PF.timeline = (function () {
     }
     var rank = Object.create(null), byTo = Object.create(null);
     placed.forEach(function (e, j) { rank[kof(e)] = j; (byTo[e.to] = byTo[e.to] || []).push(e); });
-    var used = Object.create(null), chain = [], h = current || null;
+    /* Each fingerprint's entries are already in causal order (placed), so the latest one not yet on the chain is found by a
+       cursor walking down from the end: every entry is passed once, however often the draft returned to a text. */
+    var used = Object.create(null), chain = [], h = current || null, cur = Object.create(null);
     while (h && byTo[h]) {
-      var best = null;
-      byTo[h].forEach(function (c) { if (!used[kof(c)] && (!best || rank[kof(c)] > rank[kof(best)])) best = c; });
-      if (!best) break;
+      var b = byTo[h], at = h in cur ? cur[h] : b.length - 1;
+      while (at >= 0 && used[kof(b[at])]) at--;
+      cur[h] = at - 1;
+      if (at < 0) break;
+      var best = b[at];
       used[kof(best)] = true; chain.push(best); h = best.from;
     }
     var rest = placed.filter(function (e) { return !used[kof(e)]; }).reverse(), out = [], want = current || null;
@@ -390,6 +406,6 @@ PF.timeline = (function () {
 
   return { MAX: MAX, MAX_CHARS: MAX_CHARS, PAUSE: PAUSE, create: create, patch: patch, record: record, close: close, barrier: barrier, peek: peek, undo: undo, redo: redo,
     saved: saved, labelOf: labelOf, describe: describe, past: past, itemAt: itemAt,
-    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order, reversible: reversible,
+    HIST: HIST, SOURCES: SOURCES, bytes: bytes, hunks: hunks, reverse: reverse, typeChanges: typeChanges, histLine: histLine, cleanEntry: cleanEntry, order: order, reversible: reversible, refs: refs,
     placePublications: placePublications, histFile: histFile, rolls: rolls };
 })();

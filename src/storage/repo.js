@@ -678,19 +678,22 @@ PF.repo = (function () {
   /* Every history file in one folder (8 reads at a time), OneDrive's copies of them included ("w1 (1).jsonl", "w1-LAPTOP.jsonl"):
      each file's newest 2,000 lines, a line over 80 KB skipped before it's parsed, each checked by PF.timeline.cleanEntry, then
      put in the order PF.timeline.order gives from the file's current fingerprint (an entry in two files counts once), newest
-     2,000. Returns { items, bad (lines that couldn't be read), files, unknown (other names there, not read) }. */
+     2,000. Each entry gets `ref`, its own reference for the page (two entries may share an ID). Returns { items, bad (lines
+     looked at that couldn't be read), skipped (older lines not looked at), files, unknown (other names there, not read) }. */
   function loadEditHistory(fs, dir, current) {
     var TL = PF.timeline, H = TL.HIST;
     return fs.list(dir).then(function (items) {
       var files = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; }).sort();
       var names = files.filter(function (n) { return /\.jsonl$/i.test(n) && n.length <= 200; }), unknown = files.filter(function (n) { return names.indexOf(n) < 0; }).slice(0, 20);
-      var bad = 0;
+      var bad = 0, skipped = 0;
       return limited(names, H.FILES, function (n) {
         return fs.read(dir + '/' + n).then(function (f) {
-          var out = [], lines = f ? f.text.split('\n') : [];
-          for (var i = lines.length - 1; i >= 0 && out.length < H.READ; i--) {
+          /* At most the newest 2,000 lines are looked at, readable or not; older ones are counted as skipped. */
+          var out = [], lines = f ? f.text.split('\n') : [], seen = 0;
+          for (var i = lines.length - 1; i >= 0; i--) {
             var line = lines[i];
             if (!line.trim()) continue;
+            if (++seen > H.READ) { skipped++; continue; }
             if (line.length > H.LINE || TL.bytes(line) > H.LINE) { bad++; continue; }
             var e = TL.cleanEntry(json(line), n);
             if (e) out.push(e); else bad++;
@@ -700,7 +703,8 @@ PF.repo = (function () {
       }).then(function (lists) {
         var items = TL.order([].concat.apply([], lists), current);
         for (var i = 0, k = 0; i < items.length; i++) if (items[i].entry && ++k > H.READ) { items = items.slice(0, i); break; }
-        return { items: items, bad: bad, files: names, unknown: unknown };
+        TL.refs(items);
+        return { items: items, bad: bad, skipped: skipped, files: names, unknown: unknown };
       });
     });
   }
