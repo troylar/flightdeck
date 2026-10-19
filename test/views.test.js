@@ -801,6 +801,25 @@ rule('Parts box: team type names and groups are escaped, and a broken type says 
   assert.ok(/data-say="after “Full test gate green on the release commit”, inside Before production changes"/.test(placing));
 });
 
+rule('The 1.14 step types are in the parts box under their group, and in the step-type picker, with no extra wiring', () => {
+  const { ctx, state } = partsSetup();
+  let html = V.process(ctx);
+  const box = html.slice(html.indexOf('<aside class="fpe-pane fpe-parts"'), html.indexOf('</aside>', html.indexOf('<aside class="fpe-pane fpe-parts"')));
+  const group = h => box.slice(box.indexOf('>' + h + '</h4>'), box.indexOf('</h4>', box.indexOf('>' + h + '</h4>') + h.length + 6));
+  [['jira.sprint', 'Jira sprint', 'Tools'], ['deploy', 'Deploy', 'Tools'], ['verify.health', 'Health check', 'Tools'], ['github.pr', 'GitHub pull request', 'Tools'], ['measure', 'Measure', 'General']].forEach(([id, label, g]) => {
+    assert.ok(new RegExp('data-id="type:' + id.replace('.', '\\.') + '"').test(group(g)), id + ' under ' + g);
+    assert.ok(new RegExp('<b>' + label + '</b><small>' + PF.util.esc(PF.types.get(id).hint).replace(/[.()]/g, '\\$&') + '</small>').test(box), id + ': its label and hint');
+  });
+  state.obQ = 'sprint'; html = V.process(ctx);
+  assert.ok(/<b>Jira sprint<\/b>/.test(html) && !/<b>Deploy<\/b>/.test(html), 'found by search');
+  state.obQ = 'verify.health'; assert.ok(/<b>Health check<\/b>/.test(V.process(ctx)), 'by type ID');
+  state.obQ = null; state.obSel = { pid: 'release', kind: 'step', key: 'logs' };
+  html = V.process(ctx);
+  const picker = html.slice(html.indexOf('<select id="ob-type"'), html.indexOf('</select>', html.indexOf('<select id="ob-type"')));
+  assert.ok(/<option value="verify\.health" selected>Health check<\/option>/.test(picker), 'the step\'s own type is chosen');
+  ['jira.sprint', 'deploy', 'github.pr', 'measure'].forEach(id => assert.ok(new RegExp('<option value="' + id.replace('.', '\\.') + '">').test(picker), id + ' can be picked'));
+});
+
 rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane opens its own form', () => {
   const { ctx, state } = partsSetup();
   let html = V.process(ctx);
@@ -828,7 +847,7 @@ rule('Draft editor: a page of its own, with a header landmark, and an inspector 
   state.obSel = { pid: 'release', kind: 'step', key: 'pods' };
   html = V.process(ctx);
   assert.ok(/id="ins-t-selected" aria-selected="true"/.test(html) && /<li class="pv-sel" id="pv-sel" aria-current="true">/.test(html), 'Selected, and the preview marks the step');
-  assert.ok(/<nav aria-label="Where it is"><ol class="ob-crumbs"><li>Deploy<\/li><li>Step 10 of 14<\/li><\/ol><\/nav>/.test(html) && /data-act="ob-sel" data-id="approve">Previous step/.test(html), 'where it is, and Previous / Next');
+  assert.ok(/<nav aria-label="Where it is"><ol class="ob-crumbs"><li>Deploy<\/li><li>Step 10 of 15<\/li><\/ol><\/nav>/.test(html) && /data-act="ob-sel" data-id="approve">Previous step/.test(html), 'where it is, and Previous / Next');
   assert.ok(/<details class="ob-src"><summary>Source details<\/summary><p class="small">Type <code>\{run\.command\}<\/code> · fields <code>command<\/code>/.test(html), 'the Markdown names in Source details');
   state.builder = false; html = V.process(ctx);
   assert.ok(!/ins-t-selected/.test(html) && /<textarea id="draft-editor"/.test(html) && /class="fpe-panes md"/.test(html), 'Markdown: the text and Checks / Preview');

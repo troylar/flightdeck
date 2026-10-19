@@ -76,7 +76,7 @@ node tools/type-table.js --write   # after changing step types
 
 ## Common changes
 
-- **New step type:** add it to `LIST` in `src/core/types.js` (`fields`, `record`, `hint`, `icon`). Add an icon in `src/ui/icons.js` if needed. Then run `node tools/type-table.js --write` and add a rule test. In `fields`, `required` means "usually there" (a tip, not an error); `requiredWhen` ties it to `action`. In `record`, `when` limits evidence to one action, and `long: true` gives a multi-line box.
+- **New step type:** add it to `LIST` in `src/core/types.js` (`fields`, `record`, `hint`, `icon`) and to `GROUPS` there, and mirror it in `BUILTIN` in `check_folder.py`. Add an icon in `src/ui/icons.js` if needed. Don't raise `PF.types.VERSION` for a new type (CONTRIBUTING.md says why). Then run `node tools/type-table.js --write` and add a rule test. In `fields`, `required` means "usually there" (a tip, not an error); `requiredWhen` ties it to `action`. In `record`, `when` limits evidence to one action, and `long: true` gives a multi-line box.
 - **New rule:** change `src/core/run.js` or `map.js` first, with a test, then call it from the UI.
 - **Saving, loading or sync:** read *Saving and sync rules* below first, then add a scenario to `test/sync.test.js` (two simulated computers that sync only when told) or `test/app.test.js` (the built app with races paused at exact points).
 - **Fingerprints, publication checks or plan decisions:** `example-folder/.flightdeck/skills/_flightdeck/check_folder.py` repeats them in Python for the skills; `test/checker.test.js` fails if it and the app disagree. Change both together.

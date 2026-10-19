@@ -98,6 +98,11 @@ During a run, the recorder can **Fill in** any step's checklist fields and evide
 | `run.script` | Shown as text to copy. Flightdeck never runs it. | **`script`**, `args`, `where`, `expected` | `result` |
 | `run.skill` | Run a skill. | **`skill`**, `inputs`, `expected` | `output` |
 | `ci.gate` | A build or test result for a specific commit. | **`pipeline`**, `page` | `run`, `runLink` |
+| `jira.sprint` | Start or close a Jira sprint, move its unfinished issues, or set its goal. | **`action`** (`start`, `close`, `move-incomplete`, `set-goal`), **`board`**, **`sprint`**, `goal` (for set-goal) | `sprintLink`, `name` (for start), `dates` (for start), `carriedOver` (for close), `moved` (for move-incomplete) |
+| `deploy` | Deploy a version of something to an environment. | **`environment`**, **`artifact`**, `version`, `tool`, `rollback` | `deployed`, `deployLink`, `finished` |
+| `verify.health` | Watch a dashboard or metric for a while and say whether it stayed healthy. | **`dashboard`**, **`metric`**, `threshold`, `watch` | `result`, `observed`, `snapshot` |
+| `github.pr` | Open, review, approve or merge a GitHub pull request. | **`action`** (`open`, `review`, `approve`, `merge`), **`repo`**, `pull` (unless open), `from`, `to` | `pr`, `checks`, `mergeCommit` (for merge) |
+| `measure` | Record a number with its unit, like velocity or points carried over. | **`metric`**, `unit`, `where` | `value`, `unit` |
 <!-- types:end -->
 
 Every type also accepts `link`, `expect` (how long it usually takes, like `25m`), `deadline` (`external` means the deadline is copied in from the real tool during the run) `evidence` (`link` or `note`: checking the step then requires one) and `require` (evidence names that must be recorded, or `all`). Field values can use `^details`, like `parameters: TICKET=^ticket`.

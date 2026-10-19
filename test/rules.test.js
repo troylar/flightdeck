@@ -9,7 +9,7 @@ const NOW = '2026-10-17T21:00:00.000Z';
 // Objects from the sandbox have their own prototypes, so compare plain JSON copies.
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const people = JSON.parse(example('people.json'));
-const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup'];
+const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup', 'github-pr'];
 
 function pub(name) {
   const md = example('maps/drafts/' + name + '.md');
@@ -1449,6 +1449,104 @@ rule('A run file in a format this copy doesn\'t know is shown read-only with the
   same([r.id, r.process, r.title], [o.id, o.process, o.title], 'named as it is in the file');
   assert.strictEqual(M.parse(r.snapshot).phases.length, 0, 'no steps are shown as if this copy could tell their state');
   assert.strictEqual(R.sanitize(Object.assign({}, o, { format: 'something-else' })), null, 'a file that isn\'t a run at all is still unreadable');
+});
+
+/* ---- The step types added in 1.14.0 ---- */
+const NEW_TYPES = ['jira.sprint', 'deploy', 'verify.health', 'github.pr', 'measure'];
+const T = PF.types, names = (t, f) => T.recordFields(t, f).map(d => d.name);
+
+rule('jira.sprint: four actions, a goal only for set-goal, and evidence that fits each action', () => {
+  const t = T.get('jira.sprint');
+  same(t.fields.action.options, ['start', 'close', 'move-incomplete', 'set-goal']);
+  assert.ok(/"action" should be one of: start, close, move-incomplete, set-goal/.test(T.checkFields(t, { action: 'delete', board: 'B', sprint: 'S' }).errors[0]), 'a wrong action blocks publishing');
+  assert.ok(T.checkFields(t, { action: 'set-goal', board: 'B', sprint: 'S' }).tips.some(x => /"goal:" for this action/.test(x)), 'set-goal usually says the goal');
+  assert.ok(!T.checkFields(t, { action: 'start', board: 'B', sprint: 'S' }).tips.length, 'start doesn\'t');
+  same(names(t, { action: 'start' }), ['sprintLink', 'name', 'dates']);
+  same(names(t, { action: 'close' }), ['sprintLink', 'carriedOver']);
+  same(names(t, { action: 'move-incomplete' }), ['sprintLink', 'moved']);
+  same(names(t, { action: 'set-goal' }), ['sprintLink']);
+  assert.ok(/Sprint link should be a web link/.test(T.checkRecord(t, { action: 'close' }, { sprintLink: 'board 12' }).error));
+  assert.ok(/Issues carried over is needed/.test(T.checkRecord(t, { action: 'close', require: 'carriedOver' }, {}).error), 'require: carriedOver is enforced');
+});
+
+rule('deploy: environment and what to deploy are usual; it records the version that landed, a link and when', () => {
+  const t = T.get('deploy');
+  assert.ok(T.checkFields(t, {}).tips.some(x => /"environment:"/.test(x)) && T.checkFields(t, {}).tips.some(x => /"artifact:"/.test(x)));
+  same(T.checkFields(t, { environment: 'production', artifact: 'web-app', version: 'v1.2.0', tool: 'https://example.com/deploy', rollback: 'v1.1.9' }), { errors: [], tips: [] });
+  same(names(t, {}), ['deployed', 'deployLink', 'finished']);
+  assert.ok(/Version deployed is needed/.test(T.checkRecord(t, { require: 'deployed' }, {}).error));
+  same(T.checkRecord(t, { require: 'all' }, { deployed: 'v1.2.0', deployLink: 'https://example.com/d/1', finished: '14:05' }).values, { deployed: 'v1.2.0', deployLink: 'https://example.com/d/1', finished: '14:05' });
+  assert.ok(T.checkFields(t, { require: 'build' }).errors.some(x => /records: deployed, deployLink, finished/.test(x)), 'it doesn\'t record a build');
+});
+
+rule('verify.health: a dashboard and metric, and a Pass or Fail with the value seen and a screenshot or link', () => {
+  const t = T.get('verify.health');
+  same(names(t, {}), ['result', 'observed', 'snapshot']);
+  same(T.checkRecord(t, {}, { result: 'pass', observed: '0 new errors' }).values, { result: 'Pass', observed: '0 new errors' }, 'any case, stored as the type spells it');
+  assert.ok(/Result should be one of: Pass, Fail/.test(T.checkRecord(t, {}, { result: 'Mostly' }).error));
+  assert.ok(/Screenshot or link should be a web link/.test(T.checkRecord(t, {}, { snapshot: 'see Slack' }).error));
+  assert.ok(T.checkFields(t, { metric: 'p95 latency' }).tips.some(x => /"dashboard:"/.test(x)), 'the dashboard is usual');
+});
+
+rule('github.pr: open, review, approve or merge; the pull request is usual except when opening, and a merge records its commit', () => {
+  const t = T.get('github.pr');
+  same(t.fields.action.options, ['open', 'review', 'approve', 'merge']);
+  assert.ok(!T.checkFields(t, { action: 'open', repo: 'example-org/app' }).tips.length, 'opening has no pull request yet');
+  assert.ok(T.checkFields(t, { action: 'approve', repo: 'example-org/app' }).tips.some(x => /"pull:" for this action/.test(x)));
+  assert.ok(T.checkFields(t, { action: 'decline', repo: 'r' }).errors.length, 'a wrong action blocks publishing');
+  same(names(t, { action: 'merge' }), ['pr', 'checks', 'mergeCommit']);
+  same(names(t, { action: 'review' }), ['pr', 'checks']);
+  same(T.checkRecord(t, { action: 'approve', require: 'checks' }, { checks: 'passing' }).values, { checks: 'Passing' });
+  assert.ok(/Checks is needed/.test(T.checkRecord(t, { action: 'approve', require: 'checks' }, {}).error));
+});
+
+rule('measure: a number with its unit; with sets: it also becomes a run detail later steps use', () => {
+  const t = T.get('measure');
+  same(names(t, {}), ['value', 'unit']);
+  const v = pub('sprint-start'), r = R.create(v, { title: 'S', details: { sprint: 'Sprint 42' }, roles: { 'scrum-lead': 'a' }, by: 'a', session: 's', now: NOW }), map = R.mapOf(r);
+  const cap = M.findStep(map, 'capacity').step, ev = R.evidenceFor(r, cap).list;
+  same(ev.map(d => d.name).slice(0, 2), ['value', 'unit']);
+  const det = ev.find(d => d.detail === 'capacity');
+  assert.ok(det && det.required, 'the run detail is asked for when it\'s checked');
+  assert.throws(() => R.done(r, map, 'capacity', 'a', NOW, { value: '38', unit: 'person-days' }), /capacity is needed/);
+  const vals = { value: '38', unit: 'person-days' }; vals[det.name] = '38';
+  R.done(r, map, 'capacity', 'a', NOW, vals);
+  assert.strictEqual(r.details.capacity, '38', 'later steps read ^capacity');
+  same(r.steps.capacity.values.value, '38');
+});
+
+rule('The sprint, release and pull request examples use the 1.14 types and run to the end', () => {
+  const uses = (name, ids) => { const types = M.steps(M.parse(example('maps/drafts/' + name + '.md'))).map(x => x.step.type); ids.forEach(id => assert.ok(types.indexOf(id) >= 0, name + ' uses ' + id)); };
+  uses('sprint-start', ['jira.sprint', 'measure']); uses('release', ['deploy', 'verify.health']); uses('github-pr', ['github.pr']);
+  const starts = {
+    'sprint-start': { details: { sprint: 'Sprint 42' }, roles: { 'scrum-lead': 'a' } },
+    release: { details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'a', qa: 'b', backend: 'c' } },
+    'github-pr': { details: { branch: 'feat/x' }, roles: { author: 'a', reviewer: 'b' } }
+  };
+  Object.keys(starts).forEach(name => {
+    const v = pub(name), frozen = JSON.parse(JSON.stringify(v.types));
+    NEW_TYPES.forEach(id => { if (frozen[id]) assert.strictEqual(frozen[id].version, T.VERSION, id + ' is frozen at the current type version'); });
+    const r = completeRun(PF, R.create(v, Object.assign({ title: name, by: 'a', session: 's', now: NOW }, starts[name])), NOW);
+    assert.ok(Object.keys(r.steps).length >= M.steps(R.mapOf(r)).length, name + ': every step answered');
+    assert.strictEqual(r.ended.outcome, 'Completed');
+  });
+  const pr = completeRun(PF, R.create(pub('github-pr'), Object.assign({ title: 'p', by: 'a', session: 's', now: NOW }, starts['github-pr'])), NOW);
+  assert.ok(pr.details.pull, 'the opened pull request is the run\'s ^pull');
+});
+
+rule('A copy from before 1.14 runs versions that use the new types: they freeze only properties it knows, so the type version stays the same', () => {
+  // A 1.12/1.13 copy: same type version, none of the new built-ins.
+  const OLD = load(false, (f, src) => f === 'core/types.js' ? src.replace('var BY = {};', 'var BY = {}; LIST = LIST.filter(function (t) { return ' + JSON.stringify(NEW_TYPES) + '.indexOf(t.id) < 0; });') : src);
+  assert.ok(!OLD.types.get('deploy') && OLD.types.VERSION === T.VERSION, 'the stand-in has no new types');
+  ['sprint-start', 'release', 'github-pr'].forEach(name => {
+    const md = example('maps/drafts/' + name + '.md');
+    const b = P.build(md, { people, ...EX, by: 'a', changes: 'x', existing: [], now: NOW, rand: 'abcd1234' });
+    NEW_TYPES.forEach(id => { const d = JSON.parse(b.files['types.json'])[id]; if (d) assert.ok(OLD.types.understood(d), id + ' is understood by the older copy'); });
+    const v = OLD.publish.verify(b.folder, b.files);
+    assert.ok(v.ok, name + ': ' + v.why);
+    assert.strictEqual(OLD.publish.unrunnable(md, v.types), '', name + ' is runnable there');
+    assert.ok(OLD.map.check(OLD.map.parse(md)).blockers.some(x => /unknown type/.test(x)), name + ': that copy still can\'t publish the draft itself');
+  });
 });
 
 run();

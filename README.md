@@ -195,7 +195,7 @@ One person records; everyone else follows on their own screen and adds notes and
 <td valign="top">
 
 ### Steps that know their tools
-Steps are typed: `jenkins.job`, `bitbucket.pr`, `jira.issue`, `run.command`, `decide`, `review` and more, plus your team's own types. Each asks for the evidence that matters (a build number, a PR link, a decision) only where the checklist says it's required.
+Steps are typed: `jenkins.job`, `bitbucket.pr`, `github.pr`, `jira.issue`, `jira.sprint`, `deploy`, `verify.health`, `measure`, `run.command`, `decide`, `review` and more, plus your team's own types. Each asks for the evidence that matters (a build number, a PR link, a decision) only where the checklist says it's required.
 
 </td>
 <td valign="top">

@@ -49,6 +49,7 @@ PF.examples = (function () {
             if (out[f.name] || !f.required) return;
             if (f.label === 'Fix version') { out[f.name] = o.title.replace(/^Release /, ''); return; }
             if (f.detail === 'tag') { out[f.name] = 'v' + o.title.replace(/^Release /, ''); return; }
+            if (f.detail && o.sets && o.sets[f.detail]) { out[f.name] = o.sets[f.detail]; return; }
             var v = f.source ? PF.jira.resolve(f.source, r.details, function (ro) { return r.roles[ro] ? nameOf(r.roles[ro]) : ''; }) : '';
             out[f.name] = v || (f.kind === 'url' ? 'https://example.com/' + s.id : f.kind === 'choice' ? f.options[0] : 'OK');
           });
@@ -138,7 +139,8 @@ PF.examples = (function () {
       /* A sprint start that's paused until the product owner can join. Its planning meeting and gate have clock times. */
       /* Started today even just after midnight, so its clock times are on the same day as the run. */
       var sinceMidnight = (Date.now() - new Date().setHours(0, 0, 0, 0)) / MIN, sprintStart = Math.min(40, sinceMidnight * 0.9);
-      if (pub('sprint-start')) play(pub('sprint-start'), { title: 'Sprint 42', start: sprintStart, pace: sprintStart / 20, by: 'person-blake', details: { sprint: 'Sprint 42' }, roles: { 'scrum-lead': 'person-blake' },
+      if (pub('sprint-start')) play(pub('sprint-start'), { title: 'Sprint 42', start: sprintStart, pace: sprintStart / 20, by: 'person-blake', details: { sprint: 'Sprint 42' }, roles: { 'scrum-lead': 'person-blake' }, sets: { capacity: '38' },
+        ev: { 'close-last': { sprintLink: 'https://jira.example.com/secure/RapidBoard.jspa?rapidView=12&sprint=41', carriedOver: '3 issues' }, velocity: { value: '34', unit: 'points' }, 'carried-points': { value: '5', unit: 'points' }, capacity: { value: '38', unit: 'person-days' } },
         until: [1, 'meeting'], pausedNow: 'Waiting for the product owner to join planning', pausedAt: sprintStart / 10 });
 
       /* Suggested fixes from release runs, one in each state: fixed in v2 (accepted before it was published), declined with a
