@@ -76,6 +76,7 @@
     if (!typed) body = '<p class="sx-msg">Search runs, steps, notes, corrections, follow-ups, step types and skills.</p><p class="sx-msg small">Use the arrow keys to move through the results and Enter to open one. Esc closes this.</p>';
     else if (!any && info.building) body = '<p class="sx-msg" role="status">Reading the team folder…</p>';
     else if (!any) body = '<p class="sx-msg">Nothing matches “' + esc(q.trim()) + '”. Try fewer words, or a ticket like ABC-123.</p>';
+    if (info.err) body = '<p class="sx-msg sx-err">' + esc(info.err) + '</p>' + body;
     var list = '';
     if (any) res.groups.forEach(function (g) {
       list += '<li role="presentation" class="sx-group"><div class="sx-gh" id="sx-g-' + esc(g.kind) + '">' + esc(g.label) + ' <span>' + num(g.total) + '</span></div><ul role="group" aria-labelledby="sx-g-' + esc(g.kind) + '">';
@@ -89,7 +90,7 @@
       list += '</ul>' + (g.total > g.items.length ? '<p class="sx-more small">' + num(g.total - g.items.length) + ' more. Add a word to narrow it down.</p>' : '') + '</li>';
     });
     var foot = [];
-    if (info.building) foot.push('Still reading ' + num(info.building.done) + ' of ' + num(info.building.total) + ' runs.');
+    if (info.building) foot.push(info.building.total ? 'Still reading ' + num(info.building.done) + ' of ' + num(info.building.total) + ' runs.' : 'Still reading the team folder.');
     if (info.unread) foot.push(info.unread === 1 ? '1 run file couldn\'t be read; its last copy is searched and marked.' : num(info.unread) + ' run files couldn\'t be read; their last copies are searched and marked.');
     if (info.readAt) foot.push('Folder last read ' + clockTime(info.readAt) + '.');
     return '<div class="overlay" data-act="close-overlay"><div class="sx-box" role="dialog" aria-modal="true" aria-labelledby="sx-t">' +

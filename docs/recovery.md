@@ -72,6 +72,8 @@ Changes Flightdeck kept in this browser while it couldn't write are filed under 
 
 **What you see:** your teammates don't see your changes (or you don't see theirs) after a few minutes. Flightdeck says when it last saved and when it last checked the folder, but it can't see what OneDrive has delivered.
 
+First, choose **Refresh**. A big folder checks older runs a share at a time: a note added on another computer to a run that finished a while ago can take up to 10 minutes to show up (up to an hour if the file kept its size and time). **Refresh** reads everything at once. If it still doesn't show, OneDrive hasn't delivered it yet.
+
 **What it means:** OneDrive is paused, signed out, offline, out of space, or the folder is set to download files only when they're opened.
 
 **What to do:**

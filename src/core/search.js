@@ -9,33 +9,53 @@
 PF.search = (function () {
   'use strict';
   var U = PF.util;
-  var MARKS = /[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/g, MARK1 = /^[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]$/;
+  /* Combining marks folded away: Latin and Greek accents, Hebrew points and cantillation, Arabic harakat, and the extended
+     and supplementary blocks. A variation selector goes with them. */
+  var MARK_RANGE = '\\u0300-\\u036f\\u0483-\\u0489\\u0591-\\u05bd\\u05bf\\u05c1\\u05c2\\u05c4\\u05c5\\u05c7\\u0610-\\u061a\\u064b-\\u065f\\u0670\\u06d6-\\u06dc\\u06df-\\u06e4\\u06e7\\u06e8\\u06ea-\\u06ed\\u1ab0-\\u1aff\\u1dc0-\\u1dff\\u20d0-\\u20ff\\ufe00-\\ufe0f\\ufe20-\\ufe2f';
+  var MARKS = new RegExp('[' + MARK_RANGE + ']', 'g'), MARK1 = new RegExp('^[' + MARK_RANGE + ']$');
   /* Word separators: whitespace, ASCII punctuation and symbols (so "ABC-123" is two words, "__proto__" is "proto"), Latin-1
-     symbols, general punctuation and CJK punctuation. Anything else is part of a word. */
-  var SEPS = '\\s\\u0000-\\u002f\\u003a-\\u0040\\u005b-\\u0060\\u007b-\\u00bf\\u00d7\\u00f7\\u2000-\\u206f\\u2e00-\\u2e7f\\u3000-\\u303f\\uff01-\\uff0f';
+     symbols, general punctuation, arrows, technical and other symbols, dingbats, CJK punctuation. Emoji outside the basic
+     plane are folded to a space (foldPiece), so they separate words too. Anything else is part of a word. */
+  var SEPS = '\\s\\u0000-\\u002f\\u003a-\\u0040\\u005b-\\u0060\\u007b-\\u00bf\\u00d7\\u00f7\\u2000-\\u206f\\u2190-\\u2bff\\u2e00-\\u2e7f\\u3000-\\u303f\\uff01-\\uff0f';
   var SEP = new RegExp('[' + SEPS + ']+'), WORD = new RegExp('[^' + SEPS + ']+', 'g'), ENDS_SEP = new RegExp('[' + SEPS + ']$');
-  var ASCII = /^[\u0000-\u007f]*$/;
+  var ASCII = /^[\u0000-\u007f]*$/, SHARP_S = /ß/g, FINAL_SIGMA = /ς/g;
   var KINDS = ['run', 'step', 'note', 'correction', 'followup', 'process', 'version', 'type', 'skill', 'page'];
   var LABEL = { run: 'Runs', step: 'Steps', note: 'Notes', correction: 'Corrections', followup: 'Follow-ups', process: 'Processes', version: 'Versions', type: 'Step types', skill: 'Skills', page: 'Pages' };
-  var MAX_TERMS = 12, MAX_QUERY = 200, RERANK = 400, PER_GROUP = 6;
+  var MAX_TERMS = 12, MAX_QUERY = 200, RERANK = 400, PER_KIND = 20, PER_GROUP = 6;
 
   /* ---------- folding and words ---------- */
+  /* One code point, folded: NFD, combining marks removed, lowercased, final sigma as sigma, ß as ss; an emoji or other
+     pictograph outside the basic plane is a space. Remembered per code point, so indexing never normalizes twice. */
+  var pieces = Object.create(null), pieceN = 0;
   function foldPiece(c) {
-    var s = c.normalize ? c.normalize('NFD') : c;
-    return s.replace(MARKS, '').toLowerCase().replace(/ς/g, 'σ');
+    var hit = pieces[c];
+    if (hit !== undefined) return hit;
+    var cp = c.length === 2 ? (c.charCodeAt(0) - 0xd800) * 0x400 + c.charCodeAt(1) - 0xdc00 + 0x10000 : c.charCodeAt(0), f;
+    if (cp >= 0x1f000 && cp <= 0x1faff) f = ' ';
+    else f = (c.normalize ? c.normalize('NFD') : c).replace(MARKS, '').toLowerCase().replace(FINAL_SIGMA, 'σ').replace(SHARP_S, 'ss');
+    if (++pieceN > 20000) { pieces = Object.create(null); pieceN = 1; }
+    return (pieces[c] = f);
   }
-  /* The whole text, folded the same way fold() folds it piece by piece (for indexing, where offsets aren't needed). */
-  function foldText(s) { s = String(s == null ? '' : s); return ASCII.test(s) ? s.toLowerCase() : foldPiece(s); }
+  function each(s, fn) {
+    for (var i = 0; i < s.length;) {
+      var code = s.charCodeAt(i), n = code >= 0xd800 && code < 0xdc00 && i + 1 < s.length ? 2 : 1;
+      fn(code < 128 ? s.charAt(i).toLowerCase() : foldPiece(s.substr(i, n)), i, n);
+      i += n;
+    }
+  }
+  /* The whole text folded exactly as fold() folds it, without the offsets (for indexing). */
+  function foldText(s) {
+    s = String(s == null ? '' : s);
+    if (ASCII.test(s)) return s.toLowerCase();
+    var out = [];
+    each(s, function (f) { out.push(f); });
+    return out.join('');
+  }
   /* Folded text with, for each folded character, the original offsets of the code point it came from: start[i] to end[i]. */
   function fold(s) {
     s = String(s == null ? '' : s);
     var out = [], start = [], end = [];
-    for (var i = 0; i < s.length;) {
-      var code = s.charCodeAt(i), n = code >= 0xd800 && code < 0xdc00 && i + 1 < s.length ? 2 : 1, c = s.substr(i, n);
-      var f = code < 128 ? c.toLowerCase() : foldPiece(c);
-      for (var k = 0; k < f.length; k++) { out.push(f.charAt(k)); start.push(i); end.push(i + n); }
-      i += n;
-    }
+    each(s, function (f, i, n) { for (var k = 0; k < f.length; k++) { out.push(f.charAt(k)); start.push(i); end.push(i + n); } });
     return { text: out.join(''), start: start, end: end };
   }
   function words(folded) { return folded ? folded.split(SEP).filter(Boolean) : []; }
@@ -74,6 +94,7 @@ PF.search = (function () {
     if (at < to) out.push({ t: text.slice(at, to), hit: false });
     return out;
   }
+  function isLow(c) { return c >= 0xdc00 && c < 0xe000; }
   /* The whole text as segments {t, hit}, in order: joined, they are the original text. */
   function mark(text, q) { text = String(text == null ? '' : text); return segments(text, ranges(text, q), 0, text.length); }
   /* A window of about max characters around the first hit, cut at spaces, with "…" where it was cut. */
@@ -85,6 +106,9 @@ PF.search = (function () {
     var first = rs.length ? rs[0] : [0, 0], from = Math.max(0, Math.min(first[0] - Math.floor((max - (first[1] - first[0])) / 3), text.length - max)), to = Math.min(text.length, from + max);
     if (from > 0) { var sp = text.indexOf(' ', from); if (sp >= 0 && sp < first[0]) from = sp + 1; }
     if (to < text.length) { var sb = text.lastIndexOf(' ', to); if (sb > Math.max(from, first[1])) to = sb; }
+    /* Never cut inside a character: not between a surrogate pair, and not before a combining mark (it stays with its letter). */
+    while (from > 0 && (isLow(text.charCodeAt(from)) || MARK1.test(text.charAt(from)))) from--;
+    while (to < text.length && (isLow(text.charCodeAt(to)) || MARK1.test(text.charAt(to)))) to++;
     var out = segments(text, rs, from, to);
     if (from > 0) out.unshift({ t: '…', hit: false });
     if (to < text.length) out.push({ t: '…', hit: false });
@@ -193,28 +217,46 @@ PF.search = (function () {
     if (sigMemo && obj && typeof obj === 'object') sigMemo.set(obj, { w: with_, x: extra, sig: sig });
     return sig;
   }
-  function cleanOf(d) { return d ? Object.keys(d).filter(function (k) { return k[0] !== '_'; }).map(function (k) { return [k, d[k]]; }) : null; }
+  /* Every field a cleaned decision (on a correction or a follow-up) can hold, joined. */
+  var DFIELDS = ['kind', 'process', 'group', 'suggestion', 'run', 'followUp', 'status', 'reason', 'note', 'ticket', 'link', 'by', 'at', 'rev', 'seen', 'act', 'addressed', 'dv', 'version', 'folder', 'legacy'];
+  function decisionPrint(d) {
+    var out = DFIELDS.map(function (k) { var v = d[k]; return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v); });
+    out.push((d.members || []).join(','), d.result ? JSON.stringify(d.result) : '', d.to ? JSON.stringify(d.to) : '');
+    return out.join('\u0002');
+  }
   /* Sources from the app's accepted state. input = { runs, pubs (data.processes), drafts, people, stepTypes (custom types),
      skills, corrDecisions, followUps (PF.followups.list) }. Runs come first, each followed by its notes, so a build that's
      part way through has whole runs. Each source: { id, kind, sig, make() → documents }. */
-  function docs(input) {
+  /* A run and its notes are one group, with a cheap group signature: the run file's hash, rev, save time and title, and its
+     notes' fingerprint (repo's _notesSig, a hash of the notes files' texts). A group whose signature the index already has is
+     skipped whole, without looking at its notes; memo (kept by the caller for one folder) reuses a group's sources while its
+     signature holds, so a refresh that changed nothing builds almost nothing. */
+  function notesPrint(r) { return r._notesSig != null ? r._notesSig : (r._notes || []).length ? U.hash((r._notes || []).map(noteSig).join('|')) : ''; }
+  function runGroup(r, memo) {
+    var key = r.process + '/' + r.id, g = 'run:' + key, gs = [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title, notesPrint(r), (r._notes || []).length].join('|');
+    var hit = memo && memo[g];
+    if (hit && hit.gs === gs) return hit.list;
+    var list = [{ id: g, kind: 'run', g: g, gs: gs, sig: [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title].join('|'), make: function () { return [runDoc(r)]; } }];
+    if (r._notes && r._notes.length) {
+      var count = Object.create(null), th = U.hash(r.title || '');
+      r._notes.forEach(function (n) { var x = noteSource(r, key, n, count[n.id] = (count[n.id] || 0) + 1, th); x.g = g; x.gs = gs; list.push(x); });
+    }
+    if (memo) memo[g] = { gs: gs, list: list };
+    return list;
+  }
+  function docs(input, memo) {
     var out = [];
-    (input.runs || []).forEach(function (r) {
-      var key = r.process + '/' + r.id;
-      out.push({ id: 'run:' + key, kind: 'run', sig: [r._fileHash || '', r.rev || 0, r.savedAt || '', r.title].join('|'), make: function () { return [runDoc(r)]; } });
-      if (r._notes && r._notes.length) {
-        var count = Object.create(null), th = U.hash(r.title || '');
-        r._notes.forEach(function (n) { out.push(noteSource(r, key, n, count[n.id] = (count[n.id] || 0) + 1, th)); });
-      }
-    });
+    (input.runs || []).forEach(function (r) { var list = runGroup(r, memo); for (var i = 0; i < list.length; i++) out.push(list[i]); });
+    /* Follow-ups and decisions are read again on every refresh, as new objects: their signatures are their fields joined,
+       which costs no hashing and still changes with any change of content. */
     (input.followUps || []).forEach(function (x) {
-      var fu = x.f || {}, extra = [x.status, x.label, x.runTitle, x.at, x.owner, x.text, fu.ticket, fu.step, fu.by].join('\n');
-      var sig = sigOf(x.f, x.decision || NONE, extra, function () { return U.hash(JSON.stringify(cleanOf(x.decision))); });
-      out.push({ id: 'fu:' + x.key, kind: 'followup', sig: sig + '|' + U.hash(extra), make: function () { return [fuDoc(x)]; } });
+      var fu = x.f || {}, d = x.decision;
+      var sig = [x.status, x.label, x.runTitle, x.at, x.owner, x.text, fu.ticket, fu.step, fu.by, d ? decisionPrint(d) : ''].join('\u0001');
+      out.push({ id: 'fu:' + x.key, kind: 'followup', sig: sig, make: function () { return [fuDoc(x)]; } });
     });
     (input.corrDecisions || []).forEach(function (d) {
       var dir = d._dir || (d.legacy ? 'suggestions' : 'corrections'), id = 'corr:' + dir + '/' + d.process + '/' + d._file;
-      out.push({ id: id, kind: 'correction', sig: sigOf(d, NONE, dir, function () { return U.hash(JSON.stringify(cleanOf(d)) + '|' + dir); }), make: function () { return [decisionDoc(d, id)]; } });
+      out.push({ id: id, kind: 'correction', sig: dir + '\u0001' + decisionPrint(d), make: function () { return [decisionDoc(d, id)]; } });
     });
     var published = Object.create(null);
     (input.pubs || []).forEach(function (p) {
@@ -260,7 +302,7 @@ PF.search = (function () {
   function create() {
     return { docs: [], byId: Object.create(null), src: Object.create(null), post: Object.create(null), pfx: Object.create(null), live: 0, dead: 0,
       people: { sig: null, tok: Object.create(null) }, types: { sig: null, tok: Object.create(null) }, byPerson: Object.create(null), byType: Object.create(null),
-      token: 0, qseq: 0, stamp: null, score: null, termW: null, stats: { added: 0, removed: 0 } };
+      token: 0, qseq: 0, stamp: null, score: null, termW: null, stats: { added: 0, removed: 0 }, groups: Object.create(null), nsrc: 0 };
   }
   function addDoc(ix, d) {
     var n = ix.docs.length, best = Object.create(null);
@@ -278,11 +320,12 @@ PF.search = (function () {
     var s = ix.src[id];
     if (!s) return;
     s.docs.forEach(function (n) { var d = ix.docs[n]; if (d) { delete ix.byId[d.id]; ix.docs[n] = null; ix.live--; ix.dead++; ix.stats.removed++; } });
-    delete ix.src[id];
+    delete ix.src[id]; ix.nsrc--;
   }
   function putSource(ix, s) {
     var list = s.make(), ns = [];
     list.forEach(function (d) { if (ix.byId[d.id] != null) return; d.src = s.id; addDoc(ix, d); ns.push(d.n); });
+    if (!ix.src[s.id]) ix.nsrc++;
     ix.src[s.id] = { sig: s.sig, docs: ns };
   }
   function compact(ix) {
@@ -306,23 +349,64 @@ PF.search = (function () {
     side(ix.types, typeList(input.stepTypes), function (t) { return str(t.label) + ' ' + t.id; });
   }
   function update(ix, changed, removed) {
+    (changed || []).concat(removed || []).forEach(function (x) { var g = typeof x === 'string' ? null : x.g; if (g) delete ix.groups[g]; });
     (removed || []).forEach(function (id) { dropSource(ix, id); });
     (changed || []).forEach(function (s) { dropSource(ix, s.id); putSource(ix, s); });
     compact(ix);
   }
+  /* Walks sources in order, reindexing what changed. A group (a run and its notes) whose signature the index already has is
+     skipped whole. A group's signature is recorded only once all its sources are done, so a walk stopped part way never
+     marks a half-indexed group as current. finish() drops sources that weren't seen. */
+  function walker(ix, sources) {
+    var i = 0, seen = Object.create(null), seenN = 0, gseen = Object.create(null), cur = null, changed = 0, removed = 0;
+    function mark(id) { if (!seen[id]) { seen[id] = 1; seenN++; } }
+    function commit() { if (cur) { ix.groups[cur.g] = { gs: cur.gs, ids: cur.ids }; cur = null; } }
+    return {
+      done: function () { return i >= sources.length; },
+      /* One source, or one whole unchanged group. Returns the source that started it. */
+      next: function () {
+        var s = sources[i++];
+        if (s.g) {
+          if (!cur || cur.g !== s.g) {
+            commit(); gseen[s.g] = 1;
+            var rec = ix.groups[s.g];
+            if (rec && rec.gs === s.gs && rec.ids.every(function (id) { return !!ix.src[id]; })) {
+              rec.ids.forEach(mark);
+              while (i < sources.length && sources[i].g === s.g) i++;
+              return s;
+            }
+            cur = { g: s.g, gs: s.gs, ids: [] };
+          }
+          cur.ids.push(s.id);
+        } else commit();
+        mark(s.id);
+        var have = ix.src[s.id];
+        if (!have || have.sig !== s.sig) { dropSource(ix, s.id); putSource(ix, s); changed++; }
+        if (i >= sources.length) commit();
+        return s;
+      },
+      finish: function () {
+        commit();
+        if (seenN !== ix.nsrc) Object.keys(ix.src).forEach(function (id) { if (!seen[id]) { dropSource(ix, id); removed++; } });
+        Object.keys(ix.groups).forEach(function (g) { if (!gseen[g]) delete ix.groups[g]; });
+        compact(ix);
+        return { changed: changed, removed: removed };
+      }
+    };
+  }
   /* Bring the index in line with these sources: reindex what changed, drop what's gone. Returns the counts. */
   function sync(ix, sources, input) {
     setSides(ix, input || {});
-    var seen = Object.create(null), changed = [];
-    sources.forEach(function (s) { seen[s.id] = 1; var cur = ix.src[s.id]; if (!cur || cur.sig !== s.sig) changed.push(s); });
-    var removed = Object.keys(ix.src).filter(function (id) { return !seen[id]; });
-    update(ix, changed, removed);
-    return { changed: changed.length, removed: removed.length };
+    ix.token++;
+    var w = walker(ix, sources);
+    while (!w.done()) w.next();
+    return w.finish();
   }
-  /* A build in slices: step(ms, clock) indexes sources until ms of clock() time have passed, and returns true once done. Each
-     build carries a token: starting another build on the same index, or cancel(), stops this one where it is. */
+  /* A build in slices: step(ms, clock) works through the sources until ms of clock() time have passed, and returns true once
+     done. It also serves as a catch-up on an index that already holds most of them (unchanged runs are skipped whole). Each
+     build carries a token: starting another build or a sync on the same index, or cancel(), stops this one where it is. */
   function start(ix, sources, input) {
-    var token = ++ix.token, i = 0, seen = Object.create(null);
+    var token = ++ix.token, w = walker(ix, sources);
     setSides(ix, input || {});
     var job = { done: false, canceled: false, runs: { done: 0, total: sources.filter(function (s) { return s.kind === 'run'; }).length },
       cancel: function () { job.canceled = true; },
@@ -330,17 +414,11 @@ PF.search = (function () {
         if (job.canceled || ix.token !== token) { job.canceled = true; return false; }
         if (job.done) return true;
         var t0 = clock(), k = 0;
-        while (i < sources.length) {
-          var s = sources[i++], cur = ix.src[s.id];
-          seen[s.id] = 1;
-          if (!cur || cur.sig !== s.sig) { dropSource(ix, s.id); putSource(ix, s); }
-          if (s.kind === 'run') job.runs.done++;
+        while (!w.done()) {
+          if (w.next().kind === 'run') job.runs.done++;
           if (++k % 8 === 0 && clock() - t0 >= ms) break;
         }
-        if (i >= sources.length) {
-          update(ix, [], Object.keys(ix.src).filter(function (id) { return !seen[id]; }));
-          job.done = true;
-        }
+        if (w.done()) { w.finish(); job.done = true; }
         return job.done;
       } };
     return job;
@@ -415,7 +493,10 @@ PF.search = (function () {
     cand.forEach(function (n) { var k = ix.docs[n].kind; totals[k] = (totals[k] || 0) + 1; });
     function ctxOf(d) { return (ctx.run && d.run === ctx.run ? 2 : 0) + (ctx.process && d.process === ctx.process ? 1 : 0); }
     cand.sort(function (a, b) { return score[b] - score[a] || a - b; });
-    var top = cand.slice(0, RERANK).map(function (n) {
+    /* Reranked (phrase, all words, context): the best RERANK overall, plus the best PER_KIND of every kind, so many results
+       of one kind (500 runs named "Release") never push a process or a step that matches out of the list. */
+    var kept = Object.create(null), pick = cand.filter(function (n, i) { var k = ix.docs[n].kind; kept[k] = (kept[k] || 0) + 1; return i < RERANK || kept[k] <= PER_KIND; });
+    var top = pick.map(function (n) {
       var d = ix.docs[n], b = bonus(d, p);
       return { d: d, s: score[n] + b.add, c: ctxOf(d), field: b.field };
     });

@@ -123,7 +123,9 @@
        files couldn't be read, and when the folder was last read. */
     search: function () {
       var u = Object.keys((state.unread || {}).runs || {}).length + Object.keys(state.missing || {}).length;
-      return { building: sx.job && !sx.built ? sx.job.runs : null, unread: u, readAt: state.runReadAt && state.runReadAt > data.readAt ? state.runReadAt : data.readAt };
+      /* Still reading: the folder's first read (how many runs of how many), else the index's first build. */
+      var building = state.reading ? { done: state.reading.done || 0, total: state.reading.total } : sx.job && !sx.built ? sx.job.runs : null;
+      return { building: building, unread: u, readAt: state.runReadAt && state.runReadAt > data.readAt ? state.runReadAt : data.readAt, err: state.sx ? state.sx.err : '' };
     },
     mac: /Mac|iPhone|iPad/.test((typeof navigator !== 'undefined' && (navigator.platform || navigator.userAgent)) || ''),
     /* Getting started, worked out from the folder (PF.setup.progress); setupCard is null when Home shouldn't show it. */
@@ -239,15 +241,16 @@
 
   /* ---------- Search (docs/design.md section 22) ---------- */
   /* The index lives in memory only, for the folder it was built from (gen). It's built when the palette first opens, in 8 ms
-     slices; a newer build or a folder switch stops the older one. While the palette is open, every redraw brings the index
-     in line with what the app accepted (only changed sources are reindexed) and runs the query again. */
-  var sx = { gen: -1, ix: null, job: null, built: false, seen: null, said: null };
+     slices; a newer build or a folder switch stops the older one. While the palette is open, every redraw checks whether
+     the accepted data changed and, if so, catches the index up in the same 8 ms slices (a run whose file and notes are
+     unchanged is skipped whole), then runs the query again. */
+  var sx = { gen: -1, ix: null, job: null, built: false, seen: null, memo: {}, vis: null, status: null };
   function sxOpen() { return !!(state.overlay && state.overlay.search && state.sx); }
   function sxInput() {
     return { runs: data.runs, pubs: data.processes, drafts: data.drafts, people: data.people, stepTypes: (data.stepTypes || {}).types || {}, skills: data.skills,
       corrDecisions: data.corrDecisions || [], followUps: ctx.followUps() };
   }
-  function sxReset() { if (sx.job) sx.job.cancel(); sx = { gen: -1, ix: null, job: null, built: false, seen: null, said: null }; }
+  function sxReset() { if (sx.job) sx.job.cancel(); sx = { gen: -1, ix: null, job: null, built: false, seen: null, memo: {}, vis: null, status: null }; }
   /* What the index was last brought in line with: the data read, each run object and its file, and the people. */
   function sxMark() { sx.seen = { data: data, runs: data.runs.slice(), h: data.runs.map(function (r) { return r._fileHash; }), people: data.people }; }
   function sxStale() {
@@ -256,18 +259,26 @@
     for (var i = 0; i < runs.length; i++) if (s.runs[i] !== runs[i] || s.h[i] !== runs[i]._fileHash) return true;
     return false;
   }
-  function sxStart() {
-    sxReset();
-    var g = gen, inp = sxInput(), ix = PF.search.create(), job = PF.search.start(ix, PF.search.docs(inp), inp), last = 0;
-    sx = { gen: g, ix: ix, job: job, built: false, seen: null, said: null };
-    sxMark();
+  /* Works through the accepted data in slices: the first build, and every catch-up after the data changed. The first slice
+     runs now, so a small change shows at once; the rest follow, with results shown at most every 150 ms and once at the end. */
+  function sxIndex() {
+    if (sx.gen !== gen || !sx.ix) { sxReset(); sx.gen = gen; sx.ix = PF.search.create(); }
+    if (sx.job) sx.job.cancel();
+    var g = gen, inp = sxInput(), job = PF.search.start(sx.ix, PF.search.docs(inp, sx.memo), inp), last = elapsed();
+    sx.job = job; sxMark();
+    function step() {
+      if (g !== gen || sx.job !== job) { job.cancel(); return true; }
+      var done = job.step(8, elapsed);
+      if (job.canceled) return true;
+      if (done) { sx.built = true; sx.job = null; }
+      return done;
+    }
+    if (step()) return;
     (function pump() {
       setTimeout(function () {
         if (g !== gen || sx.job !== job) { job.cancel(); return; }
-        var done = job.step(8, elapsed);
+        var done = step();
         if (job.canceled) return;
-        if (done) { sx.built = true; sx.job = null; }
-        /* Results that come in part way are shown, at most every 150 ms, and once more when the build is done. */
         if (sxOpen() && (done || elapsed() - last > 150)) { last = elapsed(); sxRun(); render(); }
         if (!done) pump();
       }, 0);
@@ -279,32 +290,30 @@
     Object.keys(m).forEach(function (k) { o[k] = 'missing'; });
     return o;
   }
-  /* Brings the index in line with what's accepted now, then runs the query again if anything changed. Called on every redraw
-     while the palette is open. */
+  /* Called on every redraw while the palette is open. Status is compared by its contents: a refresh replaces those objects
+     even when nothing about any run changed. */
   function sxRefresh() {
     if (!state.sx) return;
-    if (sx.gen !== gen || !sx.ix) { sxStart(); sxRun(); return; }
-    var st = [state.unread, state.missing];
-    if (sx.built && sxStale()) {
-      var inp = sxInput(), c = PF.search.sync(sx.ix, PF.search.docs(inp), inp);
-      sxMark();
-      if (c.changed || c.removed) { sxRun(true); sx.status = st; return; }
-    }
-    if (!sx.status || sx.status[0] !== st[0] || sx.status[1] !== st[1]) { sx.status = st; sxRun(true); }
+    if (sx.gen !== gen || !sx.ix) { sxIndex(); sxRun(); return; }
+    var st = JSON.stringify(sxStatus());
+    if (sxStale()) { sxIndex(); sx.status = st; sxRun(); return; }
+    if (sx.status !== st) { sx.status = st; sxRun(); }
   }
-  /* Runs the query. The active row is kept by its ID; if it's gone, the row now at its place is chosen. When new data changed
-     the results (fromData), the count is announced. */
-  function sxRun(fromData) {
+  /* Runs the query. The active row is kept by its ID; if it's gone, the row now at its place is chosen. The count is
+     announced only when the results shown or their total changed, so a refresh that changes nothing says nothing. */
+  function sxRun() {
     var s = state.sx; if (!s) return;
     var res = sx.ix ? PF.search.query(sx.ix, s.q, { context: { process: state.processId, run: state.runKey }, status: sxStatus() }) : null, flat = [];
     (res ? res.groups : []).forEach(function (g) { g.items.forEach(function (x) { flat.push(x); }); });
     var ids = flat.map(function (x) { return x.id; }), at = ids.indexOf(s.active);
     if (at < 0) at = flat.length ? Math.min(Math.max(0, s.pos || 0), flat.length - 1) : -1;
     s.res = res; s.flat = flat; s.pos = at; s.active = at >= 0 ? ids[at] : null;
-    var words = !res || !String(s.q).trim() ? '' : res.total ? res.total.toLocaleString('en-US') + (res.total === 1 ? ' result' : ' results') : 'No results';
-    if (words && (fromData || words !== sx.said)) sxSay(words);
+    var typed = !!String(s.q).trim(), vis = typed && res ? res.total + '\n' + ids.join('\n') : '';
+    if (vis === sx.vis) return;
+    sx.vis = vis;
+    if (typed && res) sxSay(res.total ? res.total.toLocaleString('en-US') + (res.total === 1 ? ' result' : ' results') : 'No results');
   }
-  function sxSay(t) { sx.said = t; var el = document.getElementById('live'); if (el) el.textContent = el.textContent === t ? t + ' ' : t; }
+  function sxSay(t) { var el = document.getElementById('live'); if (el) el.textContent = el.textContent === t ? t + ' ' : t; }
   /* Opens the palette. A read-only dialog gives way to it; a dialog with typing or choices in it is never replaced. */
   function openSearch() {
     if (!state.fs) return;
@@ -314,19 +323,30 @@
       if (held) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return; }
       closeOverlay();
     }
-    state.sx = { q: '', active: null, pos: 0, res: null, flat: [] };
-    if (sx.gen !== gen || !sx.ix) sxStart();
-    openOverlay({ search: true, html: function () { return V.search(ctx); }, onClose: function () { state.sx = null; } });
+    state.sx = { q: '', active: null, pos: 0, res: null, flat: [], err: '' };
+    sx.vis = null;
+    if (sx.gen !== gen || !sx.ix) sxIndex();
+    /* Closing lets go of what the index was compared with, so a folder's data isn't kept alive by a closed palette. */
+    openOverlay({ search: true, html: function () { return V.search(ctx); }, onClose: function () { state.sx = null; sx.seen = null; } });
     state.overlayFocus = '#sx-q'; render();
   }
+  /* Why a result can't be opened any more (its run, process or skill left the folder since it was listed), or ''. */
+  function sxGone(t) {
+    if (t.view === 'run' && !ctx.findRun(t.run)) return 'That run isn\'t in this folder anymore.';
+    if (t.view === 'process' && !processes().some(function (p) { return p.id === t.process; })) return 'That process isn\'t in this folder anymore.';
+    if (t.view === 'skill' && !(data.skills || []).some(function (x) { return (x.file || (x.skill && x.skill.name)) === t.skill; })) return 'That skill isn\'t in this folder anymore.';
+    return '';
+  }
   /* Opening a result goes through go(). When the page holds typing go() would refuse over, the palette closes first, so the
-     message and the box it points at can be seen. */
+     message and the box it points at can be seen. A result whose target is gone keeps the palette open and says so. */
   function sxOpenResult(id) {
     var s = state.sx; if (!s) return;
     var x = (s.flat || []).filter(function (y) { return y.id === id; })[0];
     if (!x) return;
+    var gone = sxGone(x.target);
+    if (gone) { s.err = gone; sxSay(gone); state.overlayFocus = '#sx-q'; render(); return; }
     if (state.obPending || dirtyControl([app])) closeOverlay();
-    go(x.target);
+    if (go(x.target) && x.target.view === 'process' && !x.target.mapVer) { state.focus = 'page-h'; render(); }
   }
   function sxMove(d) {
     var s = state.sx; if (!s || !s.flat || !s.flat.length) return;
@@ -453,21 +473,50 @@
   function elapsed() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); }
   /* Reads are numbered as they start, so an editor can tell a read that began after its own save from an older one. */
   var readsStarted = 0;
+  /* Which runs to read first, from what this window last accepted: running, then ended in the last week; runs it doesn't
+     know yet come next (repo's default), the rest last. */
+  function readPriority() {
+    var pr = {}, week = Date.now() - 7 * 86400000;
+    data.runs.forEach(function (r) { pr[r.process + '/' + r.id] = !r.ended ? 0 : Date.parse(r.ended.at) > week ? 1 : 3; });
+    return pr;
+  }
+  /* A batch of a load still under way: fresh and unreadable results only, each through applyRunRead with the load's own
+     start, so a newer read, an edit or a save since it began wins. Runs not read yet are pending: nothing about them
+     changes, and nothing is ever marked gone here; only the complete result can do that (applyRunsRead). */
+  function applyBatch(b, at) {
+    var shown = false;
+    Object.keys(b.reads).forEach(function (k) {
+      var res = b.reads[k], prev = findRun(k), got = applyRunRead(k, at, res);
+      if (!got && !prev && res.kind === 'fresh') got = res.run;
+      if (!got || got === prev) { if (res.kind === 'unreadable') shown = true; return; }
+      var i = prev ? data.runs.indexOf(prev) : -1;
+      if (i >= 0) data.runs[i] = got; else data.runs.push(got);
+      shown = true;
+    });
+    (b.unreadable || []).forEach(function (u) { data.unreadable = (data.unreadable || []).filter(function (x) { return x.path !== u.path; }).concat([u]); });
+    if (state.reading) state.reading = { done: b.done, total: b.total };
+    if (shown || state.reading) { procCache = null; render(); }
+  }
   function load(force, deep) {
     if (!state.fs) return Promise.resolve();
     if (deep) checkNewerCopy(state.fs, gen);
     if (loading && loading.gen === gen) return loading.p;
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
-    /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. */
-    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}));
-    var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry }).then(function (d) {
+    /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
+       runs whose cached copy turned out older than the one shown. */
+    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache));
+    staleCache = {};
+    var at = { seq: seq, revs: before };
+    var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
+      onBatch: function (b) { if (g === gen) applyBatch(b, at); } }).then(function (d) {
       if (g !== gen) return;
+      state.reading = null;
       /* How long routine refreshes take here, for Folder health (the last 3). */
       if (!deep) state.refreshMs = (state.refreshMs || []).concat([elapsed() - t0]).slice(-3);
       d.readSeq = seq;
       loading = null;
       keepUnread(d);
-      d.runs = applyRunsRead(d, { seq: seq, revs: before });
+      d.runs = applyRunsRead(d, at);
       R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
@@ -478,7 +527,7 @@
       syncChildren();
       loadConn();
       loadSetupAnswers();
-    }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
+    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -508,7 +557,7 @@
      Only a fresh read clears "couldn't be read" or "gone"; a cached one never changes a run's status. Nothing about a run
      (its contents, gone, unreadable) changes any other way, except the outcome of this window's own save, which is newer
      than any read (runOutcome). Returns the run object to show when the result replaced it, else null. */
-  var applied = {}, baselines = {};
+  var applied = {}, baselines = {}, staleCache = {};
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
@@ -529,6 +578,9 @@
       if (shown && repo.runSig(shown) === res.sig) return null;
       if (!canReplace(id, at.revs)) return null;
       var built = res.build();
+      /* What the cache kept is older than what's shown (a revision this window saved or read since): never go back to it;
+         read the run fresh next time instead. */
+      if (shown && (built.rev || 0) < (shown.rev || 0)) { staleCache[key] = true; return null; }
       applied[key] = at.seq;
       if (!shown || shown._fileHash !== built._fileHash) bump(id);
       keepBaseline(id, res.build);
@@ -619,7 +671,7 @@
   }
 
   /* ---------- The connection check (connection/; core/connection.js) ---------- */
-  var connListing = false, lastConn = 0;
+  var connListing = false, lastConn = -Infinity;
   function connSig(l) { return l ? l.probes.concat(l.acks).map(function (x) { return x._file; }).sort().join('|') : ''; }
   /* Lists connection/ (only the last 15 minutes are read). On the Connection check page it runs every 5 seconds and answers
      checks from other computers; elsewhere it rides along with the routine refresh and only offers an Answer button. */
@@ -716,7 +768,9 @@
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
-    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); sxReset();
+    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
+    /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
+    state.reading = { done: 0, total: null };
     /* Input kept for return belongs to its folder: a new folder starts clean. */
     state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -1386,16 +1440,34 @@
   setInterval(tick, 1000);
 
   /* Refresh from the folder: often while a run is open, less often elsewhere, and when the window gets focus. */
-  var lastRun = 0, lastAll = 0;
+  /* Timed on both clocks: the time since the last beat is the larger of elapsed time (performance.now, which some systems
+     pause while the computer sleeps) and wall-clock time (which a person can set back), counted once. So setting the clock
+     back never delays a refresh, and waking from sleep never hides how long it's been. */
+  var beat = { mono: elapsed(), wall: Date.now(), v: 0 };
+  function since() {
+    var m = elapsed(), w = Date.now();
+    beat.v += Math.max(0, m - beat.mono, w - beat.wall); beat.mono = m; beat.wall = w;
+    return beat.v;
+  }
+  var lastRun = -Infinity, lastAll = -Infinity;
   function inRun() { return state.view === 'run' || state.view === 'mission' || state.view === 'receipt' || state.view === 'finish'; }
   setInterval(function () {
+    var now = since();
     if (document.hidden || isBusy() || !state.fs || loading) return;
-    var now = Date.now();
     if ((state.view === 'connection' || (state.view === 'setup' && state.setup && state.setup.step === 'second')) && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
-  window.addEventListener('focus', function () { if (state.fs && !isBusy()) { if (inRun()) { lastRun = Date.now(); refreshRun(); } else { lastAll = Date.now(); load(); } } });
+  /* resumed: after a gap, the whole folder is due too, so it's read right after the open run. A plain focus rereads only
+     the open run. */
+  function refreshNow(resumed) { if (!state.fs || isBusy() || document.hidden) return; var now = since(); if (inRun()) { lastRun = now; if (resumed === true) lastAll = -Infinity; refreshRun(); } else { lastAll = now; load(); } }
+  window.addEventListener('focus', function () { var gap = Date.now() - beat.wall; refreshNow(gap > 60000 || gap < -120000); });
+  /* Coming back (the tab shown again, the page restored, the network back) after more than a minute on the wall clock
+     without a beat (the computer slept): refresh at once. The folder's own clock (repo) then finds everything past its age. */
+  function resumed() { var gap = Date.now() - beat.wall; if (gap > 60000 || gap < -120000) refreshNow(true); else since(); }
+  document.addEventListener('visibilitychange', resumed);
+  window.addEventListener('pageshow', resumed);
+  window.addEventListener('online', resumed);
 
   /* ---------- saving ---------- */
   /* Resolves true once the change is in the team folder, false if it isn't. The save always goes to the folder the change was
@@ -2482,7 +2554,7 @@
     'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
     connection: function () {
       releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
-      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = Date.now(); loadConn();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = since(); loadConn();
     },
     /* Writing a run back after its file disappeared is only ever this explicit choice, and the run's log says so. */
     'restore-missing': function () {
@@ -3611,7 +3683,7 @@
 
   document.addEventListener('input', function (e) {
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
-    if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; sxRun(); render(); }
+    if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
@@ -3998,8 +4070,9 @@
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
-    /* Ctrl+K or Cmd+K opens search from anywhere on the page, also while typing. */
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }
+    /* Ctrl+K (Cmd+K on a Mac) opens search from anywhere on the page, also while typing. */
+    /* On a Mac it's Cmd+K, and Ctrl+K stays the text box's own (it deletes to the end of the line there). */
+    if ((ctx.mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }
     /* In the search box: Up and Down move through the results (wrapping), Enter opens the active one. */
     if (t && t.id === 'sx-q' && state.sx && !e.altKey && !e.ctrlKey && !e.metaKey) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sxMove(e.key === 'ArrowDown' ? 1 : -1); return; }

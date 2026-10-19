@@ -112,9 +112,11 @@ function boot(opts) {
   // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
   if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(opts.picker);
   const ctx = vm.createContext({
-    window, document, localStorage: storage(), sessionStorage, navigator: opts.locks ? { locks: opts.locks } : {}, BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
+    window, document, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
-    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver
+    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
+    // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
+    performance: opts.performance
   });
   vm.runInContext(script('pf-core'), ctx);
   // Checklists parsed once are shared by every run of a version: frozen here, so a rule that changed one would fail a test.

@@ -191,6 +191,21 @@ rule('Run: the top bar keeps the run in view (name, process and version, progres
   assert.ok(!/class="runstrip"/.test(V.top(ctx)), 'only on a run');
 });
 
+rule('While a folder\'s first read is under way, Home and Runs say so with counts, and never say there\'s nothing', () => {
+  const { ctx, state } = setup();
+  ctx.processes = () => []; ctx.data.runs = []; ctx.data.plans = []; ctx.data.legacy = []; state.filter = 'all';
+  state.reading = { done: 640, total: 2000 };
+  const home = V.home(ctx), runs = V.runs(ctx);
+  assert.ok(/<b>Still reading runs \(640 of 2,000\)\.<\/b> Runs you(&#39;|')re recording may not be listed yet\./.test(home), 'Home');
+  assert.ok(!/Nothing needs you right now/.test(home) && /Still reading the team folder\./.test(home));
+  assert.ok(/<span class="big">…<\/span><span>processes<\/span>/.test(home), 'counts not known yet aren\'t shown as 0');
+  assert.ok(/Still reading runs \(640 of 2,000\)/.test(runs) && !/Nothing is running|No finished runs yet/.test(runs), 'Runs');
+  state.reading = { done: 0, total: null };
+  assert.ok(/<b>Still reading runs\.<\/b>/.test(V.home(ctx)), 'before the runs are listed, no counts');
+  state.reading = null;
+  assert.ok(!/Still reading/.test(V.home(ctx) + V.runs(ctx)) && /Nothing is running/.test(V.runs(ctx)), 'done');
+});
+
 rule('Plans: two decisions that disagree are flagged on Runs, on Home and before starting', () => {
   const { ctx, state } = setup();
   const latest = ctx.data.processes[0].index.latest;

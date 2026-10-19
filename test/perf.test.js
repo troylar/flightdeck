@@ -5,16 +5,22 @@
 const assert = require('assert');
 const { load, loadViews, rule, run } = require('./harness');
 const { bigFolder } = require('./big-folder');
+const { NOW } = require('../tools/big-folder');
 
 /* Folder calls (list + read + stat + blob) measured with this harness on the seeded folder. 1.16.0 needed cold 32,611 /
-   32,694 / 32,676 and routine 10,063 / 10,773 / 9,797; 1.17 slice 1a stopped stat'ing a notes file again after reading it
-   (its size comes with the read). These are 1a's numbers: never raise them. Slice 1b lowers routine refreshes to the
-   targets in docs/design.md section 25. */
+   32,694 / 32,676 and routine 10,063 / 10,773 / 9,797; slice 1a needed cold 29,618 / 29,681 / 29,672 with routine unchanged.
+   Slice 1b reads sizes and times with the files themselves (no stat before or after a read) and checks runs on an
+   elapsed-time schedule (docs/design.md section 25). A routine refresh is measured 30 seconds of elapsed time after the
+   first open, on the generator's own date. The plan's target for recent-heavy was 2,000; its sum left out the 200
+   publication lists and the old-run sweep, which the schedule keeps, so 2,268 is what checking every rule costs. These
+   are 1b's numbers: never raise them. */
 const CEILING = {
-  default: { cold: 29618, routine: 10063 },
-  'recent-heavy': { cold: 29681, routine: 10773 },
-  'old-heavy': { cold: 29672, routine: 9797 }
+  default: { cold: 14638, routine: 1752 },
+  'recent-heavy': { cold: 14640, routine: 2268 },
+  'old-heavy': { cold: 14659, routine: 1345 }
 };
+/* The costliest single refresh over a 65-minute cycle on the default profile: the sweep is spread out, never all at once. */
+const SWEEP_MOST = 1773;
 const PROFILES = Object.keys(CEILING).concat(process.env.PERF === 'big' ? ['6000'] : []);
 const mb = n => (n / 1048576).toFixed(1) + ' MB';
 const line = (name, fs) => name + ': ' + fs.total() + ' calls (list ' + fs.counts.list + ' · read ' + fs.counts.read + ' · stat ' + fs.counts.stat + ' · blob ' + fs.counts.blob + ')';
@@ -22,16 +28,17 @@ const line = (name, fs) => name + ': ' + fs.total() + ' calls (list ' + fs.count
 PROFILES.forEach(profile => {
   rule('Large folder (' + profile + '): a first open, a routine refresh and Refresh stay within their folder-call budgets', async () => {
     const PF = load(), fs = bigFolder(PF, { profile });
+    let now = 1000; const clock = () => now, wall = () => NOW + now;
     let t = Date.now();
-    const cold = await PF.repo.loadAll(fs), coldN = fs.total(), coldMs = Date.now() - t;
+    const cold = await PF.repo.loadAll(fs, { clock, now: wall() }), coldN = fs.total(), coldMs = Date.now() - t;
     console.log('  ' + profile + ' ' + line('cold', fs) + ', ' + coldMs + ' ms');
     assert.ok(cold.runs.length >= 1990, 'the runs load: ' + cold.runs.length);
-    fs.reset(); t = Date.now();
-    await PF.repo.loadAll(fs);
+    fs.reset(); t = Date.now(); now += 30000;
+    await PF.repo.loadAll(fs, { clock, now: wall() });
     const routineN = fs.total();
     console.log('  ' + profile + ' ' + line('routine', fs) + ', ' + (Date.now() - t) + ' ms');
     fs.reset();
-    await PF.repo.loadAll(fs, { deep: true });
+    await PF.repo.loadAll(fs, { deep: true, clock, now: wall() });
     console.log('  ' + profile + ' ' + line('deep', fs));
     if (CEILING[profile]) {
       assert.ok(coldN <= CEILING[profile].cold, 'cold ' + coldN + ' > ' + CEILING[profile].cold);
@@ -39,6 +46,34 @@ PROFILES.forEach(profile => {
       assert.ok(fs.total() <= CEILING[profile].cold, 'Refresh reads everything, within the cold budget');
     }
   });
+});
+
+/* The schedule, over 65 minutes of elapsed time with a routine refresh every 30 seconds: every run's folder is looked at
+   within 10 minutes, every finished run's file is read in full within 60, every running run's within 5, and no single
+   refresh costs more than SWEEP_MOST (the sweep is spread out, never all at once). */
+rule('Large folder: refreshing every 30 seconds checks every run within 10 minutes and reads each in full within its maximum age, a share at a time', async () => {
+  const PF = load(), fs = bigFolder(PF, {});
+  let now = 1000; const clock = () => now;
+  const d = await PF.repo.loadAll(fs, { clock, now: NOW });
+  const running = new Set(d.runs.filter(r => !r.ended).map(r => r.process + '/' + r.id));
+  const keys = Object.keys(d.reads), seen = {}, read = {}, gapSeen = {}, gapRead = {};
+  keys.forEach(k => { seen[k] = read[k] = now; gapSeen[k] = gapRead[k] = 0; });
+  const list = fs.list.bind(fs), rd = fs.read.bind(fs);
+  fs.list = p => { const m = /^runs\/([^/]+\/[^/]+)$/.exec(p); if (m && seen[m[1]] != null) { gapSeen[m[1]] = Math.max(gapSeen[m[1]], now - seen[m[1]]); seen[m[1]] = now; } return list(p); };
+  fs.read = p => { const m = /^runs\/([^/]+\/[^/]+)\/run\.json$/.exec(p); if (m && read[m[1]] != null) { gapRead[m[1]] = Math.max(gapRead[m[1]], now - read[m[1]]); read[m[1]] = now; } return rd(p); };
+  let most = 0, total = 0, passes = 0;
+  for (now += 30000; now <= 1000 + 65 * 60000; now += 30000) {
+    fs.reset(); await PF.repo.loadAll(fs, { clock, now: NOW + now }); most = Math.max(most, fs.total()); total += fs.total(); passes++;
+  }
+  const end = now - 30000;
+  keys.forEach(k => { gapSeen[k] = Math.max(gapSeen[k], end - seen[k]); gapRead[k] = Math.max(gapRead[k], end - read[k]); });
+  const worst = (g, f) => keys.filter(f).reduce((m, k) => Math.max(m, g[k]), 0) / 60000;
+  console.log('  sweep: worst gap between checks ' + worst(gapSeen, () => true).toFixed(1) + ' min; between full reads ' + worst(gapRead, k => !running.has(k)).toFixed(1) + ' min finished, ' +
+    worst(gapRead, k => running.has(k)).toFixed(1) + ' min running; ' + passes + ' refreshes, average ' + Math.round(total / passes) + ', most ' + most + ' calls');
+  assert.ok(worst(gapSeen, () => true) <= 10, 'every run checked within 10 minutes');
+  assert.ok(worst(gapRead, k => !running.has(k)) <= 60, 'every finished run read in full within 60 minutes');
+  assert.ok(worst(gapRead, k => running.has(k)) <= 5, 'every running run read in full within 5 minutes');
+  assert.ok(most <= SWEEP_MOST, 'no refresh in the cycle costs more than ' + SWEEP_MOST + ': ' + most);
 });
 
 rule('Large folder: the Runs page parses each checklist once and draws at most 100 cards, however many runs there are', async () => {
@@ -73,7 +108,7 @@ rule('Large folder: the Runs page parses each checklist once and draws at most 1
 
 /* Search (docs/design.md section 22) on the 2,000-run folder: a build in 8 ms slices ≤ 400 ms of work, a query ≤ 30 ms at
    the 95th percentile, one run's update ≤ 5 ms, and the index's memory within its budget. */
-const SEARCH = { buildMs: 400, queryP95Ms: 30, updateMs: 5, heapMB: 80 };
+const SEARCH = { buildMs: 400, queryP95Ms: 30, updateMs: 5, heapMB: 80, refreshMs: 20 };
 /* The index's memory is measured after a full garbage collection, so the number is the index, not garbage. */
 const gc = (() => { try { require('v8').setFlagsFromString('--expose-gc'); return require('vm').runInNewContext('gc'); } catch (e) { return null; } })();
 rule('Large folder: search builds, answers and updates within its time and memory budgets', async () => {
@@ -107,6 +142,24 @@ rule('Large folder: search builds, answers and updates within its time and memor
   assert.strictEqual(changed.length, 1, 'only the replaced note changed');
   assert.strictEqual(again.changed + again.removed, 0, 'nothing else to do');
   assert.ok(S.query(ix, 'zebracrossing').total === 1, 'the new words are found');
+  // The refresh path with the palette open: a routine reload, the runs the app keeps (a cached result whose signature
+  // matches keeps the object on screen, as applyRunRead does), the follow-up list of the redraw, then sources and sync.
+  const memo = {}, keyOf = r => r.process + '/' + r.id;
+  S.sync(ix, S.docs(input, memo), input);
+  let shown = d.runs; const refresh = [];
+  for (let k = 0; k < 5; k++) {
+    const d2 = await PF.repo.loadAll(fs), byKey = new Map(shown.map(r => [keyOf(r), r]));
+    const runs2 = Object.keys(d2.reads).map(key => { const res = d2.reads[key], prev = byKey.get(key); return res.kind === 'cached' && prev && PF.repo.runSig(prev) === res.sig ? prev : res.kind === 'fresh' ? res.run : res.kind === 'cached' ? res.build() : prev; }).filter(Boolean);
+    t = now();
+    const in3 = { runs: runs2, pubs: d2.processes, drafts: d2.drafts, people: d2.people, stepTypes: d2.stepTypes.types, skills: d2.skills, corrDecisions: d2.corrDecisions, followUps: PF.followups.list(runs2, d2.fuDecisions) };
+    const c = S.sync(ix, S.docs(in3, memo), in3);
+    refresh.push(now() - t); shown = runs2;
+    if (k === 0) console.log('  search on a routine refresh: ' + c.changed + ' sources changed, ' + c.removed + ' removed; ' + runs2.filter(r => byKey.get(keyOf(r)) === r).length + ' of ' + runs2.length + ' run objects kept');
+  }
+  refresh.sort((a, b) => a - b);
+  const refreshMs = refresh[Math.floor(refresh.length / 2)];
+  console.log('  search on a routine refresh with the palette open: median ' + refreshMs.toFixed(1) + ' ms, worst ' + refresh[refresh.length - 1].toFixed(1) + ' ms over ' + refresh.length);
+  assert.ok(refreshMs <= SEARCH.refreshMs, 'refresh ' + refreshMs.toFixed(1) + ' ms > ' + SEARCH.refreshMs);
   assert.ok(docsMs + work <= SEARCH.buildMs, 'build ' + (docsMs + work).toFixed(0) + ' ms > ' + SEARCH.buildMs);
   assert.ok(p95 <= SEARCH.queryP95Ms, 'query p95 ' + p95.toFixed(1) + ' ms > ' + SEARCH.queryP95Ms);
   assert.ok(updateMs <= SEARCH.updateMs, 'update ' + updateMs.toFixed(2) + ' ms > ' + SEARCH.updateMs);

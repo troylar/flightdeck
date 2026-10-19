@@ -41,6 +41,15 @@
     });
   }
 
+  /* While the first read of a folder is still under way (docs/design.md section 25): how far it's got, and, on Home, that a
+     run being recorded may not be listed yet, since the runs read first are the ones already known to be running. */
+  function stillReading(ctx, home) {
+    var rd = ctx.state.reading; if (!rd) return '';
+    var n = function (x) { return Number(x).toLocaleString('en-US'); };
+    return '<div class="notice" role="status" id="reading"><span><b>Still reading runs' + (rd.total != null ? ' (' + n(rd.done) + ' of ' + n(rd.total) + ')' : '') + '.</b>' +
+      (home ? ' Runs you\'re recording may not be listed yet.' : ' Runs not read yet aren\'t listed.') + '</span></div>';
+  }
+
   /* ---------- Home: only what needs this person, each with one obvious next step ---------- */
   function home(ctx) {
     var st = ctx.state, d = ctx.data, me = st.me, items = [];
@@ -70,7 +79,8 @@
     });
     var h = notices(ctx);
     if (st.fs && st.fs.kind === 'memory' && !st.needsReconnect) h += '<div class="notice"><span><b>You\'re looking at the examples</b>, a made-up team saved in this browser only. When you\'re ready, start or join your own team.</span><button class="btn" data-act="setup-mode" data-id="welcome">Start or join a team</button></div>';
-    h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : 'Nothing needs you right now.') : 'Choose who you are at the top right to see what needs you.', '', 'page-h');
+    h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : 'Choose who you are at the top right to see what needs you.', '', 'page-h');
+    h += stillReading(ctx, true);
     if (V.setupHome) h += V.setupHome(ctx);
     if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
     h += acksPanel(ctx);
@@ -78,8 +88,9 @@
     var running = d.runs.filter(function (r) { return r.state === 'running'; });
     h += '<section class="panel" aria-labelledby="go-h"><h2 id="go-h">At a glance</h2><div class="glance">' +
       '<button class="tile" data-act="nav" data-id="runs"><span class="big">' + running.length + '</span><span>running</span></button>' +
-      '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + ctx.processes().length + '</span><span>processes</span></button>' +
-      '<button class="tile" data-act="nav" data-id="skills"><span class="big">' + ctx.processes().reduce(function (n, p) { return n + p.skills.length; }, 0) + '</span><span>skills</span></button>' +
+      /* Versions and skills arrive with the first complete read, so until then their counts aren't known. */
+      '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + (st.reading ? '…' : ctx.processes().length) + '</span><span>processes</span></button>' +
+      '<button class="tile" data-act="nav" data-id="skills"><span class="big">' + (st.reading ? '…' : ctx.processes().reduce(function (n, p) { return n + p.skills.length; }, 0)) + '</span><span>skills</span></button>' +
       '<button class="tile" data-act="nav" data-id="types"><span class="big">' + (T.LIST.length + Object.keys((d.stepTypes || {}).types || {}).length) + '</span><span>step types</span></button></div></section>';
     return h;
   }
@@ -135,15 +146,16 @@
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
     var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process. To start one, pick its process.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() + '<button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
     /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
+    h += stillReading(ctx, false);
     var bad = (d.unreadable || []).filter(function (u) { return /^runs\//.test(u.path); });
     if (bad.length) h += '<div class="notice bad" role="alert"><span><b>' + (bad.length === 1 ? 'A run file can\'t be read' : bad.length + ' run files can\'t be read') + '.</b> ' + bad.slice(0, 3).map(function (u) { return '<code>' + esc(u.path) + '</code> ' + esc(u.why); }).join('; ') + (bad.length > 3 ? '; and ' + (bad.length - 3) + ' more' : '') + '. ' + (bad.some(function (u) { return ctx.findRun(u.key); }) ? 'What was read before is still shown. ' : '') + 'It may still be arriving.</span><span class="row"><button class="mini" data-act="health">Folder health</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 style="margin:0">Running</h2><div class="filter" role="group" aria-label="Show runs"><button class="chipbtn" data-act="filter" data-id="mine" aria-pressed="' + (st.filter !== 'all') + '">Mine</button><button class="chipbtn" data-act="filter" data-id="all" aria-pressed="' + (st.filter === 'all') + '">Everyone</button></div></div>';
     var cards = function (list) { return '<div class="cards">' + list.map(function (r) { return runCard(ctx, r); }).join('') + '</div>'; };
-    h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
+    h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.reading ? 'None read yet.' : st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
     if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
       return '<button class="card plan" id="card-' + esc(p.id) + '" data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
     }).join('') + '</div></section>';
-    h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? K.paged(st, 'runs-ended', ended, cards, runKey) : '<p class="small">No finished runs yet.</p>') +
+    h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? K.paged(st, 'runs-ended', ended, cards, runKey) : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
       (d.legacy.length ? '<p class="small">From Flightdeck v0.1 (read-only files in <code>runs/</code>): ' + d.legacy.map(function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }).join(', ') + '</p>' : '') + '</section>';
     return h;
   }

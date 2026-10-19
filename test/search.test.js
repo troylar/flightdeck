@@ -168,4 +168,62 @@ rule('Search: a snippet shows the words around the first hit, with its marks in 
   same(segs.filter(s => s.hit).map(s => s.t), ['Rollback']);
 });
 
+/* ---------- review of 0393845 ---------- */
+rule('Search: many results of one kind never hide the other kinds that match', () => {
+  const runs = [];
+  for (let i = 0; i < 500; i++) runs.push(run1({ id: 'r' + i, title: 'Release 2026.' + i, details: {}, _fileHash: 'h' + i }));
+  const md = '---\nprocess: release\ntitle: Release\n---\n\n## Ship · READ-DO {#ship}\n- [ ] {confirm} Tag the release {#tag}\n';
+  const v = PF.publish.verify('v1-abcd1234', PF.publish.build(md, { people: [], by: 'person-avery', changes: 'First version', existing: [], now: '2026-10-01T00:00:00.000Z', rand: 'abcd1234' }).files);
+  v.folder = 'v1-abcd1234'; v.process = 'release';
+  const inp = input({ runs, pubs: [{ process: 'release', pubs: [v], index: PF.publish.index([v]) }] }), ix = built(inp);
+  ['release', 'release ', 'tag the release'].forEach(q => {
+    const kinds = S.query(ix, q).groups.map(g => g.kind);
+    if (q !== 'tag the release') {
+      assert.ok(kinds.indexOf('run') >= 0, q + ': runs');
+      assert.ok(kinds.indexOf('process') >= 0, q + ': the process is listed too: ' + kinds.join(', '));
+    }
+    assert.ok(kinds.indexOf('step') >= 0, q + ': and its step: ' + kinds.join(', '));
+  });
+});
+
+rule('Search: indexing and highlighting fold text the same way: ß is ss, Hebrew and Arabic marks are ignored, emoji separate words', () => {
+  const cases = [['Straße repaired', 'strasse', ['Straße']], ['Straße repaired', 'straße', ['Straße']], ['שָׁלוֹם עולם', 'שלום', ['שָׁלוֹם']],
+    ['مُرَحَّبًا بالعالم', 'مرحبا', ['مُرَحَّبًا']], ['Deploy 😀rocket today', 'rocket', ['rocket']], ['ΣΟΦΟΣ wise', 'σοφος', ['ΣΟΦΟΣ']], ['İstanbul trip', 'istanbul', ['İstanbul']]];
+  cases.forEach(([text, q, want]) => {
+    same(S.mark(text, q).filter(s => s.hit).map(s => s.t), want, q + ' in ' + text);
+    assert.strictEqual(S.fold(text).text, S.foldText(text), 'fold and foldText agree on ' + text);
+    const ix = built(input({ runs: [run1({ title: text })] }));
+    assert.strictEqual(S.query(ix, q).total, 1, q + ' finds ' + text);
+  });
+  const heb = 'בָּית';
+  assert.strictEqual(S.fold(heb).text, S.foldText(heb), 'mark order doesn\'t matter');
+  same(S.words(S.foldText('go😀now 👍🏽 ok')), ['go', 'now', 'ok'], 'emoji and their modifiers separate words');
+});
+
+rule('Search: a snippet never splits a character: no lone surrogate and no combining mark at either end', () => {
+  const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(^|[^\ud800-\udbff])[\udc00-\udfff]/;
+  for (const pad of ['😀', '𐐀', 'é', 'é']) {
+    for (let k = 0; k < 6; k++) {
+      const text = 'x'.repeat(k) + pad.repeat(120) + ' needle ' + pad.repeat(120), j = S.snippet(text, 'needle', 140).map(s => s.t).join('');
+      assert.ok(!lone.test(j), 'no lone surrogate with ' + pad + ' +' + k);
+      assert.ok(!/^…?[̀-ͯ]/.test(j) && /needle/.test(j), 'no mark first with ' + pad + ' +' + k);
+    }
+  }
+});
+
+rule('Search: an unchanged run is skipped as a whole on a later sync, and a changed one is reindexed', () => {
+  const runs = [run1({ id: 'a', _fileHash: 'a', _notesSig: 'n1', _notes: [note()] }), run1({ id: 'b', _fileHash: 'b', title: 'Other' })];
+  let inp = input({ runs }); const ix = built(inp), added = ix.stats.added;
+  // New objects with the same file and notes, as a refresh builds them.
+  inp = input({ runs: runs.map(r => Object.assign({}, r)) });
+  assert.strictEqual(S.sync(ix, S.docs(inp), inp).changed, 0);
+  assert.strictEqual(ix.stats.added, added, 'nothing indexed again');
+  inp = input({ runs: [Object.assign({}, runs[0], { _notesSig: 'n2', _notes: [note({ text: 'Wombats' })] }), runs[1]] });
+  S.sync(ix, S.docs(inp), inp);
+  assert.ok(S.query(ix, 'wombats').total === 1 && S.query(ix, 'restarted').total === 0, 'the changed notes are reindexed');
+  inp = input({ runs: [runs[1]] });
+  S.sync(ix, S.docs(inp), inp);
+  assert.strictEqual(S.query(ix, 'wombats').total, 0, 'a run that\'s gone takes its notes with it');
+});
+
 run();

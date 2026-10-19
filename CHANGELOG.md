@@ -4,7 +4,7 @@
 
 ## 1.17.0 · Oct 19, 2026
 
-Search everything with Ctrl+K, and big team folders: runs 50 at a time, fewer file checks, a warning when refreshing is slow.
+Search everything with Ctrl+K, and big team folders open and refresh faster, show 50 runs at a time, and warn when refreshing is slow.
 
 ### New
 
@@ -14,7 +14,13 @@ Search everything with Ctrl+K, and big team folders: runs 50 at a time, fewer fi
 ### Improved
 
 - **Runs load 50 at a time** (Runs). Running and Finished each show 50 runs and say how many there are. Show 50 more adds the next ones and moves you to the first one added. *Where:* Runs
-- **Big team folders open with fewer file checks** (Team folder). A notes file's size now comes with reading it, so opening a big folder asks OneDrive for about 10% fewer things. Pictures are read when they scroll into view, a few at a time, after the run you're recording. *Where:* Opening a team folder, and any page with pictures
+- **Big team folders open faster, and show runs as they're read** (Team folder). Reading a file now gives its size too, so opening a big folder asks OneDrive about half as many things. Runs appear as they're read, and Home and Runs say "Still reading runs (640 of 2,000)" until it's done. A run not read yet is never shown as gone. Pictures are read when they scroll into view, a few at a time, after the run you're recording. *Where:* Opening a team folder, Home, Runs, and any page with pictures
+- **Refreshing a big team folder asks for much less** (Team folder). Running runs and runs that ended in the last week are checked on every refresh. Older runs are checked a share at a time, each one at least every 10 minutes, so a refresh asks OneDrive about 80% fewer things. A late note on an old run can take up to 10 minutes to show. Refresh in the top bar still reads everything at once. *Where:* Every team folder, while Flightdeck is open
+- **An edit that keeps a file's size and time still shows up** (Team folder). Every finished run is read in full at least once an hour, and every running run you don't have open at least every 5 minutes, whatever its size and time say. Decisions on corrections and follow-ups are read again at least once an hour too. *Where:* Every team folder, while Flightdeck is open
+
+### Fixed
+
+- **Changing the clock or waking from sleep no longer delays refreshing** (Team folder). Setting the clock back doesn't delay refreshing, and after the computer sleeps, Flightdeck refreshes as soon as you come back and reads whatever went past its time first. While the tab is hidden nothing is read. *Where:* Every team folder, while Flightdeck is open
 
 ## 1.16.1 · Oct 19, 2026
 
