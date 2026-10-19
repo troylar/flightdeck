@@ -5,6 +5,7 @@ category: Releases
 group: Engineering / Releases
 tags: production, deploy
 owner: person-casey
+backup: person-avery
 context: ticket, commit, environment, tag
 roles: release-lead, qa, backend
 ---

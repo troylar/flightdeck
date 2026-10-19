@@ -78,10 +78,25 @@ PF.health = (function () {
     else {
       if (dup.length) add({ id: 'people-dup', severity: 'stop', area: 'People', title: 'Two people share an ID in people.json', detail: dup.join(', ') + ' appears more than once, so runs can\'t tell them apart. Keep one entry per ID; never reuse an ID.', paths: ['people.json'], action: help(HELP.left, 'How people.json works'), help: HELP.left });
       if (snap.me && !ids[snap.me]) add({ id: 'me-missing', severity: 'warn', area: 'People', title: 'You aren\'t in people.json', detail: 'You\'re recording as "' + snap.me + '", which the people list doesn\'t have. Ask whoever keeps people.json to add you.', paths: ['people.json'], action: { act: 'nav', id: 'settings', label: 'See the people list' }, help: HELP.left });
-      var gone = [];
-      procs.forEach(function (p) { var l = p.index && p.index.latest, o = l && l.map.meta.owner; if (o && (!ids[o] || ids[o].inactive)) gone.push({ process: p.process, owner: o, why: ids[o] ? 'is marked inactive' : 'isn\'t in people.json' }); });
-      gone.forEach(function (g) { add({ id: 'owner:' + g.process, severity: 'warn', area: 'People', title: 'The checklist "' + g.process + '" needs a new owner', detail: 'Its owner, ' + nameOf(people, g.owner) + ', ' + g.why + '. Change owner: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the process' }, help: HELP.left }); });
-      if (!dup.length && !gone.length && !(snap.me && !ids[snap.me])) ok('people', 'people.json lists ' + plural(people.length, 'person', 'people') + (snap.me ? ', you included' : '') + ', and every checklist owner is on it.');
+      var gone = [], away = function (id) { return !ids[id] || ids[id].inactive; }, why = function (id) { return ids[id] ? 'is marked inactive' : 'isn\'t in people.json'; };
+      procs.forEach(function (p) {
+        var l = p.index && p.index.latest, o = l && l.map.meta.owner, b = l && l.map.meta.backup;
+        if (o && away(o)) gone.push({ process: p.process, owner: o, why: why(o), backup: b && b !== o && !away(b) ? b : null });
+        if (b && b !== o && away(b)) gone.push({ process: p.process, backupGone: b, why: why(b) });
+      });
+      gone.forEach(function (g) {
+        if (g.backupGone) { add({ id: 'backup:' + g.process, severity: 'info', area: 'People', title: 'The checklist "' + g.process + '" needs a new backup owner', detail: 'Its backup owner, ' + nameOf(people, g.backupGone) + ', ' + g.why + '. Change backup: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the process' }, help: HELP.left }); return; }
+        add({ id: 'owner:' + g.process, severity: 'warn', area: 'People', title: 'The checklist "' + g.process + '" needs a new owner', detail: 'Its owner, ' + nameOf(people, g.owner) + ', ' + g.why + '. ' + (g.backup ? 'Its backup owner, ' + nameOf(people, g.backup) + ', can sign off versions until then. ' : '') + 'Change owner: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the process' }, help: HELP.left });
+      });
+      /* The folder owner and backup owner keep people.json; without an active one, nobody can change it in Flightdeck. */
+      var fr = PF.people.roles(people), fo = fr.owner, fb = fr.backup, roleIssue = false;
+      var role = function (i) { roleIssue = true; i.area = 'People'; i.paths = ['people.json']; i.help = HELP.left; add(i); };
+      if (fr.owners.length > 1 || fr.backups.length > 1) role({ id: 'folder-roles', severity: 'warn', title: 'people.json names more than one ' + (fr.owners.length > 1 ? 'folder owner' : 'backup owner'), detail: (fr.owners.length > 1 ? fr.owners : fr.backups).map(function (p) { return p.name; }).join(' and ') + ' both have it. Flightdeck uses the first; edit people.json so one person has each role.', action: help(HELP.left, 'How people.json works') });
+      if (!fo) role({ id: 'folder-owner', severity: 'info', title: 'Nobody is the folder owner', detail: 'The folder owner and a backup owner keep the people list in Settings. Give one person "folderRole": "owner" in people.json (your AI assistant can do it).', action: help(HELP.left, 'How people.json works') });
+      else if (fo.inactive) role({ id: 'folder-owner', severity: 'warn', title: 'The folder owner, ' + fo.name + ', is marked inactive', detail: fb && !fb.inactive ? fb.name + ', the backup owner, can make someone else the folder owner in Settings, People.' : 'Nobody active can change the people list in Flightdeck. Give someone "folderRole": "owner" in people.json.', action: { act: 'nav', id: 'settings', label: 'See the people list' } });
+      else if (!fb && people.filter(function (p) { return !p.inactive; }).length > 1) role({ id: 'folder-backup', severity: 'info', title: 'No backup owner for the people list', detail: 'If ' + fo.name + ' is away or leaves, nobody else can add people in Flightdeck. Choose a backup owner in Settings, People.', action: { act: 'nav', id: 'settings', label: 'Choose a backup owner' } });
+      else if (fb && fb.inactive) role({ id: 'folder-backup', severity: 'info', title: 'The backup owner, ' + fb.name + ', is marked inactive', detail: 'Choose another backup owner in Settings, People.', action: { act: 'nav', id: 'settings', label: 'Choose a backup owner' } });
+      if (!dup.length && !gone.length && !roleIssue && !(snap.me && !ids[snap.me])) ok('people', 'people.json lists ' + plural(people.length, 'person', 'people') + (snap.me ? ', you included' : '') + ', with ' + (fb ? 'a folder owner and backup owner' : 'a folder owner') + ', and every checklist owner is on it.');
     }
 
     /* ---- conflict copies and OneDrive copies ---- */

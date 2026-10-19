@@ -11,7 +11,7 @@ PF.vk = (function () {
     var p = person(ctx, id), ini = p ? p.initials : String(id || '?').slice(0, 2).toUpperCase();
     return '<span class="avatar' + (lg ? ' lg' : '') + '" title="' + esc(nameOf(ctx, id)) + '">' + esc(ini) + '</span>';
   }
-  function notices(ctx) {
+  function notices(ctx, opts) {
     var h = '';
     /* A quiet message (a check said back, Copied) is only announced, never shown as a notice. */
     if (ctx.state.msg && !ctx.state.msg.quiet) h += '<div class="notice ' + (ctx.state.msg.kind || '') + '" role="status"><span>' + esc(ctx.state.msg.text) + '</span><span class="row">' + (ctx.state.msg.act ? '<button class="btn" data-act="' + esc(ctx.state.msg.act) + '"' + (ctx.state.msg.id ? ' data-id="' + esc(ctx.state.msg.id) + '"' : '') + '>' + esc(ctx.state.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
@@ -22,7 +22,7 @@ PF.vk = (function () {
     var failed = Object.keys(ctx.data.failed || {});
     if (failed.length && !ctx.state.folderErr) h += '<div class="notice warn" role="status"><span><b>Part of the team folder couldn\'t be read</b> (' + esc(failed.join(', ')) + '). You\'re seeing what was read before for ' + (failed.length === 1 ? 'it' : 'them') + '.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="health">Folder health</button></span></div>';
     if (PF.vk.connBanner) h += PF.vk.connBanner(ctx);
-    if (!ctx.state.me) h += '<div class="notice warn"><span>Choose who you are at the top right. Everything you record or note is stamped with your name.</span></div>';
+    if (!ctx.state.me && !(opts && opts.noMe)) h += '<div class="notice warn"><span>Choose who you are at the top right. Everything you record or note is stamped with your name.</span></div>';
     return h;
   }
   function ago(iso, now) {
@@ -81,7 +81,7 @@ PF.vk = (function () {
   /* ---------- top bar ---------- */
   /* The sections, always in the top bar. Every screen belongs to one, so where you are is always lit. */
   var NAV = [['home', 'Home'], ['runs', 'Runs'], ['processes', 'Processes'], ['skills', 'Skills'], ['types', 'Step types'], ['settings', 'Settings']];
-  var SECTION = { health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'skills', skill: 'skills', types: 'types', settings: 'settings' };
+  var SECTION = { setup: 'home', health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'skills', skill: 'skills', types: 'types', settings: 'settings' };
   function sectionOf(view) { return SECTION[view] || 'home'; }
   function top(ctx) {
     var st = ctx.state, fs = st.fs, cur = sectionOf(st.view), h = '<button class="brand" data-act="nav" data-id="home" aria-label="Flightdeck home"><span class="brand-mark" aria-hidden="true"></span>Flightdeck</button>';
@@ -101,7 +101,7 @@ PF.vk = (function () {
     h += '<button class="mini icon-btn" data-act="theme" data-id="' + THEMES[th].next + '" aria-label="Appearance: ' + THEMES[th].label + '. Switch to ' + THEMES[THEMES[th].next].label + '" title="Appearance: ' + THEMES[th].label + '">' + I(THEMES[th].icon) + '</button>';
     h += '<label class="me" for="me">You are ';
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-    if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select>';
+    if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(PF.people.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select>';
     else h += '<input id="me" value="' + esc(st.me) + '" placeholder="Your name" maxlength="40">';
     h += '</label>';
     /* On a run, which run it is stays in view while scrolling: its name, process and version, where it is and how far. */

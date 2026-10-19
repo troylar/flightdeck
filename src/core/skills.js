@@ -140,10 +140,23 @@ PF.skills = (function () {
     return { completed: mine.length, clean: clean.length, cleanRuns: clean.map(function (r) { return r.title; }), needed: READY_RUNS, enough: clean.length >= READY_RUNS, deviations: deviations };
   }
   /* The sign-offs for a publication (validations/<process>.v<N>.<writer>.json), newest first. A sign-off counts only for the
-     exact publication folder it was made on. */
+     exact publication folder it was made on, and only by its owner, or by its backup owner (as: "backup"), which Flightdeck
+     offers only while the owner is inactive or gone from people.json. Copies before 1.15 count only the owner's. */
   function signoffs(all, pub) {
-    var owner = pub.map.meta.owner;
-    return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+    var owner = pub.map.meta.owner, backup = pub.map.meta.backup;
+    return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup)); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+  }
+  /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
+     people.json (as read; peopleUnread: this read of it failed), and only while the backup is listed and active. Returns "owner", "backup" or "". */
+  function signer(pub, people, me, peopleUnread) {
+    var meta = pub.map.meta, owner = meta.owner, backup = meta.backup;
+    if (!me) return '';
+    if (!owner || owner === me) return 'owner';
+    /* The owner's absence must be read, never assumed: no backup sign-off while people.json can't be read or lists nobody. */
+    if (peopleUnread || !(people || []).length) return '';
+    var o = (people || []).filter(function (p) { return p.id === owner; })[0];
+    var b = (people || []).filter(function (p) { return p.id === backup; })[0];
+    return backup && backup === me && b && !b.inactive && (!o || o.inactive) ? 'backup' : '';
   }
 
   /* ---------- Briefs: what an AI assistant needs to create or update a skill. Plain Markdown to paste, or for an AI assistant to read. ---------- */
@@ -216,5 +229,5 @@ PF.skills = (function () {
       evidenceBlock(ready, signs)].join('\n');
   }
 
-  return { READY_RUNS: READY_RUNS, check: check, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, check: check, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

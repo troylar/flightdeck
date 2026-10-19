@@ -24,6 +24,7 @@ This folder holds the team's process checklists and runs for Flightdeck. Read th
 - `corrections/` and `suggestions/`: people decide on corrections there (`suggestions/` holds decisions on suggested fixes from before 1.13). Read them; never write them.
 - Plans people made in the app (`"by"` is a person's ID): write a new plan instead.
 - `connection/`: connection checks between computers, written by Flightdeck windows. Never write, edit or delete anything there.
+- `people.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck. It's an array of `{ "id", "name", "initials", "email", "inactive", "folderRole" }`; `folderRole` is `"owner"` (one person) or `"backup"` (one person). Edit it only when a person asks, never delete anyone (mark them `"inactive": true`), and never change or reuse an ID.
 - `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install`. Never write them; merge an update only when a person asks (see above).
 
 ## Skills for this folder
@@ -45,7 +46,7 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 
 Follow `docs/map-format.md` in the Flightdeck repository (a copy is in `.flightdeck/skills/_flightdeck/map-format.md`). Use only the syntax it describes: Flightdeck refuses anything else. The essentials:
 
-- Front matter: `process`, `title`, `category`, `group` (its place in the hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `context` (run details), `roles`, and `runs: solo` when one person usually runs it alone.
+- Front matter: `process`, `title`, `category`, `group` (its place in the hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `backup` (optional: another person ID, who signs off only while the owner is inactive or gone), `context` (run details), `roles`, and `runs: solo` when one person usually runs it alone.
 - **Many processes are solo**: a developer's check-in, a product owner's weekly Jira cleanup. Write those for one person: `runs: solo`, one role or none, no "together" steps. Example:
 
   ```markdown

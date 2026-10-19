@@ -113,7 +113,7 @@
       '<div class="grid2">' + field('id', 'Process ID', 'lowercase, dashes: the file name and what skills point to', f.id, ' pattern="[a-z0-9][a-z0-9-]*" required') + field('title', 'Title', '', f.title, ' required') + '</div>' +
       '<div class="grid2">' + field('group', 'Group', 'its place in the hierarchy, like Engineering / Releases', f.group) + field('tags', 'Tags', 'comma-separated', f.tags) + '</div>' +
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
-      '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label>' +
       '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="home">Cancel</button></div></form>';
   }
@@ -402,14 +402,13 @@
     if (fs && fs.kind === 'folder') h += '<p>Using <b>' + esc(fs.name) + '</b>' + (st.folderErr ? ', which can\'t be read right now: ' + esc(st.folderErr) : ', read ' + esc(U.hm(st.runReadAt || new Date().toISOString())) + '.') + '</p>';
     else if (st.needsReconnect) h += '<p>The team folder needs your OK again.</p><div class="row"><button class="btn go" data-act="reconnect">Reconnect</button></div>';
     else h += '<p>You\'re using the <b>examples</b>, saved in this browser only.</p>';
-    h += ctx.canFolder ? '<div class="row"><button class="btn" data-act="connect">' + (fs && fs.kind === 'folder' ? 'Change team folder' : 'Open team folder') + '</button><button class="btn" data-act="new-folder">Start a new team folder</button>' + (fs && fs.kind === 'memory' ? '<button class="mini" data-act="reset-examples">Reset examples</button>' : '') + '</div>' +
+    h += ctx.canFolder ? '<div class="row"><button class="btn" data-act="connect">' + (fs && fs.kind === 'folder' ? 'Change team folder' : 'Open team folder') + '</button><button class="btn" data-act="new-folder">Start a new team</button>' + (fs && fs.kind === 'folder' && ctx.setupProgress && PF.people.canManage(d.people, st.me) && !ctx.setupProgress().complete ? '<button class="mini" data-act="setup-continue" data-id="' + esc(ctx.setupProgress().next) + '">Getting started</button>' : '') + (fs && fs.kind === 'memory' ? '<button class="mini" data-act="reset-examples">Reset examples</button>' : '') + '</div>' +
       '<p class="small">Pick a shared OneDrive folder set to <i>Always keep on this device</i>.</p>'
       : '<p class="small">This browser can\'t open folders. Use Edge or Chrome on a computer.</p>';
     h += '</section>';
     h += '<section class="panel stack" aria-labelledby="set-health"><h2 id="set-health">' + I('pulse') + 'Folder health</h2><p class="small">Conflict copies, files that can\'t be read, versions still arriving, and more, each with what to do. Then check that files travel between two computers.</p>' +
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
-    h += '<section class="panel" aria-labelledby="set-people"><h2 id="set-people">' + I('people') + 'People · ' + d.people.length + '</h2>' + (d.people.length ? '<ul class="vlist">' + d.people.map(function (p) { return '<li>' + K.avatar(ctx, p.id) + '<span><b>' + esc(p.name) + '</b>' + (p.inactive ? ' <span class="small">(inactive)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span></li>'; }).join('') + '</ul>' : '<p class="small">Nobody yet.</p>') +
-      '<p class="small">To change this list, edit <code>people.json</code> in the team folder.</p></section>';
+    h += V.peoplePanel(ctx);
     h += V.teamSetup(ctx);
     var th = V.THEMES[st.theme] ? st.theme : 'system';
     h += '<section class="panel" aria-labelledby="set-look"><h2 id="set-look">Appearance</h2><div class="seg" role="group" aria-labelledby="set-look">' + ['system', 'light', 'dark'].map(function (k) { return '<button type="button" data-act="theme" data-id="' + k + '" aria-pressed="' + (th === k) + '">' + I(V.THEMES[k].icon) + V.THEMES[k].label + '</button>'; }).join('') + '</div></section>';
