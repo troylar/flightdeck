@@ -812,4 +812,34 @@ rule('Older copies never list followups/: deciding a follow-up leaves run.json a
   assert.ok(!/followups/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')), 'check_folder.py knows nothing of it either');
 });
 
+
+rule('One odd follow-up decision file never hides the others: it\'s listed as unreadable and the rest load', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'done', {}, NOW, null), 'wa');
+  await fs.write('followups/release/run1.fu1.wb.1.json', JSON.stringify({ kind: 'followup-decision', process: 'release', run: { toString: 0 }, followUp: 'fu1', status: 'open', by: 'p', at: NOW, rev: 1 }).replace('{"toString":0}', '{"toString":0}'));
+  await fs.write('followups/release/stray.json', '{}');
+  const d = await repo.loadAll(fs);
+  assert.ok(!d.failed['follow-ups'], 'the part still reads');
+  same(d.fuDecisions.map(x => x._file), ['run1.fu1.wa.1.json']);
+  same(d.fuUnread.map(u => u._file).sort(), ['run1.fu1.wb.1.json', 'stray.json']);
+});
+
+rule('A follow-up decision is announced only once it reads back from the folder', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  const rec = F.decision(F.list([r], [])[0], 'person-blake', 'done', {}, NOW, null);
+  const write = fs.write.bind(fs);
+  fs.write = (p, t) => write(p, /^followups\//.test(p) ? '{ "half": ' : t);
+  await assert.rejects(repo.decideFollowUp(fs, rec, 'wa'), /didn't read back|didn’t read back/);
+});
+
+rule('Two saves of the same follow-up decision at once: one is written, the other refused', async () => {
+  const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
+  const x = F.list([r], [])[0];
+  const one = F.decision(x, 'person-blake', 'done', {}, NOW, null), two = F.decision(x, 'person-blake', 'wont', { reason: 'No' }, NOW, null);
+  const res = await Promise.allSettled([repo.decideFollowUp(fs, one, 'wa'), repo.decideFollowUp(fs, two, 'wa')]);
+  same(res.map(x => x.status).sort(), ['fulfilled', 'rejected']);
+  const kept = JSON.parse((await fs.read('followups/release/run1.fu1.wa.1.json')).text);
+  assert.strictEqual(kept.status, res[0].status === 'fulfilled' ? 'done' : 'wont', 'the file holds the one that was said to be written');
+});
+
 run();

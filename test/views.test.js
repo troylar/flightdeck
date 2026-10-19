@@ -1611,14 +1611,16 @@ rule('Follow-up actions are named for their follow-up, and the open form labels 
   assert.ok(/role="group" aria-label="What became of it: Ask for a window"/.test(html), 'the actions are a named group');
   ['done', 'ticket', 'moved', 'wont'].forEach(k => assert.ok(new RegExp('data-act="fu-pick" data-id="release/run1/fu2" data-status="' + k + '" aria-expanded="false"').test(html), k));
   assert.ok(/data-act="open-run" data-id="release\/run1">Release<\/button>/.test(html), 'each links to its run');
-  state.fuPick = { key: 'release/run1/fu2', status: 'wont' }; state.fieldErr = { id: 'fud-reason', msg: 'Why won\'t it be done? Say why.' };
-  html = V.followUpsPage(ctx);
+  // The form's IDs belong to its follow-up; read them here as fud-… to check the markup.
+  const B = PF.followups.formId('release/run1/fu2'), N = h => h.split(B).join('fud');
+  state.fuPick = { key: 'release/run1/fu2', status: 'wont' }; state.fieldErr = { id: B + '-reason', msg: 'Why won\'t it be done? Say why.' };
+  html = N(V.followUpsPage(ctx));
   assert.ok(/data-status="wont" aria-expanded="true" aria-controls="fud-form"/.test(html));
   assert.ok(/<div class="fu-form" id="fud-form" role="group" aria-labelledby="fud-h">/.test(html));
   assert.ok(/<label class="field" for="fud-reason">Why won't it be done\?<input id="fud-reason" maxlength="300" aria-invalid="true" aria-describedby="fud-reason-hint ferr-fud-reason"/.test(html), 'labeled, invalid, described by its hint and its error');
   assert.ok(/<p class="ferr" id="ferr-fud-reason" role="alert">Why won&#39;t it be done\? Say why\.<\/p>/.test(html));
   state.fuPick = { key: 'release/run1/fu2', status: 'moved' }; state.fieldErr = null;
-  html = V.followUpsPage(ctx);
+  html = N(V.followUpsPage(ctx));
   assert.ok(/<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to">/.test(html) && /for="fud-link">Or a link \(optional\)/.test(html));
   assert.ok(!/<option value="release\/run1">/.test(html), 'never the run it came from');
   state.me = null;

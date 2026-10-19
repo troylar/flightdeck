@@ -2592,4 +2592,48 @@ rule('The text receipt says what became of each follow-up', () => {
   assert.ok(/- Rotate the deploy password \(person-avery\) · Moved to ABC-12/.test(t) && /- Ask for a standing window \(person-blake\) · Open/.test(t), t);
 });
 
+
+/* ---------- Follow-ups: review fixes ---------- */
+rule('Follow-ups: each follow-up\'s form has its own element IDs, so what was typed for one never goes with another', () => {
+  const a = F.formId('release/run1/fu1'), b = F.formId('release/run1/fu2');
+  assert.ok(/^fud-[0-9a-f]{8,16}$/.test(a) && /^fud-[0-9a-f]{8,16}$/.test(b), a + ' ' + b);
+  assert.notStrictEqual(a, b);
+  assert.strictEqual(F.formId('release/run1/fu1'), a, 'the same on every redraw');
+});
+
+rule('Follow-ups: a decision file with odd values is never thrown on: strings only, else it isn\'t one', () => {
+  const ok = { kind: 'followup-decision', process: 'release', run: 'run1', followUp: 'fu1', status: 'done', by: 'p', at: NOW, rev: 1 };
+  const odd = [{ run: { toString: 0 } }, { followUp: { toString: 0 } }, { by: { toString: 0 } }, { at: 5 }, { status: { toString: 0 } }, { seen: { toString: 0 } }, { link: { toString: 0 } }, { note: 7 }, { to: { run: { toString: 0 } } }, { to: { plan: [] } }, { ticket: {} }, { reason: { toString: 0 } }];
+  odd.forEach(o => {
+    let d; assert.doesNotThrow(() => { d = F.cleanDecision(Object.assign({}, ok, o), 'release', 'run1.fu1.w1.1.json'); }, JSON.stringify(Object.keys(o)));
+    assert.ok(d === null || (typeof d.run === 'string' && typeof d.by === 'string' && (d.link === undefined || typeof d.link === 'string') && (d.note === undefined || typeof d.note === 'string')), JSON.stringify(o));
+  });
+  assert.doesNotThrow(() => F.cleanDecision(ok, 'release', { toString: 0 }));
+  assert.strictEqual(F.cleanDecision(Object.assign({}, ok, { by: 'x'.repeat(500) }), 'release', 'run1.fu1.w1.1.json').by.length, 80, 'lengths are capped');
+});
+
+rule('Follow-ups: OneDrive\'s conflict copies of a decision count as decisions, so a same-rev clash shows Needs review', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1');
+  const a = decided(F.decision(x, 'person-blake', 'done', {}, NOW, null), 'w1');
+  const copy = F.cleanDecision(JSON.parse(JSON.stringify(F.decision(x, 'person-casey', 'open', {}, NOW, null))), 'release', 'run1.fu1.w1.1-LAPTOP.json');
+  assert.ok(copy, 'a computer-name copy is a decision');
+  assert.ok(F.cleanDecision(JSON.parse(JSON.stringify(a)), 'release', 'run1.fu1.w1.1 (1).json'), 'and so is " (1)"');
+  const y = F.list([r], [a, copy]).filter(z => z.id === 'fu1')[0];
+  same([y.status, y.tie, y.label], ['open', true, 'Needs review']);
+  assert.strictEqual(F.cleanDecision(JSON.parse(JSON.stringify(a)), 'release', 'notes.json'), null, 'other names aren\'t decisions');
+});
+
+rule('Follow-ups: a rev is a whole number from 1 up to a million; anything else isn\'t a decision', () => {
+  const ok = { kind: 'followup-decision', process: 'release', run: 'run1', followUp: 'fu1', status: 'done', by: 'p', at: NOW };
+  [1e100, 0, -1, 1.5, '2', NaN, Infinity, 1000001].forEach(rev => assert.strictEqual(F.cleanDecision(Object.assign({ rev }, ok), 'release', 'run1.fu1.w1.1.json'), null, String(rev)));
+  assert.strictEqual(F.cleanDecision(Object.assign({ rev: 1000000 }, ok), 'release', 'run1.fu1.w1.1000000.json').rev, 1000000);
+  const x = fuItem(fuRun(), 'fu1');
+  assert.throws(() => F.decision(x, 'p', 'done', {}, NOW, { rev: 1000000, _file: 'run1.fu1.w1.1000000.json' }), /too many decisions/);
+});
+
+rule('The team folder\'s AGENTS.md says two follow-up decisions at the same rev show as Needs review', () => {
+  const line = example('AGENTS.md').split('\n').filter(l => /`followups\/`/.test(l))[0];
+  assert.ok(line && /same `rev`/.test(line) && /Needs review/.test(line), line);
+});
+
 run();

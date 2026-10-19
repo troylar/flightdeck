@@ -623,7 +623,7 @@
     if (opts.actions !== false && me && x.decidable) {
       if (x.status === 'open') acts = ['done', 'ticket', 'moved', 'wont'].map(function (k) {
         var on = !!pick && pick.status === k;
-        return '<button class="mini" data-act="fu-pick" data-id="' + esc(x.key) + '" data-status="' + k + '" aria-expanded="' + on + '"' + (on ? ' aria-controls="fud-form"' : '') + '>' + FU_FORM[k] + '</button>';
+        return '<button class="mini" data-act="fu-pick" data-id="' + esc(x.key) + '" data-status="' + k + '" aria-expanded="' + on + '"' + (on ? ' aria-controls="' + PF.followups.formId(x.key) + '-form"' : '') + '>' + FU_FORM[k] + '</button>';
       }).join('');
       if (x.status !== 'open' || x.tie) acts += '<button class="mini" data-act="fu-reopen" data-id="' + esc(x.key) + '"' + (st.fuSaving === x.key ? ' disabled' : '') + '>Reopen</button>';
     }
@@ -632,24 +632,25 @@
     if (pick && opts.actions !== false) h += fuForm(ctx, x, pick.status);
     return h + '</li>';
   }
-  /* The form for one decision. Labels above boxes, errors next to their box. */
+  /* The form for one decision. Its element IDs belong to this follow-up (PF.followups.formId), so a box typed in for one
+     follow-up is never carried into another's form. Labels above boxes, errors next to their box. */
   function fuForm(ctx, x, status) {
-    var st = ctx.state, saving = st.fuSaving === x.key;
-    var box = function (id, label, attrs, hint) {
-      var bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
+    var st = ctx.state, saving = st.fuSaving === x.key, base = PF.followups.formId(x.key);
+    var box = function (part, label, attrs, hint) {
+      var id = base + '-' + part, bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
       return '<label class="field" for="' + id + '">' + label + '<input id="' + id + '" ' + attrs + (bad ? ' aria-invalid="true"' : '') + (desc ? ' aria-describedby="' + desc + '"' : '') + ' data-enter="fu-save" data-id="' + esc(x.key) + '"></label>' + (hint ? '<span class="small" id="' + id + '-hint">' + hint + '</span>' : '') + ferr(st, id);
     };
-    var h = '<div class="fu-form" id="fud-form" role="group" aria-labelledby="fud-h"><p class="fu-form-h" id="fud-h"><b>' + FU_FORM[status] + '</b><span class="sr">: ' + esc(x.text) + '</span></p>';
-    if (status === 'done') h += box('fud-link', 'Link (optional)', 'type="url" maxlength="500" placeholder="https://"', 'Where the work is: a merged pull request, a page, a message.') + box('fud-note', 'Note (optional)', 'maxlength="300"');
-    else if (status === 'ticket') h += box('fud-ticket', 'Ticket key or link', 'maxlength="500" placeholder="ABC-123" autocomplete="off"');
+    var h = '<div class="fu-form" id="' + base + '-form" role="group" aria-labelledby="' + base + '-h"><p class="fu-form-h" id="' + base + '-h"><b>' + FU_FORM[status] + '</b><span class="sr">: ' + esc(x.text) + '</span></p>';
+    if (status === 'done') h += box('link', 'Link (optional)', 'type="url" maxlength="500" placeholder="https://"', 'Where the work is: a merged pull request, a page, a message.') + box('note', 'Note (optional)', 'maxlength="300"');
+    else if (status === 'ticket') h += box('ticket', 'Ticket key or link', 'maxlength="500" placeholder="ABC-123" autocomplete="off"');
     else if (status === 'moved') {
       var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && /^[\w-]{1,100}$/.test(p.id || ''); });
-      var bad = st.fieldErr && st.fieldErr.id === 'fud-to';
-      h += '<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to"' + (bad ? ' aria-invalid="true" aria-describedby="ferr-fud-to"' : '') + '><option value="">None: I\'ll paste a link</option>' +
+      var toId = base + '-to', bad = st.fieldErr && st.fieldErr.id === toId;
+      h += '<label class="field" for="' + toId + '">The run or plan it moved to<select id="' + toId + '"' + (bad ? ' aria-invalid="true" aria-describedby="ferr-' + toId + '"' : '') + '><option value="">None: I\'ll paste a link</option>' +
         (runs.length ? '<optgroup label="Running">' + runs.map(function (r) { return '<option value="' + esc(r.process + '/' + r.id) + '">' + esc(r.title) + '</option>'; }).join('') + '</optgroup>' : '') +
-        (plans.length ? '<optgroup label="Planned">' + plans.map(function (p) { return '<option value="plan:' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('') + '</optgroup>' : '') + '</select></label>' + ferr(st, 'fud-to') +
-        box('fud-link', 'Or a link (optional)', 'type="url" maxlength="500" placeholder="https://"');
-    } else if (status === 'wont') h += box('fud-reason', 'Why won\'t it be done?', 'maxlength="300"', 'Everyone who opens the run sees this.');
+        (plans.length ? '<optgroup label="Planned">' + plans.map(function (p) { return '<option value="plan:' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('') + '</optgroup>' : '') + '</select></label>' + ferr(st, toId) +
+        box('link', 'Or a link (optional)', 'type="url" maxlength="500" placeholder="https://"');
+    } else if (status === 'wont') h += box('reason', 'Why won\'t it be done?', 'maxlength="300"', 'Everyone who opens the run sees this.');
     return h + '<div class="row"><button class="btn primary" data-act="fu-save" data-id="' + esc(x.key) + '"' + (saving ? ' disabled' : '') + '>' + (saving ? 'Saving…' : 'Save') + '</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
   }
   /* Steps outside any track first, then the phase's tracks side by side: parallel work, all finished before the gate. */

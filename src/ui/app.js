@@ -527,7 +527,7 @@
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
+    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = null; state.fuSavingGen = null; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -2529,8 +2529,9 @@
     /* What became of a follow-up: anyone on the team says, in a file of their own (decideFu). */
     'fu-pick': function (id, b) {
       var k = b && b.dataset.status; if (!PF.followups.LABEL[k] || k === 'open') return;
+      /* Each follow-up's form has its own boxes (PF.followups.formId); switching to another starts it empty. */
       state.fuPick = { key: id, status: k }; state.fieldErr = null;
-      state.focus = { done: 'fud-link', ticket: 'fud-ticket', moved: 'fud-to', wont: 'fud-reason' }[k]; render();
+      state.focus = PF.followups.formId(id) + '-' + { done: 'link', ticket: 'ticket', moved: 'to', wont: 'reason' }[k]; render();
     },
     'fu-cancel': function (id) { var k = state.fuPick && state.fuPick.status; state.fuPick = null; state.fieldErr = null; state.focus = k ? '[data-act="fu-pick"][data-id="' + cssEsc(id) + '"][data-status="' + k + '"]' : null; render(); },
     'fu-save': function (id) { if (state.fuPick && state.fuPick.key === id) decideFu(id, state.fuPick.status); },
@@ -2954,20 +2955,24 @@
   var FU_SAID = { open: 'Reopened. It\'s open again.', done: 'Marked done.', ticket: 'Marked as moved to a ticket.', moved: 'Marked as moved to another run.', wont: 'Marked won\'t do. The run shows why.' };
   function decideFu(key, status) {
     var x = ctx.followUps().filter(function (y) { return y.key === key; })[0];
-    if (!x || state.fuSaving) return;
+    /* A save still in flight belongs to the folder it started in; another folder never waits on it. */
+    if (!x || (state.fuSaving && state.fuSavingGen === gen)) return;
     if (!state.me) { say('Choose who you are first, at the top right.', 'warn'); render(); return; }
-    var rec, o = status === 'open' ? {} : { link: val('fud-link'), note: val('fud-note'), ticket: val('fud-ticket'), to: val('fud-to'), reason: val('fud-reason') };
+    var base = PF.followups.formId(key), box = function (k) { return val(base + '-' + k); };
+    var rec, o = status === 'open' ? {} : { link: box('link'), note: box('note'), ticket: box('ticket'), to: box('to'), reason: box('reason') };
     try { rec = PF.followups.decision(x, state.me, status, o, new Date().toISOString(), x.decision); }
-    catch (e) { if (e.field) { state.fieldErr = { id: e.field, msg: e.message }; state.focus = e.field; } else say(e.message, 'warn'); render(); return; }
+    catch (e) { if (e.field) { var fid = base + e.field.replace(/^fud/, ''); state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
-    state.fuSaving = key; state.fieldErr = null; render();
+    state.fuSaving = key; state.fuSavingGen = gen; state.fieldErr = null; render();
+    function settle() { if (state.fuSavingGen === gg) { state.fuSaving = null; state.fuSavingGen = null; } }
     queued(function () { return repo.decideFollowUp(dfs, rec, WRITER); }).then(function () {
+      settle();
       if (gg !== gen) return;
-      state.fuSaving = null; state.fuPick = null; say(FU_SAID[status], 'good');
+      state.fuPick = null; say(FU_SAID[status], 'good');
       /* The row may leave the list (Home, Open): focus goes to the list's heading, else stays on the row's own control. */
       state.focus = state.view === 'followups' ? 'fu-list-h' : state.view === 'home' ? 'page-h' : '[data-act="run-fu"]';
       return load(true);
-    }, function (e) { if (gg !== gen) return; state.fuSaving = null; say('Couldn\'t save what became of it: ' + e.message, 'bad'); render(); });
+    }, function (e) { settle(); if (gg !== gen) return; say('Couldn\'t save what became of it: ' + e.message, 'bad'); render(); });
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
   function recover(getCopy, logPrefix, cleanup) {

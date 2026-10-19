@@ -381,22 +381,34 @@ PF.repo = (function () {
     }).then(function (nested) {
       return limited([].concat.apply([], nested), 8, function (x) {
         var unread = { _unread: true, dir: 'followups', process: x.process, _file: x.name };
+        /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
         return fs.read('followups/' + x.process + '/' + x.name).then(function (f) {
           if (!f) return null;
-          return PF.followups.cleanDecision(json(f.text), x.process, x.name) || unread;
-        }, function () { return unread; });
+          try { return PF.followups.cleanDecision(json(f.text), x.process, x.name) || unread; } catch (e) { return unread; }
+        }).then(null, function () { return unread; });
       });
     }).then(function (list) { return list.filter(Boolean); });
   }
   /* A decision on a follow-up, in a new file named for its run, the follow-up, this window and the decision's rev. Written
-     once: if a file of that name is already there, nothing is written. */
+     once. A shared folder has no create-if-absent, so: a name is claimed in this window before it's checked (only this window
+     writes names with its own window part, so two saves of one name can only race here, and the second is refused), the
+     file must be absent, and after writing it must read back as exactly this decision, else the save is refused. */
   function decideFollowUp(fs, rec, writer) {
-    if (!rec || rec.kind !== 'followup-decision' || !PF.followups.decidable(rec.process, rec.run, rec.followUp) || !/^[\w-]{1,40}$/.test(writer || '') || !(rec.rev >= 1)) return Promise.reject(new Error('That follow-up can\'t be decided here.'));
-    var path = 'followups/' + rec.process + '/' + PF.followups.fileName(rec, writer);
+    var F = PF.followups;
+    if (!rec || rec.kind !== 'followup-decision' || !F.decidable(rec.process, rec.run, rec.followUp) || typeof writer !== 'string' || !/^[\w-]{1,40}$/.test(writer) || !F.revOk(rec.rev)) return Promise.reject(new Error('That follow-up can\'t be decided here.'));
+    var name = F.fileName(rec, writer), path = 'followups/' + rec.process + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
+    var claims = fs._fuClaims || (fs._fuClaims = {});
+    if (claims[path]) return Promise.reject(new Error('A decision with that name is already being saved. Look again, then decide.'));
+    claims[path] = true;
+    function release(v) { delete claims[path]; return v; }
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
-    });
+      return fs.write(path, text);
+    }).then(function () { return fs.read(path); }).then(function (f) {
+      var back = f ? F.cleanDecision(json(f.text), rec.process, name) : null;
+      if (!back || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
+      return path;
+    }).then(release, function (e) { release(); throw e; });
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
