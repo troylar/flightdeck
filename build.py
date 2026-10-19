@@ -8,7 +8,7 @@ notes and the contract baselines (src/baselines.json) are inlined. Also regenera
 import base64, datetime, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent
-CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/followups.js", "core/insights.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/people.js", "core/health.js", "core/connection.js", "core/setup.js"]
+CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/followups.js", "core/insights.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/people.js", "core/health.js", "core/connection.js", "core/setup.js", "core/search.js"]
 APP = ["storage/fs.js", "storage/repo.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
        "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/views/insights.js", "ui/views/health.js", "ui/views/setup.js", "ui/examples.js", "ui/app.js"]
 

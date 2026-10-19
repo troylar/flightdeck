@@ -56,12 +56,52 @@
     var on = ctx.state.keys;
     return '<div class="overlay" data-act="close-overlay"><div class="help" role="dialog" aria-modal="true" aria-labelledby="help-t"><h2 id="help-t">Keyboard</h2>' +
       '<p class="small">Single-key shortcuts are <b>' + (on ? 'on' : 'off') + '</b>. They only work outside text fields. <button class="mini" data-act="toggle-keys">' + (on ? 'Turn them off' : 'Turn them on') + '</button></p><dl>' +
-      '<dt>J / K</dt><dd>Next or previous step</dd><dt>Space or X</dt><dd>Check the selected step, or open the evidence it needs (recorder). Then the next step in the phase is selected.</dd><dt>B</dt><dd>Blocked</dd><dt>N</dt><dd>Write a note on the selected step</dd><dt>C</dt><dd>Correct the selected step</dd><dt>M</dt><dd>Screen share mode</dd><dt>Esc</dt><dd>Close or cancel</dd><dt>?</dt><dd>This help</dd></dl>' +
+      '<dt>Ctrl+K · Cmd+K</dt><dd>Search, from anywhere (also while typing)</dd><dt>/</dt><dd>Search</dd><dt>J / K</dt><dd>Next or previous step</dd><dt>Space or X</dt><dd>Check the selected step, or open the evidence it needs (recorder). Then the next step in the phase is selected.</dd><dt>B</dt><dd>Blocked</dd><dt>N</dt><dd>Write a note on the selected step</dd><dt>C</dt><dd>Correct the selected step</dd><dt>M</dt><dd>Screen share mode</dd><dt>Esc</dt><dd>Close or cancel</dd><dt>?</dt><dd>This help</dd></dl>' +
       '<p class="small">On a focused button, Space presses that button.</p>' +
       '<h3>In the draft editor and the step-type form</h3><p class="small">These work in text fields too. A builder box with typing not yet applied undoes that typing first.</p><dl>' +
       '<dt>Ctrl+Z · Cmd+Z</dt><dd>Undo, and say what was undone</dd><dt>Ctrl+Shift+Z · Cmd+Shift+Z · Ctrl+Y</dt><dd>Redo</dd><dt>Alt+Up / Alt+Down</dt><dd>Move the focused step or phase (builder)</dd></dl>' +
       '<button class="btn" data-act="close-overlay">Close</button></div></div>';
   }
+  /* ---------- Search: the command palette (docs/design.md section 22) ---------- */
+  /* A combobox (the search box) that controls a listbox of results grouped by kind; the active result is
+     aria-activedescendant, so focus stays in the box. Every piece of text from a file is escaped segment by segment, and
+     only the hits are wrapped in <mark>. */
+  function marked(segs) { return segs.map(function (x) { return x.hit ? '<mark>' + esc(x.t) + '</mark>' : esc(x.t); }).join(''); }
+  function num(n) { return Number(n || 0).toLocaleString('en-US'); }
+  function clockTime(iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }); }
+  var SX_ICON = { run: 'flag', step: 'check', note: 'note', correction: 'edit', followup: 'clock', process: 'doc', version: 'timeline', type: 'nest', skill: 'spark', page: 'cursor' };
+  function search(ctx) {
+    var st = ctx.state.sx || { q: '' }, info = ctx.search(), res = st.res, q = st.q || '', S = PF.search, typed = !!q.trim();
+    var flat = st.flat || [], any = typed && res && res.total > 0, body = '', n = 0;
+    if (!typed) body = '<p class="sx-msg">Search runs, steps, notes, corrections, follow-ups, step types and skills.</p><p class="sx-msg small">Use the arrow keys to move through the results and Enter to open one. Esc closes this.</p>';
+    else if (!any && info.building) body = '<p class="sx-msg" role="status">Reading the team folder…</p>';
+    else if (!any) body = '<p class="sx-msg">Nothing matches “' + esc(q.trim()) + '”. Try fewer words, or a ticket like ABC-123.</p>';
+    if (info.err) body = '<p class="sx-msg sx-err">' + esc(info.err) + '</p>' + body;
+    var list = '';
+    if (any) res.groups.forEach(function (g) {
+      list += '<li role="presentation" class="sx-group"><div class="sx-gh" id="sx-g-' + esc(g.kind) + '">' + esc(g.label) + ' <span>' + num(g.total) + '</span></div><ul role="group" aria-labelledby="sx-g-' + esc(g.kind) + '">';
+      g.items.forEach(function (x) {
+        var i = n++, on = i === st.pos, flag = x.status === 'unread' ? '<span class="pill warn">Couldn\'t be read; last copy</span>' : x.status === 'missing' ? '<span class="pill warn">File gone; last copy</span>' : '';
+        list += '<li role="option" id="sx-o-' + i + '" class="sx-opt" aria-selected="' + on + '" data-act="sx-open" data-id="' + esc(x.id) + '">' +
+          '<span class="sx-ic" aria-hidden="true">' + I(SX_ICON[x.kind] || 'doc') + '</span><span class="sx-tx"><span class="sx-t">' + marked(S.mark(x.title, res.terms)) + '</span>' +
+          (x.text ? '<span class="sx-x">' + marked(S.snippet(x.text, res.terms, 140)) + '</span>' : '') +
+          '<span class="sx-s">' + esc(x.sub) + flag + '</span></span></li>';
+      });
+      list += '</ul>' + (g.total > g.items.length ? '<p class="sx-more small">' + num(g.total - g.items.length) + ' more. Add a word to narrow it down.</p>' : '') + '</li>';
+    });
+    var foot = [];
+    if (info.building) foot.push(info.building.total ? 'Still reading ' + num(info.building.done) + ' of ' + num(info.building.total) + ' runs.' : 'Still reading the team folder.');
+    if (info.unread) foot.push(info.unread === 1 ? '1 run file couldn\'t be read; its last copy is searched and marked.' : num(info.unread) + ' run files couldn\'t be read; their last copies are searched and marked.');
+    if (info.readAt) foot.push('Folder last read ' + clockTime(info.readAt) + '.');
+    return '<div class="overlay" data-act="close-overlay"><div class="sx-box" role="dialog" aria-modal="true" aria-labelledby="sx-t">' +
+      '<div class="sx-head"><h2 id="sx-t" class="sr">Search</h2><span class="sx-glass" aria-hidden="true">' + I('search') + '</span>' +
+      '<label class="sr" for="sx-q">Search the team folder</label><input id="sx-q" type="search" role="combobox" aria-autocomplete="list" aria-controls="sx-list" aria-expanded="' + !!any + '"' +
+      (any && st.pos >= 0 && flat[st.pos] ? ' aria-activedescendant="sx-o-' + st.pos + '"' : '') + ' placeholder="Search the team folder" value="' + esc(q) + '" autocomplete="off" spellcheck="false" maxlength="200">' +
+      '<button class="mini" data-act="close-overlay" id="sx-close">Close</button></div>' +
+      '<div class="sx-body">' + body + '<ul id="sx-list" role="listbox" aria-label="Results"' + (any ? '' : ' hidden') + '>' + list + '</ul></div>' +
+      (foot.length ? '<p class="sx-foot small">' + foot.map(esc).join(' ') + '</p>' : '') + '</div></div>';
+  }
+
   /* Shown once, the first time the examples are kept in this tab only. */
   function tabOnlyHelp() {
     return '<div class="overlay" data-act="close-overlay"><div class="help" role="dialog" aria-modal="true" aria-labelledby="tab-only-t" aria-describedby="tab-only-d"><h2 id="tab-only-t">Kept in this tab only</h2>' +
@@ -182,5 +222,5 @@
   }
 
   V.historyDrawer = historyDrawer;
-  V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox;
+  V.search = search; V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox;
 })();

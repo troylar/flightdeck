@@ -1981,4 +1981,38 @@ rule('Runs: a short list has no paging line, and growing to 500 cards still rend
   assert.ok(ms <= 250, 'rendered 500 cards in ' + ms.toFixed(0) + ' ms');
 });
 
+/* ---------- Search palette (docs/design.md section 22) ---------- */
+function palette(q, extra) {
+  const { r, ctx, state } = setup();
+  r._notes = [{ id: 'x1', at: NOW, by: 'person-blake', step: 'pods', text: 'Pods <img src=x onerror=alert(1)> restarted', files: [], fileInfo: {} }];
+  const S = PF.search, ix = S.create(), inp = { runs: [r], people, pubs: ctx.data.processes, drafts: [], skills: [], stepTypes: {}, corrDecisions: [], followUps: [] };
+  S.sync(ix, S.docs(inp), inp);
+  const res = S.query(ix, q, { status: (extra && extra.status) || {} }), flat = [];
+  res.groups.forEach(g => g.items.forEach(x => flat.push(x)));
+  state.sx = { q, res, flat, pos: flat.length ? 0 : -1, active: flat.length ? flat[0].id : null };
+  ctx.search = () => Object.assign({ building: null, unread: 0, readAt: NOW }, extra || {});
+  return V.search(ctx);
+}
+rule('Search palette: a combobox controlling a grouped listbox, the active option named, and text from files escaped around each hit', () => {
+  const html = palette('onerror restarted');
+  assert.ok(/<input id="sx-q" type="search" role="combobox" aria-autocomplete="list" aria-controls="sx-list" aria-expanded="true" aria-activedescendant="sx-o-0"/.test(html), 'combobox');
+  assert.ok(/<ul id="sx-list" role="listbox" aria-label="Results">/.test(html) && /<ul role="group" aria-labelledby="sx-g-note">/.test(html), 'listbox with labeled groups');
+  assert.ok(/<li role="option" id="sx-o-0" class="sx-opt" aria-selected="true"/.test(html), 'the active option');
+  assert.ok(!/<img src=x/.test(html), 'no markup from a note');
+  assert.ok(/&lt;img src=x <mark>onerror<\/mark>=alert\(1\)&gt; <mark>restarted<\/mark>/.test(html), 'escaped, with the hits marked');
+  assert.ok(/<label class="sr" for="sx-q">Search the team folder<\/label>/.test(html) && /role="dialog" aria-modal="true" aria-labelledby="sx-t"/.test(html), 'labeled box in a dialog');
+});
+rule('Search palette: empty, nothing found, still reading, and a run that couldn\'t be read each say so plainly', () => {
+  assert.ok(/Search runs, steps, notes, corrections, follow-ups, step types and skills\./.test(palette('')), 'empty');
+  assert.ok(/aria-expanded="false"/.test(palette('')) && / hidden>/.test(palette('')), 'no list while empty');
+  assert.ok(/Nothing matches “deploy prod”\. Try fewer words, or a ticket like ABC-123\./.test(palette('deploy prod')), 'nothing found');
+  assert.ok(/Nothing matches “&lt;b&gt;”/.test(palette('<b>')), 'the query is escaped too');
+  assert.ok(/Reading the team folder…/.test(palette('zzz', { building: { done: 640, total: 2000 } })), 'loading');
+  assert.ok(/Still reading 640 of 2,000 runs\./.test(palette('restarted', { building: { done: 640, total: 2000 } })), 'partial results say so');
+  const bad = palette('release', { unread: 3, status: { 'release/run1': 'unread' } });
+  assert.ok(/3 run files couldn&#39;t be read; their last copies are searched and marked\./.test(bad), 'footer: ' + /sx-foot[^<]*/.exec(bad));
+  assert.ok(/Couldn('|&#39;)t be read; last copy/.test(bad), 'the result is marked');
+  assert.ok(/Folder last read \d{1,2}:\d{2}:\d{2}/.test(bad), 'when the folder was last read');
+});
+
 run();
