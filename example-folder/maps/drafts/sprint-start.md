@@ -25,10 +25,7 @@ roles: scrum-lead
 - [ ] {measure} Points carried over from the last sprint @scrum-lead {#carried-points}
   metric: Story points of the unfinished stories
   unit: points
-- [ ] {measure} Capacity for the next two weeks, after time off @scrum-lead {#capacity}
-  metric: Team capacity
-  unit: person-days
-  where: Team calendar
+- [ ] {confirm} Capacity for the next two weeks in person-days, after time off (from the team calendar) @scrum-lead {#capacity}
   sets: capacity
 - [~] {ui.action} Sprint dates copied into the team roadmap @scrum-lead {#roadmap}
   system: Team roadmap

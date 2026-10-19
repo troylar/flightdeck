@@ -29,7 +29,7 @@
         "kind": "new",
         "area": "Step types",
         "title": "Measure steps",
-        "now": "A {measure} step records a number with its unit, like velocity, points carried over or capacity. With sets:, checking it also asks for a run detail that later steps can show, like ^capacity.",
+        "now": "A {measure} step records a number with its unit, like velocity or points carried over, so runs keep a history of it. When later steps need the number as a run detail, use a step with sets: instead, like the capacity step in the sprint start example.",
         "where": "The parts box and the Type list in the draft editor, under General."
       },
       {

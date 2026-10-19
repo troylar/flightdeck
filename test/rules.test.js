@@ -1500,19 +1500,19 @@ rule('github.pr: open, review, approve or merge; the pull request is usual excep
   assert.ok(/Checks is needed/.test(T.checkRecord(t, { action: 'approve', require: 'checks' }, {}).error));
 });
 
-rule('measure: a number with its unit; with sets: it also becomes a run detail later steps use', () => {
+rule('measure: a number with its unit; the sprint example asks for capacity once, as a run detail', () => {
   const t = T.get('measure');
   same(names(t, {}), ['value', 'unit']);
   const v = pub('sprint-start'), r = R.create(v, { title: 'S', details: { sprint: 'Sprint 42' }, roles: { 'scrum-lead': 'a' }, by: 'a', session: 's', now: NOW }), map = R.mapOf(r);
+  const vel = M.findStep(map, 'carried-points').step;
+  same(R.evidenceFor(r, vel).list.map(d => d.name).slice(0, 2), ['value', 'unit']);
   const cap = M.findStep(map, 'capacity').step, ev = R.evidenceFor(r, cap).list;
-  same(ev.map(d => d.name).slice(0, 2), ['value', 'unit']);
+  assert.strictEqual(cap.type, 'confirm', 'capacity is one number, not a measurement plus a detail');
   const det = ev.find(d => d.detail === 'capacity');
-  assert.ok(det && det.required, 'the run detail is asked for when it\'s checked');
-  assert.throws(() => R.done(r, map, 'capacity', 'a', NOW, { value: '38', unit: 'person-days' }), /capacity is needed/);
-  const vals = { value: '38', unit: 'person-days' }; vals[det.name] = '38';
+  assert.ok(det && det.required && ev.length === 1, 'only the run detail is asked for');
+  const vals = {}; vals[det.name] = '38';
   R.done(r, map, 'capacity', 'a', NOW, vals);
   assert.strictEqual(r.details.capacity, '38', 'later steps read ^capacity');
-  same(r.steps.capacity.values.value, '38');
 });
 
 rule('The sprint, release and pull request examples use the 1.14 types and run to the end', () => {
