@@ -337,7 +337,14 @@
   }
   function applyRunRead(key, at, res) {
     var id = key.slice(key.indexOf('/') + 1);
-    if (!canReplace(id, at.revs) || (applied[key] || 0) > at.seq) return false;
+    if ((applied[key] || 0) > at.seq) return false;
+    if (!canReplace(id, at.revs)) {
+      /* The run on screen stays (a change of this window's waits), but a file that reads again is news: an old "couldn't be
+         read" or "gone" would otherwise stay, and refuse changes, until that change is saved. Not while a save is under way
+         or landed since the read began: what that save found is newer. */
+      if (res.kind === 'run' && !(state.pendingSaves || {})[id] && edits('~' + id) === (at.revs['~' + id] || 0)) { applied[key] = at.seq; setRunStatus(key, 'run'); }
+      return false;
+    }
     applied[key] = at.seq;
     setRunStatus(key, res.kind, res.why);
     if (res.kind === 'run') {
@@ -488,7 +495,7 @@
       var cur = findRun(key) || r, was = runUnread(cur);
       var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : cur._fileHash ? { kind: 'missing' } : null;
       var changed = !!f && f._fileHash !== cur._fileHash;
-      if (!res || !applyRunRead(key, at, res)) { renderTop(); return; }
+      if (!res || !applyRunRead(key, at, res)) { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (res.kind !== 'run') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (changed) flashChanged(cur, f);
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
@@ -850,7 +857,7 @@
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
     var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage, setup: V.setup };
     tfPreviewFits();
-    if (drawn && drawn.fs === fsKey() && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
+    if (drawn && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
     /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
     var welcome = v === 'home' && state.fs && state.fs.kind === 'memory' && !state.needsReconnect && !state.lookAround;
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
@@ -3050,9 +3057,9 @@
      An open Fill in is remembered too, so it reopens. */
   var drawn = null;
   /* Keyed by team folder, run and step: another folder never sees this folder's drafts, even for a run with the same ID. */
-  function draftKey(key, id) { return fsKey() + '\n' + key + '|' + id; }
-  function draftOf(key, id, make) {
-    var k = draftKey(key, id), d = state.stepDrafts[k];
+  function draftKey(key, id, fk) { return (fk == null ? fsKey() : fk) + '\n' + key + '|' + id; }
+  function draftOf(key, id, make, fk) {
+    var k = draftKey(key, id, fk), d = state.stepDrafts[k];
     if (!d && make) d = state.stepDrafts[k] = { record: {}, fields: {}, note: '', open: false, fd: null };
     return d || null;
   }
@@ -3067,17 +3074,18 @@
   /* What a box held as drawn: a value that still matches is not a draft. */
   function baseOf(id) { return drawn && drawn.base[id] != null ? drawn.base[id] : ''; }
   function unesc(v) { return String(v).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); }
-  /* Reads the boxes on screen into the draft of the step they were drawn for. A box left as drawn keeps its draft. */
+  /* Reads the boxes on screen into the draft of the step and folder they were drawn for. A box left as drawn keeps its draft.
+     The folder is the one they were drawn in, so typing is kept for it even when the folder changed before this read. */
   function harvest() {
-    if (!drawn || drawn.key !== state.runKey || drawn.fs !== fsKey() || state.view !== 'run') return;
-    var d = draftOf(drawn.key, drawn.sel, true), part = d[drawn.kind];
+    if (!drawn || drawn.key !== state.runKey || state.view !== 'run') return;
+    var d = draftOf(drawn.key, drawn.sel, true, drawn.fs), part = d[drawn.kind];
     drawn.ids.forEach(function (id) {
       var el = document.getElementById(id); if (!el || el.value === baseOf(id) || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
       if (id === 'note-text') { d.note = el.value; return; }
       /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
       part[id] = el.value;
     });
-    if (!hasDraft(d)) delete state.stepDrafts[draftKey(drawn.key, drawn.sel)];
+    if (!hasDraft(d)) delete state.stepDrafts[draftKey(drawn.key, drawn.sel, drawn.fs)];
   }
   function noteDrawn(html) {
     var sel = V.runSel(ctx), ids = [], m, re = /id="((?:rec|fld)-[\w-]+|note-text)"/g;
@@ -3110,7 +3118,7 @@
     if (state.sel !== id) {
       state.attErr = null; harvest();
       /* An open Fill in is remembered for the folder it was drawn in, never carried into another. */
-      if (state.pick && state.pick.kind === 'fields' && state.runKey && (!drawn || drawn.fs === fsKey())) { var od = draftOf(state.runKey, state.pick.id, true); od.open = true; od.fd = state.fieldsDraft; }
+      if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; }
     }
     state.sel = id; if (state.pick && state.pick.id !== id) { state.pick = null; state.fieldsDraft = null; }
     var d = state.runKey && draftOf(state.runKey, id, false);

@@ -36,11 +36,21 @@ function boot(opts) {
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
   const get = id => (els[id] = els[id] || element(id));
   ['app', 'top', 'overlay', 'live'].forEach(get);
-  /* Like a real page: a redraw recreates the screen's inputs empty; the app's own code puts back what was typed. */
+  /* Like a real page: a redraw recreates the screen's inputs as their markup draws them, and the app's own code puts back what
+     was typed. Only the boxes drawn now are on the page; one that isn't keeps its last value, so a test can still read it. */
   const appEl = els.app;
-  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { els[id].value = ''; }); } });
-  appEl.querySelectorAll = sel => /input|textarea|select/.test(sel) ? [...inputs].map(id => els[id]) : [];
-  appEl.contains = el => !!el && inputs.has(el.id);
+  const drawnValue = (html, id) => {
+    const un = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const at = html.indexOf('id="' + id + '"'); if (at < 0) return null;
+    const tag = html.lastIndexOf('<', at), name = html.slice(tag + 1, tag + 9);
+    if (/^textarea/.test(name)) { const o = html.indexOf('>', at) + 1; return un(html.slice(o, html.indexOf('</textarea>', o))); }
+    if (/^select/.test(name)) { const m = /<option[^>]*value="([^"]*)"[^>]*\sselected/.exec(html.slice(at, html.indexOf('</select>', at))); return m ? un(m[1]) : ''; }
+    const m = /\svalue="([^"]*)"/.exec(html.slice(at, html.indexOf('>', at))); return m ? un(m[1]) : '';
+  };
+  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d !== null) els[id].value = d; }); } });
+  const onScreen = id => appEl._html.indexOf('id="' + id + '"') >= 0;
+  appEl.querySelectorAll = sel => /input|textarea|select/.test(sel) ? [...inputs].filter(onScreen).map(id => els[id]) : [];
+  appEl.contains = el => !!el && inputs.has(el.id) && onScreen(el.id);
   /* Where the app asked focus to go: renders look up their focus target with querySelector. */
   const asked = [];
   /* The builder's properties form, as far as the phone sheet needs it: a node under the screen that can be marked. */

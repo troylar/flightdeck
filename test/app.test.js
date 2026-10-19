@@ -3035,6 +3035,31 @@ rule('App: a row check or Done refused as a conflict ends on the conflict messag
   }
 });
 
+rule('App: evidence typed just before the team folder changes stays with its own folder and comes back there', async () => {
+  const app = await recordingRelease();
+  assert.strictEqual(app.selected(), 'jenkins', 'set-up: Jenkins is selected');
+  app.set('rec-build', '#481 @jenkins');
+  const id = app.fs.id; app.fs.id = id + '-b';
+  app.click('select', 'jenkins'); await app.tick();
+  assert.ok(!/#481 @jenkins/.test(app.html()) && !/s-draft/.test(app.html()), 'not shown in the other folder');
+  app.fs.id = id; app.click('select', 'jenkins'); await app.tick();
+  assert.ok(/id="rec-build"[^>]*(value="#481 @jenkins"|>#481 @jenkins<)/.test(app.html()), 'back in its own folder, the box still holds it');
+});
+
+rule('App: unchecking a step after the team folder changed and back shows the evidence it was checked with, and checking it again keeps it', async () => {
+  const app = await recordingRelease();
+  app.set('rec-build', '#481 @jenkins'); app.click('toggle', 'jenkins'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.jenkins.values.build, '#481 @jenkins', 'set-up: checked with it');
+  const id = app.fs.id; app.fs.id = id + '-b';
+  app.click('select', 'jenkins'); await app.tick();
+  app.fs.id = id; app.click('select', 'jenkins'); await app.tick();
+  app.click('toggle', 'jenkins'); await app.tick(40);
+  assert.ok(app.run().json.steps.jenkins.s !== 'done', 'set-up: unchecked');
+  assert.ok(/id="rec-build"[^>]*value="#481 @jenkins"/.test(app.html()) && app.draft('rec-build') === '#481 @jenkins', 'the box shows it');
+  app.click('select', 'approve'); await app.tick(); app.click('toggle', 'jenkins'); await app.tick(40);
+  assert.deepStrictEqual([app.run().json.steps.jenkins.s, app.run().json.steps.jenkins.values.build], ['done', '#481 @jenkins'], 'checked again with it, not with an empty box');
+});
+
 /* A seeded walk through the run: whatever order things happen in, what's typed on a step is never lost and never lands on
    another step. Values carry their step's ID, so a value on the wrong step is caught. */
 rule('App: random sequences of selecting, typing evidence, Fill in, checking, Done differently with held writes, moving and switching folders never lose or misplace typed values', async () => {
@@ -3548,6 +3573,38 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
       assert.ok(!/file is gone from the team folder|couldn't be read on the last check/.test(app.html()), 'final: a readable run in the folder is shown as gone or unreadable · seed ' + seed + ' · ' + log.join(','));
     }
   }
+});
+
+rule('App: a run file that reads again clears "couldn\'t be read" even while a change of this window waits, and that change can still be saved', async () => {
+  const t = await heldRelease(), app = t.app;
+  const g = t.hold(true);
+  t.commit('SAVED-A'); await app.tick(30);
+  t.commit('WAITING-B'); await app.tick(30);
+  const good = app.fs.files[t.path].t;
+  app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() };
+  g.open(); await app.tick(30);
+  assert.ok(/couldn't be read on the last check/.test(app.html()) && /Your last change isn(&#39;|')t saved/.test(app.html()), 'set-up: B\'s save found the file unreadable');
+  app.fs.files[t.path] = { t: good, m: Date.now() }; await app.tick(30);
+  app.click('refresh'); await app.tick(80);
+  assert.ok(!/couldn't be read on the last check/.test(app.html()), 'the file reads again, and the screen says so');
+  assert.ok(/Your last change isn(&#39;|')t saved/.test(app.html()) && /WAITING-B/.test(app.html()), 'B still waits, on screen');
+  app.click('retry-save'); await app.tick(80);
+  assert.strictEqual(t.disk().details.commit, 'WAITING-B', 'Try again saves it');
+});
+
+rule('App: the 5-second reread of a run whose file reads again redraws the run, so "couldn\'t be read" goes away without a full refresh', async () => {
+  const t = await heldRelease(), app = t.app;
+  const g = t.hold(true);
+  t.commit('SAVED-A'); await app.tick(30);
+  t.commit('WAITING-B'); await app.tick(30);
+  const good = app.fs.files[t.path].t;
+  app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() };
+  g.open(); await app.tick(30);
+  assert.ok(/couldn't be read on the last check/.test(app.html()), 'set-up');
+  app.fs.files[t.path] = { t: good, m: Date.now() };
+  t.c.ahead(6000); app.every(); await app.tick(80);
+  assert.ok(!/couldn't be read on the last check/.test(app.html()), 'the open-run reread alone clears it on screen');
+  assert.ok(/WAITING-B/.test(app.html()), 'B still waits');
 });
 
 rule('App: Discard goes back to exactly what the save wrote, even when a later change was folded into that save', async () => {

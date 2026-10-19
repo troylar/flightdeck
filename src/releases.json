@@ -99,6 +99,13 @@
         "where": "The run, and Settings › Folder health"
       },
       {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A run file that reads again stops saying it can't be read",
+        "before": "If a save found the run's file unreadable for a moment, the run kept saying its file couldn't be read, and refused new changes, even after the file read fine again, until Try again saved the waiting change.",
+        "now": "As soon as the file reads again, the run says so and takes changes again. Your waiting change stays on screen with Try again until it's saved."
+      },
+      {
         "kind": "new",
         "area": "Getting started",
         "title": "Start your team, join, or look around",
