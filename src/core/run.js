@@ -521,6 +521,7 @@ PF.run = (function () {
   function activeMs(r, fromIso, toMs) {
     var a = new Date(fromIso).getTime(), b = toMs, ms = Math.max(0, b - a);
     (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: new Date(b).toISOString() }] : []).forEach(function (p) {
+      if (!p.from || !p.to) return;
       var s1 = Math.max(a, new Date(p.from).getTime()), e1 = Math.min(b, new Date(p.to).getTime());
       if (e1 > s1) ms -= e1 - s1;
     });
@@ -856,18 +857,23 @@ PF.run = (function () {
       state: RUN_STATES[o.state] ? o.state : 'running', created: isoOrNull(o.created) || new Date(0).toISOString(), createdBy: str(o.createdBy, 80), tz: str(o.tz, 60),
       steps: {}, gates: {}, fields: {}, log: [], ended: null, rev: Math.max(0, parseInt(o.rev, 10) || 0), savedAt: isoOrNull(o.savedAt), savedBy: str(o.savedBy, 40)
     };
-    (Array.isArray(o.pauses) ? o.pauses.slice(0, 500) : []).forEach(function (p) { if (p && isoOrNull(p.from) && isoOrNull(p.to)) r.pauses.push({ from: p.from, to: p.to, by: str(p.by, 80), reason: str(p.reason, 120) }); });
+    /* A time Insights uses that can't be read is kept as null, never dropped with its record or replaced (the start alone
+       becomes 1970, which is before any real run), so it's still there to be left out after a save and a reload; the
+       first read also flags it (_badTimes, never saved). docs/design.md section 23. */
+    var badTimes = {};
+    function timeOrNull(v, what) { var t = isoOrNull(v); if (v != null && !t) badTimes[what] = true; return t; }
+    (Array.isArray(o.pauses) ? o.pauses.slice(0, 500) : []).forEach(function (p) { if (p && typeof p === 'object') r.pauses.push({ from: timeOrNull(p.from, 'pauses'), to: timeOrNull(p.to, 'pauses'), by: str(p.by, 80), reason: str(p.reason, 120) }); });
     /* Marks are kept for every step that has one; if a file ever holds more than can be kept, the run no longer claims its
        marks are complete, so readiness won't call it clean on partial information. */
     var markKeys = o.marks && typeof o.marks === 'object' ? Object.keys(o.marks) : [];
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
     if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
-    if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
+    if (o.paused && typeof o.paused === 'object' && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: timeOrNull(o.paused.at, 'paused'), reason: str(o.paused.reason, 120) || 'Paused' };
     if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); }
     var ho = o.recorder.handoff;
     if (ho && typeof ho === 'object' && !r.recorder.session) r.recorder.handoff = { from: str(ho.from, 80), rev: Math.max(0, parseInt(ho.rev, 10) || 0), at: isoOrNull(ho.at) };
     (Array.isArray(o.followUps) ? o.followUps.slice(0, 100) : []).forEach(function (f) {
-      if (f && typeof f.text === 'string' && f.text.trim()) r.followUps.push({ id: str(f.id, 20), text: str(f.text, 300), owner: str(f.owner, 80), ticket: str(f.ticket, 120), step: str(f.step, 60), from: str(f.from, 20), by: str(f.by, 80), at: isoOrNull(f.at) });
+      if (f && typeof f.text === 'string' && f.text.trim()) r.followUps.push({ id: str(f.id, 20), text: str(f.text, 300), owner: str(f.owner, 80), ticket: str(f.ticket, 120), step: str(f.step, 60), from: str(f.from, 20), by: str(f.by, 80), at: timeOrNull(f.at, 'followUps') });
     });
     /* Step IDs are what a map accepts (letters, numbers and dashes, up to 60), so every correction survives a reload. */
     Object.keys(o.fields || {}).forEach(function (k) { if (/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) { var v = values(o.fields[k]); if (Object.keys(v).length) r.fields[k] = v; } });
@@ -887,23 +893,22 @@ PF.run = (function () {
     Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k];
       if (!g || !GATE_STATES[g.s]) return;
-      var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
+      var c = { s: g.s, by: str(g.by, 80), at: timeOrNull(g.at, 'gates'), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
       Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = str(g.approved[f], 120); });
       r.gates[k] = c;
     });
-    (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
+    (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && typeof l === 'object') r.log.push({ at: timeOrNull(l.at, 'log'), by: str(l.by, 80), what: str(l.what, 300) }); });
     /* An end whose time can't be read keeps its outcome, with no time (at: null), and the run's state follows it, so loading,
        saving and loading again never turns an ended run back into a running one; only the time is unknown. A start that
        can't be read becomes 1970. Both are flagged for Insights (_badTimes, never saved), which leaves the run out of its
        times (docs/design.md section 23). */
     if (o.ended && OUTCOMES[o.ended.outcome]) {
-      r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: isoOrNull(o.ended.at) };
+      r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: timeOrNull(o.ended.at, 'ended') };
       if (r.state === 'running') r.state = OUTCOME_STATE[o.ended.outcome];
     }
-    var badTimes = {};
     if (o.created != null && !isoOrNull(o.created)) badTimes.created = true;
     if (r.ended && !r.ended.at) badTimes.ended = true;
-    if (badTimes.created || badTimes.ended) r._badTimes = badTimes;
+    if (Object.keys(badTimes).length) r._badTimes = badTimes;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */

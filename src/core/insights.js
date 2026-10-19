@@ -112,6 +112,11 @@ PF.insights = (function () {
     return parts.length ? 'Not counted: ' + parts.join('; ') + '.' : '';
   }
 
+  /* Reasons that only restate a number's denominator (a run that never reached the step or the gate): the rest are runs a
+     number should have counted and couldn't. A number with any of those, or with history incomplete, always says so. */
+  var DEFINITIONAL = { unreached: 1, unanswered: 1, nogate: 1 };
+  function hasProblems(q) { return !!q && (q.incomplete > 0 || q.excluded.some(function (g) { return !DEFINITIONAL[g.why]; })); }
+
   /* ---------- One time layer: every time Insights uses comes through here ---------- */
   /* Times come from the clock of the computer that wrote them: a run's start, end, gates and pauses from the recorder's; a
      follow-up from the recorder's, its decision from the decider's. A time that can't be read or is before 2000, or is
@@ -193,8 +198,20 @@ PF.insights = (function () {
     var a = runStart(r, now); if (a.why) return a;
     var b = runEnd(r, now); if (b.why) return b;
     if (b.t < a.t) return { why: 'backward' };
+    var g = gatesWithin(r, a.t, b.t, now); if (g) return g;
     var d = activeBetween(r, a.t, b.t, now); if (d.why) return d;
     return { ms: d.ms, at: b.t };
+  }
+  /* The run's chronology: every settled gate's time can be read and lies between the start and the end (a gate passed after
+     the run ended means a clock went back). null when it holds, else { why, whose }. */
+  function gatesWithin(r, a, b, now) {
+    var ids = Object.keys(r.gates || {});
+    for (var i = 0; i < ids.length; i++) {
+      var rec = r.gates[ids[i]]; if (!rec || (rec.s !== 'passed' && rec.s !== 'waived' && rec.s !== 'failed')) continue;
+      var g = gateTime(rec, now); if (g.why) return g;
+      if (g.t < a || (b != null && g.t > b)) return { why: 'backward' };
+    }
+    return null;
   }
   /* The gate a log line names, by title: [verb, title] for a gate of this checklist, else null. */
   function logGate(l, titles) {
@@ -239,6 +256,8 @@ PF.insights = (function () {
     var out = Object.create(null), m = mapOf(r);
     if (!m) { (ids || []).forEach(function (id) { out[id] = { why: 'checklist' }; }); return out; }
     var start = runStart(r, now), prev = start.t, broken = start.why ? start : null, again = reopenedGates(r, m, now);
+    /* An ended run's end bounds every gate; one it can't read leaves the phases to their own checks. */
+    var fin = r.ended ? runEnd(r, now) : null, end = fin && !fin.why ? fin.t : null;
     m.phases.forEach(function (p, pi) {
       if (broken) { out[p.id] = pi === 0 ? broken : { why: 'earlier' }; broken = { why: 'earlier' }; return; }
       var rec = own(r.gates, p.gate.id) ? r.gates[p.gate.id] : null, st = '', why = null;
@@ -249,7 +268,7 @@ PF.insights = (function () {
       else {
         var g = gateTime(rec, now);
         if (g.why) why = g;
-        else if (g.t < prev) why = { why: 'backward' };
+        else if (g.t < prev || (end != null && g.t > end)) why = { why: 'backward' };
         else {
           var d = activeBetween(r, prev, g.t, now);
           if (d.why) why = d; else { out[p.id] = { ms: d.ms }; prev = g.t; return; }
@@ -551,5 +570,5 @@ PF.insights = (function () {
   }
 
   return { DEFS: DEFS, FEW: FEW, MIN_RATE: MIN_RATE, BUCKETS: BUCKETS, forProcess: forProcess, count: count, rated: rated, num: num, select: select, spec: spec, changed: changed,
-    matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted };
+    matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted, hasProblems: hasProblems };
 })();

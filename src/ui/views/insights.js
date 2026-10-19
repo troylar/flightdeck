@@ -138,18 +138,25 @@
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
           qualLine(x.q) +
-          (x.gate.waived.hits || x.gate.failed.hits ? '<p class="small">Gate "' + esc(x.gate.title) + '": ' + [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { return x.gate[k[0]].hits; }).map(function (k) { return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(x.gate[k[0]].hits, x.gate[k[0]].n), 1) + qualLine(x.gate[k[0]].q, null, 'span'); }).join(' · ') + '</p>' : '') + '</li>';
+          gateLine(x) + '</li>';
       }).join('') + '</ul><p class="small">Bars are typical times, to scale with the longest phase.</p>';
     }
     return h + '</section>';
   }
 
+  /* A gate's waived and failed counts, each with what it left out; drawn when either has runs or left out a run it should
+     have counted (a failure the log can't place, say), even with no runs waived or failed. */
+  function gateLine(x) {
+    var kinds = [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { var m = x.gate[k[0]]; return m.hits || I.hasProblems(m.q); });
+    if (!kinds.length) return '';
+    return '<p class="small">Gate "' + esc(x.gate.title) + '": ' + kinds.map(function (k) { var m = x.gate[k[0]]; return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(m.hits, m.n), m.hits) + qualLine(m.q, null, 'span'); }).join(' · ') + '</p>';
+  }
   var ROWS = [['offScript', 'Any off-script'], ['blocked', 'Ever blocked'], ['redone', 'Ever redone'], ['na', 'Ever N/A'], ['differently', 'Done differently'], ['skipped', 'Skipped (N/A now)'], ['corrections', 'Corrections']];
   var STATUS_WORDS = { open: 'open', applied: 'applied', declined: 'declined', withdrawn: 'withdrawn', included: 'published', tie: 'needs review', legacy: 'accepted' };
   function hotSpots(ctx, res) {
     var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h">' + IC('flag') + 'Steps that go off-script</h2>';
     if (res.corrections.note) h += '<div class="notice warn" role="status"><span>' + esc(res.corrections.note) + '</span></div>';
-    var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits; });
+    var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits || ROWS.some(function (r) { return I.hasProblems(s[r[0]].q); }); });
     if (!list.length) return h + '<p class="small">' + (res.pool.n ? 'No step went off-script in ' + esc(plural(res.pool.n, 'run')) + '.' : 'No finished runs of this version yet.') + '</p></section>';
     if (!res.pool.n) h += '<p class="small">Nothing has finished in this version yet; corrections on runs still going are shown.</p>';
     var order = res.steps.map(function (s) { return s.id; });
@@ -157,7 +164,7 @@
     h += '<p class="small">Each bar is out of its own runs, shown from 5 runs. Choose a count to see the runs behind it. These are good places to change the checklist.</p>';
     var draw = function (shown) {
       return '<ul class="ins-steps">' + shown.map(function (s) {
-        var rows = ROWS.filter(function (r) { var m = s[r[0]]; return r[0] === 'offScript' || m.hits || m.incomplete; }).map(function (r) {
+        var rows = ROWS.filter(function (r) { var m = s[r[0]]; return r[0] === 'offScript' || m.hits || m.incomplete || I.hasProblems(m.q); }).map(function (r) {
           var m = s[r[0]], extra = '';
           if (r[0] === 'corrections') extra = ' <span class="small">(groups: ' + Object.keys(m.groups).map(function (k) { return m.groups[k] + ' ' + (STATUS_WORDS[k] || k); }).join(', ') + ')</span>';
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);

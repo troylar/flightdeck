@@ -101,7 +101,7 @@ rule('An incomplete progressive load labels every number as not final', () => {
   assert.strictEqual(forX({ runs: [play()] }).final, true);
 });
 
-rule('A run with a gate time before its phase began keeps its step counts and drops only that phase\'s time, with the reason', () => {
+rule('A run with a gate time before its phase began keeps its step counts and drops its times, with the reason', () => {
   const bad = play({ before: (r, map) => { R.block(r, map, 'one', 'x', 'a', at(1)); } });
   bad.gates.ready.at = at(-5);
   const res = forX({ runs: [bad, play()] });
@@ -111,7 +111,8 @@ rule('A run with a gate time before its phase began keeps its step counts and dr
   assert.ok(prep.excluded.some(e => /backward/.test(e.text) && e.keys[0] === 'x/' + bad.id), JSON.stringify(prep.excluded));
   same(ship.n, 1, 'the next phase starts at that gate, so it is left out too');
   assert.ok(ship.excluded.some(e => /earlier gate/.test(e.text)), JSON.stringify(ship.excluded));
-  same(res.duration.n, 2, 'the whole run\'s time is still good');
+  same(res.duration.n, 1, 'a gate before the start breaks the run\'s chronology, so its whole time is left out too');
+  assert.ok(res.duration.q.excluded.some(g => g.why === 'backward' && g.keys[0] === 'x/' + bad.id));
 });
 
 rule('Timing exclusions apply per metric: an unreadable start time drops the run from times only', () => {
@@ -263,8 +264,8 @@ rule('Times later than now, by the clock of the computer that wrote them, are le
   const absurd = play(); absurd.ended.at = new Date(T0 + 1e13).toISOString();
   const gate = play(); gate.gates.ready.at = new Date(NOW_MS + 86400000).toISOString();
   const res = forX({ runs: [ahead, absurd, gate, play()] });
-  same([res.duration.n, res.duration.of], [2, 4]);
-  assert.ok(res.duration.excluded.some(e => /later than now, by the recorder's clock/.test(e.text) && e.keys.length === 2), JSON.stringify(res.duration.excluded));
+  same([res.duration.n, res.duration.of], [1, 4], 'a gate later than now leaves the whole time out too');
+  assert.ok(res.duration.excluded.some(e => /later than now, by the recorder's clock/.test(e.text) && e.keys.length === 3), JSON.stringify(res.duration.excluded));
   assert.ok(res.duration.max < 86400000, 'the scale isn\'t stretched by them');
   assert.ok(res.phases[0].excluded.some(e => /later than now/.test(e.text) && e.keys[0] === 'x/' + gate.id), JSON.stringify(res.phases[0].excluded));
 });
@@ -476,6 +477,8 @@ rule('Property: for random runs with random bad times, every number\'s counted, 
       if (rnd() < 0.2 && r.ended) r.ended.at = badTime();
       if (rnd() < 0.2 && r.gates.ready) r.gates.ready.at = badTime();
       if (rnd() < 0.2) r.pauses = [{ from: at(3), to: at(8), by: 'a', reason: 'x' }, { from: at(rnd() < 0.5 ? 4 : 9), to: at(12), by: 'a', reason: 'y' }];
+      if (rnd() < 0.25 && r.ended && r.gates.shipped) r.ended.at = at(pick([5, 15, 25, 40]));
+      if (rnd() < 0.2 && r.gates.ready && r.gates.shipped) { const t = r.gates.ready.at; r.gates.ready.at = r.gates.shipped.at; r.gates.shipped.at = t; }
       if (rnd() < 0.15) r._badTimes = { created: true };
       const roll = rnd();
       if (roll < 0.08) status['x/' + r.id] = 'unread'; else if (roll < 0.14) status['x/' + r.id] = 'missing'; else if (roll < 0.2) r._unrunnable = 'newer';
@@ -498,7 +501,61 @@ rule('Property: for random runs with random bad times, every number\'s counted, 
       q.excluded.forEach(g => assert.strictEqual(g.keys.length, g.n, name));
     });
     assert.ok(res.duration.values.every(v => v.ms >= 0 && v.ms < 86400000), 'no fabricated or stretched time');
+    // Every timed run's raw chronology holds: start, then each settled gate, then the end.
+    res.duration.keys.forEach(k => {
+      const r = runs.find(y => 'x/' + y.id === k), t0 = Date.parse(r.created), t1 = Date.parse(r.ended.at);
+      Object.values(r.gates).forEach(g => { const t = Date.parse(g.at); assert.ok(t >= t0 && t <= t1, 'round ' + round + ': gate inside ' + k); });
+    });
+    const GATE = { prep: 'ready', ship: 'shipped' };
+    res.phases.forEach(p => p.keys.forEach(k => {
+      const r = runs.find(y => 'x/' + y.id === k), g = Date.parse(r.gates[GATE[p.id]].at), e = r.ended ? Date.parse(r.ended.at) : NaN, end = e >= Date.UTC(2000, 0, 1) && e <= NOW_MS ? e : NaN; // an end that can't be used bounds nothing
+      assert.ok(g >= Date.parse(r.created) && !(g > end), 'round ' + round + ': phase ' + p.id + ' of ' + k + ' is inside the run');
+    }));
   }
+});
+
+// ---------- Review of 13caeb6 ----------
+const resaved = r => JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k[0] !== '_'))));
+rule('Any time cleanup can\'t read is kept as no time, never dropped with its record, so Insights still leaves it out after a save and a reload', () => {
+  const raw = JSON.parse(JSON.stringify(play()));
+  raw.pauses = [{ from: at(5), to: 'garbage', by: 'a', reason: 'x' }];
+  const r = R.sanitize(raw);
+  same([r.pauses.length, r.pauses[0].to, !!r._badTimes.pauses], [1, null, true], 'the pause is kept, without its end');
+  [r, R.sanitize(resaved(r))].forEach((x, i) => {
+    const res = forX({ runs: [x, play()] });
+    same([res.duration.n, res.duration.of], [1, 2], 'not a 30-minute run with no pause' + (i ? ', after a save' : ''));
+    assert.ok(res.duration.q.excluded.some(g => g.why === 'time'), JSON.stringify(res.duration.q.excluded));
+  });
+  // A log entry whose time can't be read keeps what it says, so a reopen is still found.
+  const lr = play({ running: true }), m = R.mapOf(lr);
+  R.reopen(lr, m, 0, 'a', at(12)); R.pass(lr, m, 0, 'a', at(13)); R.pass(lr, m, 1, 'a', at(30)); R.end(lr, m, 'Completed', 'a', 'A', at(30));
+  const lraw = JSON.parse(JSON.stringify(lr)); lraw.log.forEach(l => { if (/^Reopened/.test(l.what)) l.at = 'garbage'; });
+  [R.sanitize(lraw), R.sanitize(resaved(R.sanitize(lraw)))].forEach(x => {
+    assert.ok(x.log.some(l => /^Reopened/.test(l.what) && l.at === null));
+    assert.ok(forX({ runs: [x] }).phases[0].q.excluded.some(g => g.why === 'reopened'), 'the reopen is still found');
+  });
+  // A pause under way whose time can't be read stays a pause, and leaves a running run's times out.
+  const pr = JSON.parse(JSON.stringify(play({ running: true }))); pr.paused = { by: 'a', at: 'garbage', reason: 'wait' };
+  const ps = R.sanitize(pr), ps2 = R.sanitize(resaved(ps));
+  same([ps.paused && ps.paused.at, ps2.paused && ps2.paused.at], [null, null]);
+  assert.ok(forX({ runs: [ps2] }, { includeRunning: true }).phases[0].q.excluded.some(g => g.why === 'time'));
+  // Every time field cleanup checks: none is dropped with its record or replaced by another time.
+  const all = JSON.parse(JSON.stringify(play())); R.addFollowUp(all, { id: 'f', text: 'x' }, 'a', at(3));
+  all.followUps = JSON.parse(JSON.stringify(all.followUps)); all.followUps[0].at = 'bad'; all.gates.ready.at = 'bad'; all.created = 'bad';
+  const c = R.sanitize(all), c2 = R.sanitize(resaved(c));
+  same([c.followUps.length, c.followUps[0].at, c.gates.ready.at, c2.followUps[0].at, c2.gates.ready.at], [1, null, null, null, null]);
+  same(Object.keys(c._badTimes).sort(), ['created', 'followUps', 'gates']);
+  assert.ok(Date.parse(c2.created) < Date.UTC(2000, 0, 1), 'a start that can\'t be read stays before 2000, so it\'s left out again');
+});
+
+rule('A run\'s times hold only in order: a gate passed after the run ended (a clock set back) leaves its times out', () => {
+  const r = play({ running: true }), m = R.mapOf(r);
+  R.pass(r, m, 1, 'a', at(30)); R.end(r, m, 'Completed', 'a', 'A', at(20));
+  const res = forX({ runs: [r, play()] });
+  same([res.duration.n, res.duration.of], [1, 2], 'not 20 minutes while its phases add up to 30');
+  assert.ok(res.duration.q.excluded.some(g => g.why === 'backward' && g.keys[0] === 'x/' + r.id), JSON.stringify(res.duration.q.excluded));
+  assert.ok(res.phases[1].q.excluded.some(g => g.why === 'backward' && g.keys[0] === 'x/' + r.id), 'the last phase too');
+  same(res.phases[0].n, 2, 'the first phase ended in order');
 });
 
 rule('The table in docs/design.md section 23 matches DEFS', () => {

@@ -749,6 +749,44 @@ rule('Runs: Show current numbers can come back with no runs, and then says nothi
   const html = V.runs(ctx);
   assert.ok(/id="rf-h" tabindex="-1">0 runs</.test(html) && !/changed since/.test(html), html.slice(html.indexOf('ins-banner'), html.indexOf('ins-banner') + 900));
 });
+rule('How runs go: every number that left out a run it should have counted, or has history incomplete, says so on the page, even with nothing to count', () => {
+  const { ctx, state } = flightSetup();
+  const md = ['---', 'process: x', 'title: X', '---', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '## Gate: Ready {#g1}',
+    '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', '## Gate: Ready {#g2}'].join('\n');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'gen00001' }), pub = P.verify(b.folder, b.files);
+  const base = Date.parse(NOW) - 86400000, t = m => new Date(base + m * 60000).toISOString();
+  const mk = (id, how) => {
+    const r = R.create(pub, { title: id, details: {}, roles: {}, by: 'person-casey', session: 'me', now: t(0), id }), m = R.mapOf(r);
+    R.done(r, m, 'one', 'person-casey', t(1));
+    if (how === 'shared') { R.fail(r, m, 0, 'Broke', 'person-casey', t(2)); R.reopen(r, m, 0, 'person-casey', t(3)); }
+    R.pass(r, m, 0, 'person-casey', t(4)); R.done(r, m, 'three', 'person-casey', t(5)); R.pass(r, m, 1, 'person-casey', t(6)); R.end(r, m, 'Completed', 'person-casey', 'C', t(how === 'late' ? 5 : 8));
+    if (how === 'incomplete') delete r.marksFrom;
+    if (how === 'pauses') r.pauses = [{ from: t(1), to: t(4), by: 'a', reason: 'x' }, { from: t(2), to: t(5), by: 'a', reason: 'y' }];
+    if (how === 'future') r.ended.at = new Date(Date.parse(NOW) + 86400000).toISOString();
+    if (how === 'fu') { R.addFollowUp(r, { id: 'f1', text: 'x' }, 'person-casey', t(2)); r.followUps[0].at = null; }
+    r._fileHash = id;
+    return r;
+  };
+  const runs = ['shared', 'incomplete', 'pauses', 'future', 'late', 'fu', 'plain'].map(h => mk('g-' + h, h));
+  ctx.data.runs = runs; ctx.findRun = k => runs.find(r => 'x/' + r.id === k) || null; ctx.corrections = () => [];
+  ctx.followUps = () => PF.followups.list(runs, []);
+  const p = { id: 'x', title: 'X', latest: pub, all: [pub], clashes: [], broken: [], skills: [] };
+  state.ptab = 'insights';
+  const html = V.insightsPage(ctx, p), res = V.insightsOf(ctx, 'x', pub.info.folder, false);
+  const I = PF.insights, U = PF.util, qs = [['duration', res.duration.q, null], ['open follow-ups', res.followUps.open.q, null], ['decided follow-ups', res.followUps.decided.q, null]];
+  res.phases.forEach(x => qs.push(['phase ' + x.id, x.q, null], ['waived ' + x.id, x.gate.waived.q, null], ['failed ' + x.id, x.gate.failed.q, null]));
+  res.steps.forEach(s => ['offScript', 'blocked', 'redone', 'na', 'differently', 'skipped', 'corrections'].forEach(k => qs.push([s.id + ' ' + k, s[k].q, 'step:' + s.id + ':' + k])));
+  let checked = 0;
+  qs.forEach(([name, q, path]) => {
+    if (!I.hasProblems(q)) return;
+    checked++;
+    if (path && q.incomplete) assert.ok(html.indexOf('data-id="' + path + ':incomplete"') >= 0, name + ': its history-incomplete count');
+    const line = path ? I.notCounted(q, ['incomplete']) : I.notCounted(q);
+    if (line) assert.ok(html.indexOf(U.esc(line)) >= 0, name + ': "' + line + '"');
+  });
+  assert.ok(checked >= 6, 'the page had problems to say: ' + checked);
+  assert.ok(res.phases[1].gate.failed.hits === 0 && /failed at least once in (\d+% · )?0 of 6 runs<span class="small ins-q">Not counted: 1 run, its log says a gate with this title failed/.test(html), 'a failure the log can\'t place shows with no runs failed');
+});
 rule('Runs: a filter keeps the alert about run files that can\'t be read above its results', () => {
   const { ctx, state } = insightsSetup(2);
   ctx.data.unreadable = [{ path: 'runs/release/in0/run.json', key: 'release/in0', why: 'bad JSON' }];

@@ -49,10 +49,11 @@ rule('Publishing writes the publication record last, and a second publish become
   assert.strictEqual(d2.processes[0].index.all.length, 2, 'old versions stay');
 });
 
-rule('A run whose end time can\'t be read stays ended through load, save and load again: only its time is unknown', async () => {
+rule('A run whose end or pause time can\'t be read keeps them, without the time, through load, save and load again', async () => {
   const fs = folder(), r = await started(fs);
   const raw = JSON.parse((await fs.read('runs/release/run1/run.json')).text);
   raw.state = 'running'; raw.ended = { outcome: 'Completed', by: 'person-casey', byName: 'Casey', at: 'not a time' };
+  raw.pauses = [{ from: NOW, to: 'not a time', by: 'person-casey', reason: 'wait' }];
   await fs.write('runs/release/run1/run.json', JSON.stringify(raw));
   const one = await repo.loadRun(fs, 'release', 'run1');
   same([one.state, one.ended.outcome, one.ended.at, !!one._badTimes], ['completed', 'Completed', null, true]);
@@ -60,6 +61,7 @@ rule('A run whose end time can\'t be read stays ended through load, save and loa
   await repo.saveRun(fs, one, 'casey-laptop');
   const two = await repo.loadRun(fs, 'release', 'run1');
   same([two.state, two.ended.outcome, two.ended.at, !!two._badTimes, two._unrunnable], ['completed', 'Completed', null, true, undefined]);
+  same([one.pauses.length, one.pauses[0].to, two.pauses.length, two.pauses[0].to], [1, null, 1, null], 'a pause whose end can\'t be read is kept without it, through the save');
   assert.ok(r);
 });
 

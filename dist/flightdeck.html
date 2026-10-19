@@ -4344,6 +4344,7 @@ PF.run = (function () {
   function activeMs(r, fromIso, toMs) {
     var a = new Date(fromIso).getTime(), b = toMs, ms = Math.max(0, b - a);
     (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: new Date(b).toISOString() }] : []).forEach(function (p) {
+      if (!p.from || !p.to) return;
       var s1 = Math.max(a, new Date(p.from).getTime()), e1 = Math.min(b, new Date(p.to).getTime());
       if (e1 > s1) ms -= e1 - s1;
     });
@@ -4679,18 +4680,23 @@ PF.run = (function () {
       state: RUN_STATES[o.state] ? o.state : 'running', created: isoOrNull(o.created) || new Date(0).toISOString(), createdBy: str(o.createdBy, 80), tz: str(o.tz, 60),
       steps: {}, gates: {}, fields: {}, log: [], ended: null, rev: Math.max(0, parseInt(o.rev, 10) || 0), savedAt: isoOrNull(o.savedAt), savedBy: str(o.savedBy, 40)
     };
-    (Array.isArray(o.pauses) ? o.pauses.slice(0, 500) : []).forEach(function (p) { if (p && isoOrNull(p.from) && isoOrNull(p.to)) r.pauses.push({ from: p.from, to: p.to, by: str(p.by, 80), reason: str(p.reason, 120) }); });
+    /* A time Insights uses that can't be read is kept as null, never dropped with its record or replaced (the start alone
+       becomes 1970, which is before any real run), so it's still there to be left out after a save and a reload; the
+       first read also flags it (_badTimes, never saved). docs/design.md section 23. */
+    var badTimes = {};
+    function timeOrNull(v, what) { var t = isoOrNull(v); if (v != null && !t) badTimes[what] = true; return t; }
+    (Array.isArray(o.pauses) ? o.pauses.slice(0, 500) : []).forEach(function (p) { if (p && typeof p === 'object') r.pauses.push({ from: timeOrNull(p.from, 'pauses'), to: timeOrNull(p.to, 'pauses'), by: str(p.by, 80), reason: str(p.reason, 120) }); });
     /* Marks are kept for every step that has one; if a file ever holds more than can be kept, the run no longer claims its
        marks are complete, so readiness won't call it clean on partial information. */
     var markKeys = o.marks && typeof o.marks === 'object' ? Object.keys(o.marks) : [];
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
     if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
-    if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
+    if (o.paused && typeof o.paused === 'object' && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: timeOrNull(o.paused.at, 'paused'), reason: str(o.paused.reason, 120) || 'Paused' };
     if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); }
     var ho = o.recorder.handoff;
     if (ho && typeof ho === 'object' && !r.recorder.session) r.recorder.handoff = { from: str(ho.from, 80), rev: Math.max(0, parseInt(ho.rev, 10) || 0), at: isoOrNull(ho.at) };
     (Array.isArray(o.followUps) ? o.followUps.slice(0, 100) : []).forEach(function (f) {
-      if (f && typeof f.text === 'string' && f.text.trim()) r.followUps.push({ id: str(f.id, 20), text: str(f.text, 300), owner: str(f.owner, 80), ticket: str(f.ticket, 120), step: str(f.step, 60), from: str(f.from, 20), by: str(f.by, 80), at: isoOrNull(f.at) });
+      if (f && typeof f.text === 'string' && f.text.trim()) r.followUps.push({ id: str(f.id, 20), text: str(f.text, 300), owner: str(f.owner, 80), ticket: str(f.ticket, 120), step: str(f.step, 60), from: str(f.from, 20), by: str(f.by, 80), at: timeOrNull(f.at, 'followUps') });
     });
     /* Step IDs are what a map accepts (letters, numbers and dashes, up to 60), so every correction survives a reload. */
     Object.keys(o.fields || {}).forEach(function (k) { if (/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) { var v = values(o.fields[k]); if (Object.keys(v).length) r.fields[k] = v; } });
@@ -4710,23 +4716,22 @@ PF.run = (function () {
     Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k];
       if (!g || !GATE_STATES[g.s]) return;
-      var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
+      var c = { s: g.s, by: str(g.by, 80), at: timeOrNull(g.at, 'gates'), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
       Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = str(g.approved[f], 120); });
       r.gates[k] = c;
     });
-    (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
+    (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && typeof l === 'object') r.log.push({ at: timeOrNull(l.at, 'log'), by: str(l.by, 80), what: str(l.what, 300) }); });
     /* An end whose time can't be read keeps its outcome, with no time (at: null), and the run's state follows it, so loading,
        saving and loading again never turns an ended run back into a running one; only the time is unknown. A start that
        can't be read becomes 1970. Both are flagged for Insights (_badTimes, never saved), which leaves the run out of its
        times (docs/design.md section 23). */
     if (o.ended && OUTCOMES[o.ended.outcome]) {
-      r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: isoOrNull(o.ended.at) };
+      r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: timeOrNull(o.ended.at, 'ended') };
       if (r.state === 'running') r.state = OUTCOME_STATE[o.ended.outcome];
     }
-    var badTimes = {};
     if (o.created != null && !isoOrNull(o.created)) badTimes.created = true;
     if (r.ended && !r.ended.at) badTimes.ended = true;
-    if (badTimes.created || badTimes.ended) r._badTimes = badTimes;
+    if (Object.keys(badTimes).length) r._badTimes = badTimes;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */
@@ -5681,6 +5686,11 @@ PF.insights = (function () {
     return parts.length ? 'Not counted: ' + parts.join('; ') + '.' : '';
   }
 
+  /* Reasons that only restate a number's denominator (a run that never reached the step or the gate): the rest are runs a
+     number should have counted and couldn't. A number with any of those, or with history incomplete, always says so. */
+  var DEFINITIONAL = { unreached: 1, unanswered: 1, nogate: 1 };
+  function hasProblems(q) { return !!q && (q.incomplete > 0 || q.excluded.some(function (g) { return !DEFINITIONAL[g.why]; })); }
+
   /* ---------- One time layer: every time Insights uses comes through here ---------- */
   /* Times come from the clock of the computer that wrote them: a run's start, end, gates and pauses from the recorder's; a
      follow-up from the recorder's, its decision from the decider's. A time that can't be read or is before 2000, or is
@@ -5762,8 +5772,20 @@ PF.insights = (function () {
     var a = runStart(r, now); if (a.why) return a;
     var b = runEnd(r, now); if (b.why) return b;
     if (b.t < a.t) return { why: 'backward' };
+    var g = gatesWithin(r, a.t, b.t, now); if (g) return g;
     var d = activeBetween(r, a.t, b.t, now); if (d.why) return d;
     return { ms: d.ms, at: b.t };
+  }
+  /* The run's chronology: every settled gate's time can be read and lies between the start and the end (a gate passed after
+     the run ended means a clock went back). null when it holds, else { why, whose }. */
+  function gatesWithin(r, a, b, now) {
+    var ids = Object.keys(r.gates || {});
+    for (var i = 0; i < ids.length; i++) {
+      var rec = r.gates[ids[i]]; if (!rec || (rec.s !== 'passed' && rec.s !== 'waived' && rec.s !== 'failed')) continue;
+      var g = gateTime(rec, now); if (g.why) return g;
+      if (g.t < a || (b != null && g.t > b)) return { why: 'backward' };
+    }
+    return null;
   }
   /* The gate a log line names, by title: [verb, title] for a gate of this checklist, else null. */
   function logGate(l, titles) {
@@ -5808,6 +5830,8 @@ PF.insights = (function () {
     var out = Object.create(null), m = mapOf(r);
     if (!m) { (ids || []).forEach(function (id) { out[id] = { why: 'checklist' }; }); return out; }
     var start = runStart(r, now), prev = start.t, broken = start.why ? start : null, again = reopenedGates(r, m, now);
+    /* An ended run's end bounds every gate; one it can't read leaves the phases to their own checks. */
+    var fin = r.ended ? runEnd(r, now) : null, end = fin && !fin.why ? fin.t : null;
     m.phases.forEach(function (p, pi) {
       if (broken) { out[p.id] = pi === 0 ? broken : { why: 'earlier' }; broken = { why: 'earlier' }; return; }
       var rec = own(r.gates, p.gate.id) ? r.gates[p.gate.id] : null, st = '', why = null;
@@ -5818,7 +5842,7 @@ PF.insights = (function () {
       else {
         var g = gateTime(rec, now);
         if (g.why) why = g;
-        else if (g.t < prev) why = { why: 'backward' };
+        else if (g.t < prev || (end != null && g.t > end)) why = { why: 'backward' };
         else {
           var d = activeBetween(r, prev, g.t, now);
           if (d.why) why = d; else { out[p.id] = { ms: d.ms }; prev = g.t; return; }
@@ -6120,7 +6144,7 @@ PF.insights = (function () {
   }
 
   return { DEFS: DEFS, FEW: FEW, MIN_RATE: MIN_RATE, BUCKETS: BUCKETS, forProcess: forProcess, count: count, rated: rated, num: num, select: select, spec: spec, changed: changed,
-    matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted };
+    matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted, hasProblems: hasProblems };
 })();
 
 /* Skills built from processes. A skill lives wherever its team keeps it (a Bitbucket repo, a local folder, anywhere); the team
@@ -10672,8 +10696,8 @@ PF.vk = (function () {
     }).join('');
     var fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
     var statusOf = function (c) { var g = idx[c.id]; return c.oneOff ? 'One-off' : g ? PF.corrections.label(g) + (g.status === 'declined' && g.decision && g.decision.reason ? ': ' + g.decision.reason : '') : 'Open'; };
-    var pz = (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: null, by: r.paused.by, reason: r.paused.reason }] : []);
-    if (pz.length) body += '<div><h4><span>Pauses</span></h4>' + pz.map(function (p) { return '<div class="rrow"><span class="ric open">' + I('pause') + '</span><span>' + esc(U.hm(p.from)) + (p.to ? '–' + esc(U.hm(p.to)) + ' (' + U.clock(new Date(p.to) - new Date(p.from)) + ')' : ', still paused') + ': ' + esc(p.reason) + ' <span class="cat">' + esc(nameOf(ctx, p.by)) + '</span></span></div>'; }).join('') + '</div>';
+    var pz = (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: null, open: true, by: r.paused.by, reason: r.paused.reason }] : []);
+    if (pz.length) body += '<div><h4><span>Pauses</span></h4>' + pz.map(function (p) { return '<div class="rrow"><span class="ric open">' + I('pause') + '</span><span>' + esc(U.hm(p.from)) + (p.to && p.from ? '–' + esc(U.hm(p.to)) + ' (' + U.clock(new Date(p.to) - new Date(p.from)) + ')' : p.open ? ', still paused' : ', time couldn\'t be read') + ': ' + esc(p.reason) + ' <span class="cat">' + esc(nameOf(ctx, p.by)) + '</span></span></div>'; }).join('') + '</div>';
     var fuX = PF.followups.forRun(V.fuList(ctx), r), fuOf = function (f) { return fuX.filter(function (x) { return x.id === f.id; })[0]; };
     var fuStatusOf = function (f) { var x = fuOf(f); if (!x) return 'Open'; var d = PF.followups.detail(x, function (k) { if (/^plan:/.test(k)) { var pl = (ctx.data.plans || []).filter(function (q) { return 'plan:' + q.id === k; })[0]; return pl ? pl.title : ''; } var t = ctx.findRun ? ctx.findRun(k) : null; return t ? t.title : ''; }); return x.status === 'open' || !d ? x.label : d; };
     if (fus.length) body += '<div class="r-fu"><h4><span>Follow-ups</span></h4>' + fus.map(function (f) {
@@ -11922,18 +11946,25 @@ PF.vk = (function () {
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
           qualLine(x.q) +
-          (x.gate.waived.hits || x.gate.failed.hits ? '<p class="small">Gate "' + esc(x.gate.title) + '": ' + [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { return x.gate[k[0]].hits; }).map(function (k) { return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(x.gate[k[0]].hits, x.gate[k[0]].n), 1) + qualLine(x.gate[k[0]].q, null, 'span'); }).join(' · ') + '</p>' : '') + '</li>';
+          gateLine(x) + '</li>';
       }).join('') + '</ul><p class="small">Bars are typical times, to scale with the longest phase.</p>';
     }
     return h + '</section>';
   }
 
+  /* A gate's waived and failed counts, each with what it left out; drawn when either has runs or left out a run it should
+     have counted (a failure the log can't place, say), even with no runs waived or failed. */
+  function gateLine(x) {
+    var kinds = [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { var m = x.gate[k[0]]; return m.hits || I.hasProblems(m.q); });
+    if (!kinds.length) return '';
+    return '<p class="small">Gate "' + esc(x.gate.title) + '": ' + kinds.map(function (k) { var m = x.gate[k[0]]; return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(m.hits, m.n), m.hits) + qualLine(m.q, null, 'span'); }).join(' · ') + '</p>';
+  }
   var ROWS = [['offScript', 'Any off-script'], ['blocked', 'Ever blocked'], ['redone', 'Ever redone'], ['na', 'Ever N/A'], ['differently', 'Done differently'], ['skipped', 'Skipped (N/A now)'], ['corrections', 'Corrections']];
   var STATUS_WORDS = { open: 'open', applied: 'applied', declined: 'declined', withdrawn: 'withdrawn', included: 'published', tie: 'needs review', legacy: 'accepted' };
   function hotSpots(ctx, res) {
     var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h">' + IC('flag') + 'Steps that go off-script</h2>';
     if (res.corrections.note) h += '<div class="notice warn" role="status"><span>' + esc(res.corrections.note) + '</span></div>';
-    var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits; });
+    var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits || ROWS.some(function (r) { return I.hasProblems(s[r[0]].q); }); });
     if (!list.length) return h + '<p class="small">' + (res.pool.n ? 'No step went off-script in ' + esc(plural(res.pool.n, 'run')) + '.' : 'No finished runs of this version yet.') + '</p></section>';
     if (!res.pool.n) h += '<p class="small">Nothing has finished in this version yet; corrections on runs still going are shown.</p>';
     var order = res.steps.map(function (s) { return s.id; });
@@ -11941,7 +11972,7 @@ PF.vk = (function () {
     h += '<p class="small">Each bar is out of its own runs, shown from 5 runs. Choose a count to see the runs behind it. These are good places to change the checklist.</p>';
     var draw = function (shown) {
       return '<ul class="ins-steps">' + shown.map(function (s) {
-        var rows = ROWS.filter(function (r) { var m = s[r[0]]; return r[0] === 'offScript' || m.hits || m.incomplete; }).map(function (r) {
+        var rows = ROWS.filter(function (r) { var m = s[r[0]]; return r[0] === 'offScript' || m.hits || m.incomplete || I.hasProblems(m.q); }).map(function (r) {
           var m = s[r[0]], extra = '';
           if (r[0] === 'corrections') extra = ' <span class="small">(groups: ' + Object.keys(m.groups).map(function (k) { return m.groups[k] + ' ' + (STATUS_WORDS[k] || k); }).join(', ') + ')</span>';
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
