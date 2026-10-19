@@ -119,6 +119,13 @@
     /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
     health: function (full) { return healthReport(full); },
     recovery: RECOVERY, writer: WRITER,
+    /* The search palette's state: the query and results (state.sx), whether the index is still being built, how many run
+       files couldn't be read, and when the folder was last read. */
+    search: function () {
+      var u = Object.keys((state.unread || {}).runs || {}).length + Object.keys(state.missing || {}).length;
+      return { building: sx.job && !sx.built ? sx.job.runs : null, unread: u, readAt: state.runReadAt && state.runReadAt > data.readAt ? state.runReadAt : data.readAt };
+    },
+    mac: /Mac|iPhone|iPad/.test((typeof navigator !== 'undefined' && (navigator.platform || navigator.userAgent)) || ''),
     /* Getting started, worked out from the folder (PF.setup.progress); setupCard is null when Home shouldn't show it. */
     setupProgress: function () { return setupProgress(); },
     setupCard: function () { return setupShown() ? setupProgress() : null; },
@@ -229,6 +236,104 @@
   /* Several images finishing at once cause one redraw, not one each. */
   var pending = false;
   function later() { if (pending) return; pending = true; requestAnimationFrame(function () { pending = false; render(); }); }
+
+  /* ---------- Search (docs/design.md section 22) ---------- */
+  /* The index lives in memory only, for the folder it was built from (gen). It's built when the palette first opens, in 8 ms
+     slices; a newer build or a folder switch stops the older one. While the palette is open, every redraw brings the index
+     in line with what the app accepted (only changed sources are reindexed) and runs the query again. */
+  var sx = { gen: -1, ix: null, job: null, built: false, seen: null, said: null };
+  function sxOpen() { return !!(state.overlay && state.overlay.search && state.sx); }
+  function sxInput() {
+    return { runs: data.runs, pubs: data.processes, drafts: data.drafts, people: data.people, stepTypes: (data.stepTypes || {}).types || {}, skills: data.skills,
+      corrDecisions: data.corrDecisions || [], followUps: ctx.followUps() };
+  }
+  function sxReset() { if (sx.job) sx.job.cancel(); sx = { gen: -1, ix: null, job: null, built: false, seen: null, said: null }; }
+  /* What the index was last brought in line with: the data read, each run object and its file, and the people. */
+  function sxMark() { sx.seen = { data: data, runs: data.runs.slice(), h: data.runs.map(function (r) { return r._fileHash; }), people: data.people }; }
+  function sxStale() {
+    var s = sx.seen, runs = data.runs;
+    if (!s || s.data !== data || s.people !== data.people || s.runs.length !== runs.length) return true;
+    for (var i = 0; i < runs.length; i++) if (s.runs[i] !== runs[i] || s.h[i] !== runs[i]._fileHash) return true;
+    return false;
+  }
+  function sxStart() {
+    sxReset();
+    var g = gen, inp = sxInput(), ix = PF.search.create(), job = PF.search.start(ix, PF.search.docs(inp), inp), last = 0;
+    sx = { gen: g, ix: ix, job: job, built: false, seen: null, said: null };
+    sxMark();
+    (function pump() {
+      setTimeout(function () {
+        if (g !== gen || sx.job !== job) { job.cancel(); return; }
+        var done = job.step(8, elapsed);
+        if (job.canceled) return;
+        if (done) { sx.built = true; sx.job = null; }
+        /* Results that come in part way are shown, at most every 150 ms, and once more when the build is done. */
+        if (sxOpen() && (done || elapsed() - last > 150)) { last = elapsed(); sxRun(); render(); }
+        if (!done) pump();
+      }, 0);
+    })();
+  }
+  function sxStatus() {
+    var o = {}, u = (state.unread || {}).runs || {}, m = state.missing || {};
+    Object.keys(u).forEach(function (k) { o[k] = 'unread'; });
+    Object.keys(m).forEach(function (k) { o[k] = 'missing'; });
+    return o;
+  }
+  /* Brings the index in line with what's accepted now, then runs the query again if anything changed. Called on every redraw
+     while the palette is open. */
+  function sxRefresh() {
+    if (!state.sx) return;
+    if (sx.gen !== gen || !sx.ix) { sxStart(); sxRun(); return; }
+    var st = [state.unread, state.missing];
+    if (sx.built && sxStale()) {
+      var inp = sxInput(), c = PF.search.sync(sx.ix, PF.search.docs(inp), inp);
+      sxMark();
+      if (c.changed || c.removed) { sxRun(true); sx.status = st; return; }
+    }
+    if (!sx.status || sx.status[0] !== st[0] || sx.status[1] !== st[1]) { sx.status = st; sxRun(true); }
+  }
+  /* Runs the query. The active row is kept by its ID; if it's gone, the row now at its place is chosen. When new data changed
+     the results (fromData), the count is announced. */
+  function sxRun(fromData) {
+    var s = state.sx; if (!s) return;
+    var res = sx.ix ? PF.search.query(sx.ix, s.q, { context: { process: state.processId, run: state.runKey }, status: sxStatus() }) : null, flat = [];
+    (res ? res.groups : []).forEach(function (g) { g.items.forEach(function (x) { flat.push(x); }); });
+    var ids = flat.map(function (x) { return x.id; }), at = ids.indexOf(s.active);
+    if (at < 0) at = flat.length ? Math.min(Math.max(0, s.pos || 0), flat.length - 1) : -1;
+    s.res = res; s.flat = flat; s.pos = at; s.active = at >= 0 ? ids[at] : null;
+    var words = !res || !String(s.q).trim() ? '' : res.total ? res.total.toLocaleString('en-US') + (res.total === 1 ? ' result' : ' results') : 'No results';
+    if (words && (fromData || words !== sx.said)) sxSay(words);
+  }
+  function sxSay(t) { sx.said = t; var el = document.getElementById('live'); if (el) el.textContent = el.textContent === t ? t + ' ' : t; }
+  /* Opens the palette. A read-only dialog gives way to it; a dialog with typing or choices in it is never replaced. */
+  function openSearch() {
+    if (!state.fs) return;
+    if (sxOpen()) { state.overlayFocus = '#sx-q'; render(); return; }
+    if (state.overlay) {
+      var held = (state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl]);
+      if (held) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return; }
+      closeOverlay();
+    }
+    state.sx = { q: '', active: null, pos: 0, res: null, flat: [] };
+    if (sx.gen !== gen || !sx.ix) sxStart();
+    openOverlay({ search: true, html: function () { return V.search(ctx); }, onClose: function () { state.sx = null; } });
+    state.overlayFocus = '#sx-q'; render();
+  }
+  /* Opening a result goes through go(). When the page holds typing go() would refuse over, the palette closes first, so the
+     message and the box it points at can be seen. */
+  function sxOpenResult(id) {
+    var s = state.sx; if (!s) return;
+    var x = (s.flat || []).filter(function (y) { return y.id === id; })[0];
+    if (!x) return;
+    if (state.obPending || dirtyControl([app])) closeOverlay();
+    go(x.target);
+  }
+  function sxMove(d) {
+    var s = state.sx; if (!s || !s.flat || !s.flat.length) return;
+    var n = s.flat.length, at = d === 'first' ? 0 : d === 'last' ? n - 1 : ((s.pos < 0 ? -1 : s.pos) + d + n) % n;
+    s.pos = at; s.active = s.flat[at].id; state.overlayFocus = '#sx-q'; render();
+    var el = document.getElementById('sx-o-' + at); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }
 
   /* Browser-kept copies belong to one folder, so a copy from one team folder never shows up in another. */
   function localKey(id, fs) { fs = fs || state.fs; return 'unsaved:' + (fs ? fs.kind + ':' + (fs.id || fs.name) : '') + ':' + id; }
@@ -611,7 +716,7 @@
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
-    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear();
+    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); sxReset();
     /* Input kept for return belongs to its folder: a new folder starts clean. */
     state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -888,6 +993,8 @@
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
     if (meVal) patch(topEl, V.top(ctx));
     pinOffsets();
+    /* A refresh that redraws only the top bar still reaches an open search palette, so new data shows without typing. */
+    if (!rendering && sxOpen()) later();
   }
   /* Sticky phase headers sit just under the top bar, whose height changes as it wraps on narrow screens. */
   function pinOffsets() {
@@ -1017,6 +1124,7 @@
     pinOffsets();
     if (window.scrollY !== y) window.scrollTo(0, y);
     /* An open dialog isn't rebuilt by background refreshes unless its content changed, so focus inside it stays put. */
+    if (sxOpen()) sxRefresh();
     var ov = state.overlay ? state.overlay.html() : '';
     if (ov !== lastOverlay) {
       /* Typing in a dialog's search redraws it; focus and the caret go back to the same control. */
@@ -2934,6 +3042,8 @@
     'rel-clear': function () { state.rel.q = ''; state.rel.kind = ''; state.rel.area = ''; state.overlayFocus = '#rel-detail-title'; render(); },
     /* Appearance is per browser: system follows the computer; light and dark set data-theme, which the colors key off. */
     theme: function (id, b) { if (['system', 'light', 'dark'].indexOf(id) < 0) return; state.theme = id; lsSet('theme', id); applyTheme(); state.focus = b && b.classList && b.classList.contains('icon-btn') ? '.icon-btn[data-act="theme"]' : '[data-act="theme"][data-id="' + id + '"]'; render(); },
+    search: function () { openSearch(); },
+    'sx-open': function (id) { sxOpenResult(id); },
     'toggle-keys': function () { state.keys = !state.keys; lsSet('keys', state.keys); render(); },
     'start-mode': function (id, b) { state.startMode[b.dataset.process] = id; render(); },
     'show-roles': function () { state.showRoles = !state.showRoles; render(); },
@@ -3501,6 +3611,7 @@
 
   document.addEventListener('input', function (e) {
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
+    if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
@@ -3729,6 +3840,8 @@
       if (t.ptab && t.ptab !== 'overview') ACTIONS.ptab(t.ptab);
       return true;
     }
+    if (t.view === 'skill') { if (!t.skill) return false; ACTIONS['open-skill'](t.skill); return true; }
+    if (t.view === 'health' || t.view === 'connection' || t.view === 'recovery') { ACTIONS[t.view](t.section); return true; }
     if (t.view === 'runs' && (t.filter === 'mine' || t.filter === 'all')) state.filter = t.filter;
     ACTIONS.nav(t.view || 'home');
     return true;
@@ -3749,8 +3862,8 @@
     }
     return String(el.value == null ? '' : el.value) !== String(el.defaultValue == null ? '' : el.defaultValue);
   }
-  function dirtyControl() {
-    var roots = state.overlay ? [app, overlayEl] : [app];
+  function dirtyControl(only) {
+    var roots = only || (state.overlay ? [app, overlayEl] : [app]);
     for (var r = 0; r < roots.length; r++) {
       var list = roots[r].querySelectorAll ? roots[r].querySelectorAll('input, textarea, select') : [];
       for (var i = 0; i < list.length; i++) {
@@ -3885,6 +3998,13 @@
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+    /* Ctrl+K or Cmd+K opens search from anywhere on the page, also while typing. */
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }
+    /* In the search box: Up and Down move through the results (wrapping), Enter opens the active one. */
+    if (t && t.id === 'sx-q' && state.sx && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sxMove(e.key === 'ArrowDown' ? 1 : -1); return; }
+      if (e.key === 'Enter') { e.preventDefault(); if (state.sx.active) sxOpenResult(state.sx.active); return; }
+    }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { setView('run'); render(); } return; }
@@ -3950,6 +4070,8 @@
     if (e.key === '?') { openOverlay({ html: function () { return V.help(ctx); } }); return; }
     /* Single-letter shortcuts can be turned off (WCAG 2.1.4), and Space never steals a focused button's own action. */
     if (!state.keys) return;
+    /* / opens search, as a single-key shortcut (off with the others). */
+    if (e.key === '/' && !state.overlay) { e.preventDefault(); openSearch(); return; }
     var onControl = document.activeElement && document.activeElement !== document.body && document.activeElement.closest('button, a, summary, select, [role="checkbox"]');
     if (onControl && (e.key === ' ' || e.key === 'Enter')) return;
     if (state.view !== 'run' && !(state.view === 'mission' && e.key === 'm')) return;

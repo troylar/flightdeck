@@ -28,6 +28,7 @@ PF.icons = (function () {
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
     note: '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
     camera: '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l2-3h4l2 3"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
     screen: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',

@@ -483,6 +483,13 @@ Flightdeck was called Preflight before 1.9.0. Team folders, runs and published v
 ## FAQ
 
 <details>
+<summary><b>How do I find an old run, note or ticket?</b></summary>
+
+Press Ctrl+K (Cmd+K on a Mac), or choose Search in the top bar. It searches runs, steps, notes, corrections, follow-ups, step types, skills and pages in the team folder, ignores accents, and takes you straight to what you choose. The search stays in memory on your computer; nothing is written to the team folder.
+
+</details>
+
+<details>
 <summary><b>Does Flightdeck run anything for me?</b></summary>
 
 No. It never calls Jenkins, Bitbucket or Jira, and never runs a command. It shows the command to copy, records what happened, and keeps the clock. Your skills do the automating.

@@ -5003,4 +5003,177 @@ rule('After every redraw, each thumbnail placeholder still waiting is watched or
   }
 });
 
+/* ---------- 1.17: Search (docs/design.md section 22) ---------- */
+const sxBox = app => { const q = app.el('sx-q'); q.tagName = 'INPUT'; q.type = 'search'; return q; };
+const sxType = async (app, text) => { sxBox(app); app.input('sx-q', text); await app.tick(40); };
+const sxKey = (app, key, mods) => app.keyOn(key, mods, sxBox(app));
+const sxIds = app => [...app.overlay().matchAll(/role="option"[^>]*data-id="([^"]+)"/g)].map(m => m[1].replace(/&amp;/g, '&'));
+
+rule('Search: Ctrl+K and Cmd+K open it from anywhere, / only while single-key shortcuts are on, and never while typing or composing', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'Ctrl+K opened it');
+  assert.ok(/Search runs, steps, notes, corrections, follow-ups, step types and skills\./.test(app.overlay()), 'the empty state says what it searches');
+  app.key('Escape'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'Escape closed it');
+  app.keyOn('k', { metaKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'Cmd+K too'); app.key('Escape'); await app.tick();
+  app.key('/'); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), '/ opened it'); app.key('Escape'); await app.tick();
+  app.keyOn('/', { isComposing: true }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'not while an input method is composing');
+  app.keyOn('/', {}, { tagName: 'TEXTAREA', id: 'note-text', dataset: {}, closest: () => null }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'not while typing');
+  app.click('toggle-keys'); await app.tick();
+  app.key('/'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'not with single-key shortcuts off');
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'Ctrl+K still works with them off');
+  app.click('search'); await app.tick();
+  assert.ok(/role="combobox"/.test(app.overlay()), 'and the top bar button');
+  assert.ok(/data-act="search"/.test(app.top()), 'the button is in the top bar');
+});
+
+rule('Search: results are grouped and highlighted, the arrow keys move the active one, and Enter goes there through go()', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  await sxType(app, 'deploy');
+  const ov = app.overlay();
+  assert.ok(/role="listbox"/.test(ov) && /role="group"/.test(ov) && /<mark>deploy<\/mark>/i.test(ov), 'a grouped, highlighted list');
+  const ids = sxIds(app);
+  assert.ok(ids.length >= 2, 'set-up: several results: ' + ids.join(', '));
+  assert.ok(new RegExp('aria-activedescendant="sx-o-0"').test(ov) && /id="sx-o-0"[^>]*aria-selected="true"/.test(ov), 'the first is active');
+  sxKey(app, 'ArrowDown'); await app.tick();
+  assert.ok(/aria-activedescendant="sx-o-1"/.test(app.overlay()), 'Down moves to the next');
+  sxKey(app, 'ArrowUp'); sxKey(app, 'ArrowUp'); await app.tick();
+  assert.ok(new RegExp('aria-activedescendant="sx-o-' + (ids.length - 1) + '"').test(app.overlay()), 'Up from the first wraps to the last');
+  sxKey(app, 'ArrowDown'); await app.tick();
+  const home = app.html(), active = /aria-selected="true" data-act="sx-open" data-id="([^"]+)"/.exec(app.overlay())[1];
+  assert.strictEqual(active, ids[0].replace(/&/g, '&amp;'), 'back on the first');
+  sxKey(app, 'Enter'); await app.tick(40);
+  assert.strictEqual(app.overlay(), '', 'Enter closed it');
+  assert.notStrictEqual(app.html(), home, 'and went to the result');
+});
+
+rule('Search: an open palette that receives new data shows the new result without another keystroke, and keeps the active row', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'zebracrossing');
+  assert.ok(/Nothing matches “zebracrossing”\. Try fewer words, or a ticket like ABC-123\./.test(app.overlay()), 'set-up: nothing yet');
+  const { key } = app.run();
+  await app.fs.write('runs/' + key + '/notes-other.jsonl', JSON.stringify({ id: 'zz1', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text: 'The zebracrossing sign was down', files: [] }) + '\n');
+  app.focus(); await app.tick(120);
+  assert.ok(/<mark>zebracrossing<\/mark>/.test(app.overlay()), 'the new note is listed without typing again');
+  assert.ok(/1 result/.test(app.live()), 'and the count is announced: ' + app.live());
+  await sxType(app, 'deploy');
+  sxKey(app, 'ArrowDown'); sxKey(app, 'ArrowDown'); await app.tick();
+  const activeId = () => /aria-selected="true" data-act="sx-open" data-id="([^"]+)"/.exec(app.overlay())[1];
+  const was = activeId(), notesN = () => +((/>Notes <span>([\d,]+)<\/span>/.exec(app.overlay()) || [0, 0])[1]), n0 = notesN();
+  await app.fs.write('runs/' + key + '/notes-third.jsonl', JSON.stringify({ id: 'zz2', at: '2026-10-16T11:00:00.000Z', by: 'person-blake', session: 'third', step: 'pods', text: 'Deploy deploy deploy, the deploy', files: [] }) + '\n');
+  app.focus(); await app.tick(120);
+  assert.strictEqual(notesN(), n0 + 1, 'set-up: the new note is counted');
+  assert.strictEqual(activeId(), was, 'the active row is the same result');
+});
+
+rule('Search: a note replaced with other words, same number of notes, is found by its new words in the open palette', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const { key } = app.run(), path = 'runs/' + key + '/notes-other.jsonl';
+  const line = text => JSON.stringify({ id: 'zz1', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text, files: [] }) + '\n';
+  await app.fs.write(path, line('Quokkas everywhere')); app.click('refresh'); await app.tick(120);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'quokkas');
+  assert.ok(/<mark>Quokkas<\/mark>/.test(app.overlay()), 'set-up: found');
+  await app.fs.write(path, line('Wombats everywhere')); app.focus(); await app.tick(120);
+  assert.ok(!/<mark>Quokkas<\/mark>/.test(app.overlay()), 'the old words no longer find it');
+  await sxType(app, 'wombats');
+  assert.ok(/<mark>Wombats<\/mark>/.test(app.overlay()), 'the new words do');
+});
+
+rule('Search: a run whose file couldn\'t be read is still searched from its last copy, marked, and counted in the footer', async () => {
+  const app = boot(); await app.tick(60);
+  const path = endedPath(app), title = JSON.parse(app.fs.files[path].t).title;
+  app.fs.files[path] = { t: '{"format":"preflight-run/2","id":', m: app.fs.files[path].m };
+  app.click('refresh'); await app.tick(120);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, title);
+  assert.ok(/Couldn(&#39;|’|')t be read; last copy/.test(app.overlay()), 'the result is marked');
+  assert.ok(/1 run file couldn(&#39;|’|')t be read; its last copy is searched and marked\./.test(app.overlay()), 'the footer says so');
+  assert.ok(/Folder last read \d{1,2}:\d{2}:\d{2}/.test(app.overlay()), 'and when the folder was last read');
+});
+
+rule('Search: opening a result never loses typing: an unsent note comes back, unapplied builder text refuses, and a dialog with typing isn\'t replaced', async () => {
+  const app = await recordingRelease(), key = app.run().key;
+  app.click('select', 'approve'); await app.tick();
+  app.set('note-text', 'unsent words'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'production release');
+  const proc = sxIds(app).find(id => /^pub:release\//.test(id));
+  assert.ok(proc, 'set-up: the process is listed: ' + sxIds(app).join(', '));
+  app.click('sx-open', proc); await app.tick(40);
+  assert.ok(/data-act="ptab"/.test(app.html()), 'on the process page');
+  app.click('go', '', { view: 'run', run: key, step: 'approve' }); await app.tick();
+  assert.strictEqual(app.draft('note-text'), 'unsent words', 'the unsent note came back');
+
+  const b = await builderOn();
+  b.click('ob-sel', 'flags'); await b.tick();
+  b.input('ob-text', 'Half typed'); await b.tick();
+  b.keyOn('k', { ctrlKey: true }); await b.tick(60);
+  await sxType(b, 'runs');
+  b.click('sx-open', 'page:runs'); await b.tick(40);
+  assert.strictEqual(b.overlay(), '', 'the palette closed so the message and the box can be seen');
+  assert.ok(/Apply or clear what you typed in the box first/.test(b.html()), 'says why');
+  assert.ok(b.draft('ob-text') === 'Half typed' && b.focused() === '#ob-text', 'the typing stays, with focus on it');
+
+  const c = boot(); await c.tick(80); c.choose('person-morgan'); await c.tick();
+  c.click('open-process', 'release'); await c.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(c.html())[1];
+  c.click('corr-review', id); await c.tick(20); c.click('corr-ca-declining'); await c.tick();
+  c.set('ca-reason', 'Not this time'); await c.tick();
+  c.keyOn('k', { ctrlKey: true }); await c.tick(40);
+  assert.ok(/id="ca-reason"/.test(c.overlay()) && !/role="combobox"/.test(c.overlay()), 'the dialog with typing stays');
+  assert.ok(/Finish or cancel this first\./.test(c.live() + c.html()));
+  c.click('help'); await c.tick();
+});
+
+rule('Search: a read-only dialog gives way to it, and on a phone a jump from it closes the step sheet', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('help'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()) && !/Keyboard/.test(app.overlay()), 'help gave way');
+  const ph = boot({ narrow: true }); await ph.tick(60); ph.choose('person-casey'); await ph.tick();
+  const key = ph.run().key;
+  ph.click('open-run', key); await ph.tick(); ph.click('select', 'approve'); await ph.tick();
+  assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(ph.html()), 'set-up: the step sheet is open');
+  ph.keyOn('k', { ctrlKey: true }); await ph.tick(40);
+  await sxType(ph, 'pods');
+  const hit = sxIds(ph).find(x => /^step:|^note:|^run:/.test(x));
+  assert.ok(hit, 'set-up: a result: ' + sxIds(ph).join(', '));
+  ph.click('sx-open', hit); await ph.tick(40);
+  assert.strictEqual(ph.overlay(), '');
+  assert.ok(!/id="rw-ins"[^>]*data-open="true"/.test(ph.html()), 'the sheet closed');
+});
+
+rule('Search: switching folders while the index is being built leaves nothing from the old folder', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const { key } = app.run();
+  await app.fs.write('runs/' + key + '/notes-other.jsonl', JSON.stringify({ id: 'zz1', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text: 'Oldfolderword here', files: [] }) + '\n');
+  app.click('refresh'); await app.tick(120);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'oldfolderword');
+  assert.ok(/<mark>Oldfolderword<\/mark>/.test(app.overlay()), 'set-up: found in this folder');
+  app.key('Escape'); await app.tick();
+  const jobs = []; const start = app.PF.search.start;
+  app.PF.search.start = function () { const j = start.apply(this, arguments); jobs.push(j); return j; };
+  // A build starts (the data changed), and the folder is switched before it can finish.
+  app.keyOn('k', { ctrlKey: true });
+  app.click('reset-examples');
+  await app.tick(120);
+  app.PF.search.start = start;
+  assert.ok(jobs.length >= 1 && jobs.slice(0, -1).every(j => j.canceled || j.done), 'the older build stopped');
+  if (!/role="combobox"/.test(app.overlay())) { app.keyOn('k', { ctrlKey: true }); await app.tick(60); }
+  await sxType(app, 'oldfolderword');
+  assert.ok(!/<mark>Oldfolderword<\/mark>/.test(app.overlay()), 'nothing from the old folder');
+  assert.ok(/Nothing matches/.test(app.overlay()));
+});
+
 run();

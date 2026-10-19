@@ -1,6 +1,6 @@
 # Flightdeck design
 
-Status: **describes Flightdeck 1.17.0** (large-folder slice 1a; search, insights, evidence export and incremental loading are planned). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
+Status: **describes Flightdeck 1.17.0** (large-folder slice 1a and search; insights, evidence export and incremental loading are planned). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
 
 ## 1. What Flightdeck is
 
@@ -403,9 +403,51 @@ Decided 2026-10-18. A team that runs its releases on Flightdeck needs to trust t
 - **When something goes wrong, in the app.** `docs/recovery.md` is embedded by `build.py` and shown as Settings → When something goes wrong, section by section with GitHub's anchors (`PF.health.sections`), so the guide and the app never differ. Folder health issues, the run's conflict panel, the process page's shared-draft notice and the top bar's "can't read it" and "needs your OK again" link to their sections; Back returns to where you were.
 - **Guided setup, joining and owner succession (slice 3):** see section 11 (First run) and section 2 (People list). Folder health adds: nobody is the folder owner (info), more than one folder owner or backup owner (warn), the folder owner inactive (warn, naming the backup who can take over), no backup owner or an inactive one (info), a checklist's backup owner inactive or gone (info). The setup's write test leaves no file behind; a leftover `write-test-*.tmp` older than 2 hours shows with the other leftover temporary files.
 
+## 22. Search (1.17)
+
+One search box for the whole team folder, opened from anywhere: **Ctrl+K** (Cmd+K on a Mac) always, **/** when single-key shortcuts are on and nothing is being typed (WCAG 2.1.4), or **Search** in the top bar. Flightdeck takes Ctrl+K only while the page has focus. Keys are ignored while an input method is composing.
+
+**What it finds, and where each result goes.** Every result opens through `go()` (section 25), so nothing typed is lost.
+
+| Kind | Indexed from | Opens |
+|---|---|---|
+| Runs | Title, details (tickets like `ABC-123`), category, version, outcome, evidence values, blocked reasons and "done differently" notes; people by name | The run (the step, when the hit was a step's evidence) |
+| Notes and corrections | A note's text, a correction's wording and why, attachment names; who wrote it | The run's step, with the note flashed |
+| Follow-ups | Their text and ticket, and what became of them (note, reason, ticket, link); owner | The run (its step, if it has one) |
+| Corrections (decisions) | A decision's reason and outcome | The process page |
+| Processes and versions | Title, process ID, version, category, tags, change note; drafts not yet published | The process page (that version, for an older one) |
+| Steps | Each step of a process's latest version: its text, notes and ID; its step type by label | That version on the process page |
+| Step types | Label, ID, hint, tags, group | Step types |
+| Skills | Name, description, process | The skill |
+| Pages | Home, Runs, Follow-ups, Processes, Skills, Step types, Settings, Folder health, Connection check, When something goes wrong | That page |
+
+**Built from what the app accepted** (`src/core/search.js`, `PF.search`, pure). The app hands over the runs it applied (after `keepUnread` and `applyRunsRead`, notes included), publications, drafts, decisions, follow-ups (`PF.followups.list`), step types, skills and people, never raw reads. `docs(input)` turns them into **sources**, each with a namespaced ID and a signature of exactly what it indexes:
+
+| Source | Signature covers |
+|---|---|
+| `run:<process>/<id>` | The accepted run's `_fileHash`, `rev`, `savedAt` and title |
+| `note:<process>/<id>:<note id>#<n>` (note IDs can repeat; `n` counts them in the run's note order) | `U.hash` of the note's indexed fields and its attachments' names and sizes, plus the run's title |
+| `fu:<process>/<run>/<follow-up>` | The follow-up's text, owner, ticket, step, status and the current decision's contents |
+| `corr:<dir>/<process>/<file>` (`corrections/` or legacy `suggestions/`) | The cleaned decision and its folder |
+| `pub:<process>/<folder>` | `mapHash`, `typesHash`, the publication record, and whether it's the latest (its steps are indexed only then) |
+| `draft:<file>` | `U.hash` of the Markdown (never its time), and whether the process is published |
+| `type:<id>`, `skill:<file>`, `page:<id>` | The cleaned definition |
+
+`sync(index, sources, input)` reindexes only sources whose signature changed and drops sources that are gone, so a note replaced with other words (same number of notes), a decision rewritten under the same file name, or a deleted file all show up correctly. **Names are dependencies, not text:** documents keep person IDs and step-type IDs, and two small side indexes (people: words of each name → IDs; types: words of each label and ID → IDs) turn the words of a query into IDs at search time. Renaming a person rebuilds only the people index. A run whose last check failed or whose file is gone is still searched from the copy the app kept; its results carry that status ("Couldn't be read; last copy", "File gone; last copy"), looked up at query time from `state.unread` and `state.missing`.
+
+**Freshness.** The index lives in memory only (never in browser storage) for one folder generation. It's built the first time the palette opens, in **8 ms slices**, runs first (each followed by its notes); each build carries a token, and starting a newer build or switching folders (`useFs` → `sxReset`) cancels the older one, so no result from another folder can appear. While the palette is open, every redraw checks whether the accepted data changed (a load, the open run's reread, a save's outcome: compared by the data object, each run object and its `_fileHash`, and the people list) and, if so, syncs and runs the query again without a keystroke; a refresh that redraws only the top bar still reaches the palette. The active result is kept by its ID; if it's gone, the result now at its place is chosen, and the count is announced in the live region ("3 results"). While the first build is under way, results found so far are shown with "Still reading 640 of 2,000 runs."
+
+**Words and ranking.** Text is folded one code point at a time (NFD, combining marks removed, lowercased, final sigma as sigma) with a map from each folded character back to the original offsets, so a highlight always covers the original characters, a trailing combining mark included (`Cafe` + U+0301 is highlighted whole). Words are runs of anything but whitespace and punctuation: `ABC-123` is two words and also matches as a phrase; `constructor` and `__proto__` are ordinary words (every map is prototype-free); regex characters in a query match nothing special. Every word must match; **only the last word is a prefix** (unless the query ends with a space). No fuzzy matching, so IDs and tickets are predictable. Ranking: each field's weight (titles highest, tickets and IDs next, body text, then labels), an exact word counting twice a prefix, a bonus when every word is in one field and a larger one for the whole phrase, then the context (the open run, then the open process), then the most recent, then the source ID, so the order is stable. Results are grouped by kind, groups in the order of their best result, 6 per group with "N more. Add a word to narrow it down."
+
+**The palette** (`V.search` in `views/overlays.js`) is a dialog with a combobox (the search box, `aria-controls` the listbox, `aria-activedescendant` the active option) and a listbox of results in labeled groups, so focus stays in the box: Up and Down move (wrapping), Enter opens, Esc closes and returns focus to whatever opened it. Each result shows its title, a snippet of the field that matched (cut at spaces, "…" where cut) and where it belongs; every piece of text from a file is escaped, and only the hits are wrapped in `<mark>` (the `--mark` and `--on-mark` tokens, light and both dark blocks). On a phone it's a full-screen sheet and the top-bar button shows only its icon. Wording: the box says "Search the team folder"; empty: "Search runs, steps, notes, corrections, follow-ups, step types and skills."; nothing found: "Nothing matches "deploy prod". Try fewer words, or a ticket like ABC-123."; the footer: "3 run files couldn't be read; their last copies are searched and marked." and "Folder last read 10:42:05."
+
+**Dialogs and typing.** Opening search closes a read-only dialog (help, What's new, a picture) first; a dialog with typing or choices in it is never replaced: focus goes to it with "Finish or cancel this first." Opening a result goes through `go()`; when the page holds typing that `go()` refuses over (text in a builder box not applied, an open decision form with text), the palette closes first so the message and the box it points at can be seen.
+
+**Budgets** (`test/perf.test.js`, the 2,000-run folder: about 14,450 sources and 24,700 documents): sources and a full build ≤ 400 ms of work, a query ≤ 30 ms at the 95th percentile, one run's update ≤ 5 ms, and the index ≤ 80 MB of heap after a full garbage collection.
+
 ## 25. Large folders (1.17)
 
-Planned in four slices; **slice 1a is built** (1.17.0): the measuring tools, explicit read results, safe parsing, paging, lazy thumbnails, one pool per folder, `go()` and the refresh-time check. Slice 1b (incremental and progressive loading, on an elapsed-time schedule) is planned. Sections 22 to 24 are reserved for search, insights and evidence export.
+Planned in four slices; **slice 1a is built** (1.17.0): the measuring tools, explicit read results, safe parsing, paging, lazy thumbnails, one pool per folder, `go()` and the refresh-time check. Slice 1b (incremental and progressive loading, on an elapsed-time schedule) is planned. Search is section 22; sections 23 and 24 are reserved for insights and evidence export.
 
 **Measuring.** `tools/big-folder.js` makes a synthetic folder from a seed, byte for byte the same every time (even IDs the rules make up come from the seed): 200 processes, 600 versions (1 to 6 each, two clashing pairs), checklists of 20 to 120 steps (median 40, about 11 KB of `map.md`), 40% of versions with 2 to 6 screenshots; 2,000 runs (50 running, 100 ended in the last week) played through the real rules; 1 to 3 notes files per run and 10,000 notes; 2,000 attachments, recorded by size only; 300 decisions in `corrections/`, 1,500 in `followups/` and 40 legacy ones in `suggestions/`; and oddities (3% of runs with an orphan save receipt, 5 OneDrive copies, 3 unreadable `run.json`, 2 runs from a newer copy, runs without `marksFrom`). Profiles: `default`, `recent-heavy`, `old-heavy` and `6000` (`PERF=big`). `node tools/big-folder.js --out <dir>` writes one to disk. `test/big-folder.js` holds it in memory behind the folder interface and counts every `list`, `read`, `stat` and `blob` by top-level part. `test/perf.test.js` asserts the counts as ceilings, so they can only go down, and prints times and memory:
 
