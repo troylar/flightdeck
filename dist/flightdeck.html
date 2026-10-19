@@ -11039,11 +11039,12 @@ PF.examples = (function () {
     for (var i = 0; i < data.processes.length; i++) if (data.processes[i].process === r.process) for (var j = 0; j < data.processes[i].pubs.length; j++) { var p = data.processes[i].pubs[j]; if (p.folder === r.folder) return !!(p.ok && p.info && !('images' in p.info)); }
     return false;
   }
-  function firstBlob(paths) {
-    return paths.reduce(function (p, path) { return p.then(function (b) { return b || (/^(images|runs|publications)\//.test(path) ? state.fs.blob(path).catch(function () { return null; }) : null); }); }, Promise.resolve(null));
+  function firstBlob(paths, fs) {
+    fs = fs || state.fs;
+    return paths.reduce(function (p, path) { return p.then(function (b) { return b || (/^(images|runs|publications)\//.test(path) ? fs.blob(path).catch(function () { return null; }) : null); }); }, Promise.resolve(null));
   }
-  function thumbUrl(paths) {
-    return firstBlob(paths).then(function (b) {
+  function thumbUrl(paths, fs) {
+    return firstBlob(paths, fs).then(function (b) {
       if (!b) return '';
       if (typeof createImageBitmap !== 'function') return URL.createObjectURL(b);
       return createImageBitmap(b).then(function (bm) {
@@ -11056,15 +11057,21 @@ PF.examples = (function () {
   }
   /* Thumbnails take turns in the folder's shared pool (at most 4 at once, after the open run and loading). The job reads
      and shrinks the picture itself, so it never waits for another turn while holding one. */
-  function thumbJob(paths) { var fs = state.fs; return fs ? repo.poolOf(fs)('thumb', function () { return thumbUrl(paths); }) : Promise.resolve(''); }
-  var thumbWant = {}, thumbIO = null;
+  /* A job is bound to the folder and generation it was queued in: if the folder changed while it waited, it stops before
+     reading anything, so an old folder's path is never read through the new one. */
+  function thumbJob(paths) {
+    var fs = state.fs, g = gen;
+    return fs ? repo.poolOf(fs)('thumb', function () { return g === gen && state.fs === fs ? thumbUrl(paths, fs) : ''; }) : Promise.resolve('');
+  }
+  var thumbWant = {}, thumbIO = null, thumbSeen = [];
   function watchThumbs() {
+    pruneThumbs();
     if (typeof IntersectionObserver !== 'function' || !Object.keys(thumbWant).length) return;
     if (!thumbIO) thumbIO = new IntersectionObserver(function (entries) {
       entries.forEach(function (en) {
         if (!en.isIntersecting) return;
         var k = en.target && en.target.dataset && en.target.dataset.thumb, w = k && thumbWant[k];
-        if (thumbIO && thumbIO.unobserve && en.target.nodeType) thumbIO.unobserve(en.target);
+        if (thumbIO && thumbIO.unobserve && en.target.nodeType) { thumbIO.unobserve(en.target); thumbSeen = thumbSeen.filter(function (el) { return el !== en.target; }); }
         if (!w) return;
         delete thumbWant[k];
         if (w.g !== gen) return;
@@ -11076,9 +11083,15 @@ PF.examples = (function () {
         }, function () { if (g === gen && ep === (state.urls._epoch || 0)) { state.urls[k] = ''; later(); } else if (state.urls[k] === null) delete state.urls[k]; });
       });
     }, { rootMargin: '200px' });
-    Array.prototype.forEach.call(app.querySelectorAll('[data-thumb]'), function (el) { if (!el._pfWatched) { el._pfWatched = true; thumbIO.observe(el); } });
+    Array.prototype.forEach.call(app.querySelectorAll('[data-thumb]'), function (el) { if (!el._pfWatched) { el._pfWatched = true; thumbIO.observe(el); thumbSeen.push(el); } });
   }
-  function stopThumbs() { thumbWant = {}; if (thumbIO && thumbIO.disconnect) thumbIO.disconnect(); thumbIO = null; }
+  /* Placeholders a redraw removed are no longer watched; with nothing left to watch, the observer goes. */
+  function pruneThumbs() {
+    if (!thumbIO) return;
+    thumbSeen = thumbSeen.filter(function (el) { if (app.contains(el)) return true; if (thumbIO.unobserve) thumbIO.unobserve(el); return false; });
+    if (!thumbSeen.length && !Object.keys(thumbWant).length) { if (thumbIO.disconnect) thumbIO.disconnect(); thumbIO = null; }
+  }
+  function stopThumbs() { thumbWant = {}; thumbSeen = []; if (thumbIO && thumbIO.disconnect) thumbIO.disconnect(); thumbIO = null; }
   function fullUrl(paths) { return firstBlob(paths).then(function (b) { return b ? URL.createObjectURL(b) : ''; }); }
   function releaseUrls(map) { if (map === state.urls) thumbWant = {}; var ep = (map._epoch || 0) + 1; Object.keys(map).forEach(function (k) { if (map[k] && /^blob:/.test(map[k])) URL.revokeObjectURL(map[k]); delete map[k]; }); map._epoch = ep; }
   /* Several images finishing at once cause one redraw, not one each. */
@@ -11903,6 +11916,8 @@ PF.examples = (function () {
     if (keep) { state.paneScroll = null; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el && keep[id] != null) el.scrollTop = keep[id]; }); }
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
+    /* go() to a step brings its row into view, in the run already open and on a phone too (focus alone doesn't scroll). */
+    if (on && state.revealTarget) { var rt = app.querySelector(state.revealTarget); state.revealTarget = null; if (rt && rt.scrollIntoView) rt.scrollIntoView({ block: 'nearest' }); }
   }
   function savePanes() { var k = { key: state.runKey }; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el) k[id] = el.scrollTop; }); state.paneScroll = k; }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
@@ -14372,10 +14387,10 @@ PF.examples = (function () {
     t = t || {};
     if (state.overlay && !state.overlay.readOnly) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (state.overlay) closeOverlay();
-    var pf = state.obPending && state.obPendingField;
-    if (pf) { say('Apply or clear what you typed in the box first (Enter applies it), then go there.', 'warn'); state.focus = '#' + pf; render(); return false; }
-    var typed = formTyped();
-    if (typed) { say('Finish or cancel this first.', 'warn'); state.focus = typed; render(); return false; }
+    for (var fi = 0; fi < TYPED_FORMS.length; fi++) {
+      var held = TYPED_FORMS[fi].typed && TYPED_FORMS[fi].typed();
+      if (held) { say(held.say || 'Finish or cancel this first.', 'warn'); state.focus = held.focus; render(); return false; }
+    }
     if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
     if (t.view === 'run') {
       if (!t.run || !ctx.findRun(t.run)) return false;
@@ -14383,7 +14398,7 @@ PF.examples = (function () {
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
       if (x) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
-        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]';
+        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; state.revealTarget = '#step-' + cssEsc(x.step.id);
         var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
         setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
       }
@@ -14400,19 +14415,34 @@ PF.examples = (function () {
     ACTIONS.nav(t.view || 'home');
     return true;
   }
-  /* The box to go back to when a correction or a follow-up decision has text in it, or ''. */
-  function formTyped() {
-    var f = state.corrForm;
-    if (f) {
-      var r = findRun(f.key), x = r ? M.findStep(R.mapOf(r), f.step) : null;
-      if (String(f.text || '').trim() || String(f.why || '').trim() || String(f.happened || '').trim() || (x && f.to !== x.step.text)) return f.mode === 'differently' ? 'corr-happened' : 'corr-why';
-    }
-    if (state.fuPick) {
-      var base = PF.followups.formId(state.fuPick.key), parts = ['note', 'link', 'ticket', 'to', 'reason'];
-      for (var i = 0; i < parts.length; i++) if (val(base + '-' + parts[i]).trim()) return base + '-' + parts[i];
-    }
-    return '';
+  /* Every form typed into in place (not a dialog) and what leaving the screen does to it. go() asks each one in order: a
+     form whose typing would be lost says where it is ({focus, say}) and the jump waits; one kept as a draft says so
+     (kept), so nobody adds a check that would refuse it. A new inline form belongs here. */
+  function drawnText(id) {
+    var el = document.getElementById(id);
+    if (!el || !app.contains(el)) return '';
+    var v = String(el.value || ''), def = el.defaultValue != null ? String(el.defaultValue) : '';
+    return v.trim() && v !== def ? v : '';
   }
+  function heldIn(ids) { for (var i = 0; i < ids.length; i++) if (drawnText(ids[i])) return { focus: '#' + cssEsc(ids[i]) }; return null; }
+  var TYPED_FORMS = [
+    { name: 'builder box', typed: function () { var pf = state.obPending && state.obPendingField; return pf ? { focus: '#' + pf, say: 'Apply or clear what you typed in the box first (Enter applies it), then go there.' } : null; } },
+    { name: 'correction', typed: function () {
+      var f = state.corrForm; if (!f) return null;
+      var r = findRun(f.key), x = r ? M.findStep(R.mapOf(r), f.step) : null;
+      return String(f.text || '').trim() || String(f.why || '').trim() || String(f.happened || '').trim() || (x && f.to !== x.step.text) ? { focus: f.mode === 'differently' ? 'corr-happened' : 'corr-why' } : null;
+    } },
+    /* One box many forms share: a pause, block, waive or fail reason, a deadline, a sign-off note, a reason to decline a
+       correction, and a detail being edited. */
+    { name: 'reason box', typed: function () { return heldIn(['pick-input', 'edit-input']); } },
+    { name: 'follow-up decision', typed: function () { if (!state.fuPick) return null; var b = PF.followups.formId(state.fuPick.key); return heldIn(['note', 'link', 'ticket', 'to', 'reason'].map(function (k) { return b + '-' + k; })); } },
+    { name: 'new follow-up', typed: function () { return heldIn(['fu-text', 'fu-ticket']); } },
+    /* setView harvests these into per-run, per-step drafts, and they come back on the way back. */
+    { name: 'note, evidence and Fill in', kept: true },
+    /* The editors live in state.editors and state.typeForm, not on the screen, and survive leaving it. */
+    { name: 'draft editor and step-type form', kept: true }
+  ];
+  PF.typedForms = TYPED_FORMS;
   function focusOverlay() {
     var el = overlayEl && overlayEl.querySelector && overlayEl.querySelector('input, textarea, select, button');
     if (el && el.focus) el.focus();

@@ -27,6 +27,11 @@ function generate(PF, opts) {
   const R = PF.run, P = PF.publish, U = PF.util, F = PF.followups;
   const rand = prng(opts.seed || 17), pick = a => a[Math.floor(rand() * a.length)], int = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
   const id8 = () => { let s = ''; for (let i = 0; i < 8; i++) s += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(rand() * 36)]; return s; };
+  /* Anything the rules make up (an archived record's ID) comes from the seed too, so a seed gives the same bytes every time. */
+  const randomId = U.randomId;
+  U.randomId = n => { let s = ''; for (let i = 0; i < (n || 8); i++) s += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(rand() * 36)]; return s; };
+  try { return make(); } finally { U.randomId = randomId; }
+  function make() {
   const files = {}, virtual = {}, mtimes = {};
   const put = (p, text, m) => { files[p] = text; mtimes[p] = m == null ? OLD : m; };
   const iso = ms => new Date(ms).toISOString();
@@ -90,7 +95,7 @@ function generate(PF, opts) {
     });
     if (!running) {
       while (ph < map.phases.length) { R.pass(r, map, ph, who, at()); ph++; }
-      if (fuMade < fusWanted) { const f = R.addFollowUp(r, { text: 'Tidy up ' + pick(THINGS) }, who, at()); fuMade++; fuItems.push({ process: r.process, run: r.id, id: f.id, who, at: t }); }
+      if (fuMade < fusWanted) { const f = R.addFollowUp(r, { id: id8(), text: 'Tidy up ' + pick(THINGS) }, who, at()); fuMade++; fuItems.push({ process: r.process, run: r.id, id: f.id, who, at: t }); }
       R.end(r, map, rand() < 0.9 ? 'Completed' : 'Cancelled', who, who, at());
     }
     if (k % 100 === 7 && fuMade) delete r.marksFrom;
@@ -139,6 +144,7 @@ function generate(PF, opts) {
 
   const stats = { runs: runKeys.length, running: prof.running, publications: pubs.length, notes: notesTotal, attachments: Object.keys(virtual).length, files: Object.keys(files).length + Object.keys(virtual).length };
   return { files, virtual, mtimes, stats, now: NOW };
+  }
 }
 function stripMeta(o) { const c = {}; Object.keys(o).forEach(k => { if (k[0] !== '_') c[k] = o[k]; }); return c; }
 

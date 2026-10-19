@@ -49,8 +49,14 @@ function boot(opts) {
   };
   Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d !== null) els[id].value = d; }); } });
   const onScreen = id => appEl._html.indexOf('id="' + id + '"') >= 0;
-  appEl.querySelectorAll = sel => /input|textarea|select/.test(sel) ? [...inputs].filter(onScreen).map(id => els[id]) : [];
-  appEl.contains = el => !!el && inputs.has(el.id) && onScreen(el.id);
+  /* Thumbnail placeholders as nodes: the same node while it stays drawn, a new one once it's drawn again (as morph does). */
+  const thumbs = new Map(), unq = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const drawnThumbs = () => [...appEl._html.matchAll(/data-thumb="([^"]*)"/g)].map(m => unq(m[1]));
+  appEl.querySelectorAll = sel => {
+    if (sel === '[data-thumb]') { const now = drawnThumbs(); [...thumbs.keys()].forEach(k => { if (now.indexOf(k) < 0) thumbs.delete(k); }); return now.map(k => { if (!thumbs.has(k)) thumbs.set(k, { nodeType: 1, dataset: { thumb: k } }); return thumbs.get(k); }); }
+    return /input|textarea|select/.test(sel) ? [...inputs].filter(onScreen).map(id => els[id]) : [];
+  };
+  appEl.contains = el => !!el && (el.dataset && el.dataset.thumb != null && !el.id ? drawnThumbs().indexOf(el.dataset.thumb) >= 0 && thumbs.get(el.dataset.thumb) === el : inputs.has(el.id) && onScreen(el.id));
   /* Where the app asked focus to go: renders look up their focus target with querySelector. */
   const asked = [];
   /* The builder's properties form, as far as the phone sheet needs it: a node under the screen that can be marked. */

@@ -6,13 +6,14 @@ const assert = require('assert');
 const { load, loadViews, rule, run } = require('./harness');
 const { bigFolder } = require('./big-folder');
 
-/* Folder calls (list + read + stat + blob) measured with this harness. 1.16.0 needed cold 32,648 / 32,521 / 32,634 and
-   routine 10,068 / 10,732 / 9,785; 1.17 slice 1a stopped stat'ing a notes file again after reading it (its size comes with
-   the read). These are 1a's numbers: never raise them. Slice 1b lowers routine refreshes to the targets in section 25. */
+/* Folder calls (list + read + stat + blob) measured with this harness on the seeded folder. 1.16.0 needed cold 32,611 /
+   32,694 / 32,676 and routine 10,063 / 10,773 / 9,797; 1.17 slice 1a stopped stat'ing a notes file again after reading it
+   (its size comes with the read). These are 1a's numbers: never raise them. Slice 1b lowers routine refreshes to the
+   targets in docs/design.md section 25. */
 const CEILING = {
-  default: { cold: 29646, routine: 10068 },
-  'recent-heavy': { cold: 29543, routine: 10732 },
-  'old-heavy': { cold: 29638, routine: 9785 }
+  default: { cold: 29618, routine: 10063 },
+  'recent-heavy': { cold: 29681, routine: 10773 },
+  'old-heavy': { cold: 29672, routine: 9797 }
 };
 const PROFILES = Object.keys(CEILING).concat(process.env.PERF === 'big' ? ['6000'] : []);
 const mb = n => (n / 1048576).toFixed(1) + ' MB';
@@ -68,6 +69,13 @@ rule('Large folder: the Runs page parses each checklist once and draws at most 1
   console.log('  R.mapOf over ' + d.runs.length + ' runs: ' + (Number(process.hrtime.bigint() - t) / 1e6).toFixed(0) + ' ms, ' + R.mapMemo.stats().size + ' checklists kept');
   console.log('  memory for one load (this process also holds the generated folders): heap +' + mb(mem.heapUsed - mem0.heapUsed) + ', external ' + mb(mem.external) + ', arrayBuffers ' + mb(mem.arrayBuffers));
   assert.ok(renderMs <= 250, 'first Runs page in ' + renderMs.toFixed(0) + ' ms');
+});
+
+rule('The big folder is the same, byte for byte, every time for a seed, and different for another seed', () => {
+  const { generate } = require('../tools/big-folder');
+  const a = generate(load(), { runs: 40, running: 5, recent: 5, seed: 5 }), b = generate(load(), { runs: 40, running: 5, recent: 5, seed: 5 });
+  assert.strictEqual(JSON.stringify(a), JSON.stringify(b));
+  assert.notStrictEqual(JSON.stringify(generate(load(), { runs: 40, running: 5, recent: 5, seed: 6 }).files), JSON.stringify(a.files));
 });
 
 run();

@@ -4110,7 +4110,7 @@ rule('go(): an unsent note survives going somewhere else and is there again on t
   assert.strictEqual(app.selected(), 'approve');
   assert.strictEqual(app.draft('note-text'), 'unsent words', 'the unsent note came back');
   assert.ok(/<li class="step sel[^"]*\bflash\b[^"]*"[^>]*id="step-approve"/.test(app.html()), 'flashed');
-  assert.strictEqual(app.focused(), '[data-act="select"][data-id="approve"]', 'scrolled to, by focus');
+  assert.ok(app.asked().indexOf('[data-act="select"][data-id="approve"]') >= 0 && app.asked().indexOf('#step-approve') >= 0, 'focused and scrolled into view');
 });
 
 rule('go(): text typed in a builder box and not applied refuses the jump, with the existing message, and stays', async () => {
@@ -4227,6 +4227,100 @@ rule('Thumbnails load only once they scroll into view, through the folder\'s sha
   observers.forEach(o => o.cb([{ isIntersecting: true, target: { dataset: { thumb: m[1].replace(/&amp;/g, '&') } } }], o));
   await app.tick(40);
   assert.strictEqual(blobs, 1, 'read once it\'s in view');
+});
+
+/* ---------- 1.17 review: every inline form, stale thumbnail jobs, detached placeholders, revealing the target ---------- */
+const refused = (app, id, value) => {
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()), id + ': says why');
+  assert.ok(new RegExp('id="' + id + '"').test(app.html()), id + ': still on screen');
+  assert.strictEqual(app.draft(id), value, id + ': the typing is kept');
+};
+
+rule('go(): a reason typed to decline a correction refuses the jump and stays', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(20);
+  const id = /data-act="corr-applied" data-id="([\w-]+)"/.exec(app.html())[1];
+  app.click('pick', id, { kind: 'corr-decline' }); await app.tick();
+  app.set('pick-input', 'Ten minutes is enough'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  refused(app, 'pick-input', 'Ten minutes is enough');
+});
+
+rule('go(): every inline form with typing refuses the jump: a pause reason, a follow-up decision and a new follow-up', async () => {
+  let app = await recordingRelease();
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick();
+  app.set('pick-input', 'Waiting for the board'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'pick-input', 'Waiting for the board');
+
+  app = boot(); await app.tick(80); app.choose('person-morgan'); await app.tick();
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1], B = app.PF.followups.formId(key);
+  app.click('fu-pick', key, { status: 'wont' }); await app.tick();
+  app.set(B + '-reason', 'Not needed'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  refused(app, B + '-reason', 'Not needed');
+
+  app = await recordingRelease();
+  app.click('finish'); await app.tick();
+  app.set('fu-text', 'Tidy the dashboard'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'fu-text', 'Tidy the dashboard');
+});
+
+rule('go(): the forms go() checks come from one list that names every inline form, and the ones kept as drafts say so', async () => {
+  const app = boot(); await app.tick(60);
+  const names = app.PF.typedForms.map(f => f.name);
+  ['builder box', 'correction', 'reason box', 'follow-up decision', 'new follow-up', 'note, evidence and Fill in', 'draft editor and step-type form'].forEach(n => assert.ok(names.indexOf(n) >= 0, n));
+  app.PF.typedForms.forEach(f => assert.ok(typeof f.typed === 'function' || f.kept, f.name + ' is checked or kept'));
+});
+
+rule('A thumbnail waiting for its turn never reads through a folder opened after it was queued', async () => {
+  const observers = [];
+  class IO { constructor(cb) { this.cb = cb; observers.push(this); } observe() {} unobserve() {} disconnect() {} }
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('select', 'approve'); app.set('note-text', 'with a picture'); app.change('note-file', [png('pods.png')]); await app.tick();
+  app.click('add-note', 'approve'); await app.tick(80);
+  app.click('select', 'pods'); await app.tick(); app.click('select', 'approve'); await app.tick(40);
+  const thumb = /data-thumb="([^"]+)"/.exec(app.html())[1].replace(/&amp;/g, '&');
+  // Hold every thumbnail turn, so the job has to wait in the queue.
+  const pool = app.PF.repo.poolOf(app.fs), held = [];
+  for (let i = 0; i < 4; i++) pool('thumb', () => new Promise(r => held.push(r)));
+  let blobs = 0; const proto = app.PF.fs.MemoryFS.prototype, orig = proto.blob;
+  proto.blob = function (p) { if (/\/files\//.test(p)) blobs++; return orig.call(this, p); };
+  observers.forEach(o => o.cb([{ isIntersecting: true, target: { dataset: { thumb } } }], o));
+  await app.tick(5);
+  app.click('reset-examples'); await app.tick(120);
+  held.forEach(r => r()); await app.tick(40);
+  proto.blob = orig;
+  assert.strictEqual(blobs, 0, 'the old job stopped before reading');
+});
+
+rule('Thumbnail placeholders that leave the page stop being watched', async () => {
+  const watched = new Set();
+  class IO { constructor(cb) { this.cb = cb; } observe(el) { watched.add(el); } unobserve(el) { watched.delete(el); } disconnect() { watched.clear(); } }
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('select', 'approve'); app.set('note-text', 'with a picture'); app.change('note-file', [png('pods.png')]); await app.tick();
+  app.click('add-note', 'approve'); await app.tick(80);
+  for (let i = 0; i < 5; i++) { app.click('select', 'pods'); await app.tick(); app.click('select', 'approve'); await app.tick(); }
+  assert.strictEqual(watched.size, 1, 'only the placeholder on screen is watched');
+  app.click('select', 'pods'); await app.tick();
+  assert.strictEqual(watched.size, 0, 'none once it\'s gone');
+});
+
+rule('go(): a step in the run already open is scrolled into view, on a phone too', async () => {
+  for (const narrow of [false, true]) {
+    const app = boot({ narrow }); await app.tick(60); app.choose('person-casey'); await app.tick();
+    const key = app.run().key;
+    app.click('open-run', key); await app.tick(40);
+    const before = app.asked().length;
+    app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick(40);
+    assert.ok(app.asked().slice(before).indexOf('#step-pods') >= 0, (narrow ? 'phone' : 'laptop') + ': revealed');
+  }
 });
 
 run();
