@@ -1930,8 +1930,17 @@
       R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = el.value; });
       var chk = R.checkEvidence(r, x.step, merged, values, true);
       if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
-      state.fieldErr = null; dropDraft(state.runKey, id, ['record', 'fields', 'open']);
-      mutate(function (r, map, me, now) { R.setFields(r, map, id, fields, values, me, now); }, { fieldsFor: id });
+      /* The draft is dropped only once the values are in the run, and only the evidence this form saved: evidence typed for
+         an action no longer chosen stays a draft. */
+      var key = state.runKey;
+      state.fieldErr = null;
+      mutate(function (r, map, me, now) {
+        R.setFields(r, map, id, fields, values, me, now);
+        var d = draftOf(key, id, false), keep = {};
+        if (d) Object.keys(d.record).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(values, k.slice(4))) keep[k] = d.record[k]; });
+        dropDraft(key, id, ['record', 'fields', 'open']);
+        if (Object.keys(keep).length) draftOf(key, id, true).record = keep;
+      }, { fieldsFor: id });
     },
     record: function (id) { answerStep(state.runKey, id, { how: 'done' }); },
     pause: function () { var why = val('pick-input'); if (!why.trim()) { say('Say why the run is paused, so others know what it\'s waiting for.', 'warn'); render(); return; } state.pick = null; mutate(function (r, map, me, now) { R.pause(r, why, me, now); }); },
@@ -2234,9 +2243,12 @@
         return answerStep(key, step, { how: 'differently', happened: f.happened, at: note ? note.at : null, quiet: !here }).then(function (ok) {
           settled();
           if (ok) { delete state.partial[key]; if (state.view === 'run' && state.runKey === key) { say('Done differently' + (withNote ? ', with a correction for the checklist. Saved on this computer.' : '. Saved on this computer.'), 'good'); state.msg.quiet = true; } render(); return; }
-          /* It couldn't be answered (the run was paused or handed off, its phase closed, or its Fill in is open): the run says so until someone acts. */
+          /* It isn't answered in the folder (the run was paused or handed off, its phase closed, its Fill in is open, or the save
+             was refused or failed): the run says so until someone acts. A message already shown (a conflict, a warning) stays;
+             an answer still on screen waiting for Try again is said as that. */
           if (withNote) state.partial[key] = { step: step };
-          if (state.runKey === key && !(state.msg && state.msg.kind === 'warn')) say(withNote ? 'Correction saved; the step wasn\'t marked done.' : 'The step wasn\'t marked done.', 'warn');
+          var rk = ctx.findRun(key), pa = rk && rk.steps[step], waiting = !!(pa && pa.s === 'done' && pa.differently && state.unsaved[rk.id]);
+          if (state.runKey === key && !(state.msg && (state.msg.kind === 'warn' || state.msg.kind === 'bad'))) say(waiting ? 'Done differently isn\'t saved yet. Try again, or discard it, from the bar above.' : withNote ? 'Correction saved; the step wasn\'t marked done.' : 'The step wasn\'t marked done.', 'warn');
           render();
         });
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
@@ -2614,7 +2626,8 @@
   /* The one way to answer a step, Done or Done differently, from every place that does it (row check, inspector Done, Space
      and X, the Done differently composer and Mark it now). It works on that step only, with answerCheck's values, and only
      its own forms close. o: { how: 'done' | 'differently', happened, at, quiet (no selection or messages: the person may be
-     elsewhere) }. Resolves true when answered. */
+     elsewhere) }. Resolves true only when the answer is saved in the team folder: a refused or failed save resolves false, and
+     its own message (the conflict, or the unsaved change with Try again) says what happened. */
   function answerStep(key, id, o) {
     var g = gen, here = state.view === 'run' && state.runKey === key, quiet = !!o.quiet || !here, c = answerCheck(key, id);
     if (!c.r) {
@@ -2630,7 +2643,7 @@
       applied = true;
     }, quiet ? { only: id, background: true } : { only: id });
     if (applied) { dropDraft(key, id, ['record']); if (!quiet && state.view === 'run' && state.runKey === key) afterAnswer(id, was); }
-    return saving.then(function () { return applied; });
+    return saving.then(function (saved) { return applied && saved === true; });
   }
   /* After checking the step Next up pointed at, the next one in its phase is selected and its check gets focus, with one
      announcement. A step checked out of order stays selected. Nothing moves while a note or a suggestion is being written

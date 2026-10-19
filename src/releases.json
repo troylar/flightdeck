@@ -42,6 +42,29 @@
     ]
   },
   {
+    "version": "1.13.1",
+    "date": "2026-10-18",
+    "headline": "Fill in keeps the evidence you typed, and Done differently tells the truth about a refused save",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Fill in keeps evidence typed before it opened",
+        "before": "If you typed evidence on a step, then opened Fill in and saved it, Fill in started with empty evidence boxes and saving threw away what you had typed. Done then checked the step without it.",
+        "now": "Fill in starts with the evidence you already typed on the step, and saving it keeps that evidence with the step. Done records it.",
+        "where": "A run: the selected step, Record the result, Fill in."
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Done differently no longer says it saved when it didn't",
+        "before": "If the run was saved from another window or computer while Done differently was saving its correction, the step stayed unanswered in the team folder but Flightdeck said \"Done differently… Saved on this computer.\"",
+        "now": "Flightdeck says the run changed elsewhere and shows \"Correction saved; the step wasn't marked done.\" with Mark it now, which stays on the run until you act. If the save failed and is waiting for Try again, it says that instead.",
+        "where": "A run: Done differently."
+      }
+    ]
+  },
+  {
     "version": "1.13.0",
     "date": "2026-10-18",
     "headline": "Runs get a workspace of their own, corrections replace Suggest a fix, and notes take files",

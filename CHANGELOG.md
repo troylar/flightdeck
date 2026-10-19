@@ -17,6 +17,15 @@ Five new step types: Jira sprints, deploys, health checks, GitHub pull requests 
 
 - **The examples use the new types** (Checklists). The sprint start example closes the last sprint, records velocity, carry-over and capacity, then starts the new sprint and sets its goal. The release example records the deploy and watches the error dashboard. A new example merges a GitHub pull request. Versions that use the new types still open and run in earlier copies of Flightdeck. *Where:* The example folder.
 
+## 1.13.1 · Oct 18, 2026
+
+Fill in keeps the evidence you typed, and Done differently tells the truth about a refused save.
+
+### Fixed
+
+- **Fill in keeps evidence typed before it opened** (Runs). Fill in starts with the evidence you already typed on the step, and saving it keeps that evidence with the step. Done records it. *Where:* A run: the selected step, Record the result, Fill in.
+- **Done differently no longer says it saved when it didn't** (Runs). Flightdeck says the run changed elsewhere and shows "Correction saved; the step wasn't marked done." with Mark it now, which stays on the run until you act. If the save failed and is waiting for Try again, it says that instead. *Where:* A run: Done differently.
+
 ## 1.13.0 · Oct 18, 2026
 
 Runs get a workspace of their own, corrections replace Suggest a fix, and notes take files.

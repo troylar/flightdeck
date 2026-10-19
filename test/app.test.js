@@ -2989,6 +2989,52 @@ rule('App: drafts belong to their team folder; another folder with the same run 
   assert.ok(/<textarea id="note-text"[^>]*>Only in folder A<\/textarea>/.test(app.html()), 'still there in its own folder');
 });
 
+/* ---------- 1.13.1 ---------- */
+rule('App: Fill in starts from the evidence typed on the step, and saving it keeps that evidence', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'pods'); await app.tick();
+  app.set('rec-result', 'RESTARTS 0');
+  app.click('pick', 'pods', { kind: 'fields' }); await app.tick();
+  assert.ok(/data-scope="fields:pods"/.test(app.html()) && /id="rec-result"[^>]*(value="RESTARTS 0"|>RESTARTS 0<)/.test(app.html()), 'Fill in shows what was typed');
+  app.set('fld-command', 'kubectl get pods -n web'); app.click('save-fields', 'pods'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.pods.values.result, 'RESTARTS 0', 'saved with the Fill in');
+  app.click('toggle', 'pods'); await app.tick(40);
+  const a = app.run().json.steps.pods;
+  assert.deepStrictEqual([a.s, a.values.result], ['done', 'RESTARTS 0'], 'Done records it');
+});
+
+rule('App: Done differently whose run save is refused as a conflict says the step wasn\'t marked done, never that it was saved', async () => {
+  const app = await recordingRelease();
+  const orig = app.PF.repo.addNote, g = gate();
+  app.PF.repo.addNote = function () { const a = arguments; return g.p.then(() => orig.apply(this, a)); };
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app'); app.click('corr-scope', 'fix'); await app.tick();
+  app.input('corr-to', 'Approve it in the phone app'); app.click('corr-done', 'approve'); await app.tick();
+  // Another computer saves the run while the correction is being written.
+  const r = app.run(), other = JSON.parse(JSON.stringify(r.json)); other.title = 'Saved elsewhere'; other.rev = (other.rev || 0) + 5;
+  await app.fs.write(r.path, JSON.stringify(other));
+  g.open(); await app.tick(120); app.PF.repo.addNote = orig;
+  assert.ok((app.run().json.steps.approve || {}).s !== 'done', 'set-up: the step isn\'t answered on disk');
+  const said = app.html() + app.live();
+  assert.ok(!/Saved on this computer/.test(said), 'no success message');
+  assert.ok(/Correction saved; the step wasn(&#39;|')t marked done\./.test(app.html()) && /data-act="corr-open" data-mode="differently" data-id="approve">Mark it now/.test(app.html()), 'the notice with Mark it now');
+  app.click('home'); await app.tick(); app.click('open-run', app.run().key); await app.tick(20);
+  assert.ok(/Correction saved; the step wasn(&#39;|')t marked done\./.test(app.html()), 'and it stays after reopening');
+});
+
+rule('App: a row check or Done refused as a conflict ends on the conflict message, not on "checked"', async () => {
+  for (const act of ['toggle', 'record']) {
+    const app = await recordingRelease();
+    app.click('select', 'pods'); await app.tick();
+    const r = app.run(), other = JSON.parse(JSON.stringify(r.json)); other.title = 'Saved elsewhere'; other.rev = (other.rev || 0) + 5;
+    await app.fs.write(r.path, JSON.stringify(other));
+    app.click(act, 'pods'); await app.tick(120);
+    assert.ok((app.run().json.steps.pods || {}).s !== 'done', act + ': set-up: not answered on disk');
+    assert.ok(/saved this run from another window or computer/.test(app.html()) && !/checked\. Next:/.test(app.live()), act + ': the conflict is what\'s said last');
+  }
+});
+
 /* A seeded walk through the run: whatever order things happen in, what's typed on a step is never lost and never lands on
    another step. Values carry their step's ID, so a value on the wrong step is caught. */
 rule('App: random sequences of selecting, typing evidence, Fill in, checking, Done differently with held writes, moving and switching folders never lose or misplace typed values', async () => {
