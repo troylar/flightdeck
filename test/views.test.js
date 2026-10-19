@@ -702,7 +702,7 @@ rule('How runs go: corrections on runs still going show even before any run has 
   p.all = [latest, older]; ctx.state.ptab = 'insights';
   const html = V.insightsPage(ctx, p);
   assert.ok(!/No finished runs of this version yet/.test(html) && /data-id="step:approved:corrections"/.test(html), 'the correction shows');
-  assert.ok(/<th scope="row">v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td>1 run is from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
+  assert.ok(/<th scope="row">v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, it&#39;s from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
 });
 rule('Runs: the banner over the runs behind a number never says "vnull", and names the folder when two folders share a version number', () => {
   const { ctx, state, runs, latest } = insightsSetup(2);
@@ -725,6 +725,29 @@ rule('How runs go: gates waived and failed show per phase with their denominator
   const html = V.insightsPage(ctx, p);
   assert.ok(/waived in <button class="linkish" data-act="ins-runs" data-id="gate:[^:"]+:waived">1 of 3 runs<\/button>/.test(html), 'waived, out of the runs with a record of the gate');
   assert.ok(/couldn&#39;t be read, so which version it belongs to isn&#39;t known/.test(html) && /data-act="health">Folder health/.test(html), 'the run never read');
+});
+rule('Compare versions and the flight plan say what each number left out, through the same words as How runs go', () => {
+  const { ctx, state, p, latest } = flightSetup();
+  const older = Object.assign({}, latest, { folder: 'v0-old', info: Object.assign({}, latest.info, { version: 0, folder: 'v0-old' }) });
+  const ahead = flightRun(older, 'o1'); ahead.ended.at = new Date(Date.parse(NOW) + 400 * 86400000).toISOString();
+  const a = flightRun(latest, 'fa'), b = flightRun(latest, 'fb', 'approved'); delete a.marksFrom;
+  const fut = flightRun(latest, 'fc'); fut.ended.at = new Date(Date.parse(NOW) + 86400000).toISOString();
+  ctx.data.runs = [ahead, a, b, fut]; ctx.findRun = () => null; ctx.followUps = () => []; ctx.corrections = () => [];
+  p.all = [latest, older]; state.ptab = 'insights';
+  const html = V.insightsPage(ctx, p), cmp = html.slice(html.indexOf('Compare versions'));
+  assert.ok(/<th scope="row">v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
+  state.ptab = 'checklist';
+  const fp = V.checklistPanel(ctx, p);
+  assert.ok(/A completed run typically takes [^<]+<\/span><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
+  assert.ok(/went off-script in 1 of 2 runs<span class="small ins-q">Not counted: 1 run, history incomplete\./.test(fp), fp.slice(fp.indexOf('Turbulence'), fp.indexOf('Turbulence') + 400));
+});
+rule('Runs: Show current numbers can come back with no runs, and then says nothing changed', () => {
+  const { ctx, state, runs } = insightsSetup(2);
+  ctx.processTitle = id => id; ctx.data.plans = []; state.view = 'runs';
+  const res = PF.insights.forProcess({ runs }, 'release', { now: Date.parse(NOW), folder: runs[0].folder });
+  state.runFilter = Object.assign(PF.insights.spec(res, 'ex:unread', runs), { cohort: true, back: {} });
+  const html = V.runs(ctx);
+  assert.ok(/id="rf-h" tabindex="-1">0 runs</.test(html) && !/changed since/.test(html), html.slice(html.indexOf('ins-banner'), html.indexOf('ins-banner') + 900));
 });
 rule('Runs: a filter keeps the alert about run files that can\'t be read above its results', () => {
   const { ctx, state } = insightsSetup(2);

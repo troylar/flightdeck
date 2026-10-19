@@ -234,7 +234,7 @@ rule('Follow-up ages are by the recorder\'s clock in buckets, and time to a deci
   same([res.followUps.open.n, res.followUps.open.buckets.map(b => b.keys.length)], [3, [1, 1, 1]]);
   assert.ok(res.followUps.open.excluded.some(e => e.keys.length === 1), 'a time that can\'t be read is left out, and said');
   same([res.followUps.decided.n, res.followUps.decided.median], [1, 4 * 86400000]);
-  assert.ok(/recorder's clock/.test(res.followUps.open.clock) && /deciders' clocks/.test(res.followUps.decided.clock));
+  assert.ok(/recorder's clock/.test(res.followUps.open.clock) && /decider's clock/.test(res.followUps.decided.clock));
   const later = forX({ runs, followUps: F.list(runs, [d1, d2]) }, { now: NOW_MS + 30 * 86400000 });
   same(later.followUps.open.buckets.map(b => b.keys.length), [0, 0, 3], 'now moves only the ages');
 });
@@ -361,31 +361,144 @@ rule('Bad times survive the run file\'s cleanup as bad times: a start that can\'
   const badStart = R.sanitize(Object.assign(JSON.parse(JSON.stringify(play())), { created: 'garbage' }));
   const badEndRaw = JSON.parse(JSON.stringify(play())); badEndRaw.ended.at = 'garbage';
   const badEnd = R.sanitize(badEndRaw);
-  assert.ok(!badEnd.ended && badEnd.state === 'completed', 'set-up: cleanup drops the end and keeps the state');
+  assert.ok(badEnd.ended && badEnd.ended.at === null && badEnd.state === 'completed', 'set-up: cleanup keeps the outcome without a time');
   const res = forX({ runs: [badStart, badEnd, play()] });
   same([res.duration.n, res.duration.of, res.runs.running, res.pool.n], [1, 3, 0, 3], 'neither is a 56-year run, and the one without an end isn\'t "still going"');
   assert.ok(res.duration.excluded.some(e => /couldn't be read/.test(e.text) && e.keys.length === 2), JSON.stringify(res.duration.excluded));
   same(res.runs.outcomes.Completed.length, 3);
 });
 
-rule('R.sanitize flags a start or end that was there but couldn\'t be read, so a run left "running" by its file still counts as ended, with no time', () => {
+rule('R.sanitize keeps an outcome whose end time can\'t be read, without a time, so load, save and load again keeps the run ended', () => {
   const raw = JSON.parse(JSON.stringify(play())); raw.ended.at = '2026-13-45'; raw.state = 'running';
   const r = R.sanitize(raw);
-  same([r.ended, r._badTimes], [null, { ended: 'Completed' }]);
-  const res = forX({ runs: [r, play()] });
-  same([res.runs.running, res.pool.n, res.duration.n, res.duration.of], [0, 2, 1, 2]);
-  assert.ok(res.duration.excluded.some(e => /couldn't be read/.test(e.text)), JSON.stringify(res.duration.excluded));
-  const ok = R.sanitize(JSON.parse(JSON.stringify(play())));
-  assert.strictEqual(ok._badTimes, undefined, 'a clean file has no flag');
-  // A start that was missing altogether is flagged too only if it was there: a file with no created at all reads as 1970, which is before 2000.
-  const none = JSON.parse(JSON.stringify(play())); delete none.created;
-  assert.ok(forX({ runs: [R.sanitize(none)] }).duration.excluded.length === 1);
+  same([r.ended.outcome, r.ended.at, r.state, r._badTimes], ['Completed', null, 'completed', { ended: true }]);
+  const saved = JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k[0] !== '_'))));
+  const again = R.sanitize(saved);
+  same([again.ended.outcome, again.ended.at, again.state, again._badTimes, again._unrunnable], ['Completed', null, 'completed', { ended: true }, undefined], 'the same after a save');
+  [r, again].forEach(x => {
+    const res = forX({ runs: [x, play()] });
+    same([res.runs.running, res.pool.n, res.duration.n, res.duration.of, res.runs.outcomes.Completed.length], [0, 2, 1, 2, 2]);
+    assert.ok(res.duration.excluded.some(e => /a time couldn't be read/.test(e.reason)), JSON.stringify(res.duration.excluded));
+  });
+  assert.strictEqual(R.sanitize(JSON.parse(JSON.stringify(play())))._badTimes, undefined, 'a clean file has no flag');
 });
 
 rule('A run that couldn\'t be read and was never read before is still said: which version it belongs to isn\'t known', () => {
   const res = forX({ runs: [play()], runStatus: { 'x/never-read': 'unread', 'y/other-process': 'unread' } });
   const u = res.excluded.filter(e => e.why === 'unknown')[0];
   assert.ok(u && u.keys.length === 1 && /which version/.test(u.text), JSON.stringify(res.excluded));
+});
+
+// ---------- Review of cd78f6f: one time layer, one qualifications object ----------
+rule('A follow-up whose own time can\'t be read is left out with that reason, never timed from the run\'s end or start', () => {
+  const r = play(); R.addFollowUp(r, { id: 'o1', text: 'open one' }, 'a', at(5)); R.addFollowUp(r, { id: 'd1', text: 'decided one' }, 'a', at(5));
+  const raw = JSON.parse(JSON.stringify(r)); raw.followUps.forEach(f => { f.at = 'garbage'; });
+  const clean = R.sanitize(raw); clean._fileHash = 'h';
+  assert.ok(clean.followUps.every(f => f.at === null), 'set-up: cleanup leaves no time');
+  const d = F.decision({ process: 'x', run: r.id, id: 'd1' }, 'a', 'done', {}, at(60)); d._file = 'd';
+  const res = forX({ runs: [clean], followUps: F.list([clean], [d]) });
+  same([res.followUps.open.n, res.followUps.decided.n], [0, 0], 'no fabricated age or 30-minute duration');
+  same([res.followUps.open.q.cohort, res.followUps.decided.q.cohort], [1, 1]);
+  assert.ok(/1 follow-up, a time couldn't be read/.test(I.notCounted(res.followUps.open.q)), I.notCounted(res.followUps.open.q));
+  assert.ok(/1 follow-up, a time couldn't be read/.test(I.notCounted(res.followUps.decided.q)), I.notCounted(res.followUps.decided.q));
+  const late = F.decision({ process: 'x', run: r.id, id: 'd1' }, 'a', 'done', {}, new Date(NOW_MS + 86400000).toISOString()); late._file = 'e';
+  const r2 = play(); R.addFollowUp(r2, { id: 'd1', text: 'x' }, 'a', at(5)); late.run = r2.id;
+  assert.ok(/later than now, by the decider's clock/.test(I.notCounted(forX({ runs: [r2], followUps: F.list([r2], [late]) }).followUps.decided.q)), 'whose clock');
+});
+
+rule('Pauses that overlap (the clock went back) leave the run out of its times instead of subtracting twice', () => {
+  const r = play({ running: true }), m = R.mapOf(r);
+  R.pause(r, 'wait', 'a', at(12)); R.resume(r, 'a', at(13));
+  R.pass(r, m, 1, 'a', at(30)); R.end(r, m, 'Completed', 'a', 'A', at(30));
+  r.pauses = [{ from: at(1), to: at(10), by: 'a', reason: 'x' }, { from: at(5), to: at(15), by: 'a', reason: 'y' }];
+  const res = forX({ runs: [r, play()] });
+  same([res.duration.n, res.duration.of], [1, 2], 'not 11 minutes');
+  assert.ok(res.duration.q.excluded.some(g => g.why === 'pauses' && /recorder's clock|clock went back/.test(g.reason)), JSON.stringify(res.duration.q.excluded));
+  assert.ok(res.phases[0].q.excluded.some(g => g.why === 'pauses'), 'phases too');
+  // Pauses in order are left out once each, and one still under way runs to the time asked about.
+  const ok = play(); ok.pauses = [{ from: at(2), to: at(4), by: 'a', reason: 'x' }, { from: at(20), to: at(25), by: 'a', reason: 'y' }];
+  same(forX({ runs: [ok] }).duration.median, 23 * 60000);
+});
+
+const MD2 = ['---', 'process: x', 'title: X', '---',
+  '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '## Gate: Ready {#g1}',
+  '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', '## Gate: Ready {#g2}'].join('\n');
+rule('Gate failures are by the gate\'s ID: a log line naming a title two gates share never counts as a failure of the other gate', () => {
+  const pub = pubOf(MD2, 'bbbb2222');
+  const mk = (fail) => {
+    const r = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: at(0), id: 'g' + (++n) }), m = R.mapOf(r);
+    R.done(r, m, 'one', 'a', at(1));
+    if (fail) { R.fail(r, m, 0, 'Broke', 'a', at(2)); R.reopen(r, m, 0, 'a', at(3)); }
+    R.pass(r, m, 0, 'a', at(4)); R.done(r, m, 'three', 'a', at(5)); R.pass(r, m, 1, 'a', at(6)); R.end(r, m, 'Completed', 'a', 'A', at(6));
+    return r;
+  };
+  const failedNow = R.create(pub, { details: {}, roles: {}, by: 'a', session: 's', now: at(0), id: 'gf' }), fm = R.mapOf(failedNow);
+  R.done(failedNow, fm, 'one', 'a', at(1)); R.fail(failedNow, fm, 0, 'Broke', 'a', at(2)); R.end(failedNow, fm, 'Stopped early', 'a', 'A', at(3));
+  const runs = [mk(true), mk(false), failedNow];
+  const res = I.forProcess({ runs }, 'x', { now: NOW_MS, folder: pub.info.folder }), g1 = res.phases[0].gate, g2 = res.phases[1].gate;
+  same([g1.failed.hits, g2.failed.hits], [1, 0], 'only the gate failed now, by its record');
+  same(g1.failed.keys, ['x/gf']);
+  assert.ok(g1.failed.q.excluded.some(g => g.why === 'shared' && g.keys[0] === 'x/' + runs[0].id) && g2.failed.q.excluded.some(g => g.why === 'shared'), 'the log line that can\'t say which gate is said');
+  same(I.select(res, 'gate:ship:failed').keys, []);
+  same(runs.filter(r => I.matches(r, { process: 'x', folder: pub.info.folder, path: 'gate:ship:failed', asOf: NOW_MS })).length, 0);
+});
+
+rule('A drill-down whose number has gone to zero still answers, with no runs, so Show current numbers can show that', () => {
+  const r = play(), st = { ['x/' + r.id]: 'unread' };
+  const before = forX({ runs: [r], runStatus: st }), sp = I.spec(before, 'ex:unread', [r]);
+  same(sp.keys, ['x/' + r.id]);
+  const after = forX({ runs: [r] });
+  assert.strictEqual(I.changed(sp, [r], after), 1, 'recovered: changed since');
+  const now = I.spec(after, 'ex:unread', [r]);
+  assert.ok(now && now.keys.length === 0, 'the same number, now zero');
+  assert.strictEqual(I.changed(now, [r], after), 0, 'and nothing to warn about');
+  assert.ok(I.spec(after, 'runs:o:Cancelled', [r]).keys.length === 0, 'an outcome with no runs');
+});
+
+rule('Property: for random runs with random bad times, every number\'s counted, not counted and history incomplete add up to its cohort', () => {
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = xs => xs[Math.floor(rnd() * xs.length)];
+  const badTime = () => pick([null, 'garbage', '1970-01-01T00:00:00.000Z', new Date(NOW_MS + 86400000 * (1 + rnd() * 400)).toISOString(), new Date(T0 + 1e13).toISOString()]);
+  for (let round = 0; round < 25; round++) {
+    const runs = [], status = {}, decisions = [];
+    let expect = { completed: 0, pool: 0, open: 0 };
+    const total = 3 + Math.floor(rnd() * 10);
+    for (let i = 0; i < total; i++) {
+      const kind = pick(['done', 'done', 'running', 'early', 'cancel']);
+      const r = play({ running: kind === 'running' ? true : kind === 'early' ? 'early' : undefined, outcome: kind === 'cancel' ? 'Cancelled' : undefined,
+        before: (r, m) => { if (rnd() < 0.3) R.block(r, m, 'one', 'x', 'a', at(1)); } });
+      if (kind === 'early' && rnd() < 0.5) R.end(r, R.mapOf(r), 'Stopped early', 'a', 'A', at(9));
+      if (rnd() < 0.3) delete r.marksFrom;
+      if (rnd() < 0.3) R.addFollowUp(r, { id: 'f' + i, text: 'x' }, 'a', at(5));
+      if (rnd() < 0.2 && r.followUps.length) r.followUps[0].at = badTime();
+      if (r.followUps.length && rnd() < 0.4) { const d = F.decision({ process: 'x', run: r.id, id: 'f' + i }, 'a', 'done', {}, rnd() < 0.3 ? badTime() : at(40)); d._file = 'd' + i; decisions.push(d); }
+      if (rnd() < 0.2) r.created = badTime() || r.created;
+      if (rnd() < 0.2 && r.ended) r.ended.at = badTime();
+      if (rnd() < 0.2 && r.gates.ready) r.gates.ready.at = badTime();
+      if (rnd() < 0.2) r.pauses = [{ from: at(3), to: at(8), by: 'a', reason: 'x' }, { from: at(rnd() < 0.5 ? 4 : 9), to: at(12), by: 'a', reason: 'y' }];
+      if (rnd() < 0.15) r._badTimes = { created: true };
+      const roll = rnd();
+      if (roll < 0.08) status['x/' + r.id] = 'unread'; else if (roll < 0.14) status['x/' + r.id] = 'missing'; else if (roll < 0.2) r._unrunnable = 'newer';
+      runs.push(r);
+      const readable = !status['x/' + r.id] && !r._unrunnable;
+      if (readable && r.ended && r.ended.outcome === 'Completed') expect.completed++;
+      if (readable && r.ended) expect.pool++;
+    }
+    const fus = F.list(runs, decisions);
+    fus.forEach(x => { const r = runs.find(y => 'x/' + y.id === x.runKey); if (!status[x.runKey] && !r._unrunnable && x.status === 'open') expect.open++; });
+    const res = forX({ runs, runStatus: status, followUps: fus });
+    const qs = [['runs', res.runs.q, total], ['duration', res.duration.q, expect.completed], ['fu open', res.followUps.open.q, expect.open]];
+    res.phases.forEach(p => { qs.push(['phase ' + p.id, p.q, expect.pool], ['waived ' + p.id, p.gate.waived.q, expect.pool], ['failed ' + p.id, p.gate.failed.q, expect.pool]); });
+    res.steps.forEach(s => ['skipped', 'blocked', 'redone', 'na', 'differently', 'offScript'].forEach(k => qs.push([s.id + ' ' + k, s[k].q, expect.pool])));
+    qs.push(['fu decided', res.followUps.decided.q, null]);
+    qs.forEach(([name, q, cohort]) => {
+      const sum = q.counted + q.excluded.reduce((a, g) => a + g.n, 0) + q.incomplete;
+      assert.strictEqual(sum, q.cohort, name + ': the parts add up');
+      if (cohort != null) assert.strictEqual(q.cohort, cohort, name + ': the cohort is every run it should cover (round ' + round + ')');
+      q.excluded.forEach(g => assert.strictEqual(g.keys.length, g.n, name));
+    });
+    assert.ok(res.duration.values.every(v => v.ms >= 0 && v.ms < 86400000), 'no fabricated or stretched time');
+  }
 });
 
 rule('The table in docs/design.md section 23 matches DEFS', () => {

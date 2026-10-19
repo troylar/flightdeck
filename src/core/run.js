@@ -654,11 +654,12 @@ PF.run = (function () {
     if (!folder) throw new Error('Analytics are for one publication folder; versions are never pooled.');
     var res = PF.insights.forProcess(Array.isArray(input) ? { runs: input } : input, processId, { folder: folder, now: now, includeRunning: true });
     var deviated = res.steps.filter(function (s) { return s.offScript.hits > 0; }).map(function (s, i) {
-      return { id: s.id, text: s.text, phase: s.phase, offScript: s.offScript.hits, n: s.offScript.n, blocked: s.blocked.hits, redone: s.redone.hits, na: s.na.hits, differently: s.differently.hits, at: i };
+      return { id: s.id, text: s.text, phase: s.phase, offScript: s.offScript.hits, n: s.offScript.n, q: s.offScript.q, blocked: s.blocked.hits, redone: s.redone.hits, na: s.na.hits, differently: s.differently.hits, at: i };
     }).sort(function (a, b) { return b.offScript - a.offScript || a.at - b.at; });
-    /* Every number keeps its n, and what wasn't counted (unreadable, gone, newer) and a load still under way are passed on. */
-    return { runs: res.runs.n, ended: res.runs.n - res.runs.running, running: res.runs.running, medianMs: res.duration.median, completed: res.duration.n,
-      phasesById: res.phases.map(function (p) { return { id: p.id, medianMs: p.median, n: p.n, of: p.of }; }),
+    /* Every number keeps its qualifications (q: what it counted and what it left out, and why), and the runs left out of
+       everything and a load still under way are passed on, so the flight plan says what the numbers don't include. */
+    return { runs: res.runs.n, ended: res.runs.n - res.runs.running, running: res.runs.running, medianMs: res.duration.median, completed: res.duration.n, durationQ: res.duration.q,
+      phasesById: res.phases.map(function (p) { return { id: p.id, medianMs: p.median, n: p.n, of: p.of, q: p.q }; }),
       deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
@@ -771,6 +772,7 @@ PF.run = (function () {
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
   var STEP_STATES = { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }, GATE_STATES = { passed: 1, waived: 1, failed: 1, review: 1 };
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
+  var OUTCOME_STATE = { Completed: 'completed', 'Stopped early': 'stopped', Cancelled: 'cancelled' };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
   function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }
   /* A child's input snapshot keeps every run-detail name a map can declare, so nothing it was started for is lost on reload. */
@@ -890,12 +892,17 @@ PF.run = (function () {
       r.gates[k] = c;
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
-    if (o.ended && OUTCOMES[o.ended.outcome] && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
-    /* A start or end that was there but couldn't be read: cleaning made the start 1970 and dropped the end, so Insights
-       must leave this run out of its times and still count it as ended (docs/design.md section 23). Not saved ("_"). */
+    /* An end whose time can't be read keeps its outcome, with no time (at: null), and the run's state follows it, so loading,
+       saving and loading again never turns an ended run back into a running one; only the time is unknown. A start that
+       can't be read becomes 1970. Both are flagged for Insights (_badTimes, never saved), which leaves the run out of its
+       times (docs/design.md section 23). */
+    if (o.ended && OUTCOMES[o.ended.outcome]) {
+      r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: isoOrNull(o.ended.at) };
+      if (r.state === 'running') r.state = OUTCOME_STATE[o.ended.outcome];
+    }
     var badTimes = {};
     if (o.created != null && !isoOrNull(o.created)) badTimes.created = true;
-    if (o.ended && !r.ended) badTimes.ended = OUTCOMES[o.ended.outcome] ? o.ended.outcome : 'Ended';
+    if (r.ended && !r.ended.at) badTimes.ended = true;
     if (badTimes.created || badTimes.ended) r._badTimes = badTimes;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.

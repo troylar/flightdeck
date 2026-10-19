@@ -48,7 +48,8 @@
       '<h3 class="fp-name"><button class="fp-go" data-act="flight-phase" data-id="' + i + '" aria-label="' + esc(label) + '">' + esc(p.title) + '</button></h3>' +
       '<div class="small">' + plural(p.steps.length, 'step') + (musts ? ' · ' + musts + ' must-do' : '') + '</div>';
     var time = an && p.id && an.phasesById.filter(function (x) { return x.id === p.id; })[0];
-    if (time && time.medianMs != null) head += '<div class="fp-line">' + I('clock') + '<span>Typically ' + about(time.medianMs) + ' <span class="small">(' + time.n + ' of ' + plural(time.of, 'run') + ')</span></span></div>';
+    if (time && time.medianMs != null) head += '<div class="fp-line">' + I('clock') + '<span>Typically ' + about(time.medianMs) + ' <span class="small">(' + time.n + ' of ' + plural(time.of, 'run') + ')</span>' + V.insightsQual(time.q, null, 'span') + '</span></div>';
+    else if (time && time.q && time.q.cohort) head += '<div class="fp-line">' + I('clock') + '<span>No typical time yet' + V.insightsQual(time.q, null, 'span') + '</span></div>';
     /* Tracks are worked at the same time, so they sit side by side as lanes. */
     if (p.tracks.length) head += '<ul class="fp-lanes" aria-label="Parallel tracks">' + p.tracks.map(function (t) {
       var count = p.steps.filter(function (s) { return s.track === t.id; }).length;
@@ -62,7 +63,7 @@
       if (count) lines += noteLine(x, count);
     });
     var rough = an && an.deviated.filter(function (c) { return ids.indexOf(c.id) >= 0; })[0];
-    if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(rough.text) + '" went off-script in ' + esc(PF.insights.count(rough.offScript, rough.n)) + '</span></div>';
+    if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(rough.text) + '" went off-script in ' + esc(PF.insights.count(rough.offScript, rough.n)) + V.insightsQual(rough.q, ['unreached'], 'span') + '</span></div>';
     p.steps.filter(function (s) { return s.type === 'run.process' && s.fields.process; }).forEach(function (s) {
       lines += '<div class="fp-line fp-conn">' + I('fork') + '<span><b>Connecting</b> ' + esc(titleOf(ctx, s.fields.process)) + '</span></div>';
     });
@@ -88,7 +89,7 @@
     h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
       notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return noteLine(x, null); }).join('') + '</li>';
     map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes) + '</li>'; });
-    h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + '</li>';
+    h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + (an ? V.insightsQual(an.durationQ, null, 'span') : '') + '</li>';
     /* The footer counts finished runs only; a run still going adds only what it has done so far. */
     var foot = !an ? (said.length ? 'No runs of this version could be counted.' : 'No runs of this version yet.')
       : (an.ended ? 'From ' + plural(an.ended, 'finished run') + ' of v' + pub.info.version + '.' : 'No finished runs of v' + pub.info.version + ' yet.') +

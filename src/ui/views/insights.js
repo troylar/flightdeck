@@ -51,7 +51,13 @@
     if (!hits) return esc(text);
     return '<button class="linkish" data-act="ins-runs" data-id="' + esc(path) + '">' + esc(text) + '</button>';
   }
-  function exLines(list) { return (list || []).map(function (e) { return '<li>' + esc(e.text) + '</li>'; }).join(''); }
+  /* The one way a number says what it left out ("Not counted: 1 run, a time is later than now, by the recorder's clock"),
+     from its qualifications (PF.insights q). How runs go, Compare versions and the flight plan all use it. hide: reasons
+     the place already says another way ('incomplete' for a row with its own history-incomplete link). */
+  function qualLine(q, hide, tag) {
+    var t = I.notCounted(q, hide);
+    return t ? '<' + (tag || 'p') + ' class="small ins-q">' + esc(t) + '</' + (tag || 'p') + '>' : '';
+  }
 
   /* ---------- How runs go ---------- */
   function page(ctx, p) {
@@ -123,7 +129,7 @@
       h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary>' +
         K.paged(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), rows, function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }) + '</details>';
     }
-    if (d.excluded.length) h += '<ul class="small ins-ex">' + exLines(d.excluded) + '</ul>';
+    h += qualLine(d.q);
     if (res.phases.length) {
       var top = Math.max.apply(null, res.phases.map(function (x) { return x.median || 0; }).concat([1]));
       h += '<h3>Each phase</h3><ul class="ins-phases">' + res.phases.map(function (x) {
@@ -131,8 +137,8 @@
         return '<li><div class="ins-row"><span class="ins-lab">' + esc(x.title) + '</span>' +
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
-          (x.gate.waived.hits || x.gate.failed.hits ? '<p class="small">Gate "' + esc(x.gate.title) + '": ' + [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { return x.gate[k[0]].hits; }).map(function (k) { return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(x.gate[k[0]].hits, x.gate[k[0]].n), 1); }).join(' · ') + '</p>' : '') +
-          (x.excluded.length ? '<ul class="small ins-ex">' + exLines(x.excluded) + '</ul>' : '') + '</li>';
+          qualLine(x.q) +
+          (x.gate.waived.hits || x.gate.failed.hits ? '<p class="small">Gate "' + esc(x.gate.title) + '": ' + [['waived', 'waived'], ['failed', 'failed at least once']].filter(function (k) { return x.gate[k[0]].hits; }).map(function (k) { return k[1] + ' in ' + link('gate:' + x.id + ':' + k[0], I.count(x.gate[k[0]].hits, x.gate[k[0]].n), 1) + qualLine(x.gate[k[0]].q, null, 'span'); }).join(' · ') + '</p>' : '') + '</li>';
       }).join('') + '</ul><p class="small">Bars are typical times, to scale with the longest phase.</p>';
     }
     return h + '</section>';
@@ -155,7 +161,7 @@
           var m = s[r[0]], extra = '';
           if (r[0] === 'corrections') extra = ' <span class="small">(groups: ' + Object.keys(m.groups).map(function (k) { return m.groups[k] + ' ' + (STATUS_WORDS[k] || k); }).join(', ') + ')</span>';
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
-          return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + '</span></div>';
+          return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + qualLine(m.q, ['incomplete'], 'span') + '</span></div>';
         }).join('');
         return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3>' + U.mdInline(s.text) + '</h3>' + rows + '</li>';
       }).join('') + '</ul>';
@@ -170,9 +176,9 @@
     h += o.n ? '<p class="small">Open follow-ups by how long since they were added, ' + esc(o.clock) + ':</p><ul class="ins-sum">' + o.buckets.map(function (b) {
       return '<li><span class="big">' + link('fu:' + b.id, I.num(b.items.length), b.items.length) + '</span><span class="small">' + esc(b.label.toLowerCase()) + (b.items.length ? ', in ' + esc(plural(b.keys.length, 'run')) : '') + '</span></li>';
     }).join('') + '</ul>' : '<p class="small">No open follow-ups.</p>';
-    if (o.excluded.length) h += '<ul class="small ins-ex">' + exLines(o.excluded) + '</ul>';
+    h += qualLine(o.q);
     if (d.n) h += '<p>Typical time to a decision: <b>' + esc(about(d.median)) + '</b>' + (d.q1 != null ? ' · middle half ' + esc(about(d.q1)) + ' to ' + esc(about(d.q3)) : '') + ' · ' + link('fu:decided', plural(d.n, 'decided follow-up') + ' in ' + plural(d.keys.length, 'run'), d.n) + ', ' + esc(d.clock) + '.</p>';
-    if (d.excluded.length) h += '<ul class="small ins-ex">' + exLines(d.excluded) + '</ul>';
+    h += qualLine(d.q);
     return h + '</section>';
   }
   function roles(ctx, res) {
@@ -195,7 +201,7 @@
     return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
       list.map(function (f) {
         var r = insightsOf(ctx, p.id, f.folder, false);
-        return '<tr><th scope="row">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + (r.excluded.length ? esc(r.excluded.map(function (e) { return e.text; }).join(' ')) : '—') + '</td></tr>';
+        return '<tr><th scope="row">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
       }).join('') + '</tbody></table></div></details>';
   }
 
@@ -248,6 +254,7 @@
     return '<section class="panel"><h2 id="rf-h" tabindex="-1">Matching runs · ' + I.num(list.length) + '</h2>' + (list.length ? K.paged(st, 'runs-filtered', list, cards, K.runKey) : '<p class="small">No run matches these filters.' + (st.reading ? ' Some runs aren\'t read yet.' : '') + '</p>') + '</section>';
   }
 
+  V.insightsQual = qualLine;
   V.insightsInput = input; V.insightsOf = insightsOf; V.insightsPage = page; V.insightsFolders = folderList; V.insightsChosen = chosen;
   V.runsFilterBar = filterBar; V.runsFiltered = filtered; V.about = about;
 })();
