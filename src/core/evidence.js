@@ -111,7 +111,8 @@ PF.evidence = (function () {
   /* role and label for a file directly in a run folder (or under it, rel), and whether a lineage receipt or a temporary file. */
   function classify(rel, lineage) {
     var name = rel.split('/').pop();
-    if (rel.indexOf('/') >= 0) return rel.indexOf('files/') === 0 && rel.split('/').length === 2 ? { role: 'attachment', label: 'Attachment' } : { role: 'other', label: 'Another file in the run folder' };
+    /* Everything under files/, at any depth, is an attachment (a note's file path may name a folder in it). */
+    if (rel.indexOf('/') >= 0) return rel.indexOf('files/') === 0 ? { role: 'attachment', label: 'Attachment' } : { role: 'other', label: 'Another file in the run folder' };
     if (/\.tmp$/i.test(name)) return { exclude: 'temporary file left by a save' };
     if (name === 'run.json') return { role: 'run', label: 'The run' };
     if (/^notes-[\w-]+\.jsonl$/.test(name)) return { role: 'notes', label: 'Notes and corrections from one window' };

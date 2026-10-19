@@ -241,13 +241,16 @@ rule('Evidence export on the 2,000-run folder: one run is collected with few fol
   const counts = {};
   d.runs.forEach(x => { counts[x.process] = (counts[x.process] || 0) + 1; });
   const proc = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0], scope = { process: proc, from: '2025-01-01', through: '2026-10-19', tz: 'UTC' };
+  /* Records (run.json, notes, decisions) are read to decide what goes in, each sized first; attachments never are. */
+  const readPaths = [], rd = fs.read.bind(fs), bl = fs.blob.bind(fs);
+  fs.read = q => { readPaths.push(q); return rd(q); }; fs.blob = q => { readPaths.push(q); return bl(q); };
   fs.reset(); t = Date.now();
   const plan = await PF.repo.collectEvidence(fs, scope, { plan: true, cap: E.capFor({ width: 1440 }), now: () => NOW });
   console.log('  export estimate for ' + plan.runs.length + ' runs of ' + proc + ': about ' + mb(plan.estimate) + ' from ' + plan.files.length + ' files, ' + (Date.now() - t) + ' ms, ' + line('folder', fs));
-  assert.strictEqual(fs.counts.blob, 0, 'the estimate reads no file in full');
-  fs.reset();
+  assert.deepStrictEqual(readPaths.filter(q => /\/files\//.test(q)), [], 'the estimate reads no attachment');
+  fs.reset(); readPaths.length = 0;
   await assert.rejects(PF.repo.exportEvidence(fs, scope, { sink: () => {}, cap: Math.floor(plan.estimate / 2), now: () => NOW }), /over the .* limit here/);
-  assert.strictEqual(fs.counts.blob, 0, 'refused before reading');
+  assert.deepStrictEqual(readPaths.filter(q => !/run\.json$/.test(q)), [], 'refused from sizes before any record but the runs\' start times is read');
 });
 
 rule('The big folder is the same, byte for byte, every time for a seed, and different for another seed', () => {

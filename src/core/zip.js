@@ -37,13 +37,19 @@ PF.zip = (function () {
     return '';
   }
   function fold(name) { return (name.normalize ? name.normalize('NFC') : name).toLowerCase(); }
-  /* Names that can't go in a pack: bad ones, and every repeat, exact or differing only in letter case. */
+  /* The folders a name sits in, folded: a file can't share a name with a folder, whatever the letter case. */
+  function folders(n) { var p = fold(n).split('/'), out = []; for (var i = 1; i < p.length; i++) out.push(p.slice(0, i).join('/')); return out; }
+  /* Names that can't go in a pack: bad ones, every repeat (exact or differing only in letter case), and a file named like
+     a folder of the pack, which Windows can't unpack. */
   function checkNames(names) {
-    var out = [], exact = Object.create(null), loose = Object.create(null);
+    var out = [], exact = Object.create(null), loose = Object.create(null), dirs = Object.create(null);
+    names.forEach(function (n) { if (!checkName(n)) folders(n).forEach(function (d) { dirs[d] = true; }); });
     names.forEach(function (n) {
       var why = checkName(n);
       if (!why && exact[n]) why = '"' + n + '" is in the pack twice.';
       else if (!why && loose[fold(n)]) why = '"' + n + '" and "' + loose[fold(n)] + '" differ only in letter case, so they can\'t both unpack on Windows.';
+      else if (!why && dirs[fold(n)]) why = '"' + n + '" is a file named like a folder in the pack, so they can\'t both unpack.';
+      else if (!why && folders(n).some(function (d) { return loose[d]; })) why = '"' + n + '" is in a folder named like a file in the pack, so they can\'t both unpack.';
       if (why) out.push({ name: n, why: why });
       exact[n] = true; if (!loose[fold(n)]) loose[fold(n)] = n;
     });
@@ -83,7 +89,7 @@ PF.zip = (function () {
      Every piece passes checked counters: a file whose bytes don't match the size and CRC it was declared with "changed
      while it was packed" (e.changed), and nothing goes past a limit. Each call returns a promise. */
   function writer(opts) {
-    var off = 0, entries = [], exact = Object.create(null), loose = Object.create(null), cur = null, stamp = dos(opts.date), closed = false;
+    var off = 0, entries = [], exact = Object.create(null), loose = Object.create(null), dirs = Object.create(null), cur = null, stamp = dos(opts.date), closed = false;
     var cap = opts.cap || 0;
     function emit(u8) { off += u8.length; return Promise.resolve(opts.sink(u8)); }
     function fits(more) { return off + more <= MAX && (!cap || off + more <= cap); }
@@ -94,13 +100,14 @@ PF.zip = (function () {
         var why = checkName(name);
         if (!why && exact[name]) why = '"' + name + '" is in the pack twice.';
         if (!why && loose[fold(name)]) why = '"' + name + '" and "' + loose[fold(name)] + '" differ only in letter case, so they can\'t both unpack on Windows.';
+        if (!why && (dirs[fold(name)] || folders(name).some(function (d) { return loose[d]; }))) why = '"' + name + '" and a folder of the pack have the same name, so they can\'t both unpack.';
         if (why) throw failure(why);
         if (entries.length >= LIMITS.entries) throw failure('A pack can hold at most 65,535 files.');
         if (!(size >= 0) || size > MAX) throw failure(name + ' is 4 GB or more, which a pack without Zip64 can\'t hold.');
         if (off > MAX) throw limit();
         var nb = bytesOf(name), cdSoFar = entries.reduce(function (s, e) { return s + CENTRAL + e.nb.length; }, 0);
         if (!fits(LOCAL + nb.length + size + cdSoFar + CENTRAL + nb.length + END)) throw limit();
-        exact[name] = true; loose[fold(name)] = name;
+        exact[name] = true; loose[fold(name)] = name; folders(name).forEach(function (d) { dirs[d] = true; });
         var h = new Uint8Array(LOCAL + nb.length);
         u32(h, 0, 0x04034b50); u16(h, 4, 20); u16(h, 6, 0x0800); u16(h, 8, 0); u16(h, 10, stamp.time); u16(h, 12, stamp.date);
         u32(h, 14, crc >>> 0); u32(h, 18, size); u32(h, 22, size); u16(h, 26, nb.length); u16(h, 28, 0); h.set(nb, LOCAL);

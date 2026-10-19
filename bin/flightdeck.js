@@ -407,7 +407,10 @@ function readAdapter(root) {
   /* The real folder at these parts, or null when it isn't there, with each folder's identity (device and inode) on the way. */
   function dirAt(a) {
     let cur = root;
-    const ids = [];
+    /* The team folder itself first: replaced by a link, nothing is read through it. */
+    const top = lstatOrNull(root);
+    if (!top || top.isSymbolicLink() || !top.isDirectory()) throw linkErr('the team folder');
+    const ids = [top.dev + ':' + top.ino];
     for (let i = 0; i < a.length; i++) {
       cur = path.join(cur, a[i]);
       const st = lstatOrNull(cur);
@@ -465,7 +468,8 @@ function readAdapter(root) {
     read: (p) => new Promise((res) => {
       const o = open(p);
       if (!o) return res(null);
-      try { const data = fs.readFileSync(o.fd); res({ text: data.toString('utf8'), size: data.length, mtime: o.st.mtimeMs }); } finally { fs.closeSync(o.fd); }
+      /* Decoded as a browser decodes a file (TextDecoder: UTF-8, a byte-order mark dropped), so every reader sees the same text. */
+      try { const data = fs.readFileSync(o.fd); res({ text: new TextDecoder('utf-8').decode(data), size: data.length, mtime: o.st.mtimeMs }); } finally { fs.closeSync(o.fd); }
     }),
     /* A file to read a piece at a time, from the descriptor opened above; close() when done. */
     blob: (p) => new Promise((res) => {

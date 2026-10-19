@@ -306,8 +306,10 @@ rule('run.json replaced between planning and hashing: what the pack keeps and le
   const cand = res.col.files.filter(x => /candidate-w1-/.test(x.path));
   assert.ok(cand.length >= 1 && cand.every(x => /may not be in run\.json/.test(x.flag)), 'with other names in the lineage (same size), every receipt is kept and flagged: ' + JSON.stringify(res.col.exclusions));
   assert.ok(!res.col.exclusions.some(x => /candidate-w1-/.test(x.path)), 'none left out as "already included"');
-  assert.strictEqual(res.col.attempts, 2, 'collected again');
   assert.strictEqual(res.status, 'complete');
+  // One snapshot: what decided the exclusions is the run.json in the pack.
+  const packed = JSON.parse(unzip((await pack(new BytesFS(Object.fromEntries([...f.files].map(([k, v]) => [k, v])), {}), { run: 'release/run1' })).zip)['originals/' + p].data.toString('utf8').replace(/^\uFEFF/, ''));
+  assert.ok(packed.lineage.every(t => /^x+$/.test(t)), 'the packed run.json is the one whose lineage was used');
 });
 
 rule('A file rewritten between hashing and writing, with the same size and CRC, stops the pack: its SHA-256 is checked on the second read too', async () => {
@@ -389,6 +391,78 @@ rule('Times a run file can\'t give are "time unknown" on the page, never 1970, a
   assert.ok(!/1970/.test(html) && !/not a time/.test(html.replace(/<p class="warn">[^<]*<\/p>/g, '')), 'never a made-up time, nor the bad text as if it were one');
   assert.ok(/Some times in run\.json couldn(&#39;|')t be read/.test(html) && /Some times in run\.json/.test(res.col.runs[0].limited));
   assert.strictEqual(unzip(zip)['originals/' + p].data.toString('utf8'), JSON.stringify(o), 'the original keeps them as written');
+});
+
+/* ---------- Second review (48f49d7) ---------- */
+const S2 = require('./evidence-fixture');
+function twoRuns(extra) {
+  const files = Object.assign({}, fixture.files), t = fixture.files['runs/release/run1/run.json'].toString('utf8');
+  files['runs/release/run2/run.json'] = Buffer.from(t.replace(/"id": "run1"/, '"id": "run2"'));
+  return Object.assign(files, extra || {});
+}
+rule('One snapshot per file for the whole pack: a version file that changes mid-export is never packed with one text and checked with another', async () => {
+  const map = 'publications/release/' + fixture.v1 + '/map.md';
+  let n = 0;
+  const f = new BytesFS(twoRuns(), { hooks: { blob: (q, x) => { if (q === map && ++n === 1) setTimeout(() => x.files.set(q, Buffer.concat([x.files.get(q), Buffer.from('\n')])), 0); } } });
+  const { zip, res } = await pack(f, { process: 'release', from: '2026-10-17', through: '2026-10-17', tz: 'UTC' }), z = unzip(zip);
+  const packed = z['originals/' + map].data.toString('utf8');
+  res.col.runs.forEach(rc => {
+    const texts = {}; ['map.md', 'types.json', 'publication.json'].forEach(n2 => { texts[n2] = z['originals/publications/release/' + fixture.v1 + '/' + n2].data.toString('utf8'); });
+    same(rc.checks, E.checks(rc.raw, texts), rc.key + ': its checks are of the bytes in the pack');
+  });
+  assert.ok(res.status === 'complete' ? packed === f.files.get(map).toString('utf8') : res.col.unresolved.some(u => /map\.md/.test(u)), 'either collected again (and consistent with the folder) or said so');
+});
+
+rule('Attachments in folders under files/ are attachments too: left out with the others', async () => {
+  const files = Object.assign({}, fixture.files, { 'runs/release/run1/files/sub/private.pdf': Buffer.from('%PDF private') });
+  const col = await repo.collectEvidence(new BytesFS(files), { run: 'release/run1' }, { attachments: false, plan: true });
+  assert.ok(!col.files.some(x => /private\.pdf/.test(x.path)) && col.exclusions.some(x => /files\/sub\/private\.pdf$/.test(x.path) && x.reason === 'left out, not hashed'));
+});
+
+rule('A decision on this run\'s corrections is always packed, even when other runs are too big to read; then the claim is unconfirmed and the pack partial, saying why', async () => {
+  // An older decision whose members name only another run's identical correction belongs to this run's group too.
+  const files = twoRuns(), g = fixture.groupId, decPath = 'corrections/release/' + g + '.w4.1.json';
+  const dec = JSON.parse(files[decPath].toString('utf8')); dec.members = ['c-other']; files[decPath] = Buffer.from(JSON.stringify(dec, null, 2));
+  files['runs/release/run2/notes-w9.jsonl'] = Buffer.from('{"id":"x","text":"x"}\n');
+  const f = new BytesFS(files), stat = f.stat.bind(f);
+  f.stat = q => q === 'runs/release/run2/notes-w9.jsonl' ? stat(q).then(st => st && Object.assign({}, st, { size: 90 * 1048576 })) : stat(q);
+  const { res } = await pack(f, { run: 'release/run1' });
+  assert.ok(res.col.files.some(x => x.path === decPath), 'the decision is in the pack');
+  const c = res.col.runs[0].claims.filter(x => x.correction === 'c1')[0];
+  assert.ok(c && !c.verified && /Can't be confirmed from this pack/.test(c.status), JSON.stringify(res.col.runs[0].claims));
+  assert.strictEqual(res.status, 'partial');
+  assert.ok(res.col.unresolved.some(u => /too big to read/.test(u)), res.col.unresolved.join(' | '));
+});
+
+rule('No file is read before its size is checked, every version record a pack keeps is within one budget, and people.json is sized first', async () => {
+  const files = Object.assign({}, fixture.files), big = [];
+  for (let i = 3; i < 23; i++) { const b = 'publications/release/v' + i + '-zz' + i + '/'; ['map.md', 'types.json', 'publication.json'].forEach(n => { files[b + n] = Buffer.from('x'); big.push(b + n); }); }
+  const statted = new Set(), early = [], reads = {};
+  const f = new BytesFS(files, { hooks: { stat: q => statted.add(q), read: q => { reads[q] = 1; if (!statted.has(q)) early.push(q); }, blob: q => { reads[q] = 1; if (!statted.has(q)) early.push(q); } } });
+  const stat = f.stat.bind(f);
+  f.stat = q => big.indexOf(q) >= 0 || q === 'people.json' ? stat(q).then(st => st && Object.assign({}, st, { size: 60 * 1048576 })) : stat(q);
+  const { res } = await pack(f, { run: 'release/run1' }, { cap: 150 * 1048576 });
+  assert.deepStrictEqual(early, [], 'read before sized');
+  assert.ok(!big.some(q => reads[q]) && !reads['people.json'], 'nothing over budget was read: ' + Object.keys(reads).filter(q => big.indexOf(q) >= 0 || q === 'people.json').join(', '));
+  assert.ok(res.col.exclusions.some(x => x.path === 'people.json'), 'people.json is still named as left out');
+});
+
+rule('A UTF-8 byte-order mark on a record is read the same way everywhere: the pack is complete, and the original keeps it', async () => {
+  const files = Object.assign({}, fixture.files), p = 'runs/release/run1/run.json';
+  files[p] = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), files[p]]);
+  const { zip, res } = await pack(new BytesFS(files), { run: 'release/run1' });
+  assert.strictEqual(res.status, 'complete', res.col.unresolved.join(' '));
+  assert.ok(res.col.runs[0].checks.some(c => c.id === 'snapshot' && c.ok === true));
+  assert.ok(unzip(zip)['originals/' + p].data.slice(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])));
+});
+
+rule('A file and a folder whose names differ only in letter case can\'t both unpack on Windows: the file is renamed', async () => {
+  const files = Object.assign({}, fixture.files, { 'runs/release/run1/extra': Buffer.from('file'), 'runs/release/run1/EXTRA/report.txt': Buffer.from('report') });
+  const { zip, res } = await pack(new BytesFS(files), { run: 'release/run1' }), z = unzip(zip);
+  const fileRec = res.col.files.filter(x => x.path === 'runs/release/run1/extra')[0];
+  assert.ok(fileRec && fileRec.pack !== 'originals/runs/release/run1/extra' && z[fileRec.pack].data.toString() === 'file', fileRec && fileRec.pack);
+  assert.ok(z['originals/runs/release/run1/EXTRA/report.txt']);
+  assert.ok(/folder/.test((Z.checkNames(['a/x', 'A']) [0] || {}).why || ''), 'checkNames refuses a file named like a folder');
 });
 
 run();

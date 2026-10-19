@@ -666,4 +666,21 @@ rule('The export read adapter refuses a file reached through a parent folder swa
   assert.ok(ok && !/outside/.test(ok.text), 'the real file reads normally afterwards');
 });
 
+/* ---------- Second review (48f49d7) ---------- */
+rule('The export read adapter checks the team folder itself: replaced by a link, nothing is read through it', async () => {
+  const dir = fs.realpathSync(await teamFolder()), A = require('../bin/flightdeck.js').readAdapter(dir), outside = fs.realpathSync(await teamFolder());
+  fs.writeFileSync(path.join(outside, 'runs/release/run1/run.json'), '{"outside": true}');
+  fs.renameSync(dir, dir + '.real'); fs.symlinkSync(outside, dir);
+  try {
+    await assert.rejects(A.read('runs/release/run1/run.json'), /link/);
+    await assert.rejects(A.list('runs/release'), /link/);
+  } finally { fs.unlinkSync(dir); fs.renameSync(dir + '.real', dir); }
+});
+
+rule('export reads a run.json with a UTF-8 byte-order mark like any other: a complete pack', async () => {
+  const dir = await teamFolder((f) => { f['runs/release/run1/run.json'] = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), f['runs/release/run1/run.json']]); });
+  const out = tmp(), r = cli('export', dir, '--run', 'release/run1', '--out', out);
+  assert.strictEqual(r.code, 0, r.out);
+});
+
 run();
