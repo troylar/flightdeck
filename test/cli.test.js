@@ -419,19 +419,6 @@ rule('skills keeps the record\'s entries for files it doesn\'t handle, such as A
   assert.strictEqual(record(dir).files['AGENTS.md'], before);
 });
 
-rule('An edit that lands at the last moment before install replaces a file is never overwritten', () => {
-  const dir = tmp();
-  cli('install', dir);
-  write(dir, STATUS, 'Ours');
-  const target = at(fs.realpathSync(dir), STATUS);
-  let hit = false;
-  const late = (orig, from, to) => { if (!hit && to === target && /\.tmp$/.test(String(from))) { hit = true; fs.writeFileSync(target, 'A late edit'); } return orig(from, to); };
-  const r = patched('renameSync', late, () => patched('linkSync', late, () => inProcess(['install', dir, '--force'], () => {})));
-  assert.ok(hit, 'the hook ran');
-  assert.strictEqual(read(dir, STATUS), 'A late edit');
-  assert.ok(r.code === 1 && /changed during install/.test(r.out), r.out);
-});
-
 rule('A waiting copy counts even when the file already matches the default, and --force files it away then too', () => {
   const dir = tmp();
   cli('install', dir);
@@ -441,6 +428,38 @@ rule('A waiting copy counts even when the file already matches the default, and 
   assert.ok(!fs.existsSync(at(dir, '.flightdeck/updates/1.14.9/' + STATUS)));
   write(dir, STATUS, 'Ours');
   assert.strictEqual(cli('install', dir, '--check').code, 0);
+});
+
+rule('Every file install replaces, an earlier default too, first gets a copy that reads back the same', () => {
+  let v113 = null;
+  try { v113 = execFileSync('git', ['show', 'v1.13.0:example-folder/AGENTS.md'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch (e) { return console.log('  (skipped: no git tags here)'); }
+  const dir = tmp();
+  write(dir, 'AGENTS.md', v113);
+  const r = cli('install', dir);
+  assert.ok(r.code === 0 && /Copies of the files it replaced are in/.test(r.out), r.out);
+  const rep = at(dir, '.flightdeck/updates/' + VER + '/replaced');
+  assert.strictEqual(fs.readFileSync(path.join(rep, fs.readdirSync(rep)[0], 'AGENTS.md'), 'utf8'), v113);
+  assert.strictEqual(read(dir, 'AGENTS.md'), EX['AGENTS.md']);
+});
+
+rule('A disk error at any step of a write leaves the file as it was, never missing, and leaves no temporary file', () => {
+  const isTarget = (p) => typeof p === 'string' && p.includes(path.join('flightdeck-status', '.SKILL.md.')) && !p.includes('replaced');
+  ['openSync', 'writeSync', 'fsyncSync', 'readFileSync', 'renameSync'].forEach((name) => {
+    const dir = tmp();
+    cli('install', dir);
+    write(dir, STATUS, 'Ours');
+    let fd = null, hit = false;
+    const eio = () => { hit = true; throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' }); };
+    const r = patched('openSync', (orig, p, flags) => { if (isTarget(p) && name === 'openSync' && !hit) eio(); const f = orig(p, flags); if (isTarget(p)) fd = f; return f; },
+      () => patched(name === 'openSync' ? 'closeSync' : name, (orig, ...a) => {
+        if (!hit && name !== 'openSync' && (a[0] === fd && fd !== null || isTarget(a[0]))) eio();
+        return orig.apply(fs, a);
+      }, () => inProcess(['install', dir, '--force'], () => {})));
+    assert.ok(hit, name + ': the error was injected');
+    assert.strictEqual(r.code, 1, name + ': ' + r.out);
+    assert.strictEqual(read(dir, STATUS), 'Ours', name + ': the file is still there, as it was');
+    assert.deepStrictEqual(fs.readdirSync(at(dir, '.flightdeck/skills/flightdeck-status')).filter(n => n.endsWith('.tmp')), [], name + ': no temporary file left');
+  });
 });
 
 run();

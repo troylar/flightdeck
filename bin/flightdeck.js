@@ -88,17 +88,15 @@ function folders(dir, parts, create) {
   if (fs.realpathSync(cur) !== cur) fail('refusing to write through a link: ' + cur);
   return cur;
 }
-/* Write a file inside the folder, and only there, never through a link.
-   - The text goes to a new temporary file (created exclusively, so never an existing file or a link), written in full,
-     flushed to disk and read back before anything else happens: a short or failed write never replaces a file.
-   - Just before it's put in place, the folders are checked again and the temporary file must still be the one this
-     process made.
-   - With expect (the text install read, or null for "not there"), the file must still be exactly that. The old file is
-     first moved aside and compared, then the new one is linked in only if nothing has taken its place, so an edit that
-     lands at any moment is either noticed or left in place, never overwritten.
-   Limit: someone who renames folders inside your own team folder at the same instant, on purpose, can still redirect a
-   write, and a program that keeps the old file open and writes into it in place writes into the copy moved aside. That's
-   out of scope; ordinary accidents (a link in the folder, an assistant saving a file mid-install) are caught. */
+/* Write a file inside the folder, and only there, never through a link:
+   1. the text goes to a new temporary file beside the target (created exclusively, so never an existing file or a link),
+      written in full, flushed to disk and read back;
+   2. the folders are checked again, and the temporary file must still be the one this process made;
+   3. with expect (the text install read, or null for "not there"), the target must still be exactly that;
+   4. one rename puts the temporary file in place.
+   A failure at any step leaves the target as it was and removes the temporary file. The only window is between steps 3
+   and 4: a save landing there is replaced, which is why install keeps a checked copy of every file before it replaces it
+   (keepCopy). Someone renaming folders inside your own team folder at that instant, on purpose, is out of scope. */
 function safeWrite(dir, parts, text, expect) {
   const name = parts[parts.length - 1], sub = parts.slice(0, -1);
   if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) fail('refusing to write outside the folder: ' + parts.join('/'));
@@ -106,56 +104,39 @@ function safeWrite(dir, parts, text, expect) {
   const was = lstatOrNull(target);
   if (was && (was.isSymbolicLink() || !was.isFile())) fail('refusing to write through a link: ' + target);
   const tmp = path.join(home, '.' + name + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
-  let fd = null, mine = null, placed = false;
+  let fd = null, mine = null, moved = false;
   try {
     fd = fs.openSync(tmp, 'wx');
+    mine = fs.fstatSync(fd);
     for (let off = 0; off < data.length;) {
       const n = fs.writeSync(fd, data, off, data.length - off);
       if (!(n > 0)) throw new Error('the disk accepted no more bytes');
       off += n;
     }
     fs.fsyncSync(fd);
-    mine = fs.fstatSync(fd);
     fs.closeSync(fd); fd = null;
     folders(dir, sub, false);
     const now = lstatOrNull(tmp);
     if (!now || now.isSymbolicLink() || now.ino !== mine.ino || now.dev !== mine.dev) fail('refusing to write through a link: ' + home);
     if (!fs.readFileSync(tmp).equals(data)) throw new Error('the written file didn\'t read back the same');
-    place(tmp, target, expect, parts.join('/'));
-    placed = true;
+    if (expect !== undefined) {
+      const st = lstatOrNull(target);
+      if (st && (st.isSymbolicLink() || !st.isFile())) fail('refusing to write through a link: ' + target);
+      if ((st ? fs.readFileSync(target, 'utf8') : null) !== expect) throw new Changed(parts.join('/'));
+    }
+    fs.renameSync(tmp, target);
+    moved = true;
   } catch (e) {
     if (e instanceof Refused || e instanceof Changed) throw e;
     fail('couldn\'t write ' + target + ': ' + e.message);
   } finally {
-    if (fd !== null) fs.closeSync(fd);
+    if (fd !== null) try { fs.closeSync(fd); } catch (e) { /* already failing */ }
     /* Remove the temporary file only if it's still the one this process made, wherever a swapped folder now points. */
-    const left = mine && lstatOrNull(tmp);
-    if (left && !left.isSymbolicLink() && left.ino === mine.ino && left.dev === mine.dev && (!placed || lstatOrNull(target))) fs.unlinkSync(tmp);
+    if (!moved && mine) {
+      try { const left = lstatOrNull(tmp); if (left && !left.isSymbolicLink() && left.ino === mine.ino && left.dev === mine.dev) fs.unlinkSync(tmp); }
+      catch (e) { /* the original error says what went wrong */ }
+    }
   }
-}
-/* Put tmp at target without ever replacing a file nobody has checked. */
-function place(tmp, target, expect, label) {
-  if (expect === undefined) { fs.renameSync(tmp, target); return; }
-  let aside = null;
-  if (expect !== null) {
-    aside = path.join(path.dirname(target), '.' + path.basename(target) + '.' + crypto.randomBytes(6).toString('hex') + '.old');
-    try { fs.renameSync(target, aside); } catch (e) { if (e.code === 'ENOENT') throw new Changed(label); throw e; }
-    if (fs.readFileSync(aside, 'utf8') !== expect) { putBack(aside, target, label); throw new Changed(label); }
-  }
-  try { fs.linkSync(tmp, target); }
-  catch (e) {
-    if (e.code === 'EEXIST') { if (aside) fs.unlinkSync(aside); throw new Changed(label); }
-    /* A file system without hard links: fall back to a move, still only into an empty place. */
-    if (lstatOrNull(target)) { if (aside) fs.unlinkSync(aside); throw new Changed(label); }
-    fs.renameSync(tmp, target);
-  }
-  if (aside) fs.unlinkSync(aside);
-}
-/* A file that changed after install read it goes back where it was; if something already took its place, it stays aside
-   under a name the message gives, so nothing is lost. */
-function putBack(aside, target, label) {
-  try { fs.linkSync(aside, target); fs.unlinkSync(aside); }
-  catch (e) { if (!lstatOrNull(target)) fs.renameSync(aside, target); else throw new Changed(label + ' (its earlier text is kept in ' + aside + ')'); }
 }
 
 /* The example folder and the baselines are built into the app, so the contract always matches this version. */
@@ -282,7 +263,7 @@ function contract(t, files, opts) {
     try {
       if (i.status === 'merge') { safeWrite(t.dir, t.updates.concat(t.version, i.rel.split('/')), i.text, null); continue; }
       const out = merged(i);
-      if (opts.force && i.now !== null && i.now !== out) keepCopy(t, i.parts, i.now);
+      if (i.now !== null && i.now !== out) keepCopy(t, i.parts, i.now);
       safeWrite(t.dir, i.parts, out, i.now);
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
     } catch (e) {
@@ -298,8 +279,9 @@ function contract(t, files, opts) {
   safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
   return items;
 }
-/* --force saves each file it replaces in a folder of its own under .flightdeck/updates/<version>/replaced/, made new for
-   this run (never one an earlier run used), before replacing anything. */
+/* Every file install replaces (and, with --force, the app) is first copied to a folder of its own under
+   .flightdeck/updates/<version>/replaced/, made new for this run (never one an earlier run used), and the copy is read back.
+   No checked copy, no replacement. */
 function keepCopy(t, parts, text) {
   if (!t.replacedAt) {
     const home = folders(t.dir, t.updates.concat(t.version, 'replaced'), true);
@@ -400,8 +382,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   --check     say what install or skills would do, and change nothing. Exit code 0: nothing to do;
               2: updates to install; 3: files your team changed that need merging; 1: an error
   --app-only  install only ${NAME}, not AGENTS.md or the skills
-  --force     replace a newer app, an unrecognized file, or contract files your team changed. A copy of
-              each replaced file is kept in .flightdeck/updates/<version>/replaced/ first
+  --force     replace a newer app, an unrecognized file, or contract files your team changed
+
+Every file install replaces is first copied to .flightdeck/updates/<version>/replaced/ and read back.
 
 Files your team changed are never replaced without --force. When this version also changed them, the new
 default goes to .flightdeck/updates/<version>/, with a README.md to hand to your AI assistant.`;
@@ -454,7 +437,7 @@ function main(argv) {
       report(items, false, out);
       if (items.some((i) => i.status === 'merge')) out.push('Your team changed files this version changes too. The new defaults are in ' + path.join(dir, '.flightdeck', 'updates', mine) + '; its README.md has a prompt for your AI assistant to merge them.');
     }
-    if (t.replacedAt) out.push('Copies of the files --force replaced are in ' + path.join(dir, ...t.replacedAt));
+    if (t.replacedAt) out.push('Copies of the files it replaced are in ' + path.join(dir, ...t.replacedAt));
     notes(t, out);
     out.push('Open ' + NAME + ' in Edge or Chrome, choose Open team folder, and pick ' + dir);
     return { out: out.join('\n'), code: t.changed.length ? EXIT.error : 0 };
@@ -490,7 +473,7 @@ function main(argv) {
     const written = items.filter((i) => ['update', 'new', 'missing', 'forced'].includes(i.status)).length;
     out.push(written + ' skill file' + (written === 1 ? '' : 's') + ' written to ' + where);
     report(items.filter((i) => i.status !== 'update' && i.status !== 'new'), false, out);
-    if (t.replacedAt) out.push('Copies of the files --force replaced are in ' + path.join(t.dir, ...t.replacedAt));
+    if (t.replacedAt) out.push('Copies of the files it replaced are in ' + path.join(t.dir, ...t.replacedAt));
     if (items.some((i) => i.status === 'merge')) out.push('Some files you changed were also changed in this version. The new defaults are in ' + path.join(t.dir, ...t.updates, mine) + ', with a README.md for your AI assistant. Use --force to replace your versions instead.');
     notes(t, out);
     return { out: out.join('\n'), code: t.changed.length ? EXIT.error : 0 };

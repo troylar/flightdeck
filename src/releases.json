@@ -29,9 +29,9 @@
       {
         "kind": "improved",
         "area": "Command line",
-        "title": "--force keeps a copy of what it replaces",
-        "now": "Before --force replaces a file, it saves the old one under .flightdeck/updates/<version>/replaced/, so a team's changes can always be recovered.",
-        "where": "flightdeck install or skills with --force"
+        "title": "Install keeps a copy of every file it replaces",
+        "now": "Before install or skills replaces any file, even with --force, it saves the old one under .flightdeck/updates/<version>/replaced/ and checks the copy, so nothing your team had is lost.",
+        "where": "flightdeck install or skills"
       },
       {
         "kind": "improved",

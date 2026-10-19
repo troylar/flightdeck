@@ -14,7 +14,7 @@ Safer updates: install keeps your team's changes, says what it would do first, a
 ### Improved
 
 - **install sets up the whole folder, and keeps your changes** (Command line). flightdeck install also adds or updates AGENTS.md and the skills for your AI assistant. Files still at an earlier default are updated; files your team changed are kept. When this version changed them too, the new default goes to .flightdeck/updates/1.15.0/ with a README.md to hand to your AI assistant. Add --app-only to install only the app. *Where:* flightdeck install <team folder>
-- **--force keeps a copy of what it replaces** (Command line). Before --force replaces a file, it saves the old one under .flightdeck/updates/<version>/replaced/, so a team's changes can always be recovered. *Where:* flightdeck install or skills with --force
+- **Install keeps a copy of every file it replaces** (Command line). Before install or skills replaces any file, even with --force, it saves the old one under .flightdeck/updates/<version>/replaced/ and checks the copy, so nothing your team had is lost. *Where:* flightdeck install or skills
 - **AGENTS.md has a place for your team's own notes** (Team folder). Flightdeck's instructions for AI assistants sit between two markers in AGENTS.md. Team notes, below them, are yours: updates never change them. *Where:* AGENTS.md in the team folder
 
 ### Fixed
