@@ -475,6 +475,7 @@ rule('Property: for random runs with random bad times, every number\'s counted, 
       if (rnd() < 0.2 && r.ended) r.ended.at = badTime();
       if (rnd() < 0.2 && r.gates.ready) r.gates.ready.at = badTime();
       if (rnd() < 0.2) r.pauses = [{ from: at(3), to: at(8), by: 'a', reason: 'x' }, { from: at(rnd() < 0.5 ? 4 : 9), to: at(12), by: 'a', reason: 'y' }];
+      if (rnd() < 0.3) { const f = pick([-5, 2, 8, 12, 20, 28, 35]), len = pick([1, 3, 6, 15]); r.pauses = [{ from: at(f), to: at(f + len), by: 'a', reason: 'z' }]; }
       if (rnd() < 0.25 && r.ended && r.gates.shipped) r.ended.at = at(pick([5, 15, 25, 40]));
       if (rnd() < 0.2 && r.gates.ready && r.gates.shipped) { const t = r.gates.ready.at; r.gates.ready.at = r.gates.shipped.at; r.gates.shipped.at = t; }
       if (rnd() < 0.15) r._badTimes = { created: true };
@@ -499,6 +500,10 @@ rule('Property: for random runs with random bad times, every number\'s counted, 
       q.excluded.forEach(g => assert.strictEqual(g.keys.length, g.n, name));
     });
     assert.ok(res.duration.values.every(v => v.ms >= 0 && v.ms < 86400000), 'no fabricated or stretched time');
+    // Every timed run's raw chronology holds: start, then each settled gate and pause, then the end, no gate inside a pause.
+    const inside = (r, lo, hi) => (r.pauses || []).every(p => { const f = Date.parse(p.from), e = Date.parse(p.to); return f >= lo && !(e > hi) && Object.values(r.gates).every(g => { const t = Date.parse(g.at); return !(f < t && t < e); }); });
+    res.duration.keys.forEach(k => { const r = runs.find(y => 'x/' + y.id === k); assert.ok(inside(r, Date.parse(r.created), Date.parse(r.ended.at)), 'round ' + round + ': pauses inside ' + k); });
+    res.phases.forEach(p => p.keys.forEach(k => { const r = runs.find(y => 'x/' + y.id === k); assert.ok(inside(r, Date.parse(r.created), r.ended && Date.parse(r.ended.at) >= Date.UTC(2000, 0, 1) && Date.parse(r.ended.at) <= NOW_MS ? Date.parse(r.ended.at) : Infinity), 'round ' + round + ': pauses inside ' + k + ' (' + p.id + ')'); }));
     // Every timed run's raw chronology holds: start, then each settled gate, then the end.
     res.duration.keys.forEach(k => {
       const r = runs.find(y => 'x/' + y.id === k), t0 = Date.parse(r.created), t1 = Date.parse(r.ended.at);
@@ -551,6 +556,30 @@ rule('A run\'s times hold only in order: a gate passed after the run ended (a cl
   assert.ok(res.duration.q.excluded.some(g => g.why === 'backward' && g.keys[0] === 'x/' + r.id), JSON.stringify(res.duration.q.excluded));
   assert.ok(res.phases[1].q.excluded.some(g => g.why === 'backward' && g.keys[0] === 'x/' + r.id), 'the last phase too');
   same(res.phases[0].n, 2, 'the first phase ended in order');
+});
+
+rule('Pauses must lie inside the run and never around a gate: a pause that ends after the run did (a clock set back) leaves its times out', () => {
+  const r = R.create(PUB, { details: { commit: 'aaa' }, roles: {}, by: 'a', session: 's', now: at(0), id: 'pz' + (++n) }), m = R.mapOf(r);
+  R.done(r, m, 'one', 'a', at(1)); R.done(r, m, 'two', 'a', at(1)); R.pass(r, m, 0, 'a', at(5));
+  R.done(r, m, 'three', 'a', at(6)); R.pass(r, m, 1, 'a', at(15)); R.end(r, m, 'Completed', 'a', 'A', at(15));
+  r.pauses = [{ from: at(10), to: at(20), by: 'a', reason: 'x' }];
+  const res = forX({ runs: [r, play()] });
+  same([res.duration.n, res.duration.of], [1, 2], 'not 10 minutes');
+  assert.ok(res.duration.q.excluded.some(g => g.why === 'backward' && g.keys[0] === 'x/' + r.id), JSON.stringify(res.duration.q.excluded));
+  same([res.phases[0].n, res.phases[1].n], [1, 1], 'nor 5 + 5');
+  // A pause inside the run but around a gate: the phases on both sides are left out, the whole time too.
+  const s2 = play(); s2.pauses = [{ from: at(8), to: at(12), by: 'a', reason: 'x' }];
+  const r2 = forX({ runs: [s2] });
+  same([r2.duration.n, r2.phases[0].n, r2.phases[1].n], [0, 0, 0]);
+  // A pause before the start, and one under way before the start.
+  const s3 = play(); s3.pauses = [{ from: at(-5), to: at(2), by: 'a', reason: 'x' }];
+  same(forX({ runs: [s3] }).duration.n, 0);
+  const s4 = play({ running: true }); s4.paused = { by: 'a', at: at(-1), reason: 'x' };
+  same(forX({ runs: [s4] }, { includeRunning: true }).phases[0].n, 0);
+  // Pauses in order and inside their phases still count.
+  const ok = play(); ok.pauses = [{ from: at(2), to: at(4), by: 'a', reason: 'x' }, { from: at(20), to: at(25), by: 'a', reason: 'y' }];
+  const rok = forX({ runs: [ok] });
+  same([rok.duration.median, rok.phases[0].median, rok.phases[1].median], [23 * 60000, 8 * 60000, 15 * 60000]);
 });
 
 rule('The table in docs/design.md section 23 matches DEFS', () => {

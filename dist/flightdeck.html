@@ -5780,20 +5780,34 @@ PF.insights = (function () {
     var a = runStart(r, now); if (a.why) return a;
     var b = runEnd(r, now); if (b.why) return b;
     if (b.t < a.t) return { why: 'backward' };
-    var g = gatesWithin(r, a.t, b.t, now); if (g) return g;
+    var c = chronology(r, now, a.t, b.t); if (c) return { why: c.why, whose: c.whose };
     var d = activeBetween(r, a.t, b.t, now); if (d.why) return d;
     return { ms: d.ms, at: b.t };
   }
-  /* The run's chronology: every settled gate's time can be read and lies between the start and the end (a gate passed after
-     the run ended means a clock went back). null when it holds, else { why, whose }. */
-  function gatesWithin(r, a, b, now) {
-    var ids = Object.keys(r.gates || {});
-    for (var i = 0; i < ids.length; i++) {
-      var rec = r.gates[ids[i]]; if (!rec || (rec.s !== 'passed' && rec.s !== 'waived' && rec.s !== 'failed')) continue;
-      var g = gateTime(rec, now); if (g.why) return g;
-      if (g.t < a || (b != null && g.t > b)) return { why: 'backward' };
+  /* The run's chronology, as one ordered set of events: the start, every settled gate, every pause (and the one under way)
+     and the end must come in order. Each settled gate's time can be read and lies between the start and the end; each pause
+     lies between them too; and no gate is settled inside a pause, since a paused run can't pass a gate. Anything else means
+     a clock went back. a, b: the start and the end (b null while a run is going or its end can't be read). null when it
+     holds, else { why, whose, all, phases: { index: true } }: all when no single phase can be blamed (a pause outside the
+     run), else the phases on both sides of each gate out of place. */
+  function chronology(r, now, a, b) {
+    var m = mapOf(r), idx = Object.create(null), out = null;
+    if (m) m.phases.forEach(function (p, pi) { idx[p.gate.id] = pi; });
+    function hit(why, pis) {
+      out = out || { why: why, all: false, phases: {} };
+      if (pis === 'all') out.all = true; else pis.forEach(function (pi) { if (pi != null) out.phases[pi] = true; });
     }
-    return null;
+    var ps = pausesOf(r, now);
+    if (ps.why) return { why: ps.why, whose: ps.whose, all: true, phases: {} };
+    ps.list.forEach(function (x) { if (x[0] < a || (b != null && (x[0] > b || (x[1] !== Infinity && x[1] > b)))) hit('backward', 'all'); });
+    Object.keys(r.gates || {}).forEach(function (id) {
+      var rec = r.gates[id]; if (!rec || (rec.s !== 'passed' && rec.s !== 'waived' && rec.s !== 'failed')) return;
+      var g = gateTime(rec, now), pi = own(idx, id) ? idx[id] : null;
+      if (g.why) { if (!out) out = { why: g.why, whose: g.whose, all: false, phases: {} }; if (pi != null) out.phases[pi] = true; else out.all = true; return; }
+      if (g.t < a || (b != null && g.t > b)) hit('backward', pi != null ? [pi] : 'all');
+      ps.list.forEach(function (x) { if (x[0] < g.t && g.t < x[1]) hit('backward', pi != null ? [pi, pi + 1] : 'all'); });
+    });
+    return out;
   }
   /* The gate a log line names, by title: [verb, title] for a gate of this checklist, else null. */
   function logGate(l, titles) {
@@ -5842,11 +5856,14 @@ PF.insights = (function () {
     var start = runStart(r, now), prev = start.t, broken = start.why ? start : null, again = reopenedGates(r, m, now);
     /* An ended run's end bounds every gate; one it can't read leaves the phases to their own checks. */
     var fin = r.ended ? runEnd(r, now) : null, end = fin && !fin.why ? fin.t : null;
+    var chrono = broken ? null : chronology(r, now, start.t, end);
+    if (chrono && chrono.all) broken = { why: chrono.why, whose: chrono.whose };
     m.phases.forEach(function (p, pi) {
       if (broken) { out[p.id] = pi === 0 ? broken : { why: 'earlier' }; broken = { why: 'earlier' }; return; }
       var rec = own(r.gates, p.gate.id) ? r.gates[p.gate.id] : null, st = '', why = null;
       try { st = R.gateStatus(r, m, pi); } catch (e) { st = ''; }
-      if (again[pi]) why = { why: again[pi] };
+      if (chrono && chrono.phases[pi]) why = { why: chrono.why, whose: chrono.whose };
+      else if (again[pi]) why = { why: again[pi] };
       else if (rec && (rec.was || rec.s === 'review' || st === 'review')) why = { why: 'reopened' };
       else if (!rec || (rec.s !== 'passed' && rec.s !== 'waived')) why = { why: 'unsettled' };
       else {
