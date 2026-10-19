@@ -655,6 +655,40 @@ PF.repo = (function () {
   }
 
 
+  /* ---------- Saved history of drafts and step types: history/drafts/<process>/ and history/step-types/<id>/ ----------
+     Each window appends only to its own <writer>.jsonl (then <writer>-2.jsonl past 512 KB), so every file keeps one writer.
+     No loader lists history/: it's read only when someone opens History. */
+  function historyDir(kind, id) { return (kind === 'type-edit' ? 'history/step-types/' : 'history/drafts/') + id; }
+  /* lines: JSON strings, written together in one append. roll: { <dir>: n } this window's current file number per folder. */
+  function appendHistory(fs, dir, writer, lines, roll) {
+    var TL = PF.timeline, text = lines.join('\n') + '\n', n = roll[dir] || 1;
+    var path = function () { return dir + '/' + TL.histFile(writer, n); };
+    return (fs.stat ? fs.stat(path()) : Promise.resolve(null)).then(function (st) {
+      if (st && TL.rolls(st.size, TL.bytes(text))) roll[dir] = ++n;
+      return fs.append(path(), text);
+    }).then(function () { return path(); });
+  }
+  /* Every writer's file in one history folder (8 reads at a time), checked line by line, newest 2,000 entries in the order
+     PF.timeline.order gives from the file's current fingerprint. Returns { items, bad (lines that couldn't be read), files }. */
+  function loadEditHistory(fs, dir, current) {
+    var TL = PF.timeline;
+    return fs.list(dir).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && /^[\w-]{1,80}\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort();
+      var bad = 0;
+      return limited(names, TL.HIST.FILES, function (n) {
+        return fs.read(dir + '/' + n).then(function (f) {
+          var out = [];
+          if (f) f.text.split('\n').forEach(function (line) { if (!line.trim()) return; var e = TL.cleanEntry(json(line), n); if (e) out.push(e); else bad++; });
+          return out;
+        }, function () { bad++; return []; });
+      }).then(function (lists) {
+        var items = TL.order([].concat.apply([], lists), current);
+        for (var i = 0, k = 0; i < items.length; i++) if (items[i].entry && ++k > TL.HIST.READ) { items = items.slice(0, i); break; }
+        return { items: items, bad: bad, files: names };
+      });
+    });
+  }
+
   /* ---------- Folder health: every file, on demand (never during routine refreshes) ---------- */
   /* At most n folder calls in flight at once, across a whole scan, so a big folder never floods OneDrive or the browser. */
   function pool(n) {
@@ -774,5 +808,5 @@ PF.repo = (function () {
     });
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

@@ -76,6 +76,28 @@
         "title": "The correction brief quotes what the step said and what was proposed",
         "now": "The brief for your AI assistant quotes From and Proposed as data, lists attached files' paths, and leaves out corrections already published.",
         "where": "A process page › Corrections › Copy correction brief"
+      },
+      {
+        "kind": "new",
+        "area": "Draft editor",
+        "title": "Saved history",
+        "before": "History listed only the changes made in this window, and they were gone once it closed.",
+        "now": "History has a This session | Saved history switch. Saved history lists every save of the draft kept in the team folder, from every computer, newest first: who saved it, how (saved, restored from a version, applied a correction), what changed, and where each version was published. A change made outside Flightdeck, by hand or by an AI assistant, is marked where it happened.",
+        "where": "The draft editor › History › Saved history"
+      },
+      {
+        "kind": "new",
+        "area": "Draft editor",
+        "title": "Reverse a saved change",
+        "now": "Reverse this change takes one saved change back out of the draft, if the lines it added are still there exactly. The draft then has unsaved changes, and Undo takes the reversal back. If the text changed since, Compare shows the change so you can edit it yourself.",
+        "where": "The draft editor › History › Saved history"
+      },
+      {
+        "kind": "new",
+        "area": "Step types",
+        "title": "Saved history of a step type",
+        "now": "A step type's History has Saved history too, with each save's changes field by field. A field's History shows only its own.",
+        "where": "Step types › a type › History"
       }
     ]
   },

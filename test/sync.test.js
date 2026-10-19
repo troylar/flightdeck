@@ -516,4 +516,32 @@ rule('Only the last 15 minutes of checks are read; files older than 7 days are c
   assert.ok(!a.files['connection/' + oldName], 'the deletion reaches A');
 });
 
+rule('Saved history: two computers editing one draft each append to their own file, and both computers see both saves in one order', async () => {
+  const { a, b } = await twoComputers(), TL = PF.timeline, H = PF.util.hash, path = 'maps/drafts/release.md', dir = repo.historyDir('draft-edit', 'release');
+  await a.write(path, example('maps/drafts/release.md')); a.sync(); b.sync();
+  /* One computer's save in the app: a checked save, then one line in its own history file. */
+  const save = async (fs, writer, seq, seen, change) => {
+    const before = (await fs.read(path)).text, after = change(before), res = await repo.saveDraft(fs, 'release.md', after, H(before));
+    if (!res.ok) return res;
+    const id = writer + seq, rec = TL.histLine({ kind: 'draft-edit', id, process: 'release', writer, seq, by: 'person-' + writer, at: NOW, from: H(before), to: res.hash, seen, before, after, source: 'editor', units: [], items: [] });
+    await repo.appendHistory(fs, dir, writer, [JSON.stringify(rec)], {});
+    return id;
+  };
+  const c1 = await save(a, 'casey', 1, null, t => t.replace('title: Production release', 'title: Production release (weekly)'));
+  a.sync(); b.sync();
+  const b1 = await save(b, 'blake', 1, c1, t => t + '\n<!-- reviewed -->\n');
+  b.sync(); a.sync();
+  const c2 = await save(a, 'casey', 2, b1, t => t.replace('(weekly)', '(Thursdays)'));
+  a.sync(); b.sync();
+  assert.ok(Object.keys(a.cloud.files).filter(p => p.indexOf(dir + '/') === 0).sort().join() === [dir + '/blake.jsonl', dir + '/casey.jsonl'].join(), 'one file per writer, no OneDrive copies');
+  const cur = H((await a.read(path)).text);
+  const onA = await repo.loadEditHistory(a, dir, cur), onB = await repo.loadEditHistory(b, dir, cur);
+  same(onA.items.map(x => x.gap ? 'gap' : x.entry.id), [c2, b1, c1], 'both writers\' saves, newest first, linked by fingerprints');
+  same(onA, onB, 'the same on both computers');
+  // A save refused because the other computer's change hadn't arrived writes no history line.
+  const stale = await repo.saveDraft(b, 'release.md', 'x', H('not what is there'));
+  assert.ok(stale.conflict);
+  assert.strictEqual(b.files[dir + '/blake.jsonl'].trim().split('\n').length, 1);
+});
+
 run();

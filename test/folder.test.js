@@ -766,4 +766,43 @@ rule('Folder: when the write test neither reads back nor removes its file, the e
   await assert.rejects(repo.writeTest(fs, 'w9'), /\.flightdeck\/write-test-w9\.tmp/);
 });
 
+rule('Saved history: the draft and step-type loaders never list or read history/, so older copies never see it', async () => {
+  const fs = folder(); await started(fs);
+  // Files that would break a loader that read them: a draft-like .md and a step-type-like .json under history/.
+  await fs.write('history/drafts/release/w1.jsonl', '{"v":1}\n');
+  await fs.write('history/drafts/release/notes.md', '---\nprocess: other\ntitle: Not a draft\n---\n');
+  await fs.write('history/step-types/risk.call/w1.jsonl', '{"v":1}\n');
+  await fs.write('history/step-types/bad.json', '{ not json');
+  const calls = faulty(fs);
+  const d = await repo.loadAll(fs, { deep: true });
+  await repo.loadStepTypes(fs);
+  await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(calls.list.length > 10 && !calls.list.some(c => /history\//.test(c)), 'nothing under history/ was listed or read');
+  assert.strictEqual(d.drafts.length, 1, 'only maps/drafts/');
+  assert.ok(!d.stepTypes.errors.length, 'no step type from history/');
+  assert.ok(!/history/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')), 'the skills\' checker doesn\'t read it either');
+});
+
+rule('Saved history: each window appends to its own file, rolls over at 512 KB, and reading checks every line', async () => {
+  const fs = folder(), TL = PF.timeline, H = PF.util.hash, roll = {}, dir = repo.historyDir('draft-edit', 'release');
+  assert.strictEqual(dir, 'history/drafts/release');
+  assert.strictEqual(repo.historyDir('type-edit', 'risk.call'), 'history/step-types/risk.call');
+  const line = (id, seq, from, to) => JSON.stringify(TL.histLine({ kind: 'draft-edit', id, process: 'release', writer: 'w1', seq, by: 'person-avery', at: NOW, from: H(from), to: H(to), before: from, after: to, source: 'editor', units: ['The move of "Smoke tests"'], items: ['step:smoke'] }));
+  assert.strictEqual(await repo.appendHistory(fs, dir, 'w1', [line('a1', 1, 'x\n', 'x\ny\n')], roll), dir + '/w1.jsonl');
+  assert.strictEqual(await repo.appendHistory(fs, dir, 'w1', [line('a2', 2, 'x\ny\n', 'x\ny\nz\n')], roll), dir + '/w1.jsonl', 'the same file');
+  // Grow the file past 512 KB: the next line starts w1-2.jsonl, and the full file is never rewritten.
+  const full = fs.files[dir + '/w1.jsonl'].t;
+  fs.files[dir + '/w1.jsonl'].t = full + ' '.repeat(TL.HIST.ROLL) + '\n';
+  assert.strictEqual(await repo.appendHistory(fs, dir, 'w1', [line('a3', 3, 'x\ny\nz\n', 'x\ny\nz\nq\n')], roll), dir + '/w1-2.jsonl');
+  assert.ok(fs.files[dir + '/w1.jsonl'].t.indexOf(full) === 0, 'the first file keeps everything');
+  await fs.write(dir + '/w2.jsonl', 'not json\n{"v":1,"kind":"draft-edit","id":"x","writer":"w2","to":"zz"}\n' + line('b1', 1, 'x\ny\nz\nq\n', 'x\ny\nz\nq\nr\n').replace('"writer":"w1"', '"writer":"w2"') + '\n');
+  await fs.write(dir + '/notes.txt', 'not a history file');
+  const calls = faulty(fs, { delay: 2 });
+  const res = await repo.loadEditHistory(fs, dir, H('x\ny\nz\nq\nr\n'));
+  same(res.items.map(x => x.gap ? 'gap' : x.entry.id), ['b1', 'a3', 'a2', 'a1'], 'all writers, along the chain');
+  assert.strictEqual(res.bad, 2, 'two lines couldn\'t be read');
+  same(res.files, ['w1-2.jsonl', 'w1.jsonl', 'w2.jsonl']);
+  assert.ok(calls.max <= 8 && !calls.list.some(c => /notes\.txt/.test(c)));
+});
+
 run();
