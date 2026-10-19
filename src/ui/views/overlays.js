@@ -56,8 +56,10 @@
     var on = ctx.state.keys;
     return '<div class="overlay" data-act="close-overlay"><div class="help" role="dialog" aria-modal="true" aria-labelledby="help-t"><h2 id="help-t">Keyboard</h2>' +
       '<p class="small">Single-key shortcuts are <b>' + (on ? 'on' : 'off') + '</b>. They only work outside text fields. <button class="mini" data-act="toggle-keys">' + (on ? 'Turn them off' : 'Turn them on') + '</button></p><dl>' +
-      '<dt>J / K</dt><dd>Next or previous step</dd><dt>Space or X</dt><dd>Check the selected step, or open the evidence it needs (recorder). Then the next step in the phase is selected.</dd><dt>B</dt><dd>Blocked</dd><dt>N</dt><dd>Write a note on the selected step</dd><dt>M</dt><dd>Screen share mode</dd><dt>Esc</dt><dd>Close or cancel</dd><dt>?</dt><dd>This help</dd></dl>' +
+      '<dt>J / K</dt><dd>Next or previous step</dd><dt>Space or X</dt><dd>Check the selected step, or open the evidence it needs (recorder). Then the next step in the phase is selected.</dd><dt>B</dt><dd>Blocked</dd><dt>N</dt><dd>Write a note on the selected step</dd><dt>C</dt><dd>Correct the selected step</dd><dt>M</dt><dd>Screen share mode</dd><dt>Esc</dt><dd>Close or cancel</dd><dt>?</dt><dd>This help</dd></dl>' +
       '<p class="small">On a focused button, Space presses that button.</p>' +
+      '<h3>In the draft editor and the step-type form</h3><p class="small">These work in text fields too. A builder box with typing not yet applied undoes that typing first.</p><dl>' +
+      '<dt>Ctrl+Z · Cmd+Z</dt><dd>Undo, and say what was undone</dd><dt>Ctrl+Shift+Z · Cmd+Shift+Z · Ctrl+Y</dt><dd>Redo</dd><dt>Alt+Up / Alt+Down</dt><dd>Move the focused step or phase (builder)</dd></dl>' +
       '<button class="btn" data-act="close-overlay">Close</button></div></div>';
   }
   function lightbox(ctx, list, i) {
@@ -75,5 +77,32 @@
       '<pre class="tp-text" id="att-text" tabindex="0"></pre></div></div>';
   }
 
+  /* ---------- History: what changed in an editor ---------- */
+  /* o: { scope, tl, title, item (only changes to one step, phase or field), itemName }. Only "This session" exists for now; a
+     saved history read from the team folder comes later and plugs in as another source (o.sources), with a switch between them. */
+  function historyDrawer(ctx, o) {
+    var TL = PF.timeline, tl = o.tl || TL.create(), list = '', n = 0;
+    var cap = function (t) { return t.charAt(0).toUpperCase() + t.slice(1); };
+    var clip = function (t) { t = String(t); return t.length > 400 ? t.slice(0, 400) + '…' : t; };
+    var ba = function (b, a) { return '<details><summary class="small">Before and after</summary><div class="hist-ba"><div><b>Before</b><pre class="source">' + (b ? esc(clip(b)) : '<span class="small">(nothing)</span>') + '</pre></div><div><b>After</b><pre class="source">' + (a ? esc(clip(a)) : '<span class="small">(nothing)</span>') + '</pre></div></div></details>'; };
+    var marks = tl.marks || [];
+    for (var i = tl.entries.length; i >= 0; i--) {
+      marks.forEach(function (m) { if (m.at === i && !o.item) list += '<li class="hist-mark">' + esc(m.why) + '</li>'; });
+      var e = tl.entries[i - 1]; if (!e) continue;
+      if (o.item && e.items.indexOf(o.item) < 0) continue;
+      n++;
+      var st = i - 1 >= tl.pos ? 'Undone · Redo brings it back' : i - 1 < tl.barrier ? 'Can\'t be undone' : '';
+      list += '<li class="hist-entry' + (i - 1 >= tl.pos ? ' undone' : '') + '"><div class="hist-what">' + esc(cap(TL.describe(e))) + '</div><div class="small">You · ' + esc(U.hm(new Date(e.at).toISOString())) + (e.savedAs ? ' · saved' : '') + (st ? ' · ' + st : '') + '</div>' +
+        (e.show ? ba(e.show.before, e.show.after) : ba(e.del, e.ins)) + '</li>';
+    }
+    var filter = o.item ? '<p class="row"><span class="small">Only changes to <b>' + esc(o.itemName || o.item) + '</b></span><button type="button" class="mini" data-act="hist-item" data-id="">Show all</button></p>' : '';
+    return '<div class="overlay" data-act="close-overlay"><div class="help hist" role="dialog" aria-modal="true" aria-labelledby="hist-t">' +
+      '<div class="row between"><h2 id="hist-t" tabindex="-1" style="margin:0">History <span class="small">' + esc(o.title || '') + '</span></h2><button type="button" class="mini" data-act="close-overlay">Close</button></div>' +
+      V.undoBar(o.scope, tl, { noHistory: true }) +
+      '<h3>This session</h3><p class="small">Changes made in this window since you opened it, newest first. They\'re kept until you close or reload the window.</p>' + filter +
+      (n ? '<ol class="hist-list">' + list + '</ol>' : '<p class="small">' + (o.item ? 'No changes to it yet in this session.' : 'No changes yet in this session.') + '</p>' + (list ? '<ol class="hist-list">' + list + '</ol>' : '')) + '</div></div>';
+  }
+
+  V.historyDrawer = historyDrawer;
   V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.lightbox = lightbox;
 })();
