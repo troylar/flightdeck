@@ -62,6 +62,13 @@
       '<dt>Ctrl+Z · Cmd+Z</dt><dd>Undo, and say what was undone</dd><dt>Ctrl+Shift+Z · Cmd+Shift+Z · Ctrl+Y</dt><dd>Redo</dd><dt>Alt+Up / Alt+Down</dt><dd>Move the focused step or phase (builder)</dd></dl>' +
       '<button class="btn" data-act="close-overlay">Close</button></div></div>';
   }
+  /* Shown once, the first time the examples are kept in this tab only. */
+  function tabOnlyHelp() {
+    return '<div class="overlay" data-act="close-overlay"><div class="help" role="dialog" aria-modal="true" aria-labelledby="tab-only-t" aria-describedby="tab-only-d"><h2 id="tab-only-t">Kept in this tab only</h2>' +
+      '<p id="tab-only-d">This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. Reloading or closing the tab loses them.</p>' +
+      '<p>The <b>Tab only</b> badge at the top stays while this lasts. To keep your work, use a team folder.</p>' +
+      '<button class="btn primary" data-act="close-overlay" id="tab-only-ok">Got it</button></div></div>';
+  }
   function lightbox(ctx, list, i) {
     var it = list[i];
     return '<div class="overlay" data-act="close-overlay" role="dialog" aria-modal="true" aria-label="Screenshot"><div class="lb-box"><div class="lb-bar"><span class="cap">' + esc(it.caption) + '</span><span class="small" style="color:#cfd6db">' + (i + 1) + ' of ' + list.length + '</span>' +
@@ -175,5 +182,5 @@
   }
 
   V.historyDrawer = historyDrawer;
-  V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.lightbox = lightbox;
+  V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox;
 })();

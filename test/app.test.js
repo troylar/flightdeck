@@ -495,6 +495,266 @@ rule('App: in a step type, removing a field and undoing puts it back in place wi
   assert.ok(/Owner/.test(app.overlay()), 'Show all');
 });
 
+/* A key on an editor's separator: the stand-in has the separator's data, and closest finds it. */
+function splitKey(app, key, k, mods) { const sep = { tagName: 'DIV', dataset: { act: 'pane-split', id: key, split: key }, closest: sel => /split|data-act/.test(sel) ? sep : null }; let taken = false; app.keyOn(k, Object.assign({ preventDefault() { taken = true; } }, mods || {}), sep); return taken; }
+const splitTag = (app, key) => (new RegExp('<div class="pane-split"[^>]*data-split="' + key + '"[^>]*>').exec(app.html()) || [''])[0];
+const splitNow = (app, key) => +(/aria-valuenow="(\d+)"/.exec(splitTag(app, key)) || [])[1];
+const paneVar = (app, key) => { const m = new RegExp('class="fpe-panes[^"]*" style="[^"]*--pane-' + key + ':(\\d+)px').exec(app.html()); return m ? +m[1] : null; };
+
+rule('App: the step-type preview resizes from the keyboard, stays put through a redraw, is kept in this browser, and Enter puts it back', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const start = splitNow(app, 'tf'), min = +/aria-valuemin="(\d+)"/.exec(splitTag(app, 'tf'))[1], max = +/aria-valuemax="(\d+)"/.exec(splitTag(app, 'tf'))[1];
+  assert.ok(start > 0 && paneVar(app, 'tf') === null, 'the layout\'s own width to begin with');
+  assert.ok(splitKey(app, 'tf', 'ArrowLeft'), 'the key is taken'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 16, 'Left moves the divider left: the preview grows by 16px');
+  assert.strictEqual(splitNow(app, 'tf'), start + 16, 'and says so');
+  splitKey(app, 'tf', 'ArrowLeft', { shiftKey: true }); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 80, 'Shift moves 64px');
+  splitKey(app, 'tf', 'ArrowRight'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 64);
+  splitKey(app, 'tf', 'Home'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), min, 'Home: the narrowest');
+  splitKey(app, 'tf', 'ArrowRight', { shiftKey: true }); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), min, 'never narrower');
+  splitKey(app, 'tf', 'End'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), max, 'End: the widest');
+  splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
+  assert.strictEqual(splitNow(app, 'tf'), max, 'never wider');
+  assert.strictEqual(JSON.parse(app.store['preflight:panes']).tf, max, 'kept in this browser');
+  assert.ok(!app.files('').some(f => /pane/.test(f) || app.fs.files[f].t.indexOf('"tf":') >= 0), 'never in the team folder');
+  app.click('tf-add', 'f'); await app.tick();
+  assert.ok(/data-act="tf-open" data-id="f:/.test(app.html()) && paneVar(app, 'tf') === max, 'a redraw keeps it');
+  assert.ok(!splitKey(app, 'tf', 'a'), 'other keys are left alone');
+  splitKey(app, 'tf', 'Enter'); await app.tick();
+  assert.ok(paneVar(app, 'tf') === null && splitNow(app, 'tf') === start, 'Enter: the default again');
+  assert.ok(!('tf' in JSON.parse(app.store['preflight:panes'])), 'and nothing kept');
+  // Another window in this browser opens it at the width kept; a kept value that makes no sense is ignored.
+  const two = boot({ localStore: { 'preflight:panes': JSON.stringify({ tf: min + 40, parts: 'wide', ins: -3 }) } }); await two.tick(60); two.choose('person-casey'); await two.tick();
+  two.click('nav', 'types'); await two.tick(); two.click('new-type'); await two.tick();
+  assert.strictEqual(paneVar(two, 'tf'), min + 40);
+});
+
+rule('App: in the draft editor the parts and the inspector each keep their own width', async () => {
+  const app = await builderOn();
+  const ins = splitNow(app, 'ins'), parts = splitNow(app, 'parts');
+  assert.ok(ins > 0 && parts > 0);
+  splitKey(app, 'ins', 'ArrowLeft', { shiftKey: true }); await app.tick();
+  splitKey(app, 'parts', 'ArrowRight'); await app.tick();
+  assert.strictEqual(paneVar(app, 'ins'), ins + 64, 'Left widens the inspector, on the right');
+  assert.strictEqual(paneVar(app, 'parts'), parts + 16, 'Right widens the parts, on the left');
+  app.click('ed-mode', 'markdown'); await app.tick();
+  assert.ok(paneVar(app, 'ins') === ins + 64 && paneVar(app, 'parts') === null, 'the Markdown view has the same inspector, and no parts');
+  app.click('ed-mode', 'builder'); await app.tick();
+  splitKey(app, 'parts', 'Enter'); await app.tick();
+  assert.ok(paneVar(app, 'parts') === null && paneVar(app, 'ins') === ins + 64, 'resetting one leaves the other');
+});
+
+rule('App: when the browser refuses storage, the separators still resize and nothing breaks', async () => {
+  const app = boot({ storageThrows: /panes/, localStore: { 'preflight:panes': '{"tf":500}' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const start = splitNow(app, 'tf');
+  assert.ok(start > 0);
+  splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 16, 'for this page');
+  splitKey(app, 'tf', 'Enter'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), null);
+  assert.strictEqual(app.store['preflight:panes'], '{"tf":500}', 'what was kept before is untouched');
+});
+
+/* A separator and its panes as a browser has them, for dragging: the live node is what the page finds now. */
+function dragSetup(app) {
+  const styles = [];
+  const box = { setAttribute: (k, v) => styles.push(v), removeAttribute: () => styles.push(null), querySelectorAll: () => [live.sep] };
+  const node = () => { const n = { tagName: 'DIV', dataset: { split: 'tf', act: 'pane-split', id: 'tf' }, parentNode: box, attrs: {}, captured: false,
+    getAttribute: k => k === 'data-split' ? 'tf' : n.attrs[k], setAttribute: (k, v) => { n.attrs[k] = v; }, focus() {}, setPointerCapture() { n.captured = true; }, releasePointerCapture() { n.captured = false; } };
+    n.closest = sel => /pane-split|data-split|data-act/.test(sel) ? n : null; return n; };
+  const live = { sep: node() };
+  app.el('tf-preview').getBoundingClientRect = () => ({ width: 400 });
+  const appEl = app.el('app'), q = appEl.querySelector;
+  appEl.querySelector = sel => /pane-split/.test(sel) ? live.sep : q(sel);
+  return { live, node, styles };
+}
+const ptr = (target, x, extra) => Object.assign({ target, pointerId: 7, button: 0, clientX: x }, extra || {});
+
+rule('App: dragging a separator follows the separator the page has now, and a separator gone mid-drag ends the drag', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const d = dragSetup(app), first = d.live.sep;
+  app.fire('pointerdown', ptr(first, 500));
+  assert.ok(first.captured && app.rootClasses().includes('pane-drag'), 'captured, and the page selects no text');
+  app.fire('pointermove', ptr(first, 450));
+  assert.strictEqual(d.styles.pop(), '--pane-tf:450px', 'moving left widens the preview');
+  // A redraw replaced the separator (its range changed): the drag goes on with the new one.
+  d.live.sep = d.node();
+  app.fire('pointermove', ptr(first, 440));
+  assert.ok(d.styles.pop() === '--pane-tf:460px' && d.live.sep.attrs['aria-valuenow'] === '460', 'the live separator says the width');
+  // It's gone (the panes stacked): the next move ends the drag instead of writing to a detached node.
+  d.live.sep = null;
+  app.fire('pointermove', ptr(first, 430));
+  assert.ok(!app.rootClasses().includes('pane-drag'), 'text can be selected again');
+  await app.tick();
+  assert.ok(/class="fpe-panes tf-panes" style="--pane-tf:460px"/.test(app.html()), 'the width reached is kept');
+});
+
+rule('App: a drag ends on release, cancel, lost capture or leaving the window, and text can always be selected again', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const d = dragSetup(app);
+  const ends = { pointerup: s => app.fire('pointerup', ptr(s, 480)), pointercancel: s => app.fire('pointercancel', ptr(s, 480)), lostpointercapture: s => app.fire('lostpointercapture', ptr(s, 480)), blur: () => app.winFire('blur') };
+  for (const [how, end] of Object.entries(ends)) {
+    const s = d.live.sep;
+    app.fire('pointerdown', ptr(s, 500));
+    assert.ok(app.rootClasses().includes('pane-drag'), how + ': dragging');
+    end(s);
+    assert.ok(!app.rootClasses().includes('pane-drag'), how + ' ends it');
+    const n = d.styles.length;
+    app.fire('pointermove', ptr(s, 300));
+    assert.strictEqual(d.styles.length, n, how + ': a later move resizes nothing');
+    await app.tick();
+  }
+});
+
+/* Blocked site storage: the examples live in this tab only. A badge says so above everything, a dialog explains it once,
+   and no message is reworded. */
+const BADGE = /id="tab-only"[^>]*role="note"[\s\S]*Tab only: changes vanish on reload[\s\S]*only while this tab is open/;
+const blocked = async (opts) => {
+  const app = boot(Object.assign({ storageThrows: true }, opts || {})); await app.tick(80);
+  if (/id="tab-only-ok"/.test(app.overlay())) { app.click('close-overlay'); await app.tick(); }
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  return app;
+};
+const shown = app => { const m = /<div class="notice[^"]*" role="status"><span>([\s\S]*?)<\/span>/.exec(app.html()); return m ? m[1] : null; };
+const pageCss = () => /<style>([\s\S]*?)<\/style>/.exec(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8'))[1];
+const cssRules = css => css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}@]+\{[^{}]*\}/g).map(r => ({ sel: r.slice(0, r.indexOf('{')).trim(), body: r.slice(r.indexOf('{') + 1, -1) }));
+
+rule('App: a browser that refuses all storage still opens the examples, says they last only for this tab, and resizes', async () => {
+  const app = boot({ storageThrows: true, firstRun: true }); await app.tick(80);
+  assert.ok(app.fs && app.files('runs/').length > 3 && app.files('publications/').length > 3, 'the examples are there, with their run history');
+  app.click('close-overlay'); await app.tick();
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  assert.ok(BADGE.test(app.badge()), 'and it says they aren\'t kept');
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  const start = splitNow(app, 'tf');
+  splitKey(app, 'tf', 'ArrowLeft'); await app.tick();
+  assert.strictEqual(paneVar(app, 'tf'), start + 16);
+});
+
+rule('App: with storage blocked, the Tab only badge is on every screen, editor, dialog and phone step sheet, and nothing makes it inert', async () => {
+  const deny = () => { throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
+  const app = boot({ storageThrows: true, firstRun: true, picker: {}, indexedDB: { open: deny } }); await app.tick(80);
+  const on = where => {
+    assert.ok(BADGE.test(app.badge()), where + ': the badge is there');
+    assert.ok(!/id="tab-only"/.test(app.html() + app.top() + app.overlay()), where + ': drawn once, outside the screen and its dialogs');
+    assert.ok(!app.badgeInert(), where + ': and never inert');
+    assert.ok(app.rootClasses().includes('tab-only'), where + ': the page leaves room for it');
+  };
+  on('the explanation dialog'); app.click('close-overlay'); await app.tick();
+  assert.ok(/couldn(&#39;|')t read which team folder you used last/.test(app.html()), 'another message doesn\'t replace it');
+  on('welcome');
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  for (const id of ['home', 'runs', 'processes', 'skills', 'types', 'settings', 'followups']) { app.click('nav', id); await app.tick(); on(id); }
+  app.click('health'); await app.tick(40); on('Folder health');
+  app.click('connection'); await app.tick(40); on('Connection check');
+  app.click('recovery'); await app.tick(); on('When something goes wrong');
+  app.click('whats-new'); await app.tick(); on('What\'s new dialog');
+  app.click('close-overlay'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick(); on('step-type editor');
+  app.click('type-done'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); on('process page');
+  app.click('hist-open', 'draft'); await app.tick(); on('History dialog');
+  app.click('close-overlay'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick(); on('draft editor');
+  app.click('ed-done'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); on('run workspace');
+  app.setNarrow(true); await app.tick(); on('phone layout');
+  app.click('select', 'approve'); await app.tick();
+  assert.ok(/class="[^"]*rw-ins[^"]*"[^>]*data-open="true"/.test(app.html()), 'set-up: the phone step sheet is open');
+  on('phone step sheet at 375 px');
+});
+
+rule('Page: the Tab only badge is fixed above every layer, safe-area aware, and every sheet, dialog and editor starts below it', () => {
+  const rules = cssRules(pageCss()), badge = rules.filter(r => /(^|,)\s*#tab-badge\s*(,|$)/.test(r.sel));
+  const z = +(/z-index:\s*(\d+)/.exec(badge.map(r => r.body).join(';')) || [])[1];
+  assert.ok(badge.some(r => /position:\s*fixed/.test(r.body)) && z > 0, 'it is fixed, with its own layer');
+  assert.ok(badge.some(r => /env\(safe-area-inset-top/.test(r.body)), 'it keeps clear of the phone\'s notch');
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+  const others = (html.match(/z-index:\s*\d+/g) || []).map(x => +x.replace(/\D/g, '')).filter(n => n !== z);
+  assert.ok(others.length > 5 && others.every(n => n < z), 'every sheet, overlay, dialog and menu sits below it: ' + Math.max(...others) + ' < ' + z);
+  assert.ok(!/\btabindex=|<button|<a\s/.test(html.slice(html.indexOf('<div id="tab-badge"'), html.indexOf('</div>', html.indexOf('<div id="tab-badge"')))), 'the shell holds nothing focusable');
+  for (const sel of ['.overlay', '.rw-ins[data-open="true"]', '.fpe', '.top', '.fpe-head.rw-head', 'body']) {
+    assert.ok(rules.some(r => r.sel.split(',').map(s => s.trim()).includes(sel) && /var\(--keep-h/.test(r.body)), sel + ' starts below the badge');
+  }
+});
+
+rule('App: the first time the examples are tab-only, a dialog explains it once, and Got it closes it', async () => {
+  const session = {};
+  const app = boot({ storageThrows: true, firstRun: true, sessionStore: session }); await app.tick(80);
+  assert.ok(/role="dialog"[\s\S]*only while this tab is open[\s\S]*id="tab-only-ok"[^>]*>Got it</.test(app.overlay()), 'it explains, with Got it');
+  app.click('close-overlay'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'Got it closes it');
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  for (const id of ['home', 'runs', 'types', 'settings']) { app.click('nav', id); await app.tick(); }
+  app.click('open-run', app.run().key); await app.tick(40);
+  assert.ok(!/id="tab-only-ok"/.test(app.overlay()), 'it doesn\'t come back while the tab is open');
+  const again = boot({ storageThrows: true, firstRun: true, sessionStore: session }); await again.tick(80);
+  assert.ok(!/id="tab-only-ok"/.test(again.overlay()) && BADGE.test(again.badge()), 'nor after a reload in the same session; the badge still shows');
+});
+
+rule('App: with storage blocked, no message is reworded: saves, notes and Undo say exactly what they say with storage', async () => {
+  const story = async app => {
+    const out = [];
+    app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+    app.input('tf-label', 'Risk review'); await app.tick(40);
+    app.click('type-save'); await app.tick(120); out.push(shown(app));
+    app.click('type-done'); await app.tick();
+    app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+    app.click('select', 'approve'); app.set('note-text', 'a note'); app.click('add-note', 'approve'); await app.tick(40);
+    out.push(app.live(), (/<span class="small rw-ack"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?([^<]*)</.exec(app.html()) || [])[1]);
+    app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+    app.click('ob-sel', 'flags'); await app.tick();
+    app.check('ob-mark-step', true); await app.tick(80); out.push(shown(app));
+    app.check('ob-mark-must', true); await app.tick(80); out.push(shown(app));
+    return out;
+  };
+  const normal = boot(); await normal.tick(60); normal.choose('person-casey'); await normal.tick();
+  const want = await story(normal), got = await story(await blocked());
+  assert.ok(want.every(Boolean) && /^Saved \{risk\.review\}/.test(want[0]) && /Note added/.test(want[1]), 'set-up: each step says something: ' + JSON.stringify(want));
+  assert.deepStrictEqual(got, want);
+  assert.ok(!got.some(t => /tab only/i.test(t)), 'none of them mention the tab');
+});
+
+rule('App: the run strip and both editors say Saved in this tab only while storage is blocked, and Saved with it', async () => {
+  const labels = async app => {
+    app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+    app.input('tf-label', 'Risk review'); await app.tick(40); app.click('type-save'); await app.tick(120);
+    const type = (/class="fpe-state[^"]*"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?([^<]*)</.exec(app.html()) || [])[1];
+    app.click('type-done'); await app.tick();
+    app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+    const strip = (/id="fresh" data-k="strip"><span class="small">([^<·]*?) \d+:\d\d/.exec(app.html()) || [])[1];
+    app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+    app.click('ed-mode', 'markdown'); await app.tick();
+    app.input('draft-editor', app.el('draft-editor').value + '\n'); await app.tick(40);
+    app.click('save-draft', 'release'); await app.tick(80);
+    const draft = (/class="fpe-state[^"]*"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?([^<]*)</.exec(app.html()) || [])[1];
+    return { type, strip, draft };
+  };
+  assert.deepStrictEqual(await labels(await blocked()), { type: 'Saved in this tab only', strip: 'Saved in this tab only', draft: 'Saved in this tab only' });
+  const normal = boot(); await normal.tick(60); normal.choose('person-casey'); await normal.tick();
+  assert.deepStrictEqual(await labels(normal), { type: 'Saved', strip: 'Saved here', draft: 'Saved' });
+});
+
+rule('App: with storage working, there is no badge, no explanation and no room left for them', async () => {
+  const app = boot({ firstRun: true }); await app.tick(80);
+  assert.strictEqual(app.badge(), '', 'no badge on the welcome');
+  assert.ok(!/id="tab-only-ok"/.test(app.overlay()), 'no explanation');
+  app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
+  for (const id of ['home', 'types']) { app.click('nav', id); await app.tick(); assert.strictEqual(app.badge(), '', id); }
+  app.click('open-run', app.run().key); await app.tick(); app.setNarrow(true); await app.tick(); app.click('select', 'approve'); await app.tick();
+  assert.strictEqual(app.badge(), '', 'phone step sheet');
+  assert.ok(!app.rootClasses().includes('tab-only'), 'and the page leaves no room for it');
+});
+
 rule('App: Undo and Redo keep what\'s typed in an open Add a step box, and refuse when the step it goes after would disappear', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md', PF = app.PF;
   app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
@@ -2270,7 +2530,7 @@ const enter = (app, id, value) => app.keyOn('Enter', {}, { tagName: 'INPUT', id,
 
 rule('App: a part dragged onto a line in the outline is added there, selected, with its text ready to type over', async () => {
   const app = await builderOn(), original = releaseText(app);
-  assert.ok(/<aside class="fpe-pane fpe-parts" aria-labelledby="ob-parts-h">/.test(app.html()) && /data-ob-part="must" aria-pressed="false"/.test(app.html()), 'the parts box is beside the outline');
+  assert.ok(/<aside class="fpe-pane fpe-parts" id="ob-parts" aria-labelledby="ob-parts-h">/.test(app.html()) && /data-ob-part="must" aria-pressed="false"/.test(app.html()), 'the parts box is beside the outline');
   dragPart(app, 'must', 'before:flags', 'step'); await app.tick();
   assert.ok(/<li class="ob-step sel ob-new" draggable="true" data-ob-step="new-must-do-step">/.test(app.html()), 'selected and flashed');
   assert.strictEqual(app.focused(), 'ob-text', 'its text box has focus');

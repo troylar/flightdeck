@@ -61,7 +61,7 @@
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
-    var status = saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved changes' : p.draft ? 'Saved' : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
+    var status = saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved changes' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
     var count = nb || nt, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id;
@@ -94,12 +94,12 @@
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
     var tabs = (builder ? [['selected', 'Selected']] : []).concat([['checks', 'Checks'], ['preview', 'Preview']]);
-    var ins = '<aside class="fpe-pane fpe-ins" aria-label="Inspector"><div class="fpe-tabs" role="tablist" aria-label="Inspector">' + tabs.map(function (t) {
+    var ins = V.splitter(ctx, 'ins') + '<aside class="fpe-pane fpe-ins" id="fpe-ins" aria-label="Inspector"><div class="fpe-tabs" role="tablist" aria-label="Inspector">' + tabs.map(function (t) {
       var on = t[0] === tab;
       return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
-    if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '">' + V.obPartsPane(ctx, p) + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.builder(ctx, p, text) + '</section>' + ins + '</div>';
-    else h += '<div class="fpe-panes md"><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
+    if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.builder(ctx, p, text) + '</section>' + ins + '</div>';
+    else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
     return h + '</div>';
   }
 
@@ -221,7 +221,7 @@
     /* The header, as in the draft editor: who it is | Undo, Redo, History, Preview | whether it's saved, and Save. */
     var why = saveWhy(d, errs.filter(function (e) { return at['tf-id'] || !/^"id"/.test(e); }));
     var just = !changed && f.justSaved && now - f.justSaved < 4000;
-    var status = f.saving ? 'Saving…' : changed ? 'Unsaved changes' : f.existing ? 'Saved' : 'Not saved yet';
+    var status = f.saving ? 'Saving…' : changed ? 'Unsaved changes' : f.existing ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'Not saved yet';
     /* On a phone the preview opens as a dialog over the form: everything behind it is inert until it closes. */
     var modal = !!st.tfPreview, behind = modal ? ' inert' : '';
     var h = '<div class="fpe fpe-type" id="tfe"><header class="fpe-head" role="region" aria-labelledby="tf-h"' + behind + '>' +
@@ -248,7 +248,7 @@
       '<input id="tf-tagadd" maxlength="30" list="tf-tag-list" placeholder="Add a tag" data-enter="tf-tag-add"' + (tagErr.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + tagErr.map(function (n) { return 'tf-err-' + n; }).concat(['tf-tagadd-help']).join(' ') + '"></div><datalist id="tf-tag-list">' + tagsAll.filter(function (t) { return tags.indexOf(t) < 0; }).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       errHtml('tf-tags', tags.length > 0) + '<p class="tf-help" id="tf-tagadd-help">Press Enter or type a comma; it\'s also added when you leave the box. Tags filter the Step types list.</p></div>';
     var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(tags.map(function (t) { return '#' + t; })).join(' · ');
-    h += '<div class="fpe-panes tf-panes"><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" data-draft-kept novalidate>' +
+    h += '<div class="fpe-panes tf-panes"' + V.paneAttr(ctx, ['tf']) + '><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" data-draft-kept novalidate>' +
       '<section class="panel tf-card" aria-labelledby="tf-basics-h"><h2 id="tf-basics-h">Basics</h2>' +
       field('tf-label', 'What people call it', '<input id="tf-label" maxlength="40" value="' + esc(d.label) + '"' + attrs('tf-label', !!String(d.label || '').trim(), true) + '>', 'Shown on every step of this type, like Change request.', !!String(d.label || '').trim()) +
       idPart +
@@ -309,7 +309,7 @@
     var named = d.fields.filter(function (r) { return String(r.name || '').trim(); }), recs = d.record.filter(function (r) { return String(r.name || '').trim(); });
     var sample = function (r) { var o = optsOf(r); return r.kind === 'choice' ? (o[0] || '…') : SAMPLE[r.kind] || '…'; };
     var line = '- [ ] {' + (d.id || 'your.type') + '} What to do {#step-id}' + named.map(function (r) { return '\n  ' + r.name + ': ' + sample(r); }).join('') + (recs.length ? '\n  require: all' : '');
-    h += '<aside class="fpe-pane tf-preview' + (modal ? ' open" id="tf-preview" role="dialog" aria-modal="true" aria-labelledby="tf-prev-h"' : '" id="tf-preview" aria-label="Preview"') + '><div class="tf-prevhead"><h2 id="tf-prev-h">Run preview</h2><button type="button" class="mini tf-prevclose" data-act="tf-preview">Close</button></div>' +
+    h += V.splitter(ctx, 'tf') + '<aside class="fpe-pane tf-preview' + (modal ? ' open" id="tf-preview" role="dialog" aria-modal="true" aria-labelledby="tf-prev-h"' : '" id="tf-preview" aria-label="Preview"') + '><div class="tf-prevhead"><h2 id="tf-prev-h">Run preview</h2><button type="button" class="mini tf-prevclose" data-act="tf-preview">Close</button></div>' +
       '<p class="tf-help">How a step of this type looks in a run. It\'s a picture: nothing here can be clicked.</p>' +
       '<div class="tf-run" aria-label="Sample step"><div class="tf-run-head' + flash('type:icon') + '">' + I(d.icon || 'check') + '<b>What to do</b><span class="cat' + flash('type:label') + '">' + esc(String(d.label || '').trim() || 'Your type') + '</span></div>' +
       (d.hint ? '<p class="small tf-run-hint' + flash('type:hint') + '">' + esc(d.hint) + '</p>' : '') +

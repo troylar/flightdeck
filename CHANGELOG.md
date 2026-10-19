@@ -15,6 +15,21 @@ Big team folders: runs 50 at a time, fewer file checks, and a warning when refre
 - **Runs load 50 at a time** (Runs). Running and Finished each show 50 runs and say how many there are. Show 50 more adds the next ones and moves you to the first one added. *Where:* Runs
 - **Big team folders open with fewer file checks** (Team folder). A notes file's size now comes with reading it, so opening a big folder asks OneDrive for about 10% fewer things. Pictures are read when they scroll into view, a few at a time, after the run you're recording. *Where:* Opening a team folder, and any page with pictures
 
+## 1.16.1 · Oct 19, 2026
+
+Make the editors' side panels wider or narrower.
+
+### Improved
+
+- **Resize the Run preview** (Step types). Drag the line between the form and the preview to make the preview wider or narrower. Or focus the line and use the Left and Right arrow keys (Shift moves further), Home and End. Enter or a double-click puts it back. The form always keeps room. Your width is kept in this browser only. *Where:* Step types › a step type, the line left of Run preview
+- **Resize the parts and the inspector** (Draft editor). The Parts list and the inspector each have a line you can drag or move with the arrow keys, the same way as the step-type preview, and each keeps its own width. The Markdown view uses the inspector's width too. When the parts are folded to icons, only the inspector resizes. *Where:* A process page › Edit, the lines beside Parts and the inspector
+
+### Fixed
+
+- **The step-type form has its room again** (Step types). The form takes most of the page and the preview is a narrower column beside it, as intended. *Where:* Step types › a step type
+- **Dialogs fit the window** (Keyboard). Dialogs stay inside the window and scroll when their content is longer. *Where:* Keyboard shortcuts, and History
+- **Opens in a browser that blocks site storage** (Examples). The examples open, and a short dialog explains once that they and your changes to them last only while the tab is open. After that, a Tab only badge at the top of the window stays in view on every screen, dialog and phone step panel. The run's save status and the editors' labels say Saved in this tab only. A team folder still keeps everything. *Where:* Opening Flightdeck
+
 ## 1.16.0 · Oct 19, 2026
 
 Apply a correction to the draft, then see which version has it.

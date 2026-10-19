@@ -11,6 +11,12 @@ PF.vk = (function () {
     var p = person(ctx, id), ini = p ? p.initials : String(id || '?').slice(0, 2).toUpperCase();
     return '<span class="avatar' + (lg ? ' lg' : '') + '" title="' + esc(nameOf(ctx, id)) + '">' + esc(ini) + '</span>';
   }
+  /* The examples in a browser that refuses storage live in this tab only. The page shell's badge says so, short on screen and
+     in full to screen readers; it holds nothing focusable, so it never traps or takes focus. */
+  function tabOnly(ctx) {
+    return ctx.state.fs && ctx.state.fs.volatile ? '<div class="tab-badge" id="tab-only" role="note"><span aria-hidden="true">Tab only: changes vanish on reload</span>' +
+      '<span class="sr">Kept in this tab only. This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. Reloading or closing it loses them. To keep your work, use a team folder.</span></div>' : '';
+  }
   function notices(ctx, opts) {
     var h = '';
     /* A quiet message (a check said back, Copied) is only announced, never shown as a notice. */
@@ -35,12 +41,12 @@ PF.vk = (function () {
   /* Three different facts, never blurred: when this computer saved, when it last read the folder, and whether it can read it at all.
      None of them proves another computer has the change yet; OneDrive decides that. */
   function freshness(ctx, r, short) {
-    var st = ctx.state, now = ctx.now(), parts = [];
+    var st = ctx.state, now = ctx.now(), parts = [], here = st.fs && st.fs.volatile ? 'saved in this tab only ' : 'saved here ';
     if (st.folderErr) return '<span class="small" style="color:var(--stop)">Can\'t read the folder right now</span>';
     if ((r && ((st.unread || {}).runs || {})[r.process + '/' + r.id]) || Object.keys(ctx.data.failed || {}).length) return '<span class="small" style="color:var(--stop)">Part of the folder couldn\'t be read · checked ' + esc(U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
     /* The run screen's strip: the same two facts, in fewer words. */
-    if (short) return '<span class="small">' + esc((r && r.savedAt ? (ctx.recording && ctx.recording(r) ? 'Saved here ' : 'Last saved ') + U.hm(r.savedAt) + ' · ' : '') + 'Folder checked ' + U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
-    if (r && r.savedAt) parts.push('saved here ' + U.hm(r.savedAt) + ' (' + ago(r.savedAt, now) + ')');
+    if (short) return '<span class="small">' + esc((r && r.savedAt ? (ctx.recording && ctx.recording(r) ? 'S' + here.slice(1) : 'Last saved ') + U.hm(r.savedAt) + ' · ' : '') + 'Folder checked ' + U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
+    if (r && r.savedAt) parts.push(here + U.hm(r.savedAt) + ' (' + ago(r.savedAt, now) + ')');
     parts.push('folder checked ' + U.hm(st.runReadAt || ctx.data.readAt));
     return '<span class="small">' + esc(parts.join(' · ')) + (st.fs && st.fs.kind === 'folder' ? ' · OneDrive shares it with others' : '') + '</span>';
   }
@@ -82,7 +88,7 @@ PF.vk = (function () {
     return h;
   }
   function tagChips(tags) { return (tags || []).length ? '<span class="tags">' + tags.map(function (t) { return '<span class="tag">#' + esc(t) + '</span>'; }).join('') + '</span>' : ''; }
-  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
+  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
 })();
 (function () {
   'use strict';
@@ -140,6 +146,58 @@ PF.vk = (function () {
     return '<div class="undobar" role="toolbar" aria-label="Undo and history">' + h + '</div>';
   }
 
+  /* Editor sidebars people can resize. Each has its own width, kept per browser (state.panes); app.js fits each to the window
+     (state.paneFit: the width the layout gives it, and the widest it can be while the main pane keeps MAIN_MIN). end: the
+     sidebar is right of its separator, so moving the separator left widens it. def stands in until the layout is measured. */
+  var PANES = {
+    tf: { label: 'Resize preview', controls: 'tf-preview', end: true, min: 280, max: 720, def: 400 },
+    parts: { label: 'Resize parts', controls: 'ob-parts', end: false, min: 160, max: 400, def: 208 },
+    ins: { label: 'Resize inspector', controls: 'fpe-ins', end: true, min: 300, max: 720, def: 400 }
+  };
+  function paneW(ctx, key) {
+    var spec = PANES[key], fit = (ctx.state.paneFit || {})[key] || {}, pref = (ctx.state.panes || {})[key];
+    var max = Math.max(spec.min, Math.min(spec.max, typeof fit.max === 'number' ? fit.max : spec.max));
+    var set = typeof pref === 'number' && isFinite(pref);
+    var w = set ? pref : typeof fit.w === 'number' ? fit.w : spec.def;
+    return { w: Math.round(Math.max(spec.min, Math.min(max, w))), min: spec.min, max: max, set: set };
+  }
+  /* The panes' style attribute: app.js writes the same string while dragging, so a redraw finds nothing to change. */
+  function paneStyle(ctx, keys) {
+    return keys.filter(function (k) { return paneW(ctx, k).set; }).map(function (k) { return '--pane-' + k + ':' + paneW(ctx, k).w + 'px'; }).join(';');
+  }
+  /* All the sidebars of one panes container, fitted together to its width W in one pass. items, in markup order: { key, pref
+     (the width chosen, or none), measured (its width now), fixed (shown but not resizable here: Parts as a rail) }. A chosen
+     width is read from the choice, never from what was drawn, and a sidebar left at the layout's width keeps it, so fitting
+     what was drawn gives the same answer (no back and forth). Chosen widths give way in SHRINK order (the inspector first)
+     until the main pane has MAIN_MIN. Returns { key: { w, max } } for the resizable ones. */
+  var MAIN_MIN = 360, SHRINK = ['ins', 'tf', 'parts'];
+  function fitPanes(W, items) {
+    var w = {}, chosen = {}, total = 0, room = W - MAIN_MIN, out = {};
+    items.forEach(function (it) {
+      var spec = PANES[it.key];
+      chosen[it.key] = !it.fixed && typeof it.pref === 'number' && isFinite(it.pref);
+      w[it.key] = Math.round(chosen[it.key] ? Math.max(spec.min, Math.min(spec.max, it.pref)) : it.measured || 0);
+      total += w[it.key];
+    });
+    var excess = total - room;
+    SHRINK.forEach(function (k) {
+      if (excess <= 0 || !chosen[k]) return;
+      var cut = Math.min(excess, w[k] - PANES[k].min); w[k] -= cut; excess -= cut; total -= cut;
+    });
+    items.forEach(function (it) {
+      if (it.fixed) return;
+      var spec = PANES[it.key];
+      out[it.key] = { w: w[it.key], max: Math.max(spec.min, Math.min(spec.max, room - (total - w[it.key]))) };
+    });
+    return out;
+  }
+  function paneAttr(ctx, keys) { var s = paneStyle(ctx, keys); return s ? ' style="' + s + '"' : ''; }
+  function splitter(ctx, key) {
+    var spec = PANES[key], w = paneW(ctx, key);
+    return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag to resize. Arrow keys move it; Enter or a double-click puts it back."></div>';
+  }
+
   V.undoBar = undoBar;
+  V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   V.top = top; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;
 })();

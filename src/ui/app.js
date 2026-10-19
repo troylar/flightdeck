@@ -16,6 +16,8 @@
   function lsGet(k, d) { try { var v = localStorage.getItem(LS + ':' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
   function applyTheme() { var root = document.documentElement; if (!root || !root.setAttribute) return; if (state.theme === 'light' || state.theme === 'dark') root.setAttribute('data-theme', state.theme); else root.removeAttribute('data-theme'); }
   function lsSet(k, v) { try { localStorage.setItem(LS + ':' + k, JSON.stringify(v)); } catch (e) { /* per-viewer convenience only */ } }
+  /* Editor sidebar widths this viewer chose (V.PANES): kept in this browser only, never in the team folder. */
+  function panesKept() { var v = lsGet('panes', {}), out = {}; if (v && typeof v === 'object') Object.keys(PF.views.PANES).forEach(function (k) { if (typeof v[k] === 'number' && isFinite(v[k])) out[k] = Math.round(v[k]); }); return out; }
   /* Home acknowledgments this viewer dismissed in this folder: only keys of the form PF.corrections.acks makes are kept. */
   var ACK_KEY = /^[ld]\.[a-z0-9][a-z0-9-]{0,59}\.[\w-]{1,60}(\.\d{1,9})?$/, ACK_MAX = 300;
   function acksDismissed() { var v = lsGet('acks:' + fsKey(), []); return Array.isArray(v) ? v.filter(function (k) { return typeof k === 'string' && ACK_KEY.test(k); }).slice(-ACK_MAX) : []; }
@@ -60,7 +62,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -613,13 +615,25 @@
     /* Input kept for return belongs to its folder: a new folder starts clean. */
     state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
+    if (fs.volatile) explainTabOnly();
     return load(true, true);
   }
 
+  /* The first time this session's examples are tab-only, a dialog says what that means; the badge keeps saying it. Remembered
+     for the tab's session where the browser allows, else for this page. */
+  var tabOnlyExplained = false;
+  function explainTabOnly() {
+    try { tabOnlyExplained = tabOnlyExplained || sessionStorage.getItem('preflight:tab-only-seen') === '1'; } catch (e) { /* storage blocked */ }
+    if (tabOnlyExplained || state.overlay) return;
+    tabOnlyExplained = true;
+    try { sessionStorage.setItem('preflight:tab-only-seen', '1'); } catch (e) { /* storage blocked */ }
+    state.overlay = { back: null, html: function () { return V.tabOnlyHelp(ctx); } };
+  }
   function seedExamples(mem) { mem.reset(EXAMPLES); return PF.examples.seed(mem, EXAMPLES); }
   function boot() {
     var mem = new PF.fs.MemoryFS(LS + ':examples', null);
-    var seeded = Object.keys(mem.files).length ? Promise.resolve() : seedExamples(mem);
+    /* A browser that refuses storage still gets the examples, kept in this tab only; a failed seed shows what failed. */
+    var seeded = Object.keys(mem.files).length ? Promise.resolve() : Promise.resolve().then(function () { return seedExamples(mem); }).catch(function (e) { say(e && e.message || 'The examples couldn\'t be set up.', 'warn'); });
     var useMem = function () { return seeded.then(function () { return useFs(mem); }); };
     if (!canFolder) return useMem();
     return handles.get().then(function (rec) {
@@ -861,7 +875,16 @@
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
   function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
+  /* The examples kept in this tab only: a badge in the page shell, fixed above every screen, sheet and dialog. The root's
+     class leaves room for it at the top (--keep-h in page.html). Messages never mention it; the badge is the one place. */
+  var badgeEl = document.getElementById('tab-badge'), badgeHtml = null;
+  function renderBadge() {
+    var h = V.tabOnly(ctx), root = document.documentElement;
+    if (badgeEl && h !== badgeHtml) { badgeEl.innerHTML = h; badgeHtml = h; }
+    if (root && root.classList) { if (h) root.classList.add('tab-only'); else root.classList.remove('tab-only'); }
+  }
   function renderTop() {
+    renderBadge();
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
     if (meVal) patch(topEl, V.top(ctx));
     pinOffsets();
@@ -871,12 +894,12 @@
     var root = document.documentElement, pl = app.querySelector && app.querySelector('.phase[data-s="open"] .placard');
     if (!root || !root.style || !topEl.offsetHeight) return;
     var bar = (topEl.closest && topEl.closest('.top')) || topEl, pinned = window.getComputedStyle && window.getComputedStyle(bar).position === 'sticky';
-    root.style.setProperty('--top-h', (pinned ? bar.offsetHeight : 0) + 'px');
+    root.style.setProperty('--top-h', (pinned ? bar.offsetHeight : 0) + (badgeEl && badgeEl.offsetHeight || 0) + 'px');
     if (pl && pl.offsetHeight) root.style.setProperty('--placard-h', pl.offsetHeight + 'px');
   }
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
   var wasNarrow = null;
-  window.addEventListener('resize', function () { pinOffsets(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
+  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -1006,7 +1029,7 @@
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */
-      var c = overlayEl.querySelector('#lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, .help [data-act="close-overlay"]');
+      var c = overlayEl.querySelector('#tab-only-ok, #lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, .help [data-act="close-overlay"]');
       if (c && !overlayEl.contains(document.activeElement)) c.focus();
       app.setAttribute('inert', ''); topEl.setAttribute('inert', '');
     } else { app.removeAttribute('inert'); topEl.removeAttribute('inert'); }
@@ -1014,6 +1037,7 @@
     if (state.obPendingField && (!document.getElementById(state.obPendingField) || app.innerHTML.indexOf('id="' + state.obPendingField + '"') < 0)) dropPending();
     editorPage();
     runPage();
+    fitPanes();
     sheet();
     watchThumbs();
     announce();
@@ -1054,6 +1078,108 @@
     /* go() to a step brings its row into view, in the run already open and on a phone too (focus alone doesn't scroll). */
     if (on && state.revealTarget) { var rt = app.querySelector(state.revealTarget); state.revealTarget = null; if (rt && rt.scrollIntoView) rt.scrollIntoView({ block: 'nearest' }); }
   }
+  /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
+     whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
+     once, so the separators say the real widths, and a chosen width is clamped to the window while the choice is kept. */
+  function fitPanes() {
+    var fit = {}, changed = false, boxes = [];
+    Array.prototype.forEach.call(app.querySelectorAll ? app.querySelectorAll('.pane-split') : [], function (sp) { if (sp.parentNode && boxes.indexOf(sp.parentNode) < 0) boxes.push(sp.parentNode); });
+    boxes.forEach(function (box) {
+      if (!box.clientWidth) return;
+      var items = [], shown = false;
+      Array.prototype.forEach.call(box.children, function (c) {
+        var k = c.getAttribute('data-split'), spec = k && V.PANES[k], pane = spec && document.getElementById(spec.controls);
+        /* Hidden where the panes stack (a phone): nothing there to fit. */
+        if (!pane || !c.offsetParent) return;
+        var fixed = window.getComputedStyle(c).visibility === 'hidden';
+        if (!fixed) shown = true;
+        items.push({ key: k, fixed: fixed, pref: state.panes[k], measured: pane.getBoundingClientRect().width });
+      });
+      if (!shown) return;
+      var f = V.fitPanes(box.clientWidth, items);
+      Object.keys(f).forEach(function (k) { fit[k] = f[k]; });
+    });
+    if (!Object.keys(fit).length) return;
+    Object.keys(fit).forEach(function (k) { var was = state.paneFit[k]; if (!was || was.w !== fit[k].w || was.max !== fit[k].max) changed = true; });
+    state.paneFit = fit;
+    if (changed) render();
+  }
+  function paneSet(key, w) {
+    var spec = V.PANES[key]; if (!spec) return;
+    if (w == null) delete state.panes[key];
+    else { var lim = V.paneW(ctx, key); state.panes[key] = Math.round(Math.max(lim.min, Math.min(lim.max, w))); }
+  }
+  /* While dragging, only the panes' variable and the separator's value change, written exactly as the view draws them. */
+  function paneLive(sp) {
+    var box = sp.parentNode, keys = Array.prototype.map.call(box.querySelectorAll(':scope > .pane-split'), function (x) { return x.getAttribute('data-split'); });
+    var css = V.paneStyle(ctx, keys);
+    if (css) box.setAttribute('style', css); else box.removeAttribute('style');
+    sp.setAttribute('aria-valuenow', String(V.paneW(ctx, sp.getAttribute('data-split')).w));
+  }
+  function paneDone(key) { lsSet('panes', state.panes); state.focus = '.pane-split[data-split="' + key + '"]'; render(); }
+  /* Left and Right move the separator 16px (Shift: 64px), Home and End go to the narrowest and widest, Enter puts it back. */
+  function paneKey(key, e) {
+    var spec = V.PANES[key], lim = V.paneW(ctx, key), step = e.shiftKey ? 64 : 16, dir = spec.end ? -1 : 1;
+    if (e.key === 'ArrowLeft') paneSet(key, lim.w - dir * step);
+    else if (e.key === 'ArrowRight') paneSet(key, lim.w + dir * step);
+    else if (e.key === 'Home') paneSet(key, lim.min);
+    else if (e.key === 'End') paneSet(key, lim.max);
+    else if (e.key === 'Enter') paneSet(key, null);
+    else return false;
+    paneDone(key);
+    return true;
+  }
+  /* Dragging: the pointer is captured, so a fast move past the editor's edge keeps resizing, and nothing is selected. The drag
+     is known by its sidebar, and each move uses the separator the page has now (a redraw can replace it); if it's gone, or
+     the pointer is released, canceled, loses capture or the window loses focus, the drag ends and text can be selected again. */
+  var paneDrag = null;
+  function rootClass(c, on) { var de = document.documentElement; if (de && de.classList) de.classList[on ? 'add' : 'remove'](c); }
+  function liveSplit(key) { return app.querySelector ? app.querySelector('.pane-split[data-split="' + key + '"]') : null; }
+  function paneCapture(sp, id) { try { sp.setPointerCapture(id); return true; } catch (x) { return false; } }
+  document.addEventListener('pointerdown', function (e) {
+    var sp = e.target && e.target.closest && e.target.closest('.pane-split'), spec = sp && V.PANES[sp.getAttribute('data-split')];
+    if (!spec || e.button !== 0) return;
+    var pane = document.getElementById(spec.controls); if (!pane) return;
+    e.preventDefault();
+    if (paneDrag) paneDragEnd();
+    sp.focus({ preventScroll: true });
+    paneCapture(sp, e.pointerId);
+    paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width };
+    rootClass('pane-drag', true);
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    var sp = liveSplit(paneDrag.key);
+    if (!sp) { paneDragEnd(); return; }
+    if (sp !== paneDrag.sp) { paneDrag.sp = sp; paneCapture(sp, paneDrag.id); }
+    var dx = e.clientX - paneDrag.x;
+    paneSet(paneDrag.key, paneDrag.w + (V.PANES[paneDrag.key].end ? -dx : dx));
+    paneLive(sp);
+  });
+  function paneDragEnd() {
+    if (!paneDrag) return;
+    var d = paneDrag; paneDrag = null;
+    rootClass('pane-drag', false);
+    var sp = liveSplit(d.key);
+    if (sp) try { sp.releasePointerCapture(d.id); } catch (x) { /* already released */ }
+    paneDone(d.key);
+  }
+  function paneDragStop(e) { if (paneDrag && e.pointerId === paneDrag.id) paneDragEnd(); }
+  document.addEventListener('pointerup', paneDragStop);
+  document.addEventListener('pointercancel', paneDragStop);
+  /* Capture moves to the new separator when a redraw replaced the old one mid-drag; otherwise losing it ends the drag. */
+  document.addEventListener('lostpointercapture', function (e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    var sp = liveSplit(paneDrag.key);
+    if (sp && sp !== paneDrag.sp && paneCapture(sp, paneDrag.id)) { paneDrag.sp = sp; return; }
+    paneDragEnd();
+  });
+  window.addEventListener('blur', paneDragEnd);
+  document.addEventListener('dblclick', function (e) {
+    var sp = e.target && e.target.closest && e.target.closest('.pane-split');
+    if (!sp || !V.PANES[sp.getAttribute('data-split')]) return;
+    paneSet(sp.getAttribute('data-split'), null); paneDone(sp.getAttribute('data-split'));
+  });
   function savePanes() { var k = { key: state.runKey }; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el) k[id] = el.scrollTop; }); state.paneScroll = k; }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
      closing returns focus to the step it came from. */
@@ -2282,7 +2408,7 @@
     refresh: function () { load(true, true); },
     connect: function () { connect(); },
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; useFs(folderFs(rec)); } }); },
-    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }); },
+    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
     filter: function (id) { state.filter = id; render(); },
     /* Sign off the current version of a process as ready for a skill, with the run evidence it was signed on. */
     signoff: function (id) {
@@ -3759,6 +3885,8 @@
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+    var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
+    if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { setView('run'); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
