@@ -1390,6 +1390,23 @@ rule('A correction from a newer copy keeps its readable summary in the collectio
   assert.ok(/Problem: Correction to "Merge"\. Split it in two\./.test(R.receipt(r, map, id => id, NOW, r._notes)));
 });
 
+rule('Every correction field round-trips at the largest size it can be saved with, from one table of limits', () => {
+  const L = C.LIMITS, r = release(), map = R.mapOf(r);
+  map.meta.roles = Array.from({ length: 30 }, (_, i) => ('role' + i + '-').padEnd(L.role, 'x'));
+  const roles = corr({ op: 'roles', roles: map.meta.roles.slice(0, 25), map }, r);
+  assert.strictEqual(roles.change.to.length, 25, 'a checklist with many roles keeps them all');
+  const back = n => C.cleanNote(JSON.parse(JSON.stringify(n)));
+  same(back(roles).change, roles.change, 'and so does a reload');
+  const max = { cv: 1, version: 3, folder: 'f'.repeat(L.folder), target: { phase: 'p'.repeat(L.id), step: 's'.repeat(L.id) }, step: 's'.repeat(L.id), from: 'w'.repeat(L.from), base: 'abcdef12', why: 'y'.repeat(L.text), happened: 'h'.repeat(L.happened) };
+  [{ op: 'wording', to: 't'.repeat(L.text) }, { op: 'add', text: 'a'.repeat(L.text), where: 'end' }, { op: 'move', to: { after: 'm'.repeat(L.id) } }, { op: 'move', to: { phase: 'q'.repeat(L.id), where: 'start' } },
+    { op: 'roles', to: Array.from({ length: L.roles }, (_, i) => String(i).padEnd(L.role, 'r')) }, { op: 'screenshot', shot: 'images/' + 'x'.repeat(L.shot - 11) + '.png' }, { op: 'remove' }, { op: 'describe' }].forEach(change => {
+    const n = Object.assign({ kind: 'correction' }, max, { change });
+    const c = back(n);
+    same([c.change, c.folder, c.target, c.from, c.why, c.happened], [change, n.folder, n.target, n.from, n.why, n.happened], change.op);
+  });
+  assert.strictEqual(corr({ op: 'roles', roles: map.meta.roles, map }, r).change.to.length, Math.min(30, L.roles), 'build keeps no more than a reload would');
+});
+
 rule('Correction fields and decision files from disk keep only what the app understands; a newer copy\'s change shows as a problem', () => {
   const n = C.cleanNote({ cv: 1, version: '3', folder: 'v1-x', target: { phase: 'p'.repeat(99), step: 7 }, step: 'pods', change: { op: 'wording', to: 'x'.repeat(3000) }, from: 'f', base: 'nothex!', why: 1, happened: 'h', replaces: '../x' });
   same([n.version, n.target, n.change.to.length, n.base, n.why, n.happened, n.replaces], [0, { phase: 'p'.repeat(60), step: 'pods' }, 2000, '', undefined, 'h', undefined]);

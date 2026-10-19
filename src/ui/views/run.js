@@ -462,7 +462,10 @@
       recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(v) + '</span>'; });
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
-    var fillIn = rec && r.state === 'running' && !r.paused && (editable.length || recFields.length) && !(s.pick && s.pick.id === st.id && s.pick.kind === 'fields') ? '<button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '">' + I('edit') + 'Fill in</button>' : '';
+    var finishing = s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;
+    var fillIn = rec && r.state === 'running' && !r.paused && (editable.length || recFields.length) && !(s.pick && s.pick.id === st.id && s.pick.kind === 'fields') ? (finishing
+      ? '<span class="row"><button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '" disabled aria-describedby="fillwhy-' + esc(st.id) + '">' + I('edit') + 'Fill in</button><span class="small" id="fillwhy-' + esc(st.id) + '">Finishing the answer…</span></span>'
+      : '<button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '">' + I('edit') + 'Fill in</button>') : '';
     if (recBody || fillIn) h += '<section class="rw-box" aria-labelledby="ins-rec"><div class="row between"><h3 class="rw-h3" id="ins-rec">Record the result</h3>' + fillIn + '</div>' + recBody + '</section>';
 
     /* The actions: Done is the one primary action, kept in reach while long instructions scroll. */
@@ -601,6 +604,9 @@
     if (s.msg && !s.msg.quiet) al += '<div class="notice ' + (s.msg.kind || '') + '" role="status"><span>' + esc(s.msg.text) + '</span><span class="row">' + (s.msg.act ? '<button class="btn" data-act="' + esc(s.msg.act) + '">' + esc(s.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (s.unsaved[r.id]) al += '<div class="notice bad" role="alert"><span><b>Your last change isn\'t saved.</b> ' + esc(s.saveErr[r.id] || '') + ' It\'s on this screen but not in the team folder' + (r.ended ? ', so the run hasn\'t really ended yet' : '') + '. Try again, or discard it, from the bar above.</span></div>';
     if (s.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(s.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><button class="btn" data-act="refresh">Try again</button></div>';
+    /* A Done differently whose correction was saved but whose answer couldn't be: said here until someone acts. */
+    var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
+    if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + esc(px ? px.step.text : part.step) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     al += recovery(ctx, r, ctx.canRecover(r));
     if (s.runDetails) al += details(ctx, r, map, rec);
     h += '<div class="fpe-alerts rw-alerts">' + al + '</div>';

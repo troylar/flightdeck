@@ -55,7 +55,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}
+    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -1964,7 +1964,11 @@
     'start-step': function (id) { mutate(function (r, map, me, now) { R.start(r, map, id, me, now); }); },
     na: function (id) { mutate(function (r, map, me, now) { R.na(r, map, id, me, now); }); },
     clear: function (id) { mutate(function (r, map, me, now) { R.clear(r, map, id, me, now); }); },
-    pick: function (id, b) { state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' }; state.fieldsDraft = null; if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
+    pick: function (id, b) {
+      /* While Done differently is finishing on a step, Fill in waits: the answer landing would close it. */
+      var ans = state.answering;
+      if (b.dataset.kind === 'fields' && ans && ans.key === state.runKey && ans.step === id) { say('Finishing the answer… Fill in opens once it\'s saved.', 'warn'); render(); return; }
+      state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' }; state.fieldsDraft = null; if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
     unpick: function () { var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
@@ -2090,7 +2094,9 @@
     'corr-open': function (id, b) {
       var r = ctx.run(); if (!r || !state.me) return;
       var map = R.mapOf(r), x = M.findStep(map, id); if (!x) return;
-      var mode = b && b.dataset.mode === 'differently' ? 'differently' : 'correct';
+      var mode = b && b.dataset.mode === 'differently' ? 'differently' : 'correct', open = state.corrForm;
+      /* Choosing an open composer's button again only brings focus back to it; what's typed stays. */
+      if (open && open.key === state.runKey && open.step === id && open.mode === mode) { selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(open.op); render(); return; }
       /* Done differently is an answer: only the recorder, while the run isn't paused and the step's phase is open. */
       if (mode === 'differently' && !(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
       var op = b && PF.corrections.OPS.indexOf(b.dataset.op) >= 0 ? b.dataset.op : 'wording';
@@ -2098,6 +2104,7 @@
       selectStep(id); state.refOpen = true; state.fieldErr = null;
       state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(op); state.focusEnd = true; render();
     },
+    'partial-dismiss': function (id) { delete state.partial[id]; render(); },
     'goto-corr': function (id) { var el = document.getElementById(id); if (!el) return; if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); if (el.focus) el.focus(); },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
     'corr-op': function (id) {
@@ -2234,23 +2241,30 @@
       catch (e) { bad(e); return; }
     }
     state.fieldErr = null;
-    var nfs = state.fs, ng = gen, key = state.runKey, step = f.step, endBusy = busyStart(); f.sending = true; say('Saving…', ''); state.msg.quiet = true; render();
+    var nfs = state.fs, ng = gen, key = state.runKey, step = f.step, endBusy = busyStart(); f.sending = true; say('Saving…', ''); state.msg.quiet = true;
+    if (answer) state.answering = { key: key, step: step };
+    render();
+    var settled = function () { if (state.answering && state.answering.key === key && state.answering.step === step) state.answering = null; };
     var wrote = withNote ? queued(function () { return saveFiles(nfs, r, mine).then(function (saved) { note.files = saved.paths; note.fileInfo = saved.info; return repo.addNote(nfs, r, WRITER, note); }); }) : Promise.resolve();
     wrote.then(function () {
-      endBusy(); f.sending = false; if (ng !== gen) return;
+      endBusy(); f.sending = false; if (ng !== gen) { settled(); return; }
       state.pendingFiles = state.pendingFiles.filter(function (p) { return mine.indexOf(p) < 0; });
       if (state.corrForm === f) { state.corrForm = null; state.fieldErr = null; }
       var then = answer ? function () {
         dropDraft(key, step, ['record']);
-        if (state.runKey !== key) return Promise.resolve();
-        var was = nextStepId(ctx.run(), R.mapOf(ctx.run()));
-        return mutateRun(key, ng, function (r2, map2, me, now) { R.doneDifferently(r2, map2, step, f.happened, me, note ? note.at : now, values); }).then(function (ok) {
-          if (ok !== false) { say('Done differently' + (withNote ? ', with a correction for the checklist. Saved on this computer.' : '. Saved on this computer.'), 'good'); state.msg.quiet = true; afterAnswer(step, was); }
-          else if (withNote) { say('The correction was saved, but the step wasn\'t answered.', 'warn'); render(); }
+        /* The answer is made on the run that started it, whatever this window shows now, through the run's own save. */
+        var here = state.view === 'run' && state.runKey === key, run0 = ctx.findRun(key), was = here && run0 ? nextStepId(run0, R.mapOf(run0)) : null;
+        return mutateRun(key, ng, function (r2, map2, me, now) { R.doneDifferently(r2, map2, step, f.happened, me, note ? note.at : now, values); }, here ? {} : { background: true }).then(function (ok) {
+          settled();
+          if (ok !== false) { delete state.partial[key]; if (here && state.runKey === key) { say('Done differently' + (withNote ? ', with a correction for the checklist. Saved on this computer.' : '. Saved on this computer.'), 'good'); state.msg.quiet = true; afterAnswer(step, was); } return; }
+          /* It couldn't be answered (the run was paused, handed off, or its phase closed): the run says so until someone acts. */
+          if (withNote) state.partial[key] = { step: step };
+          if (state.runKey === key) { say(withNote ? 'Correction saved; the step wasn\'t marked done.' : 'The step wasn\'t marked done.', 'warn'); }
+          render();
         });
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
-      return then().then(function () { return withNote ? refreshRun() : null; }).then(function () { render(); });
-    }, function (e) { endBusy(); f.sending = false; if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
+      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () { render(); });
+    }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
   /* The composer's boxes are read into its state as they change, so a redraw (or the live redline) never loses them. */
   function readCorrForm(f) {

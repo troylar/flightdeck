@@ -14,9 +14,12 @@ PF.corrections = (function () {
   var OP_LABEL = { wording: 'Wording', add: 'Missing step', move: 'Move', roles: 'Who does it', screenshot: 'Screenshot', remove: 'Remove', describe: 'Problem' };
   var STATUS = { open: 'Open', applied: 'Applied to draft', declined: 'Declined', withdrawn: 'Withdrawn', legacy: 'Applied (legacy)' };
   var DECIDE = ['open', 'applied', 'declined', 'withdrawn'];
-  var TEXT_MAX = 2000, REASON_MAX = 300, CV = 1;
+  /* One table of sizes, used when a correction is made and when it's read back, so nothing saved changes on reload. Names
+     from the checklist (step, phase and role IDs) follow its format: up to 60 characters. */
+  var LIMITS = { text: 2000, from: 2000, happened: 500, id: 60, role: 60, roles: 100, shot: 500, folder: 80, reason: 300 };
+  var TEXT_MAX = LIMITS.text, REASON_MAX = LIMITS.reason, CV = 1;
   /* A checklist's own step, phase and role names follow its format's limits (60 characters); IDs this file makes are shorter. */
-  var CID = /^[a-z0-9][a-z0-9-]{0,59}$/i, ROLE = /^[\w-]{1,60}$/;
+  var CID = new RegExp('^[a-z0-9][a-z0-9-]{0,' + (LIMITS.id - 1) + '}$', 'i'), ROLE = new RegExp('^[\\w-]{1,' + LIMITS.role + '}$');
   var ID = /^[\w-]{1,40}$/, FILE = /^[\w-]{1,40}\.[\w-]{1,40}(\.\d{1,9})?\.json$/;
   var LEGACY_KIND = { missing: 'A step is missing', instructions: 'The instructions are wrong', screenshot: 'The screenshot is wrong', order: 'The order is wrong', role: 'The role is wrong', other: '' };
 
@@ -85,11 +88,11 @@ PF.corrections = (function () {
       if ((ch.to.after && ch.to.after === all[i - 1]) || (ch.to.phase === x.phase.id && ((ch.to.where === 'start' && i === 0) || (ch.to.where === 'end' && i === all.length - 1)))) throw fail('That\'s where it is now.', 'corr-move');
     } else if (op === 'roles') {
       var known = (map.meta.roles || []);
-      ch.to = (o.roles || []).filter(function (r) { return known.indexOf(r) >= 0; }).filter(function (r, k, a) { return a.indexOf(r) === k; }).sort();
+      ch.to = (o.roles || []).filter(function (r) { return known.indexOf(r) >= 0; }).filter(function (r, k, a) { return a.indexOf(r) === k; }).sort().slice(0, LIMITS.roles);
       if (ch.to.join(' ') === (s.roles || []).slice().sort().join(' ')) throw fail('Choose who should do it; that\'s who does it now.', 'corr-roles');
     } else if (op === 'screenshot') {
       if (!s.shots.length) throw fail('This step has no screenshot.', 'corr-op');
-      ch.shot = s.shots.some(function (h) { return h.src === o.shot; }) ? o.shot : s.shots[0].src;
+      ch.shot = (s.shots.some(function (h) { return h.src === o.shot; }) ? o.shot : s.shots[0].src).slice(0, LIMITS.shot);
       if (!why && !(o.files || []).length) throw fail('Attach the right screenshot, or say what\'s wrong with it.', 'corr-why');
     } else if (op === 'remove') {
       if (!why) throw fail('Remove this step from future versions? Say why.', 'corr-why');
@@ -97,9 +100,9 @@ PF.corrections = (function () {
       if (!why) throw fail('Say what\'s wrong.', 'corr-why');
     }
     var happened = norm(o.happened);
-    if (happened.length > 500) throw fail('Up to 500 characters; this is ' + happened.length + '.', 'corr-happened');
+    if (happened.length > LIMITS.happened) throw fail('Up to ' + LIMITS.happened + ' characters; this is ' + happened.length + '.', 'corr-happened');
     var c = { id: o.id, at: o.at, by: o.by, session: o.session, step: s.id, files: o.files || [], kind: 'correction', cv: CV,
-      version: +o.version || 0, folder: String(o.folder || ''), target: { phase: x.phase.id, step: s.id }, change: ch, from: s.text, base: stepSig(map, s.id) };
+      version: +o.version || 0, folder: String(o.folder || '').slice(0, LIMITS.folder), target: { phase: x.phase.id, step: s.id }, change: ch, from: s.text.slice(0, LIMITS.from), base: stepSig(map, s.id) };
     if (why) c.why = why;
     if (happened) c.happened = happened;
     c.text = summary(c, map);
@@ -117,16 +120,16 @@ PF.corrections = (function () {
       if (typeof t.after === 'string' && CID.test(t.after)) out.to = { after: t.after };
       else if (typeof t.phase === 'string' && CID.test(t.phase)) out.to = { phase: t.phase, where: t.where === 'start' ? 'start' : 'end' };
       else out = { op: 'describe' };
-    } else if (op === 'roles') out.to = Array.isArray(ch.to) ? ch.to.filter(function (r) { return typeof r === 'string' && ROLE.test(r); }).slice(0, 20) : [];
-    else if (op === 'screenshot' && typeof ch.shot === 'string' && /^images\/[\w./-]+$/.test(ch.shot) && ch.shot.indexOf('..') < 0) out.shot = ch.shot.slice(0, 200);
+    } else if (op === 'roles') out.to = Array.isArray(ch.to) ? ch.to.filter(function (r) { return typeof r === 'string' && ROLE.test(r); }).slice(0, LIMITS.roles) : [];
+    else if (op === 'screenshot' && typeof ch.shot === 'string' && /^images\/[\w./-]+$/.test(ch.shot) && ch.shot.indexOf('..') < 0) out.shot = ch.shot.slice(0, LIMITS.shot);
     return out;
   }
   function cleanNote(n) {
     var t = n.target && typeof n.target === 'object' ? n.target : {};
-    var c = { kind: 'correction', cv: whole(n.cv) || 1, version: whole(n.version), folder: str(n.folder, 80), target: { phase: str(t.phase, 60), step: str(t.step, 60) || str(n.step, 60) || null },
-      change: cleanChange(n.change), from: str(n.from, TEXT_MAX), base: /^[0-9a-f]{8}$/.test(n.base || '') ? n.base : '' };
+    var c = { kind: 'correction', cv: whole(n.cv) || 1, version: whole(n.version), folder: str(n.folder, LIMITS.folder), target: { phase: str(t.phase, LIMITS.id), step: str(t.step, LIMITS.id) || str(n.step, LIMITS.id) || null },
+      change: cleanChange(n.change), from: str(n.from, LIMITS.from), base: /^[0-9a-f]{8}$/.test(n.base || '') ? n.base : '' };
     if (typeof n.why === 'string' && n.why) c.why = n.why.slice(0, TEXT_MAX);
-    if (typeof n.happened === 'string' && n.happened) c.happened = n.happened.slice(0, 500);
+    if (typeof n.happened === 'string' && n.happened) c.happened = n.happened.slice(0, LIMITS.happened);
     if (typeof n.replaces === 'string' && ID.test(n.replaces)) c.replaces = n.replaces;
     /* A correction from a newer copy shows as the problem it describes, in its own words. */
     if (c.cv > CV || (n.change && n.change.op !== c.change.op)) { c.change = { op: 'describe' }; c.newer = true; }
@@ -341,6 +344,6 @@ PF.corrections = (function () {
     return L.join('\n');
   }
 
-  return { OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision,
+  return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision,
     decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary };
 })();

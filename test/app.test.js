@@ -2885,4 +2885,61 @@ rule('App: a field cleared in Fill in stays cleared after J and K, and the row s
   assert.ok(/data-scope="fields:approve"/.test(app.html()) && /id="fld-system"[^>]*value=""/.test(app.html()), 'still cleared');
 });
 
+/* ---------- Review round 3 (1.13) ---------- */
+rule('App: Done differently finishes against its run after you leave; if the step can\'t be answered, the run says so until you act', async () => {
+  const app = await recordingRelease();
+  const orig = app.PF.repo.addNote, g = gate();
+  app.PF.repo.addNote = function () { const a = arguments; return g.p.then(() => orig.apply(this, a)); };
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app'); app.click('corr-scope', 'fix'); await app.tick();
+  app.input('corr-to', 'Approve the deploy in Jenkins or its phone app before it rolls back');
+  app.click('corr-done', 'approve'); await app.tick();
+  app.click('home'); await app.tick();
+  g.open(); await app.tick(80);
+  app.PF.repo.addNote = orig;
+  assert.strictEqual(app.run().json.steps.approve.s, 'done', 'answered, though the run was closed');
+  assert.strictEqual(app.run().json.steps.approve.differently.note, 'Approved from the phone app');
+  // When the answer can't land (here the run was paused meanwhile), the run keeps a notice until the person acts.
+  const app2 = await recordingRelease(), g2 = gate(), add2 = app2.PF.repo.addNote;
+  app2.PF.repo.addNote = function () { const a = arguments; return g2.p.then(() => add2.apply(this, a)); };
+  app2.click('select', 'approve'); await app2.tick();
+  app2.click('corr-open', 'approve', { mode: 'differently' }); await app2.tick();
+  app2.input('corr-happened', 'Approved from the phone app'); app2.click('corr-scope', 'fix'); await app2.tick();
+  app2.input('corr-to', 'Approve it in the phone app');
+  app2.click('corr-done', 'approve'); await app2.tick();
+  app2.click('pick', 'run', { kind: 'pause' }); await app2.tick(); app2.set('pick-input', 'Lunch'); app2.click('pause', 'run'); await app2.tick(40);
+  g2.open(); await app2.tick(80);
+  assert.ok(app2.run().json.paused && (app2.run().json.steps.approve || {}).s !== 'done', 'set-up: paused before the answer could land');
+  app2.click('home'); await app2.tick(); app2.click('open-run', app2.run().key); await app2.tick(20);
+  assert.ok(/Correction saved; the step wasn(&#39;|')t marked done\./.test(app2.html()) && /data-act="corr-open" data-mode="differently" data-id="approve">Mark it now/.test(app2.html()), 'a notice that stays on the run');
+});
+
+rule('App: while Done differently is finishing, Fill in waits and says why', async () => {
+  const app = await recordingRelease(), g = gate(), orig = app.PF.repo.addNote;
+  app.PF.repo.addNote = function () { const a = arguments; return g.p.then(() => orig.apply(this, a)); };
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app'); app.click('corr-scope', 'fix'); await app.tick();
+  app.input('corr-to', 'Approve it in the phone app');
+  app.click('corr-done', 'approve'); await app.tick();
+  assert.ok(/data-kind="fields" data-id="approve" disabled aria-describedby="fillwhy-approve"/.test(app.html()) && /Finishing the answer…/.test(app.html()));
+  app.click('pick', 'approve', { kind: 'fields' }); await app.tick();
+  assert.ok(!/data-scope="fields:approve"/.test(app.html()), 'Fill in doesn\'t open');
+  g.open(); await app.tick(80); app.PF.repo.addNote = orig;
+  assert.strictEqual(app.run().json.steps.approve.s, 'done');
+  assert.ok(!/fillwhy-approve/.test(app.html()));
+});
+
+rule('App: choosing an open composer\'s button again keeps what was typed and just focuses it', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app');
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  assert.ok(/<textarea id="corr-happened"[^>]*>Approved from the phone app<\/textarea>/.test(app.html()) && app.focused() === 'corr-happened');
+  app.click('corr-open', 'approve', { mode: 'correct' }); await app.tick();
+  assert.ok(/<h4 class="corr-h" id="corr-h">Correct this step/.test(app.html()), 'the other composer still opens');
+});
+
 run();
