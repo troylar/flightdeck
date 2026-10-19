@@ -36,6 +36,7 @@ PF.icons = (function () {
     swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
+    clip: '<path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7-7L13 4.5a3.3 3.3 0 0 1 4.7 4.7l-7.6 7.6a1.7 1.7 0 0 1-2.4-2.4l7-7"/>',
     receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'
   };
   function icon(name, label) {

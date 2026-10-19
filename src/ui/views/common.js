@@ -13,7 +13,8 @@ PF.vk = (function () {
   }
   function notices(ctx) {
     var h = '';
-    if (ctx.state.msg) h += '<div class="notice ' + (ctx.state.msg.kind || '') + '" role="status"><span>' + esc(ctx.state.msg.text) + '</span><span class="row">' + (ctx.state.msg.act ? '<button class="btn" data-act="' + esc(ctx.state.msg.act) + '">' + esc(ctx.state.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
+    /* A quiet message (a check said back, Copied) is only announced, never shown as a notice. */
+    if (ctx.state.msg && !ctx.state.msg.quiet) h += '<div class="notice ' + (ctx.state.msg.kind || '') + '" role="status"><span>' + esc(ctx.state.msg.text) + '</span><span class="row">' + (ctx.state.msg.act ? '<button class="btn" data-act="' + esc(ctx.state.msg.act) + '">' + esc(ctx.state.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
     var cur = /^(run|receipt|finish|mission)$/.test(ctx.state.view) && ctx.run();
     if (cur && ctx.state.unsaved[cur.id]) h += '<div class="notice bad" role="alert"><span><b>Your last change isn\'t saved.</b> ' + esc(ctx.state.saveErr[cur.id] || '') + ' It\'s on this screen but not in the team folder' + (cur.ended ? ', so the run hasn\'t really ended yet' : '') + '.</span><span class="row"><button class="btn" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button></span></div>';
     if (ctx.state.folderErr) h += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(ctx.state.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><button class="btn" data-act="refresh">Try again</button></div>';
@@ -29,9 +30,11 @@ PF.vk = (function () {
   function runKey(r) { return r.process + '/' + r.id; }
   /* Three different facts, never blurred: when this computer saved, when it last read the folder, and whether it can read it at all.
      None of them proves another computer has the change yet; OneDrive decides that. */
-  function freshness(ctx, r) {
+  function freshness(ctx, r, short) {
     var st = ctx.state, now = ctx.now(), parts = [];
     if (st.folderErr) return '<span class="small" style="color:var(--stop)">Can\'t read the folder right now</span>';
+    /* The run screen's strip: the same two facts, in fewer words. */
+    if (short) return '<span class="small">' + esc((r && r.savedAt ? (ctx.recording && ctx.recording(r) ? 'Saved here ' : 'Last saved ') + U.hm(r.savedAt) + ' · ' : '') + 'Folder checked ' + U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
     if (r && r.savedAt) parts.push('saved here ' + U.hm(r.savedAt) + ' (' + ago(r.savedAt, now) + ')');
     parts.push('folder checked ' + U.hm(st.runReadAt || ctx.data.readAt));
     return '<span class="small">' + esc(parts.join(' · ')) + (st.fs && st.fs.kind === 'folder' ? ' · OneDrive shares it with others' : '') + '</span>';

@@ -239,42 +239,59 @@ rule('An unreadable skills folder is a folder error, not an empty list', async (
   await assert.rejects(repo.loadAll(fs), /NotReadable/);
 });
 
-rule('A suggested fix goes in the suggester\'s own notes file, and each person\'s decision in their own file; the decision made after seeing another wins', async () => {
-  const fs = folder(), r = await started(fs), F = PF.fixes;
-  const n = F.build({ id: 'fx1', at: NOW, by: 'person-blake', session: 'blake-laptop', kind: 'missing', phase: 'deploy', step: 'jenkins', where: 'after', text: 'Check the queue first', version: 1 });
+rule('A correction goes in its author\'s own notes file; each decision is a new file written once, and the one made after seeing another wins', async () => {
+  const fs = folder(), r = await started(fs), C = PF.corrections;
+  const n = C.build({ id: 'c1', at: NOW, by: 'person-blake', session: 'blake-laptop', map: R.mapOf(r), step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes', version: 1, folder: r.folder });
   await repo.addNote(fs, r, 'blake-laptop', n);
-  assert.ok(fs.files['runs/release/run1/notes-blake-laptop.jsonl'], 'the suggester\'s own notes file');
-  const rec = (by, status, at, reason, current) => F.decision({ process: 'release', id: 'fx1' }, by, status, reason, at, { current, latestVersion: 1 });
-  await repo.decideFix(fs, rec('person-casey', 'accepted', '2026-10-17T23:30:00.000Z'), 'casey-laptop');
-  // Avery's computer runs 40 minutes behind; she decides after reading Casey's acceptance.
-  const seen = (await repo.loadAll(fs)).fixDecisions[0];
-  assert.strictEqual(seen._file, 'fx1.casey-laptop.json');
-  await repo.decideFix(fs, rec('person-avery', 'declined', '2026-10-17T22:50:00.000Z', 'We do this in the job', seen), 'avery-desktop');
-  same(Object.keys(fs.files).filter(p => p.indexOf('suggestions/') === 0).sort(), ['suggestions/release/fx1.avery-desktop.json', 'suggestions/release/fx1.casey-laptop.json']);
-  await assert.rejects(() => repo.decideFix(fs, Object.assign(rec('a', 'open', NOW), { suggestion: '../x' }), 'w1'));
-  await fs.write('suggestions/release/junk.json', '{"kind":"fix-decision","suggestion":"fx1","status":"merged","by":"x","at":"2099-01-01"}');
-  const d = await repo.loadAll(fs), run1 = d.runs.filter(x => x.id === 'run1')[0];
-  same([run1._notes[0].kind, run1._notes[0].fixKind, run1._notes[0].target], ['fix', 'missing', { phase: 'deploy', step: 'jenkins', where: 'after' }]);
-  assert.strictEqual(d.fixDecisions.length, 2, 'an unknown status is ignored');
-  same(d.fixUnread.map(u => u._file), ['junk.json'], 'and reported as unreadable');
-  const s = F.withStatus(F.collect(d.runs, 'release'), d.fixDecisions, d.processes[0].index.all.map(v => v.info))[0];
-  same([s.status, s.decision.by, s.decision.reason, s.decision.rev, s.decision.seen], ['declined', 'person-avery', 'We do this in the job', 2, 'fx1.casey-laptop.json']);
+  assert.ok(fs.files['runs/release/run1/notes-blake-laptop.jsonl'], 'the author\'s own notes file');
+  const groups = async () => { const d = await repo.loadAll(fs); return C.status(C.groups(C.collect(d.runs, 'release')), d.corrDecisions); };
+  let g = (await groups())[0];
+  const p1 = await repo.decideCorrection(fs, C.decision(g, 'person-casey', 'applied', '', '2026-10-17T23:30:00.000Z', { current: g.decision, act: 'a1' }), 'casey-laptop');
+  assert.strictEqual(p1, 'corrections/release/' + g.id + '.casey-laptop.1.json');
+  // Avery's computer runs 40 minutes behind; she decides after reading Casey's.
+  g = (await groups())[0];
+  await repo.decideCorrection(fs, C.decision(g, 'person-avery', 'declined', 'We watch the dashboard', '2026-10-17T22:50:00.000Z', { current: g.decision }), 'avery-desktop');
+  g = (await groups())[0];
+  same([g.status, g.decision.by, g.decision.rev, g.decision.seen, g.label], ['declined', 'person-avery', 2, g.id + '.casey-laptop.1.json', 'Declined']);
+  // A file is never written twice: deciding again from the same window and state is refused, and the file is unchanged.
+  const before = fs.files[p1];
+  await assert.rejects(() => repo.decideCorrection(fs, Object.assign(C.decision(g, 'person-casey', 'applied', '', NOW), { rev: 1 }), 'casey-laptop'), /already in the folder/);
+  assert.strictEqual(fs.files[p1], before);
+  await assert.rejects(() => repo.decideCorrection(fs, Object.assign(C.decision(g, 'a', 'open', '', NOW), { group: '../x' }), 'w1'));
+  same(Object.keys(fs.files).filter(p => p.indexOf('corrections/') === 0).length, 2);
 });
 
-rule('A decision file that can\'t be read is reported, not dropped', async () => {
-  const fs = folder(), r = await started(fs), F = PF.fixes;
-  await repo.addNote(fs, r, 'blake-laptop', F.build({ id: 'fx1', at: NOW, by: 'person-blake', session: 'blake-laptop', kind: 'missing', phase: 'deploy', step: 'jenkins', where: 'after', text: 'x', version: 1 }));
-  await repo.decideFix(fs, F.decision({ process: 'release', id: 'fx1' }, 'person-casey', 'accepted', '', NOW, { latestVersion: 1 }), 'casey-laptop');
+rule('Corrections decisions and decisions on suggested fixes from before 1.13 both load; one that can\'t be read is reported, not dropped', async () => {
+  const fs = folder(), r = await started(fs), C = PF.corrections;
+  await repo.addNote(fs, r, 'blake-laptop', { id: 'fx1', at: NOW, by: 'person-blake', session: 'blake-laptop', step: 'jenkins', text: 'Say when it asks', files: [], kind: 'fix', fixKind: 'instructions', target: { phase: 'deploy', step: 'jenkins' }, version: 1 });
+  await fs.write('suggestions/release/fx1.casey-laptop.json', JSON.stringify({ kind: 'fix-decision', process: 'release', suggestion: 'fx1', status: 'accepted', by: 'person-casey', at: NOW, rev: 1, latestVersion: 1 }));
+  let d = await repo.loadAll(fs);
+  const g = C.status(C.groups(C.collect(d.runs, 'release')), d.corrDecisions)[0];
+  same([g.first.id, g.change.op, g.status, g.label], ['fx1', 'describe', 'legacy', 'Applied (legacy)']);
+  await fs.write('corrections/release/' + g.id + '.w9.1.json', '{');
+  await fs.write('suggestions/release/junk.json', JSON.stringify({ kind: 'correction-decision', group: 'g1', status: 'applied', by: 'x', at: NOW }));
+  d = await repo.loadAll(fs);
+  same(d.corrUnread.map(u => u.dir + '/' + u._file).sort(), ['corrections/' + g.id + '.w9.1.json', 'suggestions/junk.json'], 'half-synced JSON, and a decision in the wrong folder, count as unread');
   const read = fs.read.bind(fs);
-  fs.read = p => /^suggestions\//.test(p) ? Promise.reject(new Error('NotReadableError')) : read(p);
-  const d = await repo.loadAll(fs);
-  same([d.fixDecisions.length, d.fixUnread.length, d.fixUnread[0].process, d.fixUnread[0]._file], [0, 1, 'release', 'fx1.casey-laptop.json']);
-  fs.read = read;
-  await fs.write('suggestions/release/fx1.casey-laptop.json', '{');
-  const e = await repo.loadAll(fs);
-  same([e.fixDecisions.length, e.fixUnread.length], [0, 1], 'half-synced JSON counts as unread, not as no decision');
-  await fs.write('suggestions/release/fx1.casey-laptop.json', 'null');
-  same([(await repo.loadAll(fs)).fixUnread.length], [1], 'so does a file holding null');
+  fs.read = p => /^(corrections|suggestions)\//.test(p) ? Promise.reject(new Error('NotReadableError')) : read(p);
+  d = await repo.loadAll(fs);
+  same([d.corrDecisions.length, d.corrUnread.length], [0, 3]);
+});
+
+rule('Corrections load with their change and files, and older copies keep them as notes with a plain summary (test/fixtures/notes-corrections-1.13.jsonl)', async () => {
+  const fs = folder(), r = await started(fs), C = PF.corrections;
+  const text = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'notes-corrections-1.13.jsonl'), 'utf8');
+  await fs.write('runs/release/run1/notes-w2.jsonl', text);
+  const back = await repo.loadRun(fs, 'release', 'run1');
+  same(back._notes.map(n => [n.id, n.kind, n.change.op, n.files.length]), [['c-word', 'correction', 'wording', 1], ['c-add', 'correction', 'add', 0], ['c-newer', 'correction', 'describe', 0]], 'a change from a newer copy shows as the problem it describes');
+  same([back._notes[0].happened, back._notes[0].fileInfo[back._notes[0].files[0]].name], ['Watched for 20 minutes; two pods restarted at minute 12.', 'pods-watch.log']);
+  same(C.groups(C.collect([back], 'release')).map(g => g.members[0].id), ['c-word', 'c-add', 'c-newer']);
+  // 1.12's note cleaning, as it shipped: an unknown kind is a plain note, so a copy that old keeps every correction, its
+  // files, and its text (the summary), and shows it as a note.
+  const legacy = (o, base) => { const files = Array.isArray(o.files) ? o.files.filter(f => typeof f === 'string' && f.indexOf(base + 'files/') === 0 && /^[\w.@\/-]+$/.test(f) && f.indexOf('..') < 0) : []; return { id: o.id, text: o.text.slice(0, 2000), files, kind: o.kind === 'map' || o.kind === 'fix' ? o.kind : undefined }; };
+  const old = text.trim().split('\n').map(l => legacy(JSON.parse(l), 'runs/release/run1/'));
+  same(old.map(x => [x.id, x.files.length, x.kind]), [['c-word', 1, undefined], ['c-add', 0, undefined], ['c-newer', 0, undefined]]);
+  assert.ok(/^Correction to "New pods stay up with no restarts"\. Should say: "New pods stay up for 20 minutes with no restarts"\./.test(old[0].text));
 });
 
 rule('A run.json saved by a newer copy opens read-only, and no save, take over or conflict copy from this copy ever writes it', async () => {
@@ -484,6 +501,48 @@ rule('A run started from other checklist contents than its version holds is refu
   // That refusal is the older run's own: the matching run still saves.
   const again = await repo.loadRun(fs, 'release', 'run2');
   R.pause(again, 'Lunch', 'person-casey', NOW); await repo.saveRun(fs, again, 'casey-laptop');
+});
+
+/* ---------- Attachments on notes and suggestions (1.13) ---------- */
+rule('Attachments are saved to the run\'s files/ folder under a cleaned name; kinds outside the list and files over 10 MB are refused', async () => {
+  const fs = folder(), r = await started(fs);
+  const pdf = await repo.saveAttachment(fs, r, new Blob(['%PDF-1.7'], { type: 'application/pdf' }), 'w1', 'Run book (final).pdf');
+  assert.ok(/^runs\/release\/run1\/files\/\d+-[a-z0-9]{6}-w1-Run-book-final\.pdf$/.test(pdf), pdf);
+  const log = await repo.saveAttachment(fs, r, new Blob(['ok\n'], { type: '' }), 'w1', '../../deploy.log');
+  assert.ok(/-w1-deploy\.log$/.test(log) && log.indexOf('..') < 0, log);
+  for (const [blob, name] of [[new Blob(['<svg/>'], { type: 'image/svg+xml' }), 'x.svg'], [new Blob(['<p>'], { type: 'text/html' }), 'x.html'], [new Blob(['MZ'], { type: 'application/octet-stream' }), 'x.exe']]) {
+    await assert.rejects(repo.saveAttachment(fs, r, blob, 'w1', name), /can't be attached/, name);
+  }
+  const big = { type: 'application/zip', size: 10 * 1024 * 1024 + 1, name: 'big.zip' };
+  await assert.rejects(repo.saveAttachment(fs, r, big, 'w1'), /up to 10 MB each/);
+  assert.strictEqual(Object.keys(fs.files).filter(p => /\/files\//.test(p)).length, 2, 'nothing refused was written');
+});
+
+rule('Notes carrying the new attachment kinds load with their names and sizes, and older copies keep them too (test/fixtures/notes-attachments-1.13.jsonl)', async () => {
+  const fs = folder(), r = await started(fs);
+  const text = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'notes-attachments-1.13.jsonl'), 'utf8');
+  await fs.write('runs/release/run1/notes-w2.jsonl', text);
+  const back = await repo.loadRun(fs, 'release', 'run1');
+  same(back._notes.map(n => [n.id, n.files.length]), [['n-old', 1], ['n-new', 4], ['n-fix', 1], ['n-dots', 1]], 'every note and every file is kept');
+  same(back._notes[3].fileInfo[back._notes[3].files[0]].name, 'deploy.output.log', 'a recorded name is cleaned by the same rule');
+  const n = back._notes[1];
+  same(n.fileInfo[n.files[2]], { name: 'logs.zip', size: 9437184 });
+  same(back._notes[0].fileInfo, {}, 'an older note has no details, and still shows');
+  assert.strictEqual(back._notes[2].kind, 'fix');
+  same(PF.corrections.collect([back], 'release')[0].fileInfo, back._notes[2].fileInfo, 'a suggested fix keeps its files\' details');
+  // 1.12's note cleaning, as it shipped: a copy that old keeps these notes and their paths (it shows images, and ignores the rest).
+  const legacy = (o, base) => { const files = Array.isArray(o.files) ? o.files.filter(f => typeof f === 'string' && f.indexOf(base + 'files/') === 0 && /^[\w.@\/-]+$/.test(f) && f.indexOf('..') < 0) : []; return { id: o.id, text: o.text, files }; };
+  const old = text.trim().split('\n').map(l => legacy(JSON.parse(l), 'runs/release/run1/'));
+  same(old.map(x => x.files.length), [1, 4, 1, 1], '1.12 drops neither notes nor files');
+});
+
+rule('An attachment named with a run of dots is saved under a name its note keeps', async () => {
+  const fs = folder(), r = await started(fs);
+  const path = await repo.saveAttachment(fs, r, new Blob(['ok\n'], { type: 'text/plain' }), 'w1', 'deploy..output.log');
+  await repo.addNote(fs, r, 'w1', { id: 'd1', at: NOW, by: 'person-casey', step: 'pods', text: 'Output', files: [path], fileInfo: { [path]: { name: 'deploy..output.log', size: 3 } } });
+  const back = await repo.loadRun(fs, 'release', 'run1');
+  same(back._notes[0].files, [path], 'the file is still listed after a reload');
+  same(back._notes[0].fileInfo[path], { name: 'deploy.output.log', size: 3 });
 });
 
 run();

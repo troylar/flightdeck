@@ -2,7 +2,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const SRC = path.join(__dirname, '..', 'src');
-const FILES = ['core/util.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/publish.js', 'core/run.js', 'core/fixes.js', 'core/skills.js', 'storage/fs.js', 'storage/repo.js'];
+const FILES = ['core/util.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/publish.js', 'core/run.js', 'core/corrections.js', 'core/skills.js', 'core/attach.js', 'storage/fs.js', 'storage/repo.js'];
 
 function load(withViews) {
   const store = {};
@@ -26,7 +26,9 @@ let passed = 0, failed = 0;
 const queue = [];
 function rule(name, fn) { queue.push([name, fn]); }
 async function run() {
+  // ONLY=<text> runs just the rules whose names contain it, while working on them.
   for (const [name, fn] of queue) {
+    if (process.env.ONLY && name.indexOf(process.env.ONLY) < 0) continue;
     try { await fn(); passed++; } catch (e) { failed++; console.log('FAIL: ' + name + '\n  ' + (process.env.STACK ? e && e.stack : e && e.message)); }
   }
   console.log(passed + ' passed, ' + failed + ' failed');

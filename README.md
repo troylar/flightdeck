@@ -152,20 +152,22 @@ The **Builder** edits a draft as an outline: drag a step or press Alt+Up / Alt+D
 <tr>
 <td valign="top">
 
-**Suggest a fix** from any step or phase during a run: what's wrong, and what it should say.
+**Correct this step** during a run: it starts on the wording, with a live Before/After redline, and **Change something else** covers a missing step, the order, who does it, a screenshot, removing the step, or any other problem. The checklist's own text stays on screen.
 
-<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fix-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-light.png" alt="Suggest a fix to a step during a run: the instructions are wrong, with the text it should say"></picture></a>
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fix-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-light.png" alt="Correct this step during a run: the checklist's text, the suggested wording and a Before/After redline"></picture></a>
 
 </td>
 <td valign="top">
 
-**Suggested fixes** on the process page: accept or decline each one, see which are fixed in a newer version, and copy a fix brief for your AI assistant.
+**Corrections** on the process page, grouped by step: the same correction from several runs shows once, "Suggested in 3 runs". Mark one as applied, decline it with a reason, or reopen it, and copy a correction brief for your AI assistant.
 
-<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fixes-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-light.png" alt="Suggested fixes on the process page: one declined with a reason, one fixed in v2, one open with Accept into the draft and Decline, one in the draft"></picture></a>
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fixes-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-light.png" alt="Corrections on the process page: one suggested in two runs with Mark as applied and Decline, one applied to the draft, one declined with a reason"></picture></a>
 
 </td>
 </tr>
 </table>
+
+**A run** fills the window, like the editor. The header says how far it is (`7/14 answered`); a strip under it says who's recording, with **Pause** and **Hand off** (or **Pick up**, **Record here**, **Take over**) right beside it, and what this window saved and when it last checked the folder. Below, three panes scroll on their own: **Phases** with each gate's state, the **checklist** with **Next up** pinned at its top, and the **selected step**: how to do it, the values to copy, the evidence to record, **Done**, **Done differently** (say what happened, and fix the checklist too if it should change), **Blocked** and **N/A**, then the step's corrections and notes. Check the step Next up points at and the next one is selected, ready for **Space**; typed evidence, Fill in values and notes stay with their step when you move around. Notes and corrections take files: drop them on the note box, paste, or **Attach** (images, PDF, text and logs, CSV, JSON, YAML and .zip, up to 10 MB each). On a phone the checklist scrolls and a step opens as a full-screen sheet.
 
 <br>
 
@@ -187,7 +189,7 @@ Every phase ends at a **gate**. Nothing after it opens until someone passes it, 
 <td width="50%" valign="top">
 
 ### One recorder, everyone watching
-One person records; everyone else follows on their own screen and adds notes and screenshots to any step. Hand recording over, or pick it up from another window. Every save first checks the file hasn't changed; if it has, yours is kept next to it as a copy you can compare and keep. Where two computers can't take turns, a save that gets replaced is still kept as a receipt and shown as a copy, so nothing is silently lost.
+One person records; everyone else follows on their own screen and adds notes, screenshots and files (logs, PDFs, .zip) to any step. Hand recording over, or pick it up from another window. Every save first checks the file hasn't changed; if it has, yours is kept next to it as a copy you can compare and keep. Where two computers can't take turns, a save that gets replaced is still kept as a receipt and shown as a copy, so nothing is silently lost.
 
 </td>
 </tr>
@@ -229,7 +231,7 @@ A step can **set** a run detail: the merge step records the release tag, and eve
 <td valign="top">
 
 ### Runs that teach the checklist
-Every "did it differently", every block, every re-check is kept. Anyone in a run can **suggest a fix** to the checklist from a step, a phase or a screenshot; the team accepts or declines it on the process page, and one click copies a fix brief for your AI assistant. A process's **How runs go** shows typical time per phase, the steps that go off-script most, and who has never held which role yet, so the next rotation is obvious.
+Every block, every re-check and every step **done differently** (with what happened) is kept. Anyone in a run can **correct a step**: what the checklist said, what it should say, and files to show why. Corrections are part of the run's record and its receipt, and wait on the process page, where anyone marks them applied or declines them with a reason; one click copies a correction brief for your AI assistant. A process's **How runs go** shows typical time per phase, the steps that go off-script most, and who has never held which role yet, so the next rotation is obvious.
 
 </td>
 </tr>
@@ -395,7 +397,8 @@ publications/          published versions, frozen (Flightdeck writes these)
 runs/                  one folder per run: run.json, everyone's notes, screenshots
 skills/                skill registrations: each skill's source, what it implements
 validations/           owners' sign-offs that a version is ready for a skill
-suggestions/           decisions on suggested fixes (accepted, declined, reopened), one file per person's window
+corrections/           decisions on corrections (applied, declined, reopened, withdrawn), each a file written once
+suggestions/           decisions on suggested fixes from before 1.13 (still read)
 step-types/            your team's own step types (create them in the app)
 jira/workflows.json    your real Jira workflows, with required fields
 proposals/             planned runs (from the app or your AI assistant), waiting for a person to start them

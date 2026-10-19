@@ -124,7 +124,11 @@ function boot(opts) {
     // A key pressed on an element (a stand-in with dataset and closest), with modifier keys such as { altKey: true }.
     keyOn(k, mods, target) { (listeners.keydown || []).forEach(fn => fn(Object.assign({ key: k, target: target || document.body, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false }, mods || {}))); },
     key(k) { (listeners.keydown || []).forEach(fn => fn({ key: k, target: document.body, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false })); },
-    selected() { const m = /<li class="step sel"[^>]*id="step-([\w-]+)"/.exec(els.app.innerHTML); return m ? m[1] : null; },
+    selected() { const m = /<li class="step sel[^"]*"[^>]*id="step-([\w-]+)"/.exec(els.app.innerHTML); return m ? m[1] : null; },
+    // The step Next up points at: the row marked as the run's place.
+    nextStep() { const m = /<li class="step[^"]*\bnext\b[^"]*"[^>]*id="step-([\w-]+)"/.exec(els.app.innerHTML); return m ? m[1] : null; },
+    // What the app put into an element as plain text (textContent), never as markup.
+    text: id => els[id] ? els[id].textContent : undefined,
     change(id, files) { (listeners.change || []).forEach(fn => fn({ target: { id, files, value: '' } })); },
     select(id, value) { const el = get(id); el.value = value; (listeners.change || []).forEach(fn => fn({ target: el })); },
     // Turn a checkbox or switch on or off, as a click on it would.

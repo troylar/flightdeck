@@ -303,6 +303,16 @@ PF.run = (function () {
     a.differently = { note: String(note || '').slice(0, 500), by: who, at: now };
     mark(r, id, 'differently');
   }
+  /* Done differently answers the step: every rule of Done applies first (required evidence, a child run, a pause, must-do),
+     so it's never a way around them. What happened is required. A step already done just gains the note. */
+  function doneDifferently(r, map, id, happened, who, now, values) {
+    var note = String(happened || '').replace(/\s+/g, ' ').trim();
+    if (!note) { var e = new Error('Say what happened.'); e.field = 'corr-happened'; throw e; }
+    var a = r.steps[id];
+    if (!(a && a.s === 'done')) done(r, map, id, who, now, values);
+    differently(r, map, id, note, who, now);
+    addLog(r, who, now, 'Done differently "' + M.findStep(map, id).step.text + '": ' + note.slice(0, 120));
+  }
   function start(r, map, id, who, now) { guardStep(r, map, id); var a = r.steps[id] = r.steps[id] || { s: 'open' }; a.started = { by: who, at: now }; }
   function setDeadline(r, map, id, iso, who, now) { var x = guardStep(r, map, id); var a = r.steps[id] = r.steps[id] || { s: 'open' }; a.deadline = { at: iso, by: who, set: now }; addLog(r, who, now, 'Set the deadline for "' + x.step.text + '" to ' + U.hm(iso) + ' (copied from the external system)'); }
 
@@ -466,18 +476,9 @@ PF.run = (function () {
     addLog(r, who, now, 'Removed follow-up: ' + list[i].text);
     list.splice(i, 1);
   }
-  /* Map corrections people suggested during the run: "did it differently" answers, suggested fixes and older notes marked as a map change. */
-  function suggestions(r, map) {
-    var out = [];
-    M.steps(map).forEach(function (x) { var a = r.steps[x.step.id]; if (a && a.differently) out.push({ step: x.step.id, text: x.step.text, note: a.differently.note, by: a.differently.by }); });
-    (r._notes || []).forEach(function (n) {
-      if (n.kind !== 'map' && n.kind !== 'fix') return;
-      var x = n.step && M.findStep(map, n.step), ph = !x && n.target && map.phases.filter(function (p) { return p.id === n.target.phase; })[0];
-      /* A suggested fix says what kind it is; a phase-level one names its phase. */
-      out.push({ step: n.step, text: x ? x.step.text : ph ? 'Phase: ' + ph.title : '', note: n.text, by: n.by, kind: n.kind === 'fix' ? PF.fixes.kindLabel(n.fixKind) : '' });
-    });
-    return out;
-  }
+  /* What a step's record says about how it went differently: a run's corrections and "done differently" answers, in
+     checklist order (PF.corrections.forRun). */
+  function corrections(r, map, notes) { return PF.corrections.forRun(notes ? Object.assign({}, r, { _notes: notes }) : r, map); }
   /* ---------- Pause and resume ---------- */
   /* A paused run keeps its answers but can't change until it's resumed. Timers stop; deadlines copied from another tool
      keep counting, because that tool doesn't pause. */
@@ -688,11 +689,44 @@ PF.run = (function () {
     });
     return out;
   }
+  /* What the run screen points at next, from the same rules as the headline: a blocked step, a gate to review, failed or
+     ready, else the next unanswered step of the open phase (one assigned to this person first; a step everyone can do counts
+     for the recorder). Parallel tracks each say what's next in them. It depends on the run, never on what someone is looking at. */
+  function nextUp(r, map, personId) {
+    var hl = headline(r, map);
+    if (r.ended) return { kind: 'ended', hl: hl };
+    if (r.paused) return { kind: 'paused', hl: hl };
+    if (hl.step) { var bx = M.findStep(map, hl.step); return { kind: 'blocked', hl: hl, step: bx ? bx.step : null, phaseIndex: bx ? bx.phaseIndex : 0 }; }
+    if (hl.gate) {
+      var gi = -1; map.phases.forEach(function (p, i) { if (p.gate.id === hl.gate) gi = i; });
+      return { kind: 'gate', hl: hl, gate: map.phases[gi].gate, phaseIndex: gi, status: gateStatus(r, map, gi) };
+    }
+    if (hl.phase == null) return { kind: 'complete', hl: hl };
+    var p = map.phases[hl.phase], mine = Object.keys(r.roles).filter(function (k) { return r.roles[k] === personId; }), rec = !!personId && r.recorder.person === personId;
+    var waiting = p.steps.filter(function (s) { var a = r.steps[s.id]; return !answered(r, s) && !(a && a.s === 'blocked'); });
+    var forMe = waiting.filter(function (s) { return s.roles.some(function (ro) { return mine.indexOf(ro) >= 0; }) || (rec && !s.roles.length); })[0];
+    /* The recorder reads the list in order; anyone else is pointed at their own work first. */
+    var step = (rec ? waiting[0] : forMe || waiting[0]) || null;
+    var tracks = (p.tracks || []).map(function (t) {
+      var ts = waiting.filter(function (s) { return s.track === t.id; });
+      return { track: t, left: ts.length, step: ts[0] || null, people: t.roles.map(function (ro) { return r.roles[ro] || ''; }).filter(Boolean) };
+    });
+    var track = step && step.track ? (p.tracks || []).filter(function (t) { return t.id === step.track; })[0] || null : null;
+    return { kind: 'step', hl: hl, step: step, phaseIndex: hl.phase, left: phaseInfo(r, map, hl.phase).left, mine: !!forMe, track: track, tracks: tracks };
+  }
+  /* After a step is answered, the next one to work on in the same phase: the first unanswered, unblocked step after it,
+     then any earlier one still open. Null when the phase has nothing left but its gate. */
+  function nextInPhase(r, map, id) {
+    var x = M.findStep(map, id); if (!x) return null;
+    var steps = map.phases[x.phaseIndex].steps, i = steps.map(function (s) { return s.id; }).indexOf(id);
+    var open = function (s) { var a = r.steps[s.id]; return !answered(r, s) && !(a && a.s === 'blocked'); };
+    return steps.slice(i + 1).filter(open)[0] || steps.slice(0, i).filter(open)[0] || null;
+  }
   function totals(r, map) { var d = 0, n = 0; map.phases.forEach(function (p, pi) { var i = phaseInfo(r, map, pi); d += i.done; n += i.total; }); return { done: d, total: n }; }
   function describe(o) { return Object.keys(o || {}).map(function (k) { return k + ' ' + (o[k] || '(not set)'); }).join(', '); }
 
   /* Plain text for a Jira comment. Leaves out notes' attachments and file paths. */
-  function receipt(r, map, nameOf, now, notes) {
+  function receipt(r, map, nameOf, now, notes, statusOf) {
     var h = headline(r, map), lines = [];
     lines.push('Flightdeck receipt: ' + r.title);
     lines.push('Process: ' + map.meta.title + ' (v' + r.version + ')');
@@ -716,8 +750,19 @@ PF.run = (function () {
     if ((r.pauses || []).length) { lines.push('Pauses'); r.pauses.forEach(function (p) { lines.push('  ' + U.hm(p.from) + '-' + U.hm(p.to) + ' ' + nameOf(p.by) + ': ' + p.reason); }); lines.push(''); }
     var fus = r.followUps || [];
     if (fus.length) { lines.push('Follow-ups'); fus.forEach(function (f) { lines.push('  - ' + f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : '')); }); lines.push(''); }
-    var sug = suggestions(r, map);
-    if (sug.length) { lines.push('Suggested checklist changes'); sug.forEach(function (x) { lines.push('  - ' + (x.kind ? '[' + x.kind + '] ' : '') + x.text + ': ' + x.note); }); lines.push(''); }
+    /* Corrections, with where each stands (the caller knows the decisions; a run on its own says Open or One-off). */
+    var cor = corrections(r, map, notes);
+    if (cor.length) {
+      lines.push('Corrections · ' + cor.length);
+      cor.forEach(function (c) {
+        lines.push('  - ' + (c.stepText || 'Step ' + c.step) + ' [' + (statusOf ? statusOf(c) : c.oneOff ? 'One-off' : 'Open') + '] ' + nameOf(c.by) + ' ' + U.hm(c.at));
+        if (c.change && c.change.op !== 'describe' && c.from) lines.push('      Checklist said: ' + c.from);
+        if (c.proposed) lines.push('      Suggested: ' + c.proposed);
+        if (c.why) lines.push('      ' + (c.change && c.change.op === 'describe' ? 'Problem' : 'Why') + ': ' + c.why);
+        if (c.happened) lines.push('      What happened: ' + c.happened);
+      });
+      lines.push('');
+    }
     var exceptions = r.log.filter(function (l) { return /^(Blocked|Waived|Failed|Took over|Changed)/.test(l.what); });
     if (exceptions.length) { lines.push('Exceptions'); exceptions.forEach(function (l) { lines.push('  ' + U.hm(l.at) + ' ' + nameOf(l.by) + ': ' + l.what); }); lines.push(''); }
     var noteCount = (notes || []).length;
@@ -862,8 +907,8 @@ PF.run = (function () {
     FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, valid: valid, sanitize: sanitize, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
-    done: done, na: na, block: block, clear: clear, differently: differently, start: start, setDeadline: setDeadline,
+    done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
-    handOff: handOff, pickUp: pickUp, takeOver: takeOver, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, suggestions: suggestions, end: end, myNext: myNext, totals: totals, receipt: receipt, blockedSteps: blockedSteps
+    handOff: handOff, pickUp: pickUp, takeOver: takeOver, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
   };
 })();

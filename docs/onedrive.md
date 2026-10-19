@@ -40,8 +40,9 @@ While a run is open, Flightdeck rereads only that run and its notes every 5 seco
 | `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there. Each person's decision is its own `*.status-<window>.json`. |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |
 | `step-types/*.json` | One person in Flightdeck's Step types form, or an AI assistant. Saved only over the file the form opened. |
-| `suggestions/<process>/*.json` | Each window writes its own decisions on suggested fixes; nobody edits another's. |
+| `corrections/<process>/*.json` | Each decision on a correction is a new file named for the window and the decision's `rev`, written once; nobody edits another's, or their own. Two decided at once both stay, and the app says Needs review. |
+| `suggestions/<process>/*.json` | Decisions on suggested fixes from before 1.13. Read, no longer written. |
 
 ## Before the first real release
 
-Do a rehearsal on two computers with the real folder: start a run, follow it from the second computer, add notes from both, hand off recording, change the commit, block and unblock a step, pass a gate, and finish with a receipt. Then rehearse the bad night: pause OneDrive on one computer, take over from the other, resume OneDrive, and resolve the conflict copy in the app.
+Do a rehearsal on two computers with the real folder: start a run, follow it from the second computer, add notes from both, hand off recording, change the commit, block and unblock a step, pass a gate, and finish with a receipt. Then rehearse the bad night: pause OneDrive on one computer, take over from the other, resume OneDrive, and resolve the conflict copy in the app. For corrections, correct a step from each computer, mark Done differently with Fix the checklist too while OneDrive is paused on the recorder's computer, and decide on the same correction from both computers before they sync: both decisions should arrive, and the process page should say Needs review until someone decides again.

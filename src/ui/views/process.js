@@ -6,10 +6,10 @@
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   /* ---------- process page ---------- */
   /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. fixes, when given, counts open
-     suggested fixes per step ID (and "phase:<id>"), marked so whoever edits the draft sees them. */
+     corrections per step ID (and "phase:<id>"), marked so whoever edits the draft sees them. */
   /* hl: what the builder has selected ({ line } of a step, or { phase } index), marked so the preview can show it. */
   function mapPreview(map, types, skills, anchor, fixes, hl) {
-    var fixBadge = function (k) { var n = fixes && fixes[k]; return n ? ' <span class="badge b-warn">' + n + ' suggested fix' + (n === 1 ? '' : 'es') + '</span>' : ''; };
+    var fixBadge = function (k) { var n = fixes && fixes[k]; return n ? ' <span class="badge b-warn">' + n + ' open correction' + (n === 1 ? '' : 's') + '</span>' : ''; };
     /* Which skills cover each step (skills mapped to the whole process are listed once, above). */
     var by = Object.create(null), whole = [];
     (skills || []).forEach(function (x) { if (!x.skill.steps) whole.push(x.skill.name); else x.skill.steps.forEach(function (id) { (by[id] = by[id] || []).push(x.skill.name); }); });
@@ -101,48 +101,67 @@
     return h + '</section>';
   }
 
-  /* ---------- suggested fixes (docs/design.md section 19) ---------- */
-  /* Every suggestion on a process, with where it stands. The app memoizes this per folder read; views tests compute it. */
+  /* ---------- corrections (docs/design.md section 19) ---------- */
+  /* Every group of corrections on a process, with where it stands. The app memoizes this per folder read; views tests compute it. */
   function fixesOf(ctx, p) {
-    if (ctx.fixes) return ctx.fixes(p.id);
-    return PF.fixes.withStatus(PF.fixes.collect(ctx.data.runs, p.id), ctx.data.fixDecisions, PF.fixes.creditable(p));
+    if (ctx.corrections) return ctx.corrections(p.id);
+    var C = PF.corrections; return C.status(C.groups(C.collect(ctx.data.runs, p.id)), ctx.data.corrDecisions);
   }
-  var FIX_PILL = { open: 'open', accepted: 'ready', fixed: 'passed', declined: 'locked' };
+  /* Grouped by step in checklist order: each group is one proposed change, "Suggested in N runs" with the runs behind it,
+     and two different changes to the same step are shown as alternatives. Anyone decides; declining needs a reason. */
   function fixesPanel(ctx, p) {
-    var st = ctx.state, all = fixesOf(ctx, p);
+    var st = ctx.state, all = fixesOf(ctx, p), C = PF.corrections;
     if (!all.length) return '';
-    var open = all.filter(function (s) { return s.status === 'open'; }), todo = all.filter(function (s) { return s.status === 'open' || s.status === 'accepted'; });
+    var open = all.filter(function (g) { return g.status === 'open'; });
     var showAll = st.fixFilter === 'all', list = showAll ? all : open, map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
-    var h = '<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">' + I('edit') + 'Suggested fixes · ' + open.length + ' open</h2>' +
-      '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="fix-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
-    var unread = (ctx.data.fixUnread || []).filter(function (u) { return u.process === p.id; });
-    if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>suggestions/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some suggestions may show the wrong status until it syncs.') + '</span></div>';
-    if (!list.length) h += '<p class="small">No open suggestions.</p>';
-    /* Grouped by the step or phase they're about, in checklist order; anything no longer in the checklist goes last. */
+    var h = '<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>' +
+      '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Mark one as applied once the draft has it.</p>' +
+      '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="corr-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    var unread = (ctx.data.corrUnread || []).filter(function (u) { return u.process === p.id; });
+    if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>corrections/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some corrections may show the wrong status until it syncs.') + '</span></div>';
+    if (!list.length) h += '<p class="small">No open corrections.</p>';
     var order = [], groups = Object.create(null);
     if (map) map.phases.forEach(function (ph) { order.push('phase:' + ph.id); ph.steps.forEach(function (x) { order.push(x.id); }); });
-    list.forEach(function (s) { var k = s.target.step || 'phase:' + s.target.phase; if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(s); });
+    list.forEach(function (g) { var k = g.target.step || 'phase:' + g.target.phase; if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(g); });
     order.filter(function (k) { return groups[k]; }).forEach(function (k) {
       var x = map && k.indexOf('phase:') !== 0 && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0];
-      h += '<p class="fixgroup">' + (x ? U.mdInline(x.step.text) : ph ? 'Phase: ' + esc(ph.title) : esc(k.replace(/^phase:/, 'Phase ')) + ' <span class="small">(not in the current version)</span>') + '</p><ul class="fixlist">' + groups[k].map(function (s) { return fixItem(ctx, p, s); }).join('') + '</ul>';
+      var gs = groups[k], alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
+      h += '<h3 class="fixgroup">' + (x ? U.mdInline(x.step.text) : ph ? 'Phase: ' + esc(ph.title) : esc(gs[0].from || k.replace(/^phase:/, 'Phase ')) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
+        (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '') +
+        '<ul class="fixlist">' + gs.map(function (g) { return groupItem(ctx, p, g); }).join('') + '</ul>';
     });
-    if (todo.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-fix-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy fix brief</button></div>' + briefBox(st, 'fixes:' + p.id);
+    if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     return h + '</section>';
   }
-  function fixItem(ctx, p, s) {
-    var st = ctx.state, d = s.decision, F = PF.fixes, declining = st.pick && st.pick.kind === 'fix-decline' && st.pick.id === s.id;
-    var h = '<li data-scope="fix:' + esc(s.id) + '"><div class="row"><span class="badge b-plan">' + esc(F.kindLabel(s.kind)) + '</span><span class="pill ' + FIX_PILL[s.status] + '">' + esc(F.label(s)) + '</span>' +
-      (s.kind === 'missing' ? '<span class="small">' + (s.target.where === 'after' && s.target.step ? 'after this step' : 'at the end of the phase') + '</span>' : '') + '</div>' +
-      '<div>' + esc(s.text) + '</div>' + (s.target.shot ? '<div class="small">Screenshot <code>' + esc(s.target.shot) + '</code></div>' : '') +
-      (s.files.length ? '<div class="thumbs">' + s.files.map(function (f, i) { return '<button class="thumb" data-act="zoom-fix" data-id="' + esc(s.id) + '" data-i="' + i + '" aria-label="Expand the attached screenshot">' + ctx.img(f, 'Attachment') + '</button>'; }).join('') + '</div>' : '') +
-      '<div class="small">' + esc(nameOf(ctx, s.by)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(s.process + '/' + s.run) + '">' + esc(s.runTitle) + '</button> · v' + esc(s.version) + '</div>';
-    if (d) h += '<div class="small">' + esc(d.status === 'declined' ? 'Declined' : d.status === 'accepted' ? 'Accepted' : 'Reopened') + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>' +
-      (s.tie ? '<div class="small">Two people decided at once; the latest shown here.</div>' : '');
-    if (!st.me) return h + '</li>';
-    if (declining) return h + '<div class="row">' + ferr(st, 'fix-decline') + '<label class="sr" for="pick-input">Why decline it?</label><input id="pick-input" maxlength="300" placeholder="Why decline it?" data-enter="fix-decline" data-id="' + esc(s.id) + '"' + (st.fieldErr && st.fieldErr.id === 'fix-decline' ? ' aria-invalid="true" aria-describedby="ferr-fix-decline"' : '') + '><button class="btn" data-act="fix-decline" data-id="' + esc(s.id) + '">Decline</button><button class="mini" data-act="unpick">Cancel</button></div></li>';
-    if (s.status === 'open') h += '<div class="row"><button class="mini" data-act="fix-accept" data-id="' + esc(s.id) + '">Accept into the draft</button><button class="mini" data-act="pick" data-kind="fix-decline" data-id="' + esc(s.id) + '">Decline</button></div>';
-    else h += '<div class="row"><button class="mini" data-act="fix-reopen" data-id="' + esc(s.id) + '">Reopen</button></div>';
-    return h + '</li>';
+  function groupItem(ctx, p, g) {
+    var st = ctx.state, C = PF.corrections, d = g.decision, c = g.first, declining = st.pick && st.pick.kind === 'corr-decline' && st.pick.id === g.id;
+    var map = p.latest ? p.latest.map : null;
+    var h = '<li data-scope="corr:' + esc(g.id) + '"><div class="row"><span class="badge b-plan">' + esc(C.OP_LABEL[g.change.op]) + '</span>' + V.corrPill(g) + (g.legacy ? '<span class="small">From a suggested fix</span>' : '') + '</div>';
+    var dl = '';
+    if (g.change.op !== 'describe' && g.from) dl += '<dt>Checklist said (v' + esc(c.version) + ')</dt><dd>' + esc(g.from) + '</dd>';
+    if (g.change.op === 'wording') dl += '<dt>Suggested</dt><dd>' + V.redline(g.from, g.change.to) + '</dd>';
+    else if (g.change.op !== 'describe') dl += '<dt>Suggested</dt><dd>' + esc(C.proposal(c, map)) + '</dd>';
+    g.members.forEach(function (m) {
+      if (m.why) dl += '<dt>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
+      if (m.happened) dl += '<dt>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
+    });
+    if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
+    g.members.forEach(function (m) { h += V.attachments(ctx, m.id, m.files, m.fileInfo, 'corr'); });
+    /* The runs behind it, with names inside: a count of runs, never a vote. */
+    h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + g.members.map(function (m) {
+      return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · v' + esc(m.version) + '</li>';
+    }).join('') + '</ul></details>';
+    if (d) h += '<div class="small">' + esc({ applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
+    if (g.status === 'legacy') h += '<div class="small">Applied before 1.13. Flightdeck can\'t confirm which version has it.</div>';
+    if (g.again) h += '<div class="small">Suggested again after it was ' + esc(g.again.status) + (g.again.reason ? ': ' + esc(g.again.reason) : '') + '</div>';
+    if (g.tie) h += '<div class="small"><b>Needs review:</b> two people decided at once. Decide again to settle it.</div>';
+    if (!st.me || g.status === 'legacy') return h + '</li>';
+    if (declining) return h + '<div class="row">' + ferr(st, 'corr-decline') + '<label class="sr" for="pick-input">Why not? The runs will show this.</label><input id="pick-input" maxlength="300" placeholder="Why not? The runs will show this." data-enter="corr-decline" data-id="' + esc(g.id) + '"' + (st.fieldErr && st.fieldErr.id === 'corr-decline' ? ' aria-invalid="true" aria-describedby="ferr-corr-decline"' : '') + '><button class="btn" data-act="corr-decline" data-id="' + esc(g.id) + '">Decline</button><button class="mini" data-act="unpick">Cancel</button></div></li>';
+    var acts = '';
+    if (g.status === 'open' || g.tie) acts += '<button class="mini" data-act="corr-applied" data-id="' + esc(g.id) + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + esc(g.id) + '">Decline</button>';
+    if (g.status !== 'open' || g.tie) acts += '<button class="mini" data-act="corr-reopen" data-id="' + esc(g.id) + '">Reopen</button>';
+    if (g.status === 'open' && C.canWithdraw(g, st.me)) acts += '<button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>';
+    return h + '<div class="row">' + acts + '</div></li>';
   }
 
   function process(ctx) {

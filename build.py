@@ -8,7 +8,7 @@ notes are inlined. Also regenerates CHANGELOG.md from src/releases.json.
 import base64, datetime, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent
-CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/publish.js", "core/run.js", "core/fixes.js", "core/skills.js"]
+CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/skills.js", "core/attach.js"]
 APP = ["storage/fs.js", "storage/repo.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
        "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/examples.js", "ui/app.js"]
 

@@ -5,6 +5,8 @@ const assert = require('assert');
 const { rule, run } = require('./harness');
 const { boot, gate, bus, locks } = require('./app-harness');
 
+// A file that really is a PNG: attachments are checked against their first bytes.
+const png = (name) => { const b = new Blob([new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82])], { type: 'image/png' }); if (name) b.name = name; return b; };
 // The draft-editor tests below type into the Markdown, so this browser remembers choosing Markdown over the builder.
 async function recordingRelease() {
   const app = boot({ localStore: { 'preflight:builder': 'false' } });
@@ -926,11 +928,11 @@ rule('R8: finishing one note never clears another step\'s draft or attachment', 
   app.PF.repo.addNote = function () { const args = arguments; return g.p.then(() => orig.apply(this, args)); };
   app.click('select', 'approve'); app.set('note-text', 'first note'); app.click('add-note', 'approve'); await app.tick();
   app.click('select', 'pods'); await app.tick();
-  app.change('note-file', [new Blob(['png'], { type: 'image/png' })]); await app.tick();
-  assert.ok(/1 screenshot attached/.test(app.html()), 'set-up: an attachment waits on the second step');
+  app.change('note-file', [png('pods.png')]); await app.tick();
+  assert.ok(/aria-label="Waiting to attach"><li class="att">.*pods\.png/.test(app.html()), 'set-up: an attachment waits on the second step');
   g.open(); await app.tick(40);
   app.PF.repo.addNote = orig;
-  assert.ok(/1 screenshot attached/.test(app.html()), 'the second step\'s attachment survives the first note finishing');
+  assert.ok(/aria-label="Waiting to attach"><li class="att">.*pods\.png/.test(app.html()), 'the second step\'s attachment survives the first note finishing');
 });
 
 rule('R8: actions that finish after switching folders leave the new folder\'s screen alone', async () => {
@@ -995,7 +997,8 @@ rule('R10: a note too long to save is refused with a message, and the text stays
 rule('R10: a screenshot attached to one step is never filed under another, by mouse or keyboard', async () => {
   const app = await recordingRelease();
   app.click('select', 'approve'); await app.tick();
-  app.change('note-file', [new Blob(['png'], { type: 'image/png' })]); await app.tick();
+  app.change('note-file', [png()]); await app.tick();
+  assert.ok(/Add note with 1 file/.test(app.html()), 'set-up: the screenshot waits on the first step');
   app.key('j'); await app.tick();
   app.set('note-text', 'note for the next step'); app.click('add-note', app.selected()); await app.tick(60);
   const files = app.files(app.run().path.replace('run.json', 'notes-')).map(p => app.fs.files[p].t).join('\n');
@@ -1348,91 +1351,141 @@ rule('Plans: a time the clocks skip is pointed out, not saved an hour off', asyn
   assert.ok(/That time doesn(&#39;|')t exist on that day \(clocks change\); pick another\./.test(app.html()));
 });
 
-/* ---------- Suggested fixes ---------- */
+/* ---------- Corrections ---------- */
 const newNotes = (app, key) => app.files('runs/' + key + '/notes-').filter(p => !/example-session/.test(p)).map(p => app.fs.files[p].t.trim().split('\n').map(l => JSON.parse(l))).flat();
 
-rule('App: anyone viewing a run can suggest a fix to a step; it goes in their own notes file with the version and step, and run.json is untouched', async () => {
+rule('App: anyone viewing a run can correct a step; it starts on the wording, goes in their own notes file with the version and step, and run.json is untouched', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-blake'); await app.tick();
   const { key, path } = app.run(), before = app.fs.files[path].t;
   app.click('open-run', key); await app.tick(20);
-  app.click('fix-open', 'pods'); await app.tick();
-  assert.ok(/id="fix-kind-instructions"/.test(app.html()), 'the form opens on the step');
-  app.select('fix-kind-instructions', 'instructions'); await app.tick();
-  assert.ok(/for="fix-text">What the instructions should say/.test(app.html()), 'the question follows the kind');
-  app.set('fix-text', 'Watch for 20 minutes'); app.click('fix-save', 'pods'); await app.tick(60);
-  const n = newNotes(app, key).filter(x => x.text === 'Watch for 20 minutes')[0];
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  assert.ok(/<textarea id="corr-to"[^>]*>New pods stay up with no restarts<\/textarea>/.test(app.html()) && app.focused() === 'corr-to', 'the wording, filled in, with focus');
+  assert.ok(/No wording changed\./.test(app.html()));
+  app.input('corr-to', 'New pods stay up for 20 minutes with no restarts'); await app.tick();
+  assert.ok(/<div class="corr-prev">[\s\S]*?<ins>[^<]*for 20 minutes[^<]*<\/ins>/.test(app.html()) && !/No wording changed\./.test(app.html()), 'the redline follows the typing');
+  app.input('corr-why', 'The cache warms slowly'); app.click('corr-save', 'pods'); await app.tick(60);
+  const n = newNotes(app, key).filter(x => x.kind === 'correction')[0];
   assert.ok(n, 'saved');
-  assert.deepStrictEqual([n.kind, n.fixKind, n.by, n.version, n.target.phase, n.target.step, n.step], ['fix', 'instructions', 'person-blake', 1, 'deploy', 'pods', 'pods']);
+  assert.deepStrictEqual([n.by, n.version, n.target, n.change, n.from, n.why, n.step], ['person-blake', 1, { phase: 'deploy', step: 'pods' }, { op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' }, 'New pods stay up with no restarts', 'The cache warms slowly', 'pods']);
+  assert.ok(/^Correction to "New pods stay up with no restarts"\. Should say:/.test(n.text), 'with a summary older copies show');
   assert.strictEqual(app.fs.files[path].t, before, 'run.json untouched');
-  assert.ok(!/id="fix-text"/.test(app.html()) && /Suggestion sent/.test(app.html()), 'the form closes and says where it went');
-  assert.ok(/Suggested fix: Wrong instructions/.test(app.html()), 'shown with the step\'s notes');
+  assert.ok(!/id="corr-to"/.test(app.html()) && /Correction saved on this computer\. It doesn&#39;t answer the step\./.test(app.html() + app.live()) || /Correction saved on this computer/.test(app.live()), 'closed, and says it\'s saved here, nothing more');
+  assert.ok(/<li class="corr" id="corr-[\w-]+" tabindex="-1">/.test(app.html()) && /<span class="pill open">Open<\/span>/.test(app.html()), 'shown with the step\'s corrections');
 });
 
-rule('App: a missing step can be suggested at the end of a phase; the kind and text are asked for first', async () => {
+rule('App: Done differently needs what happened, takes the step\'s evidence like Done, and with Just this run writes no correction', async () => {
   const app = await recordingRelease();
   const { key } = app.run();
-  app.click('fix-open', 'phase:verify'); await app.tick();
-  app.set('fix-text', 'Check the error budget'); app.click('fix-save', 'phase:verify'); await app.tick(20);
-  assert.ok(/id="ferr-fix" role="alert">Choose what kind of fix it is\./.test(app.html()), 'no kind chosen');
-  app.select('fix-kind-missing', 'missing'); await app.tick();
-  app.set('fix-text', ''); app.click('fix-save', 'phase:verify'); await app.tick(20);
-  assert.ok(/Say what should change\./.test(app.html()), 'no text');
-  app.set('fix-text', 'Check the error budget'); app.click('fix-save', 'phase:verify'); await app.tick(60);
-  const n = newNotes(app, key).filter(x => x.kind === 'fix')[0];
-  assert.deepStrictEqual([n.fixKind, n.target, n.step], ['missing', { phase: 'verify', step: null, where: 'end' }, '']);
+  app.click('select', 'jenkins'); await app.tick();
+  app.click('corr-open', 'jenkins', { mode: 'differently' }); await app.tick();
+  assert.strictEqual(app.focused(), 'corr-happened');
+  app.click('corr-done', 'jenkins'); await app.tick(20);
+  assert.ok(/id="ferr-corr" role="alert">Say what happened\./.test(app.html()), 'what happened is required');
+  app.input('corr-happened', 'Started it from the console; the button was gone'); app.set('rec-build', ''); app.click('corr-done', 'jenkins'); await app.tick(20);
+  assert.ok(/id="ferr-jenkins" role="alert">[^<]*is needed to check this step/.test(app.html()) && (app.run().json.steps.jenkins || {}).s !== 'done', 'required evidence still applies, said next to its box');
+  app.set('rec-build', 'https://ci.example.com/job/web-app-deploy-prod/88/'); app.click('corr-done', 'jenkins'); await app.tick(60);
+  const a = app.run().json.steps.jenkins;
+  assert.deepStrictEqual([a.s, a.differently.note, a.values.build], ['done', 'Started it from the console; the button was gone', 'https://ci.example.com/job/web-app-deploy-prod/88/']);
+  assert.strictEqual(newNotes(app, key).filter(x => x.kind === 'correction').length, 0, 'just this run: no correction');
+  app.click('select', 'jenkins'); await app.tick();
+  assert.ok(/<span class="badge b-diff">Done differently<\/span> · Casey Nguyen/.test(app.html()) && /<span class="pill waived">One-off<\/span>/.test(app.html()));
+  app.click('select', 'flags'); await app.tick();
+  assert.ok(!/data-mode="differently"/.test(app.html().slice(app.html().indexOf('<aside'))), 'not on a step in a passed phase');
 });
 
-rule('App: anyone can accept, decline with a reason, or reopen a suggestion; each decision replaces only their own file, and the latest one counts', async () => {
+rule('App: Done differently with Fix the checklist too writes the correction first, then answers; if the run can\'t be saved, the correction stands', async () => {
+  const app = await recordingRelease();
+  const { key } = app.run();
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app; the console was down');
+  app.click('corr-scope', 'fix'); await app.tick();
+  assert.ok(/Marks this step done differently and proposes a checklist correction\./.test(app.html()));
+  app.input('corr-to', 'Approve the deploy in Jenkins or its phone app before it rolls back');
+  const order = [], save = app.PF.repo.saveRun, add = app.PF.repo.addNote;
+  app.PF.repo.addNote = function () { order.push('note'); return add.apply(this, arguments); };
+  app.PF.repo.saveRun = function () { order.push('run'); return Promise.reject(new Error('OneDrive is offline')); };
+  app.click('corr-done', 'approve'); await app.tick(80);
+  app.PF.repo.saveRun = save; app.PF.repo.addNote = add;
+  assert.deepStrictEqual(order.slice(0, 2), ['note', 'run'], 'the correction is written before the run');
+  const n = newNotes(app, key).filter(x => x.kind === 'correction')[0];
+  assert.deepStrictEqual([n.step, n.change.to, n.happened], ['approve', 'Approve the deploy in Jenkins or its phone app before it rolls back', 'Approved from the phone app; the console was down']);
+  assert.ok(!(app.run().json.steps.approve || {}).differently, 'the run file wasn\'t changed');
+  assert.ok(/Your last change isn&#39;t saved|Your last change isn't saved/.test(app.html()), 'the failed save is shown with Try again');
+  app.click('retry-save'); await app.tick(60);
+  assert.strictEqual(app.run().json.steps.approve.differently.note, 'Approved from the phone app; the console was down');
+});
+
+rule('App: on the process page anyone marks a correction applied, declines it with a reason, or reopens it; each decision is a new file, written once', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-morgan'); await app.tick();
   app.click('open-process', 'release'); await app.tick(20);
-  const id = /data-act="fix-accept" data-id="([\w-]+)"/.exec(app.html())[1];
-  const theirs = app.files('suggestions/release/').map(p => [p, app.fs.files[p].t]);
-  const mine = () => app.files('suggestions/release/' + id + '.').filter(p => !/example-session/.test(p));
-  app.click('fix-accept', id); await app.tick(60);
-  assert.strictEqual(mine().length, 1);
+  assert.ok(/Corrections · 2 open/.test(app.html()) && /Suggested in 2 runs/.test(app.html()), 'the example\'s open ones, one suggested in two runs');
+  const id = /data-act="corr-applied" data-id="([\w-]+)"/.exec(app.html())[1];
+  const theirs = app.files('corrections/release/').map(p => [p, app.fs.files[p].t]);
+  const mine = () => app.files('corrections/release/' + id + '.').filter(p => !/example-session/.test(p)).sort();
+  app.click('corr-applied', id); await app.tick(60);
   let d = JSON.parse(app.fs.files[mine()[0]].t);
-  assert.deepStrictEqual([d.kind, d.suggestion, d.status, d.by], ['fix-decision', id, 'accepted', 'person-morgan']);
-  assert.ok(/Suggested fixes · 0 open/.test(app.html()) && /Accepted into the draft/.test(app.html()));
-  app.click('fix-filter', 'all'); await app.tick();
-  assert.ok(new RegExp('data-act="fix-reopen" data-id="' + id + '"').test(app.html()));
-  app.click('fix-reopen', id); await app.tick(60);
-  assert.strictEqual(JSON.parse(app.fs.files[mine()[0]].t).status, 'open');
-  app.click('pick', id, { kind: 'fix-decline' }); await app.tick();
-  app.click('fix-decline', id); await app.tick(20);
-  assert.ok(/id="ferr-fix-decline" role="alert">Say why it(&#39;|')s declined/.test(app.html()), 'a reason is required');
-  app.set('pick-input', 'Ten minutes is enough with the new cache'); app.click('fix-decline', id); await app.tick(60);
-  assert.strictEqual(mine().length, 1, 'still one file: their own, replaced');
-  d = JSON.parse(app.fs.files[mine()[0]].t);
-  assert.deepStrictEqual([d.status, d.reason], ['declined', 'Ten minutes is enough with the new cache']);
-  assert.ok(/Declined by Morgan [^:]+: Ten minutes is enough/.test(app.html()));
+  assert.deepStrictEqual([d.kind, d.group, d.status, d.by, d.rev, d.members.length], ['correction-decision', id, 'applied', 'person-morgan', 1, 2]);
+  assert.ok(/Corrections · 1 open/.test(app.html()) && /Marked as applied to the draft\./.test(app.html() + app.live()));
+  app.click('corr-filter', 'all'); await app.tick();
+  assert.ok(/<span class="pill ready">Applied to draft<\/span>/.test(app.html()), 'Applied to draft, never "Fixed in vN"');
+  app.click('corr-reopen', id); await app.tick(60);
+  app.click('pick', id, { kind: 'corr-decline' }); await app.tick();
+  app.click('corr-decline', id); await app.tick(20);
+  assert.ok(/id="ferr-corr-decline" role="alert">Why not\? The runs will show this\./.test(app.html()), 'a reason is required');
+  app.set('pick-input', 'Ten minutes is enough with the new cache'); app.click('corr-decline', id); await app.tick(60);
+  assert.strictEqual(mine().length, 3, 'one new file per decision');
+  d = mine().map(p => JSON.parse(app.fs.files[p].t)).sort((x, y) => x.rev - y.rev);
+  assert.deepStrictEqual(d.map(x => [x.status, x.rev]), [['applied', 1], ['open', 2], ['declined', 3]]);
+  assert.ok(/\.1\.json$/.test(d[1].seen) && /Declined by Morgan [^:]+: Ten minutes is enough/.test(app.html()));
   theirs.forEach(([p, text]) => assert.strictEqual(app.fs.files[p].t, text, 'others\' decisions untouched'));
+  assert.ok(!/fix-accept|suggestions\//.test(app.html()));
 });
 
-rule('App: Copy fix brief gives the AI assistant the open and accepted suggestions with the draft\'s steps and the rules for editing', async () => {
+rule('App: Copy correction brief gives the AI assistant the open corrections with the draft\'s steps and the rules for editing', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-casey'); await app.tick();
   app.click('open-process', 'release'); await app.tick(20);
-  app.click('copy-fix-brief', 'release'); await app.tick();
+  app.click('copy-corr-brief', 'release'); await app.tick();
   const pre = /<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
-  assert.ok(/^# Suggested fixes: Production release/.test(pre) && /current version v2/.test(pre) && /2 suggestions to review/.test(pre), pre.slice(0, 200));
+  assert.ok(/^# Corrections: Production release/.test(pre) && /current version v2/.test(pre) && /2 open corrections/.test(pre), pre.slice(0, 200));
   assert.ok(/Edit the process's draft, `maps\/drafts\/release\.md`\. Change no other file\. Keep every existing step ID/.test(pre));
-  assert.ok(/Wrong instructions: "New pods stay up with no restarts" \{#pods\}/.test(pre) && /command: kubectl get pods -l app=web-app/.test(pre));
-  assert.ok(/Missing step: phase "Verify in production" \{#verify\}/.test(pre) && /Status: In the draft \(Casey Nguyen\)/.test(pre));
-  assert.ok(!/stage 5, and we waited/.test(pre) && !/before the flag check/.test(pre), 'fixed and declined ones are left out');
+  assert.ok(/Wording: "New pods stay up with no restarts" \{#pods\}/.test(pre) && /command: kubectl get pods -l app=web-app/.test(pre) && /Suggested in 2 runs/.test(pre));
+  assert.ok(/Missing step: "Close the release ticket" \{#close\}/.test(pre));
+  assert.ok(!/stage 5/.test(pre) && !/hears about it earlier/.test(pre), 'applied and declined ones are left out');
 });
 
-rule('App: the fix brief names the draft file the process really has, even when it isn\'t named after the process', async () => {
+rule('App: the correction brief names the draft file the process really has, even when it isn\'t named after the process', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-casey'); await app.tick();
   const md = app.fs.files['maps/drafts/release.md'].t;
   await app.fs.remove('maps/drafts/release.md'); await app.fs.write('maps/drafts/production-release.md', md);
   app.click('refresh'); await app.tick(80);
   app.click('open-process', 'release'); await app.tick(20);
-  app.click('copy-fix-brief', 'release'); await app.tick();
+  app.click('copy-corr-brief', 'release'); await app.tick();
   const pre = /<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1];
   assert.ok(/`maps\/drafts\/production-release\.md`/.test(pre) && !/drafts\/release\.md/.test(pre));
+});
+
+rule('App: C opens Correct this step on the selected step, Escape closes its menu and then the composer, and only the author can withdraw', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'flags'); await app.tick();
+  app.key('c'); await app.tick();
+  assert.ok(/<h4 class="corr-h" id="corr-h">Correct this step<\/h4>/.test(app.html()));
+  app.click('corr-menu'); await app.tick();
+  assert.ok(/aria-expanded="true" aria-controls="corr-menu"/.test(app.html()));
+  app.key('Escape'); await app.tick();
+  assert.ok(/aria-expanded="false" aria-controls="corr-menu"/.test(app.html()) && app.focused() === '[data-act="corr-menu"]', 'the menu closes first');
+  app.click('corr-op', 'describe'); await app.tick();
+  app.input('corr-why', 'The values file is locked during deploys'); app.click('corr-save', 'flags'); await app.tick(60);
+  const id = /data-act="corr-withdraw" data-id="([\w-]+)" data-process="release"/.exec(app.html())[1];
+  app.click('corr-withdraw', id, { process: 'release' }); await app.tick(60);
+  assert.ok(/<span class="pill locked">Withdrawn<\/span>/.test(app.html()));
+  app.click('corr-open', 'flags', { mode: 'correct' }); await app.tick();
+  app.key('Escape'); await app.tick();
+  assert.ok(!/id="corr-h"/.test(app.html()), 'Escape closes the composer');
 });
 
 rule('App: a process called constructor and suggestions about steps called constructor, __proto__ or toString show without breaking the page', async () => {
@@ -1444,7 +1497,7 @@ rule('App: a process called constructor and suggestions about steps called const
   await app.fs.write('runs/' + key + '/notes-odd.jsonl', lines);
   app.click('refresh'); await app.tick(80);
   app.click('open-process', 'constructor'); await app.tick(20);
-  assert.ok(/Odd names/.test(app.html()) && !/Suggested fixes/.test(app.html()), 'its page opens');
+  assert.ok(/Odd names/.test(app.html()) && !/Corrections ·/.test(app.html()), 'its page opens');
   app.click('open-process', 'release'); await app.tick(20);
   const h = app.html();
   ['constructor', '__proto__', 'toString'].forEach(id => assert.ok(h.includes('About ' + id) && h.includes(id + ' <span class="small">(not in the current version)</span>'), id));
@@ -1875,7 +1928,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
 
   const text = app.fs.files[rpath].t, files = app.files('runs/release/newer1/');
   app.click('open-run', 'release/newer1'); await app.tick();
-  assert.ok(/<b>Read-only here\.<\/b> This version uses checklist features/.test(app.html()), 'the run says why it is read-only');
+  assert.ok(/<b>Read-only in this copy\.<\/b> This version uses checklist features/.test(app.html()), 'the run says why it is read-only');
   assert.ok(/This copy shows the parts it understands, and can't record it or save over it\./.test(app.html()), 'and that it shows only what it understands');
   assert.ok(!/data-act="(pickup|takeover)"/.test(app.html()), 'no way to record it is offered');
   assert.ok(!/data-act="plan-from-run"/.test(app.html()), 'nor to plan another like it');
@@ -1894,6 +1947,178 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   assert.ok(/Newer format/.test(app.html()) && /saved by a newer copy of Flightdeck, in a format this copy can&#39;t read/.test(app.html()), 'shown with the reason');
   app.click('pickup'); await app.tick(40); app.click('takeover'); await app.tick(40);
   assert.strictEqual(app.fs.files[fpath].t, ftext, 'never written');
+});
+
+/* ---------- The run workspace (1.13) ---------- */
+const file = (bytes, type, name) => { const b = new Blob([typeof bytes === 'string' ? bytes : new Uint8Array(bytes)], { type }); b.name = name; return b; };
+const notesOf = app => app.files(app.run().path.replace('run.json', 'notes-')).map(p => app.fs.files[p].t).join('\n').split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+rule('App: checking the step Next up points at selects the next one in its phase, puts focus on its check and says so once', async () => {
+  const app = await recordingRelease();
+  assert.strictEqual(app.nextStep(), 'jenkins', 'set-up: the deploy job is next');
+  assert.strictEqual(app.selected(), 'jenkins', 'a run opens on its next step');
+  app.set('rec-build', 'https://ci.example.com/job/web-app-deploy-prod/88/');
+  app.click('toggle', 'jenkins'); await app.tick(40);
+  const j = app.run().json;
+  assert.ok(j.steps.jenkins.s === 'done' && j.steps.jenkins.values.build === 'https://ci.example.com/job/web-app-deploy-prod/88/', 'the row\'s check collected the evidence typed in the inspector');
+  assert.strictEqual(app.selected(), 'approve', 'the next step in the phase is selected');
+  assert.strictEqual(app.focused(), '[data-act="toggle"][data-id="approve"]', 'focus is on its check, ready for Space');
+  assert.strictEqual(app.live(), '"Start the production deploy job" checked. Next: "Approve the deploy in Jenkins before it rolls back".');
+  assert.ok(!/<div class="notice[^"]*" role="status"><span>"Start the production deploy job" checked/.test(app.html()), 'announced, not shown as a notice');
+});
+
+rule('App: a step checked out of order stays selected; so does one with a note still being written', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'approve'); await app.tick();
+  app.click('record', 'approve'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.approve.s, 'done');
+  assert.strictEqual(app.selected(), 'approve', 'checked out of order: stays');
+  app.click('select', 'jenkins'); await app.tick();
+  app.set('note-text', 'Queue is busy, about six minutes'); app.set('rec-build', 'https://ci.example.com/job/1/');
+  app.click('record', 'jenkins'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.jenkins.s, 'done');
+  assert.strictEqual(app.selected(), 'jenkins', 'the note being written keeps the selection');
+  assert.strictEqual(app.draft('note-text'), 'Queue is busy, about six minutes');
+  assert.ok(/isn't sent yet, so this step stays selected/.test(app.live()));
+});
+
+rule('App: Done with required evidence missing opens the box it needs; checking the last step of a phase leads to its gate', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'pods'); await app.tick();
+  app.click('toggle', 'jenkins'); await app.tick(40);
+  assert.strictEqual(app.selected(), 'jenkins', 'the step with missing evidence is selected');
+  assert.strictEqual(app.focused(), 'rec-build', 'and its box gets focus');
+  assert.ok(!app.run().json.steps.jenkins || app.run().json.steps.jenkins.s !== 'done', 'nothing checked without it');
+  app.set('rec-build', 'https://ci.example.com/job/2/'); app.click('record', 'jenkins'); await app.tick(40);
+  app.click('record', 'approve'); await app.tick(40);
+  app.click('record', 'pods'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.pods.s, 'done');
+  assert.strictEqual(app.focused(), '#gate-deployed .btn.go', 'the gate\'s own button, which still asks to confirm');
+  assert.ok(/Next: the "Deployed" gate\./.test(app.live()));
+  assert.ok(!app.run().json.gates.deployed || app.run().json.gates.deployed.s !== 'passed', 'the gate is never passed for you');
+});
+
+rule('App: Space or X checks the selected step once, even when held; B opens the reason and Escape returns to the step', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'approve'); await app.tick();
+  app.keyOn(' ', { repeat: true }); await app.tick(40);
+  assert.ok(!app.run().json.steps.approve || app.run().json.steps.approve.s !== 'done', 'a held key repeating does nothing');
+  app.keyOn('x'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.approve.s, 'done', 'X is Space');
+  app.click('select', 'pods'); await app.tick();
+  app.key('b'); await app.tick();
+  assert.ok(/data-scope="block:pods"/.test(app.html()), 'the reasons');
+  app.key('Escape'); await app.tick();
+  assert.ok(!/data-scope="block:pods"/.test(app.html()) && app.focused() === '[data-act="select"][data-id="pods"]', 'closed, focus back on the step');
+});
+
+rule('App: J and K open a folded phase they move into; Next up and the rail move the selection and never answer anything', async () => {
+  const app = await recordingRelease();
+  const before = JSON.stringify(app.run().json.steps);
+  app.click('select', 'merge'); await app.tick();
+  assert.ok(!/id="step-announce"/.test(app.html()), 'set-up: the finished phase is folded');
+  app.key('k'); await app.tick();
+  assert.strictEqual(app.selected(), 'announce');
+  assert.ok(/data-act="fold" data-id="prep" aria-expanded="true"/.test(app.html()), 'its phase opened, with Hide steps');
+  app.click('goto', 'step-pods'); await app.tick();
+  assert.strictEqual(app.selected(), 'pods');
+  app.click('goto', 'phase-verify'); app.click('goto', 'gate-deployed'); await app.tick();
+  assert.strictEqual(JSON.stringify(app.run().json.steps), before, 'navigation changed nothing in the run');
+});
+
+rule('App: notes take several files of the allowed kinds, saved under their own cleaned names with sizes; others are refused next to the box', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'approve'); await app.tick();
+  const pdf = file('%PDF-1.7 runbook', 'application/pdf', 'Run book (v2).pdf'), log = file('pods restarted 0\n<script>alert(1)</script>\n', '', 'deploy output.log'), zip = file([0x50, 0x4B, 3, 4, 0, 0], 'application/zip', 'logs.zip');
+  app.change('note-file', [pdf, log, zip, file('<svg onload=alert(1)>', 'image/svg+xml', 'logo.svg')]); await app.tick(40);
+  let h = app.html();
+  assert.ok(/Run-book-v2\.pdf/.test(h) && /deploy-output\.log/.test(h) && /logs\.zip/.test(h) && /Add note with 3 files/.test(h), 'three wait, with cleaned names');
+  assert.ok(/id="atterr-note:approve">&quot;logo\.svg&quot; can&#39;t be attached\. Flightdeck attaches PNG, JPEG, WebP or GIF images, PDF, text/.test(h), 'the SVG is refused, next to the box');
+  app.change('note-file', [{ name: 'huge.zip', type: 'application/zip', size: 11 * 1024 * 1024, slice() { return this; } }]); await app.tick(20);
+  assert.ok(/&quot;huge\.zip&quot; is 11 MB\. Attachments can be up to 10 MB each\./.test(app.html()), 'too big, said with its size');
+  app.change('note-file', [file('<html>', 'image/png', 'fake.png')]); await app.tick(20);
+  assert.ok(/&quot;fake\.png&quot; doesn&#39;t look like a \.png file inside/.test(app.html()), 'a file that isn\'t what it says');
+  app.set('note-text', 'Output and the runbook'); app.click('add-note', 'approve'); await app.tick(60);
+  const n = notesOf(app).find(x => x.text === 'Output and the runbook');
+  assert.strictEqual(n.files.length, 3);
+  assert.ok(n.files.every(f => app.fs.files[f]), 'each file is in the run\'s files/ folder');
+  assert.deepStrictEqual(n.files.map(f => n.fileInfo[f].name), ['Run-book-v2.pdf', 'deploy-output.log', 'logs.zip']);
+  assert.ok(n.files.every(f => /^runs\/release\/[^/]+\/files\/\d+-[a-z0-9]+-[a-z0-9]+-[\w.-]+$/.test(f)), 'paths older copies keep');
+  h = app.html();
+  assert.ok(/data-act="att-save"[^>]*aria-label="Save a copy of Run-book-v2\.pdf, \d+ bytes"/.test(h) && /data-act="att-open"[^>]*aria-label="Open deploy-output\.log, \d+ bytes"/.test(h), 'shown as named files with sizes');
+  assert.ok(/Note added to this step\./.test(h) && /Note added to "Approve the deploy in Jenkins before it rolls back"\./.test(app.live()), 'acknowledged where it was added');
+  // A text file opens as plain text: the dialog's markup never holds the file, the text goes in as textContent.
+  const path = n.files[1];
+  app.set('att-text', '');
+  app.click('att-open', n.id, { from: 'note', path }); await app.tick(40);
+  assert.ok(/<pre class="tp-text" id="att-text" tabindex="0"><\/pre>/.test(app.overlay()) && !/<script>/.test(app.overlay()), 'nothing from the file in the markup');
+  assert.strictEqual(app.text('att-text'), 'pods restarted 0\n<script>alert(1)</script>\n');
+  app.click('close-overlay'); await app.tick();
+  app.set('att-text', 'untouched');
+  app.click('att-open', n.id, { from: 'note', path: 'runs/release/other/files/secret.log' }); await app.tick(40);
+  assert.strictEqual(app.overlay(), '', 'only files of that note open');
+});
+
+rule('App: a pasted or dropped file waits with the selected step\'s note, or with the correction being written', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'approve'); await app.tick();
+  app.fire('paste', { target: { closest: () => null }, clipboardData: { items: [{ kind: 'file', getAsFile: () => png('pasted.png') }, { kind: 'string' }] } }); await app.tick(40);
+  assert.ok(/pasted\.png/.test(app.html()) && /Add note with 1 file/.test(app.html()), 'pasted into the note');
+  const zone = kind => ({ closest: s => s === '[data-drop]' ? { getAttribute: k => (k === 'data-drop' ? kind : 'approve'), classList: { add() {}, remove() {}, contains: () => false } } : null });
+  app.fire('drop', { target: zone('note'), dataTransfer: { types: ['Files'], files: [file('a,b\n1,2\n', 'text/csv', 'counts.csv')] } }); await app.tick(40);
+  assert.ok(/counts\.csv/.test(app.html()) && /Add note with 2 files/.test(app.html()), 'dropped onto the note');
+  app.click('corr-open', 'approve', { mode: 'correct' }); await app.tick();
+  app.fire('drop', { target: zone('corr'), dataTransfer: { types: ['Files'], files: [file('x: 1\n', '', 'values.yaml')] } }); await app.tick(40);
+  assert.ok(/data-scope="corr:approve" data-drop="corr"[\s\S]*values\.yaml/.test(app.html()), 'dropped onto the correction');
+  app.input('corr-to', 'Approve the deploy in Jenkins within 30 minutes'); app.click('corr-save', 'approve'); await app.tick(60);
+  const fx = notesOf(app).find(x => x.kind === 'correction' && x.step === 'approve');
+  assert.ok(fx && fx.files.length === 1 && fx.fileInfo[fx.files[0]].name === 'values.yaml', 'the correction carries the file');
+  assert.ok(/Add note with 2 files/.test(app.html()), 'the note\'s files still wait with the note');
+});
+
+/* ---------- Review fixes (1.13) ---------- */
+rule('App: evidence typed on a step stays with it when you move away, marks its row as a draft, and keeps auto-advance from leaving it', async () => {
+  const app = await recordingRelease();
+  // Jenkins's build link saved with Fill in, not yet checked.
+  app.click('pick', 'jenkins', { kind: 'fields' }); await app.tick();
+  app.set('rec-build', 'https://ci.example.com/job/7/'); app.click('save-fields', 'jenkins'); await app.tick(40);
+  app.click('select', 'pods'); await app.tick();
+  app.set('rec-result', 'RESTARTS 0 on all three pods');
+  app.click('toggle', 'jenkins'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.jenkins.s, 'done', 'set-up: the next step was checked from its row');
+  assert.strictEqual(app.selected(), 'pods', 'never moved away from a step holding typed evidence');
+  app.click('select', 'approve'); await app.tick();
+  const row = id => { const h = app.html(), at = h.indexOf(' id="step-' + id + '"'); return h.slice(at, h.indexOf('</li>', at)); };
+  assert.ok(/<span class="s-draft">Draft<\/span>/.test(row('pods')) && !/s-draft/.test(row('approve')), 'the row says it holds a draft');
+  app.click('select', 'pods'); await app.tick();
+  assert.ok(/<textarea id="rec-result"[^>]*>RESTARTS 0 on all three pods<\/textarea>/.test(app.html()), 'back on the step, the evidence is still there');
+  app.click('record', 'pods'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.pods.values.result, 'RESTARTS 0 on all three pods');
+  assert.ok(!/s-draft/.test(app.html()), 'once used, the draft is gone');
+});
+
+rule('App: an open Fill in comes back with its values after J or K, and Cancel drops it', async () => {
+  const app = await recordingRelease();
+  app.click('pick', 'approve', { kind: 'fields' }); await app.tick();
+  app.set('fld-system', 'Jenkins (prod)'); app.set('rec-reference', 'APPROVAL-12');
+  app.key('j'); await app.tick();
+  assert.strictEqual(app.selected(), 'pods');
+  app.key('k'); await app.tick();
+  const h = app.html();
+  assert.ok(/data-scope="fields:approve"/.test(h) && /id="fld-system"[^>]*value="Jenkins \(prod\)"/.test(h) && /id="rec-reference"[^>]*value="APPROVAL-12"/.test(h), 'Fill in reopens with what was typed');
+  app.click('unpick'); await app.tick();
+  app.click('select', 'pods'); app.click('select', 'approve'); await app.tick();
+  assert.ok(!/APPROVAL-12/.test(app.html()), 'Cancel discards it');
+});
+
+rule('App: while Fill in is open, Done waits: the row\'s check and Space don\'t answer the step, and say why', async () => {
+  const app = await recordingRelease();
+  app.click('pick', 'approve', { kind: 'fields' }); await app.tick();
+  app.set('rec-reference', 'APPROVAL-12');
+  app.click('toggle', 'approve'); await app.tick(40);
+  assert.ok(!app.run().json.steps.approve || app.run().json.steps.approve.s !== 'done', 'not checked with the form still open');
+  assert.ok(/Save or cancel Fill in first/.test(app.html()), 'says why, next to Done');
+  assert.strictEqual(app.draft('rec-reference'), 'APPROVAL-12', 'nothing typed is lost');
 });
 
 run();
