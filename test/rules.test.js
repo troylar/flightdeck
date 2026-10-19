@@ -1863,7 +1863,7 @@ rule('Folder health: every issue has exactly one action, and its help is a real 
 rule('Folder health: OneDrive\'s second copies are told apart from a team\'s own dashed names', () => {
   assert.strictEqual(H.copyOf('release-LAPTOP.md', { 'release.md': true }), 'release.md');
   assert.strictEqual(H.copyOf('people (1).json', { 'people.json': true }), 'people.json');
-  assert.strictEqual(H.copyOf('deploy-DESKTOP-4F2K.json', { 'deploy.json': true }), null, 'the suffix must be one dash-free name');
+  assert.strictEqual(H.copyOf('deploy-DESKTOP-4F2K.json', { 'deploy.json': true }), 'deploy.json', 'computer names can have dashes');
   assert.strictEqual(H.copyOf('deploy-PC.json', { 'deploy.json': true }), 'deploy.json');
   assert.strictEqual(H.copyOf('deploy-prod.json', { 'deploy.json': true }), null, 'lowercase suffixes are the team\'s own names');
   assert.strictEqual(H.copyOf('release-LAPTOP.md', {}), null, 'no original, no copy');
@@ -2045,6 +2045,35 @@ rule('The connection check never says "synced" or "everyone": it proves one trip
     assert.ok(!/synced|everyone/i.test(s), where + ' says "synced" or "everyone": ' + (s.match(/.*(synced|everyone).*/i) || [''])[0]);
   });
   CN.HINTS.forEach(h => assert.ok(!/synced|everyone/i.test(h)));
+});
+
+rule('Folder health: conflict copies beside a missing or unreadable run.json still need action', () => {
+  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r9/run.conflict-restored.json', s: 10, m: HNOW }, { p: 'runs/release/r9/notes-w1.jsonl', s: 10, m: HNOW }); }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'orphans:release/r9')[0];
+  assert.ok(i && i.severity === 'stop' && i.action.act === 'recovery', 'orphaned copies are their own issue');
+  same(i.paths, ['runs/release/r9/run.conflict-restored.json']);
+  assert.ok(!rep.clear.some(c => c.id === 'copies'), 'never "No conflict copies"');
+  const loaded = H.check(healthy((s, r) => { r._conflicts = ['run-PC.json']; s.scan.list.push({ p: 'runs/release/run1/run-PC.json', s: 1, m: HNOW }); }), HNOW);
+  assert.ok(!loaded.issues.some(x => /^orphans:/.test(x.id)), 'copies of a run that loaded are listed once, on the run');
+});
+
+rule('Folder health: OneDrive copies named for a computer with dashes in its name are found; a team\'s own dashed names aren\'t', () => {
+  assert.strictEqual(H.copyOf('people-DESKTOP-ABC123.json', { 'people.json': true }), 'people.json');
+  assert.strictEqual(H.copyOf('release-LAPTOP-7Q2.md', { 'release.md': true }), 'release.md');
+  assert.strictEqual(H.copyOf('deploy-prod.json', { 'deploy.json': true }), null);
+  assert.strictEqual(H.copyOf('deploy-prod-eu.json', { 'deploy.json': true, 'deploy-prod.json': true }), null);
+  assert.strictEqual(H.copyOf('deploy-prod-PC.json', { 'deploy-prod.json': true }), 'deploy-prod.json');
+});
+
+rule('Connection check: an answer from a computer that couldn\'t read the run says its revision is unknown, never the same', () => {
+  const sent = Date.parse('2026-10-18T09:51:10Z');
+  const ack = { _file: 'ack-pq11.wb.json', probe: 'pq11', writer: 'wb', by: 'person-blake', device: 'Mac · Chrome', at: '2026-10-18T09:51:13Z', firstSeenAt: '2026-10-18T09:51:12Z', run: { key: 'release/run1', rev: 0, savedAt: null, unknown: true }, folderReadAt: null };
+  const clean = CN.clean(JSON.parse(JSON.stringify(CN.ack(Object.assign({}, ack, { probeFile: 'probe-x' })))), 'ack-pq11.wb.json');
+  assert.ok(clean.run.unknown === true, 'kept when read back');
+  const a = CN.results([{ file: 'probe-x', id: 'pq11', n: 1, at: sent, run: { key: 'release/run1', rev: 4 } }], { probes: [], acks: [ack] }, { 'ack-pq11.wb.json': sent + 4000 }, sent + 5000)[0].answers[0];
+  assert.strictEqual(a.run.state, 'unknown');
+  const words = CN.sentences({ n: 1, at: sent }, a, 'Blake', () => 'Release').join(' ');
+  assert.ok(/couldn't read "Release"/.test(words) && !/same as you/.test(words), words);
 });
 
 run();

@@ -3184,4 +3184,76 @@ rule('App: on the Connection check page, checks from other windows are answered 
   assert.ok(/You answered at/.test(b.html()));
 });
 
+/* A clock the test moves forward, for what happens minutes later. */
+function clock() { let off = 0; class D extends Date { constructor(...a) { if (a.length) super(...a); else super(Date.now() + off); } static now() { return Date.now() + off; } } return { D, ahead(ms) { off += ms; } }; }
+
+rule('App: a run whose own file stops reading says so in the run workspace, and changes to it are refused, not saved over it', async () => {
+  const app = await recordingRelease();
+  const run = app.run();
+  await app.fs.write(run.path, '{"format":"preflight-run/2","id":');
+  app.click('refresh'); await app.tick(80);
+  let html = app.html();
+  assert.ok(/class="fpe rw"/.test(html) && /couldn't be read on the last check/.test(html) && /data-act="recovery" data-id="a-file-cant-be-read"/.test(html), 'said in the run workspace');
+  const step = Object.keys(run.json.steps).find(k => run.json.steps[k].s === 'open') || 'announce';
+  app.click('na', step); await app.tick(40);
+  assert.strictEqual(app.fs.files[run.path].t, '{"format":"preflight-run/2","id":', 'nothing written over it');
+  assert.ok(/wasn(&#39;|')t changed/.test(app.html()) && !/Your last change isn't saved/.test(app.html()), 'refused before changing anything');
+});
+
+rule('App: when part of the folder can\'t be read, the run workspace says so too', async () => {
+  const app = await recordingRelease();
+  const list = app.fs.list.bind(app.fs);
+  app.fs.list = p => p === 'runs' ? Promise.reject(new Error('NotReadableError')) : list(p);
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/Part of the team folder couldn't be read/.test(app.html()) && /class="fpe rw"/.test(app.html()));
+  app.click('na', 'announce'); await app.tick(40);
+  assert.ok(/wasn(&#39;|')t changed/.test(app.html()), 'runs weren\'t read this time: changes wait');
+});
+
+rule('App: a draft that can\'t be read stays as last read, says so, and isn\'t edited or saved over', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const read = app.fs.read.bind(app.fs);
+  app.fs.read = p => p === 'maps/drafts/release.md' ? Promise.reject(new Error('NotReadableError')) : read(p);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  const html = app.html();
+  assert.ok(!/wasn't found/.test(html) && /Production release/.test(html), 'still there');
+  assert.ok(/release\.md couldn't be read on the last check/.test(html), 'marked unreadable');
+  app.click('ptab', 'edit'); await app.tick();
+  assert.ok(!/fpe-on/.test(app.bodyClasses().join(' ')) && /isn(&#39;|')t edited until it can be read/.test(app.html()), 'not opened for editing');
+});
+
+rule('App: an answer from a window that couldn\'t read the run says its revision is unknown', async () => {
+  const files = {};
+  const a = boot({ sharedFiles: files }); await a.tick(60);
+  const b = boot({ sharedFiles: files }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  a.click('connection'); await a.tick(40); a.click('conn-send'); await a.tick(60);
+  const probe = JSON.parse(files[Object.keys(files).find(k => /^connection\/probe-/.test(k))].t);
+  const read = b.fs.read.bind(b.fs);
+  b.fs.read = p => /^runs\//.test(p) && /run\.json$/.test(p) ? Promise.reject(new Error('NotReadableError')) : read(p);
+  b.click('refresh'); await b.tick(80);
+  b.click('conn-answer', Object.keys(files).find(k => /^connection\/probe-/.test(k)).split('/')[1]); await b.tick(60);
+  const ack = JSON.parse(files[Object.keys(files).find(k => /^connection\/ack-/.test(k))].t);
+  assert.ok(ack.run && ack.run.key === probe.run.key && ack.run.unknown === true, JSON.stringify(ack.run));
+});
+
+rule('App: the hints appear on their own when a check has waited 3 minutes, and an answered check stays answered after 15', async () => {
+  const c = clock(), files = {};
+  const a = boot({ sharedFiles: files, Date: c.D }); await a.tick(60);
+  const b = boot({ sharedFiles: files, Date: c.D }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  a.click('connection'); await a.tick(40); a.click('conn-send'); await a.tick(60);
+  assert.ok(!/Things to look at/.test(a.html()));
+  c.ahead(190000); a.every(); await a.tick(60);
+  assert.ok(/Things to look at/.test(a.html()), 'hints once 3 minutes pass, without a new file');
+  b.click('refresh'); await b.tick(60);
+  b.click('conn-answer', Object.keys(files).find(k => /^connection\/probe-/.test(k)).split('/')[1]); await b.tick(60);
+  c.ahead(6000); a.every(); await a.tick(60);
+  assert.ok(/1 answer/.test(a.html()) && !/Things to look at/.test(a.html()));
+  c.ahead(16 * 60000); a.every(); await a.tick(60);
+  assert.ok(/1 answer/.test(a.html()) && /saw check 1/.test(a.html()) && !/Things to look at/.test(a.html()), 'still answered after the check left the 15-minute window');
+});
+
 run();

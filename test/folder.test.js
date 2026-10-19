@@ -644,4 +644,16 @@ rule('Folder health\'s scan stops when its folder is switched, and never mixes t
   await assert.rejects(p, e => e.cancelled === true);
 });
 
+rule('Reading the whole folder keeps at most 8 folder calls in flight, even for a run with many notes files', async () => {
+  const fs = folder(); await started(fs);
+  for (let i = 0; i < 120; i++) await fs.write('runs/release/run1/notes-w' + i + '.jsonl', JSON.stringify({ id: 'n' + i, at: NOW, by: 'person-casey', text: 'hi' }) + '\n');
+  const calls = faulty(fs, { delay: 1 });
+  const d = await repo.loadAll(fs, { deep: true });
+  assert.strictEqual(d.runs[0]._notes.length, 120);
+  assert.ok(calls.max <= 8, 'at most 8 at once: ' + calls.max);
+  calls.max = 0;
+  await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(calls.max <= 8, 'rereading one run too: ' + calls.max);
+});
+
 run();

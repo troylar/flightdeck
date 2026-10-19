@@ -37,6 +37,7 @@ PF.vk = (function () {
   function freshness(ctx, r, short) {
     var st = ctx.state, now = ctx.now(), parts = [];
     if (st.folderErr) return '<span class="small" style="color:var(--stop)">Can\'t read the folder right now</span>';
+    if ((r && ((st.unread || {}).runs || {})[r.process + '/' + r.id]) || Object.keys(ctx.data.failed || {}).length) return '<span class="small" style="color:var(--stop)">Part of the folder couldn\'t be read · checked ' + esc(U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
     /* The run screen's strip: the same two facts, in fewer words. */
     if (short) return '<span class="small">' + esc((r && r.savedAt ? (ctx.recording && ctx.recording(r) ? 'Saved here ' : 'Last saved ') + U.hm(r.savedAt) + ' · ' : '') + 'Folder checked ' + U.hm(st.runReadAt || ctx.data.readAt)) + '</span>';
     if (r && r.savedAt) parts.push('saved here ' + U.hm(r.savedAt) + ' (' + ago(r.savedAt, now) + ')');

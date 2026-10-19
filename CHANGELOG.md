@@ -23,7 +23,7 @@ Team confidence: Folder health, a connection check between computers, and safer 
 ### Fixed
 
 - **A new team folder's starter checklist names you as owner** (Team folder). The starter checklist names whoever created the folder as its owner, and the folder records which Flightdeck set it up. *Where:* Settings: Start a new team folder
-- **A run file that can't be read is listed, not lost from view** (Runs). The Runs page and Folder health name the file and say it may still be arriving, the run stays as last read, and the rest of the folder loads as usual. If part of the folder can't be read, a notice says which part.
+- **A file that can't be read is listed, not lost from view** (Runs). The run or draft stays as last read and says its file couldn't be read; nothing is changed or saved over it until it reads again. The Runs page, the run itself and Folder health name the file, and the rest of the folder loads as usual.
 - **Two drafts for one process are both shown** (Processes). The process page lists both and says which one it shows, so you settle it before publishing. Folder health lists them too.
 - **Step types and skills past the limit are reported** (Step types). The first ones by name are read, and the Step types and Skills pages and Folder health say how many weren't.
 

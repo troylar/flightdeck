@@ -72,9 +72,9 @@
       {
         "kind": "fixed",
         "area": "Runs",
-        "title": "A run file that can't be read is listed, not lost from view",
-        "before": "A run whose file couldn't be read disappeared from every list, and one file that couldn't be read stopped the whole folder from loading.",
-        "now": "The Runs page and Folder health name the file and say it may still be arriving, the run stays as last read, and the rest of the folder loads as usual. If part of the folder can't be read, a notice says which part."
+        "title": "A file that can't be read is listed, not lost from view",
+        "before": "A run whose file couldn't be read disappeared from every list, a draft that couldn't be read looked deleted, and one file that couldn't be read stopped the whole folder from loading.",
+        "now": "The run or draft stays as last read and says its file couldn't be read; nothing is changed or saved over it until it reads again. The Runs page, the run itself and Folder health name the file, and the rest of the folder loads as usual."
       },
       {
         "kind": "fixed",

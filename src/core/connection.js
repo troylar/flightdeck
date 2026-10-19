@@ -31,7 +31,7 @@ PF.connection = (function () {
   function runRef(v, withSaved) {
     if (!v || typeof v !== 'object' || typeof v.key !== 'string' || !/^[a-z0-9][a-z0-9-]*\/[a-z0-9-]{1,40}$/i.test(v.key)) return null;
     var r = { key: v.key, rev: Math.max(0, parseInt(v.rev, 10) || 0) };
-    if (withSaved) r.savedAt = iso(v.savedAt);
+    if (withSaved) { r.savedAt = iso(v.savedAt); if (v.unknown === true) r.unknown = true; }
     return r;
   }
   function probe(o) { return { kind: 'connection-probe', cv: CV, id: o.id, n: o.n, by: o.by, writer: o.writer, device: o.device, at: o.at, app: o.app, run: o.run || null, seen: (o.seen || []).slice(-20) }; }
@@ -77,7 +77,7 @@ PF.connection = (function () {
         var behind = s.at - theirSeen, ahead = here != null ? theirAt - here : 0, skew = null;
         if (behind > SLACK_MS) skew = { dir: 'behind', ms: behind }; else if (ahead > SLACK_MS) skew = { dir: 'ahead', ms: ahead };
         var run = null;
-        if (s.run) run = !a.run || a.run.key !== s.run.key ? { state: 'missing', key: s.run.key, mine: s.run.rev } : { state: a.run.rev === s.run.rev ? 'same' : a.run.rev < s.run.rev ? 'behind' : 'ahead', key: s.run.key, mine: s.run.rev, theirs: a.run.rev };
+        if (s.run) run = !a.run || a.run.key !== s.run.key ? { state: 'missing', key: s.run.key, mine: s.run.rev } : a.run.unknown ? { state: 'unknown', key: s.run.key, mine: s.run.rev } : { state: a.run.rev === s.run.rev ? 'same' : a.run.rev < s.run.rev ? 'behind' : 'ahead', key: s.run.key, mine: s.run.rev, theirs: a.run.rev };
         return { ack: a, theirSeen: theirSeen, oneWay: skew ? null : Math.max(0, theirSeen - s.at), roundTrip: here != null ? Math.max(0, here - s.at) : null, skew: skew, run: run };
       });
       var wait = now - s.at;
@@ -106,6 +106,7 @@ PF.connection = (function () {
     if (ans.run) {
       var name = '"' + title(ans.run.key) + '"';
       out.push(ans.run.state === 'missing' ? 'They don\'t have ' + name + ' yet. Yours is at revision ' + ans.run.mine + '.'
+        : ans.run.state === 'unknown' ? 'Their Flightdeck couldn\'t read ' + name + ' just now, so which revision they have is unknown. Yours is at revision ' + ans.run.mine + '.'
         : ans.run.state === 'same' ? 'They have ' + name + ' at revision ' + ans.run.theirs + ', the same as you.'
         : ans.run.state === 'behind' ? 'They have ' + name + ' at revision ' + ans.run.theirs + '; you have ' + ans.run.mine + '. Their copy is behind.'
         : 'They have ' + name + ' at revision ' + ans.run.theirs + ', newer than your ' + ans.run.mine + '. Yours is behind.');

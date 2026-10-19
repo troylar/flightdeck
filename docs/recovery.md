@@ -18,6 +18,8 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 2. The recorder chooses **Keep this one** on the right copy. The current version is saved beside it first as `replaced-*.json`, so it can still be read.
 3. Anything only the other copy has (a step checked there, a note) has to be redone by hand in the kept version. Then **Delete** the copy you didn't keep.
 
+**If there's no `run.json`:** Folder health lists copies of a run that didn't load when the run's own `run.json` is missing or can't be read. Wait a few minutes for OneDrive; if it doesn't arrive, restore `run.json` from a backup or OneDrive's version history (see [A file can't be read](#a-file-cant-be-read)), then compare the copies in the run as above.
+
 **What not to do:** don't delete or rename copies in the folder by hand, and don't edit `run.json`. Nothing is merged for you: if both copies have answers you need, keep one and redo the other's answers in the app.
 
 ## OneDrive made a copy of a draft, people.json or a step type

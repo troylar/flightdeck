@@ -309,12 +309,30 @@
   var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], runs: ['runs'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
+    var unread = { runs: {}, drafts: {} };
     (d.unreadable || []).forEach(function (u) {
+      if (u.draft) {
+        unread.drafts[u.draft] = u.why;
+        var od = data.drafts.filter(function (x) { return x.file === u.draft; })[0];
+        if (od && !d.drafts.some(function (y) { return y.file === od.file; })) d.drafts.push(od);
+        return;
+      }
       if (!u.key) return;
+      unread.runs[u.key] = u.why;
       var old = data.runs.filter(function (x) { return x.process + '/' + x.id === u.key; })[0];
       if (old && !d.runs.some(function (y) { return y.process === old.process && y.id === old.id; })) d.runs.push(old);
     });
+    state.unread = unread;
   }
+  /* Why a run can't be changed right now because its own latest read failed (or runs weren't read this time), or ''. The
+     version on screen is the last one read; nothing is written over a file this copy couldn't read. */
+  function runUnread(r) {
+    var key = r.process + '/' + r.id, u = state.unread || {};
+    if (u.runs && u.runs[key]) return 'This run\'s file couldn\'t be read on the last check (' + u.runs[key] + ').';
+    if ((data.failed || {}).runs) return 'The runs in the team folder couldn\'t be read on the last check.';
+    return '';
+  }
+  function draftUnread(p) { var f = p && p.draft && p.draft.file, u = (state.unread || {}).drafts || {}; return f && u[f] ? f + ' couldn\'t be read on the last check (' + u[f] + ').' : ''; }
 
   /* ---------- Folder health (on demand) ---------- */
   var healthMemo = null;
@@ -365,6 +383,11 @@
       if (g !== gen) return;
       var t = Date.now(), seen = state.connSeen = state.connSeen || {};
       list.probes.concat(list.acks).forEach(function (x) { if (seen[x._file] == null) seen[x._file] = t; });
+      /* Answers to this window's own checks stay once seen, so an answered check never turns unanswered when it leaves the
+         15-minute window. */
+      var mine = (state.connSent || []).map(function (x) { return x.id; }), kept = state.connKept = state.connKept || {};
+      list.acks.forEach(function (a) { if (mine.indexOf(a.probe) >= 0) kept[a._file] = a; });
+      Object.keys(kept).forEach(function (f) { if (!list.acks.some(function (a) { return a._file === f; })) list.acks.push(kept[f]); });
       var was = connSig(state.conn); state.conn = list;
       if (state.view === 'connection') PF.connection.pending(list, WRITER, null).forEach(function (p) { answerConn(p, true); });
       if (connSig(list) !== was) render();
@@ -376,7 +399,7 @@
     busy[p._file] = true;
     var fs = state.fs, g = gen, run = p.run ? ctx.findRun(p.run.key) : null, seenAt = (state.connSeen || {})[p._file] || Date.now();
     var rec = { probe: p.id, probeFile: p._file, by: state.me, writer: WRITER, device: ctx.device(), at: new Date().toISOString(), firstSeenAt: new Date(seenAt).toISOString(), app: APP_VERSION,
-      run: p.run && run ? { key: p.run.key, rev: run.rev || 0, savedAt: run.savedAt || null } : null, folderReadAt: data.readAt };
+      run: !p.run ? null : run && runUnread(run) ? { key: p.run.key, rev: 0, savedAt: null, unknown: true } : run ? { key: p.run.key, rev: run.rev || 0, savedAt: run.savedAt || null } : (data.failed || {}).runs ? { key: p.run.key, rev: 0, savedAt: null, unknown: true } : null, folderReadAt: data.readAt };
     queued(function () { return repo.sendAck(fs, rec); }).then(function (name) {
       if (g !== gen) return;
       (state.connAnswered = state.connAnswered || []).push({ probe: p.id, file: name, at: Date.now(), by: p.by });
@@ -400,7 +423,7 @@
       state.connSending = false; state.connN = n;
       (state.connSent = state.connSent || []).push({ file: name, id: id, n: n, at: at, run: rec.run });
       (state.connSeen = state.connSeen || {})[name] = at;
-      say('Check ' + n + ' sent. Waiting for another computer to answer.', 'good');
+      say('Check ' + n + ' sent. Waiting for another computer to answer.', 'good'); state.msg.quiet = true;
       queued(function () { return repo.cleanConnection(fs, Date.now()); }).catch(function () {});
       render();
       return loadConn();
@@ -411,14 +434,18 @@
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
     var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
-    var p = repo.loadRun(state.fs, r.process, r.id).then(function (f) {
+    var key = r.process + '/' + r.id, bad = [], mark = function (why) { var u = state.unread = state.unread || { runs: {}, drafts: {} }; u.runs = Object.assign({}, u.runs); if (why) u.runs[key] = why; else delete u.runs[key]; };
+    var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
+      var was = runUnread(r);
+      mark(bad.length ? bad[0].why : null);
+      if (!!was !== !!runUnread(r)) render();
       loading = null; state.folderErr = null; state.runReadAt = new Date().toISOString();
       if (!f || !canReplace(r.id, revs)) { renderTop(); return; }
       if (f._fileHash !== r._fileHash) { bump(r.id); flashChanged(r, f); }
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = f;
       if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before) render(); else { renderTop(); updateFreshness(); }
-    }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
+    }, function (e) { if (g !== gen) return; loading = null; mark('couldn\'t be read (' + (e.message || String(e)) + ')'); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -434,7 +461,7 @@
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
-    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; connListing = false;
+    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -801,8 +828,14 @@
     if (planSig !== null && sig !== planSig) render();
     planSig = sig;
   }
+  var hintsShown = 0;
   function tick() {
     var now = Date.now(), soonest = null;
+    /* A check that has waited 3 minutes without an answer shows what to look at, without waiting for a new file. */
+    if (state.view === 'connection') {
+      var waits = PF.connection.results(state.connSent || [], state.conn, state.connSeen || {}, now).filter(function (r) { return r.hint; }).length;
+      if (waits !== hintsShown) { hintsShown = waits; later(); }
+    }
     document.querySelectorAll('[data-since]').forEach(function (el) {
       var ms = now - new Date(el.dataset.since) - (+el.dataset.offset || 0), exp = +el.dataset.expect || 0;
       el.textContent = U.clock(ms); el.classList.toggle('over', !!exp && ms > exp);
@@ -973,6 +1006,8 @@
   function saveDraftText(p, text, expectHash, okMsg, opts) {
     opts = opts || {};
     var sfs = state.fs, g = gen, key = fsKey(), file = p.draft ? p.draft.file : p.id + '.md', sk = edKey(p.id, key);
+    var dw = draftUnread(p);
+    if (dw) { say(dw + ' Nothing was saved over it. Choose Refresh, then save again.', 'warn'); render(); return; }
     if (state.draftSaving[sk]) { say('Still saving this draft. Try again in a moment.', 'warn'); render(); return; }
     state.draftSaving[sk] = opts.replace ? 'restore' : 'save';
     /* The changes this save carries, so History can say they were saved; typing after it starts a new unit. */
@@ -1627,6 +1662,8 @@
     if (!r) return Promise.resolve(false);
     /* A run on a version this copy can't fully read is view-only for everyone here: no recording, take over or recovery. */
     if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return Promise.resolve(false); }
+    var unreadWhy = runUnread(r);
+    if (unreadWhy) { say(unreadWhy + ' The run wasn\'t changed. Choose Refresh once the file can be read.', 'warn'); render(); return Promise.resolve(false); }
     /* While a copy is being kept or restored, nothing else may change the run; the person is told to wait. */
     if (state.recovering && !opts.recovery) { say('Wait until the copy is kept, then try again.', 'warn'); render(); return Promise.resolve(false); }
     /* Recovery applies only to the exact contents it backed up: same object and same contents. */
@@ -1777,7 +1814,7 @@
     ptab: function (id) {
       if (['overview', 'edit', 'insights'].indexOf(id) < 0) return;
       state.ptab = id; state.pick = null;
-      if (id === 'edit') { var p = currentProcess(); if (p && state.draftSaving[edKey(p.id)] === 'restore') { state.ptab = 'overview'; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return; } if (p) openEditor(p); state.mapVer = null; }
+      if (id === 'edit') { var p = currentProcess(); var dw = draftUnread(p); if (dw) { state.ptab = 'overview'; say(dw + ' The draft isn\'t edited until it can be read, so nothing is saved over it. Choose Refresh.', 'warn'); render(); return; } if (p && state.draftSaving[edKey(p.id)] === 'restore') { state.ptab = 'overview'; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return; } if (p) openEditor(p); state.mapVer = null; }
       state.focus = id === 'edit' ? 'draft-editor' : id === 'insights' ? '[data-act="ptab"][data-id="overview"]' : 'cl-h';
       render(); window.scrollTo(0, 0);
     },

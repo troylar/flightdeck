@@ -24,13 +24,18 @@ PF.health = (function () {
   function nameOf(people, id) { for (var i = 0; i < people.length; i++) if (people[i].id === id) return people[i].name; return id || 'nobody'; }
   function help(anchor, label) { return { act: 'recovery', id: anchor, label: label || 'What to do' }; }
 
-  /* "release-LAPTOP.md" next to "release.md", or "people (1).json" next to "people.json": OneDrive keeping both saves. A
-     dash suffix counts only with a capital letter in it (computer names), so "deploy-prod.json" beside "deploy.json" doesn't. */
+  /* "release-LAPTOP.md" or "people-DESKTOP-ABC123.json" next to the original, or "people (1).json": OneDrive keeping both
+     saves. A dash suffix counts only with a capital letter in it (computer names, which may have dashes of their own), so
+     "deploy-prod.json" beside "deploy.json" doesn't. */
   function copyOf(name, siblings) {
     var m = /^(.*) \(\d+\)(\.[^.]+)?$/.exec(name);
     if (m && siblings[m[1] + (m[2] || '')]) return m[1] + (m[2] || '');
-    m = /^(.+)-([^-\s.]*[A-Z][^-\s.]*)(\.[A-Za-z0-9]+)$/.exec(name);
-    if (m && siblings[m[1] + m[3]]) return m[1] + m[3];
+    m = /^(.+)(\.[A-Za-z0-9]+)$/.exec(name);
+    if (!m) return null;
+    for (var i = m[1].indexOf('-'); i > 0; i = m[1].indexOf('-', i + 1)) {
+      var base = m[1].slice(0, i) + m[2], suffix = m[1].slice(i + 1);
+      if (siblings[base] && /^[A-Za-z0-9_]+(-[A-Za-z0-9_]+)*$/.test(suffix) && /[A-Z]/.test(suffix)) return base;
+    }
     return null;
   }
   /* Where OneDrive copies matter: files with one writer that people or assistants edit by name. Run folders have their own
@@ -82,6 +87,12 @@ PF.health = (function () {
     /* ---- conflict copies and OneDrive copies ---- */
     var conflicted = runs.filter(function (r) { return r._conflicts && r._conflicts.length; });
     conflicted.forEach(function (r) { add({ id: 'conflicts:' + r.process + '/' + r.id, severity: 'stop', area: 'Runs', title: '"' + r.title + '" has ' + plural(r._conflicts.length, 'other version'), detail: 'Two windows saved it without seeing each other. Compare the copies and keep the right one; nothing is merged for you.', paths: r._conflicts.map(function (n) { return 'runs/' + r.process + '/' + r.id + '/' + n; }), action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Compare copies' }, help: HELP.conflicts }); });
+    /* Conflict copies in a run folder whose run.json is missing or couldn't be read: no run page lists them, so they're
+       found by name. */
+    var orphans = Object.create(null), loadedRuns = Object.create(null);
+    runs.forEach(function (r) { loadedRuns[r.process + '/' + r.id] = true; });
+    if (scan) scan.list.forEach(function (f) { var m = /^runs\/([^/]+\/[^/]+)\/([^/]+)$/.exec(f.p); if (m && !loadedRuns[m[1]] && m[2] !== 'run.json' && /^run.*\.json$/i.test(m[2])) (orphans[m[1]] = orphans[m[1]] || []).push(f.p); });
+    Object.keys(orphans).sort().forEach(function (k) { add({ id: 'orphans:' + k, severity: 'stop', area: 'Runs', title: plural(orphans[k].length, 'copy', 'copies') + ' of a run that didn\'t load', detail: 'runs/' + k + ' has other versions of a run, but its run.json is missing or can\'t be read, so no run page shows them. Wait for OneDrive, or restore run.json from a backup; then compare the copies in the run.', paths: orphans[k], action: help(HELP.conflicts), help: HELP.conflicts }); });
     var shared = sharedDrafts(d.drafts);
     shared.forEach(function (s) { add({ id: 'shared:' + s.process, severity: 'stop', area: 'Checklists', title: plural(s.files.length, 'draft') + ' say process: ' + s.process, detail: 'Flightdeck shows only one of them, so you may publish the wrong one. Agree which is right, copy anything missing into it, and delete the other.', paths: s.files.map(function (f) { return 'maps/drafts/' + f; }), action: help(HELP.copies), help: HELP.copies }); });
     var copies = [];
@@ -94,7 +105,7 @@ PF.health = (function () {
     copies = copies.filter(function (c) { return !sharedPaths[c.path]; });
     if (copies.length) add({ id: 'copies', severity: 'stop', area: 'Files', title: copies.length === 1 ? 'OneDrive kept a second copy of ' + copies[0].of : 'OneDrive kept ' + plural(copies.length, 'second copy', 'second copies') + ' of files',
       detail: 'Two people saved the same file before OneDrive delivered the first save. Decide which is right, copy anything missing into it, and delete the other.', paths: copies.map(function (c) { return c.path; }), action: help(HELP.copies), help: HELP.copies });
-    if (!conflicted.length && !shared.length && !copies.length) ok('copies', scan ? 'No conflict copies, and no second copies from OneDrive.' : 'No run has conflict copies.');
+    if (!conflicted.length && !shared.length && !copies.length && !Object.keys(orphans).length) ok('copies', scan ? 'No conflict copies, and no second copies from OneDrive.' : 'No run has conflict copies.');
 
     /* ---- publications ---- */
     var clashes = 0, arriving = [], stuck = [], newerPubs = [];

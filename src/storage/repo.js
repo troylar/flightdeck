@@ -18,11 +18,11 @@ PF.repo = (function () {
   function loadDrafts(fs) {
     return fs.list('maps/drafts').then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.md$/i.test(i.name); }).map(function (i) {
-        return fs.read('maps/drafts/' + i.name).then(function (f) { return f ? { file: i.name, md: f.text, mtime: f.mtime } : null; }, function (e) { return { unread: 'maps/drafts/' + i.name, why: why(e) }; });
+        return fs.read('maps/drafts/' + i.name).then(function (f) { return f ? { file: i.name, md: f.text, mtime: f.mtime } : null; }, function (e) { return { unread: 'maps/drafts/' + i.name, file: i.name, why: why(e) }; });
       }));
     }).then(function (x) {
       var out = x.filter(function (d) { return d && !d.unread; });
-      out.unreadable = x.filter(function (d) { return d && d.unread; }).map(function (d) { return { path: d.unread, why: d.why }; });
+      out.unreadable = x.filter(function (d) { return d && d.unread; }).map(function (d) { return { path: d.unread, draft: d.file, why: d.why }; });
       return out;
     });
   }
@@ -182,6 +182,7 @@ PF.repo = (function () {
      one run (the open one) also checks its own publication. */
   /* bad: a list that a run.json which can't be understood is added to (it's never just left out). */
   function loadRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
+    cacheIn = cacheIn || cacheOf(fs); fs = bounded(fs);
     var base = 'runs/' + proc + '/' + id + '/';
     function withPublication(res) {
       if (allRuns) return res;
@@ -287,8 +288,18 @@ PF.repo = (function () {
   /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
      A folder that can't be listed, or where every part fails, is an unreadable folder. */
   var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections'];
+  /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
+     Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
+     folder itself. */
+  function bounded(fs) {
+    if (fs._bounded) return fs;
+    var go = pool(8), b = Object.create(fs);
+    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof fs[m] === 'function') b[m] = function (p) { return go(function () { return fs[m](p); }); }; });
+    b._bounded = true;
+    return b;
+  }
   function loadAll(fs, opts) {
-    var cache = cacheOf(fs), deep = !!(opts && opts.deep), failed = {}, errs = [];
+    var cache = cacheOf(fs); fs = bounded(fs); var deep = !!(opts && opts.deep), failed = {}, errs = [];
     var EMPTY = [[], [], [], { runs: [], unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], []];
     /* The folder itself must list: one that can't is unreadable, never empty. */
     return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep), loadLegacy(fs),
