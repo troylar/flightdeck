@@ -358,8 +358,8 @@
   /* ---------- one skill: what it is, where it lives, what it follows, and whether it still matches ---------- */
   var STATUS_WORDS = {
     current: ['passed', 'In step', ''],
-    unaffected: ['open', 'Note the new version', 'Copy the brief for your LLM to note it.'],
-    update: ['failed', 'Needs an update', 'Give your LLM the update brief: it has the exact before and after.'],
+    unaffected: ['open', 'Note the new version', 'Copy the brief for your AI assistant to note it.'],
+    update: ['failed', 'Needs an update', 'Give your AI assistant the update brief: it has the exact before and after.'],
     missing: ['failed', 'Check it', '']
   };
   function skillPage(ctx) {

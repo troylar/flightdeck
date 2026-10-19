@@ -166,7 +166,8 @@ PF.corrections = (function () {
   /* Corrections that propose the same change to the same step as it was (the same signature) are one group: the same fix
      suggested in several runs. Its ID comes from that content, so every computer names it the same. */
   function groupKey(c) {
-    var ch = c.change, k = ch.op === 'wording' ? norm(ch.to).toLowerCase() : ch.op === 'add' ? ch.where + '|' + norm(ch.text).toLowerCase() : ch.op === 'move' ? JSON.stringify(ch.to) : ch.op === 'roles' ? ch.to.join(',') : ch.op === 'screenshot' ? c.id : ch.op === 'remove' ? '' : c.id;
+    /* Exact apart from spacing: wording can hold commands and paths, where case matters. */
+    var ch = c.change, k = ch.op === 'wording' ? norm(ch.to) : ch.op === 'add' ? ch.where + '|' + norm(ch.text) : ch.op === 'move' ? JSON.stringify(ch.to) : ch.op === 'roles' ? ch.to.join(',') : ch.op === 'screenshot' ? c.id : ch.op === 'remove' ? '' : c.id;
     return [c.process, c.target.step || 'phase:' + c.target.phase, c.sig || c.from || '', ch.op, k].join('\n');
   }
   function groups(list) {

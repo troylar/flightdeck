@@ -70,7 +70,7 @@
   /* Skills built from this process: one row each, opening the skill's own page. */
   function skillsPanel(ctx, p) {
     var h = '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>';
-    if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off below, copy its brief for your LLM.</p></section>';
+    if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off below, copy its brief for your AI assistant.</p></section>';
     return h + '<ul class="plist">' + p.skills.map(function (x) {
       var s = x.skill, pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;
       return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + esc(s.name) + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span></button></li>';
@@ -88,7 +88,7 @@
     var st = ctx.state, ready = PF.skills.readiness(ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
     var h = '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
     if (signs.length) {
-      h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your LLM</button>' + briefBox(st, 'create:' + p.id);
+      h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
     } else if (!ready.enough) {
       h += '<p class="small"><b>Not yet.</b> ' + ready.clean + ' of ' + ready.needed + ' clean runs of v' + pub.info.version + '.</p>';
     } else if (st.me && (!owner || owner === st.me)) {

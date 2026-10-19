@@ -16,8 +16,9 @@ Runs get a workspace of their own, corrections replace Suggest a fix, and notes 
 ### Improved
 
 - **A run fills the window** (Runs). A run is a page of its own: a slim header with 7/14 answered, a strip saying who's recording with Pause, Hand off, Pick up or Take over beside it, then three panes that each scroll on their own: Phases, the checklist and the selected step. The strip also says what this window saved and when it checked the folder; a failed save or a conflict shows there with Try again or Compare copies. *Where:* Runs: open any run.
-- **What you type stays with its step** (Runs). Evidence typed into a step, an open Fill in and an unsent note stay with that step while you move around the run, and come back when you return; the row says Draft. Checking another step never moves you away from one. While Fill in is open, Done waits and says "Save or cancel Fill in first." *Where:* A run.
+- **What you type stays with its step** (Runs). Evidence typed into a step, an open Fill in and an unsent note stay with that step while you move around the run, and come back when you return; the row says Draft. Drafts belong to their team folder. Checking a step (row, Done, Space or Done differently) uses what was typed on that step only. While its Fill in is open or unsaved, Done waits and says "Save or cancel Fill in first." *Where:* A run.
 - **Keyboard, phones and screen share** (Runs). J and K open a folded phase they move into, X works like Space, and a held key checks one step. On a phone a step opens as a full-screen sheet with Close, Previous and Next. Screen share shows who's recording, a pause, and why a step is blocked; Back to the run returns to the same step and scroll. *Where:* A run. Press ? for the keys.
+- **Plain words for your AI assistant** (Skills). Flightdeck now says "your AI assistant" everywhere: copy the brief for your AI assistant, and it builds or updates the skill. *Where:* Skills, and a process page: Skills.
 
 ### Fixed
 
@@ -93,7 +94,7 @@ Clear sections, and templates and step types you manage in the app.
 
 ### Fixed
 
-- **The right words after copying a brief** (Skills). Copying a skill brief says to paste it to your LLM, and gate approvals in the checklist preview show as formatted text.
+- **The right words after copying a brief** (Skills). Copying a skill brief says to paste it to your AI assistant, and gate approvals in the checklist preview show as formatted text.
 
 ## 1.9.1 · Oct 18, 2026
 
@@ -111,8 +112,8 @@ Process-to-skill traceability, values that flow through a run, and a hierarchy f
 
 - **Install with npm** (Install). npm install -g @troylar/flightdeck, then flightdeck open to try it, flightdeck install <team folder> to put the app there, and flightdeck skills <team folder> to add the skills for your AI assistant. No dependencies, nothing runs on install, no network. *Where:* A terminal.
 - **See which skills implement each process** (Skills). Each process page lists the skills built from it: where each lives (any repo or folder), its own version, the process version it follows, and the steps it covers or the whole process. The map marks covered steps. *Where:* Skills, on a process page; Home → Skills.
-- **Know when a process change affects a skill** (Skills). When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your LLM. *Where:* Copy update brief, on a skill.
-- **Prove a version, then turn it into a skill** (Skills). Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an LLM needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant. *Where:* Ready for a skill?, on a process page.
+- **Know when a process change affects a skill** (Skills). When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your AI assistant. *Where:* Copy update brief, on a skill.
+- **Prove a version, then turn it into a skill** (Skills). Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an AI assistant needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant. *Where:* Ready for a skill?, on a process page.
 - **Organize processes and skills in a hierarchy, with tags** (Library). Maps and skills say group: (like Engineering / Releases) and tags:. Home shows processes and skills as foldable trees, filtered by tag. *Where:* Home → Processes and Skills.
 - **Let a step set a run detail** (Checklists). A step can say sets: tag. Checking it asks for the tag and saves it as a run detail, so every later ^tag (commands, messages, Jira fields) uses it. The start form leaves it out and says which step fills it in. Correcting it later sends the steps that used the old value back for a re-check. *Where:* sets: in a map; the example release's merge step sets the release tag.
 

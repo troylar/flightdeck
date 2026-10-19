@@ -541,7 +541,7 @@ PF.repo = (function () {
   }
 
   /* Save a text file only if it's still exactly what the editor started from (expect: that text's fingerprint, or null for
-     "doesn't exist yet"). If someone (a person or an LLM) changed it meanwhile, nothing is written and their version comes
+     "doesn't exist yet"). If someone (a person or an AI assistant) changed it meanwhile, nothing is written and their version comes
      back, so two editors over a shared folder never silently overwrite each other. */
   function saveChecked(fs, path, text, expect, opts) {
     var go = function () {

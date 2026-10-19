@@ -444,7 +444,7 @@
     /* Record the result: evidence to type before Done, what was recorded, and Fill in for values known later. */
     var recFields = R.evidenceFor(r, st, R.fieldsOf(r, st)).list, editable = T.editable(t), showRec = recordShown(ctx, r, map, st.id);
     var dr = (ctx.stepDraft && ctx.stepDraft(st.id)) || { record: {}, fields: {}, note: '' };
-    var valueOf = function (d) { var saved = a && a.values && a.values[d.name]; if (saved) return saved; return d.source ? PF.jira.resolve(d.source, r.details, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }) : ''; };
+    var valueOf = function (d) { return evidenceDefault(ctx, r, st, d); };
     var recBody = '';
     if (s.pick && s.pick.id === st.id && s.pick.kind === 'fields') {
       /* Choices made in this form but not saved yet (an action) decide which other fields and evidence it shows. */
@@ -640,5 +640,12 @@
     return h + '</div>';
   }
 
+  /* What an evidence box shows before anything is typed: the saved value, else one a Jira workflow fills in from the run. */
+  function evidenceDefault(ctx, r, s, d) {
+    var a = r.steps[s.id], saved = a && a.values && a.values[d.name];
+    if (saved) return saved;
+    return d.source ? PF.jira.resolve(d.source, r.details, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }) : '';
+  }
+  V.evidenceDefault = evidenceDefault;
   V.run = run; V.recordShown = recordShown; V.runSel = selOf; K.ferr = ferr; K.fieldInput = fieldInput;
 })();

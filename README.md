@@ -20,7 +20,7 @@ Every team has processes that live in someone's head: the release, the check-in,
 
 It's **one HTML file**. No server, no sign-in, no network, no AI inside. It works offline in Edge or Chrome and keeps everything in a folder your team already shares.
 
-<p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/run-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" alt="A release in progress: run details including a release tag set by an earlier step, roles, phases on the left with their gates, the current phase, and step notes on the right" width="1000"></picture></a></p>
+<p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/run-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" alt="A release in progress on the full-page run screen: a slim header with 7/14 answered, a strip saying you're recording with Pause and Hand off and the run's details, Phases with each gate's state, the checklist with Next up pinned at its top, and the selected step with what to do, its timing, Record the result, Done, Done differently and Blocked" width="1000"></picture></a></p>
 
 <br>
 
@@ -88,9 +88,9 @@ Then open `flightdeck.html` from the team folder, go to **Settings → Open team
 <tr>
 <td valign="top">
 
-**A process** is one page: its checklist with skill badges, whether it's ready for a skill, its skills, versions and recent runs.
+**A process** is one page: its checklist with skill badges, the Corrections people recorded during runs, whether it's ready for a skill, its skills, versions and recent runs.
 
-<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/process-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-light.png" alt="The Production release process: the v2 checklist, Ready for a skill, two skills marked needs update, versions and recent runs"></picture></a>
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/process-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/process-light.png" alt="The Production release process: the v2 checklist with skill badges, How runs go, Start a run and Plan a run, and its Corrections panel with two open corrections"></picture></a>
 
 </td>
 <td valign="top">
@@ -154,20 +154,20 @@ The **Builder** edits a draft as an outline: drag a step or press Alt+Up / Alt+D
 
 **Correct this step** during a run: it starts on the wording, with a live Before/After redline, and **Change something else** covers a missing step, the order, who does it, a screenshot, removing the step, or any other problem. The checklist's own text stays on screen.
 
-<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fix-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fix-light.png" alt="Correct this step during a run: the checklist's text, the suggested wording and a Before/After redline"></picture></a>
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/correction-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/correction-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/correction-light.png" alt="Correct this step during a run: the checklist's text, the suggested wording, a Before/After redline, why, and Attach for files"></picture></a>
 
 </td>
 <td valign="top">
 
 **Corrections** on the process page, grouped by step: the same correction from several runs shows once, "Suggested in 3 runs". Mark one as applied, decline it with a reason, or reopen it, and copy a correction brief for your AI assistant.
 
-<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/fixes-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/fixes-light.png" alt="Corrections on the process page: one suggested in two runs with Mark as applied and Decline, one applied to the draft, one declined with a reason"></picture></a>
+<a href="https://github.com/troylar/flightdeck/blob/main/docs/images/corrections-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/corrections-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/corrections-light.png" alt="Corrections on the process page: a wording change suggested in two runs, with the runs listed, and a missing step, each with Mark as applied and Decline, then Copy correction brief"></picture></a>
 
 </td>
 </tr>
 </table>
 
-**A run** fills the window, like the editor. The header says how far it is (`7/14 answered`); a strip under it says who's recording, with **Pause** and **Hand off** (or **Pick up**, **Record here**, **Take over**) right beside it, and what this window saved and when it last checked the folder. Below, three panes scroll on their own: **Phases** with each gate's state, the **checklist** with **Next up** pinned at its top, and the **selected step**: how to do it, the values to copy, the evidence to record, **Done**, **Done differently** (say what happened, and fix the checklist too if it should change), **Blocked** and **N/A**, then the step's corrections and notes. Check the step Next up points at and the next one is selected, ready for **Space**; typed evidence, Fill in values and notes stay with their step when you move around. Notes and corrections take files: drop them on the note box, paste, or **Attach** (images, PDF, text and logs, CSV, JSON, YAML and .zip, up to 10 MB each). On a phone the checklist scrolls and a step opens as a full-screen sheet.
+**A run** fills the window, like the editor. The header says how far it is (`7/14 answered`); a strip under it says who's recording, with **Pause** and **Hand off** (or **Pick up**, **Record here**, **Take over**) right beside it, and what this window saved and when it last checked the folder. Below, three panes scroll on their own: **Phases** with each gate's state, the **checklist** with **Next up** pinned at its top, and the **selected step**: how to do it, the values to copy, the evidence to record, **Done**, **Done differently** (say what happened, and fix the checklist too if it should change), **Blocked** and **N/A**, then the step's corrections and notes. Check the step Next up points at and the next one is selected, ready for **Space**. The row's check, **Done**, **Space** and **Done differently** all answer that one step with the evidence typed on it. Typed evidence, Fill in values and unsent notes stay with their step (and their team folder) when you move around, and the row says **Draft**; while a step's Fill in is open or unsaved, Done says "Save or cancel Fill in first." Notes and corrections take files: drop them on the note box, paste, or **Attach** (images, PDF, text and logs, CSV, JSON, YAML and .zip, up to 10 MB each). On a phone the checklist scrolls and a step opens as a full-screen sheet.
 
 <br>
 
@@ -394,7 +394,7 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 people.json            who's on the team
 maps/drafts/           checklists being written (Markdown)
 publications/          published versions, frozen (Flightdeck writes these)
-runs/                  one folder per run: run.json, everyone's notes, screenshots
+runs/                  one folder per run: run.json, everyone's notes and corrections, attached files
 skills/                skill registrations: each skill's source, what it implements
 validations/           owners' sign-offs that a version is ready for a skill
 corrections/           decisions on corrections (applied, declined, reopened, withdrawn), each a file written once
@@ -422,7 +422,7 @@ Every file has exactly one writer, which keeps ordinary use of a shared folder f
 | `/flightdeck-new-checklist` | Turns a runbook, notes or a conversation into a checklist |
 | `/flightdeck-edit-checklist` | Changes a checklist and keeps its step IDs |
 | `/flightdeck-review-checklist` | Checks a checklist for format errors and quality, without changing it |
-| `/flightdeck-learn-from-runs` | Turns what actually happened in runs into suggested checklist changes |
+| `/flightdeck-learn-from-runs` | Reads runs and their corrections and proposes checklist changes |
 | `/flightdeck-plan-run` | Plans the next run, rotating roles fairly |
 | `/flightdeck-status` | Summarizes the folder: what needs a person, what's running, what's stale |
 | `/flightdeck-new-step-type` | Creates or changes a team step type from a description |
@@ -488,6 +488,13 @@ Yes. Ask your AI assistant to draft a checklist from an existing skill, publish 
 <summary><b>Can people edit checklists in the app, or only the AI assistant?</b></summary>
 
 Both. The app's editor and your AI assistant write the same draft files. The app saves only over the version you opened and shows both when they differ; since a shared folder can't lock a file, edit a draft with one of them at a time.
+
+</details>
+
+<details>
+<summary><b>The checklist was wrong during a run. What do I do?</b></summary>
+
+Select the step and choose **Correct this step** (or press C): change its wording with a live Before/After, or choose **Change something else** for a missing step, the order, who does it, a screenshot or removing it. Attach files to show why. It never answers the step. If you already did the step another way, use **Done differently** beside Done and choose **Fix the checklist too**. Corrections wait on the process page, grouped by step, where anyone marks one as applied to the draft or declines it with a reason. Then edit the draft and publish as usual.
 
 </details>
 

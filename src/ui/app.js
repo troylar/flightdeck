@@ -502,12 +502,12 @@
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
     var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess };
     tfPreviewFits();
-    if (drawn && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
+    if (drawn && drawn.fs === fsKey() && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
     var page = (PAGES[v] || V.home)(ctx), was = drawn;
     patch(app, page);
     noteDrawn(page);
     /* Boxes drafts own (evidence, Fill in, the note) are carried by their step's draft, never from another step or form. */
-    var moved = !!drawn && !(was && was.key === drawn.key && was.sel === drawn.sel && was.kind === drawn.kind);
+    var moved = !!drawn && !(was && was.fs === drawn.fs && was.key === drawn.key && was.sel === drawn.sel && was.kind === drawn.kind);
     if (moved) drawn.ids.forEach(function (id) { delete keep[id]; });
     Object.keys(keep).forEach(function (id) {
       var el = document.getElementById(id);
@@ -1514,7 +1514,9 @@
     }
     bump(r.id);
     /* A change made in the background (a child run settling its parent) leaves whatever form is open alone. */
-    if (!opts.background) { state.pick = null; state.edit = null; state.fieldErr = null; state.fieldsDraft = null; }
+    /* An answer (opts.only) closes only its own step's forms; any other change closes what's open. */
+    if (opts.only != null) { if (state.pick && state.pick.id === opts.only && state.runKey === key) { state.pick = null; state.fieldsDraft = null; } if (state.fieldErr && state.fieldErr.id === opts.only) state.fieldErr = null; }
+    else if (!opts.background) { state.pick = null; state.edit = null; state.fieldErr = null; state.fieldsDraft = null; }
     render(); return save(r, recoveringEnded ? Object.assign({}, opts, { takeover: true }) : opts);
   }
 
@@ -1568,7 +1570,7 @@
         if (sg !== gen) return; state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
       }, function (e) { if (sg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
-    /* The brief an LLM needs to create a skill from a signed-off version, or to update one after the process changed. */
+    /* The brief an AI assistant needs to create a skill from a signed-off version, or to update one after the process changed. */
     'copy-brief': function (id) {
       var kind = id.split(':')[0], name = id.slice(kind.length + 1), text = '';
       var withNames = function (signs) { return signs.map(function (v) { return Object.assign({}, v, { byName: V.nameOf(ctx, v.by) }); }); };
@@ -1584,7 +1586,7 @@
         text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(data.runs, lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
       }
       state.brief = { key: id, text: text }; render();
-      copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your LLM.');
+      copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');
     },
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
@@ -1913,22 +1915,12 @@
         return load(true);
       }, function (e) { if (pg !== gen) return; say('Couldn\'t publish: ' + e.message, 'bad'); render(); });
     },
-    /* The check on a row and Done in the inspector: one step, one path. Evidence boxes showing for the step are always read,
-       so Done never ignores what was typed; required evidence not typed yet opens the step with its first box in focus. */
+    /* The check on a row, Done in the inspector, Space and X: one step, one path (answerStep). A done step unchecks. */
     toggle: function (id) {
-      var r = ctx.run(), map = r && R.mapOf(r), x = r && M.findStep(map, id), a = r && r.steps[id];
-      if (!x) return;
-      /* An open Fill in holds values Done would otherwise ignore: it's saved or canceled first. */
-      if (!(a && a.s === 'done') && state.pick && state.pick.kind === 'fields' && state.pick.id === id) { selectStep(id); state.refOpen = true; say('Save or cancel Fill in first.', 'warn'); state.msg.quiet = true; state.focus = '[data-act="save-fields"][data-id="' + cssEsc(id) + '"]'; render(); return; }
-      if (!(a && a.s === 'done') && V.runSel(ctx) === id && V.recordShown(ctx, r, map, id)) { ACTIONS.record(id); return; }
-      var need = R.evidenceFor(r, x.step).list.filter(function (d) { return d.required && !(a && a.s !== 'recheck' && a.values && a.values[d.name]); });
-      if (!(a && a.s === 'done') && need.length) {
-        selectStep(id); state.refOpen = true; state.focus = 'rec-' + need[0].name; render(); return;
-      }
+      var r = ctx.run(), a = r && r.steps[id];
+      if (!r || !M.findStep(R.mapOf(r), id)) return;
       if (a && a.s === 'done') { mutate(function (r, map, me, now) { R.clear(r, map, id, me, now); }); return; }
-      var was = nextStepId(r, map);
-      mutate(function (r, map, me, now) { R.done(r, map, id, me, now); });
-      afterAnswer(id, was);
+      answerStep(state.runKey, id, { how: 'done' });
     },
     'save-fields': function (id) {
       var r = ctx.run(), x = M.findStep(R.mapOf(r), id), t = T.get(x.step.type, r.types), fields = {}, values = {};
@@ -1941,16 +1933,7 @@
       state.fieldErr = null; dropDraft(state.runKey, id, ['record', 'fields', 'open']);
       mutate(function (r, map, me, now) { R.setFields(r, map, id, fields, values, me, now); }, { fieldsFor: id });
     },
-    record: function (id) {
-      var r = ctx.run(), x = M.findStep(R.mapOf(r), id), values = {};
-      R.evidenceFor(r, x.step).list.forEach(function (d) { values[d.name] = val('rec-' + d.name); });
-      var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (r.steps[id] || {}).values || {}, values));
-      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
-      state.fieldErr = null; dropDraft(state.runKey, id, ['record']);
-      var was = nextStepId(r, R.mapOf(r));
-      mutate(function (r, map, me, now) { R.done(r, map, id, me, now, values); });
-      afterAnswer(id, was);
-    },
+    record: function (id) { answerStep(state.runKey, id, { how: 'done' }); },
     pause: function () { var why = val('pick-input'); if (!why.trim()) { say('Say why the run is paused, so others know what it\'s waiting for.', 'warn'); render(); return; } state.pick = null; mutate(function (r, map, me, now) { R.pause(r, why, me, now); }); },
     resume: function () { mutate(function (r, map, me, now) { R.resume(r, me, now); }); },
     'start-child': function (id) { startChild(id); },
@@ -2221,20 +2204,15 @@
     var r = ctx.run(), f = state.corrForm; if (!r || !f || !state.me || f.key !== state.runKey || f.sending) return;
     var map = R.mapOf(r), x = M.findStep(map, f.step); if (!x) return;
     readCorrForm(f);
-    var withNote = !answer || f.scope === 'fix', mine = attachmentsFor(f.key, 'corr:' + f.step), note = null, values = null;
+    var withNote = !answer || f.scope === 'fix', mine = attachmentsFor(f.key, 'corr:' + f.step), note = null;
     function bad(e, field) { state.fieldErr = { id: 'corr', msg: e.message || e, field: field || e.field || '' }; state.focus = '#' + (field || e.field || 'corr-to'); render(); }
     if (answer) {
       if (!(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
-      /* The same rule as Done: an open Fill in is saved or canceled first, so its edits are never answered over or lost. */
-      if (state.pick && state.pick.kind === 'fields' && state.pick.id === f.step) { bad('Save or cancel Fill in first.', 'fill-in'); state.focus = '[data-act="save-fields"][data-id="' + cssEsc(f.step) + '"]'; render(); return; }
       if (!f.happened.trim()) { bad('Say what happened.', 'corr-happened'); return; }
-      /* Required evidence still applies: what's typed in the step's evidence boxes goes with the answer. */
-      var a = r.steps[f.step];
-      if (!(a && a.s === 'done')) {
-        values = {}; R.evidenceFor(r, x.step).list.forEach(function (d) { values[d.name] = val('rec-' + d.name); });
-        var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a || {}).values || {}, values));
-        if (chk.error) { state.fieldErr = { id: f.step, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
-      }
+      /* The same rules as Done, checked before the correction is written: an open Fill in is saved or canceled first, and
+         required evidence typed on this step goes with the answer. */
+      var c = answerCheck(state.runKey, f.step);
+      if (!c.r) { if (c.fill) bad(c.why, 'fill-in'); else state.fieldErr = { id: f.step, msg: c.why, field: c.field }; state.focus = c.focus; render(); return; }
     }
     if (withNote) {
       try { note = PF.corrections.build({ id: U.randomId(10), at: new Date().toISOString(), by: state.me, session: WRITER, map: map, step: f.step, op: f.op, to: f.to, text: f.text, where: f.where, moveTo: f.moveTo, roles: f.roles, shot: f.shot, why: f.why, happened: answer ? f.happened : '', version: +r.version || 0, folder: r.folder, files: mine.map(function () { return 'pending'; }) }); }
@@ -2251,15 +2229,14 @@
       state.pendingFiles = state.pendingFiles.filter(function (p) { return mine.indexOf(p) < 0; });
       if (state.corrForm === f) { state.corrForm = null; state.fieldErr = null; }
       var then = answer ? function () {
-        dropDraft(key, step, ['record']);
-        /* The answer is made on the run that started it, whatever this window shows now, through the run's own save. */
-        var here = state.view === 'run' && state.runKey === key, run0 = ctx.findRun(key), was = here && run0 ? nextStepId(run0, R.mapOf(run0)) : null;
-        return mutateRun(key, ng, function (r2, map2, me, now) { R.doneDifferently(r2, map2, step, f.happened, me, note ? note.at : now, values); }, here ? {} : { background: true }).then(function (ok) {
+        /* The answer is made on the run that started it, whatever this window shows now, through the one answer path. */
+        var here = state.view === 'run' && state.runKey === key;
+        return answerStep(key, step, { how: 'differently', happened: f.happened, at: note ? note.at : null, quiet: !here }).then(function (ok) {
           settled();
-          if (ok !== false) { delete state.partial[key]; if (here && state.runKey === key) { say('Done differently' + (withNote ? ', with a correction for the checklist. Saved on this computer.' : '. Saved on this computer.'), 'good'); state.msg.quiet = true; afterAnswer(step, was); } return; }
-          /* It couldn't be answered (the run was paused, handed off, or its phase closed): the run says so until someone acts. */
+          if (ok) { delete state.partial[key]; if (state.view === 'run' && state.runKey === key) { say('Done differently' + (withNote ? ', with a correction for the checklist. Saved on this computer.' : '. Saved on this computer.'), 'good'); state.msg.quiet = true; } render(); return; }
+          /* It couldn't be answered (the run was paused or handed off, its phase closed, or its Fill in is open): the run says so until someone acts. */
           if (withNote) state.partial[key] = { step: step };
-          if (state.runKey === key) { say(withNote ? 'Correction saved; the step wasn\'t marked done.' : 'The step wasn\'t marked done.', 'warn'); }
+          if (state.runKey === key && !(state.msg && state.msg.kind === 'warn')) say(withNote ? 'Correction saved; the step wasn\'t marked done.' : 'The step wasn\'t marked done.', 'warn');
           render();
         });
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
@@ -2546,8 +2523,10 @@
      around the run (J/K, clicks, auto-advance), drawn back into the boxes on return, and dropped only when used or canceled.
      An open Fill in is remembered too, so it reopens. */
   var drawn = null;
+  /* Keyed by team folder, run and step: another folder never sees this folder's drafts, even for a run with the same ID. */
+  function draftKey(key, id) { return fsKey() + '\n' + key + '|' + id; }
   function draftOf(key, id, make) {
-    var k = key + '|' + id, d = state.stepDrafts[k];
+    var k = draftKey(key, id), d = state.stepDrafts[k];
     if (!d && make) d = state.stepDrafts[k] = { record: {}, fields: {}, note: '', open: false, fd: null };
     return d || null;
   }
@@ -2556,15 +2535,15 @@
     var d = draftOf(key, id, false); if (!d) return;
     (parts || ['record', 'fields', 'note', 'open']).forEach(function (p) { if (p === 'note') d.note = ''; else if (p === 'open') { d.open = false; d.fd = null; } else d[p] = {}; });
     /* What's on screen was just used: it isn't read back into the draft before the next redraw. */
-    if (drawn && drawn.key === key && drawn.sel === id) (parts || ['record', 'fields', 'note']).forEach(function (p) { drawn.skip[p === 'note' ? 'note' : 'box'] = true; });
-    if (!hasDraft(d)) delete state.stepDrafts[key + '|' + id];
+    if (drawn && drawn.fs === fsKey() && drawn.key === key && drawn.sel === id) (parts || ['record', 'fields', 'note']).forEach(function (p) { drawn.skip[p === 'note' ? 'note' : 'box'] = true; });
+    if (!hasDraft(d)) delete state.stepDrafts[draftKey(key, id)];
   }
   /* What a box held as drawn: a value that still matches is not a draft. */
   function baseOf(id) { return drawn && drawn.base[id] != null ? drawn.base[id] : ''; }
   function unesc(v) { return String(v).replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); }
   /* Reads the boxes on screen into the draft of the step they were drawn for. A box left as drawn keeps its draft. */
   function harvest() {
-    if (!drawn || drawn.key !== state.runKey || state.view !== 'run') return;
+    if (!drawn || drawn.key !== state.runKey || drawn.fs !== fsKey() || state.view !== 'run') return;
     var d = draftOf(drawn.key, drawn.sel, true), part = d[drawn.kind];
     drawn.ids.forEach(function (id) {
       var el = document.getElementById(id); if (!el || el.value === baseOf(id) || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
@@ -2572,7 +2551,7 @@
       /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
       part[id] = el.value;
     });
-    if (!hasDraft(d)) delete state.stepDrafts[drawn.key + '|' + drawn.sel];
+    if (!hasDraft(d)) delete state.stepDrafts[draftKey(drawn.key, drawn.sel)];
   }
   function noteDrawn(html) {
     var sel = V.runSel(ctx), ids = [], m, re = /id="((?:rec|fld)-[\w-]+|note-text)"/g;
@@ -2585,7 +2564,7 @@
       else { var tg = html.slice(at, html.indexOf('>', at)), vm2 = /\svalue="([^"]*)"/.exec(tg); v = vm2 ? vm2[1] : ''; }
       ids.push(id); base[id] = unesc(v);
     }
-    drawn = { key: state.runKey, sel: sel, kind: state.pick && state.pick.kind === 'fields' && state.pick.id === sel ? 'fields' : 'record', ids: ids, base: base, skip: {} };
+    drawn = { fs: fsKey(), key: state.runKey, sel: sel, kind: state.pick && state.pick.kind === 'fields' && state.pick.id === sel ? 'fields' : 'record', ids: ids, base: base, skip: {} };
   }
   /* After a redraw the boxes show their step's draft, else what was drawn. On a new step or form every box is set, since a
      redraw can keep an old node (same markup) that still holds another step's typing; on the same one, typing stays. */
@@ -2604,13 +2583,55 @@
   function selectStep(id) {
     if (state.sel !== id) {
       state.attErr = null; harvest();
-      if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true); od.open = true; od.fd = state.fieldsDraft; }
+      /* An open Fill in is remembered for the folder it was drawn in, never carried into another. */
+      if (state.pick && state.pick.kind === 'fields' && state.runKey && (!drawn || drawn.fs === fsKey())) { var od = draftOf(state.runKey, state.pick.id, true); od.open = true; od.fd = state.fieldsDraft; }
     }
     state.sel = id; if (state.pick && state.pick.id !== id) { state.pick = null; state.fieldsDraft = null; }
     var d = state.runKey && draftOf(state.runKey, id, false);
     if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd; }
   }
   function nextStepId(r, map) { var nx = R.nextUp(r, map, state.me); return nx.kind === 'step' && nx.step ? nx.step.id : null; }
+  /* Whether a step can be answered now, and with what: its own draft's evidence, else what's saved, else what the box would
+     show. An open or unsaved Fill in on it is saved or canceled first. Returns { r, map, x, values } or { why, focus, field }. */
+  function answerCheck(key, id) {
+    harvest();
+    var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
+    if (!x) return { why: '' };
+    var a = r.steps[id], d = draftOf(key, id, false);
+    if ((state.pick && state.pick.kind === 'fields' && state.pick.id === id && state.runKey === key) || (d && (d.open || Object.keys(d.fields).length))) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
+    var values = null;
+    if (!(a && a.s === 'done') && x.step.type !== 'run.process') {
+      values = {};
+      R.evidenceFor(r, x.step).list.forEach(function (ev) {
+        var k = 'rec-' + ev.name;
+        values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
+      });
+      var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
+      if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
+    }
+    return { r: r, map: map, x: x, values: values };
+  }
+  /* The one way to answer a step, Done or Done differently, from every place that does it (row check, inspector Done, Space
+     and X, the Done differently composer and Mark it now). It works on that step only, with answerCheck's values, and only
+     its own forms close. o: { how: 'done' | 'differently', happened, at, quiet (no selection or messages: the person may be
+     elsewhere) }. Resolves true when answered. */
+  function answerStep(key, id, o) {
+    var g = gen, here = state.view === 'run' && state.runKey === key, quiet = !!o.quiet || !here, c = answerCheck(key, id);
+    if (!c.r) {
+      if (quiet || !c.why) return Promise.resolve(false);
+      selectStep(id); state.refOpen = true;
+      if (c.fill) { say(c.why, 'warn'); state.msg.quiet = true; } else state.fieldErr = { id: id, msg: c.why, field: c.field };
+      state.focus = c.focus; render(); return Promise.resolve(false);
+    }
+    var was = here ? nextStepId(c.r, c.map) : null, applied = false;
+    var saving = mutateRun(key, g, function (r2, map2, me, now) {
+      if (o.how === 'differently') R.doneDifferently(r2, map2, id, o.happened, me, o.at || now, c.values);
+      else R.done(r2, map2, id, me, now, c.values);
+      applied = true;
+    }, quiet ? { only: id, background: true } : { only: id });
+    if (applied) { dropDraft(key, id, ['record']); if (!quiet && state.view === 'run' && state.runKey === key) afterAnswer(id, was); }
+    return saving.then(function () { return applied; });
+  }
   /* After checking the step Next up pointed at, the next one in its phase is selected and its check gets focus, with one
      announcement. A step checked out of order stays selected. Nothing moves while a note or a suggestion is being written
      on the step, so no draft is left behind. */

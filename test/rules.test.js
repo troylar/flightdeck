@@ -1198,7 +1198,7 @@ rule('A step\'s signature ignores where it sits in the file and changes with wha
 
 rule('The same correction from several runs is one group, "suggested in N runs"; a different change to the same step is a second proposal', () => {
   const a = runWith('run-a', 'A', [corr({ id: 'a1', at: '2026-10-01T10:00:00.000Z' })]);
-  const b = runWith('run-b', 'B', [corr({ id: 'b1', by: 'person-avery', to: 'new pods stay up for 20 minutes  with no restarts', at: '2026-10-08T10:00:00.000Z' }), corr({ id: 'b2', to: 'New pods stay up for 30 minutes' })]);
+  const b = runWith('run-b', 'B', [corr({ id: 'b1', by: 'person-avery', to: '  New pods stay up for 20 minutes   with no restarts ', at: '2026-10-08T10:00:00.000Z' }), corr({ id: 'b2', to: 'New pods stay up for 30 minutes' })]);
   const gs = groupsOf([a, b]);
   same(gs.map(g => [g.members.map(m => m.id), g.runs, g.status]), [[['a1', 'b1'], 2, 'open'], [['b2'], 1, 'open']]);
   same(gs[0].authors, ['person-blake', 'person-avery']);
@@ -1352,6 +1352,11 @@ rule('A step answered again links only the correction recorded with that answer;
   const rows = R.corrections(r, map);
   same(rows.map(x => [x.id, x.oneOff, x.happened, !!x.answer]), [['w1', false, 'First workaround', false], ['diff-flags', true, 'Different workaround', true]]);
   assert.ok(/Different workaround/.test(R.receipt(r, map, id => id, NOW, r._notes)), 'the new answer is on the receipt');
+});
+
+rule('Grouping never changes meaning: proposals that differ only in case are two proposals', () => {
+  const r = runWith('run-a', 'A', [corr({ id: 'u1', to: 'Run npm run Build' }), corr({ id: 'u2', to: 'Run npm run build' }), corr({ id: 'u3', to: 'Run  npm run build ' })]);
+  same(groupsOf([r]).map(g => g.members.map(m => m.id)), [['u1'], ['u2', 'u3']]);
 });
 
 rule('Two decisions made at once leave the group open and counted as Needs review, whichever file name sorts last', () => {

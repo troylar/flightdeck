@@ -2942,4 +2942,95 @@ rule('App: choosing an open composer\'s button again keeps what was typed and ju
   assert.ok(/<h4 class="corr-h" id="corr-h">Correct this step/.test(app.html()), 'the other composer still opens');
 });
 
+/* ---------- Review round 4 (1.13): one answer path ---------- */
+rule('App: Done differently landing on one step leaves another step\'s open Fill in and its edits alone', async () => {
+  const app = await recordingRelease(), g = gate(), orig = app.PF.repo.addNote;
+  app.PF.repo.addNote = function () { const a = arguments; return g.p.then(() => orig.apply(this, a)); };
+  app.click('select', 'approve'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'differently' }); await app.tick();
+  app.input('corr-happened', 'Approved from the phone app'); app.click('corr-scope', 'fix'); await app.tick();
+  app.input('corr-to', 'Approve it in the phone app'); app.click('corr-done', 'approve'); await app.tick();
+  app.click('select', 'pods'); await app.tick();
+  app.click('pick', 'pods', { kind: 'fields' }); await app.tick();
+  app.set('fld-command', 'kubectl get pods -n web');
+  g.open(); await app.tick(80); app.PF.repo.addNote = orig;
+  assert.strictEqual(app.run().json.steps.approve.s, 'done', 'set-up: the answer landed');
+  assert.ok(/data-scope="fields:pods"/.test(app.html()), 'Pods\' Fill in is still open');
+  app.click('select', 'jenkins'); await app.tick(); app.click('select', 'pods'); await app.tick();
+  assert.ok(/id="fld-command"[^>]*(value="kubectl get pods -n web"|>kubectl get pods -n web<)/.test(app.html()), 'and its edit is kept');
+});
+
+rule('App: checking a row answers that step with its own typed evidence, and waits for its unsaved Fill in, whatever is selected', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'pods'); await app.tick();
+  app.set('rec-result', 'RESTARTS 0 @pods');
+  app.click('select', 'approve'); await app.tick();
+  app.click('pick', 'approve', { kind: 'fields' }); await app.tick();
+  app.set('fld-system', 'Jenkins (phone)');
+  app.click('select', 'jenkins'); await app.tick();
+  app.click('toggle', 'approve'); await app.tick(40);
+  assert.ok((app.run().json.steps.approve || {}).s !== 'done' && /Save or cancel Fill in first\./.test(app.html() + app.live()), 'Approve waits for its Fill in');
+  app.click('toggle', 'pods'); await app.tick(40);
+  assert.strictEqual(app.run().json.steps.pods.values.result, 'RESTARTS 0 @pods', 'Pods carries what was typed on Pods');
+  app.click('select', 'approve'); await app.tick();
+  assert.ok(/id="fld-system"[^>]*value="Jenkins \(phone\)"/.test(app.html()), 'Approve\'s Fill in edit is still there');
+});
+
+rule('App: drafts belong to their team folder; another folder with the same run never shows them', async () => {
+  const app = await recordingRelease();
+  app.click('select', 'pods'); await app.tick();
+  app.set('note-text', 'Only in folder A');
+  app.click('select', 'approve'); await app.tick();
+  const id = app.fs.id; app.fs.id = id + '-copy';
+  app.click('select', 'pods'); await app.tick();
+  assert.ok(!/Only in folder A/.test(app.html()) && !/s-draft/.test(app.html()), 'not in the other folder');
+  app.click('select', 'approve'); await app.tick(); app.fs.id = id;
+  app.click('select', 'pods'); await app.tick();
+  assert.ok(/<textarea id="note-text"[^>]*>Only in folder A<\/textarea>/.test(app.html()), 'still there in its own folder');
+});
+
+/* A seeded walk through the run: whatever order things happen in, what's typed on a step is never lost and never lands on
+   another step. Values carry their step's ID, so a value on the wrong step is caught. */
+rule('App: random sequences of selecting, typing evidence, Fill in, checking, Done differently with held writes, moving and switching folders never lose or misplace typed values', async () => {
+  const STEPS = ['jenkins', 'approve', 'pods'], EV = { jenkins: 'rec-build', pods: 'rec-result' };
+  for (let seed = 1; seed <= 6; seed++) {
+    let x = seed * 9301 + 49297; const rnd = n => { x = (x * 9301 + 49297) % 233280; return Math.floor(x / 233280 * n); };
+    const app = await recordingRelease();
+    const typed = {}; let held = null, orig = app.PF.repo.addNote, n = 0;
+    const sel = () => app.selected();
+    const check = what => {
+      const j = app.run().json;
+      STEPS.forEach(st => { const v = (j.steps[st] || {}).values || {}; Object.keys(v).forEach(k => { if (/@\w+/.test(v[k])) assert.ok(v[k].endsWith('@' + st), 'seed ' + seed + ' after ' + what + ': ' + st + ' has ' + v[k]); }); });
+    };
+    for (let step = 0; step < 30; step++) {
+      const op = rnd(9), st = STEPS[rnd(3)];
+      if (op === 0) { app.click('select', st); await app.tick(); }
+      else if (op === 1 && sel() && EV[sel()] && new RegExp('id="' + EV[sel()] + '"').test(app.html()) && !/data-scope="fields:/.test(app.html())) { const v = 'v' + (++n) + ' @' + sel(); app.set(EV[sel()], v); typed[sel()] = v; }
+      else if (op === 2 && sel()) { app.click('pick', sel(), { kind: 'fields' }); await app.tick(); }
+      else if (op === 3) { app.click('unpick'); await app.tick(); }
+      else if (op === 4) { app.click('toggle', st); await app.tick(40); }
+      else if (op === 5 && sel() && !held && /data-mode="differently" data-id="/.test(app.html())) {
+        const s0 = sel(); held = gate(); const h = held;
+        app.PF.repo.addNote = function () { const a = arguments; return h.p.then(() => orig.apply(this, a)); };
+        app.click('corr-open', s0, { mode: 'differently' }); await app.tick();
+        if (/id="corr-happened"/.test(app.html())) { app.input('corr-happened', 'Did it another way @' + s0); app.click('corr-scope', 'fix'); await app.tick(); app.input('corr-to', 'Another way for ' + s0 + ' ' + n); app.click('corr-done', s0); await app.tick(); }
+      }
+      else if (op === 6 && held) { held.open(); held = null; app.PF.repo.addNote = orig; await app.tick(80); }
+      else if (op === 7) { const k = app.run().key; app.click('home'); await app.tick(); app.click('open-run', k); await app.tick(20); }
+      else if (op === 8) { const id = app.fs.id; app.fs.id = id + '-b'; app.click('select', st); await app.tick(); assert.ok(!/s-draft/.test(app.html()), 'seed ' + seed + ': no drafts from another folder'); app.fs.id = id; app.click('select', st); await app.tick(); }
+      check('op ' + op);
+    }
+    if (held) { held.open(); app.PF.repo.addNote = orig; await app.tick(80); }
+    check('the end');
+    // Every value typed on a step that isn't answered yet is still in its box.
+    const j = app.run().json;
+    for (const st of Object.keys(typed)) {
+      if ((j.steps[st] || {}).s === 'done') { const v = (j.steps[st].values || {})[EV[st].slice(4)]; if (v && /@/.test(v)) assert.ok(v.endsWith('@' + st)); continue; }
+      app.click('unpick'); await app.tick(); app.click('select', st); await app.tick();
+      const h = app.html(), box = h.slice(h.indexOf('id="' + EV[st] + '"'), h.indexOf('id="' + EV[st] + '"') + 400);
+      assert.ok(box.includes(typed[st].replace(/@/g, '@')), 'seed ' + seed + ': ' + st + ' still holds ' + typed[st]);
+    }
+  }
+});
+
 run();

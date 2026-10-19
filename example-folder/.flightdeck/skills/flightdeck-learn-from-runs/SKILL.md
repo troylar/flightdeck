@@ -1,6 +1,6 @@
 ---
 name: flightdeck-learn-from-runs
-description: Turn what happened in recent runs into suggested checklist changes
+description: Turn what happened in recent runs, and their corrections, into proposed checklist changes
 ---
 
 Reference: `../_flightdeck/map-format.md` and `../_flightdeck/good-checklists.md` (relative to this skill's folder). Read them before you start.

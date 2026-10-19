@@ -9,7 +9,7 @@ Flightdeck reads and writes files in the team folder on your computer. OneDrive 
 
 ## What keeps runs safe
 
-- **One writer per file.** The recorder's window writes `run.json`; each window writes its own `notes-<window>.jsonl` and `history-<window>.jsonl`; publishing writes a new folder every time. That keeps ordinary use conflict-free. **It is a discipline, not a guarantee:** two computers that can't see each other's changes yet can still both write.
+- **One writer per file.** The recorder's window writes `run.json`; each window writes its own `notes-<window>.jsonl` (notes and corrections) and `history-<window>.jsonl`, and names every attached file it adds in the run's `files/` folder after itself; publishing writes a new folder every time. That keeps ordinary use conflict-free. **It is a discipline, not a guarantee:** two computers that can't see each other's changes yet can still both write.
 - **One recorder per run.** Other windows are read-only for the run itself.
   - **Hand off** saves the run and names the exact revision being passed on. The old window stops writing at once. The new recorder sees the handoff only once that revision has synced to their computer, and their log says which revision they picked up.
   - **Take over** is for emergencies. If the old recorder's computer still has changes OneDrive hasn't delivered, they arrive as a **conflict copy**, and someone has to choose.
@@ -40,9 +40,21 @@ While a run is open, Flightdeck rereads only that run and its notes every 5 seco
 | `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there. Each person's decision is its own `*.status-<window>.json`. |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |
 | `step-types/*.json` | One person in Flightdeck's Step types form, or an AI assistant. Saved only over the file the form opened. |
-| `corrections/<process>/*.json` | Each decision on a correction is a new file named for the window and the decision's `rev`, written once; nobody edits another's, or their own. Two decided at once both stay, and the app says Needs review. |
+| `runs/<process>/<id>/notes-<window>.jsonl` | The window it's named for: its notes and its corrections (a correction is a note with `kind: "correction"`). Older copies show a correction as a plain note and keep its files. |
+| `runs/<process>/<id>/files/*` | The window that attached the file, named with the time, a random part and that window, so two windows never write the same name. Written once. |
+| `corrections/<process>/<group>.<window>.<rev>.json` | Each decision on a correction is a new file named for the window and the decision's `rev`, written once; nobody edits another's, or their own. Two decided at once both stay, and the app says Needs review. |
 | `suggestions/<process>/*.json` | Decisions on suggested fixes from before 1.13. Read, no longer written. |
 
 ## Before the first real release
 
-Do a rehearsal on two computers with the real folder: start a run, follow it from the second computer, add notes from both, hand off recording, change the commit, block and unblock a step, pass a gate, and finish with a receipt. Then rehearse the bad night: pause OneDrive on one computer, take over from the other, resume OneDrive, and resolve the conflict copy in the app. For corrections, correct a step from each computer, mark Done differently with Fix the checklist too while OneDrive is paused on the recorder's computer, and decide on the same correction from both computers before they sync: both decisions should arrive, and the process page should say Needs review until someone decides again.
+Do a rehearsal on two computers with the real folder: start a run, follow it from the second computer, add notes from both, hand off recording, change the commit, block and unblock a step, pass a gate, and finish with a receipt. Then rehearse the bad night: pause OneDrive on one computer, take over from the other, resume OneDrive, and resolve the conflict copy in the app.
+
+### Rehearse corrections on two computers
+
+1. On computer A, correct a step's wording in a running run and attach a log. After OneDrive syncs, computer B shows it in the run's Corrections and on the process page, with the file.
+2. On computer B, correct the same step with the same wording (spacing may differ; letter case may not). After sync, the process page shows them as one group with both people (a different run counts as "Suggested in 2 runs").
+3. Pause OneDrive on the recorder's computer, mark a step Done differently with Fix the checklist too, then resume. The answer and its correction should both arrive, and the receipt should join them.
+4. Pause OneDrive on both computers. Mark the same group as applied on A and decline it with a reason on B. Resume both: both decision files arrive, and the process page lists the group under Open as Needs review until someone decides again.
+5. Withdraw is offered only to the person who suggested every correction in the group. Check that someone else doesn't see it; a withdrawal written by anyone else is ignored and the group keeps its status (`test/rules.test.js` covers the file case).
+
+What the app can't prove for you: how long OneDrive takes to deliver a decision, and that nobody acted on a group's old status in the meantime.

@@ -46,4 +46,4 @@ This is a careful manual review. **Flightdeck's own checks on the process page a
 
 ## Report
 
-For each checklist, a table: **Level** (Blocks / Fix / Tip), **Where** (line and ID), **What**, **Suggested fix** (the exact replacement line when you can). End with a one-line verdict: "Ready to publish", "Publishable, with fixes worth making", or "Won't publish yet". Suggest `/flightdeck-edit-checklist` to apply the fixes.
+For each checklist, a table: **Level** (Blocks / Fix / Tip), **Where** (line and ID), **What**, **Replacement** (the exact replacement line when you can). End with a one-line verdict: "Ready to publish", "Publishable, with fixes worth making", or "Won't publish yet". Suggest `/flightdeck-edit-checklist` to apply the fixes.

@@ -38,7 +38,7 @@
         "kind": "improved",
         "area": "Runs",
         "title": "What you type stays with its step",
-        "now": "Evidence typed into a step, an open Fill in and an unsent note stay with that step while you move around the run, and come back when you return; the row says Draft. Checking another step never moves you away from one. While Fill in is open, Done waits and says \"Save or cancel Fill in first.\"",
+        "now": "Evidence typed into a step, an open Fill in and an unsent note stay with that step while you move around the run, and come back when you return; the row says Draft. Drafts belong to their team folder. Checking a step (row, Done, Space or Done differently) uses what was typed on that step only. While its Fill in is open or unsaved, Done waits and says \"Save or cancel Fill in first.\"",
         "where": "A run."
       },
       {
@@ -62,6 +62,14 @@
         "title": "Keyboard, phones and screen share",
         "now": "J and K open a folded phase they move into, X works like Space, and a held key checks one step. On a phone a step opens as a full-screen sheet with Close, Previous and Next. Screen share shows who's recording, a pause, and why a step is blocked; Back to the run returns to the same step and scroll.",
         "where": "A run. Press ? for the keys."
+      },
+      {
+        "kind": "improved",
+        "area": "Skills",
+        "title": "Plain words for your AI assistant",
+        "before": "Skill briefs and the Skills page used a technical term for the assistant that builds skills.",
+        "now": "Flightdeck now says \"your AI assistant\" everywhere: copy the brief for your AI assistant, and it builds or updates the skill.",
+        "where": "Skills, and a process page: Skills."
       }
     ]
   },
@@ -282,7 +290,7 @@
         "kind": "fixed",
         "area": "Skills",
         "title": "The right words after copying a brief",
-        "now": "Copying a skill brief says to paste it to your LLM, and gate approvals in the checklist preview show as formatted text."
+        "now": "Copying a skill brief says to paste it to your AI assistant, and gate approvals in the checklist preview show as formatted text."
       },
       {
         "kind": "improved",
@@ -345,14 +353,14 @@
         "kind": "new",
         "area": "Skills",
         "title": "Know when a process change affects a skill",
-        "now": "When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your LLM.",
+        "now": "When a new version changes the steps a skill covers, the skill shows as needing an update, with the exact before and after; if its steps didn't change, it only needs its version noted. Copy the update brief for your AI assistant.",
         "where": "Copy update brief, on a skill."
       },
       {
         "kind": "new",
         "area": "Skills",
         "title": "Prove a version, then turn it into a skill",
-        "now": "Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an LLM needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant.",
+        "now": "Each version shows its run evidence: completed runs, clean ones, and what people did differently. With 3 clean runs the owner signs it off, and Flightdeck writes the brief an AI assistant needs to build the skill. The flightdeck-skill-brief skill does the same from the folder, with your AI assistant.",
         "where": "Ready for a skill?, on a process page."
       },
       {
