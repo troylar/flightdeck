@@ -13041,32 +13041,41 @@ PF.examples = (function () {
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
   function home() { releaseUrls(state.urls); setView('home'); state.processId = null; state.runKey = null; resetRunUi(); }
-  /* Leaving a run's screen resets how it's shown, never what someone put in: input held in app state is kept for its
-     folder, run and step and comes back on return (docs/design.md section 25). The open Fill in goes to its step's draft
-     (as selecting another step does), a correction being written to corrDrafts, and files picked but not attached stay in
-     pendingFiles, which are already keyed by run and step. They're cleared only by Cancel, a successful save, or switching
-     folders (useFs). */
-  function resetRunUi() {
-    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; }
-    var cf = state.corrForm;
-    if (cf) (state.corrDrafts = state.corrDrafts || {})[draftKey(cf.key, cf.step)] = cf;
-    state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null;
+  /* Input held in app state belongs to the context it was typed in: the folder, run and step (and, for a correction, its
+     mode). leaveContext() runs first in every change of context (setView, selectStep, opening a correction), before any
+     state key is reassigned, and keeps everything of the departing context under that context's own key: typed boxes go to
+     the step's draft (harvest), an open Fill in is remembered with its step, and a correction being written goes to
+     corrDrafts. enterContext() brings back only what belongs to the destination. Files picked but not attached stay in
+     pendingFiles, keyed by run and step. All of it is cleared only by Cancel, a successful save, or switching folders. */
+  var corrSeq = 0;
+  function corrKey(f) { return draftKey(f.key, f.step + '#' + f.mode); }
+  function stashCorr() { var f = state.corrForm; if (!f) return; f._at = ++corrSeq; (state.corrDrafts = state.corrDrafts || {})[corrKey(f)] = f; state.corrForm = null; }
+  function leaveContext() {
+    harvest();
+    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; state.pick = null; state.fieldsDraft = null; }
+    stashCorr();
   }
-  /* The correction kept for a run (one step's, or the one for step and mode), taken out of the kept list as it goes back on screen. */
+  /* The destination's own kept correction comes back: for its run and selected step, or exactly the step and mode asked for. */
   function takeCorrDraft(key, step, mode) {
-    var all = state.corrDrafts || {}, found = null;
-    Object.keys(all).forEach(function (k) { var f = all[k]; if (!found && f.key === key && (step == null || (f.step === step && f.mode === mode)) && k === draftKey(f.key, f.step)) found = k; });
-    if (!found) return null;
-    var f = all[found]; delete all[found]; return f;
+    var all = state.corrDrafts || {}, best = null;
+    Object.keys(all).forEach(function (k) { var f = all[k]; if (f.key === key && f.step === step && (mode == null || f.mode === mode) && k === corrKey(f) && (!best || f._at > all[best]._at)) best = k; });
+    if (!best) return null;
+    var f = all[best]; delete all[best]; return f;
+  }
+  function enterContext() {
+    if (state.corrForm || state.view !== 'run' || !state.runKey || !state.sel) return;
+    var f = takeCorrDraft(state.runKey, state.sel);
+    if (f) state.corrForm = f;
   }
   function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
+  /* How a run's screen is shown starts over; input was already kept by leaveContext (setView calls it). */
+  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
-    var kept = r && takeCorrDraft(key);
-    if (kept) { state.corrForm = kept; state.sel = kept.step; }
+    enterContext();
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
     window.scrollTo(0, 0);
   }
@@ -13358,7 +13367,7 @@ PF.examples = (function () {
     'hist-reverse': function (id) { reverseSaved(id); },
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     /* What was submitted and refused stays until Cancel or the draft is created, so leaving and coming back keeps it. */
-    'new-process': function () { setView('new-process'); state.newProc = state.newProc || {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'new-process': function () { setView('new-process'); state.newProc = state.newProc || { token: ++npToken }; resetRunUi(); render(); window.scrollTo(0, 0); },
     'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
@@ -13767,13 +13776,17 @@ PF.examples = (function () {
       var mode = b && b.dataset.mode === 'differently' ? 'differently' : 'correct', open = state.corrForm;
       /* Choosing an open composer's button again only brings focus back to it; what's typed stays. */
       if (open && open.key === state.runKey && open.step === id && open.mode === mode) { selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(open.op); render(); return; }
-      var kept = takeCorrDraft(state.runKey, id, mode);
-      if (kept) { if (open) (state.corrDrafts = state.corrDrafts || {})[draftKey(open.key, open.step)] = open; state.corrForm = kept; selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(kept.op); render(); return; }
       /* Done differently is an answer: only the recorder, while the run isn't paused and the step's phase is open. */
       if (mode === 'differently' && !(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
+      /* Any composer on screen (this one's, or the step's other mode brought back by selecting it) is kept first, never
+         written over; then this step and mode gets back its own, or a new one. */
+      selectStep(id);
+      if (state.corrForm && !(state.corrForm.step === id && state.corrForm.mode === mode)) stashCorr();
+      var kept = state.corrForm || takeCorrDraft(state.runKey, id, mode);
+      if (kept) { state.corrForm = kept; state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(kept.op); render(); return; }
       var op = b && PF.corrections.OPS.indexOf(b.dataset.op) >= 0 ? b.dataset.op : 'wording';
       state.corrForm = { key: state.runKey, step: id, mode: mode, op: op, scope: 'just', to: x.step.text, text: '', where: 'after', moveTo: '', roles: x.step.roles.slice(), shot: b && b.dataset.shot || '', why: '', happened: '', menu: false };
-      selectStep(id); state.refOpen = true; state.fieldErr = null;
+      state.refOpen = true; state.fieldErr = null;
       state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(op); state.focusEnd = true; render();
     },
     'partial-dismiss': function (id) { delete state.partial[id]; render(); },
@@ -14123,12 +14136,14 @@ PF.examples = (function () {
     else fallback();
   }
 
-  /* New process and step-type forms. */
+  /* New process and step-type forms. Each New process form (opened fresh or submitted) gets a new token: a creation that
+     finishes later clears and leaves only the form it came from, never a newer one. */
+  var npToken = 0;
   document.addEventListener('submit', function (e) {
     if (e.target.id === 'type-form') { e.preventDefault(); readTypeForm(); saveType(); return; }
     if (e.target.id !== 'new-process-form') return;
     e.preventDefault();
-    var f = { id: val('np-id').trim().toLowerCase(), title: val('np-title').trim(), group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner'), solo: !!(document.getElementById('np-solo') || {}).checked };
+    var f = { token: ++npToken, id: val('np-id').trim().toLowerCase(), title: val('np-title').trim(), group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner'), solo: !!(document.getElementById('np-solo') || {}).checked };
     state.newProc = f;
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) { say('The process ID is lowercase letters, numbers and dashes, like release or code-review.', 'warn'); state.focus = 'np-id'; render(); return; }
     if (!f.title) { say('Give the process a title.', 'warn'); state.focus = 'np-title'; render(); return; }
@@ -14136,12 +14151,10 @@ PF.examples = (function () {
     var md = V.starterMap(f), sfs = state.fs, g = gen;
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return;
-      var shown = state.newProc === f;
-      if (!res.conflict && shown) state.newProc = null;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !shown) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
+      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !state.newProc || state.newProc.token !== f.token) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
   });
   document.addEventListener('submit', function (e) {
@@ -14409,7 +14422,7 @@ PF.examples = (function () {
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { harvest(); state.view = v; }
+  function setView(v) { leaveContext(); state.view = v; }
   /* Go straight to something: { view, process, ptab, mapVer, run, step, note, filter }. It goes through setView, so typed
      evidence, an open Fill in and an unsent note are kept as drafts and come back. It refuses rather than lose input: text
      typed in a builder box and not applied, a correction or follow-up decision with text in it, or a dialog that isn't
@@ -14484,11 +14497,12 @@ PF.examples = (function () {
   /* One way to select a step, for the mouse and the keyboard alike. An open Fill in is remembered with its step. */
   function selectStep(id) {
     if (state.sel !== id) {
-      state.attErr = null; harvest();
-      /* An open Fill in is remembered for the folder it was drawn in, never carried into another. */
-      if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; }
+      state.attErr = null;
+      /* The step being left keeps its typing, its open Fill in and its correction; the new one gets back its own. */
+      leaveContext();
     }
     state.sel = id; if (state.pick && state.pick.id !== id) { state.pick = null; state.fieldsDraft = null; }
+    enterContext();
     var d = state.runKey && draftOf(state.runKey, id, false);
     if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd; }
   }

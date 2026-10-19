@@ -4445,4 +4445,97 @@ rule('New process: what was submitted and refused comes back after going elsewhe
   assert.ok(/id="np-title"[^>]*value=""/.test(app.html()), 'Cancel cleared it');
 });
 
+/* ---------- 1.17 fourth review: input belongs to the context it was typed in ---------- */
+async function twoRuns() {
+  const app = await recordingRelease(), a = app.run();
+  const copy = JSON.parse(app.fs.files[a.path].t); copy.id = 'twin0001'; copy.title = 'Twin release';
+  await app.fs.write('runs/release/twin0001/run.json', JSON.stringify(copy));
+  app.click('refresh'); await app.tick(80);
+  return { app, A: a.key, B: 'release/twin0001' };
+}
+
+rule('Fill in typed in one run never shows up in another run at the same step, and is there again in its own', async () => {
+  const { app, A, B } = await twoRuns();
+  app.click('open-run', A); await app.tick(); app.click('unfold', 'verify'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.set('fld-issue', 'ABC-1111'); await app.tick();
+  app.click('open-run', B); await app.tick(); app.click('unfold', 'verify'); await app.tick();
+  app.click('select', 'close'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  assert.ok(!/ABC-1111/.test(app.html()), 'not in the other run');
+  app.click('unpick'); await app.tick();
+  app.click('open-run', A); await app.tick(); app.click('unfold', 'verify'); await app.tick();
+  app.click('select', 'close'); await app.tick();
+  assert.ok(/id="fld-issue"[^>]*value="ABC-1111"/.test(app.html()), 'back in its own run');
+  assert.ok(!/ABC-1111/.test(app.fs.files['runs/release/twin0001/run.json'].t), 'never saved into the other run');
+});
+
+rule('Opening a correction on another step keeps the one already being written, and it comes back', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-blake'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(20);
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  app.input('corr-why', 'Pods reason'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'correct' }); await app.tick();
+  assert.ok(!/Pods reason/.test(app.html()), 'the other step starts clean');
+  app.input('corr-why', 'Approve reason'); await app.tick();
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  assert.ok(/<textarea id="corr-why"[^>]*>Pods reason<\/textarea>/.test(app.html()), 'the first one is back');
+  app.click('corr-open', 'approve', { mode: 'correct' }); await app.tick();
+  assert.ok(/<textarea id="corr-why"[^>]*>Approve reason<\/textarea>/.test(app.html()), 'and the second');
+});
+
+rule('New process: a creation that finishes late never clears or leaves a newer form', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const orig = app.PF.repo.loadAll, g = gate(); let hold = false;
+  app.PF.repo.loadAll = function () { const args = arguments, self = this; return hold ? g.p.then(() => orig.apply(self, args)) : orig.apply(self, args); };
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); hold = true; app.submit('new-process-form'); await app.tick(40);
+  hold = false;
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'release'); app.set('np-title', 'Second try'); app.submit('new-process-form'); await app.tick(20);
+  g.open(); await app.tick(80);
+  app.PF.repo.loadAll = orig;
+  assert.ok(app.fs.files['maps/drafts/risk-review.md'], 'set-up: the first draft was created');
+  assert.ok(/id="np-title"[^>]*value="Second try"/.test(app.html()), 'still on the newer form, as submitted');
+  assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()), 'told where the first one is');
+});
+
+rule('Across runs, steps, corrections, notes and leaving, input never shows in another context and is never lost without Cancel', async () => {
+  for (const seed of [3, 11, 29]) {
+    const { app, A, B } = await twoRuns();
+    let x = seed; const rnd = n => { x = (x * 1103515245 + 12345) % 2147483648; return x % n; };
+    const want = { corr: {}, note: {}, fill: {} }; let run = null, step = null, n = 0;
+    const ctxKey = () => run + '|' + step;
+    for (let i = 0; i < 80; i++) {
+      const a = rnd(7);
+      if (a === 0 || !run) { run = [A, B][rnd(2)]; app.click('open-run', run); await app.tick(); step = /<li class="step sel[^"]*"[^>]*id="step-([\w-]+)"/.exec(app.html()); step = step ? step[1] : null; }
+      else if (a === 1) { step = ['pods', 'approve'][rnd(2)]; app.click('select', step); await app.tick(); }
+      else if (a === 2 && step) { app.click('corr-open', step, { mode: 'correct' }); await app.tick(); const t = 'C' + seed + '-' + (++n); app.input('corr-why', t); await app.tick(); want.corr[ctxKey()] = t; }
+      else if (a === 3 && step) { const t = 'N' + seed + '-' + (++n); app.set('note-text', t); await app.tick(); want.note[ctxKey()] = t; }
+      else if (a === 4) { app.click('go', '', { view: ['runs', 'home', 'processes'][rnd(3)] }); await app.tick(); run = null; step = null; continue; }
+      else if (a === 5 && /id="corr-why"/.test(app.html())) { app.click('corr-cancel'); await app.tick(); delete want.corr[ctxKey()]; }
+      else if (a === 6 && step) {
+        if (!/id="fld-/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
+        const f = /id="(fld-[\w-]+)"[^>]*value="/.exec(app.html());
+        if (f) { const t = 'F' + seed + '-' + (++n); app.set(f[1], t); await app.tick(); want.fill[ctxKey()] = [f[1], t]; }
+      }
+      if (!run || !step) continue;
+      const html = app.html();
+      Object.keys(want.corr).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('>' + want.corr[k] + '<') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s correction shown in ' + ctxKey()));
+      Object.keys(want.note).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('>' + want.note[k] + '<') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s note shown in ' + ctxKey()));
+      Object.keys(want.fill).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('"' + want.fill[k][1] + '"') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s Fill in shown in ' + ctxKey()));
+    }
+    // Every context still has what was typed in it.
+    for (const k of new Set(Object.keys(want.corr).concat(Object.keys(want.note), Object.keys(want.fill)))) {
+      const [r, st] = k.split('|');
+      app.click('go', '', { view: 'run', run: r, step: st }); await app.tick();
+      if (want.fill[k]) assert.ok(new RegExp('id="' + want.fill[k][0] + '"[^>]*value="' + want.fill[k][1] + '"').test(app.html()), 'seed ' + seed + ': Fill in kept for ' + k);
+      if (want.note[k]) assert.ok(new RegExp('<textarea id="note-text"[^>]*>' + want.note[k] + '</textarea>').test(app.html()), 'seed ' + seed + ': note kept for ' + k);
+      if (want.corr[k]) { app.click('corr-open', st, { mode: 'correct' }); await app.tick(); assert.ok(new RegExp('<textarea id="corr-why"[^>]*>' + want.corr[k] + '</textarea>').test(app.html()), 'seed ' + seed + ': correction kept for ' + k); }
+    }
+  }
+});
+
 run();
