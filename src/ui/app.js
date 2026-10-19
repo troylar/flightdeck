@@ -596,6 +596,9 @@
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
+    /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
+    if (state.fs) leaveContext();
+    state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
@@ -2172,11 +2175,14 @@
   var corrSeq = 0;
   function corrKey(f) { return draftKey(f.key, f.step + '#' + f.mode); }
   function stashCorr() { var f = state.corrForm; if (!f) return; f._at = ++corrSeq; (state.corrDrafts = state.corrDrafts || {})[corrKey(f)] = f; state.corrForm = null; }
-  function leaveContext() {
+  function leaveContext() { leaveFillIn(); stashCorr(); }
+  /* The open Fill in, kept with its folder, run and step: what's typed (harvest) and the choices that decide its fields. */
+  function leaveFillIn() {
     harvest();
-    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; state.pick = null; state.fieldsDraft = null; }
-    stashCorr();
+    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = fillDraft(state.pick.id); state.pick = null; state.fieldsDraft = null; }
   }
+  /* Fill in's unsaved choices for a step of the open run, only if they belong to this folder and run. */
+  function fillDraft(id) { var f = state.fieldsDraft; return f && f.id === id && f.key === state.runKey && f.fs === fsKey() ? f : null; }
   /* The destination's own kept correction comes back: for its run and selected step, or exactly the step and mode asked for. */
   function takeCorrDraft(key, step, mode) {
     var all = state.corrDrafts || {}, best = null;
@@ -2694,7 +2700,12 @@
       /* While Done differently is finishing on a step, Fill in waits: the answer landing would close it. */
       var ans = state.answering;
       if (b.dataset.kind === 'fields' && ans && ans.key === state.runKey && ans.step === id) { say('Finishing the answer… Fill in opens once it\'s saved.', 'warn'); render(); return; }
-      state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' }; state.fieldsDraft = null; if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
+      /* Another small form on the step keeps an open Fill in (as leaving the step would); opening Fill in brings back its own. */
+      leaveFillIn();
+      state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' };
+      var fd = b.dataset.kind === 'fields' && state.runKey ? draftOf(state.runKey, id, false) : null;
+      state.fieldsDraft = fd && fd.fd && fd.fd.key === state.runKey && fd.fd.fs === fsKey() ? fd.fd : null; if (fd) fd.open = false;
+      if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
     unpick: function () { var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
@@ -3270,13 +3281,13 @@
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) { say('The process ID is lowercase letters, numbers and dashes, like release or code-review.', 'warn'); state.focus = 'np-id'; render(); return; }
     if (!f.title) { say('Give the process a title.', 'warn'); state.focus = 'np-title'; render(); return; }
     if (processes().some(function (x) { return x.id === f.id; })) { say('There\'s already a process called "' + f.id + '". Choose another ID, or open that one.', 'warn'); state.focus = 'np-id'; render(); return; }
-    var md = V.starterMap(f), sfs = state.fs, g = gen;
+    var md = V.starterMap(f), sfs = state.fs, g = gen, mine = f.token;
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !state.newProc || state.newProc.token !== f.token) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
+      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !state.newProc || state.newProc.token !== mine) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
   });
   document.addEventListener('submit', function (e) {
@@ -3375,6 +3386,8 @@
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) dropPending();
       if (was !== !!state.obPending) scheduleRender();
     }
+    /* Typing in a New process form after Create the draft makes it a newer form: a late creation then leaves it alone. */
+    if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'ob-part-q' || e.target.id === 'ob-part-q2') { state.obQ = String(e.target.value || '').slice(0, 60); render(); }
     /* Getting started's forms keep what's typed in their state, so ID previews and the request follow the names. */
     var su = state.setup, sm = /^su-(me|name|email|rq)-?(name|email|t\d+)?$/.exec(e.target.id || '');
@@ -3415,6 +3428,7 @@
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }
     if (e.target.id === 'su-to' && state.setup) { state.setup.to = e.target.value; render(); }
@@ -3422,7 +3436,10 @@
     if (/^fld-/.test(e.target.id || '') && state.pick && state.pick.kind === 'fields') {
       var vals = {}; document.querySelectorAll('[id^="fld-"]').forEach(function (el) { vals[el.id.slice(4)] = el.value; });
       vals[e.target.id.slice(4)] = e.target.value;
-      state.fieldsDraft = { id: state.pick.id, values: vals }; render();
+      state.fieldsDraft = { fs: fsKey(), key: state.runKey, id: state.pick.id, values: vals };
+      /* The step's draft holds the same choices, so the action shown and the fields drawn for it always agree. */
+      var sd = draftOf(state.runKey, state.pick.id, true); Object.keys(vals).forEach(function (k) { sd.fields['fld-' + k] = vals[k]; });
+      render();
     }
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
     if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); render(); }
@@ -3626,7 +3643,7 @@
     state.sel = id; if (state.pick && state.pick.id !== id) { state.pick = null; state.fieldsDraft = null; }
     enterContext();
     var d = state.runKey && draftOf(state.runKey, id, false);
-    if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd; }
+    if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd && d.fd.key === state.runKey && d.fd.fs === fsKey() ? d.fd : null; }
   }
   function nextStepId(r, map) { var nx = R.nextUp(r, map, state.me); return nx.kind === 'step' && nx.step ? nx.step.id : null; }
   /* Whether a step can be answered now, and with what: its own draft's evidence, else what's saved, else what the box would

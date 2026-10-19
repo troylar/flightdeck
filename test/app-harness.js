@@ -173,6 +173,8 @@ function boot(opts) {
     el: get, doc: document,
     // A control no longer drawn: the page no longer finds it (this stand-in otherwise keeps every node it ever made).
     gone(id) { delete els[id]; inputs.delete(id); },
+    // Every typed box not drawn now is gone, as after a new folder's screen replaced the page.
+    goneUndrawn() { Object.keys(els).forEach(id => { if (['app', 'top', 'overlay', 'live', 'body'].indexOf(id) < 0 && !onScreen(id) && (els.overlay._html || '').indexOf('id="' + id + '"') < 0) { delete els[id]; inputs.delete(id); } }); },
     asked: () => asked.slice(),
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
     // Like set(), for an input inside one data-scope element with no other scope opened before it closes (the builder's

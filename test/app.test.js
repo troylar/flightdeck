@@ -4446,8 +4446,13 @@ rule('New process: what was submitted and refused comes back after going elsewhe
 });
 
 /* ---------- 1.17 fourth review: input belongs to the context it was typed in ---------- */
-async function twoRuns() {
-  const app = await recordingRelease(), a = app.run();
+async function twoRuns(opts) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, opts || {}));
+  await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick();
+  app.click('pickup'); await app.tick(40);
+  const a = app.run();
   const copy = JSON.parse(app.fs.files[a.path].t); copy.id = 'twin0001'; copy.title = 'Twin release';
   await app.fs.write('runs/release/twin0001/run.json', JSON.stringify(copy));
   app.click('refresh'); await app.tick(80);
@@ -4504,29 +4509,70 @@ rule('New process: a creation that finishes late never clears or leaves a newer 
 
 rule('Across runs, steps, corrections, notes and leaving, input never shows in another context and is never lost without Cancel', async () => {
   for (const seed of [3, 11, 29]) {
-    const { app, A, B } = await twoRuns();
-    let x = seed; const rnd = n => { x = (x * 1103515245 + 12345) % 2147483648; return x % n; };
+    const files = {}, gone = [];
+    const { app, A, B } = await twoRuns({ indexedDB: await rememberedFolder(files), picker: folderHandle('Other', {}) });
+    sameRunsFolder(app, files);
+    // High bits only: an LCG's low bits cycle (x % 2 alternates), which would leave half the actions never chosen.
+    let x = seed; const rnd = n => { x = (Math.imul(x, 1103515245) + 12345) & 0x7fffffff; return (x >>> 16) % n; };
     const want = { corr: {}, note: {}, fill: {} }; let run = null, step = null, n = 0;
     const ctxKey = () => run + '|' + step;
     for (let i = 0; i < 80; i++) {
-      const a = rnd(7);
+      const a = rnd(10);
       if (a === 0 || !run) { run = [A, B][rnd(2)]; app.click('open-run', run); await app.tick(); step = /<li class="step sel[^"]*"[^>]*id="step-([\w-]+)"/.exec(app.html()); step = step ? step[1] : null; }
       else if (a === 1) { step = ['pods', 'approve'][rnd(2)]; app.click('select', step); await app.tick(); }
-      else if (a === 2 && step) { app.click('corr-open', step, { mode: 'correct' }); await app.tick(); const t = 'C' + seed + '-' + (++n); app.input('corr-why', t); await app.tick(); want.corr[ctxKey()] = t; }
-      else if (a === 3 && step) { const t = 'N' + seed + '-' + (++n); app.set('note-text', t); await app.tick(); want.note[ctxKey()] = t; }
+      else if (a === 2 && step) { app.click('corr-open', step, { mode: 'correct' }); await app.tick(); const t = 'C' + seed + '-' + (++n) + 'z'; app.input('corr-why', t); await app.tick(); want.corr[ctxKey()] = t; }
+      else if (a === 3 && step) { const t = 'N' + seed + '-' + (++n) + 'z'; app.set('note-text', t); await app.tick(); want.note[ctxKey()] = t; }
       else if (a === 4) { app.click('go', '', { view: ['runs', 'home', 'processes'][rnd(3)] }); await app.tick(); run = null; step = null; continue; }
       else if (a === 5 && /id="corr-why"/.test(app.html())) { app.click('corr-cancel'); await app.tick(); delete want.corr[ctxKey()]; }
+      else if (a === 7) {
+        // Fill in with an action that decides its fields, then another small form on the same step, canceled.
+        step = 'close'; app.click('go', '', { view: 'run', run, step }); await app.tick();
+        if (!/id="fld-action"/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
+        app.select('fld-action', 'create'); await app.tick();
+        const t = 'P' + seed + '-' + (++n) + 'z'; app.set('fld-project', t); app.select('fld-project', t); await app.tick();
+        want.fill[ctxKey()] = ['fld-project', t];
+        app.click('pick', step, { kind: ['block', 'differently', 'deadline'][rnd(3)] }); await app.tick(); app.click('unpick'); await app.tick();
+        app.click('pick', step, { kind: 'fields' }); await app.tick();
+        const h7 = app.html();
+        assert.ok(/<option selected>create<\/option>/.test(h7) && new RegExp('id="fld-project"[^>]*value="' + t + '"').test(h7), 'seed ' + seed + ' step ' + i + ': Fill in back after another form on its step, its action and fields together');
+      }
+      else if (a === 8 && !gone.length && i > 10 && run) {
+        // Fill in open with an action chosen, as the folder changes under it.
+        step = 'close'; app.click('go', '', { view: 'run', run, step }); await app.tick();
+        if (!/id="fld-action"/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
+        app.select('fld-action', 'create'); await app.tick();
+        const t = 'X' + seed + '-' + (++n) + 'z'; app.set('fld-project', t); app.select('fld-project', t); await app.tick();
+        want.fill[ctxKey()] = ['fld-project', t];
+        Object.keys(want).forEach(t => Object.keys(want[t]).forEach(k => gone.push(t === 'fill' ? want[t][k][1] : want[t][k])));
+        want.corr = {}; want.note = {}; want.fill = {};
+        // The same run stays on screen, as after reconnecting: nothing typed in the last folder may come along.
+        app.click('reconnect'); await app.tick(200); app.goneUndrawn();
+        app.click('save-fields', step); await app.tick(60);
+      }
+      else if (a === 9) {
+        const orig = app.PF.repo.loadAll, g = gate(); let hold = true, id = 'np-' + seed + '-' + (++n);
+        app.PF.repo.loadAll = function () { const args = arguments, self = this; return hold ? g.p.then(() => orig.apply(self, args)) : orig.apply(self, args); };
+        app.click('new-process'); await app.tick();
+        app.set('np-id', id); app.set('np-title', 'T ' + id); app.submit('new-process-form'); await app.tick(20);
+        hold = false; app.set('np-title', 'Edited ' + id); app.input('np-title', 'Edited ' + id); await app.tick();
+        g.open(); await app.tick(60); app.PF.repo.loadAll = orig;
+        assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Edited ' + id, 'seed ' + seed + ': typing after a submit keeps the form');
+        assert.ok(new RegExp('Created the draft for "T ' + id + '"\\. Open it from Processes\\.').test(app.html() + app.live()), 'seed ' + seed + ': told where the draft is');
+        app.click('np-cancel'); await app.tick(); run = null; step = null; continue;
+      }
       else if (a === 6 && step) {
         if (!/id="fld-/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
         const f = /id="(fld-[\w-]+)"[^>]*value="/.exec(app.html());
-        if (f) { const t = 'F' + seed + '-' + (++n); app.set(f[1], t); await app.tick(); want.fill[ctxKey()] = [f[1], t]; }
+        if (f) { const t = 'F' + seed + '-' + (++n) + 'z'; app.set(f[1], t); app.select(f[1], t); await app.tick(); want.fill[ctxKey()] = [f[1], t]; }
       }
       if (!run || !step) continue;
       const html = app.html();
+      gone.forEach(t => assert.ok(html.indexOf(t) < 0, 'seed ' + seed + ' step ' + i + ': ' + t + ' from the last folder shown' + (process.env.DBG ? ' :: ' + html.slice(Math.max(0, html.indexOf(t) - 300), html.indexOf(t) + 50) : '')));
       Object.keys(want.corr).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('>' + want.corr[k] + '<') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s correction shown in ' + ctxKey()));
       Object.keys(want.note).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('>' + want.note[k] + '<') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s note shown in ' + ctxKey()));
       Object.keys(want.fill).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('"' + want.fill[k][1] + '"') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s Fill in shown in ' + ctxKey()));
     }
+    gone.forEach(t => Object.keys(files).forEach(p => assert.ok(String(files[p]).indexOf(t) < 0, 'seed ' + seed + ': ' + t + ' from the last folder saved into ' + p)));
     // Every context still has what was typed in it.
     for (const k of new Set(Object.keys(want.corr).concat(Object.keys(want.note), Object.keys(want.fill)))) {
       const [r, st] = k.split('|');
@@ -4536,6 +4582,88 @@ rule('Across runs, steps, corrections, notes and leaving, input never shows in a
       if (want.corr[k]) { app.click('corr-open', st, { mode: 'correct' }); await app.tick(); assert.ok(new RegExp('<textarea id="corr-why"[^>]*>' + want.corr[k] + '</textarea>').test(app.html()), 'seed ' + seed + ': correction kept for ' + k); }
     }
   }
+});
+
+/* ---------- 1.17 fifth review: another form on the same step, typing after a submit, other folders ---------- */
+rule('Fill in survives opening Blocked on the same step: its action and the fields for that action come back together, and Save keeps them', async () => {
+  const app = await recordingRelease();
+  app.click('unfold', 'verify'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.select('fld-action', 'create'); await app.tick();
+  app.set('fld-project', 'PRJ'); app.set('rec-key', 'PRJ-42'); await app.tick();
+  app.click('pick', 'close', { kind: 'block' }); await app.tick();
+  app.click('unpick'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  const h = app.html();
+  assert.ok(/<option selected>create<\/option>/.test(h), 'the action chosen');
+  assert.ok(/id="fld-project"[^>]*value="PRJ"/.test(h), 'the field typed for that action');
+  assert.ok(/id="rec-key"[^>]*value="PRJ-42"/.test(h), 'the evidence typed');
+  app.click('save-fields', 'close'); await app.tick(60);
+  const f = (app.run().json.fields || {}).close || {};
+  assert.strictEqual(f.action, 'create'); assert.strictEqual(f.project, 'PRJ', 'saved with the action shown');
+});
+
+rule('New process: typing after Create the draft keeps the form when the creation finishes late, and says where the draft is', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const orig = app.PF.repo.loadAll, g = gate(); let hold = false;
+  app.PF.repo.loadAll = function () { const args = arguments, self = this; return hold ? g.p.then(() => orig.apply(self, args)) : orig.apply(self, args); };
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); hold = true; app.submit('new-process-form'); await app.tick(40);
+  hold = false;
+  app.set('np-title', 'Risk review, edited'); app.input('np-title', 'Risk review, edited'); await app.tick();
+  g.open(); await app.tick(80);
+  app.PF.repo.loadAll = orig;
+  assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Risk review, edited', 'still on the form, with the edit');
+  assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()));
+});
+
+/* A real team folder holding the same runs as the examples, as a copy of them would. */
+/* A team folder this browser remembers but must ask again to use: the examples open first, and Reconnect switches to it
+   in place, on the screen you're on. */
+async function rememberedFolder(files) {
+  const dir = folderHandle('Team', files), idb = memoryIDB();
+  dir.queryPermission = () => Promise.resolve('prompt');
+  await new Promise(res => { const q = idb.open(); q.onsuccess = () => { const tx = q.result.transaction(); tx.oncomplete = res; tx.objectStore().put({ dir, id: 'team-1' }, 'folder'); }; });
+  return idb;
+}
+function sameRunsFolder(app, files) { Object.keys(app.fs.files).forEach(p => { const t = app.fs.files[p].t; if (!/^data:/.test(t)) files[p] = t; }); }
+rule('Opening another folder never brings Fill in, a correction or picked files from the last one, even for a run with the same name', async () => {
+  const files = {}, other = {};
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, indexedDB: await rememberedFolder(files), picker: folderHandle('Other', other) }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const key = app.run().key, path = app.run().path;
+  app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+  sameRunsFolder(app, files); sameRunsFolder(app, other);
+  app.click('unfold', 'verify'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.select('fld-action', 'create'); await app.tick();
+  app.set('fld-project', 'EXAMPLES-ONLY'); await app.tick();
+  app.select('fld-project', 'EXAMPLES-ONLY'); await app.tick();
+  // Reconnect stays on the run: the same run in the other folder is on screen at once.
+  app.click('reconnect'); await app.tick(200); app.goneUndrawn();
+  assert.ok(/Release 2026\.10\.16/.test(app.html()), 'set-up: the same run, now from the team folder');
+  assert.ok(!/EXAMPLES-ONLY/.test(app.html()), 'not shown in the other folder');
+  assert.ok(!/id="fld-action"/.test(app.html()), 'Fill in isn\'t open there');
+  app.click('save-fields', 'close'); await app.tick(60);
+  assert.ok(!/EXAMPLES-ONLY/.test(files[path] || ''), 'Save there writes nothing from the last folder');
+  app.click('open-run', key); await app.tick(40); app.click('unfold', 'verify'); await app.tick(); app.click('select', 'close'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  assert.ok(!/EXAMPLES-ONLY/.test(app.html()), 'nor when it opens');
+  assert.ok(!/<option selected>create<\/option>/.test(app.html()), 'nor its action');
+  app.click('save-fields', 'close'); await app.tick(60);
+  assert.ok(!/EXAMPLES-ONLY/.test(files[path] || ''), 'never saved into the other folder');
+  // And on to a third folder holding the same run: Fill in typed in the team folder stays with the team folder.
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.select('fld-action', 'create'); await app.tick();
+  app.set('fld-project', 'TEAM-ONLY'); app.select('fld-project', 'TEAM-ONLY'); await app.tick();
+  app.click('connect'); await app.tick(200); app.goneUndrawn();
+  app.click('open-run', key); await app.tick(40); app.click('go', '', { view: 'run', run: key, step: 'close' }); await app.tick();
+  assert.ok(/Release 2026\.10\.16/.test(app.html()), 'set-up: the same run, now from the third folder');
+  assert.ok(!/TEAM-ONLY/.test(app.html()), 'not in the third folder');
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  assert.ok(!/TEAM-ONLY/.test(app.html()) && !/<option selected>create<\/option>/.test(app.html()), 'nor when Fill in opens there');
+  app.click('save-fields', 'close'); await app.tick(60);
+  assert.ok(!/TEAM-ONLY/.test(other[path] || ''), 'never saved into the third folder');
 });
 
 run();
