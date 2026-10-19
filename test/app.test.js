@@ -4941,7 +4941,13 @@ async function twoRunsWithShot(IO) {
   delete b.lineage;
   const bPath = a.path.replace(j.id, b.id);
   await app.fs.write(bPath, JSON.stringify(b));
-  app.focus(); await app.tick(80);
+  // Wait, with a bound, until the app has read run B (it's listed on Runs), rather than for a fixed number of ticks: how
+  // many turns a refresh takes depends on the elapsed-time schedule.
+  app.click('nav', 'runs'); app.click('refresh');
+  const end = Date.now() + 5000;
+  while (!/Release 2026\.10\.16 \(moved here\)/.test(app.html()) && Date.now() < end) { await app.tick(5); if (!/\(moved here\)/.test(app.html())) app.click('refresh'); }
+  assert.ok(/Release 2026\.10\.16 \(moved here\)/.test(app.html()), 'set-up: run B is read');
+  app.click('nav', 'home');
   // A redraw Home's clock deferred (250 ms) lands now, not in the middle of the test.
   await new Promise(res => setTimeout(res, 300)); await app.tick(20);
   return { app, A: a.key, B: 'release/' + b.id };
@@ -5277,6 +5283,313 @@ rule('App: a run open in this window that also writes a note every 45 s still sh
     if (/BLAKEOTHER/.test(app.html())) seen = s;
   }
   assert.ok(seen != null && seen <= 6 * 60, 'shown at ' + seen + ' s');
+});
+
+
+/* ---------- 1.17: Search (docs/design.md section 22) ---------- */
+const sxBox = app => { const q = app.el('sx-q'); q.tagName = 'INPUT'; q.type = 'search'; return q; };
+const sxType = async (app, text) => { sxBox(app); app.input('sx-q', text); await app.tick(40); };
+const sxKey = (app, key, mods) => app.keyOn(key, mods, sxBox(app));
+const sxIds = app => [...app.overlay().matchAll(/role="option"[^>]*data-id="([^"]+)"/g)].map(m => m[1].replace(/&amp;/g, '&'));
+
+rule('Search: Ctrl+K opens it from anywhere, / only while single-key shortcuts are on, and never while typing or composing', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'Ctrl+K opened it');
+  assert.ok(/Search runs, steps, notes, corrections, follow-ups, step types and skills\./.test(app.overlay()), 'the empty state says what it searches');
+  app.key('Escape'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'Escape closed it');
+  app.keyOn('k', { metaKey: true }); await app.tick(40);
+  assert.strictEqual(app.overlay(), '', 'off a Mac, the Windows or Super key with K is not taken');
+  app.key('/'); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), '/ opened it'); app.key('Escape'); await app.tick();
+  app.keyOn('/', { isComposing: true }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'not while an input method is composing');
+  app.keyOn('/', {}, { tagName: 'TEXTAREA', id: 'note-text', dataset: {}, closest: () => null }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'not while typing');
+  app.click('toggle-keys'); await app.tick();
+  app.key('/'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'not with single-key shortcuts off');
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'Ctrl+K still works with them off');
+  app.click('search'); await app.tick();
+  assert.ok(/role="combobox"/.test(app.overlay()), 'and the top bar button');
+  assert.ok(/data-act="search"/.test(app.top()), 'the button is in the top bar');
+});
+
+rule('Search: results are grouped and highlighted, the arrow keys move the active one, and Enter goes there through go()', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  await sxType(app, 'deploy');
+  const ov = app.overlay();
+  assert.ok(/role="listbox"/.test(ov) && /role="group"/.test(ov) && /<mark>deploy<\/mark>/i.test(ov), 'a grouped, highlighted list');
+  const ids = sxIds(app);
+  assert.ok(ids.length >= 2, 'set-up: several results: ' + ids.join(', '));
+  assert.ok(new RegExp('aria-activedescendant="sx-o-0"').test(ov) && /id="sx-o-0"[^>]*aria-selected="true"/.test(ov), 'the first is active');
+  sxKey(app, 'ArrowDown'); await app.tick();
+  assert.ok(/aria-activedescendant="sx-o-1"/.test(app.overlay()), 'Down moves to the next');
+  sxKey(app, 'ArrowUp'); sxKey(app, 'ArrowUp'); await app.tick();
+  assert.ok(new RegExp('aria-activedescendant="sx-o-' + (ids.length - 1) + '"').test(app.overlay()), 'Up from the first wraps to the last');
+  sxKey(app, 'ArrowDown'); await app.tick();
+  const home = app.html(), active = /aria-selected="true" data-act="sx-open" data-id="([^"]+)"/.exec(app.overlay())[1];
+  assert.strictEqual(active, ids[0].replace(/&/g, '&amp;'), 'back on the first');
+  sxKey(app, 'Enter'); await app.tick(40);
+  assert.strictEqual(app.overlay(), '', 'Enter closed it');
+  assert.notStrictEqual(app.html(), home, 'and went to the result');
+});
+
+rule('Search: an open palette that receives new data shows the new result without another keystroke, and keeps the active row', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'zebracrossing');
+  assert.ok(/Nothing matches “zebracrossing”\. Try fewer words, or a ticket like ABC-123\./.test(app.overlay()), 'set-up: nothing yet');
+  const { key } = app.run();
+  await app.fs.write('runs/' + key + '/notes-other.jsonl', JSON.stringify({ id: 'zz1', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text: 'The zebracrossing sign was down', files: [] }) + '\n');
+  app.focus(); await app.tick(120);
+  assert.ok(/<mark>zebracrossing<\/mark>/.test(app.overlay()), 'the new note is listed without typing again');
+  assert.ok(/1 result/.test(app.live()), 'and the count is announced: ' + app.live());
+  await sxType(app, 'deploy');
+  sxKey(app, 'ArrowDown'); sxKey(app, 'ArrowDown'); await app.tick();
+  const activeId = () => /aria-selected="true" data-act="sx-open" data-id="([^"]+)"/.exec(app.overlay())[1];
+  const was = activeId(), notesN = () => +((/>Notes <span>([\d,]+)<\/span>/.exec(app.overlay()) || [0, 0])[1]), n0 = notesN();
+  await app.fs.write('runs/' + key + '/notes-third.jsonl', JSON.stringify({ id: 'zz2', at: '2026-10-16T11:00:00.000Z', by: 'person-blake', session: 'third', step: 'pods', text: 'Deploy deploy deploy, the deploy', files: [] }) + '\n');
+  app.focus(); await app.tick(120);
+  assert.strictEqual(notesN(), n0 + 1, 'set-up: the new note is counted');
+  assert.strictEqual(activeId(), was, 'the active row is the same result');
+});
+
+rule('Search: a note replaced with other words, same number of notes, is found by its new words in the open palette', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const { key } = app.run(), path = 'runs/' + key + '/notes-other.jsonl';
+  const line = text => JSON.stringify({ id: 'zz1', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text, files: [] }) + '\n';
+  await app.fs.write(path, line('Quokkas everywhere')); app.click('refresh'); await app.tick(120);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'quokkas');
+  assert.ok(/<mark>Quokkas<\/mark>/.test(app.overlay()), 'set-up: found');
+  await app.fs.write(path, line('Wombats everywhere')); app.focus(); await app.tick(120);
+  assert.ok(!/<mark>Quokkas<\/mark>/.test(app.overlay()), 'the old words no longer find it');
+  await sxType(app, 'wombats');
+  assert.ok(/<mark>Wombats<\/mark>/.test(app.overlay()), 'the new words do');
+});
+
+rule('Search: a run whose file couldn\'t be read is still searched from its last copy, marked, and counted in the footer', async () => {
+  const app = boot(); await app.tick(60);
+  const path = endedPath(app), title = JSON.parse(app.fs.files[path].t).title;
+  app.fs.files[path] = { t: '{"format":"preflight-run/2","id":', m: app.fs.files[path].m };
+  app.click('refresh'); await app.tick(120);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, title);
+  assert.ok(/Couldn(&#39;|’|')t be read; last copy/.test(app.overlay()), 'the result is marked');
+  assert.ok(/1 run file couldn(&#39;|’|')t be read; its last copy is searched and marked\./.test(app.overlay()), 'the footer says so');
+  assert.ok(/Folder last read \d{1,2}:\d{2}:\d{2}/.test(app.overlay()), 'and when the folder was last read');
+});
+
+rule('Search: opening a result never loses typing: an unsent note comes back, unapplied builder text refuses, and a dialog with typing isn\'t replaced', async () => {
+  const app = await recordingRelease(), key = app.run().key;
+  app.click('select', 'approve'); await app.tick();
+  app.set('note-text', 'unsent words'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'production release');
+  const proc = sxIds(app).find(id => /^pub:release\//.test(id));
+  assert.ok(proc, 'set-up: the process is listed: ' + sxIds(app).join(', '));
+  app.click('sx-open', proc); await app.tick(40);
+  assert.ok(/data-act="ptab"/.test(app.html()), 'on the process page');
+  app.click('go', '', { view: 'run', run: key, step: 'approve' }); await app.tick();
+  assert.strictEqual(app.draft('note-text'), 'unsent words', 'the unsent note came back');
+
+  const b = await builderOn();
+  b.click('ob-sel', 'flags'); await b.tick();
+  b.input('ob-text', 'Half typed'); await b.tick();
+  b.keyOn('k', { ctrlKey: true }); await b.tick(60);
+  await sxType(b, 'runs');
+  b.click('sx-open', 'page:runs'); await b.tick(40);
+  assert.strictEqual(b.overlay(), '', 'the palette closed so the message and the box can be seen');
+  assert.ok(/Apply or clear what you typed in the box first/.test(b.html()), 'says why');
+  assert.ok(b.draft('ob-text') === 'Half typed' && b.focused() === '#ob-text', 'the typing stays, with focus on it');
+
+  const c = boot(); await c.tick(80); c.choose('person-morgan'); await c.tick();
+  c.click('open-process', 'release'); await c.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(c.html())[1];
+  c.click('corr-review', id); await c.tick(20); c.click('corr-ca-declining'); await c.tick();
+  c.set('ca-reason', 'Not this time'); await c.tick();
+  c.keyOn('k', { ctrlKey: true }); await c.tick(40);
+  assert.ok(/id="ca-reason"/.test(c.overlay()) && !/role="combobox"/.test(c.overlay()), 'the dialog with typing stays');
+  assert.ok(/Finish or cancel this first\./.test(c.live() + c.html()));
+  c.click('help'); await c.tick();
+});
+
+rule('Search: a read-only dialog gives way to it, and on a phone a jump from it closes the step sheet', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('help'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()) && !/Keyboard/.test(app.overlay()), 'help gave way');
+  const ph = boot({ narrow: true }); await ph.tick(60); ph.choose('person-casey'); await ph.tick();
+  const key = ph.run().key;
+  ph.click('open-run', key); await ph.tick(); ph.click('select', 'approve'); await ph.tick();
+  assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(ph.html()), 'set-up: the step sheet is open');
+  ph.keyOn('k', { ctrlKey: true }); await ph.tick(40);
+  await sxType(ph, 'pods');
+  const hit = sxIds(ph).find(x => /^step:|^note:|^run:/.test(x));
+  assert.ok(hit, 'set-up: a result: ' + sxIds(ph).join(', '));
+  ph.click('sx-open', hit); await ph.tick(40);
+  assert.strictEqual(ph.overlay(), '');
+  assert.ok(!/id="rw-ins"[^>]*data-open="true"/.test(ph.html()), 'the sheet closed');
+});
+
+rule('Search: switching folders while the index is being built leaves nothing from the old folder', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const { key } = app.run();
+  await app.fs.write('runs/' + key + '/notes-other.jsonl', JSON.stringify({ id: 'zz1', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text: 'Oldfolderword here', files: [] }) + '\n');
+  app.click('refresh'); await app.tick(120);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'oldfolderword');
+  assert.ok(/<mark>Oldfolderword<\/mark>/.test(app.overlay()), 'set-up: found in this folder');
+  app.key('Escape'); await app.tick();
+  const jobs = []; const start = app.PF.search.start;
+  app.PF.search.start = function () { const j = start.apply(this, arguments); jobs.push(j); return j; };
+  // A build starts (the data changed), and the folder is switched before it can finish.
+  app.keyOn('k', { ctrlKey: true });
+  app.click('reset-examples');
+  await app.tick(120);
+  app.PF.search.start = start;
+  assert.ok(jobs.length >= 1 && jobs.slice(0, -1).every(j => j.canceled || j.done), 'the older build stopped');
+  if (!/role="combobox"/.test(app.overlay())) { app.keyOn('k', { ctrlKey: true }); await app.tick(60); }
+  await sxType(app, 'oldfolderword');
+  assert.ok(!/<mark>Oldfolderword<\/mark>/.test(app.overlay()), 'nothing from the old folder');
+  assert.ok(/Nothing matches/.test(app.overlay()));
+});
+
+/* ---------- Search, after review ---------- */
+rule('Search: background refreshes that change nothing shown are not announced again; a change in the results is', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(60);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'deploy');
+  for (let i = 0; i < 6; i++) { app.el('live').textContent = 'SENTINEL'; app.every(); await app.tick(80); assert.strictEqual(app.live(), 'SENTINEL', 'refresh ' + i + ' said nothing'); }
+  for (let i = 0; i < 2; i++) { app.el('live').textContent = 'SENTINEL'; app.focus(); await app.tick(150); assert.strictEqual(app.live(), 'SENTINEL', 'focus ' + i + ' said nothing'); }
+  await app.fs.write('runs/' + key + '/notes-other.jsonl', JSON.stringify({ id: 'zz9', at: '2026-10-16T10:00:00.000Z', by: 'person-blake', session: 'other', step: 'pods', text: 'Deploy waited', files: [] }) + '\n');
+  app.click('refresh'); await app.tick(150);
+  assert.ok(/\d+ results/.test(app.live()), 'a new result is announced: ' + app.live());
+});
+
+rule('Search: a result whose target is gone keeps the palette open and says so', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  const query = app.PF.search.query;
+  app.PF.search.query = function () { const r = query.apply(this, arguments); r.groups.unshift({ kind: 'run', label: 'Runs', total: 1, items: [{ id: 'run:release/gone', kind: 'run', title: 'Gone run', sub: '', text: '', target: { view: 'run', run: 'release/gone' }, status: '', at: '' }] }); r.total++; return r; };
+  await sxType(app, 'gone');
+  app.click('sx-open', 'run:release/gone'); await app.tick(40);
+  app.PF.search.query = query;
+  assert.ok(/role="combobox"/.test(app.overlay()), 'still open');
+  assert.ok(/That run isn(&#39;|')t in this folder anymore\./.test(app.overlay()), 'says so in the palette');
+  assert.ok(/That run isn't in this folder anymore\./.test(app.live()), 'and to screen readers');
+});
+
+rule('Search: opening a process moves focus to its heading', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'production release');
+  const proc = sxIds(app).find(id => /^pub:release\//.test(id));
+  app.click('sx-open', proc); await app.tick(40);
+  assert.ok(/<h1 id="page-h" tabindex="-1">Production release<\/h1>/.test(app.html()), 'the heading can take focus');
+  assert.strictEqual(app.focused(), 'page-h');
+});
+
+rule('Search: on a Mac, Cmd+K opens it and Ctrl+K is left to the text box', async () => {
+  const mac = boot({ navigator: { platform: 'MacIntel' } }); await mac.tick(60); mac.choose('person-casey'); await mac.tick();
+  const box = { tagName: 'INPUT', id: 'me', dataset: {}, closest: () => null };
+  mac.keyOn('k', { ctrlKey: true }, box); await mac.tick(40);
+  assert.strictEqual(mac.overlay(), '', 'Ctrl+K in a text box on a Mac does nothing here');
+  mac.keyOn('k', { metaKey: true }, box); await mac.tick(40);
+  assert.ok(/role="combobox"/.test(mac.overlay()), 'Cmd+K opens search');
+  assert.ok(/aria-keyshortcuts="Meta\+K"/.test(mac.top()) && /⌘K/.test(mac.top()), 'the button says Cmd+K');
+  const pc = boot(); await pc.tick(60); pc.choose('person-casey'); await pc.tick();
+  pc.keyOn('k', { ctrlKey: true }, box); await pc.tick(40);
+  assert.ok(/role="combobox"/.test(pc.overlay()), 'elsewhere Ctrl+K opens it');
+  assert.ok(/aria-keyshortcuts="Control\+K"/.test(pc.top()));
+});
+
+rule('Search: while the folder is still being read, the palette says how far it got and fills in as runs arrive', async () => {
+  const files = {}, picker = folderHandle('Team', files);
+  const app = boot({ picker, indexedDB: memoryIDB() }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const h = heldFolder(app); Object.assign(files, h.files);
+  app.PF.repo.config.batch = 1;
+  h.holdRuns(/^runs\/release\/[^/]+\/run\.json$/);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-casey'); await app.tick(40);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  await sxType(app, 'release 2026');
+  let ov = app.overlay();
+  assert.ok(/Still reading \d+ of 13 runs\./.test(ov), 'says how far the folder\'s first read got: ' + (/sx-foot[^>]*>([^<]*)/.exec(ov) || [])[1]);
+  assert.ok(/Check in code for <mark>Release<\/mark> <mark>2026<\/mark>/.test(ov), 'runs read so far are found');
+  assert.ok(!/>Release 2026\.10\.16</.test(ov.replace(/<\/?mark>/g, '')), 'a run not read yet isn\'t');
+  h.holdRuns(null); h.release(); await app.tick(200);
+  ov = app.overlay();
+  assert.ok(!/Still reading/.test(ov), 'done reading');
+  assert.ok(/<mark>Release<\/mark> <mark>2026<\/mark>\.10\.16/.test(ov), 'the rest arrived without typing again');
+  h.restore();
+});
+
+/* ---------- Search, second review ---------- */
+rule('Search: Ctrl+K puts focus in the search box, so typing right away lands there, also when it was already open', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const doc = app.doc, ov = app.el('overlay'), q = sxBox(app), drawn = () => /id="sx-q"/.test(ov.innerHTML);
+  q.focus = function () { doc.activeElement = this; };
+  ov.querySelector = sel => sel === '#sx-q' && drawn() ? q : null;
+  ov.contains = el => el === q && drawn();
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.strictEqual(doc.activeElement, q, 'focus is in the search box');
+  const t = doc.activeElement; t.value = 'deploy'; app.fire('input', { target: t }); await app.tick(40);
+  assert.ok(/<mark>deploy<\/mark>/i.test(app.overlay()), 'what was typed is searched');
+  doc.activeElement = doc.body;
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  assert.strictEqual(doc.activeElement, q, 'Ctrl+K on the open palette brings focus back to the box');
+});
+
+rule('Search: a result for a version or a step that left the folder says so and never opens another version', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const folders = [...new Set(app.files('publications/release/').map(p => p.split('/')[2]))].sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
+  const v1 = folders.find(f => /^v1-/.test(f)), latest = folders[folders.length - 1];
+  assert.ok(v1 && latest !== v1, 'set-up: release has v1 and a later version');
+  app.files('publications/release/' + v1 + '/').forEach(p => { delete app.fs.files[p]; });
+  app.click('refresh'); await app.tick(150);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  /* What a catch-up still under way can show: results listed before v1 was removed. */
+  const stale = [{ id: 'pub:release/' + v1, kind: 'version', title: 'Production release', sub: 'v1', text: '', target: { view: 'process', process: 'release', mapVer: v1 }, status: '', at: '' },
+    { id: 'step:release/' + latest + '/no-such-step', kind: 'step', title: 'Gone step', sub: '', text: '', target: { view: 'process', process: 'release', mapVer: latest, step: 'no-such-step' }, status: '', at: '' }];
+  const query = app.PF.search.query;
+  app.PF.search.query = function () { const r = query.apply(this, arguments); r.groups.unshift({ kind: 'version', label: 'Versions', total: 2, items: stale }); r.total += 2; return r; };
+  await sxType(app, 'production');
+  const home = app.html();
+  app.click('sx-open', stale[0].id); await app.tick(40);
+  assert.ok(/role="combobox"/.test(app.overlay()), 'still open');
+  assert.ok(/That version isn(&#39;|')t in this folder anymore\./.test(app.overlay()), 'says the version is gone');
+  assert.strictEqual(app.html(), home, 'no other version was opened');
+  app.click('sx-open', stale[1].id); await app.tick(40);
+  app.PF.search.query = query;
+  assert.ok(/That step isn(&#39;|')t in this folder anymore\./.test(app.overlay()), 'says the step is gone');
+  assert.strictEqual(app.html(), home, 'and stayed put');
+});
+
+rule('Search: a ticket changed on the open run is found by its new value even when its save fails, and the old one no longer finds the run', async () => {
+  const app = await recordingRelease(), key = app.run().key, old = app.run().json.details.ticket;
+  assert.ok(old, 'set-up: the run has a ticket');
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, old);
+  assert.ok(sxIds(app).indexOf('run:' + key) >= 0, 'set-up: the old ticket finds the run');
+  app.key('Escape'); await app.tick();
+  const orig = app.PF.repo.saveRun;
+  app.PF.repo.saveRun = () => Promise.reject(new Error('offline'));
+  app.click('edit', 'detail:ticket'); app.set('edit-input', 'ABC-9876'); app.click('save-edit'); await app.tick(60);
+  assert.ok(/ABC-9876/.test(app.html()) && !/ABC-9876/.test(app.fs.files[app.run().path].t), 'set-up: shown, not saved');
+  app.keyOn('k', { ctrlKey: true }); await app.tick(60);
+  await sxType(app, 'ABC-9876');
+  assert.ok(sxIds(app).indexOf('run:' + key) >= 0, 'the new ticket finds the run');
+  await sxType(app, old);
+  assert.ok(sxIds(app).indexOf('run:' + key) < 0, 'the old ticket no longer does');
+  app.PF.repo.saveRun = orig;
 });
 
 rule('App: another computer replacing a note on the open run with one of the same size at the same time shows after the full reread, without selecting the step again', async () => {

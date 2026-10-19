@@ -4,10 +4,11 @@
 
 ## 1.17.0 · Oct 19, 2026
 
-Big team folders: they open and refresh faster, runs show 50 at a time, and Folder health warns when refreshing is slow.
+Search everything with Ctrl+K, and big team folders open and refresh faster, show 50 runs at a time, and warn when refreshing is slow.
 
 ### New
 
+- **Search everything with Ctrl+K** (Search). Press Ctrl+K (Cmd+K on a Mac), or / when single-key shortcuts are on. Find runs, steps, notes, corrections, follow-ups, step types, skills and pages, grouped by kind, with your words highlighted. Accents don't matter. Choose a result to go straight there; anything you were typing is kept. Results update as the folder changes, and a run that couldn't be read is found from its last copy and marked. *Where:* Search in the top bar, on every page
 - **Says when refreshing is slow on this computer** (Folder health). When the last 3 refreshes each took more than 15 seconds, Folder health says how long refreshing takes here, with what to do about a big folder. *Where:* Settings › Folder health
 
 ### Improved

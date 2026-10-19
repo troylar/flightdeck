@@ -5,6 +5,7 @@ python3 build.py
 node test/rules.test.js
 node test/outline.test.js
 node test/timeline.test.js
+node test/search.test.js
 node test/folder.test.js
 node test/sync.test.js
 node test/views.test.js
