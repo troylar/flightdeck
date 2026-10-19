@@ -32,7 +32,7 @@ PF.repo = (function () {
   /* What's already been read from a folder. Complete publications never change, and ended runs rarely do, so routine refreshes
      skip them; a deep refresh (the Refresh button) reads everything again. */
   var caches = typeof WeakMap === 'function' ? new WeakMap() : null;
-  function newCache() { return { pubs: {}, ended: {}, notes: {}, approved: {}, bad: {}, intern: {} }; }
+  function newCache() { return { pubs: {}, runs: {}, notes: {}, approved: {}, bad: {}, intern: {}, dec: {} }; }
   function cacheOf(fs) { fs = fs && fs._raw || fs; if (!caches) return newCache(); var c = caches.get(fs); if (!c) { c = newCache(); caches.set(fs, c); } return c; }
   /* Run at most n reads at once, so a folder with hundreds of runs doesn't flood OneDrive or the browser. */
   function limited(items, n, fn) {
@@ -93,59 +93,151 @@ PF.repo = (function () {
   }
 
   /* Every run folder's result, by key ("process/id"), as the app accepts it (docs/design.md section 25):
-       fresh: read now, { run, build }   cached: unchanged ended run, { fileHash, sig, build }   unreadable: { why }
+       fresh: read now, { run, build }   cached: unchanged since it was read, { fileHash, sig, build }   unreadable: { why }
      A run folder without run.json has no result. complete: every process folder in runs/ was listed, which is the only
      thing that lets the app call a run it knew gone. The cache keeps frozen texts (entries), never an object the app shows
      or changes: every cached result is built new from them. freshKeys: runs read in full this time whatever the cache says
-     (the app's runs whose last check failed, so only a real read can clear that). */
-  function loadRuns(fs, cache, deep, freshKeys) {
+     (the app's runs whose last check failed, so only a real read can clear that).
+     What each run costs is decided by elapsed time (sched), never by counting refreshes: a run not read before, one the app
+     asks for fresh, and every run on Refresh (deep) is read; one past its maximum content age is read in full, bypassing the
+     notes cache; a running or recently ended run gets its sizes and times checked (one list, a stat per file) every time; an
+     older one gets that check within 10 minutes, a share each refresh; the rest cost nothing. Size and time are only a
+     shortcut: they can't prove a file is unchanged, which is why every run is read in full by its maximum age anyway.
+     o: { priority: {key: rank} (0 first), onBatch(batch), batch: results per batch }. With onBatch, fresh and unreadable
+     results are handed over as they arrive, with the keys still pending; a batch never says a run is missing. */
+  function loadRuns(fs, cache, deep, freshKeys, sched, o) {
+    o = o || {};
     var force = {}; (freshKeys || []).forEach(function (k) { force[k] = true; });
     return fs.list('runs').then(function (procs) {
       return Promise.all(procs.filter(function (p) { return p.kind === 'dir'; }).map(function (p) {
         return fs.list('runs/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return p.name + '/' + i.name; }); });
       }));
     }).then(function (nested) {
-      /* One limit across every process, so a folder with hundreds of runs never has more than 8 being read at once. */
       var unreadable = [], keys = [].concat.apply([], nested), listed = {};
       keys.forEach(function (k) { listed[k] = true; });
       /* A run folder that's gone is forgotten, so one that comes back under the same name is read again. */
-      Object.keys(cache.ended).forEach(function (k) { if (!listed[k]) delete cache.ended[k]; });
-      return limited(keys, 8, function (key) {
-        var hit = cache.ended[key], proc = key.split('/')[0], id = key.split('/')[1], bad = [];
+      Object.keys(cache.runs).forEach(function (k) { if (!listed[k]) delete cache.runs[k]; });
+      var plan = planRuns(keys, cache, deep, force, sched), pr = o.priority || null;
+      function rank(k) { if (pr) return pr[k] != null ? pr[k] : 2; var h = cache.runs[k]; return !h ? 2 : !h.entry.ended ? 0 : recent(h.entry, sched.wall) ? 1 : 3; }
+      /* Reads first (overdue runs, after a hidden tab or a long pause), each group in priority order: running, recently
+         ended, not known yet (new folders are likely new runs), the rest. */
+      var order = keys.map(function (k, i) { return { k: k, i: i, r: (plan[k] === 'read' || plan[k] === 'content' ? 0 : 10) + rank(k) }; })
+        .sort(function (a, b) { return a.r - b.r || a.i - b.i; }).map(function (x) { return x.k; });
+      var size = o.batch || config.batch, batch = null, inBatch = 0, done = 0, finished = {};
+      function flush() {
+        var b = batch; batch = null; inBatch = 0;
+        Object.keys(b.reads).forEach(function (k) { markBad(b.reads[k], cache); });
+        o.onBatch({ reads: b.reads, unreadable: b.unreadable, done: done, total: keys.length, pending: keys.filter(function (k) { return !finished[k]; }) });
+      }
+      return limited(order, 8, function (key) {
+        var hit = cache.runs[key], proc = key.split('/')[0], id = key.split('/')[1], bad = [], dir = 'runs/' + key;
         /* One run that can't be read (a placeholder OneDrive hasn't downloaded, a file being replaced) is listed as unreadable;
            the rest of the folder still loads. */
-        return go().then(null, function (e) { delete cache.ended[key]; bad.push({ path: 'runs/' + key + '/run.json', key: key, why: why(e) }); return null; }).then(function (res) {
+        return go().then(null, function (e) { delete cache.runs[key]; bad.push({ path: dir + '/run.json', key: key, why: why(e) }); return null; }).then(function (res) {
           unreadable.push.apply(unreadable, bad);
-          return res || (bad.length ? { kind: 'unreadable', why: bad[0].why } : null);
+          res = res || (bad.length ? { kind: 'unreadable', why: bad[0].why } : null);
+          done++; finished[key] = true;
+          if (o.onBatch && res && (res.kind === 'fresh' || res.kind === 'unreadable')) {
+            batch = batch || { reads: {}, unreadable: [] }; batch.reads[key] = res; batch.unreadable.push.apply(batch.unreadable, bad);
+            if (++inBatch >= size) flush();
+          }
+          return res;
         });
         function go() {
-          /* An ended run is reread only if a file in it arrived, left, or changed size or time (a late note, a conflict copy). */
-          if (!deep && hit && !force[key]) return fingerprint(fs, 'runs/' + key).then(function (fp) { return fp === hit.fp && !(hit.entry.recheckAt && Date.now() >= hit.entry.recheckAt) ? cachedResult(hit.entry, cache) : read(); });
-          return read();
+          var what = plan[key];
+          if (what === 'skip') return Promise.resolve(cachedResult(hit.entry, cache));
+          if (what === 'meta') return fingerprint(fs, dir).then(function (fp) {
+            if (fp === hit.fp && !(hit.entry.recheckAt && Date.now() >= hit.entry.recheckAt)) { hit.metaAt = sched.now; return cachedResult(hit.entry, cache); }
+            return read(false);
+          });
+          return read(what === 'content');
         }
-        /* Fingerprint before and after reading: the run is cached only if nothing changed in between, so a cached entry
-           always matches the fingerprint it's checked against. */
-        function read() {
-          var before;
-          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return readRun(fs, proc, id, cache, deep, true, bad); })
-            .then(function (entry) {
-              return fingerprint(fs, 'runs/' + key).then(function (after) {
-                if (entry && entry.ended && after === before) cache.ended[key] = { entry: entry, fp: after }; else delete cache.ended[key];
-                if (!entry) return null;
-                var run = build(entry, cache);
-                return { kind: 'fresh', run: run, fileHash: entry.fileHash, build: function () { return build(entry, cache); } };
+        /* full: read every file in full, bypassing the notes cache (Refresh, or past the run's maximum content age). */
+        function read(full) {
+          var t0 = sched.now, all = deep || full;
+          /* A folder whose reads don't give their own size and time: fingerprint before and after reading, and cache only if
+             nothing changed in between. */
+          if (!cache.sized || !fs.stat) {
+            var before;
+            return fingerprint(fs, dir).then(function (fp) { before = fp; return readRun(fs, proc, id, cache, all, true, bad); }).then(function (entry) {
+              if (cache.sized == null && entry) cache.sized = isExact(entry);
+              return fingerprint(fs, dir).then(function (after) { return keep(entry, after === before ? after : null, t0, all); });
+            });
+          }
+          /* Sizes and times come with the reads: stat only the files that weren't read (copies, receipts, history), then
+             list again. The run is cached only if the folder still holds the same files, under the stamps of the texts read;
+             anything that changed after its read shows up as a different stamp at the next check. */
+          return readRun(fs, proc, id, cache, all, true, bad).then(function (entry) {
+            if (!entry) return keep(null, null, t0, all);
+            if (!isExact(entry)) cache.sized = false;
+            var others = entry.names.filter(function (n) { return entry.stamps[n] == null; });
+            return Promise.all(others.map(function (n) { return fs.stat(dir + '/' + n).then(function (st) { return st ? st.size + ':' + st.mtime : '-'; }); })).then(function (st) {
+              var got = {}; others.forEach(function (n, i) { got[n] = st[i]; });
+              return fs.list(dir).then(function (items) {
+                var now = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; }).sort();
+                var fp = isExact(entry) && now.join('/') === entry.names.join('/') ? entry.names.map(function (n) { return n + ':' + (got[n] || entry.stamps[n]); }).join('/') : null;
+                return keep(entry, fp, t0, all);
               });
             });
+          });
+        }
+        function keep(entry, fp, t0, all) {
+          if (!entry || !fp) delete cache.runs[key];
+          else { var was = cache.runs[key]; cache.runs[key] = { entry: entry, fp: fp, metaAt: t0, contentAt: all || entry.full || !was ? t0 : was.contentAt }; }
+          if (!entry) return null;
+          var run = build(entry, cache);
+          return { kind: 'fresh', run: run, fileHash: entry.fileHash, build: function () { return build(entry, cache); } };
         }
       }).then(function (list) {
+        /* What's left of the last batch arrives with the complete result, which follows at once. */
         var reads = {}, used = {};
-        keys.forEach(function (k, i) { if (list[i]) reads[k] = list[i]; });
-        Object.keys(cache.ended).forEach(function (k) { var e = cache.ended[k].entry; used[e.internKey] = true; });
+        order.forEach(function (k, i) { if (list[i]) reads[k] = list[i]; });
+        Object.keys(cache.runs).forEach(function (k) { var e = cache.runs[k].entry; used[e.internKey] = true; });
         Object.keys(reads).forEach(function (k) { if (reads[k].run) used[reads[k].run.folder + '|' + reads[k].run.mapHash] = true; });
         Object.keys(cache.intern).forEach(function (k) { if (!used[k]) delete cache.intern[k]; });
         return { reads: reads, keys: keys, complete: true, unreadable: unreadable };
       });
     });
+  }
+  /* A run's stamps all came with its reads (or from memory under the same stamps). */
+  function isExact(entry) { return ['run.json'].concat(entry.names.filter(function (n) { return /^notes-[\w-]+\.jsonl$/.test(n); })).every(function (n) { return entry.stamps[n] != null; }); }
+  /* Ended within recentMs by the run's own end time, against the wall clock (wall): a clock set back only makes more runs
+     look recent, which checks more, never less. */
+  function recent(entry, wall) { return entry.ended && entry.endedAt && wall - entry.endedAt < config.recentMs; }
+  /* What each listed run costs this time: 'read' (not known, asked for fresh, Refresh, or a save receipt's grace time is
+     up), 'content' (past its maximum content age: read in full), 'meta' (sizes and times checked) or 'skip'. */
+  function planRuns(keys, cache, deep, force, sched) {
+    var plan = {}, live = [], ended = [];
+    keys.forEach(function (k) {
+      var h = cache.runs[k];
+      if (deep || force[k] || !h || (h.entry.recheckAt && Date.now() >= h.entry.recheckAt)) plan[k] = 'read';
+      else (h.entry.ended ? ended : live).push(k);
+    });
+    function at(f) { return function (k) { return cache.runs[k][f]; }; }
+    sched.due('live', live, at('contentAt'), config.liveMs).forEach(function (k) { plan[k] = 'content'; });
+    sched.due('ended', ended, at('contentAt'), config.endedMs).forEach(function (k) { plan[k] = 'content'; });
+    var old = [];
+    live.concat(ended).forEach(function (k) { if (plan[k]) return; if (!cache.runs[k].entry.ended || recent(cache.runs[k].entry, sched.wall)) plan[k] = 'meta'; else old.push(k); });
+    sched.due('meta', old, at('metaAt'), config.metaMs).forEach(function (k) { plan[k] = 'meta'; });
+    keys.forEach(function (k) { if (!plan[k]) plan[k] = 'skip'; });
+    return plan;
+  }
+  /* Elapsed time for one refresh of a folder. due(name, keys, lastOf, maxMs) picks every key at or past maxMs since its
+     last time (or with a last time after now: a clock that went back can't say how old anything is), then the oldest
+     others until this kind has had its share of the time since the last refresh: keys × elapsed / maxMs, carried over, so
+     the work is spread evenly and each key comes up within maxMs. */
+  function scheduler(cache, clock, deep, wall) {
+    var now = clock(), last = cache.lastPass, dt = last == null ? 0 : now - last;
+    cache.lastPass = now; cache.credit = cache.credit || {};
+    return { now: now, wall: wall, deep: deep, due: function (name, keys, lastOf, maxMs) {
+      if (!keys.length) { cache.credit[name] = 0; return []; }
+      var span = dt < 0 ? maxMs : Math.min(dt, maxMs), credit = Math.min(keys.length, (cache.credit[name] || 0) + keys.length * span / maxMs);
+      var sorted = keys.map(function (k, i) { return { k: k, t: lastOf(k), i: i }; }).sort(function (a, b) { return a.t - b.t || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0); });
+      var out = sorted.filter(function (x) { return (x.o = now - x.t >= maxMs || now < x.t); });
+      for (var i = 0; i < sorted.length && out.length < Math.floor(credit); i++) if (!sorted[i].o) out.push(sorted[i]);
+      cache.credit[name] = Math.max(0, credit - out.length);
+      return out.map(function (x) { return x.k; });
+    } };
   }
   function cachedResult(entry, cache) {
     return { kind: 'cached', fileHash: entry.fileHash, entry: entry, sig: sigOf(entry.fileHash, entry.notesSig, entry.conflicts, entry.unrunnable || badFor(cache, entry), entry.recheckAt),
@@ -243,10 +335,14 @@ PF.repo = (function () {
     return readRun(fs, proc, id, cacheIn, deep, allRuns, bad).then(function (entry) { return entry ? build(entry, cacheIn) : null; });
   }
   /* A run folder read into a frozen entry: run.json's text, each notes file's text, the conflict copies found, and when to
-     look again at a save that may still be arriving. Objects are built from it (build), never kept in it. */
+     look again at a save that may still be arriving. Objects are built from it (build), never kept in it. It also records
+     the folder's file names and, for each file read, the size and time that came with the very text read (stamps), so a
+     refresh can tell later whether anything changed without asking again (docs/design.md section 25). full: every notes
+     file was read now, none taken from memory. */
   function readRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
     cacheIn = cacheIn || cacheOf(fs); fs = bounded(fs, allRuns ? 'load' : 'open');
-    var base = 'runs/' + proc + '/' + id + '/';
+    var base = 'runs/' + proc + '/' + id + '/', stamps = {}, full = true;
+    function stampOf(f) { return f && f.size != null && f.mtime != null ? f.size + ':' + f.mtime : null; }
     function withPublication(res) {
       if (allRuns) return res;
       var o = res[0] && json(res[0].text);
@@ -260,29 +356,35 @@ PF.repo = (function () {
       /* Notes files only grow, so one that hasn't changed size or time since the last read is taken from memory. */
       var notesCache = cacheIn.notes;
       function same(a, b) { return !!a && !!b && a.size === b.size && a.mtime === b.mtime; }
+      function remember(path, n, f) { var st = stampOf(f); stamps[n] = st; if (st) notesCache[path] = { size: f.size, mtime: f.mtime, file: { text: f.text, mtime: f.mtime } }; else delete notesCache[path]; return f; }
       function readNotes(n) {
         var path = base + n, hit = notesCache[path];
         if (!fs.stat) return fs.read(path);
+        /* Reading the whole folder from a folder whose reads give their size and time: nothing remembered (or a full
+           reread), so read it straight away, with no stat before. */
+        if (allRuns && cacheIn.sized && (deep || !hit)) return fs.read(path).then(function (f) { if (f && !stampOf(f)) cacheIn.sized = false; return remember(path, n, f); });
         return fs.stat(path).then(function (st) {
-          if (!deep && hit && same(hit, st)) return hit.file;
+          if (!deep && hit && same(hit, st)) { full = false; stamps[n] = hit.size + ':' + hit.mtime; return hit.file; }
           return fs.read(path).then(function (f) {
             /* A read that says its own size and time describes exactly the text it returned: remembered under those. */
-            if (f && f.size != null && f.mtime != null) { notesCache[path] = { size: f.size, mtime: f.mtime, file: { text: f.text, mtime: f.mtime } }; return f; }
+            if (stampOf(f)) return remember(path, n, f);
             /* Otherwise cached only when the file didn't change while it was being read; else it's read again next time. */
-            return fs.stat(path).then(function (st2) { if (f && same(st, st2)) notesCache[path] = { size: st2.size, mtime: st2.mtime, file: f }; else delete notesCache[path]; return f; });
+            return fs.stat(path).then(function (st2) { if (f && same(st, st2)) { notesCache[path] = { size: st2.size, mtime: st2.mtime, file: f }; stamps[n] = st2.size + ':' + st2.mtime; } else { delete notesCache[path]; stamps[n] = null; } return f; });
           });
         });
       }
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(readNotes))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
+        stamps['run.json'] = stampOf(res[0]);
         var notesTexts = res.slice(1).map(function (f) { return f ? f.text : null; });
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
            its own copy of the checklist happens to read. */
         var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: U.hash(res[0].text),
           notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
-          unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, conflicts: extra, recheckAt: 0 };
-        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); return Object.freeze(entry); }
+          unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
+          names: names.slice().sort(), stamps: stamps, full: full };
+        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
         var lineage = run.lineage || [], lost = names.filter(function (n) { var t = candidateTag(n); return t && lineage.indexOf(t) < 0; });
@@ -392,19 +494,28 @@ PF.repo = (function () {
     }
     return function (lane, fn) { if (!LANE_MAX[lane]) lane = 'load'; return new Promise(function (res, rej) { (q[lane] = q[lane] || []).push({ fn: fn, res: res, rej: rej }); next(); }); };
   }
-  /* opts: { deep: read everything again (Refresh), fresh: run keys to read in full whatever the cache says }. The result's
-     reads (by run key) and runsComplete are what the app applies; runs is built from them only when someone asks for it. */
+  /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked when its
+     result is handed over. */
+  function markBad(x, cache) { if (x.kind !== 'fresh') return; var bad = cache.bad && cache.bad['publications/' + x.run.process + '/' + x.run.folder + '/']; if (bad && !x.run._unrunnable) x.run._unrunnable = bad; }
+  /* Elapsed time on this computer, never the wall clock (which can be changed or roll back). */
+  function elapsed() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); }
+  /* opts: { deep: read everything again (Refresh), fresh: run keys to read in full whatever the cache says, clock: elapsed
+     milliseconds (performance.now by default), now: the wall clock's time (Date.now by default; only says which runs ended
+     recently), priority, onBatch, batch: see loadRuns }. The result's reads (by run key)
+     and runsComplete are what the app applies; runs is built from them only when someone asks for it. */
   function loadAll(fs, opts) {
-    var cache = cacheOf(fs); fs = bounded(fs); var deep = !!(opts && opts.deep), failed = {}, errs = [];
+    opts = opts || {};
+    var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
+    var sched = scheduler(cache, opts.clock || elapsed, deep, opts.now != null ? opts.now : Date.now());
     var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep, opts && opts.fresh), loadLegacy(fs),
+    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       loadSkills(fs),
       loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
-      loadCorrectionDecisions(fs),
-      loadFollowUpDecisions(fs)
+      loadCorrectionDecisions(fs, cache, sched),
+      loadFollowUpDecisions(fs, cache, sched)
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       if (errs.length === PARTS.length) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
@@ -424,7 +535,7 @@ PF.repo = (function () {
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
         var x = reads[k]; if (!x) return;
-        if (x.kind === 'fresh') { var bad = cache.bad && cache.bad['publications/' + x.run.process + '/' + x.run.folder + '/']; if (bad && !x.run._unrunnable) x.run._unrunnable = bad; }
+        markBad(x, cache);
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
@@ -438,29 +549,50 @@ PF.repo = (function () {
       return out;
     });
   }
+  /* Decision files are written once and tiny. Each refresh lists their folders; a file is read when it's new, couldn't be
+     read or understood last time, on Refresh, or once it's past the hour (a share each refresh, as runs are), and otherwise
+     taken from the text kept from its last read. A file that's gone from the listing is forgotten. dirs: the top folders
+     this listing covered; texts are kept by path in cache.dec. */
+  function decisionTexts(fs, cache, sched, dirs, items, kind) {
+    var dec = cache.dec = cache.dec || {}, listed = {};
+    items.forEach(function (x) { listed[x.path] = true; });
+    Object.keys(dec).forEach(function (p) { if (!listed[p] && dirs.indexOf(p.split('/')[0]) >= 0) delete dec[p]; });
+    var known = sched && !sched.deep ? items.filter(function (x) { return dec[x.path]; }).map(function (x) { return x.path; }) : [];
+    var due = {}; (sched ? sched.due(kind, known, function (p) { return dec[p].at; }, config.endedMs) : []).forEach(function (p) { due[p] = true; });
+    return limited(items, 8, function (x) {
+      var hit = dec[x.path];
+      if (sched && !sched.deep && hit && !due[x.path]) return { x: x, f: { text: hit.text } };
+      return fs.read(x.path).then(function (f) {
+        if (f && sched) dec[x.path] = { text: f.text, at: sched.now }; else delete dec[x.path];
+        return { x: x, f: f };
+      }, function () { delete dec[x.path]; return { x: x, failed: true }; });
+    });
+  }
+  /* What couldn't be read or understood is never kept, so it's read again next time: only a real read clears a failure. */
+  function forgetText(cache, path) { if (cache && cache.dec) delete cache.dec[path]; }
   /* Decisions on corrections: corrections/<process>/<group>.<writer>.<rev>.json, each written once. Decisions on suggested
-     fixes from before 1.13 (suggestions/<process>/<suggestion>.<writer>.json) are read too. They're few and tiny, so each
-     refresh reads them all (at most 8 at once). A file that can't be read is reported in corrUnread, never dropped, so its
-     group doesn't quietly look open again. */
-  function loadCorrectionDecisions(fs) {
+     fixes from before 1.13 (suggestions/<process>/<suggestion>.<writer>.json) are read too. A file that can't be read is
+     reported in corrUnread, never dropped, so its group doesn't quietly look open again. */
+  function loadCorrectionDecisions(fs, cache, sched) {
     var dirs = ['corrections', 'suggestions'];
     return Promise.all(dirs.map(function (dir) {
       return fs.list(dir).then(function (procs) {
         return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); }).map(function (p) {
-          return fs.list(dir + '/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { dir: dir, process: p.name, name: i.name }; }); });
+          return fs.list(dir + '/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { dir: dir, process: p.name, name: i.name, path: dir + '/' + p.name + '/' + i.name }; }); });
         }));
       });
     })).then(function (nested) {
       var all = [].concat.apply([], [].concat.apply([], nested));
-      return limited(all, 8, function (x) {
-        var unread = { _unread: true, dir: x.dir, process: x.process, _file: x.name };
-        /* A file that's missing now was removed; one that won't read, parse or check (a half-synced write) is unread. */
-        return fs.read(x.dir + '/' + x.process + '/' + x.name).then(function (f) {
-          if (!f) return null;
-          var d = PF.corrections.cleanDecision(json(f.text), x.process);
-          if (!d || (x.dir === 'suggestions') !== (d.kind === 'fix-decision')) return unread;
+      return decisionTexts(fs, cache || {}, sched, dirs, all, 'corr').then(function (got) {
+        return got.map(function (g) {
+          var x = g.x, unread = { _unread: true, dir: x.dir, process: x.process, _file: x.name };
+          /* A file that's missing now was removed; one that won't read, parse or check (a half-synced write) is unread. */
+          if (g.failed) return unread;
+          if (!g.f) return null;
+          var d = PF.corrections.cleanDecision(json(g.f.text), x.process);
+          if (!d || (x.dir === 'suggestions') !== (d.kind === 'fix-decision')) { forgetText(cache, x.path); return unread; }
           d._file = x.name; d._dir = x.dir; return d;
-        }, function () { return unread; });
+        });
       });
     }).then(function (list) { return list.filter(Boolean); });
   }
@@ -475,21 +607,24 @@ PF.repo = (function () {
     });
   }
   /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
-     decided. run.json never changes. Like corrections' decisions, they're few and tiny, so each refresh reads them all; a file
-     that can't be read is reported in fuUnread, never dropped, so its follow-up doesn't quietly look open again. */
-  function loadFollowUpDecisions(fs) {
+     decided. run.json never changes. Read like corrections' decisions (decisionTexts); a file that can't be read is
+     reported in fuUnread, never dropped, so its follow-up doesn't quietly look open again. */
+  function loadFollowUpDecisions(fs, cache, sched) {
     return fs.list('followups').then(function (procs) {
       return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); }).map(function (p) {
-        return fs.list('followups/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name }; }); });
+        return fs.list('followups/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name, path: 'followups/' + p.name + '/' + i.name }; }); });
       }));
     }).then(function (nested) {
-      return limited([].concat.apply([], nested), 8, function (x) {
-        var unread = { _unread: true, dir: 'followups', process: x.process, _file: x.name };
-        /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
-        return fs.read('followups/' + x.process + '/' + x.name).then(function (f) {
-          if (!f) return null;
-          try { return PF.followups.cleanDecision(json(f.text), x.process, x.name) || unread; } catch (e) { return unread; }
-        }).then(null, function () { return unread; });
+      return decisionTexts(fs, cache || {}, sched, ['followups'], [].concat.apply([], nested), 'fu').then(function (got) {
+        return got.map(function (g) {
+          var x = g.x, unread = { _unread: true, dir: 'followups', process: x.process, _file: x.name };
+          /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
+          if (g.failed) return unread;
+          if (!g.f) return null;
+          var d = null; try { d = PF.followups.cleanDecision(json(g.f.text), x.process, x.name); } catch (e) { d = null; }
+          if (!d) { forgetText(cache, x.path); return unread; }
+          return d;
+        });
       });
     }).then(function (list) { return list.filter(Boolean); });
   }
@@ -570,8 +705,12 @@ PF.repo = (function () {
      Anything else (another save, a OneDrive replacement, an unreadable file) is never overwritten. */
   /* session: who records the run (stays the same across a reload). opts.writer: this page load's own ID, used for every file
      this window writes besides run.json, so two windows can never append to the same file (defaults to session). */
+  /* This window wrote into a run's folder: what the cache knew about it is dropped, so the next refresh reads it, even if a
+     save happened to leave the same size and time. */
+  function forgetRun(fs, run) { var c = cacheOf(fs); if (c.runs) delete c.runs[run.process + '/' + run.id]; }
   function saveRun(fs, run, session, opts) {
     opts = opts || {};
+    forgetRun(fs, run);
     var writer = opts.writer || session;
     var path = 'runs/' + run.process + '/' + run.id + '/run.json';
     if (run._unrunnable) return Promise.reject(readOnly(run._unrunnable));
@@ -598,7 +737,7 @@ PF.repo = (function () {
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
           return archiveOverflow(fs, run, writer).then(function () { return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
-            .then(function () { e.keptAs = keep; throw e; }, function () { throw e; });
+            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
         }
       }
       /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
@@ -615,6 +754,7 @@ PF.repo = (function () {
         .then(function () { return archiveOverflow(fs, run, writer); })
         .then(function () { return fs.write(path, text); })
         .then(function () {
+          forgetRun(fs, run);
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = U.hash(text); run.lineage = copy.lineage;
           /* What was written, exactly: the run may change in memory while this save is under way. */
           return cleanCandidates(fs, dir, copy.lineage).then(function () { return { savedAt: copy.savedAt, text: text }; });
@@ -635,7 +775,10 @@ PF.repo = (function () {
       return Promise.all(items.filter(function (i) { var t = candidateTag(i.name); return t && t !== newest && lineage.indexOf(t) >= 0; }).map(function (i) { return fs.remove(dir + i.name).catch(function () {}); }));
     }, function () {});
   }
-  var config = { candidateGraceMs: 60000 };
+  /* metaMs: every run's sizes and times are checked at least this often; endedMs and liveMs: a finished run, and a running
+     one that isn't open, is read in full at least this often; recentMs: a run ended this recently is checked every refresh;
+     batch: results per progressive batch. All in elapsed milliseconds. */
+  var config = { candidateGraceMs: 60000, metaMs: 600000, endedMs: 3600000, liveMs: 300000, recentMs: 7 * 86400000, batch: 100 };
   /* A run's contents without the bookkeeping that differs between two saves of the same change. */
   function sameRun(text) {
     var o = json(text); if (!o || typeof o !== 'object') return '\u0000' + text;
@@ -672,6 +815,7 @@ PF.repo = (function () {
   /* Before a conflict copy replaces the current version, the current one is saved beside it. The name doesn't start with "run",
      so it's kept as a record without showing up as another conflict. */
   function keepDisplaced(fs, run, session) {
+    forgetRun(fs, run);
     var path = 'runs/' + run.process + '/' + run.id + '/replaced-' + session + '-' + Date.now() + '.json';
     return fs.write(path, JSON.stringify(stripMeta(run), null, 2)).then(function () { return path; });
   }
@@ -682,6 +826,7 @@ PF.repo = (function () {
     return fs.read(dir + name).then(function (f) {
       var h = f ? f.text : null;
       return fs.remove(dir + name).then(function () {
+        forgetRun(fs, run);
         if (!h) return;
         return fs.list(dir.slice(0, -1)).then(function (items) {
           var twins = items.filter(function (it) { var t = candidateTag(it.name); return t && it.name !== name && lineage.indexOf(t) < 0; });
@@ -694,6 +839,7 @@ PF.repo = (function () {
 
   /* Each window appends only to its own notes file. */
   function addNote(fs, run, session, note) {
+    forgetRun(fs, run);
     return fs.append('runs/' + run.process + '/' + run.id + '/notes-' + session + '.jsonl', JSON.stringify(note) + '\n');
   }
   /* An attachment is checked against the allowed kinds and the 10 MB limit (PF.attach) and named after the person's own file,

@@ -348,21 +348,50 @@
   function elapsed() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); }
   /* Reads are numbered as they start, so an editor can tell a read that began after its own save from an older one. */
   var readsStarted = 0;
+  /* Which runs to read first, from what this window last accepted: running, then ended in the last week; runs it doesn't
+     know yet come next (repo's default), the rest last. */
+  function readPriority() {
+    var pr = {}, week = Date.now() - 7 * 86400000;
+    data.runs.forEach(function (r) { pr[r.process + '/' + r.id] = !r.ended ? 0 : Date.parse(r.ended.at) > week ? 1 : 3; });
+    return pr;
+  }
+  /* A batch of a load still under way: fresh and unreadable results only, each through applyRunRead with the load's own
+     start, so a newer read, an edit or a save since it began wins. Runs not read yet are pending: nothing about them
+     changes, and nothing is ever marked gone here; only the complete result can do that (applyRunsRead). */
+  function applyBatch(b, at) {
+    var shown = false;
+    Object.keys(b.reads).forEach(function (k) {
+      var res = b.reads[k], prev = findRun(k), got = applyRunRead(k, at, res);
+      if (!got && !prev && res.kind === 'fresh') got = res.run;
+      if (!got || got === prev) { if (res.kind === 'unreadable') shown = true; return; }
+      var i = prev ? data.runs.indexOf(prev) : -1;
+      if (i >= 0) data.runs[i] = got; else data.runs.push(got);
+      shown = true;
+    });
+    (b.unreadable || []).forEach(function (u) { data.unreadable = (data.unreadable || []).filter(function (x) { return x.path !== u.path; }).concat([u]); });
+    if (state.reading) state.reading = { done: b.done, total: b.total };
+    if (shown || state.reading) { procCache = null; render(); }
+  }
   function load(force, deep) {
     if (!state.fs) return Promise.resolve();
     if (deep) checkNewerCopy(state.fs, gen);
     if (loading && loading.gen === gen) return loading.p;
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
-    /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. */
-    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}));
-    var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry }).then(function (d) {
+    /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
+       runs whose cached copy turned out older than the one shown. */
+    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache));
+    staleCache = {};
+    var at = { seq: seq, revs: before };
+    var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
+      onBatch: function (b) { if (g === gen) applyBatch(b, at); } }).then(function (d) {
       if (g !== gen) return;
+      state.reading = null;
       /* How long routine refreshes take here, for Folder health (the last 3). */
       if (!deep) state.refreshMs = (state.refreshMs || []).concat([elapsed() - t0]).slice(-3);
       d.readSeq = seq;
       loading = null;
       keepUnread(d);
-      d.runs = applyRunsRead(d, { seq: seq, revs: before });
+      d.runs = applyRunsRead(d, at);
       R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
@@ -373,7 +402,7 @@
       syncChildren();
       loadConn();
       loadSetupAnswers();
-    }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
+    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -403,7 +432,7 @@
      Only a fresh read clears "couldn't be read" or "gone"; a cached one never changes a run's status. Nothing about a run
      (its contents, gone, unreadable) changes any other way, except the outcome of this window's own save, which is newer
      than any read (runOutcome). Returns the run object to show when the result replaced it, else null. */
-  var applied = {}, baselines = {};
+  var applied = {}, baselines = {}, staleCache = {};
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
@@ -424,6 +453,9 @@
       if (shown && repo.runSig(shown) === res.sig) return null;
       if (!canReplace(id, at.revs)) return null;
       var built = res.build();
+      /* What the cache kept is older than what's shown (a revision this window saved or read since): never go back to it;
+         read the run fresh next time instead. */
+      if (shown && (built.rev || 0) < (shown.rev || 0)) { staleCache[key] = true; return null; }
       applied[key] = at.seq;
       if (!shown || shown._fileHash !== built._fileHash) bump(id);
       keepBaseline(id, res.build);
@@ -514,7 +546,7 @@
   }
 
   /* ---------- The connection check (connection/; core/connection.js) ---------- */
-  var connListing = false, lastConn = 0;
+  var connListing = false, lastConn = -Infinity;
   function connSig(l) { return l ? l.probes.concat(l.acks).map(function (x) { return x._file; }).sort().join('|') : ''; }
   /* Lists connection/ (only the last 15 minutes are read). On the Connection check page it runs every 5 seconds and answers
      checks from other computers; elsewhere it rides along with the routine refresh and only offers an Answer button. */
@@ -611,7 +643,9 @@
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
-    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear();
+    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {};
+    /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
+    state.reading = { done: 0, total: null };
     /* Input kept for return belongs to its folder: a new folder starts clean. */
     state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -1278,16 +1312,17 @@
   setInterval(tick, 1000);
 
   /* Refresh from the folder: often while a run is open, less often elsewhere, and when the window gets focus. */
-  var lastRun = 0, lastAll = 0;
+  /* Measured in elapsed time, so setting the computer's clock back never delays a refresh. */
+  var lastRun = -Infinity, lastAll = -Infinity;
   function inRun() { return state.view === 'run' || state.view === 'mission' || state.view === 'receipt' || state.view === 'finish'; }
   setInterval(function () {
     if (document.hidden || isBusy() || !state.fs || loading) return;
-    var now = Date.now();
+    var now = elapsed();
     if ((state.view === 'connection' || (state.view === 'setup' && state.setup && state.setup.step === 'second')) && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
-  window.addEventListener('focus', function () { if (state.fs && !isBusy()) { if (inRun()) { lastRun = Date.now(); refreshRun(); } else { lastAll = Date.now(); load(); } } });
+  window.addEventListener('focus', function () { if (state.fs && !isBusy()) { if (inRun()) { lastRun = elapsed(); refreshRun(); } else { lastAll = elapsed(); load(); } } });
 
   /* ---------- saving ---------- */
   /* Resolves true once the change is in the team folder, false if it isn't. The save always goes to the folder the change was
@@ -2374,7 +2409,7 @@
     'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
     connection: function () {
       releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
-      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = Date.now(); loadConn();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = elapsed(); loadConn();
     },
     /* Writing a run back after its file disappeared is only ever this explicit choice, and the run's log says so. */
     'restore-missing': function () {

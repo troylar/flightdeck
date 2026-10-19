@@ -309,7 +309,9 @@ rule('Corrections decisions and decisions on suggested fixes from before 1.13 bo
   const read = fs.read.bind(fs);
   fs.read = p => /^(corrections|suggestions)\//.test(p) ? Promise.reject(new Error('NotReadableError')) : read(p);
   d = await repo.loadAll(fs);
-  same([d.corrDecisions.length, d.corrUnread.length], [0, 3]);
+  same([d.corrDecisions.length, d.corrUnread.length], [1, 2], 'a routine refresh keeps the text of a decision it read before, and reads again only what it couldn\'t');
+  d = await repo.loadAll(fs, { deep: true });
+  same([d.corrDecisions.length, d.corrUnread.length], [0, 3], 'Refresh reads every one, and each that fails is reported');
 });
 
 rule('Corrections load with their change and files, and older copies keep them as notes with a plain summary (test/fixtures/notes-corrections-1.13.jsonl)', async () => {
@@ -802,7 +804,7 @@ rule('Older copies never list followups/: deciding a follow-up leaves run.json a
   const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
   await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'wont', { reason: 'Not needed' }, NOW, null), 'blake-laptop');
   // A copy from before 1.16 is this copy without the follow-up decision loader.
-  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace('loadFollowUpDecisions(fs)\n    ].map(', 'Promise.resolve([])\n    ].map(') : src).repo;
+  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace('loadFollowUpDecisions(fs, cache, sched)\n    ].map(', 'Promise.resolve([])\n    ].map(') : src).repo;
   const calls = faulty(fs);
   const d = await OLD.loadAll(fs, { deep: true });
   await OLD.loadRun(fs, 'release', 'run1');
@@ -1057,6 +1059,179 @@ rule('One pool per folder: at most 8 calls at once across loading, thumbnails an
   while (gates.length) { gates.shift()(); await new Promise(r => setTimeout(r, 0)); }
   await Promise.all(all);
   assert.ok(most <= 8 && mostThumbs <= 4);
+});
+
+/* ---------- 1.17 slice 1b: freshness by elapsed time, decisions read incrementally, progressive batches ---------- */
+const MIN = 60000, OLD = '2026-09-01T10:00:00.000Z';
+/* An elapsed-time clock the test moves, as performance.now() would. */
+function ticking(start) { let t = start || 1000; const c = () => t; c.ahead = ms => { t += ms; }; c.set = ms => { t = ms; }; return c; }
+async function oldRun(fs, id, at) {
+  const had = await repo.loadAll(fs), d = had.processes.length ? had : await published(fs);
+  const r = R.create(d.processes[0].index.latest, { title: 'Ended ' + id, details: { commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'casey-laptop', now: at || OLD, id });
+  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', at || OLD);
+  await repo.saveRun(fs, r, 'casey-laptop');
+  return r;
+}
+/* The same number of bytes and the same time: what size and time alone can never tell apart. */
+function sameSizeEdit(fs, path, from, to) {
+  assert.strictEqual(from.length, to.length);
+  const f = fs.files[path], t = f.t.replace(from, to);
+  assert.notStrictEqual(t, f.t, 'set-up: the text changed');
+  fs.files[path] = { t, m: f.m };
+}
+
+rule('An ended run edited in place with the same size and time is read again within 60 minutes of elapsed time, and at once on Refresh', async () => {
+  const fs = folder(), clock = ticking(); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock });
+  sameSizeEdit(fs, 'runs/release/old1/run.json', 'Ended old1', 'Ended OLD1');
+  clock.ahead(MIN / 2);
+  const soon = await repo.loadAll(fs, { clock });
+  assert.strictEqual(soon.reads['release/old1'].kind, 'cached', 'size and time are a shortcut: unchanged, so not read yet');
+  assert.strictEqual((await repo.loadAll(fs, { clock, deep: true })).reads['release/old1'].run.title, 'Ended OLD1', 'Refresh reads it now');
+  sameSizeEdit(fs, 'runs/release/old1/run.json', 'Ended OLD1', 'Ended Old1');
+  clock.ahead(59 * MIN);
+  assert.strictEqual((await repo.loadAll(fs, { clock })).reads['release/old1'].kind, 'cached', 'not yet an hour since Refresh read it');
+  clock.ahead(MIN + 1000);
+  const late = await repo.loadAll(fs, { clock }), res = late.reads['release/old1'];
+  assert.strictEqual(res.kind, 'fresh', 'an hour of elapsed time after its last full read, it\'s read in full');
+  assert.strictEqual(res.run.title, 'Ended Old1');
+});
+
+rule('A running run that isn\'t open is read in full at least every 5 minutes, even when its size and time never change', async () => {
+  const fs = folder(), clock = ticking(); const r = await started(fs);
+  await repo.loadAll(fs, { clock });
+  sameSizeEdit(fs, 'runs/release/run1/run.json', '"Release"', '"RELEASE"');
+  clock.ahead(4 * MIN);
+  assert.strictEqual((await repo.loadAll(fs, { clock })).reads['release/run1'].kind, 'cached', 'its size and time say unchanged');
+  clock.ahead(MIN);
+  const res = (await repo.loadAll(fs, { clock })).reads['release/run1'];
+  assert.strictEqual(res.kind, 'fresh'); assert.strictEqual(res.run.title, 'RELEASE');
+  assert.ok(r);
+});
+
+rule('A notes file edited in place with the same size and time is read again in full past the run\'s maximum age, bypassing the notes cache', async () => {
+  const fs = folder(), clock = ticking(); await oldRun(fs, 'old1');
+  await repo.addNote(fs, { process: 'release', id: 'old1' }, 'casey-laptop', { id: 'n1', at: OLD, by: 'person-casey', step: 'x', text: 'first words' });
+  await repo.loadAll(fs, { clock });
+  sameSizeEdit(fs, 'runs/release/old1/notes-casey-laptop.jsonl', 'first words', 'other words');
+  clock.ahead(61 * MIN);
+  const res = (await repo.loadAll(fs, { clock })).reads['release/old1'];
+  assert.strictEqual(res.kind, 'fresh');
+  assert.strictEqual(res.run._notes[0].text, 'other words');
+});
+
+rule('Every finished run\'s size and time are checked within 10 minutes of elapsed time, a share at a time, never all at once', async () => {
+  const fs = folder(), clock = ticking();
+  for (let i = 0; i < 20; i++) await oldRun(fs, 'old' + i);
+  await repo.loadAll(fs, { clock });
+  const lists = {}, list = fs.list.bind(fs); fs.list = p => { const m = /^runs\/release\/(old\d+)$/.exec(p); if (m) lists[m[1]] = (lists[m[1]] || 0) + 1; return list(p); };
+  const checked = {}; let most = 0;
+  for (let pass = 1; pass <= 20; pass++) {
+    clock.ahead(30000); for (const k in lists) delete lists[k];
+    await repo.loadAll(fs, { clock });
+    most = Math.max(most, Object.keys(lists).length);
+    Object.keys(lists).forEach(k => { checked[k] = checked[k] || pass; });
+  }
+  assert.strictEqual(Object.keys(checked).length, 20, 'every run checked within 10 minutes: ' + Object.keys(checked).sort());
+  assert.ok(most <= 2, 'a share each refresh, not every run at once: ' + most);
+});
+
+rule('A late note on a finished run is found by the metadata check, without waiting for the hour', async () => {
+  const fs = folder(), clock = ticking(); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock });
+  await repo.addNote(fs, { process: 'release', id: 'old1' }, 'blake-laptop', { id: 'late', at: OLD, by: 'person-blake', step: 'x', text: 'late note' });
+  let found = null;
+  for (let pass = 1; pass <= 20 && !found; pass++) { clock.ahead(30000); const res = (await repo.loadAll(fs, { clock })).reads['release/old1']; if (res.kind === 'fresh') found = res; }
+  assert.ok(found && found.run._notes.some(n => n.id === 'late'), 'read within 10 minutes');
+});
+
+rule('An elapsed clock that goes backward never delays a reread: everything is read again', async () => {
+  const fs = folder(), clock = ticking(10 * 60 * MIN); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock });
+  sameSizeEdit(fs, 'runs/release/old1/run.json', 'Ended old1', 'Ended OLD1');
+  clock.set(5000);
+  const res = (await repo.loadAll(fs, { clock })).reads['release/old1'];
+  assert.strictEqual(res.kind, 'fresh', 'a clock that went back can\'t say how old anything is');
+  assert.strictEqual(res.run.title, 'Ended OLD1');
+});
+
+rule('A run whose read failed is read in full next time, and a cached result is never offered for it', async () => {
+  const fs = folder(), clock = ticking(); await oldRun(fs, 'old1');
+  await repo.loadAll(fs, { clock });
+  const good = fs.files['runs/release/old1/run.json'];
+  fs.files['runs/release/old1/run.json'] = { t: '{"format":"preflight-run/2","id":', m: good.m + 1 };
+  clock.ahead(61 * MIN);
+  assert.strictEqual((await repo.loadAll(fs, { clock })).reads['release/old1'].kind, 'unreadable');
+  fs.files['runs/release/old1/run.json'] = good;
+  clock.ahead(1000);
+  assert.strictEqual((await repo.loadAll(fs, { clock })).reads['release/old1'].kind, 'fresh', 'its cache entry went with the failure');
+});
+
+rule('Saving a run drops what the cache knew about it, so the next refresh reads the save even at the same size and time', async () => {
+  const fs = folder(), clock = ticking(); const r = await started(fs);
+  await repo.loadAll(fs, { clock });
+  const m = fs.files['runs/release/run1/run.json'].m;
+  const live = (await repo.loadAll(fs, { clock })).reads['release/run1'];
+  assert.strictEqual(live.kind, 'cached', 'set-up: an unchanged running run is cached');
+  r.title = 'Saved title'; await repo.saveRun(fs, r, 'casey-laptop');
+  fs.files['runs/release/run1/run.json'].m = m;
+  clock.ahead(1000);
+  const res = (await repo.loadAll(fs, { clock })).reads['release/run1'];
+  assert.strictEqual(res.kind, 'fresh'); assert.strictEqual(res.run.title, 'Saved title');
+});
+
+rule('Decisions already read aren\'t read again on a routine refresh; new ones are, unreadable ones are every time, and Refresh reads them all', async () => {
+  const fs = folder(), clock = ticking(); await oldRun(fs, 'old1');
+  const dec = (run, rev) => JSON.stringify({ kind: 'followup-decision', process: 'release', run, followUp: 'f1', status: 'done', by: 'person-casey', at: OLD, rev, reason: 'Not needed' });
+  await fs.write('followups/release/old1.f1.w1.1.json', dec('old1', 1));
+  await fs.write('followups/release/old1.f1.w2.1.json', '{"kind": "followup-decision", ');
+  await repo.loadAll(fs, { clock });
+  const reads = [], read = fs.read.bind(fs); fs.read = p => { if (/^followups\//.test(p)) reads.push(p); return read(p); };
+  await fs.write('followups/release/old1.f1.w3.2.json', dec('old1', 2));
+  clock.ahead(30000);
+  const d = await repo.loadAll(fs, { clock });
+  same(reads.sort(), ['followups/release/old1.f1.w2.1.json', 'followups/release/old1.f1.w3.2.json'], 'only the new file and the one that couldn\'t be read');
+  assert.strictEqual(d.fuDecisions.length, 2, 'the one read before still counts'); assert.strictEqual(d.fuUnread.length, 1);
+  reads.length = 0;
+  sameSizeEdit(fs, 'followups/release/old1.f1.w1.1.json', '"done"', '"wont"');
+  clock.ahead(61 * MIN);
+  const late = await repo.loadAll(fs, { clock });
+  assert.ok(reads.indexOf('followups/release/old1.f1.w1.1.json') >= 0, 'past the hour, read again in full');
+  assert.ok(late.fuDecisions.some(x => x._file === 'old1.f1.w1.1.json' && x.status === 'wont'));
+  reads.length = 0;
+  await repo.loadAll(fs, { clock, deep: true });
+  assert.strictEqual(reads.length, 3, 'Refresh reads every decision');
+});
+
+rule('Correction decisions are read incrementally too: a file removed is forgotten, one added is read', async () => {
+  const fs = folder(), clock = ticking();
+  const rec = { kind: 'correction-decision', process: 'release', group: 'g1', status: 'declined', reason: 'No', by: 'person-avery', at: OLD, rev: 1, members: [] };
+  await fs.write('corrections/release/g1.w1.1.json', JSON.stringify(rec));
+  const first = await repo.loadAll(fs, { clock });
+  const n0 = first.corrDecisions.length + first.corrUnread.length;
+  assert.strictEqual(n0, 1, 'set-up');
+  const reads = [], read = fs.read.bind(fs); fs.read = p => { if (/^corrections\//.test(p)) reads.push(p); return read(p); };
+  clock.ahead(30000); await repo.loadAll(fs, { clock });
+  same(reads, [], 'nothing new, nothing read');
+  await fs.remove('corrections/release/g1.w1.1.json');
+  clock.ahead(30000);
+  const gone = await repo.loadAll(fs, { clock });
+  assert.strictEqual(gone.corrDecisions.length + gone.corrUnread.length, 0, 'a removed file is gone');
+});
+
+rule('Progressive loading: results come in batches, running runs first, with the rest pending; only the complete result can make a run missing', async () => {
+  const fs = folder(), clock = ticking();
+  await started(fs); await oldRun(fs, 'old1'); await oldRun(fs, 'old2');
+  const batches = [];
+  const d = await repo.loadAll(fs, { clock, batch: 1, priority: { 'release/run1': 0 }, onBatch: b => batches.push(JSON.parse(JSON.stringify({ keys: Object.keys(b.reads), kinds: Object.keys(b.reads).map(k => b.reads[k].kind), pending: b.pending, done: b.done, total: b.total }))) });
+  assert.ok(batches.length >= 3, 'one batch per run read: ' + batches.length);
+  same(batches[0].keys, ['release/run1'], 'the run known to be running comes first');
+  assert.strictEqual(batches[0].total, 3); assert.strictEqual(batches[0].done, 1);
+  assert.strictEqual(batches[0].pending.length, 2, 'what isn\'t read yet is pending');
+  batches.forEach(b => b.kinds.forEach(k => assert.ok(k === 'fresh' || k === 'unreadable', 'a batch holds only reads: ' + k)));
+  assert.ok(!batches.some(b => b.kinds.indexOf('missing') >= 0));
+  assert.strictEqual(d.runsComplete, true, 'the final result is the complete one');
+  assert.strictEqual(Object.keys(d.reads).length, 3);
 });
 
 run();

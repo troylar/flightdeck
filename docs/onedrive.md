@@ -24,7 +24,15 @@ Flightdeck reads and writes files in the team folder on your computer. OneDrive 
 
 ## What refreshing costs
 
-While a run is open, Flightdeck rereads only that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and finished runs and published versions are remembered rather than reread. **Refresh** in the top bar rereads everything. Opening a folder reads each notes file once, with its size, and pictures are read only when they scroll into view, a few at a time. **Folder health** says when refreshing has been slow on this computer three times in a row. With 500 runs, a routine refresh reads about 10 files instead of about 2,000. A routine refresh also lists `connection/` and reads only the checks from the last 15 minutes; the Connection check page does that every 5 seconds while it's open. **Folder health** lists and checks every file, so it runs only when you open it or choose Check again.
+While a run is open, Flightdeck rereads that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and how much each run costs depends on how long it's been, measured on this computer's own timer, never its clock (setting the clock back changes nothing):
+
+- **Running runs and runs that ended in the last week** have their file sizes and times checked on every refresh, and are read again as soon as either changes.
+- **A finished run is checked at least every 10 minutes and read in full at least every hour; a running run you don't have open, at least every 5 minutes.** The checks are spread out, a share on each refresh, never all at once. Size and time are only a shortcut: an edit that keeps a file's size and time (which some sync tools and editors can do) still shows up by the next full read.
+- **Decisions** (corrections and follow-ups) are listed on every refresh. A new one is read at once; one already read is read again at least every hour; one that couldn't be read is tried on every refresh.
+- **Refresh** in the top bar reads everything now. So does **Folder health**.
+- While the tab is hidden, or Flightdeck is busy saving, nothing is read. When you come back, whatever went past its time while you were away is read first.
+
+The first time a big folder opens, runs appear as they're read, running runs first when Flightdeck already knows them, and Home and Runs say "Still reading runs (640 of 2,000)". A run not read yet is never shown as gone. Opening a folder reads each file once, with its size and time from the same read, and pictures are read only when they scroll into view, a few at a time. **Folder health** says when refreshing has been slow on this computer three times in a row. On a synthetic folder of 2,000 runs, a routine refresh costs about 1,750 folder calls instead of about 10,000, and opening it about 14,600 instead of 32,600. A routine refresh also lists `connection/` and reads only the checks from the last 15 minutes; the Connection check page does that every 5 seconds while it's open. **Folder health** lists and checks every file, so it runs only when you open it or choose Check again.
 
 ## What it can't promise
 

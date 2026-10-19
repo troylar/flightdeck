@@ -4942,6 +4942,8 @@ async function twoRunsWithShot(IO) {
   const bPath = a.path.replace(j.id, b.id);
   await app.fs.write(bPath, JSON.stringify(b));
   app.focus(); await app.tick(80);
+  // A redraw Home's clock deferred (250 ms) lands now, not in the middle of the test.
+  await new Promise(res => setTimeout(res, 300)); await app.tick(20);
   return { app, A: a.key, B: 'release/' + b.id };
 }
 const shotKey = html => { const m = /data-thumb="([^"]+)"/.exec(html); return m && m[1].replace(/&amp;/g, '&'); };
@@ -5000,6 +5002,242 @@ rule('After every redraw, each thumbnail placeholder still waiting is watched or
     const key = shotKey(app.html());
     if (key) assert.ok([...watched].some(el => el.dataset.thumb === key), 'seed ' + seed + ' after ' + log.join(',') + ' jobs ' + jobs + ': once every job settled, the waiting placeholder is watched');
     app.PF.repo.poolOf = poolOf;
+  }
+});
+
+/* ---------- 1.17 slice 1b: freshness by elapsed time, progressive loading, and their races ---------- */
+/* Two clocks the test moves: the wall clock (Date, which a person can set back) and elapsed time (performance.now()). */
+function clocks() {
+  let off = 0, t = 1000;
+  class D extends Date { constructor(...a) { if (a.length) super(...a); else super(Date.now() + off); } static now() { return Date.now() + off; } }
+  return { D, perf: { now: () => t }, ahead(ms) { off += ms; t += ms; }, wallBack(ms) { off -= ms; } };
+}
+const SEPT = 'Release 2026.09.18';
+function runFile(app, title) { return Object.keys(app.fs.files).find(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p) && JSON.parse(app.fs.files[p].t).title === title); }
+/* An edit another computer made in place: the same number of bytes and the same time, so size and time can't see it. */
+function sameSizeEdit(app, path, from, to) {
+  const f = app.fs.files[path], t = f.t.split(from).join(to);
+  assert.ok(from.length === to.length && t !== f.t, 'set-up: a same-size edit');
+  app.fs.files[path] = { t, m: f.m };
+}
+async function onRuns(k) {
+  const app = boot({ Date: k.D, performance: k.perf }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  return app;
+}
+const countLoads = app => { const orig = app.PF.repo.loadAll, n = { loads: 0 }; app.PF.repo.loadAll = function () { n.loads++; return orig.apply(this, arguments); }; return n; };
+
+rule('App: a finished run edited in place at the same size and time shows within an hour of elapsed time, and at once after Refresh', async () => {
+  const k = clocks(), app = await onRuns(k), path = runFile(app, SEPT);
+  sameSizeEdit(app, path, SEPT, 'RELEASE 2026.09.18');
+  k.ahead(31000); app.every(); await app.tick(60);
+  assert.ok(app.html().indexOf(SEPT) >= 0, 'size and time say nothing changed, so it isn\'t read yet');
+  k.ahead(60 * 60000); app.every(); await app.tick(80);
+  assert.ok(/RELEASE 2026\.09\.18/.test(app.html()), 'an hour of elapsed time later, it\'s read in full');
+  sameSizeEdit(app, path, 'RELEASE 2026.09.18', 'Release 2026-09-18');
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/Release 2026-09-18/.test(app.html()), 'Refresh reads it at once');
+});
+
+rule('App: setting the computer\'s clock back never delays a refresh or a reread', async () => {
+  const k = clocks(), app = await onRuns(k), path = runFile(app, SEPT);
+  k.ahead(31000); app.every(); await app.tick(60);
+  const n = countLoads(app);
+  sameSizeEdit(app, path, SEPT, 'RELEASE 2026.09.18');
+  k.wallBack(2 * 3600000);
+  k.ahead(31000); app.every(); await app.tick(60);
+  assert.ok(n.loads >= 1, 'the routine refresh still came 30 seconds of elapsed time later');
+  k.wallBack(2 * 3600000);
+  k.ahead(60 * 60000); app.every(); await app.tick(80);
+  assert.ok(/RELEASE 2026\.09\.18/.test(app.html()), 'the hour is elapsed time, whatever the wall clock says');
+});
+
+rule('App: a hidden tab reads nothing, and when it\'s shown again the runs past their maximum age are read in full', async () => {
+  const k = clocks(), app = await onRuns(k), path = runFile(app, SEPT), n = countLoads(app);
+  sameSizeEdit(app, path, SEPT, 'RELEASE 2026.09.18');
+  app.doc.hidden = true;
+  for (let i = 0; i < 3; i++) { k.ahead(30 * 60000); app.every(); await app.tick(20); }
+  assert.strictEqual(n.loads, 0, 'nothing is read while the tab is hidden');
+  app.doc.hidden = false;
+  app.every(); await app.tick(80);
+  assert.strictEqual(n.loads, 1, 'one refresh on return');
+  assert.ok(/RELEASE 2026\.09\.18/.test(app.html()), 'what went past its maximum age while hidden is read in full');
+});
+
+rule('App: a run file that fails to read keeps its last copy and "can\'t be read", and a cached result never clears that; a fresh read does', async () => {
+  const k = clocks(), app = await onRuns(k), path = runFile(app, SEPT), good = app.fs.files[path];
+  app.fs.files[path] = { t: '{"format":"preflight-run/2","id":', m: good.m + 1 };
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/A run file can(&#39;|')t be read/.test(app.html()) && app.html().indexOf(SEPT) >= 0, 'marked, and its last copy is still listed');
+  /* A refresh that offers only a cached result for it (as if the cache still vouched for it) changes nothing. */
+  const orig = app.PF.repo.loadAll, key = path.split('/').slice(1, 3).join('/');
+  app.PF.repo.loadAll = function (fs, o) {
+    return orig.call(this, fs, Object.assign({}, o, { fresh: [], onBatch: null })).then(d => {
+      const built = JSON.parse(good.t); built._fileHash = 'x';
+      d.reads[key] = { kind: 'cached', sig: 'cached-sig', fileHash: 'x', build: () => Object.assign({}, built) };
+      d.unreadable = d.unreadable.filter(u => u.key !== key);
+      return d;
+    });
+  };
+  app.fs.files[path] = good;
+  k.ahead(31000); app.every(); await app.tick(80);
+  app.click('open-run', key); await app.tick(20);
+  assert.ok(/couldn(&#39;|')t be read on the last check/.test(app.html()), 'a cached result never clears the failure');
+  app.PF.repo.loadAll = orig;
+  app.click('nav', 'runs'); k.ahead(31000); app.every(); await app.tick(80);
+  app.click('open-run', key); await app.tick(20);
+  assert.ok(!/couldn(&#39;|')t be read on the last check/.test(app.html()), 'the next refresh reads it fresh, which clears it');
+});
+
+rule('App: Refresh reads every run file again, whatever the cache knows', async () => {
+  const k = clocks(), app = await onRuns(k);
+  const reads = new Set(), read = app.fs.read.bind(app.fs); app.fs.read = p => { if (/^runs\/[^/]+\/[^/]+\/run\.json$/.test(p)) reads.add(p); return read(p); };
+  k.ahead(31000); app.every(); await app.tick(60);
+  const all = Object.keys(app.fs.files).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p));
+  assert.ok(reads.size < all.length, 'a routine refresh reads only some: ' + reads.size + ' of ' + all.length);
+  reads.clear();
+  app.click('refresh'); await app.tick(80);
+  assert.strictEqual(reads.size, all.length, 'Refresh reads them all');
+});
+
+/* A real team folder holding the examples' runs, whose run files the test can hold back so a first open arrives in batches. */
+function heldFolder(app) {
+  const files = {}; sameRunsFolder(app, files);
+  const proto = app.PF.fs.FolderFS.prototype, read = proto.read, held = [];
+  let hold = null;
+  proto.read = function (p) { if (hold && hold.test(p)) return new Promise(res => held.push(() => res(read.call(this, p)))); return read.call(this, p); };
+  return { files, held, holdRuns(re) { hold = re; }, release(n) { held.splice(0, n == null ? held.length : n).forEach(f => f()); }, restore() { proto.read = read; } };
+}
+
+rule('App: a big folder\'s first open shows runs as they\'re read, says it\'s still reading, and never calls a run not read yet gone', async () => {
+  const files = {}, picker = folderHandle('Team', files);
+  const app = boot({ picker, indexedDB: memoryIDB() }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const h = heldFolder(app); Object.assign(files, h.files);
+  app.PF.repo.config.batch = 1;
+  h.holdRuns(/^runs\/release\/[^/]+\/run\.json$/);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-casey'); await app.tick(40);
+  let html = app.html();
+  assert.ok(/Still reading runs \(\d+ of 13\)/.test(html), 'Home says it\'s still reading, with counts: ' + (/Still reading[^<]*/.exec(html) || [''])[0]);
+  assert.ok(/Runs you(&#39;|')re recording may not be listed yet/.test(html), 'and that runs being recorded may be missing');
+  assert.ok(!/gone|can(&#39;|')t be read/.test(html), 'nothing not read yet is called gone or unreadable');
+  app.click('nav', 'runs'); await app.tick(20);
+  html = app.html();
+  assert.ok(/Still reading runs/.test(html), 'Runs says so too');
+  assert.ok(/Check in code for Release 2026\.09\.18/.test(html), 'runs read so far are listed');
+  assert.ok(!/Release 2026\.10\.16/.test(html.replace(/Check in code for Release 2026\.10\.16/g, '')), 'a run not read yet isn\'t listed yet');
+  h.holdRuns(null); h.release(); await app.tick(200);
+  html = app.html();
+  assert.ok(!/Still reading runs/.test(html), 'done reading');
+  assert.ok(/Release 2026\.09\.18/.test(html) && /Release 2026\.10\.16/.test(html), 'every run is listed');
+  h.restore();
+});
+
+rule('App: a run never in any batch is never marked gone, even when the batches before it were complete', async () => {
+  const files = {}, picker = folderHandle('Team', files);
+  const app = boot({ picker, indexedDB: memoryIDB() }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const h = heldFolder(app); Object.assign(files, h.files);
+  app.PF.repo.config.batch = 1;
+  app.click('connect'); await app.tick(200);
+  app.click('nav', 'runs'); await app.tick(20);
+  /* A deep refresh in batches, with one run's file held back until the end. */
+  h.holdRuns(/^runs\/release\/[^/]+\/run\.json$/);
+  app.click('refresh'); await app.tick(120);
+  assert.ok(!/is gone|file is gone/.test(app.html()), 'held runs are pending, never gone');
+  assert.ok(/Release 2026\.10\.16/.test(app.html()), 'and they stay listed as last read');
+  h.holdRuns(null); h.release(); await app.tick(120);
+  assert.ok(!/is gone|file is gone/.test(app.html()));
+  h.restore();
+});
+
+rule('App: switching folders in the middle of a batched first open drops every later batch from the old folder', async () => {
+  const files = {}, other = { 'people.json': JSON.stringify([{ id: 'person-casey', name: 'Casey Example', email: 'casey@example.com' }]) };
+  const opts = { picker: folderHandle('Team', files), indexedDB: memoryIDB() }, app = boot(opts); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const h = heldFolder(app); Object.assign(files, h.files);
+  app.PF.repo.config.batch = 1;
+  h.holdRuns(/^runs\/.*\/run\.json$/);
+  app.click('connect'); await app.tick(100);
+  h.release(2); await app.tick(40);
+  opts.picker = folderHandle('Other', other);
+  h.holdRuns(null);
+  app.click('connect'); await app.tick(150);
+  h.release(); await app.tick(150);
+  app.click('nav', 'runs'); await app.tick(40);
+  const html = app.html();
+  assert.ok(!/Release 2026|Check in code/.test(html), 'nothing from the first folder shows in the second');
+  assert.ok(!/Still reading runs/.test(html), 'the second folder finished reading');
+  h.restore();
+});
+
+/* A seeded walk through a recorded run while the rest of the folder arrives in batches: reads of other runs wait until the
+   walk lets them go. Whatever the order, no run is shown gone, a discarded change never reaches the folder, and the last
+   read agrees with the folder. High bits only: an LCG's low bits cycle, which would leave actions never chosen. */
+rule('App: in any order of batched reads, edits, refused saves, Discard, keeping a copy, newer reads of the open run and switching folders, nothing is lost or shown gone', async () => {
+  for (let seed = 1; seed <= (+process.env.LOAD_SEEDS || 8); seed++) {
+    let x = seed * 2654435761 >>> 0; const rnd = n => { x = (Math.imul(x, 1103515245) + 12345) & 0x7fffffff; return (x >>> 16) % n; };
+    const k = clocks(), other = { 'people.json': JSON.stringify([{ id: 'person-casey', name: 'Casey Example', email: 'casey@example.com' }]) };
+    const app = boot({ localStore: { 'preflight:builder': 'false' }, Date: k.D, performance: k.perf, picker: folderHandle('Other', other), indexedDB: memoryIDB() }); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+    const run = app.run(), path = run.path, dir = path.replace(/\/run\.json$/, '');
+    app.PF.repo.config.batch = 1;
+    const titles = Object.keys(app.fs.files).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t)).filter(j => j.ended).map(j => j.title);
+    const queue = [], inner = app.fs.read.bind(app.fs);
+    app.fs.read = p => (/^runs\//.test(p) && p.indexOf(dir + '/') !== 0 ? new Promise(res => queue.push(() => res(inner(p)))) : inner(p));
+    const discarded = new Set(), log = []; let n = 0, switched = false;
+    const disk = () => JSON.parse(app.fs.files[path].t);
+    const commitShown = () => { const m = /<span class="k">commit<\/span> <code>([^<]*)<\/code>/.exec(app.html()); return m ? m[1] : null; };
+    const commit = v => { app.click('edit', 'detail:commit'); app.set('edit-input', v); app.click('save-edit'); };
+    for (let step = 0; step < 40 && !switched; step++) {
+      const a = ['refresh', 'refresh', 'release', 'release', 'release', 'release-all', 'edit', 'edit', 'external', 'discard', 'keep-copy', 'reread', 'runs', 'switch'][rnd(14)];
+      log.push(a);
+      const where = () => 'seed ' + seed + ' after ' + log.join(',');
+      if (a === 'refresh') app.click('refresh');
+      else if (a === 'release') { const f = queue.shift(); if (f) f(); }
+      else if (a === 'release-all') queue.splice(0).forEach(f => f());
+      else if (a === 'edit') commit('V' + seed + '-' + (++n));
+      else if (a === 'external') {
+        /* Another computer saves the run: this window's next save is refused and kept as a conflict copy, and its reread is a
+           newer read of the open run than any batch still on its way. */
+        const j = disk(); j.rev += 1; j.details.environment = 'E' + seed + '-' + (++n); j.savedAt = new Date().toISOString();
+        app.fs.files[path] = { t: JSON.stringify(j, null, 2), m: Date.now() };
+      }
+      else if (a === 'discard') {
+        const shown = commitShown(), pending = /Your last change isn(&#39;|')t saved/.test(app.html());
+        app.click('discard-unsaved'); await app.tick(5);
+        if (pending && shown && disk().details.commit !== shown && !/Wait for the save to finish/.test(app.html())) discarded.add(shown);
+      }
+      else if (a === 'keep-copy') { const m = /data-act="use-copy" data-id="([^"]+)"/.exec(app.html()); if (m) { app.click('use-copy', m[1].replace(/&amp;/g, '&')); discarded.clear(); } }
+      else if (a === 'reread') { k.ahead(6000); app.every(); }
+      else if (a === 'runs') {
+        app.click('nav', 'runs'); await app.tick(20);
+        const html = app.html();
+        titles.forEach(t => assert.ok(html.indexOf('>' + t + '<') >= 0, 'a run read before stays listed while others are read again: ' + t + ' · ' + where()));
+        app.click('open-run', run.key); await app.tick(10);
+      }
+      else if (a === 'switch') { switched = true; app.click('connect'); }
+      await app.tick(30);
+      const html = app.html();
+      assert.ok(!/file is gone from the team folder|is gone from the team folder/.test(html), 'a run shown gone · ' + where());
+      const d = disk();
+      assert.ok(!discarded.has(d.details.commit), 'a discarded change reached the folder: ' + d.details.commit + ' · ' + where());
+    }
+    queue.splice(0).forEach(f => f()); await app.tick(80);
+    if (switched) {
+      await app.tick(100); app.click('nav', 'runs'); await app.tick(40);
+      assert.ok(!titles.some(t => app.html().indexOf('>' + t + '<') >= 0), 'nothing from the first folder after switching · seed ' + seed + ' · ' + log.join(','));
+      continue;
+    }
+    app.fs.read = inner;
+    app.click('refresh'); await app.tick(120);
+    const html = app.html();
+    assert.ok(!/is gone from the team folder|couldn(&#39;|')t be read on the last check|Still reading runs/.test(html), 'final: settled · seed ' + seed + ' · ' + log.join(','));
+    if (!/Your last change isn(&#39;|')t saved/.test(html)) assert.strictEqual(commitShown(), disk().details.commit, 'final: the screen agrees with the folder · seed ' + seed + ' · ' + log.join(','));
+    assert.ok(!discarded.has(disk().details.commit), 'final: no discarded change in the folder · seed ' + seed);
   }
 });
 

@@ -544,4 +544,40 @@ rule('Saved history: two computers editing one draft each append to their own fi
   assert.strictEqual(b.files[dir + '/blake.jsonl'].trim().split('\n').length, 1);
 });
 
+/* ---------- 1.17 slice 1b: freshness by elapsed time between two computers ---------- */
+function ticking() { let t = 1000; const c = () => t; c.ahead = ms => { t += ms; }; return c; }
+
+rule('A late note on a month-old run arrives on the other computer within the 10-minute sweep, and at once after Refresh', async () => {
+  const { a, b } = await twoComputers(), clock = ticking();
+  const r = await get(a), MONTH = '2026-09-15T10:00:00.000Z';
+  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', MONTH);
+  await repo.saveRun(a, r, 'casey');
+  a.sync(); b.sync();
+  await repo.loadAll(b, { clock });
+  await repo.addNote(a, r, 'avery', { id: 'late', at: NOW, by: 'person-avery', step: 'approved', text: 'Found this a month later' });
+  a.sync(); b.sync();
+  const now = await repo.loadAll(b, { clock, deep: true });
+  assert.ok(now.reads['release/run1'].run._notes.some(n => n.id === 'late'), 'Refresh shows it at once');
+  await repo.addNote(a, r, 'avery', { id: 'later', at: NOW, by: 'person-avery', step: 'approved', text: 'And one more' });
+  a.sync(); b.sync();
+  let seenAt = null;
+  for (let pass = 1; pass <= 20 && !seenAt; pass++) {
+    clock.ahead(30000);
+    const res = (await repo.loadAll(b, { clock })).reads['release/run1'];
+    if (res.kind === 'fresh' && res.run._notes.some(n => n.id === 'later')) seenAt = pass * 30;
+  }
+  assert.ok(seenAt && seenAt <= 600, 'arrived within 10 minutes of elapsed time: ' + seenAt);
+});
+
+rule('The open run on one computer shows the other\'s saved change on its next 5-second reread, as before', async () => {
+  const { a, b } = await twoComputers(), clock = ticking();
+  await repo.loadAll(a, { clock }); await repo.loadAll(b, { clock });
+  const mine = await get(a); mine.details.commit = 'bbb222'; await repo.saveRun(a, mine, 'casey');
+  a.sync(); b.sync();
+  clock.ahead(5000);
+  assert.strictEqual((await get(b)).details.commit, 'bbb222', 'the open run\'s reread reads run.json in full');
+  const res = (await repo.loadAll(b, { clock })).reads['release/run1'];
+  assert.ok(res.kind === 'fresh' ? res.run.details.commit === 'bbb222' : res.fileHash === (await get(b))._fileHash, 'and the routine refresh agrees with it');
+});
+
 run();
