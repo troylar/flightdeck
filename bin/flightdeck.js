@@ -629,8 +629,16 @@ function newerRun(PF, r) {
 function runProblems(PF, r) {
   const out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/';
   if (newerRun(PF, r)) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
+  const bt = badTimesWhy(r._badTimes);
+  if (bt) out.push({ path: dir + 'run.json', kind: 'malformed', why: 'Some times in this file couldn\'t be read (' + bt + '). The run is shown as the app shows it, without them.' });
   if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
   return out;
+}
+/* Which times R.sanitize couldn't read (r._badTimes), in words, or ''. */
+function badTimesWhy(b) {
+  if (!b) return '';
+  const names = { created: 'the start', ended: 'the end', pauses: 'an earlier pause', paused: 'the pause under way', log: 'a log entry' };
+  return Object.keys(b).map((k) => (k === 'log' && Array.isArray(b.log) && b.log.length > 1 ? b.log.length + ' log entries' : names[k] || k)).join(', ');
 }
 /* What's wrong with people.json as a people list, or '' (no file is fine: names are then null). */
 function peopleWhy(p) {

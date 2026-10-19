@@ -1176,4 +1176,25 @@ rule('READ: a folder listed by its parent and gone when listed itself is vanishe
   }
 });
 
+
+rule('READ: a run.json with times that can\'t be read is partial and names them, while its data is shown as the app shows it', async () => {
+  const at = 'runs/release/run1/run.json';
+  const edit = (change) => f => { const o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); };
+  const cases = [
+    ['the pause under way', o => { o.paused = { by: 'person-casey', at: 'not-a-time', reason: 'Lunch' }; }],
+    ['the start', o => { o.created = 'yesterday'; }],
+    ['an earlier pause', o => { o.pauses = [{ from: 'soon', to: RF.NOW, by: 'person-casey' }]; }],
+    ['a log entry', o => { o.log.push({ at: 'whenever', by: 'person-casey', what: 'Something' }); }]
+  ];
+  for (const [what, change] of cases) for (const k of ['run', 'next', 'runs']) {
+    const r = agree(await readMem(REQ[k], edit(change)));
+    const p = r.json.problems.filter(x => x.path === at && x.kind === 'malformed')[0];
+    assert.ok(r.code === 4 && p && p.why.includes(what), what + ' / ' + k + ': ' + JSON.stringify(r.json.problems));
+    if (k === 'run') assert.strictEqual(r.json.data.run.key, 'release/run1', 'the run is still shown');
+    if (k === 'runs') assert.ok(r.json.data.runs.some(x => x.key === 'release/run1'));
+  }
+  const p = agree(await readMem(REQ.run, edit(cases[0][1])));
+  assert.strictEqual(p.json.data.run.paused, false, 'shown as the app shows it: the pause it couldn\'t read is dropped');
+});
+
 run();

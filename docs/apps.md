@@ -74,7 +74,7 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 |---|---|
 | `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error). One version that can't be read is named on its own; the other versions are still listed. |
 | `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted) |
-| `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format (a plan decision other than accepted or declined, a plan detail that isn't text). It's left out of the data. A `people.json` like that leaves names `null`. |
+| `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format (a plan decision other than accepted or declined, a plan detail that isn't text). It's left out of the data. A `people.json` like that leaves names `null`. A run whose times can't all be read (its start, end, a pause, the pause under way or a log entry) is named too, with which ones, and is still shown as the app shows it, without them. |
 | `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. |
 | `unusable` | A version this copy can't use, with why |
 | `conflict` | Conflict copies or lost saves beside a run, for a person to resolve in the app |
