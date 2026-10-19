@@ -9165,7 +9165,9 @@ PF.examples = (function () {
   function localRun(id) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === id) return data.runs[i]; return null; }
   function canReplace(id, before) {
     if (state.unsaved[id] || (state.pendingSaves || {})[id]) return false;
-    return edits(id) === (before[id] || 0);
+    /* '~' + id counts this window's successful saves and restores of the run: a read that started before one is older than
+       what's in the folder now. */
+    return edits(id) === (before[id] || 0) && edits('~' + id) === (before['~' + id] || 0);
   }
   /* Reads are numbered as they start, so an editor can tell a read that began after its own save from an older one. */
   var readsStarted = 0;
@@ -9178,17 +9180,9 @@ PF.examples = (function () {
       if (g !== gen) return;
       d.readSeq = seq;
       loading = null;
-      var listed = {}; d.runs.forEach(function (x) { listed[x.process + '/' + x.id] = true; });
       keepUnread(d);
-      keepMissing(d, listed, before, seq);
+      d.runs = applyRunsRead(d, { seq: seq, revs: before });
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
-      for (var i = 0; i < d.runs.length; i++) {
-        var id = d.runs[i].id, mine = localRun(id);
-        if (!canReplace(id, before)) d.runs[i] = state.unsaved[id] || mine || d.runs[i];
-        else if (!mine || mine._fileHash !== d.runs[i]._fileHash) bump(id);
-      }
-      /* Any run this read may not replace stays, even if the read didn't list it (a file briefly missing mid-sync). */
-      data.runs.forEach(function (x) { if (!canReplace(x.id, before) && !d.runs.some(function (y) { return y.id === x.id; })) d.runs.push(state.unsaved[x.id] || x); });
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
@@ -9201,43 +9195,69 @@ PF.examples = (function () {
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], runs: ['runs'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
-    var unread = { runs: {}, drafts: {} };
+    var drafts = {};
     (d.unreadable || []).forEach(function (u) {
-      if (u.draft) {
-        unread.drafts[u.draft] = u.why;
-        var od = data.drafts.filter(function (x) { return x.file === u.draft; })[0];
-        if (od && !d.drafts.some(function (y) { return y.file === od.file; })) d.drafts.push(od);
-        return;
-      }
-      if (!u.key) return;
-      unread.runs[u.key] = u.why;
-      var old = data.runs.filter(function (x) { return x.process + '/' + x.id === u.key; })[0];
-      if (old && !d.runs.some(function (y) { return y.process === old.process && y.id === old.id; })) d.runs.push(old);
+      if (!u.draft) return;
+      drafts[u.draft] = u.why;
+      var od = data.drafts.filter(function (x) { return x.file === u.draft; })[0];
+      if (od && !d.drafts.some(function (y) { return y.file === od.file; })) d.drafts.push(od);
     });
-    state.unread = unread;
+    state.unread = { runs: (state.unread || {}).runs || {}, drafts: drafts };
   }
-  /* A run this window read from the folder (or saved to it) that a full read no longer finds was deleted or moved: it stays,
-     marked gone, so it's never silently dropped or written back. Runs never saved yet, and runs whose read failed, aren't. */
-  /* before, seq: the read's start. A run edited or saved since then, or read again by a newer read that finished first, isn't
-     judged by this older read. */
-  function keepMissing(d, listed, before, seq) {
-    var miss = {}, unread = (state.unread || {}).runs || {}, seen = state.runReadSeq = state.runReadSeq || {}, was = state.missing || {};
-    Object.keys(listed).forEach(function (k) { if (!(seen[k] > seq)) seen[k] = seq; });
-    if (!(d.failed || {}).runs) data.runs.forEach(function (x) {
-      var k = x.process + '/' + x.id;
-      if (listed[k] || unread[k] || !x._fileHash) return;
-      if (!canReplace(x.id, before) || seen[k] > seq) { if (was[k]) miss[k] = true; return; }
-      seen[k] = seq;
-      miss[k] = true;
-      if (!d.runs.some(function (y) { return y.process === x.process && y.id === x.id; })) d.runs.push(state.unsaved[x.id] || x);
+  /* ---------- What a read found about a run: applied in one place, by one rule ---------- */
+  /* A read result is { kind: 'run', run } (the file read), { kind: 'missing' } (no run.json, for a run that has been on
+     disk) or { kind: 'unread', why }. at = { seq, revs }: when the read started. applyRunRead ignores the whole result if
+     the run was edited, saved or restored since then (canReplace: every one of those advances its version) or a newer read
+     of it was applied first. Nothing about a run (its contents, gone, unreadable) changes any other way, except the
+     outcome of this window's own save, which is newer than any read (runOutcome). */
+  var applied = {}, baselines = {};
+  function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
+  function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
+  function setRunStatus(key, kind, why) {
+    var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
+    delete runs[key]; delete m[key];
+    if (kind === 'unread') runs[key] = why;
+    if (kind === 'missing') m[key] = true;
+    u.runs = runs; state.missing = m;
+  }
+  function applyRunRead(key, at, res) {
+    var id = key.slice(key.indexOf('/') + 1);
+    if (!canReplace(id, at.revs) || (applied[key] || 0) > at.seq) return false;
+    applied[key] = at.seq;
+    setRunStatus(key, res.kind, res.why);
+    if (res.kind === 'run') {
+      var mine = findRun(key);
+      if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
+      baselines[id] = { run: res.run };
+    }
+    return true;
+  }
+  /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
+  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; setRunStatus(key, kind, why); }
+  /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
+     gone (unless runs couldn't be read at all); one never saved yet, or one the read may not replace, stays as it is. */
+  function applyRunsRead(d, at) {
+    var got = {}, why = {}, keys = [], out = [], failed = !!(d.failed || {}).runs;
+    function note(k) { if (keys.indexOf(k) < 0) keys.push(k); }
+    data.runs.forEach(function (x) { note(x.process + '/' + x.id); });
+    d.runs.forEach(function (x) { var k = x.process + '/' + x.id; got[k] = x; note(k); });
+    (d.unreadable || []).forEach(function (u) { if (u.key) { why[u.key] = u.why; note(u.key); } });
+    keys.forEach(function (k) {
+      var prev = findRun(k), res = got[k] ? { kind: 'run', run: got[k] } : why[k] ? { kind: 'unread', why: why[k] } : !failed && prev && prev._fileHash ? { kind: 'missing' } : null;
+      var show = res && applyRunRead(k, at, res) ? (res.kind === 'run' ? res.run : prev) : prev ? state.unsaved[prev.id] || prev : res && res.kind === 'run' ? res.run : null;
+      if (show) out.push(show);
     });
-    else Object.keys(state.missing || {}).forEach(function (k) { miss[k] = true; });
-    state.missing = miss;
+    return out;
   }
-  function setMissing(key, on) { var m = Object.assign({}, state.missing || {}); if (on) m[key] = true; else delete m[key]; state.missing = m; }
+  function clone(r) { return JSON.parse(JSON.stringify(r)); }
+  /* Saves and restores of a run, and copies being kept, are one at a time: anything that rewrites the run waits for them. */
+  function runBusy(r) {
+    if (!r || !((state.pendingSaves || {})[r.id] || state.recovering)) return false;
+    say('Wait for the save to finish, then try again.', 'warn'); render(); return true;
+  }
   /* Why a run can't be changed right now because its own latest read failed (or runs weren't read this time), or ''. The
      version on screen is the last one read; nothing is written over a file this copy couldn't read. */
   function runUnread(r) {
@@ -9349,21 +9369,19 @@ PF.examples = (function () {
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
     var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
-    var seq = ++readsStarted, key = r.process + '/' + r.id, bad = [], mark = function (why) { var u = state.unread = state.unread || { runs: {}, drafts: {} }; u.runs = Object.assign({}, u.runs); if (why) u.runs[key] = why; else delete u.runs[key]; };
+    var at = startRead(), key = r.process + '/' + r.id, bad = [];
     var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
-      var was = runUnread(r);
-      mark(bad.length ? bad[0].why : null);
-      /* No run.json at all (and nothing unreadable): gone from the folder, if this window had it from there. */
-      var seen = state.runReadSeq = state.runReadSeq || {}, stale = !canReplace(r.id, revs) || seen[key] > seq;
-      if (!stale) { seen[key] = seq; if (!f && !bad.length && r._fileHash && !(state.pendingSaves || {})[r.id]) setMissing(key, true); else if (f) setMissing(key, false); }
-      if (!!was !== !!runUnread(r)) render();
       loading = null; state.folderErr = null; state.runReadAt = new Date().toISOString();
-      if (!f || !canReplace(r.id, revs)) { renderTop(); return; }
-      if (f._fileHash !== r._fileHash) { bump(r.id); flashChanged(r, f); }
-      for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = f;
-      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before) render(); else { renderTop(); updateFreshness(); }
-    }, function (e) { if (g !== gen) return; loading = null; mark('couldn\'t be read (' + (e.message || String(e)) + ')'); state.folderErr = e.message || String(e); render(); });
+      var cur = findRun(key) || r, was = runUnread(cur);
+      var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : cur._fileHash ? { kind: 'missing' } : null;
+      var changed = !!f && f._fileHash !== cur._fileHash;
+      if (!res || !applyRunRead(key, at, res)) { renderTop(); return; }
+      if (res.kind !== 'run') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
+      if (changed) flashChanged(cur, f);
+      for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
+      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
+    }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unread', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -9379,7 +9397,7 @@ PF.examples = (function () {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
-    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; state.runReadSeq = {}; baselines = {}; connListing = false;
+    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -9792,11 +9810,17 @@ PF.examples = (function () {
     var fs = state.fs, g = gen, endBusy = busyStart(), rev = edits(r.id), pend = state.pendingSaves = state.pendingSaves || {};
     pend[r.id] = (pend[r.id] || 0) + 1;
     function settled() { endBusy(); if (g === gen) { pend[r.id]--; if (pend[r.id] <= 0) delete pend[r.id]; } }
-    return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function () {
+    var snap = null;
+    return queued(function () { snap = clone(r); return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function () {
       settled();
       if (g !== gen) return true;
+      var key = r.process + '/' + r.id, done = edits(r.id) === rev;
       /* Only the change this save carried is now safe; a newer one stays marked until its own save lands. */
-      if (edits(r.id) === rev && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; delete baselines[r.id]; }
+      if (done && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
+      /* What this save wrote is now the last version known to be in the folder: Discard goes back to it, and every read
+         that started before it is too old to apply. */
+      ['rev', 'savedAt', '_fileHash', 'lineage'].forEach(function (f) { snap[f] = r[f]; }); snap._overflow = [];
+      baselines[r.id] = { run: snap }; runOutcome(key, 'run'); bump('~' + r.id);
       render();
       return true;
     }, function (e) {
@@ -9806,11 +9830,12 @@ PF.examples = (function () {
         if (state.unsaved[r.id] === r && edits(r.id) === rev) delete state.unsaved[r.id];
         if (!e.keptAs) lsSet(localKey(r.id), r);
         /* "Before" is this save's own revision: if the person changed anything after it, the newer change stays on screen. */
-        var mineAt = {}; mineAt[r.id] = rev;
+        var mineAt = {}; mineAt[r.id] = rev; mineAt['~' + r.id] = edits('~' + r.id);
+        var at = { seq: ++readsStarted, revs: mineAt };
         return repo.loadRun(fs, r.process, r.id).then(function (fresh) {
           if (g !== gen) return false;
-          var replaced = !!fresh && canReplace(r.id, mineAt);
-          if (replaced) { bump(r.id); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
+          var replaced = !!fresh && applyRunRead(r.process + '/' + r.id, at, { kind: 'run', run: fresh });
+          if (replaced) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
           say(V.nameOf(ctx, e.disk.recorder.person) + ' saved this run from another window or computer, so your change wasn\'t written over theirs. ' +
             (replaced ? 'You\'re seeing their version. ' : 'Your newer change is still on screen and will be checked against theirs when it saves. ') +
             (e.keptAs ? 'Yours is kept as a conflict copy; compare it below and keep whichever is right.' : 'Your copy is kept in this browser.'), 'bad');
@@ -9818,7 +9843,8 @@ PF.examples = (function () {
           return false;
         });
       }
-      if (e.missing) setMissing(r.process + '/' + r.id, true);
+      if (e.missing) runOutcome(r.process + '/' + r.id, 'missing');
+      else if (e.unreadable) runOutcome(r.process + '/' + r.id, 'unread', 'isn\'t a run this copy can read');
       /* The run object holding the newest change is what's shown and what Try again saves. */
       state.unsaved[r.id] = r; state.saveErr[r.id] = e.message; (state.saveOpts = state.saveOpts || {})[r.id] = opts;
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = r;
@@ -9826,7 +9852,6 @@ PF.examples = (function () {
       return false;
     });
   }
-  var baselines = {};
   function snapshot(r) { var c = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.stringify(c); }
   /* "Busy" pauses background refreshes while work is in flight. Each piece of work holds its own claim, released exactly once,
      and claims from a folder you've switched away from never touch the new folder's count. */
@@ -10593,7 +10618,8 @@ PF.examples = (function () {
     var map = R.mapOf(r), recoveringEnded = !!(opts.recovery && r.ended);
     /* The version the folder had before this window's first unsaved change, so Discard my change can put it back even when
        the folder can't give it back (the file is gone). */
-    if (!state.unsaved[r.id] && !(state.pendingSaves || {})[r.id]) baselines[r.id] = JSON.parse(JSON.stringify(r));
+    var base = baselines[r.id];
+    if (!base) baselines[r.id] = { run: clone(r) }; else if (base.run === r) base.run = clone(r);
     try {
       var now = new Date().toISOString();
       fn(r, map, state.me, now);
@@ -10667,11 +10693,11 @@ PF.examples = (function () {
     /* Writing a run back after its file disappeared is only ever this explicit choice, and the run's log says so. */
     'restore-missing': function () {
       var key = state.runKey, r = ctx.run(), g = gen;
-      if (!r || !(state.missing || {})[key]) return;
+      if (!r || !(state.missing || {})[key] || runBusy(r)) return;
       if (!ctx.canRecover(r)) { say(r.ended ? 'Only whoever recorded or ended this run can restore it.' : 'Only the recorder can restore this run. Take over first if they\'re gone.', 'warn'); render(); return; }
       mutateRun(key, g, function (run, map, me, now) { R.log(run, me, now, 'Restored this run\'s file to the team folder after it went missing'); }, { restoreMissing: true, any: true }).then(function (ok) {
         if (!ok || g !== gen) return;
-        setMissing(key, false); say('Restored. The run\'s file is back in the team folder.', 'good'); render();
+        runOutcome(key, 'run'); say('Restored. The run\'s file is back in the team folder.', 'good'); render();
       });
     },
     'conn-send': function () { sendCheck(); },
@@ -11125,8 +11151,8 @@ PF.examples = (function () {
     },
     handoff: function () { var to = val('handoff-to'); if (!to) return; mutate(function (r, map, me, now) { R.handOff(r, to, me, now); }); },
     /* Picking up or taking over starts from the newest copy in the folder, never from what this screen showed earlier. */
-    pickup: function () { fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
-    takeover: function () { fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
+    pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
+    takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
     end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { setView('receipt'); render(); window.scrollTo(0, 0); } }); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
@@ -11154,7 +11180,7 @@ PF.examples = (function () {
     /* Keep a conflict copy. Pending saves finish first, then the run is locked: the exact current contents are backed up, the
        copy replaces them only if nothing changed since, and other changes are refused until it's done. The save is checked
        against the backed-up version's fingerprint, so a change on disk becomes a conflict copy rather than being overwritten. */
-    'use-copy': function (name) { recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
+    'use-copy': function (name) { if (runBusy(ctx.run())) return; recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
     'delete-copy': function (name) {
       var r = ctx.run(); if (!r) return;
       if (!(state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name)) { state.pick = { kind: 'delete-copy', id: name }; render(); return; }
@@ -11162,7 +11188,7 @@ PF.examples = (function () {
       repo.removeCopy(state.fs, r, name).then(function () { if (g !== gen) return; if (state.runKey === key) { if (state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name) state.pick = null; if (state.copyView && state.copyView.name === name) state.copyView = null; } say('Conflict copy deleted.', 'good'); return refreshRun(); }, function (e) { if (g === gen) { say('Couldn\'t delete it: ' + e.message, 'bad'); render(); } });
     },
     'restore-local': function () {
-      var r = ctx.run(); if (!r) return;
+      var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
       recover(function () { var c = R.sanitize(local); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
@@ -11219,10 +11245,10 @@ PF.examples = (function () {
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
     'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { setView('receipt'); render(); } }); },
     'discard-unsaved': function () {
-      var r = ctx.run(); if (!r) return;
-      /* Put back the version from before the change, at once: a run whose file is gone can't be reread to undo it. */
+      var r = ctx.run(); if (!r || runBusy(r)) return;
+      /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
       var base = baselines[r.id];
-      if (base) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = base; delete baselines[r.id]; bump(r.id); }
+      if (base) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = base.run; bump(r.id); }
       delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
     },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
@@ -11448,11 +11474,12 @@ PF.examples = (function () {
     }).catch(function (e) { if (g === gen) say('Couldn\'t keep that copy: ' + e.message, 'bad'); }).then(done);
   }
   function fresh() {
-    var r = ctx.run(), g = gen, fs = state.fs, revs = revsNow(); if (!r) return Promise.resolve(null);
+    var r = ctx.run(), g = gen, fs = state.fs, at = startRead(), bad = []; if (!r) return Promise.resolve(null);
     var key = r.process + '/' + r.id;
-    return repo.loadRun(fs, r.process, r.id).then(function (f) {
+    return repo.loadRun(fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return null;
-      if (f && canReplace(r.id, revs)) { if (f._fileHash !== r._fileHash) bump(r.id); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f; }
+      var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : r._fileHash ? { kind: 'missing' } : null;
+      if (res && applyRunRead(key, at, res) && f) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f; }
       return { key: key, g: g };
     });
   }
