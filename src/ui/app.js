@@ -16,6 +16,9 @@
   function lsGet(k, d) { try { var v = localStorage.getItem(LS + ':' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
   function applyTheme() { var root = document.documentElement; if (!root || !root.setAttribute) return; if (state.theme === 'light' || state.theme === 'dark') root.setAttribute('data-theme', state.theme); else root.removeAttribute('data-theme'); }
   function lsSet(k, v) { try { localStorage.setItem(LS + ':' + k, JSON.stringify(v)); } catch (e) { /* per-viewer convenience only */ } }
+  /* Home acknowledgments this viewer dismissed in this folder: only keys of the form PF.corrections.acks makes are kept. */
+  var ACK_KEY = /^[ld]\.[a-z0-9][a-z0-9-]{0,59}\.[\w-]{1,40}(\.\d{1,9})?$/, ACK_MAX = 300;
+  function acksDismissed() { var v = lsGet('acks:' + fsKey(), []); return Array.isArray(v) ? v.filter(function (k) { return typeof k === 'string' && ACK_KEY.test(k); }).slice(-ACK_MAX) : []; }
   /* One writer per browser window: a session ID that survives a reload of the same tab. A duplicated tab inherits a copy of
      that ID, so each window announces its ID when it opens; if a live window already uses it, the newcomer takes a fresh one.
      A reload is safe: the old page is gone, so nothing answers. Writes wait until this check is done. */
@@ -96,8 +99,14 @@
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
     /* Corrections on a process, grouped, with where each group stands, worked out once per redraw like processes(). */
+    /* What Home acknowledges for this person: corrections of theirs that were published or declined, less what they dismissed. */
+    acks: function () {
+      var since = new Date(Date.now() - 30 * 86400000).toISOString(), gone = acksDismissed(), out = [];
+      processes().forEach(function (p) { PF.corrections.acks(ctx.corrections(p.id), state.me, since).forEach(function (a) { if (gone.indexOf(a.key) < 0) out.push(a); }); });
+      return out;
+    },
     corrections: function (pid) {
-      if (!fixMemo[pid]) { var C = PF.corrections; fixMemo[pid] = C.status(C.groups(C.collect(data.runs, pid)), data.corrDecisions); }
+      if (!fixMemo[pid]) { var proc = processes().filter(function (x) { return x.id === pid; })[0]; fixMemo[pid] = PF.corrections.forProcess(data.runs, pid, data.corrDecisions, proc); }
       return fixMemo[pid];
     },
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
@@ -2418,13 +2427,15 @@
         return Promise.all([pfs.read(draftPath), repo.loadStepTypes(pfs)]).then(function (got) {
           var f = got[0];
           if (!f || f.text !== shown) return { changed: true };
-          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString() });
+          /* The corrections this exact text includes, worked out from the folder as last read (see PF.corrections.forPublish). */
+          var inc = pg === gen ? PF.corrections.forPublish(f.text, ctx.corrections(id)).list : [];
+          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
         });
       }).then(function (res) {
         if (pg !== gen) return;
         if (res.changed) { say('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.', 'warn'); return load(true); }
         if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
-        state.clearInputs = 'change-note'; say('Published v' + res.version + '. New runs use it; runs already started keep their version.', 'good');
+        state.clearInputs = 'change-note'; say('Published v' + res.version + '. New runs use it; runs already started keep their version.' + (res.included ? ' It includes ' + res.included + ' correction' + (res.included === 1 ? '' : 's') + '.' : ''), 'good');
         return load(true);
       }, function (e) { if (pg !== gen) return; say('Couldn\'t publish: ' + e.message, 'bad'); render(); });
     },
@@ -2690,6 +2701,22 @@
     'corr-decline': function (id) { decideCorr(id, 'declined', val('pick-input'), 'Declined. The runs show why.'); },
     'corr-reopen': function (id) { decideCorr(id, 'open', '', 'Reopened.'); },
     'corr-withdraw': function (id, b) { decideCorr(id, 'withdrawn', '', 'Withdrawn.', b && b.dataset.process); },
+    /* An item applied before 1.16: a person says which published version has it. Flightdeck still checks that version makes the change. */
+    'corr-included': function (id, b) {
+      var f = b && b.dataset.folder, v = PF.publish.versionOf(f || '');
+      if (!v) return;
+      decideCorr(id, 'included', '', 'Noted: v' + v + ' has it.', null, { version: v, folder: f });
+    },
+    /* Home acknowledgments: View change opens the process's corrections; Dismiss is remembered in this browser only. */
+    'ack-view': function (id, b) {
+      var pid = b && b.dataset.process; if (!pid) return;
+      ACTIONS['open-process'](pid); state.fixFilter = 'all'; state.focus = 'fx-h'; render();
+    },
+    'ack-dismiss': function (id) {
+      if (!ACK_KEY.test(id || '')) return;
+      var list = acksDismissed(); if (list.indexOf(id) < 0) list.push(id);
+      lsSet('acks:' + fsKey(), list.slice(-ACK_MAX)); state.focus = 'page-h'; say('Dismissed. It won\'t show again in this browser.'); render();
+    },
     /* Applying a correction to the draft: the comparison dialog and what it offers in each state. */
     'corr-review': function (id) {
       var p = currentProcess(); if (!p || !state.me) return;
@@ -2895,11 +2922,11 @@
   }
   /* Anyone on the team decides on a group of corrections; the decision is a new file written once, following the decision
      this window shows. */
-  function decideCorr(id, status, reason, done, pid) {
+  function decideCorr(id, status, reason, done, pid, more) {
     var p = pid ? processes().filter(function (x) { return x.id === pid; })[0] : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
     if (!g || !state.me) return;
     var rec;
-    try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), { current: g.decision, act: U.randomId(10) }); }
+    try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10) }, more || {})); }
     catch (e) { if (status === 'declined') { state.fieldErr = { id: 'corr-decline', msg: e.message }; state.focus = 'pick-input'; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
     queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {

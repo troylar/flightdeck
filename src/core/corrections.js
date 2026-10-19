@@ -13,7 +13,10 @@ PF.corrections = (function () {
   var OTHER = [['add', 'Add a missing step'], ['move', 'Move this step'], ['roles', 'Change who does it'], ['screenshot', 'Replace a screenshot'], ['remove', 'Remove this step from future versions'], ['describe', 'Describe another problem']];
   var OP_LABEL = { wording: 'Wording', add: 'Missing step', move: 'Move', roles: 'Who does it', screenshot: 'Screenshot', remove: 'Remove', describe: 'Problem' };
   var STATUS = { open: 'Open', applied: 'Applied to draft', declined: 'Declined', withdrawn: 'Withdrawn', legacy: 'Applied (legacy)' };
-  var DECIDE = ['open', 'applied', 'declined', 'withdrawn'];
+  /* included: a person says which published version has an item applied before 1.16 (It's in vN). Older copies ignore it. */
+  var DECIDE = ['open', 'applied', 'declined', 'withdrawn', 'included'];
+  /* Decisions written by a copy that records which version includes a correction (1.16). */
+  var DV = 2, LISTED_MAX = 500, FOLDER = /^v(\d{1,9})-[a-z0-9]{1,40}$/;
   /* One table of sizes, used when a correction is made and when it's read back, so nothing saved changes on reload. Names
      from the checklist (step, phase and role IDs) follow its format: up to 60 characters. */
   var LIMITS = { text: 2000, from: 2000, happened: 500, id: 60, role: 60, roles: 100, shot: 500, folder: 80, reason: 300 };
@@ -195,8 +198,14 @@ PF.corrections = (function () {
     }
     if (o.kind !== 'correction-decision' || typeof o.group !== 'string' || !ID.test(o.group) || DECIDE.indexOf(o.status) < 0) return null;
     var r = o.result && typeof o.result === 'object' && /^[0-9a-f]{8}$/.test(o.result.sig || '') ? { step: typeof o.result.step === 'string' && CID.test(o.result.step) ? o.result.step : '', sig: o.result.sig } : null;
-    return Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: r,
+    var out = Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: r, dv: whole(o.dv),
       members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, 500) : [] });
+    if (o.status === 'included') {
+      var m = typeof o.folder === 'string' ? FOLDER.exec(o.folder) : null;
+      if (!m || +m[1] !== o.version) return null;
+      out.version = o.version; out.folder = o.folder;
+    }
+    return out;
   }
   /* A new decision on a group. Decisions are ordered by what the decider had seen, never by clocks: rev is one more than the
      decision this window shows (opts.current), and seen names that decision's file. Declining needs a reason; only the
@@ -208,10 +217,12 @@ PF.corrections = (function () {
     reason = norm(reason);
     if (status === 'declined' && !reason) throw fail('Why not? The runs will show this.', 'corr-reason');
     if (status === 'withdrawn' && !canWithdraw(g, by)) throw fail('Only whoever suggested it can withdraw it.');
+    if (status === 'included' && !(opts.folder && FOLDER.test(opts.folder) && +FOLDER.exec(opts.folder)[1] === opts.version)) throw fail('Choose the version that has it.');
     var cur = opts.current || null;
     var d = { kind: 'correction-decision', process: g.process, group: g.id, members: g.members.map(function (c) { return c.id; }), status: status, reason: reason.slice(0, REASON_MAX), by: by, at: at,
-      rev: (cur ? cur.rev || 0 : 0) + 1, seen: cur && cur._file || null, act: opts.act || '' };
+      rev: (cur ? cur.rev || 0 : 0) + 1, seen: cur && cur._file || null, act: opts.act || '', dv: DV };
     if (status === 'applied' && opts.result) d.result = { step: opts.result.step || '', sig: opts.result.sig };
+    if (status === 'included') { d.version = opts.version; d.folder = opts.folder; }
     return d;
   }
   function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by; }); }
@@ -239,6 +250,8 @@ PF.corrections = (function () {
     });
     return gs.map(function (g) {
       var hit = cur[g.process + '/' + g.id], d = hit ? hit.d : null, st = d ? d.status : 'open', again = null;
+      /* "It's in vN" is applied, with the version a person named. */
+      if (st === 'included') st = 'applied';
       /* Two decided at once is unresolved: the group stays open, as Needs review, until someone decides again. */
       if (hit && hit.tie) st = 'open';
       if (d && d.kind === 'correction-decision') {
@@ -248,7 +261,7 @@ PF.corrections = (function () {
       return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : STATUS[st] });
     });
   }
-  function label(g) { return g.tie ? 'Needs review' : STATUS[g.status] || STATUS.open; }
+  function label(g) { return g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : STATUS[g.status] || STATUS.open; }
   /* Open groups per step ID, for marking steps in the editor's preview. */
   function openCounts(gs) {
     var c = Object.create(null);
@@ -487,11 +500,116 @@ PF.corrections = (function () {
     return gs.filter(function (x) { return x.status === 'open' && x.change.op !== 'describe' && (x.target.step || 'phase:' + x.target.phase) === k; });
   }
 
+  /* ---------- which published version has a correction (slice 3) ---------- */
+  var GONE = U.hash('gone');
+  /* A change Flightdeck can check in a checklist's text; a screenshot, a described problem and a suggested fix can't be. */
+  function checkable(g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer && !(g.first && g.first.newer); }
+  /* The group IDs a publication says it includes (publication.json "corrections", written from 1.16). */
+  function listed(info) {
+    var o = Object.create(null), list = info && Array.isArray(info.corrections) ? info.corrections.slice(0, LISTED_MAX) : [];
+    list.forEach(function (x) { if (x && typeof x.id === 'string' && ID.test(x.id)) o[x.id] = true; });
+    return o;
+  }
+  /* Whether a checklist's text makes a group's change: the step says the proposed wording, the new step is at its place, the
+     step is where it was moved, has the roles, or is gone. What a person applied in their own words counts through the
+     decision's recorded result. A change that can't be checked counts as made; only a listing can say it is. */
+  function satisfied(g, text) {
+    if (!checkable(g)) return true;
+    var d = g.decision, r = d && d.status === 'applied' && d.result, op = g.change.op;
+    if (r && (op === 'remove' || r.sig !== GONE) && outcome(g, text, op === 'add' ? r.step : '').sig === r.sig) return true;
+    return isAlready(g, PF.outline.parse(text));
+  }
+  /* The step a landed group is about in that version: the new step for a missing one, none for a removed one. */
+  function landedStep(g, text) {
+    if (g.change.op === 'remove') return '';
+    if (g.change.op !== 'add') return g.target.step || '';
+    var r = g.decision && g.decision.result, s = resultStep(g, PF.outline.parse(text), r && r.step);
+    return s ? s.id : '';
+  }
+  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.version || 0; })); }
+  /* Which published version first has each applied group: the lowest version above the correction's own that names it (its
+     publication.json lists the group, or a person's "It's in vN" names that folder) AND makes the change. Both, always: a
+     later version with other edits never earns it by its number, and a listing whose step doesn't match doesn't count.
+     Clashing versions never count. Worked out from the folder every time, never written into runs. proofless: applied, but
+     Flightdeck can't say which version has it (applied before 1.16, or a version that makes the change without listing it,
+     published by an older copy). */
+  function landing(gs, pubs, clashes) {
+    clashes = clashes || [];
+    var ok = (pubs || []).filter(function (p) { return p && p.ok !== false && p.info && typeof p.md === 'string' && clashes.indexOf(p.info.version) < 0; })
+      .sort(function (a, b) { return a.info.version - b.info.version; });
+    var lists = ok.map(function (p) { return listed(p.info); });
+    return gs.map(function (g) {
+      var out = Object.assign({}, g, { landed: null, proofless: false });
+      if (g.status === 'legacy' && !g.tie) out.proofless = out.old = true;
+      if (g.status !== 'applied' || g.tie) return out;
+      var d = g.decision, inc = d && d.status === 'included' ? d : null, own = ownVersion(g);
+      for (var i = 0; i < ok.length; i++) {
+        var p = ok[i];
+        if (p.info.version <= own) continue;
+        if (!(lists[i][g.id] || (inc && inc.folder === p.info.folder))) continue;
+        if (!satisfied(g, p.md)) continue;
+        out.landed = { version: p.info.version, folder: p.info.folder, step: landedStep(g, p.md), at: p.info.publishedAt || '' };
+        out.label = 'Published in v' + p.info.version;
+        return out;
+      }
+      var old = out.old = !!d && d.kind === 'correction-decision' && !d.result && (d.dv || 0) < DV;
+      out.proofless = !!inc || (checkable(g) ? ok.some(function (p) { return p.info.version > own && satisfied(g, p.md); }) : old);
+      return out;
+    });
+  }
+  /* Every group on a process with where it stands and which version has it. proc: { all, clashes } (its publications). */
+  function forProcess(runs, pid, decisions, proc) {
+    return landing(status(groups(collect(runs, pid)), decisions), proc ? proc.all : [], proc ? proc.clashes : []);
+  }
+  /* What a publish of this text includes: applied groups not yet published whose change the text makes, with each one's
+     result (for publication.json, capped at 500), and the applied ones left out because the draft no longer matches what was
+     applied. gs: groups from forProcess. */
+  function forPublish(text, gs) {
+    var inc = [], left = [];
+    (gs || []).forEach(function (g) {
+      if (g.status !== 'applied' || g.tie || g.landed || g.proofless) return;
+      if (!checkable(g)) { inc.push(g); return; }
+      if (!changedSince(g, text) && satisfied(g, text)) inc.push(g); else left.push(g);
+    });
+    inc = inc.slice(0, LISTED_MAX);
+    return { groups: inc, left: left, list: inc.map(function (g) {
+      var r = g.decision && g.decision.result, x = { id: g.id };
+      if (checkable(g)) x.result = outcome(g, text, g.change.op === 'add' && r ? r.step : '');
+      return x;
+    }) };
+  }
+  /* Groups that landed in exactly this version, by the step they're about there, for "Changed in vN" on its runs. */
+  function changedIn(gs, folder) {
+    var o = Object.create(null);
+    (gs || []).forEach(function (g) { if (g.landed && g.landed.folder === folder && g.landed.step) (o[g.landed.step] = o[g.landed.step] || []).push(g); });
+    return o;
+  }
+  /* Home acknowledgments for one person: one per process and version where their corrections were published, and one per
+     correction someone else declined. Only recent ones (since), so a new browser isn't flooded; key is what Dismiss remembers. */
+  function acks(gs, me, since) {
+    var out = [], by = Object.create(null);
+    if (!me) return out;
+    (gs || []).forEach(function (g) {
+      var mine = g.members.some(function (c) { return c.by === me; });
+      if (!mine) return;
+      if (g.landed && (!since || !g.landed.at || g.landed.at >= since)) {
+        var k = 'l.' + g.process + '.' + g.landed.folder;
+        if (!by[k]) out.push(by[k] = { kind: 'landed', key: k, process: g.process, version: g.landed.version, folder: g.landed.folder, groups: [] });
+        by[k].groups.push(g);
+      } else if (g.status === 'declined' && !g.tie && g.decision && g.decision.by !== me && (!since || (g.decision.at || '') >= since)) {
+        out.push({ kind: 'declined', key: 'd.' + g.process + '.' + g.id + '.' + (g.decision.rev || 0), process: g.process, group: g, by: g.decision.by, reason: g.decision.reason });
+      }
+    });
+    return out;
+  }
+
   /* Markdown for an AI assistant: the open groups with the step as the draft has it now, and how to edit. */
   function brief(proc, gs, opts) {
     opts = opts || {};
     var map = opts.map, nameOf = opts.nameOf || function (x) { return x; }, images = 'images/' + proc.id + '/';
-    var todo = gs.filter(function (g) { return g.status === 'open'; });
+    var todo = gs.filter(function (g) { return g.status === 'open' && !g.landed; });
+    /* People's words go in as quoted lines, so nothing in them reads as part of the brief. */
+    var quote = function (t) { return String(t).split(/\r?\n/).map(function (l) { return '  > ' + l; }).join('\n'); };
     var shots = todo.some(function (g) { return g.change.op === 'screenshot'; });
     var file = opts.draftFile ? 'maps/drafts/' + opts.draftFile : null;
     var edit = file ? 'Edit the process\'s draft, `' + file + '`.' : 'The process has no draft yet: start one at `maps/drafts/' + proc.id + '.md` from the published version.';
@@ -502,8 +620,8 @@ PF.corrections = (function () {
       var c = g.first, x = g.target.step && map && M.findStep(map, g.target.step);
       L.push('## ' + (i + 1) + '. ' + OP_LABEL[g.change.op] + ': ' + (x ? '"' + x.step.text + '"' : 'step ' + (g.target.step || g.target.phase)) + ' {#' + (g.target.step || g.target.phase) + '}', '');
       L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return nameOf(m.by) + ' in "' + m.runTitle + '" (v' + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
-      if (g.from) L.push('- The checklist said (v' + c.version + '): ' + g.from);
-      var p = proposal(c, map); if (p) L.push('- Proposed: ' + p);
+      if (g.from) L.push('- From (what v' + c.version + ' said):', quote(g.from));
+      var p = proposal(c, map); if (p) L.push('- Proposed:', quote(p));
       if (g.change.op === 'screenshot' && g.change.shot) L.push('- Screenshot: `' + g.change.shot + '`');
       g.members.forEach(function (m) {
         if (m.why) L.push('- ' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' (' + nameOf(m.by) + '): ' + m.why.replace(/\n/g, ' '));
@@ -525,5 +643,6 @@ PF.corrections = (function () {
 
   return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision,
     decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary,
-    toOps: toOps, review: review, inverse: inverse, outcome: outcome, changedSince: changedSince, alternatives: alternatives, applies: function (g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer; } };
+    toOps: toOps, review: review, inverse: inverse, outcome: outcome, changedSince: changedSince, alternatives: alternatives, applies: function (g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer; },
+    LISTED_MAX: LISTED_MAX, listed: listed, satisfied: satisfied, landing: landing, forProcess: forProcess, forPublish: forPublish, changedIn: changedIn, acks: acks, checkable: checkable };
 })();

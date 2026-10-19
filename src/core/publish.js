@@ -32,6 +32,13 @@ PF.publish = (function () {
     };
     /* Reference screenshots copied into this version, each with a fingerprint, so a version is complete only when they've all arrived intact. */
     info.images = opts.images || {};
+    /* The corrections this version includes, from PF.corrections.forPublish. Older copies ignore the field (verify reads only
+       what it checks), so a version that has it runs everywhere a version without it does. */
+    if (Array.isArray(opts.corrections) && opts.corrections.length) info.corrections = opts.corrections.slice(0, 500).map(function (c) {
+      var x = { id: String(c.id) };
+      if (c.result && typeof c.result === 'object') x.result = { step: String(c.result.step || ''), sig: String(c.result.sig || '') };
+      return x;
+    });
     return { folder: folder, version: version, files: { 'map.md': draftMd, 'types.json': typesJson, 'publication.json': JSON.stringify(info, null, 2) } };
   }
 

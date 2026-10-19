@@ -4,7 +4,7 @@
 
 ## 1.16.0 · Oct 19, 2026
 
-Apply a correction to the draft, after comparing it side by side.
+Apply a correction to the draft, then see which version has it.
 
 ### New
 
@@ -12,10 +12,15 @@ Apply a correction to the draft, after comparing it side by side.
 - **Choose between two proposals, or combine them** (Corrections). When people suggested different wording for one step, use one of them, or combine them into your own wording. Combining marks each of them as applied. *Where:* Review and apply, on a step with two proposed changes
 - **Undo an applied correction** (Corrections). Applying is one change in the draft editor's history, named for the step, so Undo takes it back. The draft then has unsaved changes until you save it. *Where:* The Undo button in the message, or the draft editor's Undo and History
 - **Changed since applied** (Corrections). A correction applied in Flightdeck remembers what the step said. If the step changes again in the draft, the correction says Changed since applied. *Where:* A process page › Corrections › All
+- **Published in vN** (Corrections). Publishing records which applied corrections the new version includes. A correction then says Published in v5, but only when v5 both lists it and really says it; a later version with other edits never counts. The publish panel says how many corrections the version includes and names any that changed since they were applied. *Where:* A process page › Draft › Publish, and Corrections › All
+- **Changed in vN, and why** (Corrections). In runs of the version that first has a correction, its step says Changed in v5. Why is this here? shows what it said before and after, the reason, the runs that suggested it and who applied it. *Where:* A run › the step's row and the selected step
+- **Hear back about your corrections** (Home). When a correction you suggested is published, Home says so once per version, with View change. When someone declines one, Home says who and why. Dismiss hides it in this browser. *Where:* Home › Your corrections
 
 ### Improved
 
 - **Steps with open corrections are marked while you edit** (Draft editor). The builder's rows say how many open corrections a step has. The Markdown view lists them above the text, with Go to line for each. *Where:* A process page › Edit
+- **Say which version has an older correction** (Corrections). For a correction applied before 1.16, Flightdeck says it can't confirm which version has it. It's in v5 records that, and Flightdeck still checks that v5 makes the change. *Where:* A process page › Corrections › All
+- **The correction brief quotes what the step said and what was proposed** (Corrections). The brief for your AI assistant quotes From and Proposed as data, lists attached files' paths, and leaves out corrections already published. *Where:* A process page › Corrections › Copy correction brief
 
 ## 1.15.0 · Oct 18, 2026
 
