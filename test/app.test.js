@@ -5279,4 +5279,37 @@ rule('App: a run open in this window that also writes a note every 45 s still sh
   assert.ok(seen != null && seen <= 6 * 60, 'shown at ' + seen + ' s');
 });
 
+rule('App: another computer replacing a note on the open run with one of the same size at the same time shows after the full reread, without selecting the step again', async () => {
+  const k = clocks(), app = boot({ Date: k.D, performance: k.perf }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), np = run.path.replace('run.json', 'notes-blake-laptop.jsonl');
+  await app.fs.write(np, JSON.stringify({ id: 'b1', at: new Date().toISOString(), by: 'person-blake', step: 'announce', text: 'BLAKEFIRST' }) + '\n');
+  for (let i = 0; i < 70; i++) { k.ahead(1000); app.every(); await app.tick(5); }
+  app.click('select', 'announce'); await app.tick(20);
+  assert.ok(/BLAKEFIRST/.test(app.html()), 'set-up: the note shows on its step');
+  const f = app.fs.files[np]; app.fs.files[np] = { t: f.t.replace('BLAKEFIRST', 'BLAKEOTHER'), m: f.m };
+  /* A running run is read in full every 5 minutes of elapsed time; nothing else on the page may be what redraws it. */
+  let seen = null;
+  for (let s = 1; s <= 12 * 60 && seen == null; s++) { k.ahead(1000); app.every(); await app.tick(5); if (/BLAKEOTHER/.test(app.html())) seen = s; }
+  assert.ok(seen != null && seen <= 6 * 60, 'the replaced note shows after the full reread, with the step still selected: ' + seen + ' s');
+  assert.ok(!/BLAKEFIRST/.test(app.html()), 'and the old text is gone');
+});
+
+rule('App: a follow-up decision another computer rewrites with one of the same size and time shows once it\'s read again, without leaving the page', async () => {
+  const k = clocks(), app = boot({ Date: k.D, performance: k.perf }); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1];
+  app.click('fu-pick', key, { status: 'wont' }); await app.tick();
+  app.set(app.PF.followups.formId(key) + '-reason', 'REASONFIRST'); app.click('fu-save', key); await app.tick(60);
+  app.click('nav', 'followups'); await app.tick(20);
+  app.click('fu-filter', 'all'); await app.tick();
+  assert.ok(/REASONFIRST/.test(app.html()), 'set-up: the decision shows');
+  const path = app.files('followups/release/').find(p => !/example-session/.test(p) && /REASONFIRST/.test(app.fs.files[p].t)), f = app.fs.files[path];
+  app.fs.files[path] = { t: f.t.replace('REASONFIRST', 'REASONOTHER'), m: f.m };
+  for (let s = 0; s < 4; s++) { k.ahead(30 * 60000); app.every(); await app.tick(60); }
+  const html = app.html();
+  assert.ok(/REASONOTHER/.test(html) && !/REASONFIRST/.test(html), 'the rewritten decision shows on the page that was open');
+});
+
 run();
