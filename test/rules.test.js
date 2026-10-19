@@ -2088,7 +2088,7 @@ rule('Folder health: copies that arrive beside a run.json that can\'t be read ar
 });
 
 rule('Folder health: save receipts left beside a missing run.json are reported as a saved copy of the run, with how to bring it back', () => {
-  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r7/candidate-w1-abcd2345.json', s: 900, m: HNOW }); }), HNOW);
+  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r7/candidate-w1-abcd2345.json', s: 900, m: HNOW - 5 * 60000 }); }), HNOW);
   const i = rep.issues.filter(x => x.id === 'orphans:release/r7')[0];
   assert.ok(i && i.severity === 'stop' && /saved cop/i.test(i.title + i.detail), JSON.stringify(i));
   assert.strictEqual(i.action.id, 'a-runs-file-is-gone');
@@ -2100,6 +2100,15 @@ rule('Folder health: a run this window holds whose file is gone from the folder 
   const rep = H.check(healthy(s => { s.missing = { 'release/run1': true }; }), HNOW);
   const i = rep.issues.filter(x => x.id === 'missing:release/run1')[0];
   assert.ok(i && i.severity === 'stop' && i.action.act === 'open-run' && i.help === 'a-runs-file-is-gone');
+});
+
+rule('Folder health: a save receipt younger than 2 minutes beside no run.json may be a first save still finishing, not a lost run', () => {
+  const young = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r8/candidate-w1-abcd2345.json', s: 900, m: HNOW - 30000 }); }), HNOW);
+  assert.ok(!young.issues.some(i => i.severity === 'stop' && /r8/.test(i.id)), 'no stop for a save in progress');
+  const note = young.issues.filter(i => i.id === 'saving:release/r8')[0];
+  assert.ok(note && note.severity === 'info' && /may still be finishing/.test(note.title));
+  const old = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r8/candidate-w1-abcd2345.json', s: 900, m: HNOW - 3 * 60000 }); }), HNOW);
+  assert.strictEqual(old.issues.filter(i => i.id === 'orphans:release/r8')[0].severity, 'stop');
 });
 
 run();

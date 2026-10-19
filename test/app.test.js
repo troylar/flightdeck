@@ -3290,4 +3290,38 @@ rule('App: a full refresh that no longer finds a saved run keeps it, marked gone
   assert.ok(/The team folder needs attention/.test(app.html()));
 });
 
+rule('App: Discard my change after a refused save of a gone run puts back the version read, and Restore it here never saves the discarded change', async () => {
+  const app = await recordingRelease();
+  const run = app.run(), path = run.path, dir = path.replace('run.json', '');
+  Object.keys(app.fs.files).filter(k => k.indexOf(dir) === 0).forEach(k => delete app.fs.files[k]);
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Discard me'); app.click('pause', 'run'); await app.tick(60);
+  assert.ok(!app.fs.files[path] && /file is gone from the team folder/.test(app.html()), 'refused and marked gone');
+  app.click('discard-unsaved'); await app.tick(80);
+  assert.ok(!/Discard me/.test(app.html()), 'the discarded pause is gone from the screen');
+  app.click('restore-missing'); await app.tick(80);
+  const j = JSON.parse(app.fs.files[path].t);
+  assert.ok(!j.paused && !(j.pauses || []).some(p => p.reason === 'Discard me'), 'the discarded change was never saved');
+  assert.ok(!JSON.stringify(j.log).includes('Discard me'));
+});
+
+rule('App: a read that found the file missing but finished after a successful save never marks the run gone', async () => {
+  const c = clock();
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, Date: c.D }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), dir = run.path.replace('run.json', '').replace(/\/$/, '');
+  const saved = {}; Object.keys(app.fs.files).filter(k => k.indexOf(dir + '/') === 0).forEach(k => { saved[k] = app.fs.files[k]; delete app.fs.files[k]; });
+  const list = app.fs.list.bind(app.fs), g = gate(); let held = false;
+  app.fs.list = p => { if (p === dir && !held) { held = true; return list(p).then(x => g.p.then(() => x)); } return list(p); };
+  c.ahead(6000); app.every(); await app.tick(20);
+  assert.ok(held, 'the reread is holding');
+  Object.assign(app.fs.files, saved);
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Kept'); app.click('pause', 'run'); await app.tick(60);
+  assert.ok(JSON.parse(app.fs.files[run.path].t).paused, 'the save succeeded');
+  g.open(); await app.tick(80);
+  assert.ok(!/file is gone from the team folder/.test(app.html()), 'the stale read doesn\'t mark it gone');
+  app.click('resume', 'run'); await app.tick(60);
+  assert.ok(!JSON.parse(app.fs.files[run.path].t).paused, 'still recordable');
+});
+
 run();

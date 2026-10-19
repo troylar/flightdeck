@@ -5,7 +5,7 @@ PF.health = (function () {
   'use strict';
   var U = PF.util, M = PF.map, C = PF.contract;
   var HOUR = 3600000, DAY = 24 * HOUR;
-  var LIMITS = { abandonedMs: 7 * DAY, handoffMs: 2 * HOUR, halfSyncMs: 2 * HOUR, tmpMs: 2 * HOUR, skewMs: 10 * 60000,
+  var LIMITS = { saveGraceMs: 2 * 60000, abandonedMs: 7 * DAY, handoffMs: 2 * HOUR, halfSyncMs: 2 * HOUR, tmpMs: 2 * HOUR, skewMs: 10 * 60000,
     runsWarn: 500, runsStop: 2000, types: 100, skills: 500, runFiles: 500, attachBytes: 1024 * 1024 * 1024, pathChars: 200 };
   /* Sections of docs/recovery.md (and the in-app view), by their anchors. */
   var HELP = { conflicts: 'a-run-has-conflict-copies', copies: 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', access: 'flightdeck-lost-access-to-the-folder',
@@ -99,9 +99,16 @@ PF.health = (function () {
         var m = /^runs\/([^/]+\/[^/]+)\/([^/]+)$/.exec(f.p);
         if (!m || m[2] === 'run.json' || (hasRun[m[1]] && !unreadKeys[m[1]])) return;
         var kind = /^candidate-.+\.json$/.test(m[2]) ? 'saved' : /^run.*\.json$/i.test(m[2]) ? 'copy' : '';
-        if (kind) (orphans[m[1]] = orphans[m[1]] || { copy: [], saved: [] })[kind].push(f.p);
+        if (kind) (orphans[m[1]] = orphans[m[1]] || { copy: [], saved: [], young: [] })[kind === 'saved' && f.m != null && now - f.m < LIMITS.saveGraceMs ? 'young' : kind].push(f.p);
       });
     }
+    /* A save receipt younger than 2 minutes may be a first save whose run.json hasn't been written or arrived yet. */
+    Object.keys(orphans).forEach(function (k) {
+      var o = orphans[k];
+      if (o.copy.length || o.saved.length) return;
+      delete orphans[k];
+      add({ id: 'saving:' + k, severity: 'info', area: 'Runs', title: 'A save may still be finishing in runs/' + k, detail: 'A save receipt arrived but run.json hasn\'t yet. That\'s normal for a run that was just started; check again in a minute.', paths: o.young, action: { act: 'health-again', id: '', label: 'Check again' }, help: HELP.gone });
+    });
     Object.keys(orphans).sort().forEach(function (k) {
       var o = orphans[k], why = hasRun[k] ? 'can\'t be read' : 'is missing';
       add({ id: 'orphans:' + k, severity: 'stop', area: 'Runs', title: o.copy.length ? plural(o.copy.length, 'copy', 'copies') + ' of a run whose run.json ' + why : 'A saved copy of a run whose run.json ' + why,

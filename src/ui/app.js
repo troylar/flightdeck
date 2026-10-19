@@ -287,7 +287,7 @@
       loading = null;
       var listed = {}; d.runs.forEach(function (x) { listed[x.process + '/' + x.id] = true; });
       keepUnread(d);
-      keepMissing(d, listed);
+      keepMissing(d, listed, before, seq);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       for (var i = 0; i < d.runs.length; i++) {
         var id = d.runs[i].id, mine = localRun(id);
@@ -328,11 +328,16 @@
   }
   /* A run this window read from the folder (or saved to it) that a full read no longer finds was deleted or moved: it stays,
      marked gone, so it's never silently dropped or written back. Runs never saved yet, and runs whose read failed, aren't. */
-  function keepMissing(d, listed) {
-    var miss = {}, unread = (state.unread || {}).runs || {};
+  /* before, seq: the read's start. A run edited or saved since then, or read again by a newer read that finished first, isn't
+     judged by this older read. */
+  function keepMissing(d, listed, before, seq) {
+    var miss = {}, unread = (state.unread || {}).runs || {}, seen = state.runReadSeq = state.runReadSeq || {}, was = state.missing || {};
+    Object.keys(listed).forEach(function (k) { if (!(seen[k] > seq)) seen[k] = seq; });
     if (!(d.failed || {}).runs) data.runs.forEach(function (x) {
       var k = x.process + '/' + x.id;
       if (listed[k] || unread[k] || !x._fileHash) return;
+      if (!canReplace(x.id, before) || seen[k] > seq) { if (was[k]) miss[k] = true; return; }
+      seen[k] = seq;
       miss[k] = true;
       if (!d.runs.some(function (y) { return y.process === x.process && y.id === x.id; })) d.runs.push(state.unsaved[x.id] || x);
     });
@@ -451,13 +456,14 @@
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
     var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
-    var key = r.process + '/' + r.id, bad = [], mark = function (why) { var u = state.unread = state.unread || { runs: {}, drafts: {} }; u.runs = Object.assign({}, u.runs); if (why) u.runs[key] = why; else delete u.runs[key]; };
+    var seq = ++readsStarted, key = r.process + '/' + r.id, bad = [], mark = function (why) { var u = state.unread = state.unread || { runs: {}, drafts: {} }; u.runs = Object.assign({}, u.runs); if (why) u.runs[key] = why; else delete u.runs[key]; };
     var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
       var was = runUnread(r);
       mark(bad.length ? bad[0].why : null);
       /* No run.json at all (and nothing unreadable): gone from the folder, if this window had it from there. */
-      if (!f && !bad.length && r._fileHash && !(state.pendingSaves || {})[r.id]) setMissing(key, true); else if (f) setMissing(key, false);
+      var seen = state.runReadSeq = state.runReadSeq || {}, stale = !canReplace(r.id, revs) || seen[key] > seq;
+      if (!stale) { seen[key] = seq; if (!f && !bad.length && r._fileHash && !(state.pendingSaves || {})[r.id]) setMissing(key, true); else if (f) setMissing(key, false); }
       if (!!was !== !!runUnread(r)) render();
       loading = null; state.folderErr = null; state.runReadAt = new Date().toISOString();
       if (!f || !canReplace(r.id, revs)) { renderTop(); return; }
@@ -480,7 +486,7 @@
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
-    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; connListing = false;
+    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; state.runReadSeq = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -897,7 +903,7 @@
       settled();
       if (g !== gen) return true;
       /* Only the change this save carried is now safe; a newer one stays marked until its own save lands. */
-      if (edits(r.id) === rev && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
+      if (edits(r.id) === rev && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; delete baselines[r.id]; }
       render();
       return true;
     }, function (e) {
@@ -927,6 +933,7 @@
       return false;
     });
   }
+  var baselines = {};
   function snapshot(r) { var c = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.stringify(c); }
   /* "Busy" pauses background refreshes while work is in flight. Each piece of work holds its own claim, released exactly once,
      and claims from a folder you've switched away from never touch the new folder's count. */
@@ -1691,6 +1698,9 @@
     var allowed = ctx.recording(r) || opts.any || (opts.recovery && ctx.canRecover(r));
     if (!allowed) { say('Only the recorder\'s window can change the run.', 'warn'); render(); return Promise.resolve(false); }
     var map = R.mapOf(r), recoveringEnded = !!(opts.recovery && r.ended);
+    /* The version the folder had before this window's first unsaved change, so Discard my change can put it back even when
+       the folder can't give it back (the file is gone). */
+    if (!state.unsaved[r.id] && !(state.pendingSaves || {})[r.id]) baselines[r.id] = JSON.parse(JSON.stringify(r));
     try {
       var now = new Date().toISOString();
       fn(r, map, state.me, now);
@@ -2315,7 +2325,13 @@
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
     'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { setView('receipt'); render(); } }); },
-    'discard-unsaved': function () { var r = ctx.run(); if (!r) return; delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true); },
+    'discard-unsaved': function () {
+      var r = ctx.run(); if (!r) return;
+      /* Put back the version from before the change, at once: a run whose file is gone can't be reread to undo it. */
+      var base = baselines[r.id];
+      if (base) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = base; delete baselines[r.id]; bump(r.id); }
+      delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
+    },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
     /* Correct this step (anyone who has said who they are; it doesn't answer the step) or Done differently (the recorder; it
        answers the step). Correcting starts on the wording, filled in with what the step says now. */
