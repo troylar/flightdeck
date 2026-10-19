@@ -320,9 +320,14 @@
   }
 
   /* ---------- loading ---------- */
+  /* What a redraw decision compares a run by: its file, what its notes files say (a note replaced at the same size and time
+     changes _notesSig, never the count), notes added here since the read, and its conflict copies by name. */
+  function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return x._file + x.at; }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
+      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
+      /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
+      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -611,7 +616,7 @@
   function refreshRun() {
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
-    var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
+    var before = shownSig(r), g = gen, revs = revsNow();
     var at = startRead(), key = r.process + '/' + r.id, bad = [];
     var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
@@ -623,7 +628,7 @@
       if (res.kind !== 'fresh') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (changed) flashChanged(cur, f);
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
-      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
+      if (shownSig(f) !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
     }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unreadable', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
