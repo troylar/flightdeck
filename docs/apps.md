@@ -8,7 +8,7 @@ Reading is the only thing an app can do so far. Asking for a run and reporting w
 
 - **It only reads.** The JSON commands never change a file in the team folder, not even the tidying the app does when it opens a run (removing a save receipt that lost nothing). They read through a view of the folder that refuses every change, and never through a link.
 - **It reads now, with the app's own rules.** What's next, a gate's status and a step's evidence come from the same code the app runs, from this install's own `flightdeck.html`. Another computer may be a minute ahead while the shared folder syncs.
-- **Every problem is named, file by file.** A file that can't be read is never silently left out. If anything is missing, the output says which file and why, `complete` is `false` and the exit code is 4. The data that could be read is still printed.
+- **Every problem is named, file by file.** While it reads, the command keeps a list of problems: every folder or file that failed to list or read, was too large, was a link, or was listed and then gone before it could be read, and every file whose contents aren't in the format (a run, plan, decision, version or `people.json`). A file is never silently left out and a bad value is never replaced with a default. If the list has anything in the command's scope, the output names each file and why, `complete` is `false` and the exit code is 4. The data that could be read is still printed.
 - **A passed gate is a record, not permission.** It means passed for those details, by that person, at that time. Nothing an app reads is permission to act.
 - **Privacy:** People-directory email fields are omitted. People appear as an ID and a name. Titles, details, evidence and notes may contain anything people typed, emails included.
 
@@ -60,36 +60,37 @@ Every successful command prints one object:
 | `note` | The reminder above, the same every time |
 | `data` | The command's own data, below |
 
-An error object (exit 1 or 5) has `contract`, `app` and `error`, and no data:
+An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and no data. `problems` lists everything the command met before it stopped, in the same form as above (a run that's "not found" because its folder is a link names the link there); it's empty when nothing was read, as for a usage error:
 
 ```json
-{ "contract": "flightdeck-read/1", "app": "1.18.0", "error": { "kind": "not-found", "why": "There's no run backup-check/zzz in the team folder." } }
+{ "contract": "flightdeck-read/1", "app": "1.18.0", "error": { "kind": "not-found", "why": "There's no run backup-check/zzz in the team folder." }, "problems": [] }
 ```
 
-`error.kind` is `failed` (the folder couldn't be read), `usage` (the command was used wrongly), `contract` (a contract this copy doesn't have) or `not-found`.
+`error.kind` is `failed` (the folder couldn't be read), `usage` (the command was used wrongly, including a flag without its value), `contract` (a contract this copy doesn't have) or `not-found`.
 
 ### Problem kinds
 
 | Kind | Means |
 |---|---|
-| `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error) |
+| `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error). One version that can't be read is named on its own; the other versions are still listed. |
 | `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted) |
-| `malformed` | A run, plan or decision file that won't parse or check |
-| `newer` | A run, version or file from a newer Flightdeck. A run like that is named here and left out of the data. |
+| `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format (a plan decision other than accepted or declined, a plan detail that isn't text). It's left out of the data. A `people.json` like that leaves names `null`. |
+| `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. |
 | `unusable` | A version this copy can't use, with why |
 | `conflict` | Conflict copies or lost saves beside a run, for a person to resolve in the app |
 | `still-syncing` | A version whose files haven't all arrived |
 | `link` | A link the command didn't follow |
-| `skipped` | A file too large to read (over 16 MB) |
+| `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
+| `vanished` | A file that was listed and then gone before it could be read (OneDrive replacing it, or someone deleting it) |
 
 Each command reports only what's in its own scope:
 
 | Command | Scope |
 |---|---|
 | `processes`, `process` | `publications/` (for `process`, that process's versions) |
-| `runs` | `runs/` and `proposals/` |
-| `run`, `next` | That run's folder, its version, its follow-up decisions and `people.json` |
-| `followups` | `followups/` and `runs/` (every follow-up lives in its run's `run.json`, so a run that can't be read may hide some) |
+| `runs` | `runs/`, `proposals/` and `people.json` |
+| `run`, `next` | That run's folder, its version (checked on its own, so a version that can't be read or used is named), its follow-up decisions and `people.json` |
+| `followups` | `followups/`, `runs/` and `people.json` (every follow-up lives in its run's `run.json`, so a run that can't be read may hide some) |
 
 ## The data
 

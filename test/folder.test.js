@@ -1462,4 +1462,25 @@ rule('Follow-up and correction decisions loaded by the app still forget a file t
   same(d.fuDecisions.map(x => x.followUp), ['f1']);
 });
 
+
+rule('The problem ledger records every failed list and read by path, a listed file gone when read as vanished, and passes options on', async () => {
+  const fs = folder(); await fs.write('a/b.json', '{}'); await fs.write('a/c.json', '{}'); await fs.write('a/d.json', '{}');
+  const read = fs.read.bind(fs), list = fs.list.bind(fs), seen = [];
+  fs.read = (p, o) => { seen.push(o && o.maxBytes); if (p === 'a/c.json') throw new Error('EACCES'); if (p === 'a/d.json') return Promise.reject(Object.assign(new Error('too big'), { skipped: true })); return read(p); };
+  fs.list = p => p === 'x' ? Promise.reject(Object.assign(new Error('a link'), { link: true })) : list(p);
+  const L = repo.ledger(repo.readOnly(fs));
+  await L.fs.list('a');
+  await fs.remove('a/b.json');
+  assert.strictEqual(await L.fs.read('a/b.json', { maxBytes: 5 }), null);
+  await assert.rejects(L.fs.read('a/c.json'), /EACCES/);
+  await assert.rejects(L.fs.read('a/d.json'), /too big/);
+  await assert.rejects(L.fs.list('x'), /a link/);
+  assert.strictEqual(await L.fs.read('never-listed.json'), null);
+  same(L.problems().map(p => [p.path, p.kind]), [['a/b.json', 'vanished'], ['a/c.json', 'unreadable'], ['a/d.json', 'skipped'], ['x', 'link']]);
+  assert.strictEqual(seen[0], 5, 'read options reach the folder');
+  L.note('a/c.json', 'malformed', 'also'); L.note('a/e.json', 'malformed', 'bad');
+  same(L.problems().map(p => [p.path, p.kind]), [['a/b.json', 'vanished'], ['a/c.json', 'unreadable'], ['a/d.json', 'skipped'], ['a/e.json', 'malformed'], ['x', 'link']], 'a file that failed to read isn\'t named again as malformed');
+  assert.throws(() => L.fs.write('a/z.json', 'x'), /read-only/);
+});
+
 run();

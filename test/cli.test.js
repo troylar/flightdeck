@@ -973,4 +973,129 @@ rule('READ: a problem at a folder above the scope counts too: a linked process f
   }
 });
 
+
+/* ---------- READ review: the problem ledger (every failed list, read, parse, size, link or vanished file, per path) ---------- */
+const H = require('./harness');
+/* The fixture's files as bytes in memory, through the in-process READ engine, with hooks that can fail or remove a file. */
+async function readMem(req, edit, hooks) {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files);
+  if (edit) edit(files, rfBuilt);
+  const B = new EV.BytesFS(files, { strict: true, hooks: hooks || {} });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, RF.OLD.getTime()));
+  const r = await FD.readData({ PF: SRC, version: 'test' }, B, req);
+  return { code: r.code, json: JSON.parse(JSON.stringify(r.json)), out: JSON.stringify(r.json), err: '', B };
+}
+const has = (r, at, kind) => r.json.problems.some(p => p.path === at && p.kind === kind);
+const eacces = p => Object.assign(new Error('EACCES: permission denied, open \'' + p + '\''), { code: 'EACCES' });
+
+rule('READ: a checklist with screenshots reads like any other: processes and process list it, usable and complete', async () => {
+  const mem = new SRC.fs.MemoryFS('shots:' + Math.random(), null), people = H.example('people.json');
+  mem.reset({ 'people.json': people });
+  await mem.write('images/x/job.png', new Blob(['picture one'], { type: 'image/png' }));
+  const md = '---\nprocess: shots\ntitle: Shots\n---\n## P · READ-DO {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)';
+  const pub = await SRC.repo.publish(mem, md, { people: JSON.parse(people), ...H.exampleSetup(SRC), by: 'person-avery', changes: 'x', existing: [], now: RF.NOW });
+  assert.ok(!pub.blockers, String(pub.blockers));
+  const dir = EV.toDisk(EV.bytesOf(mem), tmp());
+  const r = agree(readCli('processes', dir, '--json'));
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems || r.json.error));
+  assert.deepStrictEqual(r.json.data.processes.map(p => [p.id, p.versions.map(v => v.usable)]), [['shots', [true]]]);
+  const x = agree(readCli('process', dir, 'shots', '--json'));
+  assert.ok(x.code === 0 && x.json.data.usable === true, x.out);
+});
+
+rule('READ: a run whose frozen step types are newer than this copy is listed as newer, never shown parsed', async () => {
+  const edit = f => { const o = JSON.parse(f['runs/release/run1/run.json']), t = Object.keys(o.types)[0]; o.types[t].fromTheFuture = true; f['runs/release/run1/run.json'] = JSON.stringify(o, null, 2); };
+  const r = agree(await readMem(REQ.run, edit));
+  assert.ok(r.code === 4 && has(r, 'runs/release/run1/run.json', 'newer'), JSON.stringify(r.json.problems));
+  assert.strictEqual(r.json.data.run, null, 'no parsed steps');
+  const all = agree(await readMem(REQ.runs, edit));
+  assert.ok(all.code === 4 && has(all, 'runs/release/run1/run.json', 'newer') && !all.json.data.runs.some(x => x.key === 'release/run1'), JSON.stringify(all.json.problems));
+});
+
+rule('READ: run and next name a version they couldn\'t check: publication.json unreadable or malformed, map.md missing', async () => {
+  const at = f => 'publications/release/' + rfBuilt.folder + '/' + f;
+  const cases = [
+    [null, { read: p => { if (p === at('publication.json')) throw eacces(p); } }, at('publication.json'), 'unreadable'],
+    [f => { f[at('publication.json')] = '{'; }, null, 'publications/release/' + rfBuilt.folder + '/', 'malformed'],
+    [f => { delete f[at('map.md')]; }, null, 'publications/release/' + rfBuilt.folder + '/', 'still-syncing']
+  ];
+  for (const [edit, hooks, path0, kind] of cases) for (const k of ['run', 'next']) {
+    const r = agree(await readMem(REQ[k], edit, hooks));
+    assert.ok(r.code === 4 && has(r, path0, kind), k + ' ' + kind + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
+rule('READ: one version that can\'t be read is named by file, and the healthy versions are still listed', async () => {
+  const bad = 'publications/release/v2-bbbb2222/map.md';
+  const r = agree(await readMem(REQ.processes, (f, b) => addVersion(f, b, 2, 'bbbb2222'), { read: p => { if (p === bad) throw eacces(p); } }));
+  assert.ok(r.code === 4 && has(r, bad, 'unreadable'), JSON.stringify(r.json.problems));
+  const rel = r.json.data.processes.filter(p => p.id === 'release')[0];
+  assert.ok(rel && rel.versions.some(v => v.folder === rfBuilt.folder && v.usable), JSON.stringify(r.json.data));
+  assert.ok(!r.json.problems.some(p => p.path === 'publications/'), 'not the whole part');
+  const one = agree(await readMem(REQ.process, (f, b) => addVersion(f, b, 2, 'bbbb2222'), { read: p => { if (p === bad) throw eacces(p); } }));
+  assert.ok(one.code === 4 && one.json.data.version.folder === rfBuilt.folder && has(one, bad, 'unreadable'), one.out);
+});
+
+rule('READ: a run.json gone between the listing and the read is named (vanished), never silently left out', async () => {
+  const gone = 'runs/release/run1/run.json', hooks = { read: (p, B) => { if (p === gone) B.files.delete(p); } };
+  for (const k of ['run', 'runs', 'next']) {
+    const r = agree(await readMem(REQ[k], null, hooks));
+    assert.ok(r.code === 4 && has(r, gone, 'vanished'), k + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
+rule('READ: not found keeps every problem it met: a linked run folder exits 5 and names the link', async () => {
+  const dir = await readFolder(null, d => { const real = path.join(tmp(), 'run1'); fs.renameSync(path.join(d, 'runs', 'release', 'run1'), real); fs.symlinkSync(real, path.join(d, 'runs', 'release', 'run1')); });
+  for (const c of ['run', 'next']) {
+    const r = agree(readCli(c, dir, 'release/run1', '--json'));
+    assert.ok(r.code === 5 && r.json.error.kind === 'not-found', r.out);
+    assert.ok(r.json.problems.some(p => p.path === 'runs/release/run1' && p.kind === 'link'), c + ': ' + r.out);
+  }
+  const u = agree(readCli('run', dir, 'release', '--json'));
+  assert.ok(u.code === 1 && Array.isArray(u.json.problems), 'a usage error carries the (empty) ledger too');
+});
+
+rule('READ: a proposal or decision with a value outside the format is malformed and left out; it never throws or shows', async () => {
+  const st = f => { f['proposals/plan-release-2026-10-24.status-w9.json'] = JSON.stringify({ kind: 'status', proposal: 'plan-release-2026-10-24', proposalHash: 'x', status: 'pizza', run: null, by: 'person-casey', at: RF.NOW }); };
+  let r = agree(await readMem(REQ.runs, st));
+  assert.ok(r.code === 4 && has(r, 'proposals/plan-release-2026-10-24.status-w9.json', 'malformed'), JSON.stringify(r.json.problems));
+  assert.ok(!/pizza/.test(r.out));
+  const bad = [{ details: { toString: {} } }, { title: 7 }, { roles: { qa: ['x'] } }, { version: {} }, { when: {} }, { note: [] }];
+  for (const b of bad) {
+    r = agree(await readMem(REQ.runs, f => { f['proposals/plan-odd.json'] = JSON.stringify(Object.assign({ kind: 'plan', id: 'plan-odd', process: 'release', title: 'Odd' }, b)); }));
+    assert.ok(r.code === 4 && has(r, 'proposals/plan-odd.json', 'malformed'), JSON.stringify(b) + ': ' + JSON.stringify(r.json.problems));
+    assert.ok(!r.json.data.planned.some(p => p.id === 'plan-odd') && r.json.data.runs.length === 2, JSON.stringify(b));
+  }
+});
+
+rule('READ: the size cap counts the bytes read, so a file that grew after it was sized is still refused', async () => {
+  const dir = await readFolder();
+  fs.writeFileSync(path.join(dir, 'proposals', 'grew.json'), Buffer.alloc(4096, 32));
+  const A = FD.readAdapter(fs.realpathSync(dir)), orig = fs.fstatSync;
+  fs.fstatSync = function () { const st = orig.apply(fs, arguments); return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { size: 10 }); };
+  try {
+    await assert.rejects(A.read('proposals/grew.json', { maxBytes: 1024 }), e => e.skipped === true);
+    const b = await A.blob('proposals/grew.json', { maxBytes: 1024 });
+    await assert.rejects(b.arrayBuffer(), e => e.skipped === true);
+  } finally { fs.fstatSync = orig; }
+  assert.ok(A.skipped.some(x => x.path === 'proposals/grew.json'));
+});
+
+rule('READ: a people.json that can\'t be read as a people list is a problem, and names are left null', async () => {
+  for (const text of ['{', '{"people": 5}', '[{"id": 7}]']) for (const k of ['runs', 'run', 'next', 'followups']) {
+    const r = agree(await readMem(REQ[k], f => { f['people.json'] = text; }));
+    assert.ok(r.code === 4 && has(r, 'people.json', 'malformed'), k + ' ' + text + ': ' + JSON.stringify(r.json.problems));
+    if (k === 'runs') assert.strictEqual(r.json.data.runs.filter(x => x.key === 'release/run1')[0].recorder.name, null);
+  }
+});
+
+rule('READ: a flag without its value is a JSON usage error when --json is given', async () => {
+  const dir = await readFolder();
+  for (const a of [['runs', dir, '--status', '--json'], ['runs', dir, '--json', '--process'], ['next', dir, 'release/run1', '--person', '--json']]) {
+    const r = agree(readCli(...a));
+    assert.ok(r.code === 1 && r.json.error.kind === 'usage', a.join(' ') + ': ' + r.out + r.err);
+  }
+});
+
 run();

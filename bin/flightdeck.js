@@ -403,11 +403,25 @@ function loadEngine() {
 function readAdapter(root, opts) {
   const NOFOLLOW = fs.constants.O_NOFOLLOW || 0, links = [], skipped = [], max = (opts && opts.maxBytes) || 0;
   function linkErr(rel) { const e = new Refused('refusing to read through a link: ' + rel); e.link = true; if (links.indexOf(rel) < 0) links.push(rel); return e; }
-  function skipErr(rel, bytes, cap) {
-    const e = new Refused(rel + ' is ' + size(bytes) + ', over the ' + size(cap) + ' this command reads');
+  function skipErr(rel, bytes, cap, more) {
+    const e = new Refused(rel + ' is ' + (more ? 'more than ' : '') + size(bytes) + ', over the ' + size(cap) + ' this command reads');
     e.skipped = true; e.size = bytes;
-    if (!skipped.some((x) => x.path === rel)) skipped.push({ path: rel, size: bytes, cap });
+    if (!skipped.some((x) => x.path === rel)) skipped.push({ path: rel, size: bytes, cap, more: !!more });
     return e;
+  }
+  /* The whole file from an open descriptor, counting the bytes as they come: the size the handle gave is only a first
+     check, so a file that grows while it's read is refused (skipped) the moment it passes the cap. */
+  function readAll(fd, rel, cap) {
+    const chunks = [], buf = Buffer.alloc(65536);
+    let total = 0;
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, total);
+      if (!n) break;
+      total += n;
+      if (cap && total > cap) throw skipErr(rel, cap, cap, true);
+      chunks.push(Buffer.from(buf.subarray(0, n)));
+    }
+    return Buffer.concat(chunks, total);
   }
   function partsOf(p) {
     const a = p ? String(p).split('/') : [];
@@ -481,7 +495,7 @@ function readAdapter(root, opts) {
       const cap = (ro && ro.maxBytes) || max;
       if (cap && o.st.size > cap) { fs.closeSync(o.fd); throw skipErr(p, o.st.size, cap); }
       /* Decoded as a browser decodes a file (TextDecoder: UTF-8, a byte-order mark dropped), so every reader sees the same text. */
-      try { const data = fs.readFileSync(o.fd); res({ text: new TextDecoder('utf-8').decode(data), size: data.length, mtime: o.st.mtimeMs }); } finally { fs.closeSync(o.fd); }
+      try { const data = readAll(o.fd, p, cap); res({ text: new TextDecoder('utf-8').decode(data), size: data.length, mtime: o.st.mtimeMs }); } finally { fs.closeSync(o.fd); }
     }),
     /* A file to read a piece at a time, from the descriptor opened above; close() when done. */
     blob: (p, ro) => new Promise((res) => {
@@ -490,15 +504,21 @@ function readAdapter(root, opts) {
       const cap = (ro && ro.maxBytes) || max;
       if (cap && o.st.size > cap) { fs.closeSync(o.fd); throw skipErr(p, o.st.size, cap); }
       let closed = false;
+      const close = () => { if (!closed) { closed = true; fs.closeSync(o.fd); } };
       res({
         size: o.st.size,
+        /* The whole file (screenshots are checked this way), counted against the cap as it's read; then closed. */
+        arrayBuffer: () => new Promise((ok) => {
+          if (closed) throw new Error(p + ' was already closed');
+          try { const data = readAll(o.fd, p, cap); ok(data.buffer.slice(data.byteOffset, data.byteOffset + data.length)); } finally { close(); }
+        }),
         slice: (a, b) => ({ arrayBuffer: () => new Promise((ok) => {
           const buf = Buffer.alloc(Math.max(0, b - a));
           let got = 0;
           while (got < buf.length) { const n = fs.readSync(o.fd, buf, got, buf.length - got, a + got); if (!n) break; got += n; }
           ok(buf.buffer.slice(buf.byteOffset, buf.byteOffset + got));
         }) }),
-        close: () => { if (!closed) { closed = true; fs.closeSync(o.fd); } }
+        close
       });
     })
   };
@@ -595,16 +615,34 @@ const PART_PATH = { people: 'people.json', drafts: 'maps/drafts/', publications:
 const PROC_ID = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN_KEY = /^([a-z0-9][a-z0-9-]{0,59})\/([a-z0-9-]{1,40})$/i;
 
 function fileWhy(w) { return 'This file ' + String(w || 'couldn\'t be read') + '.'; }
-/* A run this copy can only list by name: saved by a newer Flightdeck (its format, or fields this copy doesn't know). */
-function newerRun(PF, r) { return !!r._unrunnable && (r.snapshot === '' || r._unrunnable.indexOf(PF.run.NEWER) === 0); }
+/* A run this copy can only list by name: saved by a newer Flightdeck (its format, fields this copy doesn't know, or its own
+   frozen checklist and step types using features this copy can't read). A run on a version that's only unusable here
+   still reads; its version is named instead. */
+function newerRun(PF, r) {
+  const why = r._unrunnable || '';
+  if (!why) return false;
+  if (r.snapshot === '' || why.indexOf(PF.run.NEWER) === 0) return true;
+  return why.indexOf(PF.publish.NEWER) === 0 && !!PF.publish.unrunnable(r.snapshot, r.types);
+}
 function runProblems(PF, r) {
   const out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/';
   if (newerRun(PF, r)) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
   if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
   return out;
 }
-/* Every problem a whole-folder read found, one per file or folder, before each command keeps those in its scope. */
-function folderProblems(PF, d, adapter) {
+/* What's wrong with people.json as a people list, or '' (no file is fine: names are then null). */
+function peopleWhy(p) {
+  if (!p || p.hash == null) return '';
+  const doc = p.doc;
+  if (doc == null) return 'This file isn\'t complete JSON, so no names could be read.';
+  const list = Array.isArray(doc) ? doc : typeof doc === 'object' && Array.isArray(doc.people) ? doc.people : null;
+  if (!list) return 'This file isn\'t a people list, so no names could be read.';
+  const bad = list.filter((x) => !(x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string')).length;
+  return bad ? 'This file has ' + bad + ' ' + (bad === 1 ? 'entry' : 'entries') + ' without a text ID and name; those names are left null.' : '';
+}
+/* What a whole-folder read found beyond failed reads (which the ledger already holds): parts that failed, runs and plans
+   that won't parse, versions that can't be used, newer runs and conflict copies, one per file or folder. */
+function folderProblems(PF, d) {
   const A = PF.appjson, out = [];
   Object.keys(d.failed || {}).forEach((part) => out.push({ path: PART_PATH[part] || part, kind: 'unreadable', why: 'This part of the folder couldn\'t be read: ' + d.failed[part] + '.' }));
   (d.unreadable || []).forEach((u) => out.push({ path: u.path, kind: u.kind || 'unreadable', why: fileWhy(u.why) }));
@@ -612,16 +650,18 @@ function folderProblems(PF, d, adapter) {
   (d.malformed || []).forEach((m) => out.push({ path: m.path, kind: m.kind || 'malformed', why: fileWhy(m.why) }));
   (d.fuUnread || []).forEach((u) => out.push({ path: 'followups/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a follow-up decision this copy can read.' }));
   (d.corrUnread || []).forEach((u) => out.push({ path: u.dir + '/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a decision this copy can read.' }));
-  (d.processes || []).forEach((proc) => (proc.pubs || []).forEach((p) => { if (!p.ok) { const x = A.pubProblem(p); out.push({ path: 'publications/' + proc.process + '/' + p.folder + '/', kind: x.kind, why: x.why }); } }));
+  (d.processes || []).forEach((proc) => (proc.pubs || []).forEach((p) => { if (!p.ok && !p._readFailed) { const x = A.pubProblem(p); out.push({ path: 'publications/' + proc.process + '/' + p.folder + '/', kind: x.kind, why: x.why }); } }));
   (d.runs || []).forEach((r) => out.push(...runProblems(PF, r)));
-  return out.concat(adapterProblems(adapter));
+  const pw = peopleWhy(d.people);
+  if (pw) out.push({ path: 'people.json', kind: 'malformed', why: pw });
+  return out;
 }
 function adapterProblems(adapter) {
   return (adapter.links || []).map((p) => ({ path: p, kind: 'link', why: 'A link. Flightdeck never reads through links.' }))
-    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + size(x.size) + '; the limit is ' + size(x.cap) + ').' })));
+    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + (x.more ? 'more than ' : '') + size(x.size) + '; the limit is ' + size(x.cap) + ').' })));
 }
-/* Only the problems under these paths (or exactly at one of exact), each once; a file named as a link or as too large isn't
-   named again as unreadable. */
+/* Only the ledger's problems under these paths (or exactly at one of exact), each once; a file named as a link or as too
+   large isn't named again as unreadable. */
 function scoped(list, prefixes, exact) {
   const keep = list.filter((p) => prefixes.some((x) => p.path.indexOf(x) === 0) || (exact || []).indexOf(p.path) >= 0);
   const special = {}; keep.forEach((p) => { if (p.kind === 'link' || p.kind === 'skipped') special[p.path] = true; });
@@ -633,78 +673,96 @@ function scoped(list, prefixes, exact) {
 }
 
 /* eng: { PF, version } (loadEngine()). adapter: a folder with list, read, stat and blob (and links and skipped, as the
-   command line's has); it's only ever read through PF.repo.readOnly. req: { cmd, proc, key, version, folder, status, person,
-   contract }. Resolves to { code, json }: an envelope (exit 0 or 4) or an error object (exit 1 or 5). */
+   command line's has); it's only ever read through PF.repo.readOnly, inside a problem ledger (PF.repo.ledger) that names
+   every failed list or read, every listed file gone when read, and everything the loaders found malformed. req: { cmd,
+   proc, key, version, folder, status, person, contract }. Resolves to { code, json }: an envelope (exit 0 or 4), whose
+   problems are the ledger's within the command's scope (complete exactly when there are none), or an error object (exit 1
+   or 5) carrying every problem the ledger holds. */
 async function readData(eng, adapter, req) {
   const PF = eng.PF, A = PF.appjson, repo = PF.repo, F = PF.followups, app = eng.version || '';
-  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why) });
+  const L = repo.ledger(repo.readOnly(adapter, 'Reading for other apps'));
+  const take = (list) => list.forEach((p) => L.note(p.path, p.kind, p.why));
+  const ledger = () => { take(adapterProblems(adapter)); return L.problems(); };
+  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why, ledger()) });
   const notFound = (why) => err(EXIT.notFound, 'not-found', why);
   if (req.contract != null && A.VERSIONS.indexOf(+req.contract) < 0) return err(EXIT.error, 'contract', 'This copy of Flightdeck reads contract ' + A.VERSIONS.join(', ') + ' only (' + A.CONTRACT + '). Ask for one of those, or update Flightdeck.');
-  const done = (problems, data, readAt) => { const e = A.envelope(app, readAt || new Date().toISOString(), problems, data); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
-  const ro = repo.readOnly(adapter, 'Reading for other apps');
-  if (req.cmd === 'run' || req.cmd === 'next') {
-    const m = RUN_KEY.exec(req.key || '');
-    const one = await repo.readRunOnly(ro, m[1], m[2]);
-    if (!one.found) return notFound('There\'s no run ' + req.key + ' in the team folder.');
-    const r = one.run, key = m[1] + '/' + m[2], problems = [];
-    if (one.nofile) problems.push({ path: 'runs/' + key + '/run.json', kind: 'nofile', why: 'The run folder has no run.json.' });
-    one.bad.forEach((b) => problems.push({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
-    one.fuUnread.forEach((u) => problems.push({ path: u.path, kind: u.kind || 'malformed', why: fileWhy(u.why) }));
-    if (one.peopleWhy) problems.push({ path: 'people.json', kind: one.peopleKind || 'unreadable', why: fileWhy(one.peopleWhy) });
-    const prefixes = ['runs/' + key + '/', 'followups/' + m[1] + '/' + m[2] + '.'], exact = ['people.json', 'followups/', 'followups/' + m[1], 'followups/' + m[1] + '/', 'runs/', 'runs/' + m[1], 'runs/' + key];
-    let usable = r && !newerRun(PF, r);
-    if (r) {
-      problems.push(...runProblems(PF, r));
-      prefixes.push('publications/' + r.process + '/' + r.folder + '/'); exact.push('publications/' + r.process + '/' + r.folder);
-      /* The version's own record says it can't be used here: named at the version, as processes does. */
-      if (usable && r._unrunnable && !PF.publish.unrunnable(r.snapshot, r.types)) problems.push({ path: 'publications/' + r.process + '/' + r.folder + '/', kind: r._unrunnable === PF.publish.NEWER ? 'newer' : 'unusable', why: r._unrunnable });
+  const done = (keep, data, readAt) => { const e = A.envelope(app, readAt || new Date().toISOString(), keep(ledger()), data); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
+  try {
+    if (req.cmd === 'run' || req.cmd === 'next') {
+      const m = RUN_KEY.exec(req.key || '');
+      const one = await repo.readRunOnly(L.fs, m[1], m[2]);
+      if (!one.found) return notFound('There\'s no run ' + req.key + ' in the team folder.');
+      const r = one.run, key = m[1] + '/' + m[2];
+      if (one.nofile) L.note('runs/' + key + '/run.json', 'nofile', 'The run folder has no run.json.');
+      take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
+      take(one.fuUnread.map((u) => ({ path: u.path, kind: u.kind || 'malformed', why: fileWhy(u.why) })));
+      if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
+      const pw = peopleWhy(one.people);
+      if (pw) L.note('people.json', 'malformed', pw);
+      const prefixes = ['runs/' + key + '/', 'followups/' + m[1] + '/' + m[2] + '.'], exact = ['people.json', 'followups/', 'followups/' + m[1], 'followups/' + m[1] + '/', 'runs/', 'runs/' + m[1], 'runs/' + key];
+      const usable = !!r && !newerRun(PF, r);
+      if (r) {
+        take(runProblems(PF, r));
+        const dir = 'publications/' + r.process + '/' + r.folder + '/';
+        prefixes.push(dir); exact.push(dir.slice(0, -1), 'publications/', 'publications', 'publications/' + r.process, 'publications/' + r.process + '/');
+        const pub = one.pub;
+        /* The version itself: named when it can't be read or used (the run's own copy of its checklist still shows). */
+        if (pub && !pub.ok && !pub._readFailed) { const x = A.pubProblem(pub); L.note(dir, x.kind, x.why); }
+        else if (pub && pub.ok && usable && r._unrunnable) L.note(dir, 'unusable', r._unrunnable);
+      }
+      const keep = (list) => scoped(list, prefixes, exact), nameOf = A.names(one.people);
+      if (req.cmd === 'run') return done(keep, usable ? A.run(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
+      return done(keep, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
     }
-    const all = scoped(problems.concat(adapterProblems(adapter)), prefixes, exact);
-    const nameOf = A.names(one.people);
-    if (req.cmd === 'run') return done(all, usable ? A.run(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
-    return done(all, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
+    const d = await repo.loadAll(L.fs, { readOnly: true, explain: true, deep: true });
+    take(folderProblems(PF, d));
+    const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r));
+    const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
+    if (req.proc && !known(req.proc)) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
+    /* A command's scope, as folders: a problem in one, or at the folder itself or any folder above it (a part that failed, a
+       linked folder), counts. */
+    const above = (x) => x.split('/').map((_, i, a) => a.slice(0, i + 1).join('/'));
+    const within = (dirs, more) => (list) => scoped(list, dirs.map((x) => x + '/'), [].concat(...dirs.map(above)).reduce((o, y) => o.concat([y, y + '/']), []).concat(more || []));
+    const sub = (top) => top + (req.proc ? '/' + req.proc : '');
+    if (req.cmd === 'processes') return done(within(['publications']), A.processes(d.processes), d.readAt);
+    if (req.cmd === 'process') {
+      const proc = d.processes.filter((x) => x.process === req.proc)[0];
+      if (!proc || !proc.pubs.length) return notFound('There\'s no published checklist for ' + req.proc + ' in the team folder.');
+      let pub = null;
+      const vOf = (p) => (p.info && typeof p.info.version === 'number' ? p.info.version : PF.publish.versionOf(p.folder));
+      if (req.folder) pub = proc.pubs.filter((p) => p.folder === req.folder)[0];
+      else if (req.version != null) pub = proc.pubs.filter((p) => vOf(p) === +req.version).sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0) || (a.folder < b.folder ? -1 : 1))[0];
+      else pub = proc.index.latest || proc.pubs.slice().sort((a, b) => (vOf(b) || 0) - (vOf(a) || 0))[0];
+      if (!pub) return notFound('There\'s no version ' + (req.folder || req.version) + ' of ' + req.proc + ' in the team folder.');
+      return done(within(['publications/' + req.proc]), A.process(proc, pub), d.readAt);
+    }
+    if (req.cmd === 'runs') {
+      const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
+      const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
+      const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
+      return done(within([sub('runs'), 'proposals'], ['people.json']), A.runs(list, plans, nameOf), d.readAt);
+    }
+    /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
+    const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));
+    return done(within([sub('followups'), sub('runs')], ['people.json']), A.followUps(items, nameOf), d.readAt);
+  } catch (e) {
+    return err(EXIT.error, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
   }
-  const d = await repo.loadAll(ro, { readOnly: true, explain: true, deep: true });
-  const nameOf = A.names(d.people), every = folderProblems(PF, d, adapter);
-  const runs = d.runs.filter((r) => !newerRun(PF, r));
-  const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
-  if (req.proc && !known(req.proc)) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
-  /* A command's scope, as folders: a problem in one, or at the folder itself or any folder above it (a part that failed, a
-     linked folder), counts. */
-  const above = (x) => x.split('/').map((_, i, a) => a.slice(0, i + 1).join('/'));
-  const within = (dirs) => scoped(every, dirs.map((x) => x + '/'), [].concat(...dirs.map(above)).reduce((o, y) => o.concat([y, y + '/']), []));
-  const sub = (top) => top + (req.proc ? '/' + req.proc : '');
-  if (req.cmd === 'processes') return done(within(['publications']), A.processes(d.processes), d.readAt);
-  if (req.cmd === 'process') {
-    const proc = d.processes.filter((x) => x.process === req.proc)[0];
-    if (!proc || !proc.pubs.length) return notFound('There\'s no published checklist for ' + req.proc + ' in the team folder.');
-    let pub = null;
-    const vOf = (p) => (p.info && typeof p.info.version === 'number' ? p.info.version : PF.publish.versionOf(p.folder));
-    if (req.folder) pub = proc.pubs.filter((p) => p.folder === req.folder)[0];
-    else if (req.version != null) pub = proc.pubs.filter((p) => vOf(p) === +req.version).sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0) || (a.folder < b.folder ? -1 : 1))[0];
-    else pub = proc.index.latest || proc.pubs.slice().sort((a, b) => (vOf(b) || 0) - (vOf(a) || 0))[0];
-    if (!pub) return notFound('There\'s no version ' + (req.folder || req.version) + ' of ' + req.proc + ' in the team folder.');
-    return done(within(['publications/' + req.proc]), A.process(proc, pub), d.readAt);
-  }
-  if (req.cmd === 'runs') {
-    const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
-    const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
-    const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
-    return done(scoped(within([sub('runs'), 'proposals']).concat(every.filter((p) => p.path === 'people.json')), [''], []), A.runs(list, plans, nameOf), d.readAt);
-  }
-  /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
-  const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));
-  return done(scoped(within([sub('followups'), sub('runs')]).concat(every.filter((p) => p.path === 'people.json')), [''], []), A.followUps(items, nameOf), d.readAt);
 }
 
 /* The command line around readData: flags, the folder, the engine, and JSON out. Usage problems before any reading exit 1. */
 async function readMain(argv) {
   const VAL = ['--process', '--status', '--person', '--version', '--folder', '--contract'], val = {};
-  for (const f of VAL) { const i = argv.indexOf(f); if (i >= 0) { if (!argv[i + 1] || argv[i + 1].startsWith('--')) fail('say what goes after ' + f); val[f] = argv[i + 1]; } }
-  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
-  const cmd = args[0];
-  if (!argv.includes('--json')) fail(cmd + ' prints JSON for other apps. Add --json, for example: flightdeck ' + cmd + ' <team folder> --json');
   const usage = (why) => ({ out: JSON.stringify(failureJson(null, 'usage', why), null, 2), code: EXIT.error });
+  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  const cmd = args[0], asJson = argv.includes('--json');
+  for (const f of VAL) {
+    const i = argv.indexOf(f);
+    if (i < 0) continue;
+    if (!argv[i + 1] || argv[i + 1].startsWith('--')) { if (asJson) return usage('say what goes after ' + f + '.'); fail('say what goes after ' + f); }
+    val[f] = argv[i + 1];
+  }
+  if (!asJson) fail(cmd + ' prints JSON for other apps. Add --json, for example: flightdeck ' + cmd + ' <team folder> --json');
   const req = { cmd, proc: val['--process'] || null, status: val['--status'] || null, person: val['--person'] || null, version: val['--version'] || null, folder: val['--folder'] || null, contract: val['--contract'] || null };
   if (cmd === 'process') { req.proc = args[2]; if (!req.proc || !PROC_ID.test(req.proc)) return usage('say which process, for example: flightdeck process <team folder> release --json'); }
   if (cmd === 'run' || cmd === 'next') { req.key = args[2]; if (!req.key || !RUN_KEY.test(req.key)) return usage('say which run as <process>/<run id>, for example: flightdeck ' + cmd + ' <team folder> release/k3m9p2q8 --json'); }
@@ -724,7 +782,7 @@ async function readMain(argv) {
     return { out: JSON.stringify(failureJson(eng, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e))), null, 2), code: EXIT.error };
   }
 }
-function failureJson(eng, kind, why) { return eng ? eng.PF.appjson.failure(eng.version, kind, why) : { contract: 'flightdeck-read/1', app: versionOf(app()) || '', error: { kind, why } }; }
+function failureJson(eng, kind, why) { return eng ? eng.PF.appjson.failure(eng.version, kind, why, []) : { contract: 'flightdeck-read/1', app: versionOf(app()) || '', error: { kind, why }, problems: [] }; }
 
 const HELP = `flightdeck: team process checklists, in one HTML file
 

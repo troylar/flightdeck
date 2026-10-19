@@ -2755,7 +2755,7 @@ rule('Shapes for other apps: people are an ID and a name; people-directory email
 rule('Shapes for other apps: the envelope is complete exactly when it has no problems, and every problem kind is a documented one', () => {
   const A = PF.appjson;
   assert.strictEqual(A.CONTRACT, 'flightdeck-read/1');
-  same(A.KINDS, ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped']);
+  same(A.KINDS, ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished']);
   assert.strictEqual(A.envelope('1.18.0', NOW, [], {}).complete, true);
   const e = A.envelope('1.18.0', NOW, [{ path: 'runs/x/y/run.json', kind: 'nofile', why: 'The run folder has no run.json.' }], {});
   assert.strictEqual(e.complete, false);

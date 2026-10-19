@@ -9,7 +9,7 @@ PF.appjson = (function () {
   var CONTRACT = 'flightdeck-read/1', VERSIONS = [1];
   var NOTE = 'Read from the team folder just now; another computer may be a minute ahead. A passed gate means passed for those details, by that person, at that time. People-directory email fields are omitted.';
   /* Every problem is one file or folder and one of these. */
-  var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped'];
+  var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished'];
 
   /* ---- the schema: what each command's data holds, checked by conforms() and documented in docs/apps.md ----
      'string', 'number', 'boolean'; [x] a list of x; { k: x } an object with exactly these keys; opt(x) x or null;
@@ -31,7 +31,7 @@ PF.appjson = (function () {
   var ROLE = { role: 'string', person: opt(PERSON) };
   var SCHEMA = {
     envelope: { contract: 'string', app: 'string', readAt: 'string', complete: 'boolean', problems: [{ path: 'string', kind: 'string', why: 'string' }], note: 'string', data: map('any') },
-    error: { contract: 'string', app: 'string', error: { kind: 'string', why: 'string' } },
+    error: { contract: 'string', app: 'string', error: { kind: 'string', why: 'string' }, problems: [{ path: 'string', kind: 'string', why: 'string' }] },
     processes: { processes: [{ id: 'string', title: 'string', category: 'string', group: ['string'], tags: ['string'], owner: opt('string'), latest: opt({ version: 'number', folder: 'string' }), versions: [VERSION] }] },
     process: { process: ABOUT, version: VERSION, usable: 'boolean', evidenceFrom: 'string', context: ['string'], roles: ['string'], types: [{ id: 'string', label: 'string' }],
       phases: [{ id: 'string', title: 'string', mode: 'string', tracks: [{ id: 'string', title: 'string', roles: ['string'] }],
@@ -81,14 +81,18 @@ PF.appjson = (function () {
   }
 
   /* ---- the envelope ---- */
-  function envelope(app, readAt, problems, data) {
+  function problemList(problems) {
     (problems || []).forEach(function (p) { if (KINDS.indexOf(p.kind) < 0) throw new Error('Unknown problem kind: ' + p.kind); });
-    var list = (problems || []).map(function (p) { return { path: String(p.path), kind: p.kind, why: String(p.why || '') }; })
+    return (problems || []).map(function (p) { return { path: String(p.path), kind: p.kind, why: String(p.why || '') }; })
       .sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0; });
+  }
+  function envelope(app, readAt, problems, data) {
+    var list = problemList(problems);
     return { contract: CONTRACT, app: String(app || ''), readAt: String(readAt || ''), complete: list.length === 0, problems: list, note: NOTE, data: data || {} };
   }
-  /* No data at all: kind 'failed' (exit 1), 'not-found' (exit 5), 'contract' or 'usage' (exit 1). */
-  function failure(app, kind, why) { return { contract: CONTRACT, app: String(app || ''), error: { kind: kind, why: String(why) } }; }
+  /* No data at all: kind 'failed' (exit 1), 'not-found' (exit 5), 'contract' or 'usage' (exit 1). problems: what the read
+     met before it stopped, the same ledger an envelope reports (empty when nothing was read). */
+  function failure(app, kind, why, problems) { return { contract: CONTRACT, app: String(app || ''), error: { kind: kind, why: String(why) }, problems: problemList(problems) }; }
 
   /* People are an ID and the name people.json gives it; nothing else from the directory, emails least of all. */
   function names(people) {
@@ -96,8 +100,10 @@ PF.appjson = (function () {
     (people || []).forEach(function (p) { if (p && typeof p.id === 'string') byId[p.id] = typeof p.name === 'string' ? p.name : null; });
     return function (id) { if (!id || typeof id !== 'string') return null; return { id: id, name: Object.prototype.hasOwnProperty.call(byId, id) ? byId[id] : null }; };
   }
-  function s(v) { return v == null ? '' : String(v); }
-  function orNull(v) { return v == null || v === '' ? null : String(v); }
+  /* Text from a file's value: a string, number or boolean as text, anything else (an object, even one with its own
+     toString) as empty, so a value in the wrong shape can never throw or show up as code. */
+  function s(v) { return typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''; }
+  function orNull(v) { var t = s(v); return t === '' ? null : t; }
   function strMap(o) { var c = {}; Object.keys(o || {}).forEach(function (k) { c[k] = s(o[k]); }); return c; }
   function list(v) { return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
   function timing(f) { f = f || {}; return { at: orNull(f.at), due: orNull(f.due), after: orNull(f.after) }; }
