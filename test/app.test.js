@@ -4357,4 +4357,650 @@ rule('App: Saved history lists names in the history folder it didn\'t read, and 
   assert.ok(/title: Production release\n/.test(mdOf(app)), 'the change chosen was reversed');
 });
 
+/* ---------- 1.17: go() keeps what's typed, read results, paging, slow refreshes, lazy thumbnails ---------- */
+const endedPath = app => Object.keys(app.fs.files).find(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p) && JSON.parse(app.fs.files[p].t).ended);
+
+rule('go(): an unsent note survives going somewhere else and is there again on the way back; the step is unfolded, selected and flashed', async () => {
+  const app = await recordingRelease(), key = app.run().key;
+  app.click('select', 'approve'); await app.tick();
+  app.set('note-text', 'unsent words'); await app.tick();
+  app.click('go', '', { view: 'process', process: 'release' }); await app.tick();
+  assert.ok(/data-act="ptab"/.test(app.html()) && !/id="note-text"/.test(app.html()), 'on the process page');
+  app.click('go', '', { view: 'run', run: key, step: 'approve' }); await app.tick();
+  assert.strictEqual(app.selected(), 'approve');
+  assert.strictEqual(app.draft('note-text'), 'unsent words', 'the unsent note came back');
+  assert.ok(/<li class="step sel[^"]*\bflash\b[^"]*"[^>]*id="step-approve"/.test(app.html()), 'flashed');
+  assert.ok(app.asked().indexOf('[data-act="select"][data-id="approve"]') >= 0 && app.asked().indexOf('#step-approve') >= 0, 'focused and scrolled into view');
+});
+
+rule('go(): text typed in a builder box and not applied refuses the jump, with the existing message, and stays', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Half typed'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()), 'says why');
+  assert.ok(/id="ob-text"/.test(app.html()) && app.draft('ob-text') === 'Half typed', 'still in the editor, with the typing');
+  assert.strictEqual(app.focused(), '#ob-text');
+});
+
+rule('go(): a correction being written is kept for its run and step, comes back on return, and Cancel clears it', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-blake'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(20);
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  app.input('corr-why', 'The cache warms slowly'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  assert.ok(!/id="corr-why"/.test(app.html()), 'it went');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(/<textarea id="corr-why"[^>]*>The cache warms slowly<\/textarea>/.test(app.html()), 'the correction is back, as written');
+  app.click('corr-cancel'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(!/id="corr-why"/.test(app.html()), 'Cancel cleared it');
+});
+
+rule('go(): a dialog with nothing typed in it is closed first; one with typing in it is never replaced', async () => {
+  const app = await builderOn();
+  app.click('help'); await app.tick();
+  assert.ok(app.overlay(), 'set-up: help is open');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'help closed');
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'and on Runs');
+  app.click('go', '', { view: 'process', process: 'release', ptab: 'edit' }); await app.tick();
+  app.click('ob-parts-open'); await app.tick();
+  assert.ok(app.overlay(), 'set-up: the Add part sheet is open');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'nothing typed in it: closed, nothing lost');
+  const b = boot(); await b.tick(80); b.choose('person-morgan'); await b.tick();
+  b.click('open-process', 'release'); await b.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(b.html())[1];
+  b.click('corr-review', id); await b.tick(20);
+  b.click('corr-ca-declining'); await b.tick();
+  const sheet = b.overlay();
+  assert.ok(/id="ca-reason"/.test(sheet), 'set-up: a reason box in the dialog');
+  b.set('ca-reason', 'Not this time'); await b.tick();
+  b.click('go', '', { view: 'runs' }); await b.tick();
+  assert.ok(/id="ca-reason"/.test(b.overlay()), 'not replaced');
+  assert.strictEqual(b.draft('ca-reason'), 'Not this time');
+  assert.ok(/Finish or cancel this first\./.test(b.live() + b.html()));
+});
+
+rule('go(): on a phone, an open step sheet is closed before going; keys typed while an input method is composing do nothing', async () => {
+  const app = boot({ narrow: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('select', 'approve'); await app.tick();
+  assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(app.html()), 'set-up: the step sheet is open');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(/id="rw-ins"[^>]*data-open="false"/.test(app.html()), 'closed, so the step is shown in the list');
+  assert.strictEqual(app.selected(), 'pods');
+  const wide = boot(); await wide.tick(60); wide.choose('person-casey'); await wide.tick();
+  wide.click('open-run', wide.run().key); await wide.tick();
+  const was = wide.selected();
+  wide.keyOn('j', { isComposing: true }); await wide.tick();
+  assert.strictEqual(wide.selected(), was, 'j while composing doesn\'t move');
+  wide.keyOn('j'); await wide.tick();
+  assert.notStrictEqual(wide.selected(), was, 'and does once composing ends');
+});
+
+rule('A run that couldn\'t be read is cleared only by reading its file again, never by what the cache remembers', async () => {
+  const app = boot(); await app.tick(60);
+  const path = endedPath(app), key = path.split('/').slice(1, 3).join('/'), good = Object.assign({}, app.fs.files[path]);
+  app.click('nav', 'runs'); await app.tick();
+  app.click('open-run', key); await app.tick();
+  app.fs.files[path] = { t: '{"format":"preflight-run/2","id":', m: good.m };
+  app.focus(); await app.tick(80);
+  assert.ok(/couldn(&#39;|')t be read/.test(app.html()), 'set-up: marked unreadable');
+  app.fs.files[path] = good;
+  app.click('nav', 'runs'); await app.tick();
+  const read = app.fs.read.bind(app.fs); let reads = 0; app.fs.read = p => { if (p === path) reads++; return read(p); };
+  app.focus(); await app.tick(80);
+  assert.ok(reads >= 1, 'its run.json was read again');
+  assert.ok(!/run file can(&#39;|')t be read/.test(app.html()), 'and only then cleared');
+});
+
+rule('Runs: 50 finished runs at first, Show 50 more adds the next ones and moves focus to the first new run', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const src = JSON.parse(app.fs.files[endedPath(app)].t);
+  for (let i = 0; i < 70; i++) { const c = Object.assign({}, src, { id: 'copy' + String(i).padStart(2, '0'), title: 'Copy ' + i }); c.ended = Object.assign({}, src.ended, { at: new Date(Date.parse(src.ended.at) - (i + 1) * 60000).toISOString() }); await app.fs.write('runs/' + src.process + '/' + c.id + '/run.json', JSON.stringify(c)); }
+  app.click('nav', 'runs'); app.click('refresh'); await app.tick(120);
+  const finished = () => { const h = app.html(), at = h.indexOf('<h2>Finished'); return (h.slice(at).match(/data-act="open-run"/g) || []).length; };
+  assert.strictEqual(finished(), 50);
+  assert.ok(/Showing 50 of \d+/.test(app.html()));
+  const next = /data-act="more" data-id="runs-ended" data-next="([^"]+)"/.exec(app.html())[1].replace(/&amp;/g, '&');
+  app.click('more', 'runs-ended', { next }); await app.tick();
+  assert.ok(finished() > 50, 'more shown');
+  assert.ok(/^\[data-act="open-run"\]\[data-id="[^"]+"\]$/.test(app.focused()), 'focus on the first new one: ' + app.focused());
+});
+
+rule('Folder health says when refreshing is slow on this computer after 3 slow routine refreshes', async () => {
+  const c = clock();
+  const app = boot({ Date: c.D }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const orig = app.PF.repo.loadAll;
+  app.PF.repo.loadAll = function (fs, o) { c.ahead(17000); return orig.call(this, fs, o); };
+  for (let i = 0; i < 3; i++) { c.ahead(31000); app.every(); await app.tick(40); }
+  app.PF.repo.loadAll = orig;
+  app.click('health'); await app.tick(200);
+  assert.ok(/Refreshing takes about 17 seconds on this computer/.test(app.html()), 'listed in Folder health');
+});
+
+rule('Thumbnails load only once they scroll into view, through the folder\'s shared pool', async () => {
+  const observers = [];
+  class IO { constructor(cb) { this.cb = cb; this.seen = []; observers.push(this); } observe(el) { this.seen.push(el); } unobserve() {} disconnect() { this.seen = []; } }
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('select', 'approve'); app.set('note-text', 'with a picture'); app.change('note-file', [png('pods.png')]); await app.tick();
+  app.click('add-note', 'approve'); await app.tick(80);
+  const blob = app.fs.blob.bind(app.fs); let blobs = 0; app.fs.blob = p => { if (/\/files\//.test(p)) blobs++; return blob(p); };
+  app.click('select', 'pods'); await app.tick(); app.click('select', 'approve'); await app.tick(40);
+  const m = /data-thumb="([^"]+)"/.exec(app.html());
+  assert.ok(m, 'a placeholder waits to be seen');
+  assert.strictEqual(blobs, 0, 'nothing read before it\'s seen');
+  observers.forEach(o => o.cb([{ isIntersecting: true, target: { dataset: { thumb: m[1].replace(/&amp;/g, '&') } } }], o));
+  await app.tick(40);
+  assert.strictEqual(blobs, 1, 'read once it\'s in view');
+});
+
+/* ---------- 1.17 review: every inline form, stale thumbnail jobs, detached placeholders, revealing the target ---------- */
+const refused = (app, id, value) => {
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()), id + ': says why');
+  assert.ok(new RegExp('id="' + id + '"').test(app.html()), id + ': still on screen');
+  assert.strictEqual(app.draft(id), value, id + ': the typing is kept');
+};
+
+rule('go(): a reason typed to decline a correction refuses the jump and stays', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(20);
+  const id = /data-act="corr-applied" data-id="([\w-]+)"/.exec(app.html())[1];
+  app.click('pick', id, { kind: 'corr-decline' }); await app.tick();
+  app.set('pick-input', 'Ten minutes is enough'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  refused(app, 'pick-input', 'Ten minutes is enough');
+});
+
+rule('go(): every inline form with typing refuses the jump: a pause reason, a follow-up decision and a new follow-up', async () => {
+  let app = await recordingRelease();
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick();
+  app.set('pick-input', 'Waiting for the board'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'pick-input', 'Waiting for the board');
+
+  app = boot(); await app.tick(80); app.choose('person-morgan'); await app.tick();
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1], B = app.PF.followups.formId(key);
+  app.click('fu-pick', key, { status: 'wont' }); await app.tick();
+  app.set(B + '-reason', 'Not needed'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  refused(app, B + '-reason', 'Not needed');
+
+  app = await recordingRelease();
+  app.click('finish'); await app.tick();
+  app.set('fu-text', 'Tidy the dashboard'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'fu-text', 'Tidy the dashboard');
+});
+
+rule('go(): a change note to publish, and a run\'s title and details on Start, refuse the jump with the typing kept', async () => {
+  let app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const d = 'maps/drafts/release.md'; await app.fs.write(d, app.fs.files[d].t.replace('title: Production release', 'title: Production release (new)'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick(20);
+  assert.ok(/id="change-note"/.test(app.html()), 'set-up: the publish form is there');
+  app.set('change-note', 'Clarify the deploy step'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  refused(app, 'change-note', 'Clarify the deploy step');
+  app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.set('run-title', 'Release 2026.11.06'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'run-title', 'Release 2026.11.06');
+  app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.set('detail-ticket', 'ABC-5000'); await app.tick();
+  app.click('go', '', { view: 'home' }); await app.tick();
+  refused(app, 'detail-ticket', 'ABC-5000');
+});
+
+rule('go(): a choice left as drawn never blocks; a changed one does', async () => {
+  let app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  const role = /id="(role-[\w-]+)"/.exec(app.html())[1];
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()) && !/Finish or cancel this first/.test(app.html() + app.live()), 'an untouched role choice doesn\'t block');
+  app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.select(role, 'person-morgan'); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && new RegExp('id="' + role + '"').test(app.html()), 'a changed one does');
+});
+
+rule('go(): with nothing typed, every screen and dialog of the examples lets you go', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const key = app.run().key;
+  const screens = [
+    ['home', () => app.click('nav', 'home')], ['runs', () => app.click('nav', 'runs')], ['follow-ups', () => app.click('nav', 'followups')],
+    ['processes', () => app.click('nav', 'processes')], ['skills', () => app.click('nav', 'skills')], ['step types', () => app.click('nav', 'types')],
+    ['settings', () => app.click('nav', 'settings')], ['process', () => app.click('open-process', 'release')],
+    ['process edit', () => { app.click('open-process', 'release'); app.click('ptab', 'edit'); }], ['process insights', () => { app.click('open-process', 'release'); app.click('ptab', 'insights'); }],
+    ['start', () => app.click('start', 'release')], ['run', () => app.click('open-run', key)], ['run, a step', () => { app.click('open-run', key); app.click('select', 'approve'); }],
+    ['run, pickup', () => { app.click('open-run', key); app.click('pickup'); }], ['finish', () => { app.click('open-run', key); app.click('finish'); }],
+    ['receipt', () => { app.click('open-run', key); app.click('receipt'); }], ['folder health', () => app.click('health')], ['connection check', () => app.click('connection')],
+    ['help', () => app.click('help')], ['what\'s new', () => app.click('whats-new')], ['add part sheet', () => { app.click('open-process', 'release'); app.click('ptab', 'edit'); app.click('ob-parts-open'); }]
+  ];
+  for (const [name, open] of screens) {
+    app.click('nav', 'home'); await app.tick(5); open(); await app.tick(20);
+    const before = app.live();
+    app.click('go', '', { view: 'skills' }); await app.tick(20);
+    assert.ok(!/Finish or cancel this first|Apply or clear/.test(app.live() === before ? app.html() : app.live() + app.html()), name + ': nothing typed, nothing blocks');
+    assert.ok(/<h1[^>]*>Skills<\/h1>/.test(app.html()) && app.overlay() === '', name + ': went');
+  }
+});
+
+rule('A thumbnail waiting for its turn never reads through a folder opened after it was queued', async () => {
+  const observers = [];
+  class IO { constructor(cb) { this.cb = cb; observers.push(this); } observe() {} unobserve() {} disconnect() {} }
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('select', 'approve'); app.set('note-text', 'with a picture'); app.change('note-file', [png('pods.png')]); await app.tick();
+  app.click('add-note', 'approve'); await app.tick(80);
+  app.click('select', 'pods'); await app.tick(); app.click('select', 'approve'); await app.tick(40);
+  const thumb = /data-thumb="([^"]+)"/.exec(app.html())[1].replace(/&amp;/g, '&');
+  // Hold every thumbnail turn, so the job has to wait in the queue.
+  const pool = app.PF.repo.poolOf(app.fs), held = [];
+  for (let i = 0; i < 4; i++) pool('thumb', () => new Promise(r => held.push(r)));
+  let blobs = 0; const proto = app.PF.fs.MemoryFS.prototype, orig = proto.blob;
+  proto.blob = function (p) { if (/\/files\//.test(p)) blobs++; return orig.call(this, p); };
+  observers.forEach(o => o.cb([{ isIntersecting: true, target: { dataset: { thumb } } }], o));
+  await app.tick(5);
+  app.click('reset-examples'); await app.tick(120);
+  held.forEach(r => r()); await app.tick(40);
+  proto.blob = orig;
+  assert.strictEqual(blobs, 0, 'the old job stopped before reading');
+});
+
+rule('Thumbnail placeholders that leave the page stop being watched', async () => {
+  const watched = new Set();
+  class IO { constructor(cb) { this.cb = cb; } observe(el) { watched.add(el); } unobserve(el) { watched.delete(el); } disconnect() { watched.clear(); } }
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('select', 'approve'); app.set('note-text', 'with a picture'); app.change('note-file', [png('pods.png')]); await app.tick();
+  app.click('add-note', 'approve'); await app.tick(80);
+  for (let i = 0; i < 5; i++) { app.click('select', 'pods'); await app.tick(); app.click('select', 'approve'); await app.tick(); }
+  assert.strictEqual(watched.size, 1, 'only the placeholder on screen is watched');
+  app.click('select', 'pods'); await app.tick();
+  assert.strictEqual(watched.size, 0, 'none once it\'s gone');
+});
+
+rule('go(): a step in the run already open is scrolled into view, on a phone too', async () => {
+  for (const narrow of [false, true]) {
+    const app = boot({ narrow }); await app.tick(60); app.choose('person-casey'); await app.tick();
+    const key = app.run().key;
+    app.click('open-run', key); await app.tick(40);
+    const before = app.asked().length;
+    app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick(40);
+    assert.ok(app.asked().slice(before).indexOf('#step-pods') >= 0, (narrow ? 'phone' : 'laptop') + ': revealed');
+  }
+});
+
+/* ---------- 1.17 third review: input kept in app state survives leaving the screen ---------- */
+rule('A correction\'s "Move it to" and "Who should do it" choices come back after going elsewhere; switching folders clears them', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-blake'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(20);
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  app.click('corr-op', 'move'); await app.tick();
+  const opts = [...app.html().slice(app.html().indexOf('id="corr-move"')).split('</select>')[0].matchAll(/<option value="([^"]*)"/g)].map(m => m[1]).filter(Boolean);
+  const to = opts[opts.length - 1];
+  app.select('corr-move', to); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(!/id="corr-move"/.test(app.html()), 'it went');
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.ok(new RegExp('<option value="' + to.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"[^>]*selected').test(app.html()), 'the choice is back');
+  app.click('corr-op', 'roles'); await app.tick();
+  const role = /id="(corr-role-[\w-]+)"/.exec(app.html())[1];
+  app.check(role, !new RegExp('id="' + role + '"[^>]*checked').test(app.html())); await app.tick();
+  const was = new RegExp('id="' + role + '"[^>]*checked').test(app.html());
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  app.click('go', '', { view: 'run', run: key, step: 'pods' }); await app.tick();
+  assert.strictEqual(new RegExp('id="' + role + '"[^>]*checked').test(app.html()), was, 'the role choice is back');
+  app.click('reset-examples'); await app.tick(150);
+  app.choose('person-blake'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(20); app.click('select', 'pods'); await app.tick();
+  assert.ok(!/id="corr-move"|id="corr-roles"/.test(app.html()), 'a new folder starts clean');
+});
+
+rule('Files picked for a note with no text yet come back after going elsewhere; removing one clears it, and switching folders clears them', async () => {
+  const app = await recordingRelease(), key = app.run().key;
+  app.click('select', 'approve'); await app.tick();
+  app.change('note-file', [png('pods.png')]); await app.tick();
+  assert.ok(/aria-label="Waiting to attach"><li class="att">.*pods\.png/.test(app.html()), 'set-up: waiting to attach');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  app.click('go', '', { view: 'run', run: key, step: 'approve' }); await app.tick();
+  assert.ok(/aria-label="Waiting to attach"><li class="att">.*pods\.png/.test(app.html()), 'still waiting to attach');
+  const id = /data-act="att-remove" data-id="([^"]+)"/.exec(app.html())[1];
+  app.click('att-remove', id); await app.tick();
+  assert.ok(!/pods\.png/.test(app.html()), 'removed on request');
+  app.change('note-file', [png('again.png')]); await app.tick();
+  app.click('reset-examples'); await app.tick(150);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(20); app.click('select', 'approve'); await app.tick();
+  assert.ok(!/again\.png/.test(app.html()), 'a new folder starts clean');
+});
+
+rule('New process: what was submitted and refused comes back after going elsewhere; Cancel clears it', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'release'); app.set('np-title', 'Another release'); app.submit('new-process-form'); await app.tick(20);
+  assert.ok(/There(&#39;|')s already a process called "release"/.test(app.html() + app.live()), 'set-up: refused');
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  assert.ok(!/id="np-id"/.test(app.html()), 'it went');
+  app.click('new-process'); await app.tick();
+  assert.ok(/id="np-title"[^>]*value="Another release"/.test(app.html()) && /id="np-id"[^>]*value="release"/.test(app.html()), 'the form is back as submitted');
+  app.click('np-cancel'); await app.tick();
+  app.click('new-process'); await app.tick();
+  assert.ok(/id="np-title"[^>]*value=""/.test(app.html()), 'Cancel cleared it');
+});
+
+/* ---------- 1.17 fourth review: input belongs to the context it was typed in ---------- */
+async function twoRuns(opts) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, opts || {}));
+  await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick();
+  app.click('pickup'); await app.tick(40);
+  const a = app.run();
+  const copy = JSON.parse(app.fs.files[a.path].t); copy.id = 'twin0001'; copy.title = 'Twin release';
+  await app.fs.write('runs/release/twin0001/run.json', JSON.stringify(copy));
+  app.click('refresh'); await app.tick(80);
+  return { app, A: a.key, B: 'release/twin0001' };
+}
+
+rule('Fill in typed in one run never shows up in another run at the same step, and is there again in its own', async () => {
+  const { app, A, B } = await twoRuns();
+  app.click('open-run', A); await app.tick(); app.click('unfold', 'verify'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.set('fld-issue', 'ABC-1111'); await app.tick();
+  app.click('open-run', B); await app.tick(); app.click('unfold', 'verify'); await app.tick();
+  app.click('select', 'close'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  assert.ok(!/ABC-1111/.test(app.html()), 'not in the other run');
+  app.click('unpick'); await app.tick();
+  app.click('open-run', A); await app.tick(); app.click('unfold', 'verify'); await app.tick();
+  app.click('select', 'close'); await app.tick();
+  assert.ok(/id="fld-issue"[^>]*value="ABC-1111"/.test(app.html()), 'back in its own run');
+  assert.ok(!/ABC-1111/.test(app.fs.files['runs/release/twin0001/run.json'].t), 'never saved into the other run');
+});
+
+rule('Opening a correction on another step keeps the one already being written, and it comes back', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-blake'); await app.tick();
+  const { key } = app.run();
+  app.click('open-run', key); await app.tick(20);
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  app.input('corr-why', 'Pods reason'); await app.tick();
+  app.click('corr-open', 'approve', { mode: 'correct' }); await app.tick();
+  assert.ok(!/Pods reason/.test(app.html()), 'the other step starts clean');
+  app.input('corr-why', 'Approve reason'); await app.tick();
+  app.click('corr-open', 'pods', { mode: 'correct' }); await app.tick();
+  assert.ok(/<textarea id="corr-why"[^>]*>Pods reason<\/textarea>/.test(app.html()), 'the first one is back');
+  app.click('corr-open', 'approve', { mode: 'correct' }); await app.tick();
+  assert.ok(/<textarea id="corr-why"[^>]*>Approve reason<\/textarea>/.test(app.html()), 'and the second');
+});
+
+rule('New process: a creation that finishes late never clears or leaves a newer form', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const orig = app.PF.repo.loadAll, g = gate(); let hold = false;
+  app.PF.repo.loadAll = function () { const args = arguments, self = this; return hold ? g.p.then(() => orig.apply(self, args)) : orig.apply(self, args); };
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); hold = true; app.submit('new-process-form'); await app.tick(40);
+  hold = false;
+  app.click('go', '', { view: 'runs' }); await app.tick();
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'release'); app.set('np-title', 'Second try'); app.submit('new-process-form'); await app.tick(20);
+  g.open(); await app.tick(80);
+  app.PF.repo.loadAll = orig;
+  assert.ok(app.fs.files['maps/drafts/risk-review.md'], 'set-up: the first draft was created');
+  assert.ok(/id="np-title"[^>]*value="Second try"/.test(app.html()), 'still on the newer form, as submitted');
+  assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()), 'told where the first one is');
+});
+
+rule('Across runs, steps, corrections, notes and leaving, input never shows in another context and is never lost without Cancel', async () => {
+  for (const seed of [3, 11, 29]) {
+    const files = {}, gone = [];
+    const { app, A, B } = await twoRuns({ indexedDB: await rememberedFolder(files), picker: folderHandle('Other', {}) });
+    sameRunsFolder(app, files);
+    // High bits only: an LCG's low bits cycle (x % 2 alternates), which would leave half the actions never chosen.
+    let x = seed; const rnd = n => { x = (Math.imul(x, 1103515245) + 12345) & 0x7fffffff; return (x >>> 16) % n; };
+    const want = { corr: {}, note: {}, fill: {} }; let run = null, step = null, n = 0;
+    const ctxKey = () => run + '|' + step;
+    for (let i = 0; i < 80; i++) {
+      const a = rnd(10);
+      if (a === 0 || !run) { run = [A, B][rnd(2)]; app.click('open-run', run); await app.tick(); step = /<li class="step sel[^"]*"[^>]*id="step-([\w-]+)"/.exec(app.html()); step = step ? step[1] : null; }
+      else if (a === 1) { step = ['pods', 'approve'][rnd(2)]; app.click('select', step); await app.tick(); }
+      else if (a === 2 && step) { app.click('corr-open', step, { mode: 'correct' }); await app.tick(); const t = 'C' + seed + '-' + (++n) + 'z'; app.input('corr-why', t); await app.tick(); want.corr[ctxKey()] = t; }
+      else if (a === 3 && step) { const t = 'N' + seed + '-' + (++n) + 'z'; app.set('note-text', t); await app.tick(); want.note[ctxKey()] = t; }
+      else if (a === 4) { app.click('go', '', { view: ['runs', 'home', 'processes'][rnd(3)] }); await app.tick(); run = null; step = null; continue; }
+      else if (a === 5 && /id="corr-why"/.test(app.html())) { app.click('corr-cancel'); await app.tick(); delete want.corr[ctxKey()]; }
+      else if (a === 7) {
+        // Fill in with an action that decides its fields, then another small form on the same step, canceled.
+        step = 'close'; app.click('go', '', { view: 'run', run, step }); await app.tick();
+        if (!/id="fld-action"/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
+        app.select('fld-action', 'create'); await app.tick();
+        const t = 'P' + seed + '-' + (++n) + 'z'; app.set('fld-project', t); app.select('fld-project', t); await app.tick();
+        want.fill[ctxKey()] = ['fld-project', t];
+        app.click('pick', step, { kind: ['block', 'differently', 'deadline'][rnd(3)] }); await app.tick(); app.click('unpick'); await app.tick();
+        app.click('pick', step, { kind: 'fields' }); await app.tick();
+        const h7 = app.html();
+        assert.ok(/<option selected>create<\/option>/.test(h7) && new RegExp('id="fld-project"[^>]*value="' + t + '"').test(h7), 'seed ' + seed + ' step ' + i + ': Fill in back after another form on its step, its action and fields together');
+      }
+      else if (a === 8 && !gone.length && i > 10 && run) {
+        // Fill in open with an action chosen, as the folder changes under it.
+        step = 'close'; app.click('go', '', { view: 'run', run, step }); await app.tick();
+        if (!/id="fld-action"/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
+        app.select('fld-action', 'create'); await app.tick();
+        const t = 'X' + seed + '-' + (++n) + 'z'; app.set('fld-project', t); app.select('fld-project', t); await app.tick();
+        want.fill[ctxKey()] = ['fld-project', t];
+        Object.keys(want).forEach(t => Object.keys(want[t]).forEach(k => gone.push(t === 'fill' ? want[t][k][1] : want[t][k])));
+        want.corr = {}; want.note = {}; want.fill = {};
+        // The same run stays on screen, as after reconnecting: nothing typed in the last folder may come along.
+        app.click('reconnect'); await app.tick(200); app.goneUndrawn();
+        app.click('save-fields', step); await app.tick(60);
+      }
+      else if (a === 9) {
+        const orig = app.PF.repo.loadAll, g = gate(); let hold = true, id = 'np-' + seed + '-' + (++n);
+        app.PF.repo.loadAll = function () { const args = arguments, self = this; return hold ? g.p.then(() => orig.apply(self, args)) : orig.apply(self, args); };
+        app.click('new-process'); await app.tick();
+        app.set('np-id', id); app.set('np-title', 'T ' + id); app.submit('new-process-form'); await app.tick(20);
+        hold = false; app.set('np-title', 'Edited ' + id); app.input('np-title', 'Edited ' + id); await app.tick();
+        g.open(); await app.tick(60); app.PF.repo.loadAll = orig;
+        assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Edited ' + id, 'seed ' + seed + ': typing after a submit keeps the form');
+        assert.ok(new RegExp('Created the draft for "T ' + id + '"\\. Open it from Processes\\.').test(app.html() + app.live()), 'seed ' + seed + ': told where the draft is');
+        app.click('np-cancel'); await app.tick(); run = null; step = null; continue;
+      }
+      else if (a === 6 && step) {
+        if (!/id="fld-/.test(app.html())) { app.click('pick', step, { kind: 'fields' }); await app.tick(); }
+        const f = /id="(fld-[\w-]+)"[^>]*value="/.exec(app.html());
+        if (f) { const t = 'F' + seed + '-' + (++n) + 'z'; app.set(f[1], t); app.select(f[1], t); await app.tick(); want.fill[ctxKey()] = [f[1], t]; }
+      }
+      if (!run || !step) continue;
+      const html = app.html();
+      gone.forEach(t => assert.ok(html.indexOf(t) < 0, 'seed ' + seed + ' step ' + i + ': ' + t + ' from the last folder shown' + (process.env.DBG ? ' :: ' + html.slice(Math.max(0, html.indexOf(t) - 300), html.indexOf(t) + 50) : '')));
+      Object.keys(want.corr).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('>' + want.corr[k] + '<') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s correction shown in ' + ctxKey()));
+      Object.keys(want.note).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('>' + want.note[k] + '<') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s note shown in ' + ctxKey()));
+      Object.keys(want.fill).filter(k => k !== ctxKey()).forEach(k => assert.ok(html.indexOf('"' + want.fill[k][1] + '"') < 0, 'seed ' + seed + ' step ' + i + ': ' + k + '\'s Fill in shown in ' + ctxKey()));
+    }
+    gone.forEach(t => Object.keys(files).forEach(p => assert.ok(String(files[p]).indexOf(t) < 0, 'seed ' + seed + ': ' + t + ' from the last folder saved into ' + p)));
+    // Every context still has what was typed in it.
+    for (const k of new Set(Object.keys(want.corr).concat(Object.keys(want.note), Object.keys(want.fill)))) {
+      const [r, st] = k.split('|');
+      app.click('go', '', { view: 'run', run: r, step: st }); await app.tick();
+      if (want.fill[k]) assert.ok(new RegExp('id="' + want.fill[k][0] + '"[^>]*value="' + want.fill[k][1] + '"').test(app.html()), 'seed ' + seed + ': Fill in kept for ' + k);
+      if (want.note[k]) assert.ok(new RegExp('<textarea id="note-text"[^>]*>' + want.note[k] + '</textarea>').test(app.html()), 'seed ' + seed + ': note kept for ' + k);
+      if (want.corr[k]) { app.click('corr-open', st, { mode: 'correct' }); await app.tick(); assert.ok(new RegExp('<textarea id="corr-why"[^>]*>' + want.corr[k] + '</textarea>').test(app.html()), 'seed ' + seed + ': correction kept for ' + k); }
+    }
+  }
+});
+
+/* ---------- 1.17 fifth review: another form on the same step, typing after a submit, other folders ---------- */
+rule('Fill in survives opening Blocked on the same step: its action and the fields for that action come back together, and Save keeps them', async () => {
+  const app = await recordingRelease();
+  app.click('unfold', 'verify'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.select('fld-action', 'create'); await app.tick();
+  app.set('fld-project', 'PRJ'); app.set('rec-key', 'PRJ-42'); await app.tick();
+  app.click('pick', 'close', { kind: 'block' }); await app.tick();
+  app.click('unpick'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  const h = app.html();
+  assert.ok(/<option selected>create<\/option>/.test(h), 'the action chosen');
+  assert.ok(/id="fld-project"[^>]*value="PRJ"/.test(h), 'the field typed for that action');
+  assert.ok(/id="rec-key"[^>]*value="PRJ-42"/.test(h), 'the evidence typed');
+  app.click('save-fields', 'close'); await app.tick(60);
+  const f = (app.run().json.fields || {}).close || {};
+  assert.strictEqual(f.action, 'create'); assert.strictEqual(f.project, 'PRJ', 'saved with the action shown');
+});
+
+rule('New process: typing after Create the draft keeps the form when the creation finishes late, and says where the draft is', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const orig = app.PF.repo.loadAll, g = gate(); let hold = false;
+  app.PF.repo.loadAll = function () { const args = arguments, self = this; return hold ? g.p.then(() => orig.apply(self, args)) : orig.apply(self, args); };
+  app.click('new-process'); await app.tick();
+  app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); hold = true; app.submit('new-process-form'); await app.tick(40);
+  hold = false;
+  app.set('np-title', 'Risk review, edited'); app.input('np-title', 'Risk review, edited'); await app.tick();
+  g.open(); await app.tick(80);
+  app.PF.repo.loadAll = orig;
+  assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Risk review, edited', 'still on the form, with the edit');
+  assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()));
+});
+
+/* A real team folder holding the same runs as the examples, as a copy of them would. */
+/* A team folder this browser remembers but must ask again to use: the examples open first, and Reconnect switches to it
+   in place, on the screen you're on. */
+async function rememberedFolder(files) {
+  const dir = folderHandle('Team', files), idb = memoryIDB();
+  dir.queryPermission = () => Promise.resolve('prompt');
+  await new Promise(res => { const q = idb.open(); q.onsuccess = () => { const tx = q.result.transaction(); tx.oncomplete = res; tx.objectStore().put({ dir, id: 'team-1' }, 'folder'); }; });
+  return idb;
+}
+function sameRunsFolder(app, files) { Object.keys(app.fs.files).forEach(p => { const t = app.fs.files[p].t; if (!/^data:/.test(t)) files[p] = t; }); }
+rule('Opening another folder never brings Fill in, a correction or picked files from the last one, even for a run with the same name', async () => {
+  const files = {}, other = {};
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, indexedDB: await rememberedFolder(files), picker: folderHandle('Other', other) }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const key = app.run().key, path = app.run().path;
+  app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+  sameRunsFolder(app, files); sameRunsFolder(app, other);
+  app.click('unfold', 'verify'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.select('fld-action', 'create'); await app.tick();
+  app.set('fld-project', 'EXAMPLES-ONLY'); await app.tick();
+  app.select('fld-project', 'EXAMPLES-ONLY'); await app.tick();
+  // Reconnect stays on the run: the same run in the other folder is on screen at once.
+  app.click('reconnect'); await app.tick(200); app.goneUndrawn();
+  assert.ok(/Release 2026\.10\.16/.test(app.html()), 'set-up: the same run, now from the team folder');
+  assert.ok(!/EXAMPLES-ONLY/.test(app.html()), 'not shown in the other folder');
+  assert.ok(!/id="fld-action"/.test(app.html()), 'Fill in isn\'t open there');
+  app.click('save-fields', 'close'); await app.tick(60);
+  assert.ok(!/EXAMPLES-ONLY/.test(files[path] || ''), 'Save there writes nothing from the last folder');
+  app.click('open-run', key); await app.tick(40); app.click('unfold', 'verify'); await app.tick(); app.click('select', 'close'); await app.tick();
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  assert.ok(!/EXAMPLES-ONLY/.test(app.html()), 'nor when it opens');
+  assert.ok(!/<option selected>create<\/option>/.test(app.html()), 'nor its action');
+  app.click('save-fields', 'close'); await app.tick(60);
+  assert.ok(!/EXAMPLES-ONLY/.test(files[path] || ''), 'never saved into the other folder');
+  // And on to a third folder holding the same run: Fill in typed in the team folder stays with the team folder.
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  app.select('fld-action', 'create'); await app.tick();
+  app.set('fld-project', 'TEAM-ONLY'); app.select('fld-project', 'TEAM-ONLY'); await app.tick();
+  app.click('connect'); await app.tick(200); app.goneUndrawn();
+  app.click('open-run', key); await app.tick(40); app.click('go', '', { view: 'run', run: key, step: 'close' }); await app.tick();
+  assert.ok(/Release 2026\.10\.16/.test(app.html()), 'set-up: the same run, now from the third folder');
+  assert.ok(!/TEAM-ONLY/.test(app.html()), 'not in the third folder');
+  app.click('pick', 'close', { kind: 'fields' }); await app.tick();
+  assert.ok(!/TEAM-ONLY/.test(app.html()) && !/<option selected>create<\/option>/.test(app.html()), 'nor when Fill in opens there');
+  app.click('save-fields', 'close'); await app.tick(60);
+  assert.ok(!/TEAM-ONLY/.test(other[path] || ''), 'never saved into the third folder');
+});
+
+/* ---------- 1.17 sixth review: a placeholder is watched by what the observer tracks, never by a mark on the node ---------- */
+/* Two runs of the release on one publication, whose Pods step shows a screenshot frozen in that publication. Both draw the
+   same thumbnail key, so moving from one to the other at that step keeps the placeholder node, as morph does. */
+async function twoRunsWithShot(IO) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, IntersectionObserver: IO }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const a = app.run(), j = a.json;
+  j.snapshot = j.snapshot.replace('{#pods}\n', '{#pods}\n  ![The pods](images/release/pods.png)\n'); j.shotsFrozen = true;
+  assert.ok(/images\/release\/pods\.png/.test(j.snapshot), 'set-up: the step shows a screenshot');
+  await app.fs.write('publications/release/' + j.folder + '/images/release/pods.png', png());
+  await app.fs.write(a.path, JSON.stringify(j));
+  const b = Object.assign(JSON.parse(JSON.stringify(j)), { id: j.id + '-b', title: 'Release 2026.10.16 (moved here)' });
+  delete b.lineage;
+  const bPath = a.path.replace(j.id, b.id);
+  await app.fs.write(bPath, JSON.stringify(b));
+  app.focus(); await app.tick(80);
+  return { app, A: a.key, B: 'release/' + b.id };
+}
+const shotKey = html => { const m = /data-thumb="([^"]+)"/.exec(html); return m && m[1].replace(/&amp;/g, '&'); };
+
+rule('A thumbnail loading in one run still loads after moving to another run of the same publication at the same step', async () => {
+  const watched = new Set(), observers = [];
+  // Like a browser: observing a placeholder that's on screen reports it as in view.
+  class IO { constructor(cb) { this.cb = cb; observers.push(this); } observe(el) { watched.add(el); setTimeout(() => { if (watched.has(el)) this.cb([{ isIntersecting: true, target: el }], this); }, 0); } unobserve(el) { watched.delete(el); } disconnect() { watched.clear(); } }
+  const { app, A, B } = await twoRunsWithShot(IO);
+  let reads = 0; const proto = app.PF.fs.MemoryFS.prototype, orig = proto.blob;
+  proto.blob = function (p) { if (/pods\.png$/.test(p)) reads++; return orig.call(this, p); };
+  // Hold every thumbnail turn, so the job is still loading when the person moves on.
+  const pool = app.PF.repo.poolOf(app.fs), held = [];
+  for (let i = 0; i < 4; i++) pool('thumb', () => new Promise(r => held.push(r)));
+  app.click('go', '', { view: 'run', run: A, step: 'pods' }); await app.tick(20);
+  assert.ok(shotKey(app.html()), 'run A: the screenshot waits');
+  assert.strictEqual(watched.size, 0, 'run A: seen, so no longer watched; its job is queued');
+  // "Moved to another run": the same publication and step, so the same placeholder.
+  app.click('go', '', { view: 'run', run: B, step: 'pods' }); await app.tick(20);
+  assert.ok(/Release 2026\.10\.16 \(moved here\)/.test(app.html()) && shotKey(app.html()), 'run B: the same screenshot waits');
+  held.forEach(r => r()); await app.tick(60);
+  proto.blob = orig;
+  assert.ok(!shotKey(app.html()), 'no placeholder left behind');
+  assert.ok(/<img alt="The pods" src="blob:/.test(app.html()), 'the screenshot shows in run B');
+  assert.strictEqual(reads, 2, 'read once for each run: the discarded job and the one run B asked for, no more');
+});
+
+rule('After every redraw, each thumbnail placeholder still waiting is watched or has a job running', async () => {
+  for (let seed = 1; seed <= (+process.env.THUMB_SEEDS || 6); seed++) {
+    let x = seed * 7919; const rnd = n => { x = (x * 48271) % 2147483647; return x % n; };
+    const watched = new Set(), observers = [];
+    // This observer reports only when the test says something scrolled into view.
+    class IO { constructor(cb) { this.cb = cb; observers.push(this); } observe(el) { watched.add(el); } unobserve(el) { watched.delete(el); } disconnect() { watched.clear(); } }
+    const { app, A, B } = await twoRunsWithShot(IO);
+    let jobs = 0; const poolOf = app.PF.repo.poolOf;
+    app.PF.repo.poolOf = function (fs) { const p = poolOf.call(this, fs); return (lane, fn) => lane !== 'thumb' ? p(lane, fn) : (jobs++, p(lane, fn).then(v => { jobs--; return v; }, e => { jobs--; throw e; })); };
+    let held = [];
+    // Holds still queued behind others take their turn only once those finish, so release until none is left.
+    const releaseAll = async () => { while (held.length) { const h = held; held = []; h.forEach(r => r()); await app.tick(5); } };
+    const log = [];
+    for (let i = 0; i < 24; i++) {
+      const op = rnd(7);
+      log.push(op);
+      if (op === 0) app.click('go', '', { view: 'run', run: A, step: 'pods' });
+      else if (op === 1) app.click('go', '', { view: 'run', run: B, step: 'pods' });
+      else if (op === 2) [...watched].forEach(el => observers.forEach(o => o.cb([{ isIntersecting: true, target: el }], o)));
+      else if (op === 3) { const pool = poolOf.call(app.PF.repo, app.fs); for (let k = 0; k < 4; k++) pool('thumb', () => new Promise(r => held.push(r))); }
+      else if (op === 4) await releaseAll();
+      else if (op === 5) app.click('select', rnd(2) ? 'approve' : 'pods');
+      else app.click('home');
+      await app.tick(40);
+      const key = shotKey(app.html());
+      if (key) assert.ok([...watched].some(el => el.dataset.thumb === key) || jobs > 0, 'seed ' + seed + ' after ' + log.join(',') + ': the placeholder is neither watched nor loading');
+    }
+    await releaseAll(); await app.tick(40);
+    const key = shotKey(app.html());
+    if (key) assert.ok([...watched].some(el => el.dataset.thumb === key), 'seed ' + seed + ' after ' + log.join(',') + ' jobs ' + jobs + ': once every job settled, the waiting placeholder is watched');
+    app.PF.repo.poolOf = poolOf;
+  }
+});
+
 run();

@@ -138,14 +138,21 @@
         paths = legacy ? [own, src] : [own]; key = r.process + '/' + r.folder + '|' + src + (legacy ? '|legacy' : '');
       }
       var cache = full ? state.full : state.urls;
+      /* A thumbnail waits until it scrolls into view (one shared IntersectionObserver), so a long page doesn't read and
+         shrink every picture on it at once. Browsers without one load it now, as before. */
+      if (!full && !(key in cache) && typeof IntersectionObserver === 'function') {
+        if (!thumbWant[key]) thumbWant[key] = { paths: paths, g: gen };
+        return '<span class="small" data-thumb="' + U.esc(key) + '" style="display:grid;place-items:center;height:100%;padding:4px">…</span>';
+      }
       if (!(key in cache)) {
         var g = gen, ep = cache._epoch || 0; cache[key] = null;
-        /* A picture that finishes after the folder changed, its lightbox closed or the person moved on is released, and its
-           entry is cleared so it loads again if it's needed again. Thumbnails and full images have separate epochs. */
-        (full ? fullUrl(paths) : thumbUrl(paths)).then(function (u) {
-          if (g !== gen || ep !== (cache._epoch || 0)) { if (u) URL.revokeObjectURL(u); if (cache[key] === null) delete cache[key]; return; }
+        /* A picture that finishes after the folder changed, its lightbox closed or the person moved on is released. Its entry
+           was already cleared with its epoch (releaseUrls), so it loads again if it's needed again; whatever is there now
+           belongs to a newer request and is left alone. Thumbnails and full images have separate epochs. */
+        (full ? fullUrl(paths) : thumbJob(paths)).then(function (u) {
+          if (g !== gen || ep !== (cache._epoch || 0)) { if (u) URL.revokeObjectURL(u); return; }
           cache[key] = u || ''; later();
-        }, function () { if (g === gen && ep === (cache._epoch || 0)) { cache[key] = ''; later(); } else if (cache[key] === null) delete cache[key]; });
+        }, function () { if (g === gen && ep === (cache._epoch || 0)) { cache[key] = ''; later(); } });
       }
       var u = cache[key];
       return u ? '<img alt="' + U.esc(caption) + '" src="' + U.esc(u) + '"' + (full ? '' : ' loading="lazy" decoding="async"') + '>' : '<span class="small" style="display:grid;place-items:center;height:100%;padding:4px">' + (u === '' ? 'Missing' : '…') + '</span>';
@@ -158,11 +165,12 @@
     for (var i = 0; i < data.processes.length; i++) if (data.processes[i].process === r.process) for (var j = 0; j < data.processes[i].pubs.length; j++) { var p = data.processes[i].pubs[j]; if (p.folder === r.folder) return !!(p.ok && p.info && !('images' in p.info)); }
     return false;
   }
-  function firstBlob(paths) {
-    return paths.reduce(function (p, path) { return p.then(function (b) { return b || (/^(images|runs|publications)\//.test(path) ? state.fs.blob(path).catch(function () { return null; }) : null); }); }, Promise.resolve(null));
+  function firstBlob(paths, fs) {
+    fs = fs || state.fs;
+    return paths.reduce(function (p, path) { return p.then(function (b) { return b || (/^(images|runs|publications)\//.test(path) ? fs.blob(path).catch(function () { return null; }) : null); }); }, Promise.resolve(null));
   }
-  function thumbUrl(paths) {
-    return firstBlob(paths).then(function (b) {
+  function thumbUrl(paths, fs) {
+    return firstBlob(paths, fs).then(function (b) {
       if (!b) return '';
       if (typeof createImageBitmap !== 'function') return URL.createObjectURL(b);
       return createImageBitmap(b).then(function (bm) {
@@ -173,8 +181,51 @@
       });
     });
   }
+  /* Thumbnails take turns in the folder's shared pool (at most 4 at once, after the open run and loading). The job reads
+     and shrinks the picture itself, so it never waits for another turn while holding one. */
+  /* A job is bound to the folder and generation it was queued in: if the folder changed while it waited, it stops before
+     reading anything, so an old folder's path is never read through the new one. */
+  function thumbJob(paths) {
+    var fs = state.fs, g = gen;
+    return fs ? repo.poolOf(fs)('thumb', function () { return g === gen && state.fs === fs ? thumbUrl(paths, fs) : ''; }) : Promise.resolve('');
+  }
+  /* thumbWant: keys drawn as a placeholder with no result and no live job. thumbSeen: the nodes the observer tracks right
+     now; a node leaves it whenever it's unobserved or the observer goes. After every redraw each wanted placeholder on the
+     page that the observer isn't tracking is observed, whatever happened to that node before (a redraw keeps a node that
+     was seen, and its job's result can be thrown away when the run changes underneath it). */
+  var thumbWant = {}, thumbIO = null, thumbSeen = [];
+  function watchThumbs() {
+    pruneThumbs();
+    if (typeof IntersectionObserver !== 'function' || !Object.keys(thumbWant).length) return;
+    if (!thumbIO) thumbIO = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var k = en.target && en.target.dataset && en.target.dataset.thumb, w = k && thumbWant[k];
+        if (thumbIO && thumbIO.unobserve && en.target.nodeType) { thumbIO.unobserve(en.target); thumbSeen = thumbSeen.filter(function (el) { return el !== en.target; }); }
+        if (!w) return;
+        delete thumbWant[k];
+        if (w.g !== gen) return;
+        state.urls[k] = null;
+        var g = gen, ep = state.urls._epoch || 0;
+        thumbJob(w.paths).then(function (u) {
+          if (g !== gen || ep !== (state.urls._epoch || 0)) { if (u) URL.revokeObjectURL(u); return; }
+          state.urls[k] = u || ''; later();
+        }, function () { if (g === gen && ep === (state.urls._epoch || 0)) { state.urls[k] = ''; later(); } });
+      });
+    }, { rootMargin: '200px' });
+    Array.prototype.forEach.call(app.querySelectorAll('[data-thumb]'), function (el) {
+      if (thumbWant[el.dataset.thumb] && thumbSeen.indexOf(el) < 0) { thumbIO.observe(el); thumbSeen.push(el); }
+    });
+  }
+  /* Placeholders a redraw removed are no longer watched; with nothing left to watch, the observer goes. */
+  function pruneThumbs() {
+    if (!thumbIO) return;
+    thumbSeen = thumbSeen.filter(function (el) { if (app.contains(el)) return true; if (thumbIO.unobserve) thumbIO.unobserve(el); return false; });
+    if (!thumbSeen.length && !Object.keys(thumbWant).length) { if (thumbIO.disconnect) thumbIO.disconnect(); thumbIO = null; }
+  }
+  function stopThumbs() { thumbWant = {}; thumbSeen = []; if (thumbIO && thumbIO.disconnect) thumbIO.disconnect(); thumbIO = null; }
   function fullUrl(paths) { return firstBlob(paths).then(function (b) { return b ? URL.createObjectURL(b) : ''; }); }
-  function releaseUrls(map) { var ep = (map._epoch || 0) + 1; Object.keys(map).forEach(function (k) { if (map[k] && /^blob:/.test(map[k])) URL.revokeObjectURL(map[k]); delete map[k]; }); map._epoch = ep; }
+  function releaseUrls(map) { if (map === state.urls) thumbWant = {}; var ep = (map._epoch || 0) + 1; Object.keys(map).forEach(function (k) { if (map[k] && /^blob:/.test(map[k])) URL.revokeObjectURL(map[k]); delete map[k]; }); map._epoch = ep; }
   /* Several images finishing at once cause one redraw, not one each. */
   var pending = false;
   function later() { if (pending) return; pending = true; requestAnimationFrame(function () { pending = false; render(); }); }
@@ -293,19 +344,26 @@
        what's in the folder now. */
     return edits(id) === (before[id] || 0) && edits('~' + id) === (before['~' + id] || 0);
   }
+  /* Elapsed time on this computer, never the wall clock (which can be changed or roll back). */
+  function elapsed() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); }
   /* Reads are numbered as they start, so an editor can tell a read that began after its own save from an older one. */
   var readsStarted = 0;
   function load(force, deep) {
     if (!state.fs) return Promise.resolve();
     if (deep) checkNewerCopy(state.fs, gen);
     if (loading && loading.gen === gen) return loading.p;
-    var g = gen, before = revsNow(), seq = ++readsStarted;
-    var p = repo.loadAll(state.fs, { deep: !!deep }).then(function (d) {
+    var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
+    /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. */
+    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}));
+    var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry }).then(function (d) {
       if (g !== gen) return;
+      /* How long routine refreshes take here, for Folder health (the last 3). */
+      if (!deep) state.refreshMs = (state.refreshMs || []).concat([elapsed() - t0]).slice(-3);
       d.readSeq = seq;
       loading = null;
       keepUnread(d);
       d.runs = applyRunsRead(d, { seq: seq, revs: before });
+      R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
@@ -334,11 +392,17 @@
     state.unread = { runs: (state.unread || {}).runs || {}, drafts: drafts };
   }
   /* ---------- What a read found about a run: applied in one place, by one rule ---------- */
-  /* A read result is { kind: 'run', run } (the file read), { kind: 'missing' } (no run.json, for a run that has been on
-     disk) or { kind: 'unread', why }. at = { seq, revs }: when the read started. applyRunRead ignores the whole result if
-     the run was edited, saved or restored since then (canReplace: every one of those advances its version) or a newer read
-     of it was applied first. Nothing about a run (its contents, gone, unreadable) changes any other way, except the
-     outcome of this window's own save, which is newer than any read (runOutcome). */
+  /* A read result (docs/design.md section 25) is one of:
+       { kind: 'fresh', run, build }   the file, read now
+       { kind: 'cached', sig, build }  an ended run unchanged since it was read; build() makes a new object from what was read
+       { kind: 'unreadable', why }     the file couldn't be read or understood
+       { kind: 'missing' }             not in a complete listing (or no run.json), for a run that has been on disk
+       { kind: 'pending' }             not read yet; never means missing
+     at = { seq, revs }: when the read started. applyRunRead ignores the whole result if the run was edited, saved or
+     restored since then (canReplace: every one of those advances its version) or a newer read of it was applied first.
+     Only a fresh read clears "couldn't be read" or "gone"; a cached one never changes a run's status. Nothing about a run
+     (its contents, gone, unreadable) changes any other way, except the outcome of this window's own save, which is newer
+     than any read (runOutcome). Returns the run object to show when the result replaced it, else null. */
   var applied = {}, baselines = {};
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
@@ -349,43 +413,55 @@
     if (kind === 'missing') m[key] = true;
     u.runs = runs; state.missing = m;
   }
+  /* Discard goes back to a version built new from what was read or saved, never to an object anyone can change. */
+  function keepBaseline(id, make) { baselines[id] = { make: make }; }
   function applyRunRead(key, at, res) {
     var id = key.slice(key.indexOf('/') + 1);
-    if ((applied[key] || 0) > at.seq) return false;
+    if (!res || res.kind === 'pending') return null;
+    if ((applied[key] || 0) > at.seq) return null;
+    if (res.kind === 'cached') {
+      var shown = findRun(key);
+      if (shown && repo.runSig(shown) === res.sig) return null;
+      if (!canReplace(id, at.revs)) return null;
+      var built = res.build();
+      applied[key] = at.seq;
+      if (!shown || shown._fileHash !== built._fileHash) bump(id);
+      keepBaseline(id, res.build);
+      return built;
+    }
     if (!canReplace(id, at.revs)) {
       /* The run on screen stays (a change of this window's waits), but a file that reads again is news: an old "couldn't be
          read" or "gone" would otherwise stay, and refuse changes, until that change is saved. Not while a save is under way
          or landed since the read began: what that save found is newer. */
-      if (res.kind === 'run' && !(state.pendingSaves || {})[id] && edits('~' + id) === (at.revs['~' + id] || 0)) { applied[key] = at.seq; setRunStatus(key, 'run'); }
-      return false;
+      if (res.kind === 'fresh' && !(state.pendingSaves || {})[id] && edits('~' + id) === (at.revs['~' + id] || 0)) { applied[key] = at.seq; setRunStatus(key, 'run'); }
+      return null;
     }
     applied[key] = at.seq;
-    setRunStatus(key, res.kind, res.why);
-    if (res.kind === 'run') {
-      var mine = findRun(key);
-      if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
-      baselines[id] = { run: res.run };
-    }
-    return true;
+    setRunStatus(key, res.kind === 'fresh' ? 'run' : res.kind === 'unreadable' ? 'unread' : res.kind, res.why);
+    if (res.kind !== 'fresh') return findRun(key);
+    var mine = findRun(key);
+    if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
+    var text = JSON.stringify(res.run);
+    keepBaseline(id, res.build || function () { return JSON.parse(text); });
+    return res.run;
   }
   /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
   function runOutcome(key, kind, why) { applied[key] = ++readsStarted; setRunStatus(key, kind, why); }
   /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
-     gone (unless runs couldn't be read at all); one never saved yet, or one the read may not replace, stays as it is. */
+     gone only when the listing was complete; one never saved yet, or one the read may not replace, stays as it is. */
   function applyRunsRead(d, at) {
-    var got = {}, why = {}, keys = [], out = [], failed = !!(d.failed || {}).runs;
+    var reads = d.reads || {}, complete = d.runsComplete === true && !(d.failed || {}).runs, keys = [], out = [];
     function note(k) { if (keys.indexOf(k) < 0) keys.push(k); }
     data.runs.forEach(function (x) { note(x.process + '/' + x.id); });
-    d.runs.forEach(function (x) { var k = x.process + '/' + x.id; got[k] = x; note(k); });
-    (d.unreadable || []).forEach(function (u) { if (u.key) { why[u.key] = u.why; note(u.key); } });
+    Object.keys(reads).forEach(note);
     keys.forEach(function (k) {
-      var prev = findRun(k), res = got[k] ? { kind: 'run', run: got[k] } : why[k] ? { kind: 'unread', why: why[k] } : !failed && prev && prev._fileHash ? { kind: 'missing' } : null;
-      var show = res && applyRunRead(k, at, res) ? (res.kind === 'run' ? res.run : prev) : prev ? state.unsaved[prev.id] || prev : res && res.kind === 'run' ? res.run : null;
+      var prev = findRun(k), res = reads[k] || (complete && prev && prev._fileHash ? { kind: 'missing' } : null);
+      var got = res ? applyRunRead(k, at, res) : null;
+      var show = got || (prev ? state.unsaved[prev.id] || prev : res && res.kind === 'fresh' ? res.run : res && res.kind === 'cached' ? res.build() : null);
       if (show) out.push(show);
     });
     return out;
   }
-  function clone(r) { return JSON.parse(JSON.stringify(r)); }
   /* Saves and restores of a run, and copies being kept, are one at a time: anything that rewrites the run waits for them. */
   function runBusy(r) {
     if (!r || !((state.pendingSaves || {})[r.id] || state.recovering)) return false;
@@ -407,9 +483,9 @@
   function healthReport(full) {
     if (!data.readSeq) return null;
     var hs = state.healthScan && state.healthScan.gen === gen ? state.healthScan : null, conn = state.conn;
-    var key = [sig, state.me, Object.keys(state.missing || {}).join(','), hs && full ? hs.n : 0, Math.floor(Date.now() / 60000), state.newer, conn ? conn.readAt : ''].join('|');
+    var key = [sig, state.me, Object.keys(state.missing || {}).join(','), hs && full ? hs.n : 0, Math.floor(Date.now() / 60000), state.newer, conn ? conn.readAt : '', (state.refreshMs || []).map(function (x) { return Math.round(x / 1000); }).join(',')].join('|');
     if (healthMemo && healthMemo.key === key) return healthMemo.rep;
-    var rep = PF.health.check({ data: data, scan: full && hs ? hs.scan : null, me: state.me, app: APP_VERSION, newer: state.newer, contract: hs ? hs.contract : null, connection: conn, missing: state.missing }, Date.now());
+    var rep = PF.health.check({ data: data, scan: full && hs ? hs.scan : null, me: state.me, app: APP_VERSION, newer: state.newer, contract: hs ? hs.contract : null, connection: conn, missing: state.missing, refreshMs: state.refreshMs }, Date.now());
     healthMemo = { key: key, rep: rep };
     return rep;
   }
@@ -507,14 +583,14 @@
       if (g !== gen) return;
       loading = null; state.folderErr = null; state.runReadAt = new Date().toISOString();
       var cur = findRun(key) || r, was = runUnread(cur);
-      var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : cur._fileHash ? { kind: 'missing' } : null;
+      var res = f ? { kind: 'fresh', run: f } : bad.length ? { kind: 'unreadable', why: bad[0].why } : cur._fileHash ? { kind: 'missing' } : null;
       var changed = !!f && f._fileHash !== cur._fileHash;
       if (!res || !applyRunRead(key, at, res)) { if (runUnread(cur) !== was) render(); else renderTop(); return; }
-      if (res.kind !== 'run') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
+      if (res.kind !== 'fresh') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (changed) flashChanged(cur, f);
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
       if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
-    }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unread', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
+    }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unreadable', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -529,9 +605,15 @@
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
+    /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
+    if (state.fs) leaveContext();
+    state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
+    state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear();
+    /* Input kept for return belongs to its folder: a new folder starts clean. */
+    state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     if (fs.volatile) explainTabOnly();
     return load(true, true);
@@ -957,6 +1039,7 @@
     runPage();
     fitPanes();
     sheet();
+    watchThumbs();
     announce();
     tick();
     lsSet('filter', state.filter);
@@ -992,6 +1075,8 @@
     if (keep) { state.paneScroll = null; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el && keep[id] != null) el.scrollTop = keep[id]; }); }
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
+    /* go() to a step brings its row into view, in the run already open and on a phone too (focus alone doesn't scroll). */
+    if (on && state.revealTarget) { var rt = app.querySelector(state.revealTarget); state.revealTarget = null; if (rt && rt.scrollIntoView) rt.scrollIntoView({ block: 'nearest' }); }
   }
   /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
      whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
@@ -1223,7 +1308,8 @@
       if (landed) {
         Object.keys(r).forEach(function (f) { if (f[0] === '_' && !(f in landed)) landed[f] = r[f]; });
         landed._fileHash = U.hash(wrote.text); landed._overflow = [];
-        baselines[r.id] = { run: landed };
+        var landedText = JSON.stringify(landed);
+        keepBaseline(r.id, function () { return JSON.parse(landedText); });
       }
       runOutcome(key, 'run'); bump('~' + r.id);
       render();
@@ -1239,7 +1325,7 @@
         var at = { seq: ++readsStarted, revs: mineAt };
         return repo.loadRun(fs, r.process, r.id).then(function (fresh) {
           if (g !== gen) return false;
-          var replaced = !!fresh && applyRunRead(r.process + '/' + r.id, at, { kind: 'run', run: fresh });
+          var replaced = !!fresh && !!applyRunRead(r.process + '/' + r.id, at, { kind: 'fresh', run: fresh });
           if (replaced) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
           say(V.nameOf(ctx, e.disk.recorder.person) + ' saved this run from another window or computer, so your change wasn\'t written over theirs. ' +
             (replaced ? 'You\'re seeing their version. ' : 'Your newer change is still on screen and will be checked against theirs when it saves. ') +
@@ -2187,8 +2273,7 @@
     var map = R.mapOf(r), recoveringEnded = !!(opts.recovery && r.ended);
     /* The version the folder had before this window's first unsaved change, so Discard my change can put it back even when
        the folder can't give it back (the file is gone). */
-    var base = baselines[r.id];
-    if (!base) baselines[r.id] = { run: clone(r) }; else if (base.run === r) base.run = clone(r);
+    if (!baselines[r.id]) { var baseText = JSON.stringify(r); keepBaseline(r.id, function () { return JSON.parse(baseText); }); }
     try {
       var now = new Date().toISOString();
       fn(r, map, state.me, now);
@@ -2214,12 +2299,44 @@
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
   function home() { releaseUrls(state.urls); setView('home'); state.processId = null; state.runKey = null; resetRunUi(); }
-  function resetRunUi() { state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.pendingFiles = []; state.justPassed = null; state.msg = null; state.corrForm = null; }
+  /* Input held in app state belongs to the context it was typed in: the folder, run and step (and, for a correction, its
+     mode). leaveContext() runs first in every change of context (setView, selectStep, opening a correction), before any
+     state key is reassigned, and keeps everything of the departing context under that context's own key: typed boxes go to
+     the step's draft (harvest), an open Fill in is remembered with its step, and a correction being written goes to
+     corrDrafts. enterContext() brings back only what belongs to the destination. Files picked but not attached stay in
+     pendingFiles, keyed by run and step. All of it is cleared only by Cancel, a successful save, or switching folders. */
+  var corrSeq = 0;
+  function corrKey(f) { return draftKey(f.key, f.step + '#' + f.mode); }
+  function stashCorr() { var f = state.corrForm; if (!f) return; f._at = ++corrSeq; (state.corrDrafts = state.corrDrafts || {})[corrKey(f)] = f; state.corrForm = null; }
+  function leaveContext() { leaveFillIn(); stashCorr(); }
+  /* The open Fill in, kept with its folder, run and step: what's typed (harvest) and the choices that decide its fields. */
+  function leaveFillIn() {
+    harvest();
+    if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = fillDraft(state.pick.id); state.pick = null; state.fieldsDraft = null; }
+  }
+  /* Fill in's unsaved choices for a step of the open run, only if they belong to this folder and run. */
+  function fillDraft(id) { var f = state.fieldsDraft; return f && f.id === id && f.key === state.runKey && f.fs === fsKey() ? f : null; }
+  /* The destination's own kept correction comes back: for its run and selected step, or exactly the step and mode asked for. */
+  function takeCorrDraft(key, step, mode) {
+    var all = state.corrDrafts || {}, best = null;
+    Object.keys(all).forEach(function (k) { var f = all[k]; if (f.key === key && f.step === step && (mode == null || f.mode === mode) && k === corrKey(f) && (!best || f._at > all[best]._at)) best = k; });
+    if (!best) return null;
+    var f = all[best]; delete all[best]; return f;
+  }
+  function enterContext() {
+    if (state.corrForm || state.view !== 'run' || !state.runKey || !state.sel) return;
+    var f = takeCorrDraft(state.runKey, state.sel);
+    if (f) state.corrForm = f;
+  }
+  function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
+  /* How a run's screen is shown starts over; input was already kept by leaveContext (setView calls it). */
+  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
+    enterContext();
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
     window.scrollTo(0, 0);
   }
@@ -2328,8 +2445,17 @@
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
+    /* Go straight to a run's step, a process or a section (go()), keeping what's typed. */
+    go: function (id, b) { var d = (b && b.dataset) || {}; go({ view: d.view, process: d.process, ptab: d.ptab, mapVer: d.mapVer, run: d.run, step: d.step, note: d.note, filter: d.filter }); },
+    /* Show 50 more of a long list; focus moves to the first one added. */
+    more: function (id, b) {
+      var P = PF.vk.PAGE, m = state.more = state.more || {}, next = b && b.dataset && b.dataset.next;
+      m[id] = Math.max(P, m[id] || P) + P;
+      if (next) state.focus = '[data-act="open-run"][data-id="' + cssEsc(next) + '"]';
+      render();
+    },
     nav: function (id) {
-      typeOpens++;
+      typeOpens++; state.more = {};
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -2501,7 +2627,9 @@
     'hist-compare': function (id) { var ov = state.overlay; if (!ov || !ov.hist) return; ov.compare = ov.compare === id ? null : id; ov.compareMsg = null; state.overlayFocus = '[data-act="hist-compare"][data-id="' + cssEsc(id) + '"]'; render(); },
     'hist-reverse': function (id) { reverseSaved(id); },
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
-    'new-process': function () { setView('new-process'); state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
+    /* What was submitted and refused stays until Cancel or the draft is created, so leaving and coming back keeps it. */
+    'new-process': function () { setView('new-process'); state.newProc = state.newProc || { token: ++npToken }; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
     'new-type': function () { partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
@@ -2705,7 +2833,12 @@
       /* While Done differently is finishing on a step, Fill in waits: the answer landing would close it. */
       var ans = state.answering;
       if (b.dataset.kind === 'fields' && ans && ans.key === state.runKey && ans.step === id) { say('Finishing the answer… Fill in opens once it\'s saved.', 'warn'); render(); return; }
-      state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' }; state.fieldsDraft = null; if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
+      /* Another small form on the step keeps an open Fill in (as leaving the step would); opening Fill in brings back its own. */
+      leaveFillIn();
+      state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' };
+      var fd = b.dataset.kind === 'fields' && state.runKey ? draftOf(state.runKey, id, false) : null;
+      state.fieldsDraft = fd && fd.fd && fd.fd.key === state.runKey && fd.fd.fs === fsKey() ? fd.fd : null; if (fd) fd.open = false;
+      if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
     unpick: function () { var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
@@ -2897,7 +3030,7 @@
       var r = ctx.run(); if (!r || runBusy(r)) return;
       /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
       var base = baselines[r.id];
-      if (base) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = base.run; bump(r.id); }
+      if (base) { var back = base.make(); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = back; bump(r.id); }
       delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
     },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
@@ -2911,9 +3044,15 @@
       if (open && open.key === state.runKey && open.step === id && open.mode === mode) { selectStep(id); state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(open.op); render(); return; }
       /* Done differently is an answer: only the recorder, while the run isn't paused and the step's phase is open. */
       if (mode === 'differently' && !(ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex))) return;
+      /* Any composer on screen (this one's, or the step's other mode brought back by selecting it) is kept first, never
+         written over; then this step and mode gets back its own, or a new one. */
+      selectStep(id);
+      if (state.corrForm && !(state.corrForm.step === id && state.corrForm.mode === mode)) stashCorr();
+      var kept = state.corrForm || takeCorrDraft(state.runKey, id, mode);
+      if (kept) { state.corrForm = kept; state.refOpen = true; state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(kept.op); render(); return; }
       var op = b && PF.corrections.OPS.indexOf(b.dataset.op) >= 0 ? b.dataset.op : 'wording';
       state.corrForm = { key: state.runKey, step: id, mode: mode, op: op, scope: 'just', to: x.step.text, text: '', where: 'after', moveTo: '', roles: x.step.roles.slice(), shot: b && b.dataset.shot || '', why: '', happened: '', menu: false };
-      selectStep(id); state.refOpen = true; state.fieldErr = null;
+      state.refOpen = true; state.fieldErr = null;
       state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(op); state.focusEnd = true; render();
     },
     'partial-dismiss': function (id) { delete state.partial[id]; render(); },
@@ -2925,7 +3064,7 @@
       state.focus = corrFocus(id); state.focusEnd = true; render();
     },
     'corr-scope': function (id) { var f = state.corrForm; if (!f) return; f.scope = id === 'fix' ? 'fix' : 'just'; state.fieldErr = null; state.focus = '[data-act="corr-scope"][data-id="' + f.scope + '"]'; render(); },
-    'corr-cancel': function () { var f = state.corrForm; state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
+    'corr-cancel': function () { var f = state.corrForm; if (f) dropCorrDraft(f); state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
     'corr-save': function () { saveCorrection(false); },
     'corr-done': function () { saveCorrection(true); },
     /* Deciding on a group of corrections: anyone; declining needs a reason; withdrawing is for whoever suggested it. */
@@ -2953,20 +3092,22 @@
     'corr-review': function (id) {
       var p = currentProcess(); if (!p || !state.me) return;
       state.overlayFocus = '#ca-t';
-      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); } });
+      openOverlay({ corrApply: true, pid: p.id, gid: id, edit: null, combine: null, declining: false, err: null, html: function () { return V.corrApply(ctx, this); },
+        /* Choices made in the dialog live in it: an edited result, alternatives being combined, or a decline started. */
+        held: function () { return !!(this.declining || this.combine || (this.edit && this.edit.text !== this.edit.from)); } });
     },
     'corr-apply': function (id, b) { var ov = caOv(); if (ov && ov.gid === id && !ov.busy) applyCorr(ov, b && b.dataset.how === 'edit' ? 'edit' : ''); },
     'corr-edit': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id) return;
       var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
       var rv = PF.corrections.review(g, caBase(x.p));
-      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.err = null;
+      ov.edit = { text: g.change.op === 'wording' ? (rv.result ? rv.result.text : g.change.to) : g.change.op === 'add' ? g.change.text : null }; ov.edit.from = ov.edit.text; ov.err = null;
       state.overlayFocus = ov.edit.text != null ? '#ca-edit' : '#ca-t'; render();
     },
     'corr-combine': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id) return;
       var x = caFind(ov.pid, ov.gid), g = x.g; if (!g) return;
-      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to }; ov.err = null;
+      ov.combine = PF.corrections.alternatives(x.all, g).map(function (y) { return y.id; }); ov.edit = { text: g.change.to, from: g.change.to }; ov.err = null;
       state.overlayFocus = '#ca-edit'; render();
     },
     'corr-edit-cancel': function () { var ov = caOv(); if (!ov) return; ov.edit = null; ov.combine = null; ov.err = null; state.overlayFocus = '#ca-t'; render(); },
@@ -3131,6 +3272,7 @@
     wrote.then(function () {
       endBusy(); f.sending = false; if (ng !== gen) { settled(); return; }
       state.pendingFiles = state.pendingFiles.filter(function (p) { return mine.indexOf(p) < 0; });
+      dropCorrDraft(f);
       if (state.corrForm === f) { state.corrForm = null; state.fieldErr = null; }
       var then = answer ? function () {
         /* The answer is made on the run that started it, whatever this window shows now, through the one answer path. */
@@ -3233,7 +3375,7 @@
     var key = r.process + '/' + r.id;
     return repo.loadRun(fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return null;
-      var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : r._fileHash ? { kind: 'missing' } : null;
+      var res = f ? { kind: 'fresh', run: f } : bad.length ? { kind: 'unreadable', why: bad[0].why } : r._fileHash ? { kind: 'missing' } : null;
       if (res && applyRunRead(key, at, res) && f) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f; }
       return { key: key, g: g };
     });
@@ -3260,23 +3402,25 @@
     else fallback();
   }
 
-  /* New process and step-type forms. */
+  /* New process and step-type forms. Each New process form (opened fresh or submitted) gets a new token: a creation that
+     finishes later clears and leaves only the form it came from, never a newer one. */
+  var npToken = 0;
   document.addEventListener('submit', function (e) {
     if (e.target.id === 'type-form') { e.preventDefault(); readTypeForm(); saveType(); return; }
     if (e.target.id !== 'new-process-form') return;
     e.preventDefault();
-    var f = { id: val('np-id').trim().toLowerCase(), title: val('np-title').trim(), group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner'), solo: !!(document.getElementById('np-solo') || {}).checked };
+    var f = { token: ++npToken, id: val('np-id').trim().toLowerCase(), title: val('np-title').trim(), group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner'), solo: !!(document.getElementById('np-solo') || {}).checked };
     state.newProc = f;
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) { say('The process ID is lowercase letters, numbers and dashes, like release or code-review.', 'warn'); state.focus = 'np-id'; render(); return; }
     if (!f.title) { say('Give the process a title.', 'warn'); state.focus = 'np-title'; render(); return; }
     if (processes().some(function (x) { return x.id === f.id; })) { say('There\'s already a process called "' + f.id + '". Choose another ID, or open that one.', 'warn'); state.focus = 'np-id'; render(); return; }
-    var md = V.starterMap(f), sfs = state.fs, g = gen;
+    var md = V.starterMap(f), sfs = state.fs, g = gen, mine = f.token;
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || state.newProc !== f) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
+      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !state.newProc || state.newProc.token !== mine) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
     }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
   });
   document.addEventListener('submit', function (e) {
@@ -3375,6 +3519,8 @@
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) dropPending();
       if (was !== !!state.obPending) scheduleRender();
     }
+    /* Typing in a New process form after Create the draft makes it a newer form: a late creation then leaves it alone. */
+    if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'ob-part-q' || e.target.id === 'ob-part-q2') { state.obQ = String(e.target.value || '').slice(0, 60); render(); }
     /* Getting started's forms keep what's typed in their state, so ID previews and the request follow the names. */
     var su = state.setup, sm = /^su-(me|name|email|rq)-?(name|email|t\d+)?$/.exec(e.target.id || '');
@@ -3415,6 +3561,7 @@
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }
     if (e.target.id === 'su-to' && state.setup) { state.setup.to = e.target.value; render(); }
@@ -3422,7 +3569,10 @@
     if (/^fld-/.test(e.target.id || '') && state.pick && state.pick.kind === 'fields') {
       var vals = {}; document.querySelectorAll('[id^="fld-"]').forEach(function (el) { vals[el.id.slice(4)] = el.value; });
       vals[e.target.id.slice(4)] = e.target.value;
-      state.fieldsDraft = { id: state.pick.id, values: vals }; render();
+      state.fieldsDraft = { fs: fsKey(), key: state.runKey, id: state.pick.id, values: vals };
+      /* The step's draft holds the same choices, so the action shown and the fields drawn for it always agree. */
+      var sd = draftOf(state.runKey, state.pick.id, true); Object.keys(vals).forEach(function (k) { sd.fields['fld-' + k] = vals[k]; });
+      render();
     }
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
     if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); render(); }
@@ -3544,17 +3694,89 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { harvest(); state.view = v; }
+  function setView(v) { leaveContext(); state.view = v; }
+  /* Go straight to something: { view, process, ptab, mapVer, run, step, note, filter }. It goes through setView, so typed
+     evidence, an open Fill in and an unsent note are kept as drafts and come back. It refuses rather than lose input: text
+     typed in a builder box and not applied, a correction or follow-up decision with text in it, or a dialog that isn't
+     read-only (that one is never replaced; focus goes back to it). A read-only dialog is closed first, and so is a phone's
+     step sheet. Returns whether it went. */
+  function go(t) {
+    t = t || {};
+    var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
+    if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
+    if (dirty) {
+      say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
+      state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
+    }
+    if (state.overlay) closeOverlay();
+    if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
+    if (t.view === 'run') {
+      if (!t.run || !ctx.findRun(t.run)) return false;
+      if (t.run !== state.runKey || !inRun()) openRun(t.run); else setView('run');
+      var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
+      if (x) {
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
+        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; state.revealTarget = '#step-' + cssEsc(x.step.id);
+        var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
+        setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
+      }
+      render(); return true;
+    }
+    if (t.view === 'process') {
+      if (!t.process) return false;
+      ACTIONS['open-process'](t.process);
+      if (t.mapVer) ACTIONS['view-version'](t.mapVer);
+      if (t.ptab && t.ptab !== 'overview') ACTIONS.ptab(t.ptab);
+      return true;
+    }
+    if (t.view === 'runs' && (t.filter === 'mine' || t.filter === 'all')) state.filter = t.filter;
+    ACTIONS.nav(t.view || 'home');
+    return true;
+  }
+  /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
+     (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs
+     the one drawn as chosen, or the first). The page itself is the record, so a new form is covered without being listed.
+     Input held in app state isn't this check's job: navigation keeps it (resetRunUi, corrDrafts, newProc), and a dialog
+     holding choices says so with held(). Skipped: controls kept as drafts (data-draft-kept: the note, evidence,
+     Fill in, the draft editor and the step-type form), boxes that are safe to leave (type="search", data-nav-safe), and
+     hidden or file inputs. */
+  function changedControl(el) {
+    if (el.type === 'checkbox' || el.type === 'radio') return !!el.checked !== !!el.defaultChecked;
+    if (el.tagName === 'SELECT' && el.options && el.options.length) {
+      if (el.multiple) return Array.prototype.some.call(el.options, function (o) { return o.selected !== o.defaultSelected; });
+      var d = 0; for (var i = 0; i < el.options.length; i++) if (el.options[i].defaultSelected) { d = i; break; }
+      return el.selectedIndex !== d;
+    }
+    return String(el.value == null ? '' : el.value) !== String(el.defaultValue == null ? '' : el.defaultValue);
+  }
+  function dirtyControl() {
+    var roots = state.overlay ? [app, overlayEl] : [app];
+    for (var r = 0; r < roots.length; r++) {
+      var list = roots[r].querySelectorAll ? roots[r].querySelectorAll('input, textarea, select') : [];
+      for (var i = 0; i < list.length; i++) {
+        var el = list[i];
+        if (/^(hidden|file|button|submit|reset|search)$/.test(el.type || '')) continue;
+        if (el.closest && el.closest('[data-draft-kept], [data-nav-safe]')) continue;
+        if (changedControl(el)) return el;
+      }
+    }
+    return null;
+  }
+  function focusOverlay() {
+    var el = overlayEl && overlayEl.querySelector && overlayEl.querySelector('input, textarea, select, button');
+    if (el && el.focus) el.focus();
+  }
   /* One way to select a step, for the mouse and the keyboard alike. An open Fill in is remembered with its step. */
   function selectStep(id) {
     if (state.sel !== id) {
-      state.attErr = null; harvest();
-      /* An open Fill in is remembered for the folder it was drawn in, never carried into another. */
-      if (state.pick && state.pick.kind === 'fields' && state.runKey) { var od = draftOf(state.runKey, state.pick.id, true, drawn ? drawn.fs : null); od.open = true; od.fd = state.fieldsDraft; }
+      state.attErr = null;
+      /* The step being left keeps its typing, its open Fill in and its correction; the new one gets back its own. */
+      leaveContext();
     }
     state.sel = id; if (state.pick && state.pick.id !== id) { state.pick = null; state.fieldsDraft = null; }
+    enterContext();
     var d = state.runKey && draftOf(state.runKey, id, false);
-    if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd; }
+    if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd && d.fd.key === state.runKey && d.fd.fs === fsKey() ? d.fd : null; }
   }
   function nextStepId(r, map) { var nx = R.nextUp(r, map, state.me); return nx.kind === 'step' && nx.step ? nx.step.id : null; }
   /* Whether a step can be answered now, and with what: its own draft's evidence, else what's saved, else what the box would
@@ -3660,6 +3882,8 @@
   });
 
   document.addEventListener('keydown', function (e) {
+    /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
+    if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }

@@ -31,10 +31,12 @@ PF.fs = (function () {
       return next();
     }, function (e) { if (missing(e)) return []; throw e; });
   };
+  /* The size and time come from the same snapshot as the text (a file that changes while it's read fails to read), so a
+     caller can remember them without asking again. */
   FolderFS.prototype.read = function (path) {
     var parts = split(path), file = parts.pop();
     return this.walk(parts).then(function (d) { return d.getFileHandle(file); }).then(function (h) { return h.getFile(); })
-      .then(function (f) { return f.text().then(function (t) { return { text: t, mtime: f.lastModified }; }); }, orNull);
+      .then(function (f) { return f.text().then(function (t) { return { text: t, mtime: f.lastModified, size: f.size }; }); }, orNull);
   };
   /* Size and time without reading the contents, so unchanged files can be skipped. */
   FolderFS.prototype.stat = function (path) {
@@ -93,7 +95,7 @@ PF.fs = (function () {
     });
     return Promise.resolve(out);
   };
-  MemoryFS.prototype.read = function (path) { var f = this.files[path]; return Promise.resolve(f && !/^data:/.test(f.t) ? { text: f.t, mtime: f.m } : f ? { text: f.t, mtime: f.m } : null); };
+  MemoryFS.prototype.read = function (path) { var f = this.files[path]; return Promise.resolve(f ? { text: f.t, mtime: f.m, size: utf8(f.t) } : null); };
   MemoryFS.prototype.write = function (path, data) {
     split(path);
     var self = this;

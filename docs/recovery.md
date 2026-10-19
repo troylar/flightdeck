@@ -121,7 +121,7 @@ Changes Flightdeck kept in this browser while it couldn't write are filed under 
 
 ## The folder is getting big
 
-**What you see:** **Folder health** says the folder has many runs, a run folder holds many files, attachments take a lot of space, or some file paths are very long.
+**What you see:** **Folder health** says the folder has many runs, a run folder holds many files, attachments take a lot of space, some file paths are very long, or refreshing takes a long time on this computer.
 
 **What it means:** Flightdeck still works, but every computer keeps every file, and opening the folder reads more each time. Past about 2,000 runs, or 1 GB of attachments, it gets slow. Windows refuses paths that get too long once the team folder's own location is added.
 
@@ -130,6 +130,7 @@ Changes Flightdeck kept in this browser while it couldn't write are filed under 
 - **Many runs:** start a new team folder for new runs (**Settings → Start a new team folder**), copy the drafts and step types into it, and keep the old folder as the record.
 - **Big attachments:** keep large logs and recordings elsewhere and attach a link or a short excerpt. A `.zip` of many small files is one file instead of many.
 - **Long paths:** use shorter process IDs and file names in new checklists.
+- **Slow refreshing on one computer:** check that OneDrive has the folder's files on this computer (**Always keep on this device**), and close other Flightdeck windows on the same folder. If every computer is slow, the folder is too big: start a new one.
 - **Step types or skills not read:** Flightdeck reads the first 100 step types and the first 500 skill registrations, by name. Remove ones nobody uses.
 
 **What not to do:** don't delete or move old runs to save space. Runs are the record; move the whole folder or start a new one.

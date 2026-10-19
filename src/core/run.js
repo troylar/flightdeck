@@ -32,7 +32,26 @@ PF.run = (function () {
     return r;
   }
 
-  function mapOf(r) { return M.parse(r.snapshot); }
+  /* A run's checklist, parsed once for every run that shares it: keyed by version folder and fingerprint, and used only
+     when the stored text is exactly the run's. Entries stay while loaded runs use them (mapMemo.keep after each accepted
+     load) and go with the folder (mapMemo.clear), so there's no fixed size for many interleaved versions to thrash. The
+     map is shared, so nothing may change it; tests deep-freeze it (mapMemo.freeze) to prove that. */
+  var memo = Object.create(null), memoStats = { parses: 0 };
+  function deepFreeze(o) { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.keys(o).forEach(function (k) { deepFreeze(o[k]); }); } return o; }
+  function parsed(text) { memoStats.parses++; var m = M.parse(text); return mapMemo.freeze ? deepFreeze(m) : m; }
+  function mapOf(r) {
+    var k = r.folder + '|' + r.mapHash, e = memo[k];
+    if (e && e.snapshot === r.snapshot) return e.map;
+    if (e) return parsed(r.snapshot);
+    e = memo[k] = { snapshot: r.snapshot, map: parsed(r.snapshot) };
+    return e.map;
+  }
+  var mapMemo = {
+    freeze: false, deepFreeze: deepFreeze,
+    keep: function (runs) { var used = Object.create(null); (runs || []).forEach(function (r) { if (r) used[r.folder + '|' + r.mapHash] = true; }); Object.keys(memo).forEach(function (k) { if (!used[k]) delete memo[k]; }); },
+    clear: function () { memo = Object.create(null); },
+    stats: function () { return { parses: memoStats.parses, size: Object.keys(memo).length }; }
+  };
   function jiraFor(map, workflows) {
     var out = {};
     if (!workflows) return out;
@@ -905,7 +924,7 @@ PF.run = (function () {
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, valid: valid, sanitize: sanitize, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

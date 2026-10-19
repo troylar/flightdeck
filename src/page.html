@@ -126,6 +126,7 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .hero .btn { background: var(--amber); color: var(--on-amber); border-color: var(--amber); margin-right: 14px; }
 .home { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 26px; align-items: start; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-bottom: 28px; }
+.paged { margin: -14px 0 28px; align-items: center; flex-wrap: wrap; }
 .card { text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); }
 button.card:hover { border-color: var(--ink); }
 .card.plan { border-style: dashed; border-color: var(--plan); }
@@ -1332,7 +1333,7 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .s-notes .ic { width: 13px; height: 13px; }
 .rw .b-must { background: none; color: var(--muted); border: 1px solid var(--line); }
 @keyframes rw-flash { from { background: var(--plan-soft); } to { background: transparent; } }
-.rw .step.flash { animation: rw-flash 1.6s ease-out; }
+.rw .step.flash, .rw .tnotes li.flash { animation: rw-flash 1.6s ease-out; }
 .rw .gate .rw-in { min-width: 220px; }
 .g-rec { color: var(--ink); }
 /* The inspector: what to do, recording the result, the answer, then notes. */

@@ -1,5 +1,35 @@
 [
   {
+    "version": "1.17.0",
+    "date": "2026-10-19",
+    "headline": "Big team folders: runs 50 at a time, fewer file checks, and a warning when refreshing is slow",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Runs load 50 at a time",
+        "before": "The Runs page drew every run at once, which got slow with hundreds of runs.",
+        "now": "Running and Finished each show 50 runs and say how many there are. Show 50 more adds the next ones and moves you to the first one added.",
+        "where": "Runs"
+      },
+      {
+        "kind": "new",
+        "area": "Folder health",
+        "title": "Says when refreshing is slow on this computer",
+        "now": "When the last 3 refreshes each took more than 15 seconds, Folder health says how long refreshing takes here, with what to do about a big folder.",
+        "where": "Settings › Folder health"
+      },
+      {
+        "kind": "improved",
+        "area": "Team folder",
+        "title": "Big team folders open with fewer file checks",
+        "before": "Opening a team folder checked each notes file's size again after reading it, and every picture on a page was read and shrunk at once.",
+        "now": "A notes file's size now comes with reading it, so opening a big folder asks OneDrive for about 10% fewer things. Pictures are read when they scroll into view, a few at a time, after the run you're recording.",
+        "where": "Opening a team folder, and any page with pictures"
+      }
+    ]
+  },
+  {
     "version": "1.16.1",
     "date": "2026-10-19",
     "headline": "Make the editors' side panels wider or narrower",

@@ -76,8 +76,19 @@ PF.vk = (function () {
     return '<div class="tagbar" role="group" aria-label="Filter by tag">' + all.map(function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; }).join('') +
       (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
   }
+  /* A long list, 50 at a time: the first n items (n grows by 50 with Show more, kept per list in state.more), how many there
+     are, and the button. keyOf names an item, so focus can move to the first one Show more adds. Paging rather than
+     scrolling tricks keeps Ctrl+F, screen readers and the page's patching working. */
+  var PAGE = 50;
+  function paged(st, id, items, draw, keyOf) {
+    var n = Math.max(PAGE, Math.floor(((st.more || {})[id]) || PAGE)), shown = items.slice(0, n), left = items.length - shown.length;
+    var h = draw(shown);
+    if (left > 0) h += '<div class="row paged"><span class="small">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + '</span>' +
+      '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(keyOf(items[n])) + '">Show ' + Math.min(PAGE, left) + ' more</button></div>';
+    return h;
+  }
   function tagChips(tags) { return (tags || []).length ? '<span class="tags">' + tags.map(function (t) { return '<span class="tag">#' + esc(t) + '</span>'; }).join('') + '</span>' : ''; }
-  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips };
+  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
 })();
 (function () {
   'use strict';

@@ -99,7 +99,7 @@
       return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
     if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.builder(ctx, p, text) + '</section>' + ins + '</div>';
-    else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
+    else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
     return h + '</div>';
   }
 
@@ -127,7 +127,7 @@
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
       '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label>' +
-      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="home">Cancel</button></div></form>';
+      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
   }
   /* The starting Markdown for a new process: front matter plus one phase to fill in. */
   function starterMap(f) {
@@ -248,7 +248,7 @@
       '<input id="tf-tagadd" maxlength="30" list="tf-tag-list" placeholder="Add a tag" data-enter="tf-tag-add"' + (tagErr.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + tagErr.map(function (n) { return 'tf-err-' + n; }).concat(['tf-tagadd-help']).join(' ') + '"></div><datalist id="tf-tag-list">' + tagsAll.filter(function (t) { return tags.indexOf(t) < 0; }).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       errHtml('tf-tags', tags.length > 0) + '<p class="tf-help" id="tf-tagadd-help">Press Enter or type a comma; it\'s also added when you leave the box. Tags filter the Step types list.</p></div>';
     var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(tags.map(function (t) { return '#' + t; })).join(' · ');
-    h += '<div class="fpe-panes tf-panes"' + V.paneAttr(ctx, ['tf']) + '><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" novalidate>' +
+    h += '<div class="fpe-panes tf-panes"' + V.paneAttr(ctx, ['tf']) + '><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" data-draft-kept novalidate>' +
       '<section class="panel tf-card" aria-labelledby="tf-basics-h"><h2 id="tf-basics-h">Basics</h2>' +
       field('tf-label', 'What people call it', '<input id="tf-label" maxlength="40" value="' + esc(d.label) + '"' + attrs('tf-label', !!String(d.label || '').trim(), true) + '>', 'Shown on every step of this type, like Change request.', !!String(d.label || '').trim()) +
       idPart +

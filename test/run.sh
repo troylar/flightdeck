@@ -12,6 +12,7 @@ node test/checker.test.js
 node test/app.test.js
 node test/build.test.js
 node test/cli.test.js
+node test/perf.test.js
 node -e "
 const fs=require('fs'),vm=require('vm');const h=fs.readFileSync('dist/flightdeck.html','utf8');
 for (const id of ['pf-core','pf-app']){const m=new RegExp('<script id=\"'+id+'\">([\\\\s\\\\S]*?)</script>').exec(h);new vm.Script(m[1]);}
