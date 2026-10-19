@@ -660,11 +660,6 @@ html.tfe-on .top { display: none; }
 html.tfe-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.tfe-on, html.tfe-on body { overflow: hidden; } }
 .fpe-type.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); }
-/* The page shell's notice (examples kept in this tab only) sits above every screen; full-page editors start below it. */
-#keep:empty { display: none; }
-#keep { padding: 8px 16px; background: var(--paper); }
-#keep .notice { margin: 0 auto; max-width: 1200px; }
-.fpe, .fpe-type.fpe { top: var(--keep-h, 0px); }
 .fpe-type .fpe-head { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; grid-template-areas: "id tools save"; align-items: center; gap: 8px 12px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
 .fpe-type .fpe-id { grid-area: id; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .fpe-type .fpe-tools { grid-area: tools; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1545,14 +1540,32 @@ button.att:hover { border-color: var(--ink); }
   .rv-toc .chipbtn, .cx-ask .btn, .cx-ask .mini { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+/* ---------- Examples kept in this tab only (blocked site storage) ----------
+   The badge is fixed above every layer: screens, sheets, menus and dialogs (its z-index is the page's highest; a test checks).
+   Everything that pins itself to the top of the window starts below it, so it covers nothing. --keep-h is 0 otherwise. */
+:root { --keep-h: 0px; }
+html.tab-only { --keep-h: calc(32px + env(safe-area-inset-top, 0px)); }
+body { padding-top: var(--keep-h); }
+.top { top: var(--keep-h); }
+.overlay, .fpe, .fpe-type.fpe { top: var(--keep-h); }
+#tab-badge:empty { display: none; }
+#tab-badge { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; box-sizing: border-box; height: var(--keep-h); padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); display: flex; align-items: center; justify-content: center; background: var(--amber-soft); color: var(--ink); border-bottom: 2px solid var(--amber); }
+.tab-badge { min-width: 0; font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 800px) {
+  html.tab-only { --keep-h: calc(26px + env(safe-area-inset-top, 0px)); }
+  .tab-badge { font-size: 13px; }
+  .fpe-head, .fpe-type .fpe-head, .fpe-head.rw-head, .rw-ins[data-open="true"] { top: var(--keep-h); }
+  .rw-next { top: calc(var(--keep-h) + var(--rw-head-h, 0px)); }
+  .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--keep-h) + var(--rw-head-h, 0px) + var(--rw-next-h, 72px) + 12px); }
+}
 </style>
 </head>
 <body>
-<div id="keep"></div>
 <header class="top wrap"><div class="top-in" id="top"></div></header>
 <main class="wrap" id="app"></main>
 <div id="overlay"></div>
 <div id="live" class="sr" role="status" aria-live="polite"></div>
+<div id="tab-badge"></div>
 <script id="pf-core">
 var PF = {};
 /*@CORE@*/

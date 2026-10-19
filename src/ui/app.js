@@ -533,9 +533,20 @@
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
+    if (fs.volatile) explainTabOnly();
     return load(true, true);
   }
 
+  /* The first time this session's examples are tab-only, a dialog says what that means; the badge keeps saying it. Remembered
+     for the tab's session where the browser allows, else for this page. */
+  var tabOnlyExplained = false;
+  function explainTabOnly() {
+    try { tabOnlyExplained = tabOnlyExplained || sessionStorage.getItem('preflight:tab-only-seen') === '1'; } catch (e) { /* storage blocked */ }
+    if (tabOnlyExplained || state.overlay) return;
+    tabOnlyExplained = true;
+    try { sessionStorage.setItem('preflight:tab-only-seen', '1'); } catch (e) { /* storage blocked */ }
+    state.overlay = { back: null, html: function () { return V.tabOnlyHelp(ctx); } };
+  }
   function seedExamples(mem) { mem.reset(EXAMPLES); return PF.examples.seed(mem, EXAMPLES); }
   function boot() {
     var mem = new PF.fs.MemoryFS(LS + ':examples', null);
@@ -779,27 +790,19 @@
   /* ---------- rendering ---------- */
   var app = document.getElementById('app'), topEl = document.getElementById('top'), overlayEl = document.getElementById('overlay');
   /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
-  function say(text, kind, act) {
-    /* In a tab that can't keep anything, a save says where it went. */
-    if (text && kind === 'good' && state.fs && state.fs.volatile) {
-      text = text.replace(/^Saved( \{[^}]*\}| your draft)?(?! for this tab only)/, 'Saved$1 for this tab only');
-      /* Anything else said after a write (a note, an answer, a correction, a follow-up) says where it went too. */
-      if (state.fs.wrote && !/this tab only/.test(text)) text = text.replace(/\s*$/, '') + ' Kept in this tab only.';
-    }
-    if (state.fs && state.fs.volatile) state.fs.wrote = false;
-    state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
+  function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
   function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
-  /* The page shell's own notice, outside every screen: the examples are kept in this tab only. */
-  var keepEl = document.getElementById('keep'), keepHtml = null;
-  function renderKeep() {
-    var h = V.tabOnly(ctx);
-    if (keepEl && h !== keepHtml) { keepEl.innerHTML = h; keepHtml = h; }
-    var root = document.documentElement;
-    if (keepEl && root && root.style) root.style.setProperty('--keep-h', (keepEl.offsetHeight || 0) + 'px');
+  /* The examples kept in this tab only: a badge in the page shell, fixed above every screen, sheet and dialog. The root's
+     class leaves room for it at the top (--keep-h in page.html). Messages never mention it; the badge is the one place. */
+  var badgeEl = document.getElementById('tab-badge'), badgeHtml = null;
+  function renderBadge() {
+    var h = V.tabOnly(ctx), root = document.documentElement;
+    if (badgeEl && h !== badgeHtml) { badgeEl.innerHTML = h; badgeHtml = h; }
+    if (root && root.classList) { if (h) root.classList.add('tab-only'); else root.classList.remove('tab-only'); }
   }
   function renderTop() {
-    renderKeep();
+    renderBadge();
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
     if (meVal) patch(topEl, V.top(ctx));
     pinOffsets();
@@ -809,7 +812,7 @@
     var root = document.documentElement, pl = app.querySelector && app.querySelector('.phase[data-s="open"] .placard');
     if (!root || !root.style || !topEl.offsetHeight) return;
     var bar = (topEl.closest && topEl.closest('.top')) || topEl, pinned = window.getComputedStyle && window.getComputedStyle(bar).position === 'sticky';
-    root.style.setProperty('--top-h', (pinned ? bar.offsetHeight : 0) + 'px');
+    root.style.setProperty('--top-h', (pinned ? bar.offsetHeight : 0) + (badgeEl && badgeEl.offsetHeight || 0) + 'px');
     if (pl && pl.offsetHeight) root.style.setProperty('--placard-h', pl.offsetHeight + 'px');
   }
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
@@ -944,7 +947,7 @@
     }
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */
-      var c = overlayEl.querySelector('#lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, .help [data-act="close-overlay"]');
+      var c = overlayEl.querySelector('#tab-only-ok, #lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, .help [data-act="close-overlay"]');
       if (c && !overlayEl.contains(document.activeElement)) c.focus();
       app.setAttribute('inert', ''); topEl.setAttribute('inert', '');
     } else { app.removeAttribute('inert'); topEl.removeAttribute('inert'); }

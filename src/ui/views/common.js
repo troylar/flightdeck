@@ -11,10 +11,11 @@ PF.vk = (function () {
     var p = person(ctx, id), ini = p ? p.initials : String(id || '?').slice(0, 2).toUpperCase();
     return '<span class="avatar' + (lg ? ' lg' : '') + '" title="' + esc(nameOf(ctx, id)) + '">' + esc(ini) + '</span>';
   }
-  /* The examples in a browser that refuses storage live in this tab only. Said on every screen, apart from messages, so no
-     other message can replace it. */
+  /* The examples in a browser that refuses storage live in this tab only. The page shell's badge says so, short on screen and
+     in full to screen readers; it holds nothing focusable, so it never traps or takes focus. */
   function tabOnly(ctx) {
-    return ctx.state.fs && ctx.state.fs.volatile ? '<div class="notice warn" id="tab-only" role="note"><span><b>Kept in this tab only.</b> This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. To keep your work, use a team folder.</span></div>' : '';
+    return ctx.state.fs && ctx.state.fs.volatile ? '<div class="tab-badge" id="tab-only" role="note"><span aria-hidden="true">Tab only: changes vanish on reload</span>' +
+      '<span class="sr">Kept in this tab only. This browser doesn\'t let Flightdeck keep anything, so the examples and your changes to them last only while this tab is open. Reloading or closing it loses them. To keep your work, use a team folder.</span></div>' : '';
   }
   function notices(ctx, opts) {
     var h = '';

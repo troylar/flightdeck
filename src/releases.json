@@ -33,7 +33,7 @@
         "area": "Examples",
         "title": "Opens in a browser that blocks site storage",
         "before": "In a browser set to block site data, Flightdeck stopped while setting up the examples and showed nothing.",
-        "now": "The examples open with a warning above every screen that they and your changes to them last only while the tab is open. Saves, notes and other changes say they're kept in this tab only. A team folder still keeps everything.",
+        "now": "The examples open, and a short dialog explains once that they and your changes to them last only while the tab is open. After that, a Tab only badge at the top of the window stays in view on every screen, dialog and phone step panel. The run's save status and the editors' labels say Saved in this tab only. A team folder still keeps everything.",
         "where": "Opening Flightdeck"
       }
     ]
