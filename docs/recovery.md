@@ -153,8 +153,8 @@ Changes Flightdeck kept in this browser while it couldn't write are filed under 
 
 **What to do:**
 
-1. In `people.json`, keep their entry (runs and sign-offs refer to it) and add `"inactive": true` to it, so they're no longer offered for roles. Never delete or reuse their ID. One person edits `people.json` at a time.
-2. Give their checklists a new owner: change `owner:` in each draft and publish a new version. Sign-offs from before stay with the versions they were for.
+1. The folder owner or backup owner opens **Settings → People** and chooses **Mark inactive** for them: their entry stays (runs and sign-offs refer to it), and they're no longer offered for roles. Never delete or reuse their ID. If they were the folder owner, the backup owner marks them inactive, then chooses **Make folder owner** on themselves and picks a new backup.
+2. Give their checklists a new owner: change `owner:` in each draft and publish a new version. Until then, a checklist's `backup:` owner can sign off its versions. Sign-offs from before stay with the versions they were for.
 3. If they were recording a run, someone uses **Take over** on it, and checks the run for conflict copies afterward.
 4. If they updated Flightdeck for the team, choose who does now, and give them [Updating Flightdeck](updating.md).
 

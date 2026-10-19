@@ -32,7 +32,8 @@ function boot(opts) {
   const html = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
   const intervals = [];
-  const els = {}, listeners = {}, winListeners = {}, store = Object.assign({}, opts.localStore || {}), inputs = new Set();
+  // Tests start past the first-run welcome unless they ask for it (firstRun).
+  const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
   const get = id => (els[id] = els[id] || element(id));
   ['app', 'top', 'overlay', 'live'].forEach(get);
   /* Like a real page: a redraw recreates the screen's inputs empty; the app's own code puts back what was typed. */

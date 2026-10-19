@@ -37,7 +37,8 @@ roles: author, reviewer
 | `process` | yes | The process ID: lowercase letters, numbers and dashes. Stays the same forever. |
 | `title` | yes | What people see. |
 | `category` | no | Groups processes on Home. |
-| `owner` | no | A person ID from `people.json`. |
+| `owner` | no | A person ID from `people.json`. The owner signs off a version as ready for a skill. |
+| `backup` | no | The backup owner: another person ID from `people.json`. Signs off only while the owner is inactive or gone from `people.json`. Flightdeck before 1.15 ignores it and counts only the owner's sign-offs. |
 | `group` | no | Where the process sits in the team's hierarchy, separated by `/` (`Engineering / Releases`). Without it, the category. |
 | `tags` | no | Labels to filter by (`production, deploy`). |
 | `context` | no | Run details filled in when a run starts (`ticket, commit, environment`). At most 40, each a name of letters, numbers, dashes or underscores up to 60 characters. |

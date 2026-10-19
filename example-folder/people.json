@@ -1,6 +1,6 @@
 [
-  { "id": "person-avery", "name": "Avery Lee", "initials": "AL", "email": "avery@example.com" },
-  { "id": "person-blake", "name": "Blake Ortiz", "initials": "BO", "email": "blake@example.com" },
+  { "id": "person-avery", "name": "Avery Lee", "initials": "AL", "email": "avery@example.com", "folderRole": "owner" },
+  { "id": "person-blake", "name": "Blake Ortiz", "initials": "BO", "email": "blake@example.com", "folderRole": "backup" },
   { "id": "person-casey", "name": "Casey Nguyen", "initials": "CN", "email": "casey@example.com" },
   { "id": "person-morgan", "name": "Morgan Diaz", "initials": "MD", "email": "morgan@example.com" }
 ]

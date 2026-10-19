@@ -3079,24 +3079,125 @@ rule('App: random sequences of selecting, typing evidence, Fill in, checking, Do
   }
 });
 
-rule('App: a new team folder\'s starter checklist names whoever created it as its owner, and the folder records the defaults it started from', async () => {
+rule('App: Start your team on an empty folder: a write test, people with IDs and roles, the contract, a first checklist owned by you, a run, and a second person', async () => {
   const { example } = require('./harness'), cli = require('../bin/flightdeck.js');
-  const dir = folderHandle('Team');
-  const app = boot({ picker: dir, indexedDB: memoryIDB() });
+  const written = [], files = new Proxy({}, { set(t, k, v) { written.push(k); t[k] = v; return true; } });
+  const dir = folderHandle('Team', files);
+  const app = boot({ picker: dir, indexedDB: memoryIDB(), firstRun: true });
   await app.tick(60);
-  app.choose('person-blake'); await app.tick();
-  app.click('new-folder'); await app.tick(300);
-  const f = dir.files;
-  assert.strictEqual(app.PF.map.parse(f['maps/drafts/check-in.md']).meta.owner, 'person-blake');
-  assert.strictEqual(f['maps/drafts/check-in.md'], example('maps/drafts/check-in.md').replace(/^owner: .*$/m, 'owner: person-blake'), 'only the owner line differs from the starter');
-  assert.ok(/## Team notes/.test(f['AGENTS.md']), 'AGENTS.md comes with Team notes');
-  const rec = JSON.parse(f['.flightdeck/installed.json']), keys = Object.keys(f).filter(k => k === 'AGENTS.md' || k.startsWith('.flightdeck/skills/')).sort();
-  assert.strictEqual(rec.format, 'flightdeck-installed/1');
-  assert.strictEqual(rec.by, 'app');
+  assert.ok(/Start your team/.test(app.html()) && /Look around the examples/.test(app.html()) && !/At a glance/.test(app.html()), 'the welcome, not the examples');
+  app.click('setup-mode', 'start'); await app.tick();
+  assert.ok(/Choose the team folder/.test(app.html()));
+  app.click('setup-pick'); await app.tick(80);
+  assert.ok(written.some(k => /^\.flightdeck\/write-test-[a-z0-9]+\.tmp$/.test(k)), 'a test file was written');
+  assert.deepStrictEqual(Object.keys(files).filter(k => !k.endsWith('/')), [], 'and removed');
+  assert.ok(/Flightdeck can save files in <b>Team<\/b>/.test(app.html()));
+  app.click('setup-next', 'people'); await app.tick();
+  app.input('su-me-name', 'Riley Park'); app.input('su-name-t1', 'Sam Fox');
+  app.click('setup-add-row'); await app.tick(); app.input('su-name-t2', 'Sam Fox');
+  app.select('su-backup', 't1'); await app.tick();
+  assert.ok(/person-sam-fox-2/.test(app.html()), 'IDs shown before saving');
+  app.submit('setup-people-form'); await app.tick(300);
+  const ppl = JSON.parse(files['people.json']);
+  assert.deepStrictEqual(ppl.map(p => [p.id, p.folderRole || '']), [['person-riley-park', 'owner'], ['person-sam-fox', 'backup'], ['person-sam-fox-2', '']]);
+  assert.strictEqual(app.store['preflight:me'], '"person-riley-park"');
+  assert.ok(/## Team notes/.test(files['AGENTS.md']) && files['AGENTS.md'].indexOf('<!-- flightdeck:begin -->') === 0);
+  const rec = JSON.parse(files['.flightdeck/installed.json']), keys = Object.keys(files).filter(k => k === 'AGENTS.md' || k.startsWith('.flightdeck/skills/')).sort();
+  assert.strictEqual(rec.by, 'app'); assert.strictEqual(rec.format, 'flightdeck-installed/1');
   assert.strictEqual(rec.version, cli.versionOf(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8')));
   assert.deepStrictEqual(Object.keys(rec.files).sort(), keys);
-  keys.forEach(k => assert.strictEqual(rec.files[k], cli.hash(cli.managed(k, f[k])), k + ': the app and the command hash it the same way'));
-  assert.ok(/Created the team folder/.test(app.html() + app.live()), 'says it was created');
+  keys.forEach(k => assert.strictEqual(rec.files[k], cli.hash(cli.managed(k, files[k])), k + ': the app and the command hash it the same way'));
+  assert.ok(!Object.keys(files).some(k => k.startsWith('maps/')), 'no checklist until one is chosen');
+  assert.ok(/Your first checklist/.test(app.html()) && /Sam Fox is its backup owner/.test(app.html()));
+  app.click('setup-tpl', 'check-in'); await app.tick();
+  app.click('setup-publish', 'check-in'); await app.tick(300);
+  const md = files['maps/drafts/check-in.md'];
+  assert.strictEqual(md, example('maps/drafts/check-in.md').replace(/^owner: .*$/m, 'owner: person-riley-park').replace('roles: author, reviewer\n---', 'roles: author, reviewer\nbackup: person-sam-fox\n---'), 'only the owner and backup lines differ from the starter');
+  const pubInfo = Object.keys(files).find(k => /^publications\/check-in\/v1-[^/]+\/publication\.json$/.test(k));
+  assert.ok(pubInfo && /First version/.test(files[pubInfo]), 'published as v1, "First version"');
+  assert.ok(/is published/.test(app.html()));
+  app.click('setup-next', 'run'); await app.tick();
+  app.click('setup-run', 'check-in'); await app.tick();
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="solo"/.test(app.html()), 'the start form, on my own');
+  app.submitForm('start-form'); await app.tick(200);
+  const runPath = Object.keys(files).find(k => /^runs\/check-in\/[^/]+\/run\.json$/.test(k));
+  assert.ok(runPath, 'the run started');
+  app.click('nav', 'home'); await app.tick(40);
+  assert.ok(/Getting started · 3 of 5/.test(app.html()), 'three steps done');
+  // The run finishes (as its recorder's window writes it), and Sam answers a connection check from another computer.
+  const P = app.PF, R = P.run, r = JSON.parse(files[runPath]), map = R.mapOf(r), now = new Date().toISOString();
+  map.phases.forEach((ph, pi) => { ph.steps.forEach(st => { const v = {}; R.evidenceFor(r, st).list.forEach(d => { if (d.required) v[d.name] = d.kind === 'url' ? 'https://example.com/1' : 'ok'; }); R.done(r, map, st.id, 'person-riley-park', now, v); }); R.pass(r, map, pi, 'person-riley-park', now); });
+  R.end(r, map, 'Completed', 'person-riley-park', 'Riley Park', now); r.rev = (r.rev || 0) + 1;
+  files[runPath] = JSON.stringify(r);
+  app.click('refresh'); await app.tick(200);
+  assert.ok(/Getting started · 4 of 5/.test(app.html()) && /data-act="setup-continue" data-id="second"/.test(app.html()));
+  const t0 = new Date(Date.now() - 3600000).toISOString();
+  files['connection/ack-abcd1234.wsam.json'] = JSON.stringify(P.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-sam-fox', writer: 'wsam', device: 'Windows · Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
+  app.click('refresh'); await app.tick(200);
+  assert.ok(/Your team is set up/.test(app.html()), 'an answer from Sam, even an hour old, completes it');
+  app.click('setup-hide'); await app.tick();
+  assert.ok(!/Your team is set up|Getting started/.test(app.html()), 'hidden in this browser');
+  assert.ok(!Object.keys(files).some(k => /write-test/.test(k)));
+});
+
+rule('App: the welcome shows once; Look around remembers the examples, and the examples banner leads back', async () => {
+  const app = boot({ firstRun: true }); await app.tick(60);
+  assert.ok(/Join your team's folder/.test(app.html()));
+  app.click('setup-mode', 'examples'); await app.tick();
+  assert.ok(/At a glance/.test(app.html()) && /data-act="setup-mode" data-id="welcome"/.test(app.html()));
+  assert.strictEqual(app.store['preflight:look-around'], 'true');
+  app.click('setup-mode', 'welcome'); await app.tick();
+  assert.ok(/Start your team/.test(app.html()));
+});
+
+rule('App: joining opens the folder and asks who you are; nothing is written, and someone not listed copies a request', async () => {
+  const { example } = require('./harness');
+  const files = { 'people.json': example('people.json').replace('"person-morgan", "name": "Morgan Diaz", "initials": "MD", "email": "morgan@example.com"', '"person-morgan", "name": "Morgan Diaz", "initials": "MD", "email": "morgan@example.com", "inactive": true'), 'maps/drafts/check-in.md': example('maps/drafts/check-in.md') };
+  const before = JSON.stringify(files), dir = folderHandle('Team', files);
+  const app = boot({ picker: dir, indexedDB: memoryIDB(), firstRun: true }); await app.tick(60);
+  app.click('setup-mode', 'join'); await app.tick();
+  app.click('setup-open'); await app.tick(200);
+  const html = app.html();
+  assert.ok(/Who are you\?/.test(html) && /data-act="setup-who" data-id="person-casey"/.test(html) && !/data-id="person-morgan"/.test(html), 'active people only');
+  app.input('su-rq-name', 'Jordan Fox'); await app.tick();
+  assert.ok(/Ask Avery Lee to add you/.test(app.html()) && /Name: Jordan Fox/.test(app.html()));
+  app.click('setup-who', 'person-casey'); await app.tick();
+  assert.strictEqual(app.store['preflight:me'], '"person-casey"');
+  assert.ok(/Hi, Casey/.test(app.html()) && !/Getting started/.test(app.html()), 'a member never sees Getting started');
+  app.click('nav', 'settings'); await app.tick();
+  assert.ok(!/people-add-form|data-act="people-/.test(app.html()), 'a member gets no people changes');
+  assert.strictEqual(JSON.stringify(files), before, 'joining wrote nothing');
+});
+
+rule('App: Settings, People: the folder owner adds (-2 on a clash), marks inactive and picks a backup; a changed people.json is never saved over', async () => {
+  const { example } = require('./harness');
+  const files = { 'people.json': example('people.json') }, dir = folderHandle('Team', files);
+  const app = boot({ picker: dir, indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  app.input('pa-name', 'Casey'); await app.tick();
+  assert.ok(/person-casey-2/.test(app.html()));
+  app.submit('people-add-form'); await app.tick(200);
+  let list = JSON.parse(files['people.json']);
+  assert.deepStrictEqual(list.slice(0, 4), JSON.parse(example('people.json')), 'everyone already there is untouched');
+  assert.strictEqual(list[4].id, 'person-casey-2');
+  app.click('people-active', 'person-morgan', { on: '' }); await app.tick(200);
+  app.click('people-backup', 'person-casey'); await app.tick(200);
+  list = JSON.parse(files['people.json']);
+  assert.strictEqual(list[3].inactive, true);
+  assert.deepStrictEqual(list.map(p => p.folderRole || ''), ['owner', '', 'backup', '', '']);
+  files['people.json'] = files['people.json'].replace('Blake Ortiz', 'Blake O.');
+  const theirs = files['people.json'];
+  app.click('people-active', 'person-morgan', { on: '1' }); await app.tick(200);
+  assert.strictEqual(files['people.json'], theirs, 'refused: the file changed since the page was drawn');
+  assert.ok(/changed since this page was drawn/.test(app.html()) && /Blake O\./.test(app.html()), 'says so and shows the list as it is now');
+  app.click('people-active', 'person-morgan', { on: '1' }); await app.tick(200);
+  assert.ok(!JSON.parse(files['people.json'])[3].inactive, 'the same change made again goes through');
+  app.choose('person-blake'); await app.tick();
+  assert.ok(!/people-add-form/.test(app.html()));
+  app.click('people-backup', 'person-morgan'); await app.tick(100);
+  assert.ok(!/"folderRole": "backup"[^}]*person-morgan|person-morgan[^}]*"folderRole": "backup"/.test(files['people.json']), 'a member\'s change is refused');
 });
 
 /* ---------- Folder health, the connection check, When something goes wrong (1.15) ---------- */
@@ -3466,6 +3567,32 @@ rule('App: Discard goes back to exactly what the save wrote, even when a later c
   const d = t.disk();
   assert.strictEqual(d.details.commit, 'SAVED-B', 'the restore writes what landed, not an older snapshot');
   assert.ok(JSON.stringify(d.log).indexOf('SAVED-B') >= 0, 'with B\'s log entry');
+});
+
+rule('App: setup refuses a folder that already has Flightdeck files for AI assistants, and replaces nothing', async () => {
+  const files = { '.flightdeck/skills/flightdeck-status/SKILL.md': 'our own version' }, before = JSON.stringify(files), dir = folderHandle('Team', files);
+  const app = boot({ picker: dir, indexedDB: memoryIDB(), firstRun: true }); await app.tick(60);
+  app.click('setup-mode', 'start'); await app.tick();
+  app.click('setup-pick'); await app.tick(80);
+  assert.ok(/isn(&#39;|')t empty: it already has Flightdeck files/.test(app.html()), 'says why');
+  assert.ok(!/data-act="setup-next"/.test(app.html()));
+  assert.strictEqual(JSON.stringify(files), before);
+});
+
+rule('App: Getting started never counts an answer from another team folder', async () => {
+  const { example } = require('./harness');
+  const a = { 'people.json': example('people.json') }, b = { 'people.json': example('people.json') };
+  const opts = { picker: folderHandle('A', a), indexedDB: memoryIDB() }, app = boot(opts); await app.tick(60);
+  const t0 = new Date().toISOString();
+  a['connection/ack-abcd1234.wb.json'] = JSON.stringify(app.PF.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-blake', writer: 'wb', device: 'Windows · Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
+  app.choose('person-avery'); await app.tick();
+  app.click('connect'); await app.tick(200);
+  app.click('nav', 'home'); await app.tick(100);
+  assert.ok(/Getting started · 3 of 5/.test(app.html()), 'folder A: Blake answered');
+  opts.picker = folderHandle('B', b);
+  app.click('connect'); await app.tick(200);
+  app.click('nav', 'home'); await app.tick(100);
+  assert.ok(/Getting started · 2 of 5/.test(app.html()), 'folder B: nobody has answered here');
 });
 
 run();

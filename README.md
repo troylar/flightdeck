@@ -53,11 +53,24 @@ Flightdeck keeps checklists and run records together, links to skills stored els
 ```bash
 npm install -g @troylar/flightdeck
 
-flightdeck open                        # opens the app on built-in examples
-flightdeck install ~/OneDrive/Team     # puts flightdeck.html, AGENTS.md and the AI assistant skills in your team folder
+flightdeck open                        # opens the app: start your team, join one, or look around the examples
 ```
 
-Then open `flightdeck.html` from the team folder, go to **Settings → Open team folder**, pick the same folder, and choose who you are in the top right. That's the whole setup.
+**Starting a team?** In the app, choose **Start your team** and pick a new, empty shared OneDrive folder (an empty folder, so nothing already there is replaced). When setup is done, put Flightdeck in that folder so everyone opens the same version:
+
+```bash
+flightdeck install ~/OneDrive/Team     # adds flightdeck.html; keeps the AGENTS.md and skills setup wrote
+```
+
+**Joining a team?** Open `flightdeck.html` from your team's folder in Edge or Chrome.
+
+The first screen offers three ways in:
+
+- **Start your team** (the first person): pick an empty shared OneDrive folder (Flightdeck checks it can save there), add your people and a backup owner, publish a first checklist (Code check-in, Weekly review, blank, or one your AI assistant writes), do a first run on your own, then send a teammate the way in and check that their computer answers. Home shows **Getting started · N of 5** until all five are done; each step ticks itself from what's in the folder.
+- **Join your team's folder** (everyone else): open the folder and choose who you are. Not on the list? Copy a request to the folder owner; only the folder owner and backup owner change `people.json`.
+- **Look around the examples**: a made-up team, saved in this browser only.
+
+Setup writes `people.json`, `AGENTS.md` and the skills itself; `flightdeck install` afterwards only adds what's missing or still a default. Run it before setup and the folder isn't empty any more, so setup asks for another one.
 
 To update later, run `flightdeck install` again: it updates what's still a Flightdeck default and keeps what your team changed. [Updating Flightdeck](docs/updating.md) walks through it, including backups and mixed versions; [When something goes wrong](docs/recovery.md) covers conflict copies, lost folder access and restoring.
 
@@ -401,7 +414,7 @@ Install and skills sort every `AGENTS.md` and skill file the same way. A file th
 <summary><b>The folder, as text</b></summary>
 
 ```
-people.json            who's on the team
+people.json            who's on the team, with the folder owner and backup owner
 maps/drafts/           checklists being written (Markdown)
 publications/          published versions, frozen (Flightdeck writes these)
 runs/                  one folder per run: run.json, everyone's notes and corrections, attached files
@@ -507,6 +520,17 @@ Both. The app's editor and your AI assistant write the same draft files. The app
 <summary><b>The checklist was wrong during a run. What do I do?</b></summary>
 
 Select the step and choose **Correct this step** (or press C): change its wording with a live Before/After, or choose **Change something else** for a missing step, the order, who does it, a screenshot or removing it. Attach files to show why. It never answers the step. If you already did the step another way, use **Done differently** beside Done and choose **Fix the checklist too**. Corrections wait on the process page, grouped by step, where anyone marks one as applied to the draft or declines it with a reason. Then edit the draft and publish as usual.
+
+</details>
+
+<details>
+<summary><b>Is Flightdeck secure?</b></summary>
+
+It's as private as the OneDrive folder it lives in, and no more. There's no server and no sign-in; nothing leaves your computers except through OneDrive.
+
+Roles in Flightdeck prevent ordinary mistakes: only the folder owner and backup owner change the people list, and only a checklist's owner (or its backup owner, while the owner is away) signs off a version. They aren't security. Anyone who can open the team folder can change any file in it, with Flightdeck or without. Who can open it is set by how you share it in OneDrive.
+
+Keep secrets, tokens and customer data out of checklists, notes and attachments.
 
 </details>
 

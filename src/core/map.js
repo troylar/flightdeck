@@ -206,6 +206,9 @@ PF.map = (function () {
     });
     if (map.phases.length && !musts) suggestions.push('No must-do steps. Mark the steps whose omission causes real harm with [!].');
     if (opts.people && meta.owner && !opts.people.some(function (p) { return p.id === meta.owner; })) suggestions.push('Owner "' + meta.owner + '" isn\'t in people.json.');
+    /* The backup owner signs off only while the owner is away, so it must be someone else on the team. */
+    if (meta.backup && meta.backup === meta.owner) suggestions.push('The backup owner is the owner. Name someone else as backup:, or leave it out.');
+    else if (opts.people && meta.backup && !opts.people.some(function (p) { return p.id === meta.backup; })) suggestions.push('Backup owner "' + meta.backup + '" isn\'t in people.json.');
     return { blockers: blockers, suggestions: suggestions };
   }
 

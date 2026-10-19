@@ -2111,4 +2111,166 @@ rule('Folder health: a save receipt younger than 2 minutes beside no run.json ma
   assert.strictEqual(old.issues.filter(i => i.id === 'orphans:release/r8')[0].severity, 'stop');
 });
 
+/* ---------- People, roles and Getting started (1.15) ---------- */
+const PP = PF.people, SU = PF.setup;
+rule('People: an ID is made from the name once, with -2 and -3 when it is taken, accents dropped', () => {
+  assert.strictEqual(PP.idFor('Riley Park', []), 'person-riley-park');
+  assert.strictEqual(PP.idFor('Riley Park', ['person-riley-park']), 'person-riley-park-2');
+  assert.strictEqual(PP.idFor('Riley Park', ['person-riley-park', 'PERSON-RILEY-PARK-2']), 'person-riley-park-3');
+  assert.strictEqual(PP.idFor('José Núñez', []), 'person-jose-nunez');
+  assert.strictEqual(PP.idFor('李', []), 'person-someone');
+});
+
+rule('People: a new team makes you folder owner and the backup you chose its backup owner, and nobody else gets a role', () => {
+  const doc = PP.create({ name: 'Riley Park', email: 'riley@example.com' }, [{ name: 'Sam Fox' }, { name: 'Sam Fox', email: '' }], 1);
+  same(doc.map(p => [p.id, p.folderRole || '']), [['person-riley-park', 'owner'], ['person-sam-fox', ''], ['person-sam-fox-2', 'backup']]);
+  assert.ok(Array.isArray(JSON.parse(PP.text(doc))), 'people.json stays an array');
+  assert.throws(() => PP.create({ name: ' ' }, [], -1), /Type a name/);
+  assert.throws(() => PP.create({ name: 'A', email: 'not an email' }, [], -1), /email/);
+});
+
+rule('People: adding a person never changes anyone already there, and keeps fields Flightdeck doesn\'t know', () => {
+  const doc = [{ id: 'person-avery', name: 'Avery Lee', email: 'a@example.com', folderRole: 'owner', team: 'web' }, { id: 'person-blake', name: 'Blake', inactive: true }];
+  const before = JSON.stringify(doc), res = PP.add(doc, 'Avery Lee', '');
+  assert.strictEqual(JSON.stringify(doc), before, 'the document it was given is untouched');
+  assert.strictEqual(res.person.id, 'person-avery-lee');
+  same(res.doc.slice(0, 2), doc);
+  assert.strictEqual(PP.add(doc, 'Blake', '').person.id, 'person-blake-2', 'inactive people\'s IDs are taken too');
+  const wrapped = PP.add({ people: doc }, 'Casey', '');
+  assert.ok(Array.isArray(wrapped.doc.people) && wrapped.doc.people.length === 3, 'an older { people: [...] } file keeps its shape');
+});
+
+rule('People: only an active folder owner or backup owner changes the list, and the backup takes over only once the owner is away', () => {
+  const list = PP.clean([{ id: 'o', name: 'Owner', folderRole: 'owner' }, { id: 'b', name: 'Backup', folderRole: 'backup' }, { id: 'm', name: 'Member' }, { id: 'x', name: 'Gone', inactive: true }]);
+  assert.ok(PP.canManage(list, 'o') && PP.canManage(list, 'b') && !PP.canManage(list, 'm') && !PP.canManage(list, ''));
+  assert.ok(PP.allowed(list, 'm', 'add'), 'a member may not add people');
+  assert.strictEqual(PP.allowed(list, 'b', 'add'), '');
+  assert.ok(/yourself/.test(PP.allowed(list, 'o', 'inactive', 'o')));
+  assert.strictEqual(PP.allowed(list, 'b', 'inactive', 'o'), '', 'the backup may mark the owner inactive');
+  assert.ok(PP.allowed(list, 'b', 'owner', 'b'), 'not while the owner is active');
+  assert.strictEqual(PP.allowed(list, 'o', 'owner', 'm'), '', 'the owner hands the folder to anyone active');
+  assert.ok(PP.allowed(list, 'o', 'backup', 'x'), 'never to someone inactive');
+  list[0].inactive = true;
+  assert.strictEqual(PP.allowed(list, 'b', 'owner', 'b'), '', 'the backup takes over once the owner is inactive');
+  assert.ok(!PP.canManage(list, 'o'), 'an inactive owner no longer manages');
+});
+
+rule('People: a new folder owner swaps roles with the old one, a new backup replaces the old one, and nobody is ever removed', () => {
+  const doc = [{ id: 'o', name: 'Owner', folderRole: 'owner' }, { id: 'b', name: 'Backup', folderRole: 'backup' }, { id: 'm', name: 'Member' }];
+  same(PP.setRole(doc, 'b', 'owner').doc.map(p => p.folderRole || ''), ['backup', 'owner', '']);
+  same(PP.setRole(doc, 'm', 'owner').doc.map(p => p.folderRole || ''), ['', 'backup', 'owner']);
+  same(PP.setRole(doc, 'm', 'backup').doc.map(p => p.folderRole || ''), ['owner', '', 'backup']);
+  assert.throws(() => PP.setRole(doc, 'o', 'backup'), /folder owner already/);
+  const off = PP.setActive(doc, 'm', false, 'o').doc;
+  assert.strictEqual(off.length, 3); assert.strictEqual(off[2].inactive, true);
+  assert.ok(!('inactive' in PP.setActive(off, 'm', true, 'o').doc[2]));
+  assert.throws(() => PP.setActive(doc, 'o', false, 'o'), /yourself/);
+  const gone = [{ id: 'o', name: 'Owner', folderRole: 'owner', inactive: true }, { id: 'b', name: 'Backup', folderRole: 'backup' }];
+  same(PP.setRole(gone, 'b', 'owner').doc.map(p => p.folderRole || ''), ['', 'owner'], 'an inactive owner doesn\'t become backup');
+});
+
+rule('Getting started: each step is worked out from the folder, and the second computer needs another person', () => {
+  const ppl = PP.clean([{ id: 'me', name: 'Me', folderRole: 'owner' }, { id: 'sam', name: 'Sam' }]);
+  const p = pub('check-in'), base = { folder: true, people: ppl, me: 'me', processes: [], runs: [], answers: [] };
+  same(SU.progress({}).steps.map(s => s.done), [false, false, false, false, false]);
+  let g = SU.progress(base);
+  same(g.steps.map(s => s.done), [true, true, false, false, false]); assert.strictEqual(g.next, 'checklist'); assert.strictEqual(g.count, 2);
+  g = SU.progress(Object.assign({}, base, { processes: [{ process: 'check-in', index: { latest: p } }], runs: [{ recorder: { person: 'me' }, ended: { outcome: 'Stopped early' } }] }));
+  same(g.steps.map(s => s.done), [true, true, true, false, false], 'a run stopped early isn\'t a finished first run');
+  g = SU.progress(Object.assign({}, base, { runs: [{ recorder: { person: 'me' }, ended: { outcome: 'Completed' } }], answers: [{ by: 'me' }] }));
+  assert.ok(g.steps[3].done && !g.steps[4].done, 'my own answer from another window doesn\'t count');
+  assert.ok(SU.progress(Object.assign({}, base, { answers: [{ by: 'sam' }] })).steps[4].done);
+  assert.ok(SU.progress(Object.assign({}, base, { runs: [{ recorder: { person: 'me' }, _notes: [{ by: 'sam' }] }] })).steps[4].done, 'a note from someone else counts');
+  assert.ok(!SU.progress(Object.assign({}, base, { people: PP.clean([{ id: 'me', name: 'Me' }]) })).steps[1].done, 'people need a folder owner');
+});
+
+rule('Getting started: every starter publishes with the creator as owner and the backup owner set, and only those lines change', () => {
+  SU.TEMPLATES.filter(t => t.id !== 'assistant').forEach(t => {
+    const base = t.md || example('maps/drafts/check-in.md'), md = SU.starter(base, 'person-riley', 'person-sam'), meta = M.parse(md).meta;
+    assert.strictEqual(meta.owner, 'person-riley'); assert.strictEqual(meta.backup, 'person-sam');
+    const b = P.build(md, { people: [{ id: 'person-riley', name: 'R' }, { id: 'person-sam', name: 'S' }], ...EX, by: 'person-riley', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
+    assert.ok(!b.blockers, t.id + ': ' + (b.blockers || []).join(' | '));
+    assert.strictEqual(md.split('\n').filter(l => base.split('\n').indexOf(l) < 0).length, 2, t.id + ': only owner and backup lines differ');
+  });
+  assert.ok(!/backup:/.test(SU.starter(SU.TEMPLATES[1].md, 'a', 'a')), 'no backup when it would be the owner');
+  assert.ok(/Hi Sam,/.test(SU.invite({ folder: 'Team', to: 'Sam Fox', from: 'Riley' })) && /choose Sam Fox as who you are/.test(SU.invite({ folder: 'Team', to: 'Sam Fox', from: 'Riley' })));
+  assert.ok(/Hi Avery,/.test(PP.request({ owner: 'Avery', folder: 'Team', name: 'Jordan' })) && /Name: Jordan/.test(PP.request({ owner: 'Avery', folder: 'Team', name: 'Jordan' })));
+});
+
+rule('Checklists: backup: is suggested away when it\'s the owner or not in people.json', () => {
+  const md = example('maps/drafts/check-in.md');
+  const sugg = b => M.check(M.parse(M.withMeta(md, { backup: b })), { people }).suggestions;
+  assert.ok(sugg('person-avery').some(x => /backup owner is the owner/.test(x)));
+  assert.ok(sugg('person-nobody').some(x => /Backup owner "person-nobody" isn't in people.json/.test(x)));
+  assert.ok(!sugg('person-blake').some(x => /[Bb]ackup/.test(x)));
+});
+
+rule('Sign-off: the backup owner signs off only while the owner is inactive or gone, and such a sign-off counts', () => {
+  const p = pub('release'), S = PF.skills; // owner person-casey, backup person-avery
+  assert.strictEqual(p.map.meta.backup, 'person-avery');
+  const ppl = PP.clean(people);
+  assert.strictEqual(S.signer(p, ppl, 'person-casey'), 'owner');
+  assert.strictEqual(S.signer(p, ppl, 'person-avery'), '', 'not while the owner is active');
+  assert.strictEqual(S.signer(p, ppl.map(x => x.id === 'person-casey' ? Object.assign({}, x, { inactive: true }) : x), 'person-avery'), 'backup');
+  assert.strictEqual(S.signer(p, ppl.filter(x => x.id !== 'person-casey'), 'person-avery'), 'backup', 'or once the owner is gone from people.json');
+  assert.strictEqual(S.signer(p, ppl.filter(x => x.id !== 'person-casey'), 'person-blake'), '', 'nobody else');
+  const v = (by, as) => ({ process: 'release', folder: p.info.folder, by, as, at: NOW });
+  assert.strictEqual(S.signoffs([v('person-avery', 'backup')], p).length, 1, 'the backup\'s sign-off counts');
+  assert.strictEqual(S.signoffs([v('person-avery')], p).length, 0, 'not without as: backup');
+  assert.strictEqual(S.signoffs([v('person-blake', 'backup')], p).length, 0, 'and only by the named backup');
+});
+
+rule('Folder health: the folder owner and backup owner, and checklist backups, are checked', () => {
+  const role = (list, me) => H.check(healthy(s => { s.data.people = list; s.me = me || 'person-casey'; }), HNOW);
+  const base = () => people.map(x => Object.assign({}, x));
+  const noOwner = role(base().map(x => { const c = Object.assign({}, x); delete c.folderRole; return c; }));
+  assert.ok(noOwner.issues.some(i => i.id === 'folder-owner' && i.severity === 'info'));
+  const away = role(base().map(x => x.id === 'person-avery' ? Object.assign(x, { inactive: true }) : x));
+  const fo = away.issues.filter(i => i.id === 'folder-owner')[0];
+  assert.ok(fo && fo.severity === 'warn' && /Blake Ortiz, the backup owner/.test(fo.detail), 'says the backup can take over');
+  assert.ok(away.issues.some(i => i.id === 'backup:release' && /Avery Lee, is marked inactive/.test(i.detail)), 'the release checklist\'s backup is away too');
+  const noBackup = role(base().map(x => { const c = Object.assign({}, x); if (c.folderRole === 'backup') delete c.folderRole; return c; }));
+  assert.ok(noBackup.issues.some(i => i.id === 'folder-backup'));
+  const two = role(base().map(x => Object.assign({}, x, x.id === 'person-casey' ? { folderRole: 'owner' } : {})));
+  assert.ok(two.issues.some(i => i.id === 'folder-roles'));
+  const ownerGone = role(base().filter(x => x.id !== 'person-casey'), 'person-avery');
+  assert.ok(/Avery Lee, can sign off versions until then/.test(ownerGone.issues.filter(i => i.id === 'owner:release')[0].detail));
+  [noOwner, away, noBackup, two, ownerGone].forEach(oneAction);
+});
+
+rule('Getting started: a folder counts as empty only with clutter and the write test\'s own leftovers, never other .flightdeck files', () => {
+  const E = SU.emptyFolder;
+  assert.ok(E([], []) && E([{ name: '.DS_Store' }, { name: '.flightdeck' }], [{ name: 'write-test-ab12.tmp', kind: 'file' }]));
+  assert.ok(!E([{ name: '.flightdeck' }], [{ name: 'skills', kind: 'dir' }]), 'skills a team already has are never replaced');
+  assert.ok(!E([{ name: '.flightdeck' }], [{ name: 'installed.json', kind: 'file' }]));
+  assert.ok(!E([{ name: 'notes.txt' }], []));
+});
+
+rule('Sign-off: when people.json couldn\'t be read, or lists nobody, nobody signs off as backup', () => {
+  const p = pub('release'), S = PF.skills, ppl = PP.clean(people).filter(x => x.id !== 'person-casey');
+  assert.strictEqual(S.signer(p, ppl, 'person-avery'), 'backup');
+  assert.strictEqual(S.signer(p, ppl, 'person-avery', true), '', 'people unreadable: the owner may be active');
+  assert.strictEqual(S.signer(p, [], 'person-avery'), '', 'an empty list proves nothing');
+  assert.strictEqual(S.signer(p, ppl, 'person-casey', true), 'owner', 'the owner still signs');
+});
+
+rule('The honest promise names the backup owner\'s sign-off too', () => {
+  const V = require('./harness').loadViews().views;
+  assert.ok(/backup owner, while the owner is away/.test(V.PROMISE), V.PROMISE);
+});
+
+rule('Sign-off: an inactive or unlisted backup owner never signs off', () => {
+  const p = pub('release'), S = PF.skills, ppl = PP.clean(people).map(x => x.id === 'person-casey' ? Object.assign({}, x, { inactive: true }) : x);
+  assert.strictEqual(S.signer(p, ppl, 'person-avery'), 'backup');
+  assert.strictEqual(S.signer(p, ppl.map(x => x.id === 'person-avery' ? Object.assign({}, x, { inactive: true }) : x), 'person-avery'), '', 'inactive backup');
+  assert.strictEqual(S.signer(p, ppl.filter(x => x.id !== 'person-avery'), 'person-avery'), '', 'backup not in people.json');
+});
+
+rule('People: a name shared by two people is shown with their email, else their ID, wherever someone is chosen', () => {
+  const all = [{ id: 'person-sam-fox', name: 'Sam Fox', email: 'sam@example.com' }, { id: 'person-sam-fox-2', name: 'Sam Fox', email: '' }, { id: 'person-riley', name: 'Riley' }];
+  assert.strictEqual(PP.label(all[0], all), 'Sam Fox (sam@example.com)');
+  assert.strictEqual(PP.label(all[1], all), 'Sam Fox (person-sam-fox-2)');
+  assert.strictEqual(PP.label(all[2], all), 'Riley');
+});
+
 run();
