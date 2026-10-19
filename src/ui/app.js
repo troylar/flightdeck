@@ -17,7 +17,7 @@
   function applyTheme() { var root = document.documentElement; if (!root || !root.setAttribute) return; if (state.theme === 'light' || state.theme === 'dark') root.setAttribute('data-theme', state.theme); else root.removeAttribute('data-theme'); }
   function lsSet(k, v) { try { localStorage.setItem(LS + ':' + k, JSON.stringify(v)); } catch (e) { /* per-viewer convenience only */ } }
   /* Home acknowledgments this viewer dismissed in this folder: only keys of the form PF.corrections.acks makes are kept. */
-  var ACK_KEY = /^[ld]\.[a-z0-9][a-z0-9-]{0,59}\.[\w-]{1,40}(\.\d{1,9})?$/, ACK_MAX = 300;
+  var ACK_KEY = /^[ld]\.[a-z0-9][a-z0-9-]{0,59}\.[\w-]{1,60}(\.\d{1,9})?$/, ACK_MAX = 300;
   function acksDismissed() { var v = lsGet('acks:' + fsKey(), []); return Array.isArray(v) ? v.filter(function (k) { return typeof k === 'string' && ACK_KEY.test(k); }).slice(-ACK_MAX) : []; }
   /* One writer per browser window: a session ID that survives a reload of the same tab. A duplicated tab inherits a copy of
      that ID, so each window announces its ID when it opens; if a live window already uses it, the newcomer takes a fresh one.
@@ -1297,10 +1297,10 @@
     return '';
   }
   /* A decision of applied, with the result it records, written once; Link, Already addressed and Mark as applied in the dialog. */
-  function caDecide(ov, status, reason, msg, result) {
+  function caDecide(ov, status, reason, msg, result, more) {
     var x = caFind(ov.pid, ov.gid), g = x.g; if (!g || !state.me) return;
     var rec;
-    try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), { current: g.decision, act: U.randomId(10), result: result }); }
+    try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10), result: result }, more || {})); }
     catch (e) { caErr(ov, e.message, status === 'declined' ? 'ca-reason' : null); return; }
     var dfs = state.fs, gg = gen;
     ov.busy = true;
@@ -2749,7 +2749,11 @@
     'corr-addressed': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
       var x = caFind(ov.pid, ov.gid); if (!x.g) return;
-      caDecide(ov, 'applied', '', 'Marked as applied to the draft.', PF.corrections.applies(x.g) ? PF.corrections.outcome(x.g, caBase(x.p)) : null);
+      /* Already addressed (the step changed, or is gone) is addressed differently: it records no result, so it's never taken as
+         the proposed change. Mark as applied (made by hand) records none either; a version's text decides whether it has it. */
+      var st = PF.corrections.review(x.g, caBase(x.p), null, { applied: caApplied(x.p.id, x.g.id) }).state;
+      if (st === 'changed' || st === 'gone') caDecide(ov, 'applied', '', 'Marked as addressed differently.', null, { addressed: true });
+      else caDecide(ov, 'applied', '', 'Marked as applied to the draft.', null);
     },
     'corr-ca-declining': function () { var ov = caOv(); if (!ov) return; ov.declining = true; ov.err = null; state.overlayFocus = '#ca-reason'; render(); },
     'corr-ca-cancel': function () { var ov = caOv(); if (!ov) return; ov.declining = false; ov.err = null; state.overlayFocus = '#ca-t'; render(); },

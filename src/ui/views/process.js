@@ -151,7 +151,7 @@
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + g.members.map(function (m) {
       return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · v' + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
-    if (d) h += '<div class="small">' + esc({ applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
+    if (d) h += '<div class="small">' + esc(d.addressed ? 'Marked as addressed differently' : { applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13', included: 'Said v' + d.version + ' has it' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
     if (g.landed) h += '<div class="small">v' + esc(g.landed.version) + ' has it' + (g.landed.at ? ', published ' + esc(U.day(g.landed.at)) : '') + '.</div>';
     if (g.proofless) {
       var said = g.decision && g.decision.status === 'included' ? esc(nameOf(ctx, g.decision.by)) + ' said v' + esc(g.decision.version) + ' has it, but that version doesn\'t make this change. ' : '';

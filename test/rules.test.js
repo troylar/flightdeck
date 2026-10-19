@@ -1484,6 +1484,47 @@ rule('Home acknowledges a person\'s own corrections: one item per process and ve
   same(C.acks(gs, '', null), []);
 });
 
+rule('Review: a new step moved away from the place asked for doesn\'t count as published, even with the same text and ID', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'ad1', op: 'add', step: 'flags', where: 'after', text: 'Tell QA the flags are set' })])];
+  const g = C.groups(C.collect(runs, 'release'))[0], rv = C.review(g, RMD);
+  const d = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { result: C.outcome(g, rv.text, rv.added) }))), 'release'), { _file: 'a.w.1.json' })];
+  const moved = PF.outline.apply(rv.text, { op: 'moveTo', step: rv.added, to: { phase: 'verify', where: 'end', track: -1 } }).text;
+  assert.ok(moved && moved !== rv.text);
+  const v1 = pubAt(RMD, 1), gs = landed(runs, d, [v1]);
+  assert.strictEqual(C.forPublish(moved, gs).groups.length, 0, 'not included from a draft where it moved');
+  assert.strictEqual(landed(runs, d, [v1, pubAt(moved, 2, [{ id: g.id }])])[0].landed, null, 'a listing doesn\'t stamp it at the wrong place');
+  assert.strictEqual(landed(runs, d, [v1, pubAt(rv.text, 2, [{ id: g.id }])])[0].landed.version, 2, 'at its place it does');
+});
+
+rule('Review: a removal is published only once its step is gone; "Already addressed" says so and claims nothing', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'rm1', op: 'remove', step: 'rollback', why: 'The ticket template has it' })])];
+  const g = C.groups(C.collect(runs, 'release'))[0], v1 = pubAt(RMD, 1), kept = RMD.replace('{#rollback}', '{#rollback}\n  > Kept: the template has a link to it.');
+  // As 1.16 first recorded it: the signature of the step that's still there.
+  const forged = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g, 'person-casey', 'applied', '', NOW, { result: C.outcome(g, kept) }))), 'release'), { _file: 'r.w.1.json' })];
+  assert.strictEqual(C.forPublish(kept, landed(runs, forged, [v1])).groups.length, 0, 'not included while the step remains');
+  assert.strictEqual(landed(runs, forged, [v1, pubAt(kept, 2, [{ id: g.id }])])[0].landed, null, 'not stamped while the step remains');
+  // Already addressed: no result, its own label, never listed, never stamped by a version that keeps the step.
+  const ad = C.decision(g, 'person-casey', 'applied', '', NOW, { addressed: true });
+  assert.ok(!ad.result && ad.addressed === true);
+  const ds = [Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(ad)), 'release'), { _file: 'r.w.1.json' })];
+  const gs = landed(runs, ds, [v1]);
+  same([C.label(gs[0]), C.forPublish(kept, gs).groups.length, C.forPublish(kept, gs).left.length], ['Addressed differently', 0, 0]);
+  assert.strictEqual(landed(runs, ds, [v1, pubAt(kept, 2, [{ id: g.id }])])[0].landed, null);
+});
+
+rule('Review: "It\'s in vN" keeps the applied result, so wording a person applied in their own words is still recognized', () => {
+  const runs = [runWith('run-a', 'A', [corr({ id: 'ow1' })])], g0 = C.groups(C.collect(runs, 'release'))[0], mine = C.review(g0, RMD, 'New pods stay up for 30 minutes').text;
+  const d1 = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(C.decision(g0, 'person-casey', 'applied', '', NOW, { result: C.outcome(g0, mine) }))), 'release'), { _file: g0.id + '.w.1.json' });
+  const v1 = pubAt(RMD, 1), v2 = pubAt(mine, 2);
+  let g = landed(runs, [d1], [v1, v2])[0];
+  same([g.landed, g.proofless], [null, true], 'published by an older copy, unlisted');
+  const inc = C.decision(g, 'person-casey', 'included', '', NOW, { current: g.decision, version: 2, folder: v2.folder });
+  same(inc.result, d1.result, 'carried forward');
+  const d2 = Object.assign(C.cleanDecision(JSON.parse(JSON.stringify(inc)), 'release'), { _file: g0.id + '.w.2.json' });
+  g = landed(runs, [d1, d2], [v1, v2])[0];
+  assert.strictEqual(g.landed && g.landed.version, 2);
+});
+
 rule('A version that lists its corrections stays usable everywhere: older copies\' verify and the folder checker ignore the field', () => {
   // PF.publish.verify and unrunnable are unchanged since 1.11.1, so this is what 1.11.1 and later copies do with it.
   const a = appliedWording(), b = P.build(a.text, { people, ...EX, by: 'a', changes: 'x', existing: [{ version: 1 }], now: NOW, rand: 'old0', corrections: [{ id: a.id, result: a.decisions[0].result }, { id: 'g<script>' }] });

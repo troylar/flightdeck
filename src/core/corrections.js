@@ -198,7 +198,7 @@ PF.corrections = (function () {
     }
     if (o.kind !== 'correction-decision' || typeof o.group !== 'string' || !ID.test(o.group) || DECIDE.indexOf(o.status) < 0) return null;
     var r = o.result && typeof o.result === 'object' && /^[0-9a-f]{8}$/.test(o.result.sig || '') ? { step: typeof o.result.step === 'string' && CID.test(o.result.step) ? o.result.step : '', sig: o.result.sig } : null;
-    var out = Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: r, dv: whole(o.dv),
+    var out = Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: o.addressed === true ? null : r, addressed: o.addressed === true && o.status === 'applied', dv: whole(o.dv),
       members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, 500) : [] });
     if (o.status === 'included') {
       var m = typeof o.folder === 'string' ? FOLDER.exec(o.folder) : null;
@@ -221,8 +221,14 @@ PF.corrections = (function () {
     var cur = opts.current || null;
     var d = { kind: 'correction-decision', process: g.process, group: g.id, members: g.members.map(function (c) { return c.id; }), status: status, reason: reason.slice(0, REASON_MAX), by: by, at: at,
       rev: (cur ? cur.rev || 0 : 0) + 1, seen: cur && cur._file || null, act: opts.act || '', dv: DV };
-    if (status === 'applied' && opts.result) d.result = { step: opts.result.step || '', sig: opts.result.sig };
-    if (status === 'included') { d.version = opts.version; d.folder = opts.folder; }
+    /* Addressed differently: applied, but not as proposed, so it records no result that would say the change is made. */
+    if (status === 'applied' && opts.addressed) d.addressed = true;
+    else if (status === 'applied' && opts.result) d.result = { step: opts.result.step || '', sig: opts.result.sig };
+    if (status === 'included') {
+      d.version = opts.version; d.folder = opts.folder;
+      /* What a person applied in their own words stays recognizable in the version they name. */
+      if (cur && cur.result && !cur.addressed && (cur.status === 'applied' || cur.status === 'included')) d.result = { step: cur.result.step || '', sig: cur.result.sig };
+    }
     return d;
   }
   function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by; }); }
@@ -258,10 +264,10 @@ PF.corrections = (function () {
         var known = d.members || [], fresh = g.members.filter(function (c) { return known.indexOf(c.id) < 0; });
         if (fresh.length && (st === 'declined' || st === 'withdrawn')) { again = { reason: d.reason, by: d.by, status: st }; st = 'open'; }
       }
-      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : STATUS[st] });
+      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : STATUS[st] });
     });
   }
-  function label(g) { return g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : STATUS[g.status] || STATUS.open; }
+  function label(g) { return g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
   /* Open groups per step ID, for marking steps in the editor's preview. */
   function openCounts(gs) {
     var c = Object.create(null);
@@ -510,14 +516,25 @@ PF.corrections = (function () {
     list.forEach(function (x) { if (x && typeof x.id === 'string' && ID.test(x.id)) o[x.id] = true; });
     return o;
   }
-  /* Whether a checklist's text makes a group's change: the step says the proposed wording, the new step is at its place, the
-     step is where it was moved, has the roles, or is gone. What a person applied in their own words counts through the
-     decision's recorded result. A change that can't be checked counts as made; only a listing can say it is. */
+  /* The result a person applied (applied, or carried into "It's in vN"); never one marked addressed differently. */
+  function appliedResult(g) {
+    var d = g.decision;
+    return d && (d.status === 'applied' || d.status === 'included') && !d.addressed && d.result && d.result.sig !== GONE ? d.result : null;
+  }
+  /* Whether a checklist's text makes a group's change. What the change means is always checked: the step is gone, the new
+     step is at the place asked for, the step is where it was moved, it has the roles, it has the wording. A person's own
+     words only stand in for the expected text (a new step's, or the wording), through the recorded result's fingerprint of
+     that step; they never excuse the place or the removal. A change that can't be checked counts as made; only a listing
+     can say it is. */
   function satisfied(g, text) {
     if (!checkable(g)) return true;
-    var d = g.decision, r = d && d.status === 'applied' && d.result, op = g.change.op;
-    if (r && (op === 'remove' || r.sig !== GONE) && outcome(g, text, op === 'add' ? r.step : '').sig === r.sig) return true;
-    return isAlready(g, PF.outline.parse(text));
+    var o = PF.outline.parse(text), ch = g.change, r = appliedResult(g), s = draftStep(o, g.target.step);
+    var mine = function (step) { return !!r && !!step && r.step === step.id && stepSig(M.parse(text), step.id) === r.sig; };
+    if (ch.op === 'remove') return !s;
+    if (ch.op === 'add') { var at = placed(g, o); return !!at && (norm(at.text) === norm(ch.text) || mine(at)); }
+    if (!s) return false;
+    if (ch.op === 'wording') return norm(s.text) === norm(ch.to) || mine(s);
+    return isAlready(g, o);
   }
   /* The step a landed group is about in that version: the new step for a missing one, none for a removed one. */
   function landedStep(g, text) {
@@ -568,6 +585,8 @@ PF.corrections = (function () {
     var inc = [], left = [];
     (gs || []).forEach(function (g) {
       if (g.status !== 'applied' || g.tie || g.landed || g.proofless) return;
+      /* Addressed differently isn't the proposed change: never listed, and not "left out" either. */
+      if (g.decision && g.decision.addressed) return;
       if (!checkable(g)) { inc.push(g); return; }
       if (!changedSince(g, text) && satisfied(g, text)) inc.push(g); else left.push(g);
     });

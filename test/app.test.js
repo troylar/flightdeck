@@ -2086,6 +2086,19 @@ rule('App: applying is refused while this window has unsaved edits to the draft,
   assert.strictEqual(decisions(app, id)[0].status, 'applied');
 });
 
+rule('App: Already addressed on a step that changed records no result and reads Addressed differently, never Published', async () => {
+  const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app), md = app.fs.files[path].t;
+  await app.fs.write(path, md.replace('  command: kubectl get pods -l app=web-app', '  command: kubectl get pods -l app=web-app -w'));
+  app.click('refresh'); await app.tick(100);
+  app.click('corr-review', id); await app.tick();
+  app.click('corr-addressed', id); await app.tick(80);
+  const [d] = decisions(app, id);
+  assert.deepStrictEqual([d.status, d.addressed, 'result' in d], ['applied', true, false]);
+  app.click('corr-filter', 'all'); await app.tick();
+  assert.ok(/<span class="pill ready">Addressed differently<\/span>/.test(app.html()) && /Marked as addressed differently by /.test(app.html()));
+  assert.ok(!/corr-pub/.test(app.html()) || /Included in this version: 0 corrections\.<\/b><\/p>/.test(app.html()), 'not counted for publishing');
+});
+
 rule('App: if the decision can\'t be written after the draft is saved, the next look finds it in the draft and Link records it', async () => {
   const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app);
   const orig = app.PF.repo.decideCorrection; let fails = 1;
