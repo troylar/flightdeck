@@ -2596,7 +2596,7 @@ rule('The text receipt says what became of each follow-up', () => {
 /* ---------- Follow-ups: review fixes ---------- */
 rule('Follow-ups: each follow-up\'s form has its own element IDs, so what was typed for one never goes with another', () => {
   const a = F.formId('release/run1/fu1'), b = F.formId('release/run1/fu2');
-  assert.ok(/^fud-[0-9a-f]{8,16}$/.test(a) && /^fud-[0-9a-f]{8,16}$/.test(b), a + ' ' + b);
+  assert.ok(/^fud-[A-Za-z0-9_]+$/.test(a) && /^fud-[A-Za-z0-9_]+$/.test(b), a + ' ' + b);
   assert.notStrictEqual(a, b);
   assert.strictEqual(F.formId('release/run1/fu1'), a, 'the same on every redraw');
 });
@@ -2634,6 +2634,29 @@ rule('Follow-ups: a rev is a whole number from 1 up to a million; anything else 
 rule('The team folder\'s AGENTS.md says two follow-up decisions at the same rev show as Needs review', () => {
   const line = example('AGENTS.md').split('\n').filter(l => /`followups\/`/.test(l))[0];
   assert.ok(line && /same `rev`/.test(line) && /Needs review/.test(line), line);
+});
+
+
+rule('Follow-ups: form IDs never collide: distinct keys always give distinct IDs, made only of safe characters', () => {
+  const a = F.formId('release/run1/fu-1gjb2p0'), b = F.formId('release/run1/fu-qcuj43');
+  assert.notStrictEqual(a, b, 'two keys whose hashes once matched');
+  const keys = ['release/run1/fu1', 'release/run1/fu_1', 'release/run1_fu1', 'release/run1/fu-1', 'a/b/c', 'a/b_/c', 'a_/b/c'];
+  const ids = keys.map(F.formId);
+  assert.strictEqual(new Set(ids).size, keys.length, ids.join(' '));
+  ids.forEach(id => assert.ok(/^fud-[A-Za-z0-9_]+$/.test(id), id));
+});
+
+rule('Follow-ups: any copy marker after the canonical name is a conflict copy, spaces and combined markers included', () => {
+  const r = fuRun(), x = fuItem(r, 'fu1');
+  const a = decided(F.decision(x, 'person-blake', 'done', {}, NOW, null), 'w1');
+  const raw = JSON.parse(JSON.stringify(F.decision(x, 'person-casey', 'open', {}, NOW, null)));
+  ['run1.fu1.w1.1-LAPTOP José.json', 'run1.fu1.w1.1-LAPTOP (1).json', 'run1.fu1.w1.1 (2) (3).json', 'run1.fu1.w1.1-DESKTOP-AB12.json'].forEach(name => {
+    const c = F.cleanDecision(raw, 'release', name);
+    assert.ok(c, name + ' is a decision');
+    const y = F.list([r], [a, c]).filter(z => z.id === 'fu1')[0];
+    same([y.status, y.label], ['open', 'Needs review'], name);
+  });
+  ['run1.fu1.w1.12.json', 'run1.fu1.w1.1.extra.json', 'run1.fu1.w1.json'].forEach(name => assert.strictEqual(F.cleanDecision(raw, 'release', name), null, name + ' is not rev 1'));
 });
 
 run();

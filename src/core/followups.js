@@ -12,9 +12,10 @@ PF.followups = (function () {
   /* Open longer than this is worth a look in Folder health. */
   var STALE_MS = 30 * 86400000, FV = 1;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, ID = /^[\w-]{1,40}$/, PLAN = /^[\w-]{1,100}$/, TICKET = /^[A-Za-z][A-Za-z0-9_]{0,19}-\d{1,9}$/;
-  /* <run>.<follow-up>.<window>.<rev>.json, and OneDrive's conflict copies of one ("…1-LAPTOP.json", "…1 (1).json"), which
-     are decisions too: two saves of one name that OneDrive kept both of. */
-  var FILE = /^([\w-]{1,40})\.([\w-]{1,40})\.([\w-]{1,40})\.(\d{1,7})(?:-[\w-]{1,60}| \(\d{1,4}\))?\.json$/;
+  /* <run>.<follow-up>.<window>.<rev>.json, and OneDrive's conflict copies of one, which are decisions too (two saves of one
+     name that OneDrive kept both of): the canonical name, then any copy marker before .json ("-LAPTOP", " (1)",
+     "-LAPTOP José (1)", …). A marker never starts with a digit or a dot, so it can't change the rev or add a part. */
+  var FILE = /^([\w-]{1,40})\.([\w-]{1,40})\.([\w-]{1,40})\.(\d{1,7})(?:[^\d.\/\\][^\/\\]{0,99})?\.json$/;
   /* Revs are whole numbers from 1; past a million something is wrong, and a file name must hold the number exactly. */
   var MAX_REV = 1000000;
 
@@ -24,8 +25,9 @@ PF.followups = (function () {
   /* Only a string is ever tested or kept: a value from a file is never coerced (an object's toString can throw). */
   function is(re, v) { return typeof v === 'string' && re.test(v); }
   function revOk(v) { return typeof v === 'number' && Math.floor(v) === v && v >= 1 && v <= MAX_REV; }
-  /* Element IDs for one follow-up's form: what's typed for one never lands in another's boxes. */
-  function formId(k) { return 'fud-' + U.hash(String(k)) + U.hash(String(k) + '|2'); }
+  /* Element IDs for one follow-up's form, so what's typed for one never lands in another's boxes. Lossless, never a hash:
+     letters and digits stay, every other character becomes _ and its four hex digits, so distinct keys give distinct IDs. */
+  function formId(k) { return 'fud-' + String(k).replace(/[^A-Za-z0-9]/g, function (c) { return '_' + ('000' + c.charCodeAt(0).toString(16)).slice(-4); }); }
   function key(process, run, id) { return process + '/' + run + '/' + id; }
   /* Only follow-ups whose names make a safe file name can be decided on. */
   function decidable(process, run, id) { return is(PROC, process) && is(ID, run) && is(ID, id); }

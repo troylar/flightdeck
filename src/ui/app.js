@@ -527,7 +527,7 @@
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = null; state.fuSavingGen = null; state.fuPick = null;
+    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -2953,24 +2953,32 @@
   }
   /* A decision on a follow-up is a new file written once, following the decision this window shows; run.json never changes. */
   var FU_SAID = { open: 'Reopened. It\'s open again.', done: 'Marked done.', ticket: 'Marked as moved to a ticket.', moved: 'Marked as moved to another run.', wont: 'Marked won\'t do. The run shows why.' };
+  /* Saving is tracked per follow-up (state.fuSaving: key → true, one object per folder): another follow-up's form stays open
+     and saves on its own, and a save that finishes closes only its own form. */
   function decideFu(key, status) {
     var x = ctx.followUps().filter(function (y) { return y.key === key; })[0];
-    /* A save still in flight belongs to the folder it started in; another folder never waits on it. */
-    if (!x || (state.fuSaving && state.fuSavingGen === gen)) return;
+    if (!x) return;
+    var saving = state.fuSaving || (state.fuSaving = {});
+    if (saving[key]) { say('Still saving what became of this one.', 'warn'); render(); return; }
     if (!state.me) { say('Choose who you are first, at the top right.', 'warn'); render(); return; }
     var base = PF.followups.formId(key), box = function (k) { return val(base + '-' + k); };
     var rec, o = status === 'open' ? {} : { link: box('link'), note: box('note'), ticket: box('ticket'), to: box('to'), reason: box('reason') };
     try { rec = PF.followups.decision(x, state.me, status, o, new Date().toISOString(), x.decision); }
     catch (e) { if (e.field) { var fid = base + e.field.replace(/^fud/, ''); state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
-    state.fuSaving = key; state.fuSavingGen = gen; state.fieldErr = null; render();
-    function settle() { if (state.fuSavingGen === gg) { state.fuSaving = null; state.fuSavingGen = null; } }
+    saving[key] = true; if (state.fieldErr && state.fieldErr.id.indexOf(base + '-') === 0) state.fieldErr = null; render();
+    /* Switching folders replaces state.fuSaving, so this only ever clears its own folder's entry. */
+    function settle() { delete saving[key]; }
     queued(function () { return repo.decideFollowUp(dfs, rec, WRITER); }).then(function () {
       settle();
       if (gg !== gen) return;
-      state.fuPick = null; say(FU_SAID[status], 'good');
-      /* The row may leave the list (Home, Open): focus goes to the list's heading, else stays on the row's own control. */
-      state.focus = state.view === 'followups' ? 'fu-list-h' : state.view === 'home' ? 'page-h' : '[data-act="run-fu"]';
+      say(FU_SAID[status], 'good');
+      /* Only this follow-up's form closes; one open for another follow-up keeps its place and its text. */
+      if (state.fuPick && state.fuPick.key === key) {
+        state.fuPick = null;
+        /* The row may leave the list (Home, Open): focus goes to the list's heading, else to the run's Follow-ups. */
+        state.focus = state.view === 'followups' ? 'fu-list-h' : state.view === 'home' ? 'page-h' : '[data-act="run-fu"]';
+      }
       return load(true);
     }, function (e) { settle(); if (gg !== gen) return; say('Couldn\'t save what became of it: ' + e.message, 'bad'); render(); });
   }

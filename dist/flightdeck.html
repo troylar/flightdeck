@@ -5041,9 +5041,10 @@ PF.followups = (function () {
   /* Open longer than this is worth a look in Folder health. */
   var STALE_MS = 30 * 86400000, FV = 1;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, ID = /^[\w-]{1,40}$/, PLAN = /^[\w-]{1,100}$/, TICKET = /^[A-Za-z][A-Za-z0-9_]{0,19}-\d{1,9}$/;
-  /* <run>.<follow-up>.<window>.<rev>.json, and OneDrive's conflict copies of one ("…1-LAPTOP.json", "…1 (1).json"), which
-     are decisions too: two saves of one name that OneDrive kept both of. */
-  var FILE = /^([\w-]{1,40})\.([\w-]{1,40})\.([\w-]{1,40})\.(\d{1,7})(?:-[\w-]{1,60}| \(\d{1,4}\))?\.json$/;
+  /* <run>.<follow-up>.<window>.<rev>.json, and OneDrive's conflict copies of one, which are decisions too (two saves of one
+     name that OneDrive kept both of): the canonical name, then any copy marker before .json ("-LAPTOP", " (1)",
+     "-LAPTOP José (1)", …). A marker never starts with a digit or a dot, so it can't change the rev or add a part. */
+  var FILE = /^([\w-]{1,40})\.([\w-]{1,40})\.([\w-]{1,40})\.(\d{1,7})(?:[^\d.\/\\][^\/\\]{0,99})?\.json$/;
   /* Revs are whole numbers from 1; past a million something is wrong, and a file name must hold the number exactly. */
   var MAX_REV = 1000000;
 
@@ -5053,8 +5054,9 @@ PF.followups = (function () {
   /* Only a string is ever tested or kept: a value from a file is never coerced (an object's toString can throw). */
   function is(re, v) { return typeof v === 'string' && re.test(v); }
   function revOk(v) { return typeof v === 'number' && Math.floor(v) === v && v >= 1 && v <= MAX_REV; }
-  /* Element IDs for one follow-up's form: what's typed for one never lands in another's boxes. */
-  function formId(k) { return 'fud-' + U.hash(String(k)) + U.hash(String(k) + '|2'); }
+  /* Element IDs for one follow-up's form, so what's typed for one never lands in another's boxes. Lossless, never a hash:
+     letters and digits stay, every other character becomes _ and its four hex digits, so distinct keys give distinct IDs. */
+  function formId(k) { return 'fud-' + String(k).replace(/[^A-Za-z0-9]/g, function (c) { return '_' + ('000' + c.charCodeAt(0).toString(16)).slice(-4); }); }
   function key(process, run, id) { return process + '/' + run + '/' + id; }
   /* Only follow-ups whose names make a safe file name can be decided on. */
   function decidable(process, run, id) { return is(PROC, process) && is(ID, run) && is(ID, id); }
@@ -8566,7 +8568,7 @@ PF.vk = (function () {
         var on = !!pick && pick.status === k;
         return '<button class="mini" data-act="fu-pick" data-id="' + esc(x.key) + '" data-status="' + k + '" aria-expanded="' + on + '"' + (on ? ' aria-controls="' + PF.followups.formId(x.key) + '-form"' : '') + '>' + FU_FORM[k] + '</button>';
       }).join('');
-      if (x.status !== 'open' || x.tie) acts += '<button class="mini" data-act="fu-reopen" data-id="' + esc(x.key) + '"' + (st.fuSaving === x.key ? ' disabled' : '') + '>Reopen</button>';
+      if (x.status !== 'open' || x.tie) acts += '<button class="mini" data-act="fu-reopen" data-id="' + esc(x.key) + '"' + (st.fuSaving && st.fuSaving[x.key] ? ' disabled' : '') + '>Reopen</button>';
     }
     if (opts.remove) acts += '<button class="mini" data-act="remove-followup" data-id="' + esc(f.id) + '" aria-label="Remove follow-up: ' + esc(f.text) + '">Remove</button>';
     if (acts) h += '<div class="row fu-acts" role="group" aria-label="' + esc('What became of it: ' + f.text) + '">' + acts + '</div>';
@@ -8576,7 +8578,7 @@ PF.vk = (function () {
   /* The form for one decision. Its element IDs belong to this follow-up (PF.followups.formId), so a box typed in for one
      follow-up is never carried into another's form. Labels above boxes, errors next to their box. */
   function fuForm(ctx, x, status) {
-    var st = ctx.state, saving = st.fuSaving === x.key, base = PF.followups.formId(x.key);
+    var st = ctx.state, saving = !!(st.fuSaving && st.fuSaving[x.key]), base = PF.followups.formId(x.key);
     var box = function (part, label, attrs, hint) {
       var id = base + '-' + part, bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
       return '<label class="field" for="' + id + '">' + label + '<input id="' + id + '" ' + attrs + (bad ? ' aria-invalid="true"' : '') + (desc ? ' aria-describedby="' + desc + '"' : '') + ' data-enter="fu-save" data-id="' + esc(x.key) + '"></label>' + (hint ? '<span class="small" id="' + id + '-hint">' + hint + '</span>' : '') + ferr(st, id);
@@ -10868,7 +10870,7 @@ PF.examples = (function () {
   function useFs(fs) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = null; state.fuSavingGen = null; state.fuPick = null;
+    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -13294,24 +13296,32 @@ PF.examples = (function () {
   }
   /* A decision on a follow-up is a new file written once, following the decision this window shows; run.json never changes. */
   var FU_SAID = { open: 'Reopened. It\'s open again.', done: 'Marked done.', ticket: 'Marked as moved to a ticket.', moved: 'Marked as moved to another run.', wont: 'Marked won\'t do. The run shows why.' };
+  /* Saving is tracked per follow-up (state.fuSaving: key → true, one object per folder): another follow-up's form stays open
+     and saves on its own, and a save that finishes closes only its own form. */
   function decideFu(key, status) {
     var x = ctx.followUps().filter(function (y) { return y.key === key; })[0];
-    /* A save still in flight belongs to the folder it started in; another folder never waits on it. */
-    if (!x || (state.fuSaving && state.fuSavingGen === gen)) return;
+    if (!x) return;
+    var saving = state.fuSaving || (state.fuSaving = {});
+    if (saving[key]) { say('Still saving what became of this one.', 'warn'); render(); return; }
     if (!state.me) { say('Choose who you are first, at the top right.', 'warn'); render(); return; }
     var base = PF.followups.formId(key), box = function (k) { return val(base + '-' + k); };
     var rec, o = status === 'open' ? {} : { link: box('link'), note: box('note'), ticket: box('ticket'), to: box('to'), reason: box('reason') };
     try { rec = PF.followups.decision(x, state.me, status, o, new Date().toISOString(), x.decision); }
     catch (e) { if (e.field) { var fid = base + e.field.replace(/^fud/, ''); state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
-    state.fuSaving = key; state.fuSavingGen = gen; state.fieldErr = null; render();
-    function settle() { if (state.fuSavingGen === gg) { state.fuSaving = null; state.fuSavingGen = null; } }
+    saving[key] = true; if (state.fieldErr && state.fieldErr.id.indexOf(base + '-') === 0) state.fieldErr = null; render();
+    /* Switching folders replaces state.fuSaving, so this only ever clears its own folder's entry. */
+    function settle() { delete saving[key]; }
     queued(function () { return repo.decideFollowUp(dfs, rec, WRITER); }).then(function () {
       settle();
       if (gg !== gen) return;
-      state.fuPick = null; say(FU_SAID[status], 'good');
-      /* The row may leave the list (Home, Open): focus goes to the list's heading, else stays on the row's own control. */
-      state.focus = state.view === 'followups' ? 'fu-list-h' : state.view === 'home' ? 'page-h' : '[data-act="run-fu"]';
+      say(FU_SAID[status], 'good');
+      /* Only this follow-up's form closes; one open for another follow-up keeps its place and its text. */
+      if (state.fuPick && state.fuPick.key === key) {
+        state.fuPick = null;
+        /* The row may leave the list (Home, Open): focus goes to the list's heading, else to the run's Follow-ups. */
+        state.focus = state.view === 'followups' ? 'fu-list-h' : state.view === 'home' ? 'page-h' : '[data-act="run-fu"]';
+      }
       return load(true);
     }, function (e) { settle(); if (gg !== gen) return; say('Couldn\'t save what became of it: ' + e.message, 'bad'); render(); });
   }

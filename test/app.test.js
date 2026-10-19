@@ -3896,4 +3896,28 @@ rule('App: a follow-up decision that finishes after switching folders leaves the
   assert.strictEqual(app.files('followups/release/').length, before + 1, 'the new folder\'s decision is written');
 });
 
+
+rule('App: while one follow-up\'s decision saves, another\'s form stays open, keeps its text and saves on its own', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('nav', 'followups'); await app.tick(20);
+  const [a, b] = [...app.html().matchAll(/data-act="fu-pick" data-id="([^"]+)" data-status="done"/g)].map(m => m[1]);
+  const F = app.PF.followups, orig = app.PF.repo.decideFollowUp, g = gate();
+  app.PF.repo.decideFollowUp = function (fs, rec) { const args = arguments; return rec.run + '/' + rec.followUp === a.split('/').slice(1).join('/') ? g.p.then(() => orig.apply(this, args)) : orig.apply(this, args); };
+  app.click('fu-pick', a, { status: 'done' }); await app.tick();
+  app.click('fu-save', a); await app.tick();
+  app.click('fu-pick', b, { status: 'wont' }); await app.tick();
+  const box = F.formId(b) + '-reason';
+  assert.ok(app.html().indexOf('id="' + box + '"') >= 0, 'B\'s form opens while A saves');
+  assert.ok(!new RegExp('data-act="fu-save" data-id="' + b.replace(/\//g, '\\/') + '"[^>]*disabled').test(app.html()), 'B\'s Save is enabled');
+  app.set(box, 'Not ours any more'); await app.tick();
+  g.open(); await app.tick(60);
+  assert.ok(app.html().indexOf('id="' + box + '"') >= 0, 'A finishing leaves B\'s form open');
+  assert.strictEqual(app.draft(box), 'Not ours any more', 'with its text');
+  app.click('fu-save', b); await app.tick(60);
+  app.PF.repo.decideFollowUp = orig;
+  const mine = app.files('followups/release/').filter(p => !/example-session/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+  assert.deepStrictEqual(mine.map(d => d.status).sort(), ['done', 'wont'], 'both saved');
+});
+
 run();

@@ -625,7 +625,7 @@
         var on = !!pick && pick.status === k;
         return '<button class="mini" data-act="fu-pick" data-id="' + esc(x.key) + '" data-status="' + k + '" aria-expanded="' + on + '"' + (on ? ' aria-controls="' + PF.followups.formId(x.key) + '-form"' : '') + '>' + FU_FORM[k] + '</button>';
       }).join('');
-      if (x.status !== 'open' || x.tie) acts += '<button class="mini" data-act="fu-reopen" data-id="' + esc(x.key) + '"' + (st.fuSaving === x.key ? ' disabled' : '') + '>Reopen</button>';
+      if (x.status !== 'open' || x.tie) acts += '<button class="mini" data-act="fu-reopen" data-id="' + esc(x.key) + '"' + (st.fuSaving && st.fuSaving[x.key] ? ' disabled' : '') + '>Reopen</button>';
     }
     if (opts.remove) acts += '<button class="mini" data-act="remove-followup" data-id="' + esc(f.id) + '" aria-label="Remove follow-up: ' + esc(f.text) + '">Remove</button>';
     if (acts) h += '<div class="row fu-acts" role="group" aria-label="' + esc('What became of it: ' + f.text) + '">' + acts + '</div>';
@@ -635,7 +635,7 @@
   /* The form for one decision. Its element IDs belong to this follow-up (PF.followups.formId), so a box typed in for one
      follow-up is never carried into another's form. Labels above boxes, errors next to their box. */
   function fuForm(ctx, x, status) {
-    var st = ctx.state, saving = st.fuSaving === x.key, base = PF.followups.formId(x.key);
+    var st = ctx.state, saving = !!(st.fuSaving && st.fuSaving[x.key]), base = PF.followups.formId(x.key);
     var box = function (part, label, attrs, hint) {
       var id = base + '-' + part, bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
       return '<label class="field" for="' + id + '">' + label + '<input id="' + id + '" ' + attrs + (bad ? ' aria-invalid="true"' : '') + (desc ? ' aria-describedby="' + desc + '"' : '') + ' data-enter="fu-save" data-id="' + esc(x.key) + '"></label>' + (hint ? '<span class="small" id="' + id + '-hint">' + hint + '</span>' : '') + ferr(st, id);
