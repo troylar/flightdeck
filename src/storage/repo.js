@@ -307,6 +307,7 @@ PF.repo = (function () {
     var bad = cacheIn ? badFor(cacheIn, entry) : '';
     if (bad && !run._unrunnable) run._unrunnable = bad;
     if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
+    if (entry.drift && entry.drift.length) run._drift = entry.drift;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [];
@@ -459,7 +460,7 @@ PF.repo = (function () {
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
-        if (o.explain) entry.repairs = R.repairs(json(res[0].text));
+        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
@@ -605,7 +606,7 @@ PF.repo = (function () {
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
       loadCorrectionDecisions(fs, cache, sched),
-      loadFollowUpDecisions(fs, cache, sched)
+      loadFollowUpDecisions(fs, cache, sched, !!opts.explain)
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       if (errs.length === PARTS.length) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
@@ -670,7 +671,8 @@ PF.repo = (function () {
           var path = 'followups/' + proc + '/' + i.name;
           return fs.read(path).then(function (f) {
             if (!f) return;
-            var d = null; try { d = F.cleanDecision(json(f.text), proc, i.name); } catch (e) { d = null; }
+            var raw = json(f.text), d = null; try { d = F.cleanDecision(raw, proc, i.name); } catch (e) { d = null; }
+            if (d) { var dr = fuDrift(raw, d); if (dr.length) d._drift = dr; }
             if (d && d.run === id) out.fuDecisions.push(d); else if (!d) out.fuUnread.push({ path: path, why: 'isn\'t a follow-up decision this copy can read' });
           }, function (e) { out.fuUnread.push({ path: path, kind: errKind(e), why: why(e) }); });
         }));
@@ -754,7 +756,10 @@ PF.repo = (function () {
   /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
      decided. run.json never changes. Read like corrections' decisions (decisionTexts); a file that can't be read is
      reported in fuUnread, never dropped, so its follow-up doesn't quietly look open again. */
-  function loadFollowUpDecisions(fs, cache, sched) {
+  /* Reading for other apps: where a follow-up decision file says something cleanDecision doesn't keep as written. */
+  var FU_ALLOW = { added: ['fv'], dropped: [] };
+  function fuDrift(raw, d) { var c = {}; Object.keys(d).forEach(function (k) { if (k[0] !== '_') c[k] = d[k]; }); return U.drift(raw, JSON.parse(JSON.stringify(c)), FU_ALLOW); }
+  function loadFollowUpDecisions(fs, cache, sched, explain) {
     var scope = { folders: [], tops: {} };
     return fs.list('followups').then(function (procs) {
       var ok = procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); });
@@ -769,8 +774,9 @@ PF.repo = (function () {
           /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
           if (g.failed) return unread;
           if (!g.f) return null;
-          var d = null; try { d = PF.followups.cleanDecision(json(g.f.text), x.process, x.name); } catch (e) { d = null; }
+          var raw = json(g.f.text), d = null; try { d = PF.followups.cleanDecision(raw, x.process, x.name); } catch (e) { d = null; }
           if (!d) { forgetText(cache, x.path); return unread; }
+          if (explain) { var dr = fuDrift(raw, d); if (dr.length) d._drift = dr; }
           return d;
         });
       });

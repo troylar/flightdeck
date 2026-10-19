@@ -1205,7 +1205,9 @@ const DROPS = [
   [2, o => { o.gates.ready.at = 'later'; }, 'gates.ready.at'],
   [2, o => { o.followUps[0].text = 7; }, 'followUps[0]'],
   [2, o => { o.followUps[1].owner = { id: 'x' }; }, 'followUps[1].owner'],
-  [2, o => { o.paused = { by: 'person-casey', at: RF.NOW }; }, 'paused'],
+  [1, o => { o.steps = 'bad'; }, 'steps'],
+  [1, o => { o.gates = 'bad'; }, 'gates'],
+  [1, o => { o.steps = ['x']; }, 'steps'],
   [2, o => { o.ended.by = 5; }, 'ended.by'],
   [1, o => { o.details.commit = 42; }, 'details.commit'],
   [1, o => { o.details = 'oops'; }, 'details'],
@@ -1263,6 +1265,79 @@ rule('READ: a run.json copied into another run\'s folder is named as belonging e
   const all = agree(await readMem(REQ.runs, edit));
   assert.ok(all.code === 4 && all.json.problems.some(p => p.path === at && /belongs to release\/run2/.test(p.why)));
   assert.deepStrictEqual(all.json.data.runs.map(x => x.key).sort(), ['release/run2']);
+});
+
+
+rule('READ: a pause left on a run that has ended is history, not a problem (sanitize drops it by design, and DRIFT_ALLOW says so)', async () => {
+  const at = 'runs/release/run2/run.json';
+  const r = agree(await readMem({ cmd: 'run', key: 'release/run2' }, f => { const o = JSON.parse(f[at]); o.paused = { by: 'person-casey', at: RF.NOW, reason: 'Lunch' }; f[at] = JSON.stringify(o, null, 2); }));
+  assert.ok(r.code === 0 && r.json.complete, JSON.stringify(r.json.problems));
+});
+
+/* The fuzz oracle, written apart from U.drift: every value the file states must come back from sanitize the same, and
+   anything sanitize states where the file is silent must be a documented default (R.DRIFT_ALLOW). */
+/* sanitize's documented defaults and deliberate drops, as this test knows them; a rule below checks R.DRIFT_ALLOW says the same. */
+const DOCUMENTED_DEFAULTS = {
+  added: ['title', 'state', 'version', 'rev', 'shotsFrozen', 'paused.reason', 'recorder.handoff.rev'],
+  dropped: ['steps.*.history[*].differently.by', 'steps.*.history[*].differently.at', 'paused']
+};
+function oracleChanged(raw) {
+  const r = SRC.run.sanitize(raw);
+  if (!r) return true;
+  const c = JSON.parse(JSON.stringify(r)), allow = DOCUMENTED_DEFAULTS;
+  const pat = l => l.map(x => new RegExp('^' + x.replace(/[.[\]]/g, m => '\\' + m).replace(/\\\[\*\\\]/g, '\\[\\d+\\]').replace(/\*/g, '[^.\\[]+') + '$'));
+  const add = pat(allow.added), drop = pat(allow.dropped), empty = v => v === undefined || v === null || v === '';
+  const hollow = v => empty(v) || (typeof v === 'object' && Object.keys(v).filter(k => k[0] !== '_').length === 0);
+  let changed = false;
+  (function walk(a, b, p) {
+    if (changed) return;
+    if (empty(a)) { if (!hollow(b) && !add.some(x => x.test(p))) changed = true; return; }
+    if (b === undefined || b === null) { if (!drop.some(x => x.test(p))) changed = true; return; }
+    if (typeof a !== 'object' || a === null) { if (a !== b) changed = true; return; }
+    if (Array.isArray(a) !== Array.isArray(b) || typeof b !== 'object') { changed = true; return; }
+    const keys = new Set(Object.keys(a).concat(Object.keys(b).filter(k => k[0] !== '_')));
+    for (const k of keys) walk(a[k], b[k], Array.isArray(a) ? p + '[' + k + ']' : p ? p + '.' + k : k);
+  })(raw, c, '');
+  return changed;
+}
+rule('READ: sanitize\'s allowlist of defaults and drops is the documented one', () => {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(SRC.run.DRIFT_ALLOW || null)), DOCUMENTED_DEFAULTS);
+});
+rule('READ fuzz: a random change to any field of a valid run.json that sanitize doesn\'t keep as written is always reported', async () => {
+  await readFolder();
+  let seed = 1817;
+  const rnd = n => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const VALS = [undefined, null, '', 7, -1, 1.5, true, 'x'.repeat(400), {}, [], 'not-a-time', { toString: {} }, ['a'], { a: 1 }];
+  let reported = 0, tried = 0;
+  for (const n of [1, 2]) {
+    const at = 'runs/release/run' + n + '/run.json', base = JSON.parse(rfBuilt.files[at]), paths = [];
+    (function collect(v, p, depth) {
+      if (p) paths.push(p);
+      if (v && typeof v === 'object' && depth < (p[0] === 'types' ? 2 : 6)) for (const k of Object.keys(v)) collect(v[k], p.concat([k]), depth + 1);
+    })(base, [], 0);
+    for (const p of paths) for (let t = 0; t < 2; t++) {
+      if (p[0] === 'snapshot') continue;
+      const raw = JSON.parse(JSON.stringify(base)), val = VALS[rnd(VALS.length)];
+      let o = raw; for (const k of p.slice(0, -1)) o = o[k];
+      if (val === undefined) delete o[p[p.length - 1]]; else o[p[p.length - 1]] = JSON.parse(JSON.stringify(val));
+      if (!oracleChanged(raw)) continue;
+      tried++;
+      const r = await readMem({ cmd: 'run', key: 'release/run' + n }, f => { f[at] = JSON.stringify(raw, null, 2); });
+      const ok = r.code === 4 && r.json.problems.some(x => x.path === at && (x.kind === 'malformed' || x.kind === 'newer'));
+      assert.ok(ok, p.join('.') + ' = ' + JSON.stringify(val) + ': exit ' + r.code + ' ' + JSON.stringify(r.json.problems));
+      reported++;
+    }
+  }
+  assert.ok(tried > 100, 'mutations that sanitize changed: ' + tried);
+});
+
+rule('READ: a follow-up decision that isn\'t read as written (a note cut short, a link dropped) is named by file and field', async () => {
+  const at = 'followups/release/run2.fu1.w2.1.json';
+  const cases = [[o => { o.note = 'n'.repeat(316); }, 'note'], [o => { o.link = 'javascript:alert(1)'; }, 'link'], [o => { o.seen = 'not a file'; }, 'seen']];
+  for (const [change, field] of cases) for (const req of [{ cmd: 'run', key: 'release/run2' }, REQ.followups]) {
+    const r = agree(await readMem(req, f => { const o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); }));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === at && p.kind === 'malformed' && p.why.includes(field)), field + ' ' + req.cmd + ': ' + JSON.stringify(r.json.problems));
+  }
 });
 
 run();

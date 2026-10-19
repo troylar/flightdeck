@@ -913,8 +913,7 @@ PF.run = (function () {
     });
     if (o.paused != null) {
       if (!obj(o.paused)) add('paused', 'dropped: not a pause');
-      else if (RUN_STATES[o.state] && o.state !== 'running') add('paused', 'dropped: the run isn\'t running');
-      else { text(o.paused.by, 80, 'paused.by'); text(o.paused.reason, 120, 'paused.reason'); }
+      else if (!RUN_STATES[o.state] || o.state === 'running') { text(o.paused.by, 80, 'paused.by'); text(o.paused.reason, 120, 'paused.reason'); }
     }
     list(o.lineage, 'lineage', 200).forEach(function (t, i) { if (typeof t !== 'string' || !/^[\w-]{1,40}\.[a-z0-9]{8}$/.test(t)) add('lineage[' + i + ']', 'dropped: not a save receipt name'); });
     if (o.marks != null) {
@@ -937,6 +936,8 @@ PF.run = (function () {
       if (!obj(o.fields)) add('fields', 'dropped: not filled-in values');
       else Object.keys(o.fields).forEach(function (k) { if (!/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) add('fields.' + k, 'dropped: not a step ID'); else textMap(o.fields[k], 300, 'fields.' + k, /^[\w-]{1,40}$/, 120); });
     }
+    if (!obj(o.steps)) add('steps', 'replaced: not a list of steps');
+    if (!obj(o.gates)) add('gates', 'replaced: not a list of gates');
     if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k], at = 'steps.' + k;
       if (!obj(a) || !STEP_STATES[a.s]) { add(at, 'dropped: no state this copy knows'); return; }
@@ -980,6 +981,23 @@ PF.run = (function () {
       else { text(o.ended.by, 80, 'ended.by'); text(o.ended.byName, 80, 'ended.byName'); }
     }
     return out;
+  }
+  /* What sanitize may add where a run file says nothing (older copies didn't write these, and a missing value gets this
+     default), and what it leaves out by design. Everything else sanitize changes is a difference reading for other apps
+     reports (unexplained(), through U.drift). Keep this next to sanitize: a change there that adds a default or drops a
+     field belongs here, or reading for other apps calls every run with it malformed. */
+  var DRIFT_ALLOW = {
+    added: ['title', 'state', 'version', 'rev', 'shotsFrozen', 'paused.reason', 'recorder.handoff.rev'],
+    /* An earlier answer keeps only the note of a "done differently" (1.11 wrote who and when too); a pause left on a run that
+       has ended is history (the run isn't paused any more). A pause on a running run that can't be read is badTimes'. */
+    dropped: ['steps.*.history[*].differently.by', 'steps.*.history[*].differently.at', 'paused']
+  };
+  /* Every place a run file says something sanitize doesn't keep as written (U.drift between the file and sanitize's
+     result), for reading for other apps: the safety net under repairs(), which names the same places in words. */
+  function unexplained(o) {
+    var r = sanitize(o);
+    if (!r) return null;
+    return U.drift(o, JSON.parse(JSON.stringify(r)), DRIFT_ALLOW);
   }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
@@ -1039,7 +1057,7 @@ PF.run = (function () {
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

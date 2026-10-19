@@ -143,6 +143,36 @@ PF.util = (function () {
     } catch (e) { return local; }
   }
 
-  return { esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
+  /* Where a cleaned record says something other than the file it came from (reading for other apps): every path whose value
+     in raw isn't the same in clean. Pure. raw and clean are plain parsed JSON (clean already through a JSON round trip, so
+     nothing undefined is left). An empty value in raw (absent, null or '') may stay empty or become an empty list or object;
+     anything else it becomes must be listed in allow.added. A value present in raw may go missing from clean only where
+     allow.dropped lists it. Patterns are dotted paths with * for any key or index ("steps.*.reason", "log[*].at"). Keys of
+     clean starting with "_" are bookkeeping, never compared. */
+  function drift(raw, clean, allow) {
+    allow = allow || {};
+    var out = [], added = (allow.added || []).map(segs), dropped = (allow.dropped || []).map(segs);
+    function segs(p) { return String(p).replace(/\[(\d+|\*)\]/g, '.$1').split('.'); }
+    function matches(list, path) { var s = segs(path); return list.some(function (q) { return q.length === s.length && q.every(function (x, i) { return x === '*' || x === s[i]; }); }); }
+    function empty(v) { return v === undefined || v === null || v === ''; }
+    function hollow(v) { return empty(v) || (Array.isArray(v) && !v.length) || (!!v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).filter(function (k) { return k[0] !== '_'; }).length); }
+    function kind(v) { return Array.isArray(v) ? 'list' : v === null ? 'null' : typeof v; }
+    function walk(r, c, path) {
+      if (empty(r)) { if (!hollow(c) && !matches(added, path)) out.push(path); return; }
+      if (c === undefined || c === null) { if (!matches(dropped, path)) out.push(path); return; }
+      if (kind(r) !== kind(c)) { out.push(path); return; }
+      if (Array.isArray(r)) { for (var i = 0; i < Math.max(r.length, c.length); i++) walk(r[i], c[i], path + '[' + i + ']'); return; }
+      if (typeof r === 'object') {
+        var keys = Object.keys(r).concat(Object.keys(c).filter(function (k) { return k[0] !== '_' && !Object.prototype.hasOwnProperty.call(r, k); }));
+        keys.forEach(function (k) { walk(r[k], c[k], path ? path + '.' + k : k); });
+        return;
+      }
+      if (r !== c) out.push(path);
+    }
+    walk(raw, clean, '');
+    return out;
+  }
+
+  return { drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();

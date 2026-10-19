@@ -633,9 +633,23 @@ function runProblems(PF, r) {
   const isNewer = newerRun(PF, r), bt = isNewer ? '' : badTimesWhy(r._badTimes), fixed = isNewer ? [] : (r._repairs || []).map((x) => x.at + ' (' + x.what + ')'), parts = [];
   if (bt) parts.push('Some times in this file couldn\'t be read (' + bt + ').');
   if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.slice(0, 20).join(', ') + (fixed.length > 20 ? ', and ' + (fixed.length - 20) + ' more' : '') + '.');
+  /* The safety net: anywhere else sanitize's result differs from the file (R.unexplained), not already named above. */
+  const named = (r._repairs || []).map((x) => x.at).concat(Object.keys(r._badTimes || {}));
+  const other = isNewer ? [] : (r._drift || []).filter((p) => !explained(p, named));
+  if (other.length) parts.push('Other places this copy reads differently from the file: ' + other.slice(0, 20).join(', ') + (other.length > 20 ? ', and ' + (other.length - 20) + ' more' : '') + '.');
   if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
   if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
   return out;
+}
+/* Whether a place where the file and what the app reads differ is already named: the same place, one inside the other, or
+   another entry of the same list (dropping one entry shifts the rest). */
+function explained(p, named) {
+  const base = (x) => x.replace(/\[\d+\].*$/, '');
+  return named.some((e) => p === e || p.startsWith(e + '.') || p.startsWith(e + '[') || e.startsWith(p + '.') || e.startsWith(p + '[') || (/\[/.test(p) && /\[/.test(e) && base(p) === base(e)));
+}
+/* A follow-up decision whose file says something cleanDecision doesn't keep as written (_drift, reading for other apps). */
+function decisionDrift(d) {
+  return d && d._drift && d._drift.length ? { path: 'followups/' + d.process + '/' + d._file, kind: 'malformed', why: 'This decision isn\'t read as written: ' + d._drift.slice(0, 20).join(', ') + '.' } : null;
 }
 /* Which times R.sanitize couldn't read (r._badTimes), in words, or ''. */
 function badTimesWhy(b) {
@@ -650,7 +664,9 @@ function peopleWhy(p) {
   if (doc == null) return 'This file isn\'t complete JSON, so no names could be read.';
   const list = Array.isArray(doc) ? doc : typeof doc === 'object' && Array.isArray(doc.people) ? doc.people : null;
   if (!list) return 'This file isn\'t a people list, so no names could be read.';
-  const bad = list.filter((x) => !(x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string')).length;
+ const bad = list.filter((x) => !(x && typeof x === 'object' && typeof x.id === 'string' && typeof x.name === 'string')).length;
+  const long = list.filter((x) => x && typeof x.name === 'string' && x.name.length > 60).length;
+  if (!bad && long) return 'This file has ' + long + ' ' + (long === 1 ? 'name' : 'names') + ' over 60 characters; they are cut to 60, as the app shows them.';
   return bad ? 'This file has ' + bad + ' ' + (bad === 1 ? 'entry' : 'entries') + ' without a text ID and name; those names are left null.' : '';
 }
 /* What a whole-folder read found beyond failed reads (which the ledger already holds): parts that failed, runs and plans
@@ -665,6 +681,7 @@ function folderProblems(PF, d) {
   (d.corrUnread || []).forEach((u) => out.push({ path: u.dir + '/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a decision this copy can read.' }));
   (d.processes || []).forEach((proc) => (proc.pubs || []).forEach((p) => { if (!p.ok && !p._readFailed) { const x = A.pubProblem(p); out.push({ path: 'publications/' + proc.process + '/' + p.folder + '/', kind: x.kind, why: x.why }); } }));
   (d.runs || []).forEach((r) => out.push(...runProblems(PF, r)));
+  (d.fuDecisions || []).forEach((x) => { const p = decisionDrift(x); if (p) out.push(p); });
   const pw = peopleWhy(d.people);
   if (pw) out.push({ path: 'people.json', kind: 'malformed', why: pw });
   return out;
@@ -709,6 +726,7 @@ async function readData(eng, adapter, req) {
       if (one.nofile) L.note('runs/' + key + '/run.json', 'nofile', 'The run folder has no run.json.');
       take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
       take(one.fuUnread.map((u) => ({ path: u.path, kind: u.kind || 'malformed', why: fileWhy(u.why) })));
+      one.fuDecisions.forEach((x) => { const p = decisionDrift(x); if (p) take([p]); });
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
       const pw = peopleWhy(one.people);
       if (pw) L.note('people.json', 'malformed', pw);

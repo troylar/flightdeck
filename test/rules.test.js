@@ -2784,4 +2784,19 @@ rule('Shapes for other apps: a version that can\'t be used says why, as newer, u
   assert.strictEqual(A.pubProblem(P.verify(f, Object.assign({}, files, { 'map.md': md2, 'publication.json': JSON.stringify(Object.assign({}, v.info, { mapHash: U.hash(md2) })) }))).kind, 'unusable');
 });
 
+
+rule('Drift names every place a cleaned record differs from its file, apart from listed defaults and drops', () => {
+  const D = (a, b, allow) => JSON.parse(JSON.stringify(U.drift(a, b, allow)));
+  same(D({ a: 'x', b: { c: 1 } }, { a: 'x', b: { c: 1 } }), []);
+  same(D({ a: 'x'.repeat(5) }, { a: 'xxx' }), ['a']);
+  same(D({ list: [1, 2, 3] }, { list: [1, 3] }), ['list[1]', 'list[2]']);
+  same(D({ s: 'bad' }, { s: {} }), ['s']);
+  same(D({}, { title: 'Untitled run' }), ['title']);
+  same(D({}, { title: 'Untitled run' }, { added: ['title'] }), []);
+  same(D({ title: '' }, { title: 'Untitled run', empty: {}, none: [] }, { added: ['title'] }), []);
+  same(D({ steps: { a: { h: [{ d: { by: 'x', note: 'n' } }] } } }, { steps: { a: { h: [{ d: { note: 'n' } }] } } }, { dropped: ['steps.*.h[*].d.by'] }), []);
+  same(D({ a: 1 }, { a: 1, _bookkeeping: true }), []);
+  same(D({ _x: 1 }, {}), ['_x']);
+});
+
 run();

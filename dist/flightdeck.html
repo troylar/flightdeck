@@ -1917,7 +1917,37 @@ PF.util = (function () {
     } catch (e) { return local; }
   }
 
-  return { esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
+  /* Where a cleaned record says something other than the file it came from (reading for other apps): every path whose value
+     in raw isn't the same in clean. Pure. raw and clean are plain parsed JSON (clean already through a JSON round trip, so
+     nothing undefined is left). An empty value in raw (absent, null or '') may stay empty or become an empty list or object;
+     anything else it becomes must be listed in allow.added. A value present in raw may go missing from clean only where
+     allow.dropped lists it. Patterns are dotted paths with * for any key or index ("steps.*.reason", "log[*].at"). Keys of
+     clean starting with "_" are bookkeeping, never compared. */
+  function drift(raw, clean, allow) {
+    allow = allow || {};
+    var out = [], added = (allow.added || []).map(segs), dropped = (allow.dropped || []).map(segs);
+    function segs(p) { return String(p).replace(/\[(\d+|\*)\]/g, '.$1').split('.'); }
+    function matches(list, path) { var s = segs(path); return list.some(function (q) { return q.length === s.length && q.every(function (x, i) { return x === '*' || x === s[i]; }); }); }
+    function empty(v) { return v === undefined || v === null || v === ''; }
+    function hollow(v) { return empty(v) || (Array.isArray(v) && !v.length) || (!!v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).filter(function (k) { return k[0] !== '_'; }).length); }
+    function kind(v) { return Array.isArray(v) ? 'list' : v === null ? 'null' : typeof v; }
+    function walk(r, c, path) {
+      if (empty(r)) { if (!hollow(c) && !matches(added, path)) out.push(path); return; }
+      if (c === undefined || c === null) { if (!matches(dropped, path)) out.push(path); return; }
+      if (kind(r) !== kind(c)) { out.push(path); return; }
+      if (Array.isArray(r)) { for (var i = 0; i < Math.max(r.length, c.length); i++) walk(r[i], c[i], path + '[' + i + ']'); return; }
+      if (typeof r === 'object') {
+        var keys = Object.keys(r).concat(Object.keys(c).filter(function (k) { return k[0] !== '_' && !Object.prototype.hasOwnProperty.call(r, k); }));
+        keys.forEach(function (k) { walk(r[k], c[k], path ? path + '.' + k : k); });
+        return;
+      }
+      if (r !== c) out.push(path);
+    }
+    walk(raw, clean, '');
+    return out;
+  }
+
+  return { drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 
@@ -4770,8 +4800,7 @@ PF.run = (function () {
     });
     if (o.paused != null) {
       if (!obj(o.paused)) add('paused', 'dropped: not a pause');
-      else if (RUN_STATES[o.state] && o.state !== 'running') add('paused', 'dropped: the run isn\'t running');
-      else { text(o.paused.by, 80, 'paused.by'); text(o.paused.reason, 120, 'paused.reason'); }
+      else if (!RUN_STATES[o.state] || o.state === 'running') { text(o.paused.by, 80, 'paused.by'); text(o.paused.reason, 120, 'paused.reason'); }
     }
     list(o.lineage, 'lineage', 200).forEach(function (t, i) { if (typeof t !== 'string' || !/^[\w-]{1,40}\.[a-z0-9]{8}$/.test(t)) add('lineage[' + i + ']', 'dropped: not a save receipt name'); });
     if (o.marks != null) {
@@ -4794,6 +4823,8 @@ PF.run = (function () {
       if (!obj(o.fields)) add('fields', 'dropped: not filled-in values');
       else Object.keys(o.fields).forEach(function (k) { if (!/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) add('fields.' + k, 'dropped: not a step ID'); else textMap(o.fields[k], 300, 'fields.' + k, /^[\w-]{1,40}$/, 120); });
     }
+    if (!obj(o.steps)) add('steps', 'replaced: not a list of steps');
+    if (!obj(o.gates)) add('gates', 'replaced: not a list of gates');
     if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k], at = 'steps.' + k;
       if (!obj(a) || !STEP_STATES[a.s]) { add(at, 'dropped: no state this copy knows'); return; }
@@ -4837,6 +4868,23 @@ PF.run = (function () {
       else { text(o.ended.by, 80, 'ended.by'); text(o.ended.byName, 80, 'ended.byName'); }
     }
     return out;
+  }
+  /* What sanitize may add where a run file says nothing (older copies didn't write these, and a missing value gets this
+     default), and what it leaves out by design. Everything else sanitize changes is a difference reading for other apps
+     reports (unexplained(), through U.drift). Keep this next to sanitize: a change there that adds a default or drops a
+     field belongs here, or reading for other apps calls every run with it malformed. */
+  var DRIFT_ALLOW = {
+    added: ['title', 'state', 'version', 'rev', 'shotsFrozen', 'paused.reason', 'recorder.handoff.rev'],
+    /* An earlier answer keeps only the note of a "done differently" (1.11 wrote who and when too); a pause left on a run that
+       has ended is history (the run isn't paused any more). A pause on a running run that can't be read is badTimes'. */
+    dropped: ['steps.*.history[*].differently.by', 'steps.*.history[*].differently.at', 'paused']
+  };
+  /* Every place a run file says something sanitize doesn't keep as written (U.drift between the file and sanitize's
+     result), for reading for other apps: the safety net under repairs(), which names the same places in words. */
+  function unexplained(o) {
+    var r = sanitize(o);
+    if (!r) return null;
+    return U.drift(o, JSON.parse(JSON.stringify(r)), DRIFT_ALLOW);
   }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
@@ -4896,7 +4944,7 @@ PF.run = (function () {
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
@@ -9041,6 +9089,7 @@ PF.repo = (function () {
     var bad = cacheIn ? badFor(cacheIn, entry) : '';
     if (bad && !run._unrunnable) run._unrunnable = bad;
     if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
+    if (entry.drift && entry.drift.length) run._drift = entry.drift;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [];
@@ -9193,7 +9242,7 @@ PF.repo = (function () {
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
-        if (o.explain) entry.repairs = R.repairs(json(res[0].text));
+        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
@@ -9339,7 +9388,7 @@ PF.repo = (function () {
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
       loadCorrectionDecisions(fs, cache, sched),
-      loadFollowUpDecisions(fs, cache, sched)
+      loadFollowUpDecisions(fs, cache, sched, !!opts.explain)
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       if (errs.length === PARTS.length) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
@@ -9404,7 +9453,8 @@ PF.repo = (function () {
           var path = 'followups/' + proc + '/' + i.name;
           return fs.read(path).then(function (f) {
             if (!f) return;
-            var d = null; try { d = F.cleanDecision(json(f.text), proc, i.name); } catch (e) { d = null; }
+            var raw = json(f.text), d = null; try { d = F.cleanDecision(raw, proc, i.name); } catch (e) { d = null; }
+            if (d) { var dr = fuDrift(raw, d); if (dr.length) d._drift = dr; }
             if (d && d.run === id) out.fuDecisions.push(d); else if (!d) out.fuUnread.push({ path: path, why: 'isn\'t a follow-up decision this copy can read' });
           }, function (e) { out.fuUnread.push({ path: path, kind: errKind(e), why: why(e) }); });
         }));
@@ -9488,7 +9538,10 @@ PF.repo = (function () {
   /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
      decided. run.json never changes. Read like corrections' decisions (decisionTexts); a file that can't be read is
      reported in fuUnread, never dropped, so its follow-up doesn't quietly look open again. */
-  function loadFollowUpDecisions(fs, cache, sched) {
+  /* Reading for other apps: where a follow-up decision file says something cleanDecision doesn't keep as written. */
+  var FU_ALLOW = { added: ['fv'], dropped: [] };
+  function fuDrift(raw, d) { var c = {}; Object.keys(d).forEach(function (k) { if (k[0] !== '_') c[k] = d[k]; }); return U.drift(raw, JSON.parse(JSON.stringify(c)), FU_ALLOW); }
+  function loadFollowUpDecisions(fs, cache, sched, explain) {
     var scope = { folders: [], tops: {} };
     return fs.list('followups').then(function (procs) {
       var ok = procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); });
@@ -9503,8 +9556,9 @@ PF.repo = (function () {
           /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
           if (g.failed) return unread;
           if (!g.f) return null;
-          var d = null; try { d = PF.followups.cleanDecision(json(g.f.text), x.process, x.name); } catch (e) { d = null; }
+          var raw = json(g.f.text), d = null; try { d = PF.followups.cleanDecision(raw, x.process, x.name); } catch (e) { d = null; }
           if (!d) { forgetText(cache, x.path); return unread; }
+          if (explain) { var dr = fuDrift(raw, d); if (dr.length) d._drift = dr; }
           return d;
         });
       });

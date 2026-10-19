@@ -843,7 +843,7 @@ rule('Older copies never list followups/: deciding a follow-up leaves run.json a
   const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
   await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'wont', { reason: 'Not needed' }, NOW, null), 'blake-laptop');
   // A copy from before 1.16 is this copy without the follow-up decision loader.
-  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace('loadFollowUpDecisions(fs, cache, sched)\n    ].map(', 'Promise.resolve([])\n    ].map(') : src).repo;
+  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace(/loadFollowUpDecisions\(fs, cache, sched[^)]*\)\n    \]\.map\(/, 'Promise.resolve([])\n    ].map(') : src).repo;
   const calls = faulty(fs);
   const d = await OLD.loadAll(fs, { deep: true });
   await OLD.loadRun(fs, 'release', 'run1');
