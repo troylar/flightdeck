@@ -194,7 +194,8 @@
     var bar = function (t) { return '<div class="ca-bar"><h2 id="ca-t" tabindex="-1">' + t + '</h2><button type="button" class="mini" id="ca-close" data-act="close-overlay">Close</button></div>'; };
     if (!g || (g.status !== 'open' && !g.tie)) return box(bar('Apply a correction') + '<p>' + (g ? 'This correction was decided meanwhile: ' + esc(C.label(g)) + '.' : 'This correction isn\'t here anymore.') + '</p>');
     var base = corrBase(ctx, p), c = g.first, ch = g.change, edited = ov.edit ? ov.edit.text : null;
-    var rv = C.review(g, base.text, ov.edit && ov.edit.text != null && (ch.op === 'wording' || ch.op === 'add') ? edited : null), stepName = c.from || (rv.now && rv.now.text) || '';
+    var applied = (st.corrApplied || {})[ctx.fsKey + '\n' + p.id + '\n' + g.id] || null;
+    var rv = C.review(g, base.text, ov.edit && ov.edit.text != null && (ch.op === 'wording' || ch.op === 'add') ? edited : null, { applied: applied }), stepName = c.from || (rv.now && rv.now.text) || '';
     var h = bar('Apply to the draft: ' + (stepName ? '“' + esc(stepName) + '”' : 'step ' + esc(g.target.step || g.target.phase)));
     h += '<p class="small"><span class="badge b-plan">' + esc(C.OP_LABEL[ch.op]) + '</span> Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + (base.fresh ? ' · There\'s no draft yet: applying starts one from v' + esc(p.latest ? p.latest.info.version : '') + '.' : '') + '</p>';
     var stateLine = { clean: '', already: 'This is already in the draft.', changed: rv.reason, gone: rv.reason || 'This step isn\'t in the draft anymore.', manual: 'Flightdeck can\'t apply this one for you. ' + rv.reason }[rv.state];

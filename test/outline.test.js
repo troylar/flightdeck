@@ -667,4 +667,39 @@ rule('An applied correction records its result, and a later change to that step 
   assert.strictEqual(C.changedSince(aa, ra.text), false);
 });
 
+rule('A missing step counts as already there only at the place it was asked for', () => {
+  const md = ['---', 'process: release', 'title: T', '---', '', '## P {#p}', '- [ ] {confirm} Begin {#begin}', '- [ ] {confirm} Verify {#verify}', '- [ ] {confirm} Finish {#finish}', '', '## Q {#q}', '- [ ] {confirm} Other {#other}', ''].join('\n');
+  const map = M.parse(md);
+  const after = group({ step: 'finish', op: 'add', where: 'after', text: 'Verify' }, map);
+  const r = C.review(after, md);
+  assert.strictEqual(r.state, 'clean', 'a "Verify" elsewhere in the phase isn\'t the one asked for');
+  assert.strictEqual(C.review(after, r.text).state, 'already');
+  const atEnd = group({ step: 'begin', op: 'add', where: 'end', text: 'Verify' }, map);
+  assert.strictEqual(C.review(atEnd, md).state, 'clean', 'not at the end of the phase');
+  assert.strictEqual(C.review(atEnd, C.review(atEnd, md).text).state, 'already');
+  assert.strictEqual(C.review(group({ step: 'begin', op: 'add', where: 'after', text: 'Verify' }, map), md).state, 'already', 'right after it: already there');
+});
+
+rule('A correction is made by hand when two steps in the draft share its step\'s ID', () => {
+  const md = ['---', 'process: release', 'title: T', '---', '', '## P {#p}', '- [ ] {confirm} Begin {#begin}', '- [ ] {confirm} Finish {#finish}', ''].join('\n');
+  const g = group({ step: 'finish', op: 'remove', why: 'Not needed' }, M.parse(md));
+  const dup = md.replace('Begin {#begin}', 'Begin {#finish}');
+  const r = C.review(g, dup);
+  assert.ok(r.state === 'manual' && /share the ID finish|ID finish/.test(r.reason), r.state + ' ' + r.reason);
+  const w = group({ step: 'finish', op: 'wording', to: 'Finish it' }, M.parse(md));
+  assert.strictEqual(C.review(w, dup).state, 'manual');
+});
+
+rule('What a person applied (their own wording) is recognized on the next look, so the correction can be linked', () => {
+  const add = group({ step: 'flags', op: 'add', where: 'after', text: 'Verify' });
+  const r = C.review(add, RELEASE, 'Verify twice'), applied = C.outcome(add, r.text, r.added);
+  assert.strictEqual(C.review(add, r.text).state, 'clean', 'without the record, the original proposal still looks missing');
+  const again = C.review(add, r.text, null, { applied });
+  same([again.state, again.result.text], ['already', 'Verify twice']);
+  assert.strictEqual(C.review(add, RELEASE, null, { applied }).state, 'clean', 'a record that the draft no longer matches is ignored');
+  const w = group({ step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts' });
+  const rw = C.review(w, RELEASE, 'New pods stay up for 30 minutes');
+  assert.strictEqual(C.review(w, rw.text, null, { applied: C.outcome(w, rw.text) }).state, 'already');
+});
+
 run();

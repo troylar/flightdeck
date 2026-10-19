@@ -1261,7 +1261,7 @@
       if (!opts.replace) { var mark = state.justSaved = { pid: p.id }; setTimeout(function () { if (state.justSaved === mark) { state.justSaved = null; scheduleRender(); } }, 1600); }
       /* What has to follow the save (an applied correction's decision) happens only once the draft is in the folder. */
       return Promise.resolve(opts.after ? opts.after(res) : null).then(function () { if (g === gen) return load(true); });
-    }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message, 'bad'); render(); });
+    }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message + (opts.failed ? opts.failed(err) || '' : ''), 'bad'); render(); });
   }
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
@@ -1272,6 +1272,11 @@
   function caErr(ov, msg, field) { ov.err = { msg: msg, field: field || 'ca-acts' }; state.overlayFocus = field ? '#' + field : '#ca-t'; render(); }
   /* The draft a correction is compared with: the editor's starting point, the same one the dialog shows (views corrBase). */
   function caBase(p) { var ed = editorOf(p.id); return ed ? ed.base : p.draft ? p.draft.md : p.latest ? p.latest.md : ''; }
+  /* What this window applied whose decision isn't written yet, per folder, process and group (views/process.js reads it too):
+     the next look recognizes it, in the person's own words too, and offers Link. */
+  state.corrApplied = {};
+  function caKey(pid, gid) { return fsKey() + '\n' + pid + '\n' + gid; }
+  function caApplied(pid, gid) { return state.corrApplied[caKey(pid, gid)] || null; }
   /* Why nothing may be applied to this draft right now, or ''. Unsaved edits in this window come first: applying over them
      would mix the correction into changes nobody has saved. */
   function caBlocked(p) {
@@ -1320,13 +1325,16 @@
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
       act: { act: 'tl-undo', id: 'draft', label: 'Undo' },
+      /* Not saved: the change waits in the editor as unsaved, so the editor opens rather than hiding it. */
+      failed: function () { if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
       write: function (f, file, t, h, o) { return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
       after: function () {
         if (gg !== gen) return null;
         return gs.reduce(function (pr, y) {
           return pr.then(function () {
-            var rec = C.decision(y, me, 'applied', '', new Date().toISOString(), { current: y.decision, act: U.randomId(10), result: C.outcome(y, text, y === g ? added : '') });
-            return queued(function () { return repo.decideCorrection(dfs, rec, WRITER); });
+            var res = C.outcome(y, text, y === g ? added : ''), k = caKey(p.id, y.id), rec = C.decision(y, me, 'applied', '', new Date().toISOString(), { current: y.decision, act: U.randomId(10), result: res });
+            state.corrApplied[k] = res;
+            return queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () { delete state.corrApplied[k]; });
           });
         }, Promise.resolve()).catch(function (e) { if (gg === gen) say('The draft has the correction, but marking it as applied didn\'t save: ' + e.message + ' Review it again and choose Link this correction.', 'warn'); });
       }
@@ -2706,9 +2714,10 @@
     'corr-link': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
       var x = caFind(ov.pid, ov.gid); if (!x.g) return;
-      var base = caBase(x.p), rv = PF.corrections.review(x.g, base);
+      var base = caBase(x.p), rv = PF.corrections.review(x.g, base, null, { applied: caApplied(x.p.id, x.g.id) });
       if (rv.state !== 'already') { caErr(ov, 'The draft changed since this was shown. Look at the comparison again.'); return; }
-      caDecide(ov, 'applied', '', 'Linked: the draft already has this correction.', PF.corrections.outcome(x.g, base, rv.result ? rv.result.id : ''));
+      var ap = caApplied(x.p.id, x.g.id);
+      caDecide(ov, 'applied', '', 'Linked: the draft already has this correction.', PF.corrections.outcome(x.g, base, rv.result ? rv.result.id : ap ? ap.step : ''));
     },
     'corr-addressed': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
@@ -3364,9 +3373,10 @@
       /* Only controls on screen count: a hidden one (a narrow screen's other panel, a closed section) can't take focus. */
       var fo = Array.prototype.slice.call(trap.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(function (el) { return !el.getClientRects || el.getClientRects().length > 0; });
       if (fo.length) {
-        var fa = document.activeElement, inside = trap.contains(fa);
-        if (e.shiftKey && (!inside || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
-        else if (!e.shiftKey && (!inside || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
+        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens) counts as before the first. */
+        var fa = document.activeElement, inside = trap.contains(fa), off = inside && fo.indexOf(fa) < 0;
+        if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
+        else if (!e.shiftKey && (!inside || off || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
       }
       return;
     }

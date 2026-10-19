@@ -2104,6 +2104,48 @@ rule('App: if the decision can\'t be written after the draft is saved, the next 
   app.PF.repo.decideCorrection = orig;
 });
 
+rule('App: an edited missing step that was applied but whose decision failed is found on the next look, with Link', async () => {
+  const app = await releasePage(), path = 'maps/drafts/release.md';
+  const id = /data-act="corr-review" data-id="([\w-]+)"[^>]*>Review and apply</g; let m, ids = []; while ((m = id.exec(app.html()))) ids.push(m[1]);
+  const add = ids[ids.length - 1];
+  const orig = app.PF.repo.decideCorrection; let fails = 1;
+  app.PF.repo.decideCorrection = function () { if (fails-- > 0) return Promise.reject(new Error('OneDrive is offline')); return orig.apply(this, arguments); };
+  app.click('corr-review', add); await app.tick();
+  assert.ok(/Missing step/.test(app.overlay()), 'set-up: the missing step');
+  app.click('corr-edit', add); await app.tick();
+  app.input('ca-edit', 'Check the error budget twice');
+  app.click('corr-apply', add, { how: 'edit' }); await app.tick(100);
+  assert.ok(/Check the error budget twice/.test(app.fs.files[path].t));
+  app.click('corr-review', add); await app.tick();
+  assert.ok(/This is already in the draft\./.test(app.overlay()) && /data-act="corr-link"/.test(app.overlay()) && !/data-act="corr-apply"/.test(app.overlay()), app.overlay().slice(0, 300));
+  app.click('corr-link', add); await app.tick(80);
+  assert.strictEqual(decisions(app, add)[0].status, 'applied');
+  assert.strictEqual((app.fs.files[path].t.match(/error budget/g) || []).length, 1, 'never added twice');
+  app.PF.repo.decideCorrection = orig;
+});
+
+rule('App: when the draft can\'t be saved, the applied correction is shown in the editor as unsaved, not hidden', async () => {
+  const app = await releasePage(), id = podsGroup(app);
+  const orig = app.PF.repo.applyCorrection;
+  app.PF.repo.applyCorrection = () => Promise.reject(new Error('OneDrive is offline'));
+  app.click('corr-review', id); await app.tick();
+  app.click('corr-apply', id); await app.tick(80);
+  app.PF.repo.applyCorrection = orig;
+  assert.ok(/class="fpe" id="fpe"/.test(app.html()) && /Unsaved changes/.test(app.html()), 'the editor is open with the unsaved change');
+  assert.ok(/Couldn&#39;t save the draft|Couldn't save the draft/.test(app.html()));
+});
+
+rule('App: Shift+Tab from the comparison\'s heading stays inside the dialog', async () => {
+  const app = await releasePage(), doc = app.doc, id = podsGroup(app);
+  app.click('corr-review', id); await app.tick();
+  const btn = n => ({ id: n, dataset: {}, focus() { doc.activeElement = this; }, closest: () => null });
+  const head = btn('ca-t'), ctl = [btn('ca-close'), btn('apply')], ov = app.el('overlay');
+  ov.querySelectorAll = () => ctl; ov.contains = el => el === head || ctl.includes(el);
+  doc.activeElement = head;
+  let taken = false; app.keyOn('Tab', { shiftKey: true, preventDefault() { taken = true; } }, head);
+  assert.ok(taken && doc.activeElement === ctl[1], 'to the last control');
+});
+
 rule('App: a correction to a process with no draft starts the draft from the latest version', async () => {
   const app = await releasePage(), path = 'maps/drafts/release.md', id = podsGroup(app);
   await app.fs.remove(path); app.click('refresh'); await app.tick(100);

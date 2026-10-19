@@ -331,6 +331,9 @@ PF.corrections = (function () {
     var ch = g.change, O = PF.outline, o = O.parse(text);
     if (!APPLIES[ch.op] || g.legacy || g.newer) return { manual: manualWhy(g) };
     if (o.unsupported) return { manual: 'The builder can\'t edit this draft safely: ' + o.unsupported };
+    /* Two steps with one ID can't be told apart: neither is changed, and neither counts as gone. */
+    var twice = [g.target.step, ch.op === 'move' && ch.to.after].filter(function (id) { return id && o.steps.filter(function (x) { return x.id === String(id).toLowerCase(); }).length > 1; })[0];
+    if (twice) return { manual: 'Two steps in the draft share the ID ' + twice + ', so Flightdeck can\'t tell which one this is about. Give one of them a new ID in the editor.' };
     var s = draftStep(o, g.target.step), say = edited != null ? norm(edited) : null;
     if (ch.op === 'add') {
       var t = say != null ? say : ch.text;
@@ -375,11 +378,22 @@ PF.corrections = (function () {
   function view(o, s) { return s ? { text: s.text, roles: s.roles.slice(), where: placeOf(o, s), id: s.id } : null; }
   /* The step a group's result is about in this text: the step itself, or for a missing step, the one it adds (by its ID once
      known, else by its text in the target phase). */
+  /* A new step is only the one asked for at the place asked for: right after its step, or last in that step's group (else
+     the phase's last group). The same text elsewhere is another step. */
   function resultStep(g, o, id) {
     if (g.change.op !== 'add') return draftStep(o, g.target.step);
     if (id) return draftStep(o, id);
-    var want = norm(g.change.text), anchor = draftStep(o, g.target.step), ph = anchor ? anchor.phase : draftPhase(o, g.target.phase);
-    return (ph ? ph.steps : o.steps).filter(function (x) { return norm(x.text) === want; })[0] || null;
+    var ch = g.change, want = norm(ch.text), anchor = draftStep(o, g.target.step), at = null;
+    if (ch.where !== 'end') {
+      if (!anchor) return null;
+      var ps = anchor.phase.steps, k = ps.indexOf(anchor);
+      at = k + 1 < ps.length && ps[k + 1].track === anchor.track ? ps[k + 1] : null;
+    } else {
+      var ph = anchor ? anchor.phase : draftPhase(o, g.target.phase); if (!ph) return null;
+      var tr = anchor ? anchor.track : ph.tracks.length - 1, grp = ph.steps.filter(function (x) { return x.track === tr; });
+      at = grp[grp.length - 1] || null;
+    }
+    return at && norm(at.text) === want ? at : null;
   }
   /* A fingerprint of what a group changes, as this text has it: the step's signature, and for a move, its place too. A
      decision records it, so a later change to that step shows as "Changed since applied". */
@@ -408,12 +422,20 @@ PF.corrections = (function () {
   /* The three-way comparison: what the run's version said (the group's own record), the draft now, and the draft with the
      change made. state: clean (apply it), already (the draft has it: link the correction), changed (the step changed since
      the run's version, or what it depends on did: a person edits or confirms the result), gone (the step isn't in the draft),
-     manual (a person makes it in the editor). edited: a person's own wording for the result. */
-  function review(g, text, edited) {
+     manual (a person makes it in the editor). edited: a person's own wording for the result. opts.applied: the outcome this
+     window applied, when its decision isn't written yet. */
+  function review(g, text, edited, opts) {
     var o = PF.outline.parse(text), ch = g.change, s = draftStep(o, g.target.step), out = { state: 'clean', now: view(o, s), result: null, text: null, reason: '' };
     if (ch.op === 'add' && s) out.now = { text: '', where: 'Not there yet. It would go ' + (ch.where === 'end' ? 'at the end of "' + s.phase.title + '"' : 'after "' + s.text + '"') + '.', roles: [], anchor: true };
     var t = toOps(g, text, edited);
     if (t.manual) return Object.assign(out, { state: 'manual', reason: t.manual });
+    /* What this window applied (perhaps in a person's own words) whose decision wasn't written yet: the draft has it. */
+    var ap = opts && opts.applied;
+    if (edited == null && ap && ap.sig !== U.hash('gone') && outcome(g, text, ap.step).sig === ap.sig) {
+      var r1 = resultStep(g, o, ap.step);
+      if (ch.op === 'add') out.now = view(o, r1);
+      return Object.assign(out, { state: 'already', result: view(o, r1), text: text });
+    }
     if (edited == null && isAlready(g, o)) {
       var r0 = resultStep(g, o);
       if (ch.op === 'add') out.now = view(o, r0);

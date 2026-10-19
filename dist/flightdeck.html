@@ -4661,6 +4661,9 @@ PF.corrections = (function () {
     var ch = g.change, O = PF.outline, o = O.parse(text);
     if (!APPLIES[ch.op] || g.legacy || g.newer) return { manual: manualWhy(g) };
     if (o.unsupported) return { manual: 'The builder can\'t edit this draft safely: ' + o.unsupported };
+    /* Two steps with one ID can't be told apart: neither is changed, and neither counts as gone. */
+    var twice = [g.target.step, ch.op === 'move' && ch.to.after].filter(function (id) { return id && o.steps.filter(function (x) { return x.id === String(id).toLowerCase(); }).length > 1; })[0];
+    if (twice) return { manual: 'Two steps in the draft share the ID ' + twice + ', so Flightdeck can\'t tell which one this is about. Give one of them a new ID in the editor.' };
     var s = draftStep(o, g.target.step), say = edited != null ? norm(edited) : null;
     if (ch.op === 'add') {
       var t = say != null ? say : ch.text;
@@ -4705,11 +4708,22 @@ PF.corrections = (function () {
   function view(o, s) { return s ? { text: s.text, roles: s.roles.slice(), where: placeOf(o, s), id: s.id } : null; }
   /* The step a group's result is about in this text: the step itself, or for a missing step, the one it adds (by its ID once
      known, else by its text in the target phase). */
+  /* A new step is only the one asked for at the place asked for: right after its step, or last in that step's group (else
+     the phase's last group). The same text elsewhere is another step. */
   function resultStep(g, o, id) {
     if (g.change.op !== 'add') return draftStep(o, g.target.step);
     if (id) return draftStep(o, id);
-    var want = norm(g.change.text), anchor = draftStep(o, g.target.step), ph = anchor ? anchor.phase : draftPhase(o, g.target.phase);
-    return (ph ? ph.steps : o.steps).filter(function (x) { return norm(x.text) === want; })[0] || null;
+    var ch = g.change, want = norm(ch.text), anchor = draftStep(o, g.target.step), at = null;
+    if (ch.where !== 'end') {
+      if (!anchor) return null;
+      var ps = anchor.phase.steps, k = ps.indexOf(anchor);
+      at = k + 1 < ps.length && ps[k + 1].track === anchor.track ? ps[k + 1] : null;
+    } else {
+      var ph = anchor ? anchor.phase : draftPhase(o, g.target.phase); if (!ph) return null;
+      var tr = anchor ? anchor.track : ph.tracks.length - 1, grp = ph.steps.filter(function (x) { return x.track === tr; });
+      at = grp[grp.length - 1] || null;
+    }
+    return at && norm(at.text) === want ? at : null;
   }
   /* A fingerprint of what a group changes, as this text has it: the step's signature, and for a move, its place too. A
      decision records it, so a later change to that step shows as "Changed since applied". */
@@ -4738,12 +4752,20 @@ PF.corrections = (function () {
   /* The three-way comparison: what the run's version said (the group's own record), the draft now, and the draft with the
      change made. state: clean (apply it), already (the draft has it: link the correction), changed (the step changed since
      the run's version, or what it depends on did: a person edits or confirms the result), gone (the step isn't in the draft),
-     manual (a person makes it in the editor). edited: a person's own wording for the result. */
-  function review(g, text, edited) {
+     manual (a person makes it in the editor). edited: a person's own wording for the result. opts.applied: the outcome this
+     window applied, when its decision isn't written yet. */
+  function review(g, text, edited, opts) {
     var o = PF.outline.parse(text), ch = g.change, s = draftStep(o, g.target.step), out = { state: 'clean', now: view(o, s), result: null, text: null, reason: '' };
     if (ch.op === 'add' && s) out.now = { text: '', where: 'Not there yet. It would go ' + (ch.where === 'end' ? 'at the end of "' + s.phase.title + '"' : 'after "' + s.text + '"') + '.', roles: [], anchor: true };
     var t = toOps(g, text, edited);
     if (t.manual) return Object.assign(out, { state: 'manual', reason: t.manual });
+    /* What this window applied (perhaps in a person's own words) whose decision wasn't written yet: the draft has it. */
+    var ap = opts && opts.applied;
+    if (edited == null && ap && ap.sig !== U.hash('gone') && outcome(g, text, ap.step).sig === ap.sig) {
+      var r1 = resultStep(g, o, ap.step);
+      if (ch.op === 'add') out.now = view(o, r1);
+      return Object.assign(out, { state: 'already', result: view(o, r1), text: text });
+    }
     if (edited == null && isAlready(g, o)) {
       var r0 = resultStep(g, o);
       if (ch.op === 'add') out.now = view(o, r0);
@@ -7313,7 +7335,8 @@ PF.vk = (function () {
     var bar = function (t) { return '<div class="ca-bar"><h2 id="ca-t" tabindex="-1">' + t + '</h2><button type="button" class="mini" id="ca-close" data-act="close-overlay">Close</button></div>'; };
     if (!g || (g.status !== 'open' && !g.tie)) return box(bar('Apply a correction') + '<p>' + (g ? 'This correction was decided meanwhile: ' + esc(C.label(g)) + '.' : 'This correction isn\'t here anymore.') + '</p>');
     var base = corrBase(ctx, p), c = g.first, ch = g.change, edited = ov.edit ? ov.edit.text : null;
-    var rv = C.review(g, base.text, ov.edit && ov.edit.text != null && (ch.op === 'wording' || ch.op === 'add') ? edited : null), stepName = c.from || (rv.now && rv.now.text) || '';
+    var applied = (st.corrApplied || {})[ctx.fsKey + '\n' + p.id + '\n' + g.id] || null;
+    var rv = C.review(g, base.text, ov.edit && ov.edit.text != null && (ch.op === 'wording' || ch.op === 'add') ? edited : null, { applied: applied }), stepName = c.from || (rv.now && rv.now.text) || '';
     var h = bar('Apply to the draft: ' + (stepName ? '“' + esc(stepName) + '”' : 'step ' + esc(g.target.step || g.target.phase)));
     h += '<p class="small"><span class="badge b-plan">' + esc(C.OP_LABEL[ch.op]) + '</span> Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + (base.fresh ? ' · There\'s no draft yet: applying starts one from v' + esc(p.latest ? p.latest.info.version : '') + '.' : '') + '</p>';
     var stateLine = { clean: '', already: 'This is already in the draft.', changed: rv.reason, gone: rv.reason || 'This step isn\'t in the draft anymore.', manual: 'Flightdeck can\'t apply this one for you. ' + rv.reason }[rv.state];
@@ -11025,7 +11048,7 @@ PF.examples = (function () {
       if (!opts.replace) { var mark = state.justSaved = { pid: p.id }; setTimeout(function () { if (state.justSaved === mark) { state.justSaved = null; scheduleRender(); } }, 1600); }
       /* What has to follow the save (an applied correction's decision) happens only once the draft is in the folder. */
       return Promise.resolve(opts.after ? opts.after(res) : null).then(function () { if (g === gen) return load(true); });
-    }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message, 'bad'); render(); });
+    }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message + (opts.failed ? opts.failed(err) || '' : ''), 'bad'); render(); });
   }
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
@@ -11036,6 +11059,11 @@ PF.examples = (function () {
   function caErr(ov, msg, field) { ov.err = { msg: msg, field: field || 'ca-acts' }; state.overlayFocus = field ? '#' + field : '#ca-t'; render(); }
   /* The draft a correction is compared with: the editor's starting point, the same one the dialog shows (views corrBase). */
   function caBase(p) { var ed = editorOf(p.id); return ed ? ed.base : p.draft ? p.draft.md : p.latest ? p.latest.md : ''; }
+  /* What this window applied whose decision isn't written yet, per folder, process and group (views/process.js reads it too):
+     the next look recognizes it, in the person's own words too, and offers Link. */
+  state.corrApplied = {};
+  function caKey(pid, gid) { return fsKey() + '\n' + pid + '\n' + gid; }
+  function caApplied(pid, gid) { return state.corrApplied[caKey(pid, gid)] || null; }
   /* Why nothing may be applied to this draft right now, or ''. Unsaved edits in this window come first: applying over them
      would mix the correction into changes nobody has saved. */
   function caBlocked(p) {
@@ -11084,13 +11112,16 @@ PF.examples = (function () {
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
       act: { act: 'tl-undo', id: 'draft', label: 'Undo' },
+      /* Not saved: the change waits in the editor as unsaved, so the editor opens rather than hiding it. */
+      failed: function () { if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
       write: function (f, file, t, h, o) { return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
       after: function () {
         if (gg !== gen) return null;
         return gs.reduce(function (pr, y) {
           return pr.then(function () {
-            var rec = C.decision(y, me, 'applied', '', new Date().toISOString(), { current: y.decision, act: U.randomId(10), result: C.outcome(y, text, y === g ? added : '') });
-            return queued(function () { return repo.decideCorrection(dfs, rec, WRITER); });
+            var res = C.outcome(y, text, y === g ? added : ''), k = caKey(p.id, y.id), rec = C.decision(y, me, 'applied', '', new Date().toISOString(), { current: y.decision, act: U.randomId(10), result: res });
+            state.corrApplied[k] = res;
+            return queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () { delete state.corrApplied[k]; });
           });
         }, Promise.resolve()).catch(function (e) { if (gg === gen) say('The draft has the correction, but marking it as applied didn\'t save: ' + e.message + ' Review it again and choose Link this correction.', 'warn'); });
       }
@@ -12470,9 +12501,10 @@ PF.examples = (function () {
     'corr-link': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
       var x = caFind(ov.pid, ov.gid); if (!x.g) return;
-      var base = caBase(x.p), rv = PF.corrections.review(x.g, base);
+      var base = caBase(x.p), rv = PF.corrections.review(x.g, base, null, { applied: caApplied(x.p.id, x.g.id) });
       if (rv.state !== 'already') { caErr(ov, 'The draft changed since this was shown. Look at the comparison again.'); return; }
-      caDecide(ov, 'applied', '', 'Linked: the draft already has this correction.', PF.corrections.outcome(x.g, base, rv.result ? rv.result.id : ''));
+      var ap = caApplied(x.p.id, x.g.id);
+      caDecide(ov, 'applied', '', 'Linked: the draft already has this correction.', PF.corrections.outcome(x.g, base, rv.result ? rv.result.id : ap ? ap.step : ''));
     },
     'corr-addressed': function (id) {
       var ov = caOv(); if (!ov || ov.gid !== id || ov.busy) return;
@@ -13128,9 +13160,10 @@ PF.examples = (function () {
       /* Only controls on screen count: a hidden one (a narrow screen's other panel, a closed section) can't take focus. */
       var fo = Array.prototype.slice.call(trap.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(function (el) { return !el.getClientRects || el.getClientRects().length > 0; });
       if (fo.length) {
-        var fa = document.activeElement, inside = trap.contains(fa);
-        if (e.shiftKey && (!inside || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
-        else if (!e.shiftKey && (!inside || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
+        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens) counts as before the first. */
+        var fa = document.activeElement, inside = trap.contains(fa), off = inside && fo.indexOf(fa) < 0;
+        if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
+        else if (!e.shiftKey && (!inside || off || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
       }
       return;
     }
