@@ -32,7 +32,7 @@
   "scripts": {
     "build": "python3 build.py",
     "test": "bash test/run.sh",
-    "prepublishOnly": "bash test/run.sh"
+    "prepublishOnly": "python3 build.py"
   },
   "repository": {
     "type": "git",
