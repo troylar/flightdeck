@@ -629,8 +629,11 @@ function newerRun(PF, r) {
 function runProblems(PF, r) {
   const out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/';
   if (newerRun(PF, r)) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
-  const bt = badTimesWhy(r._badTimes);
-  if (bt) out.push({ path: dir + 'run.json', kind: 'malformed', why: 'Some times in this file couldn\'t be read (' + bt + '). The run is shown as the app shows it, without them.' });
+  /* Times sanitize couldn't read, and every other record it dropped, cut or replaced: one problem for the file, naming each. */
+  const isNewer = newerRun(PF, r), bt = isNewer ? '' : badTimesWhy(r._badTimes), fixed = isNewer ? [] : (r._repairs || []).map((x) => x.at + ' (' + x.what + ')'), parts = [];
+  if (bt) parts.push('Some times in this file couldn\'t be read (' + bt + ').');
+  if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.slice(0, 20).join(', ') + (fixed.length > 20 ? ', and ' + (fixed.length - 20) + ' more' : '') + '.');
+  if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
   if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
   return out;
 }

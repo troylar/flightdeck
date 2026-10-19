@@ -4716,6 +4716,128 @@ PF.run = (function () {
     if (lost.length) { b.log = lost.map(function (l) { return { what: str(l.what, 300) }; }); n++; }
     return n ? b : null;
   }
+  /* Reading for other apps: every record in a run file that sanitize drops, cuts short or replaces, by where it is
+     (gates.ready, followUps[2], steps.tests.values.url, log[40]…), worked out from the file as parsed. Pure, never saved, and
+     never called by the app, which reads runs exactly as before. Times sanitize can't read are badTimes' (not repeated
+     here), and fields or states a newer Flightdeck wrote are newer()'s. [] when the file is clean. */
+  function repairs(o) {
+    var out = [];
+    if (!valid(o)) return out;
+    function add(at, what) { out.push({ at: at, what: what }); }
+    function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+    function text(v, max, at) { if (v == null) return; if (typeof v !== 'string') add(at, 'dropped: not text'); else if (v.length > max) add(at, 'cut to ' + max + ' characters'); }
+    function time(v, at) { if (v != null && !isoOrNull(v)) add(at, 'dropped: not a time'); }
+    function textMap(v, max, at, keyOk, most) {
+      if (v == null) return;
+      if (!obj(v)) { add(at, 'dropped: not a list of names and values'); return; }
+      var keys = Object.keys(v);
+      if (most && keys.length > most) add(at, 'cut to ' + most + ' entries');
+      keys.slice(0, most || keys.length).forEach(function (k) { if (keyOk && !keyOk.test(k)) add(at + '.' + k, 'dropped: not a name this copy reads'); else text(v[k], max, at + '.' + k); });
+    }
+    function list(v, at, most) {
+      if (v == null) return [];
+      if (!Array.isArray(v)) { add(at, 'dropped: not a list'); return []; }
+      if (v.length > most) add(at, 'cut to ' + most + ' entries');
+      return v;
+    }
+    function count(v, at) { if (v != null && !(typeof v === 'number' && v >= 0 && Math.floor(v) === v)) add(at, 'replaced: not a whole number'); }
+    [['process', 60], ['folder', 60], ['mapHash', 16], ['title', 100], ['category', 60], ['createdBy', 80], ['tz', 60], ['savedBy', 40]].forEach(function (f) { text(o[f[0]], f[1], f[0]); });
+    count(o.version, 'version'); count(o.rev, 'rev'); time(o.savedAt, 'savedAt');
+    if (o.types != null && (typeof o.types !== 'object' || Array.isArray(o.types))) add('types', 'dropped: not step types');
+    textMap(o.details, 120, 'details'); textMap(o.roles, 80, 'roles');
+    var rec = o.recorder;
+    if (!obj(rec)) add('recorder', 'replaced: not a recorder');
+    else {
+      text(rec.person, 80, 'recorder.person'); text(rec.session, 40, 'recorder.session');
+      if (rec.handoff != null) {
+        if (!obj(rec.handoff)) add('recorder.handoff', 'dropped: not a hand-off');
+        else if (typeof rec.session === 'string' && rec.session) add('recorder.handoff', 'dropped: the run has a recorder window');
+        else { text(rec.handoff.from, 80, 'recorder.handoff.from'); count(rec.handoff.rev, 'recorder.handoff.rev'); time(rec.handoff.at, 'recorder.handoff.at'); }
+      }
+    }
+    list(o.followUps, 'followUps', 100).slice(0, 100).forEach(function (f, i) {
+      var at = 'followUps[' + i + ']';
+      if (!f || typeof f.text !== 'string' || !f.text.trim()) { add(at, 'dropped: no text'); return; }
+      [['id', 20], ['text', 300], ['owner', 80], ['ticket', 120], ['step', 60], ['from', 20], ['by', 80]].forEach(function (x) { text(f[x[0]], x[1], at + '.' + x[0]); });
+      time(f.at, at + '.at');
+    });
+    if (o.shotsFrozen != null && typeof o.shotsFrozen !== 'boolean') add('shotsFrozen', 'replaced: not true or false');
+    if (o.jira != null && PF.jira.check(o.jira).errors.length) add('jira', 'replaced: ' + String(PF.jira.check(o.jira).errors[0]).slice(0, 120));
+    list(o.pauses, 'pauses', 500).slice(0, 500).forEach(function (x, i) {
+      var at = 'pauses[' + i + ']';
+      if (!obj(x)) { add(at, 'dropped: not a pause'); return; }
+      text(x.by, 80, at + '.by'); text(x.reason, 120, at + '.reason');
+    });
+    if (o.paused != null) {
+      if (!obj(o.paused)) add('paused', 'dropped: not a pause');
+      else if (RUN_STATES[o.state] && o.state !== 'running') add('paused', 'dropped: the run isn\'t running');
+      else { text(o.paused.by, 80, 'paused.by'); text(o.paused.reason, 120, 'paused.reason'); }
+    }
+    list(o.lineage, 'lineage', 200).forEach(function (t, i) { if (typeof t !== 'string' || !/^[\w-]{1,40}\.[a-z0-9]{8}$/.test(t)) add('lineage[' + i + ']', 'dropped: not a save receipt name'); });
+    if (o.marks != null) {
+      if (!obj(o.marks)) add('marks', 'dropped: not marks');
+      else {
+        var mk = Object.keys(o.marks);
+        if (mk.length > 5000) add('marks', 'cut to 5000 steps');
+        mk.slice(0, 5000).forEach(function (k) {
+          var v = o.marks[k];
+          if (!/^[\w-]{1,120}$/.test(k) || !Array.isArray(v)) add('marks.' + k, 'dropped: not marks on a step');
+          else v.forEach(function (m, i) { if (!MARKS[m]) add('marks.' + k + '[' + i + ']', 'dropped: not a mark this copy knows'); });
+        });
+      }
+    }
+    if (o.parent != null) {
+      if (!obj(o.parent) || !/^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) || !/^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) add('parent', 'dropped: not a parent run');
+      else { text(o.parent.step, 60, 'parent.step'); if (o.parent.inputs != null) textMap(o.parent.inputs, 300, 'parent.inputs', /^[\w-]{1,120}$/, 60); }
+    }
+    if (o.fields != null) {
+      if (!obj(o.fields)) add('fields', 'dropped: not filled-in values');
+      else Object.keys(o.fields).forEach(function (k) { if (!/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) add('fields.' + k, 'dropped: not a step ID'); else textMap(o.fields[k], 300, 'fields.' + k, /^[\w-]{1,40}$/, 120); });
+    }
+    if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
+      var a = o.steps[k], at = 'steps.' + k;
+      if (!obj(a) || !STEP_STATES[a.s]) { add(at, 'dropped: no state this copy knows'); return; }
+      text(a.by, 80, at + '.by'); time(a.at, at + '.at'); text(a.reason, 120, at + '.reason');
+      if (a.started != null && !stamp(a.started)) add(at + '.started', 'dropped: not a time');
+      else if (a.started != null) text(a.started.by, 80, at + '.started.by');
+      if (a.deadline != null) { if (!obj(a.deadline) || !isoOrNull(a.deadline.at)) add(at + '.deadline', 'dropped: not a time'); else { text(a.deadline.by, 80, at + '.deadline.by'); time(a.deadline.set, at + '.deadline.set'); } }
+      if (a.differently != null) { if (!obj(a.differently)) add(at + '.differently', 'dropped: not a note'); else { text(a.differently.note, 500, at + '.differently.note'); text(a.differently.by, 80, at + '.differently.by'); time(a.differently.at, at + '.differently.at'); } }
+      if (a.values != null) textMap(a.values, 300, at + '.values', /^[\w-]{1,40}$/, 120);
+      if (a.child != null) {
+        if (!obj(a.child) || !/^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) || !/^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) add(at + '.child', 'dropped: not a child run');
+        else if (a.child.inputs != null) textMap(a.child.inputs, 300, at + '.child.inputs', /^[\w-]{1,120}$/, 60);
+      }
+      if (a.history != null) {
+        var hs = list(a.history, at + '.history', HISTORY_MAX), off = Math.max(0, hs.length - HISTORY_MAX);
+        hs.slice(off).forEach(function (h, j) {
+          var hat = at + '.history[' + (off + j) + ']';
+          if (!obj(h) || !(STEP_STATES[h.s] || h.s === 'corrected')) { add(hat, 'dropped: no state this copy knows'); return; }
+          text(h.by, 80, hat + '.by'); time(h.at, hat + '.at'); text(h.reason, 120, hat + '.reason');
+          if (h.differently != null) { if (!obj(h.differently)) add(hat + '.differently', 'dropped: not a note'); else text(h.differently.note, 500, hat + '.differently.note'); }
+          if (h.values != null) textMap(h.values, 300, hat + '.values', /^[\w-]{1,40}$/, 120);
+          if (h.fields != null) textMap(h.fields, 300, hat + '.fields', /^[\w-]{1,40}$/, 120);
+        });
+      }
+    });
+    if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
+      var g = o.gates[k], at = 'gates.' + k;
+      if (!obj(g) || !GATE_STATES[g.s]) { add(at, 'dropped: no state this copy knows'); return; }
+      text(g.by, 80, at + '.by'); time(g.at, at + '.at'); text(g.reason, 200, at + '.reason');
+      if (g.was != null && !GATE_STATES[g.was]) add(at + '.was', 'dropped: not a state this copy knows');
+      textMap(g.approved, 120, at + '.approved');
+    });
+    var logs = list(o.log, 'log', LOG_MAX), from = Math.max(0, logs.length - LOG_MAX);
+    logs.slice(from).forEach(function (l, i) {
+      var at = 'log[' + (from + i) + ']';
+      if (!obj(l)) { add(at, 'dropped: not a log entry'); return; }
+      text(l.by, 80, at + '.by'); text(l.what, 300, at + '.what');
+    });
+    if (o.ended != null) {
+      if (!obj(o.ended) || !OUTCOMES[o.ended.outcome]) add('ended', 'dropped: not an outcome this copy knows');
+      else { text(o.ended.by, 80, 'ended.by'); text(o.ended.byName, 80, 'ended.byName'); }
+    }
+    return out;
+  }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
     var r = {
@@ -4774,7 +4896,7 @@ PF.run = (function () {
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
@@ -8918,6 +9040,7 @@ PF.repo = (function () {
     if (!run._unrunnable && entry.unrunnable) run._unrunnable = entry.unrunnable;
     var bad = cacheIn ? badFor(cacheIn, entry) : '';
     if (bad && !run._unrunnable) run._unrunnable = bad;
+    if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [];
@@ -9055,6 +9178,12 @@ PF.repo = (function () {
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
+        /* Reading for other apps: a run file that names another run (copied into the wrong folder) is never read as this
+           folder's run or joined with its decisions. */
+        if (o.explain && (run.process !== proc || run.id !== id)) {
+          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id });
+          return null;
+        }
         stamps['run.json'] = stampOf(res[0]);
         var notesTexts = res.slice(1).map(function (f) { return f ? f.text : null; });
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
@@ -9063,6 +9192,8 @@ PF.repo = (function () {
           notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
+        /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
+        if (o.explain) entry.repairs = R.repairs(json(res[0].text));
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */

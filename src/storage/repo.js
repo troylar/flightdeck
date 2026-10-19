@@ -306,6 +306,7 @@ PF.repo = (function () {
     if (!run._unrunnable && entry.unrunnable) run._unrunnable = entry.unrunnable;
     var bad = cacheIn ? badFor(cacheIn, entry) : '';
     if (bad && !run._unrunnable) run._unrunnable = bad;
+    if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [];
@@ -443,6 +444,12 @@ PF.repo = (function () {
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
+        /* Reading for other apps: a run file that names another run (copied into the wrong folder) is never read as this
+           folder's run or joined with its decisions. */
+        if (o.explain && (run.process !== proc || run.id !== id)) {
+          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id });
+          return null;
+        }
         stamps['run.json'] = stampOf(res[0]);
         var notesTexts = res.slice(1).map(function (f) { return f ? f.text : null; });
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
@@ -451,6 +458,8 @@ PF.repo = (function () {
           notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
+        /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
+        if (o.explain) entry.repairs = R.repairs(json(res[0].text));
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */

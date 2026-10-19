@@ -1197,4 +1197,72 @@ rule('READ: a run.json with times that can\'t be read is partial and names them,
   assert.strictEqual(p.json.data.run.paused, false, 'shown as the app shows it: the pause it couldn\'t read is dropped');
 });
 
+
+/* Each: the run (1 running, 2 ended), a change to its run.json as parsed, and the location READ must name. */
+const DROPS = [
+  [2, o => { delete o.gates.ready.s; }, 'gates.ready'],
+  [2, o => { o.gates.ready.approved = { commit: 7 }; }, 'gates.ready.approved.commit'],
+  [2, o => { o.gates.ready.at = 'later'; }, 'gates.ready.at'],
+  [2, o => { o.followUps[0].text = 7; }, 'followUps[0]'],
+  [2, o => { o.followUps[1].owner = { id: 'x' }; }, 'followUps[1].owner'],
+  [2, o => { o.paused = { by: 'person-casey', at: RF.NOW }; }, 'paused'],
+  [2, o => { o.ended.by = 5; }, 'ended.by'],
+  [1, o => { o.details.commit = 42; }, 'details.commit'],
+  [1, o => { o.details = 'oops'; }, 'details'],
+  [1, o => { o.roles.qa = ['person-morgan']; }, 'roles.qa'],
+  [1, o => { o.recorder.person = 9; }, 'recorder.person'],
+  [1, o => { o.pauses = [7]; }, 'pauses[0]'],
+  [1, o => { o.lineage = (o.lineage || []).concat(['not a receipt']); }, 'lineage['],
+  [1, o => { o.marks = { approved: 'blocked' }; }, 'marks.approved'],
+  [1, o => { o.parent = { process: 'Bad Name', id: 'x' }; }, 'parent'],
+  [1, o => { o.fields = { 'bad id!': { a: 'b' } }; }, 'fields.bad id!'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].values = { 'no spaces allowed': 'x' }; }, '.values.no spaces allowed'],
+  [1, o => { const k = Object.keys(o.steps)[0]; delete o.steps[k].s; }, 'steps.'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].by = 3; }, '.by'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].history = [{ by: 'x' }]; }, '.history[0]'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].deadline = { at: 'soon' }; }, '.deadline'],
+  [1, o => { o.log.push(7); }, 'log['],
+  [1, o => { o.log.push({ at: RF.NOW, by: 'person-casey', what: 'x'.repeat(400) }); }, '.what'],
+  [1, o => { o.title = 'T'.repeat(150); }, 'title'],
+  [1, o => { o.version = 'one'; }, 'version'],
+  [1, o => { o.types = 'none'; }, 'types'],
+  [1, o => { o.shotsFrozen = 'yes'; }, 'shotsFrozen']
+];
+const NEWER_CAUGHT = ['gates.ready.approved.commit', 'details.commit', 'roles.qa'];
+rule('READ: every record sanitize drops, cuts or replaces in any part of a run.json is named, and the result is partial', async () => {
+  for (const [n, change, where] of DROPS) {
+    const at = 'runs/release/run' + n + '/run.json';
+    const edit = f => { const o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); };
+    for (const k of ['run', 'runs']) {
+      const req = k === 'run' ? { cmd: 'run', key: 'release/run' + n } : REQ.runs;
+      const r = agree(await readMem(req, edit)), p = r.json.problems.filter(x => x.path === at && (x.kind === 'malformed' || x.kind === 'newer'))[0];
+      /* Text where text belongs and states this copy knows are newer()'s (the run is listed by name only); the rest is malformed. */
+      assert.ok(r.code === 4 && p && (p.kind === 'newer' ? NEWER_CAUGHT.includes(where) : p.why.includes(where)), where + ' / ' + k + ': ' + JSON.stringify(r.json.problems));
+    }
+  }
+});
+
+rule('READ: a clean run.json written by this copy has nothing dropped or changed, through every step of a run', async () => {
+  await readFolder();
+  const R = SRC.run, r = R.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json'])), map = R.mapOf(r), done = H.sampleDone(SRC);
+  for (let pi = 0; pi < map.phases.length; pi++) { map.phases[pi].steps.forEach(s => { if (!R.answered(r, s)) done(r, map, s.id, 'person-casey', RF.NOW); }); R.pass(r, map, pi, 'person-casey', RF.NOW); }
+  R.end(r, map, 'Completed', 'person-casey', 'Casey Nguyen', RF.NOW);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(R.repairs(JSON.parse(JSON.stringify(r))))), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(R.repairs(JSON.parse(rfBuilt.files['runs/release/run2/run.json'])))), []);
+});
+
+rule('READ: a run.json copied into another run\'s folder is named as belonging elsewhere, and never joined with that folder\'s decisions', async () => {
+  const edit = f => { f['runs/release/run1/run.json'] = f['runs/release/run2/run.json']; f['followups/release/run1.fu1.w2.1.json'] = f['followups/release/run2.fu1.w2.1.json'].replace('"run": "run2"', '"run": "run1"'); };
+  const at = 'runs/release/run1/run.json';
+  for (const k of ['run', 'next']) {
+    const r = agree(await readMem(REQ[k], edit));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === at && p.kind === 'malformed' && /belongs to release\/run2/.test(p.why)), k + ': ' + JSON.stringify(r.json.problems));
+    assert.ok(!/"key": "release\/run2"|release\/run2\/fu1/.test(JSON.stringify(r.json.data)) && !r.json.data.run || k === 'next', k + ': ' + JSON.stringify(r.json.data).slice(0, 200));
+    if (k === 'next') assert.strictEqual(r.json.data.next, null);
+  }
+  const all = agree(await readMem(REQ.runs, edit));
+  assert.ok(all.code === 4 && all.json.problems.some(p => p.path === at && /belongs to release\/run2/.test(p.why)));
+  assert.deepStrictEqual(all.json.data.runs.map(x => x.key).sort(), ['release/run2']);
+});
+
 run();
