@@ -20,24 +20,24 @@
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
     if (!shown) return '<section class="panel"><p class="small">This process has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
-    var cur = shown.draft ? 'draft' : shown.pub.folder;
+    var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
     var opts = (hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '') +
       all.map(function (v) { return '<option value="' + esc(v.folder) + '"' + (v.folder === cur ? ' selected' : '') + '>v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + esc(v.info.changes.slice(0, 50)) + '</option>'; }).join('') +
       /* Versions in the folder that can't be shown or run here (still syncing, damaged, or too new for this copy) say why. */
       gone.map(function (b) { return '<option value="" disabled>v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + esc(String(b.why).slice(0, 200)) + '</option>'; }).join('');
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
       '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
-      '<div class="seg" role="group" aria-label="Show as"><button type="button" data-act="flight" data-id="list" aria-pressed="' + !st.flight + '">Checklist</button><button type="button" data-act="flight" data-id="plan" aria-pressed="' + !!st.flight + '">Flight plan</button></div>' +
-      (st.flight ? '' : '<button class="mini" data-act="toggle-md" aria-pressed="' + !!st.showMd + '">Markdown</button>') +
+      /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
+      '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + 'Edit</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
     /* Edits made and not saved stay in the editor; say so here, where the saved version is showing. */
     var ed = st.editor && st.editor.pid === p.id ? st.editor : null;
     if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span><button class="mini" data-act="ptab" data-id="edit">Continue editing</button></div>';
     if (!shown.current) h += '<div class="notice warn"><span>You\'re looking at v' + shown.pub.info.version + ', an older version. Runs that used it keep it.</span><button class="mini" data-act="back-current">Back to current</button></div>';
     if (st.pick && st.pick.kind === 'restore' && shown.pub && st.pick.id === shown.pub.folder) h += '<div class="notice warn"><span>' + (st.pick.dirty ? 'You have unsaved edits in the draft, and they\'ll be lost. ' : '') + 'The draft has changes that aren\'t published. Replace it with v' + shown.pub.info.version + '?</span><button class="btn stop" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '" data-sure="1">Replace the draft</button><button class="mini" data-act="unpick">Cancel</button></div>';
-    if (st.showMd && !st.flight) return h + '<div class="row"><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0">' + esc(shown.md) + '</pre></section>';
+    if (view === 'md') return h + '<div class="row"><p class="small" style="margin:0">The ' + (shown.draft ? 'draft' : 'v' + shown.pub.info.version) + ' as written, read-only. Edit changes it.</p><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0" aria-label="Markdown of this version">' + esc(shown.md) + '</pre></section>';
     var map = shown.draft ? M.parse(shown.md) : shown.pub.map, types = shown.draft ? (ctx.data.stepTypes || {}).types : shown.pub.types;
-    if (st.flight) return h + V.flightPlan(ctx, p, map, shown) + '</section>';
+    if (view === 'plan') return h + V.flightPlan(ctx, p, map, shown) + '</section>';
     return h + (map.phases.length ? V.mapPreview(map, types, p.skills, 'cl-ph-') : '<p class="small">No phases yet. Choose Edit to add one.</p>') + '</section>';
   }
 
@@ -62,7 +62,6 @@
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
     var status = saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved changes' : p.draft ? 'Saved' : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
-    var un = ed && ed.undo ? ed.undo.length : 0, rn = ed && ed.redo ? ed.redo.length : 0, lu = un ? ed.undo[un - 1].what || '' : '', lr = rn ? ed.redo[rn - 1].what || '' : '';
     var count = nb || nt, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id;
@@ -70,16 +69,15 @@
       '<button type="button" class="btn fpe-done" data-act="ed-done">' + I('back') + 'Done</button>' +
       '<div class="fpe-title"><h1 id="ed-h" tabindex="-1">' + esc(p.title) + ' <span class="cat">Draft</span></h1><span class="small fpe-file">maps/drafts/' + esc(file) + '</span></div></div>' +
       '<div class="fpe-tools"><div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
-      '<div class="row fpe-undo" role="group" aria-label="Undo and redo">' +
-      '<button type="button" class="mini" data-act="ob-undo"' + (un ? '' : ' disabled') + (lu ? ' title="Undo ' + esc(lu) + '"' : '') + '>Undo' + (lu ? '<span class="sr"> ' + esc(lu) + '</span>' : '') + '</button>' +
-      '<button type="button" class="mini" data-act="ob-redo"' + (rn ? '' : ' disabled') + (lr ? ' title="Redo ' + esc(lr) + '"' : '') + '>Redo' + (lr ? '<span class="sr"> ' + esc(lr) + '</span>' : '') + '</button></div>' +
+      /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
+      V.undoBar('draft', ed && ed.tl) +
       '<button type="button" class="chipbtn fpe-checks' + (nb ? ' bad' : '') + '" data-act="ins-tab" data-id="checks" aria-label="Checks: ' + checksLabel + '">' + (count ? '<span class="fpe-checks-t">Checks </span><span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : I('check') + '<span class="fpe-checks-t">Checks</span>') + '</button></div>' +
       '<div class="fpe-save"><span class="fpe-savestate"><span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (just ? I('check') : '') + status + '</span>' +
       '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button></span>' +
       '<button type="button" class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '" title="Saving never publishes. Choose Done, then publish it."' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving && saving !== 'restore' ? 'Saving…' : 'Save draft') + '</button></div></header>';
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
-    if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '">' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
+    if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span><b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
       '<details open class="fpe-theirs"><summary class="small">Their version</summary><pre class="source">' + esc(ed.conflict.theirs || '(the draft was deleted)') + '</pre></details>';
@@ -156,36 +154,156 @@
     if (shownBuilt.length) h += '<section class="panel"><h2>Built-in types · ' + T.LIST.length + '</h2>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</section>';
     return h;
   }
-  /* The form for a team step type. Rows for fields and evidence; checked on every change with the same rules the folder uses. */
+  /* ---------- the step-type editor: a full page with a slim header, the form on the left and a live preview on the right ---------- */
+  var KIND_NAMES = { text: 'Text', url: 'Link', code: 'Code or command', message: 'Message', list: 'List', choice: 'Choice' };
+  var REC_HELP = { text: 'a line of text, or a box for more', url: 'a web link', choice: 'one of fixed options' };
+  var ICON_NAMES = { check: 'Check', chat: 'Message', people: 'People', fork: 'Decision', doc: 'Document', hourglass: 'Wait', cursor: 'Click', gear: 'Settings', merge: 'Merge', ticket: 'Ticket', terminal: 'Command', script: 'Script', spark: 'Spark', pipeline: 'Pipeline', nest: 'Nested' };
+  var SAMPLE = { text: '…', url: 'https://…', code: 'make deploy', message: 'Text to post', list: 'one, two' };
+  /* IDs and field names made from what people type: "Change request" → change.request, "Ticket link" → ticket-link. */
+  function slugId(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).join('.').replace(/^[^a-z]+/, '').slice(0, 40).replace(/[.-]+$/, ''); }
+  function slugName(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+/, '').slice(0, 30).replace(/-+$/, ''); }
+  function optsOf(r) { return String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); }
+  function tagsOfDef(d) { return String(d.tags || '').split(',').map(function (x) { return x.trim().replace(/^#/, ''); }).filter(Boolean); }
+  function cap1(t) { t = String(t); return t.charAt(0).toUpperCase() + t.slice(1); }
+  /* The folder's checks speak in file terms ("label" must be…); the editor says the same in the words on screen. */
+  function plain(e) {
+    if (/^"label"/.test(e)) return 'Give it a label of up to 40 characters.';
+    if (/^"id" must be/.test(e)) return 'The ID can use lowercase letters, numbers, dashes and dots, like change.request.';
+    if (/is a built-in type/.test(e)) return cap1(e.replace(/; choose another id$/, '')) + '. Change the ID.';
+    if (/^"hint"/.test(e)) return 'Keep "What it\'s for" to 120 characters.';
+    if (/^"group"/.test(e)) return 'Keep the group to 80 characters.';
+    if (/^"tags"/.test(e)) return 'Use up to 10 short tags.';
+    if (/^(field "[^"]*"|record \d+): label must be/.test(e)) return 'Give it a label of up to 40 characters.';
+    if (/^(field "[^"]*"|record \d+): a choice needs/.test(e)) return 'Add at least one option.';
+    if (/^field "[^"]*": names are/.test(e)) return 'The name can use letters, numbers and dashes, and can\'t be a name every step already has.';
+    if (/^record \d+: "name" must be/.test(e)) return 'The name can use letters, numbers and dashes, starting with a letter.';
+    return cap1(e);
+  }
+  /* One short line near Save: what stops it, in plain words. */
+  /* Which field or evidence a problem is about, for the line near Save (next to its box, the place says it). */
+  function where(e) { var m = /^field "([^"]*)"/.exec(e) || /^record "([^"]*)"/.exec(e); if (m) return (/^field/.test(e) ? 'the field ' : 'the evidence ') + (m[1] ? '"' + m[1] + '"' : 'without a name'); m = /^record (\d+):/.exec(e); return m ? 'evidence ' + m[1] : ''; }
+  function saveWhy(d, errs) {
+    if (!errs.length) return '';
+    var first = !String(d.label || '').trim() ? 'Add a label to save.' : !String(d.id || '').trim() ? 'Add an ID to save.' : (where(errs[0]) ? 'To save, fix ' + where(errs[0]) + ': ' + plain(errs[0]).charAt(0).toLowerCase() + plain(errs[0]).slice(1) : 'To save: ' + plain(errs[0]));
+    return first + (errs.length > 1 ? ' ' + (errs.length - 1) + ' more to fix below.' : '');
+  }
   function typeForm(ctx) {
-    var st = ctx.state, f = st.typeForm, d = f.def, errs = formErrors(d), at = errorTargets(d, errs);
-    /* Every control is bound to the form's state (data-bound), and points at the errors about it. */
-    var a11y = function (id) { var e = at[id]; return ' data-bound' + (e ? ' aria-invalid="true" aria-describedby="' + e.map(function (n) { return 'tf-err-' + n; }).join(' ') + '"' : ''); };
-    /* Each row has its own key (not its position), so removing one never moves another's values into its place. */
-    var row = function (kind, i, r) {
-      var kinds = kind === 'f' ? Object.keys(KIND_HELP) : ['text', 'url', 'choice'], k = r.k, id = function (x) { return 'tf-' + kind + '-' + k + '-' + x; };
-      return '<div class="trow" data-scope="tf-' + kind + '-' + k + '">' +
-        '<input id="' + id('name') + '" aria-label="Name" placeholder="name" value="' + esc(r.name) + '"' + a11y(id('name')) + '>' +
-        '<input id="' + id('label') + '" aria-label="Label" placeholder="Label people see" value="' + esc(r.label) + '"' + a11y(id('label')) + '>' +
-        '<select id="' + id('kind') + '" aria-label="Kind"' + a11y(id('kind')) + '>' + kinds.map(function (x) { return '<option value="' + x + '"' + (r.kind === x ? ' selected' : '') + '>' + x + (KIND_HELP[x] && kind === 'f' ? ': ' + KIND_HELP[x] : '') + '</option>'; }).join('') + '</select>' +
-        '<textarea id="' + id('options') + '" aria-label="Options, one per line" placeholder="options, one per line" rows="2"' + a11y(id('options')) + '>\n' + esc(r.options) + '</textarea>' +
-        (kind === 'f' ? '<label class="small"><input type="checkbox" id="' + id('required') + '" data-bound' + (r.required ? ' checked' : '') + '> usually filled in</label>' : '<label class="small"><input type="checkbox" id="' + id('long') + '" data-bound' + (r.long ? ' checked' : '') + '> long text</label>') +
-        '<button class="mini" type="button" data-act="tf-remove" data-id="' + kind + ':' + k + '" aria-label="Remove ' + esc(r.name || 'this row') + '">Remove</button></div>';
+    var st = ctx.state, f = st.typeForm, d = f.def, errs = formErrors(d), at = errorTargets(d, errs), tried = !!f.tried, disc = st.disc || {}, now = ctx.now();
+    var changed = V.typeFormSnapshot(d) !== f.initial;
+    /* A missing value is said near Save; next to its box only once Save was tried. A wrong value is said right away. */
+    var shown = function (id, has) { return (at[id] || []).length && (tried || has) ? at[id] : []; };
+    /* An ID still made from an empty label isn't a second problem: adding the label fixes both. */
+    if (!f.existing && !d.idSet && !String(d.label || '').trim()) delete at['tf-id'];
+    var errHtml = function (id, has) { return shown(id, has).map(function (n) { return '<p class="ferr" id="tf-err-' + n + '">' + esc(plain(errs[n])) + '</p>'; }).join(''); };
+    var describe = function (id, has, help) { var e = shown(id, has).map(function (n) { return 'tf-err-' + n; }); if (help) e.push(id + '-help'); return (shown(id, has).length ? ' aria-invalid="true"' : '') + (e.length ? ' aria-describedby="' + e.join(' ') + '"' : ''); };
+    var attrs = function (id, has, help) { return ' data-bound' + describe(id, has, help); };
+    var field = function (id, label, control, help, has) { return '<div class="tf-field"><label for="' + id + '">' + label + '</label>' + control + errHtml(id, has) + (help ? '<p class="tf-help" id="' + id + '-help">' + help + '</p>' : '') + '</div>'; };
+    /* What just changed glows for a moment in the preview and in its row (not with reduced motion). */
+    var flash = function (item) { return f.flash && now - f.flash.at < 1500 && f.flash.items.indexOf(item) >= 0 ? ' flash' : ''; };
+    var team = (ctx.data.stepTypes || {}).types || {}, groups = [], tagsAll = [];
+    Object.keys(team).forEach(function (k) { var t = team[k], g = (t.group || []).join(' / '); if (g && groups.indexOf(g) < 0) groups.push(g); (t.tags || []).forEach(function (x) { if (tagsAll.indexOf(x) < 0) tagsAll.push(x); }); });
+    var name = String(d.label || '').trim() || (f.existing ? '{' + f.existing + '}' : 'New step type');
+
+    /* The header, as in the draft editor: who it is | Undo, Redo, History, Preview | whether it's saved, and Save. */
+    var why = saveWhy(d, errs.filter(function (e) { return at['tf-id'] || !/^"id"/.test(e); }));
+    var just = !changed && f.justSaved && now - f.justSaved < 4000;
+    var status = f.saving ? 'Saving…' : changed ? 'Unsaved changes' : f.existing ? 'Saved' : 'Not saved yet';
+    /* On a phone the preview opens as a dialog over the form: everything behind it is inert until it closes. */
+    var modal = !!st.tfPreview, behind = modal ? ' inert' : '';
+    var h = '<div class="fpe fpe-type" id="tfe"><header class="fpe-head" role="region" aria-labelledby="tf-h"' + behind + '>' +
+      '<div class="fpe-id"><button type="button" class="btn fpe-done" data-act="type-done">' + I('back') + 'Done</button><div class="fpe-title"><h1 id="tf-h" tabindex="-1">' + esc(name) + ' <span class="cat">Step type</span></h1></div></div>' +
+      '<div class="fpe-tools">' + V.undoBar('type', f.tl) + '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button></div>' +
+      '<div class="fpe-save"><span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' +
+      '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button></div></header>';
+    /* Messages stay in view under the header. The top bar is hidden here, so its "choose who you are" note isn't shown. */
+    var al = (why ? '<p class="tf-why" id="tf-save-why">' + esc(why) + '</p>' : '');
+    if (st.msg) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
+    if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
+    if (f.leaving) al += '<div class="notice warn" role="alert" aria-labelledby="tf-leave-h"><span id="tf-leave-h"><b>This step type has changes that aren\'t saved.</b> Save them, or leave without them.</span><span class="row"><button type="button" class="btn go" data-act="type-save">Save step type</button><button type="button" class="mini" data-act="type-cancel">Leave without saving</button><button type="button" class="mini" data-act="type-stay">Keep editing</button></span></div>';
+    if (f.conflict) al += '<div class="notice bad" role="alert"><span><b>Someone else changed this step type</b> since you opened it. Nothing was saved. Compare, then keep yours or take theirs.</span>' + (f.saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" type="button" data-act="type-keep-mine">Keep mine</button><button class="mini" type="button" data-act="type-take-theirs">Take theirs</button>') + '</div>' +
+      '<details open class="fpe-theirs"><summary class="small">Their version</summary><pre class="source">' + esc(f.conflict.theirs == null ? '(the file was deleted)' : f.conflict.theirs) + '</pre></details>';
+    h += '<div class="fpe-alerts"' + behind + '>' + al + '</div>';
+
+    /* Basics: what people call it, the ID made from it, what it's for and its icon. Group and tags fold into Organize. */
+    var idPart;
+    if (f.existing) idPart = '<div class="tf-idrow"><span class="tf-lab">ID</span><code class="tf-idtok">{' + esc(f.existing) + '}</code><span class="tf-help">Fixed once saved, so checklists keep finding it.</span></div>';
+    else if (d.idSet || f.idEdit) idPart = field('tf-id', 'ID', '<input id="tf-id" maxlength="40" spellcheck="false" class="mono" value="' + esc(d.id) + '"' + attrs('tf-id', !!d.id, true) + '>', 'Lowercase letters, numbers, dashes and dots, like change.request. Checklists name the type with it.', !!d.id);
+    else idPart = '<div class="tf-idrow"><span class="tf-lab" id="tf-id-l">ID</span><code class="tf-idtok' + flash('type:label') + '">{' + esc(d.id || 'made from the label') + '}</code><button type="button" class="linkish" data-act="tf-id-edit" aria-describedby="tf-id-l">Change</button>' + errHtml('tf-id', !!d.id) + '</div>';
+    var tags = tagsOfDef(d), tagErr = shown('tf-tags', tags.length > 0);
+    var tagsPart = '<div class="tf-field"><label for="tf-tagadd">Tags</label><div class="tf-chipbox">' + (tags.length ? '<ul class="tf-chips" aria-label="Tags">' + tags.map(function (t) { return '<li class="tf-chip">#' + esc(t) + '<button type="button" data-act="tf-tag-del" data-id="' + esc(t) + '" aria-label="Remove tag ' + esc(t) + '">×</button></li>'; }).join('') + '</ul>' : '') +
+      '<input id="tf-tagadd" maxlength="30" list="tf-tag-list" placeholder="Add a tag" data-enter="tf-tag-add"' + (tagErr.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + tagErr.map(function (n) { return 'tf-err-' + n; }).concat(['tf-tagadd-help']).join(' ') + '"></div><datalist id="tf-tag-list">' + tagsAll.filter(function (t) { return tags.indexOf(t) < 0; }).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
+      errHtml('tf-tags', tags.length > 0) + '<p class="tf-help" id="tf-tagadd-help">Press Enter or type a comma; it\'s also added when you leave the box. Tags filter the Step types list.</p></div>';
+    var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(tags.map(function (t) { return '#' + t; })).join(' · ');
+    h += '<div class="fpe-panes tf-panes"><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" novalidate>' +
+      '<section class="panel tf-card" aria-labelledby="tf-basics-h"><h2 id="tf-basics-h">Basics</h2>' +
+      field('tf-label', 'What people call it', '<input id="tf-label" maxlength="40" value="' + esc(d.label) + '"' + attrs('tf-label', !!String(d.label || '').trim(), true) + '>', 'Shown on every step of this type, like Change request.', !!String(d.label || '').trim()) +
+      idPart +
+      field('tf-hint', 'What it\'s for', '<textarea id="tf-hint" rows="2" maxlength="120"' + attrs('tf-hint', true, true) + '>\n' + esc(d.hint) + '</textarea>', 'One line people see when they choose a type.', true) +
+      '<fieldset class="tf-icons"><legend>Icon <span class="tf-iconname" aria-hidden="true">' + esc(ICON_NAMES[d.icon] || d.icon || '') + '</span></legend><div class="tf-icongrid">' + T.ICONS.map(function (ic) { return '<label class="tf-icon" title="' + esc(ICON_NAMES[ic] || ic) + '"><input type="radio" name="tf-icon" id="tf-icon-' + ic + '" value="' + ic + '"' + (d.icon === ic ? ' checked' : '') + ' data-bound>' + I(ic) + '<span class="sr">' + esc(ICON_NAMES[ic] || ic) + '</span></label>'; }).join('') + '</div></fieldset>' +
+      '<details class="tf-org" data-disc="tf-org"' + (orgOpen ? ' open' : '') + '><summary><span class="tf-chev">' + I('chevron') + '</span><span class="tf-org-t">Organize</span> <span class="small">' + (orgSum ? esc(orgSum) : 'Group and tags, if you want them') + '</span></summary><div class="tf-two">' +
+      field('tf-group', 'Group', '<input id="tf-group" maxlength="80" list="tf-group-list" value="' + esc(d.group || '') + '"' + attrs('tf-group', true, true) + '><datalist id="tf-group-list">' + groups.map(function (g) { return '<option value="' + esc(g) + '">'; }).join('') + '</datalist>', 'Where it sits in the list, like Releases / Approvals.', true) + tagsPart + '</div></details></section>';
+
+    /* Fields and evidence: one card each, folded to its label with its name and type below; open one to change it. */
+    var row = function (kind, list, r, i) {
+      var k = r.k, key = kind + ':' + k, id = function (x) { return 'tf-' + kind + '-' + k + '-' + x; }, mine = Object.keys(at).filter(function (t) { return t.indexOf('tf-' + kind + '-' + k + '-') === 0; });
+      var open = f.open === key || (tried && mine.length > 0), title = String(r.label || '').trim() || String(r.name || '').trim() || (kind === 'f' ? 'New field' : 'New evidence');
+      var noun = kind === 'f' ? 'field' : 'evidence', item = (kind === 'f' ? 'field:' : 'evidence:') + k;
+      var typeName = kind === 'f' ? KIND_NAMES[r.kind] || r.kind : r.kind === 'url' ? 'Link' : r.kind === 'choice' ? 'Choice' : r.long ? 'Long text' : 'Text';
+      var sub = (r.name ? '<code>' + esc(r.name) + '</code> · ' : '') + esc(typeName) + (r.required ? ' · usually filled in' : '');
+      var c = '<li class="tf-item' + (open ? ' open' : '') + flash(item) + '" data-tf-row="' + key + '" data-scope="tf-' + kind + '-' + k + '"><div class="tf-item-bar"><span class="ob-grip" draggable="true" aria-hidden="true" title="Drag to reorder"></span>' +
+        '<button type="button" class="tf-item-main" data-act="tf-open" data-id="' + key + '" aria-expanded="' + open + '" aria-controls="tf-ed-' + kind + '-' + k + '"><span class="tf-item-text"><span class="tf-item-t">' + esc(title) + '</span><span class="tf-item-sub">' + sub + '</span></span><span class="tf-chev">' + I('chevron') + '</span></button>' +
+        '<span class="tf-item-tools"><button type="button" class="mini icon-btn" data-act="tf-move" data-id="' + key + '" data-dir="up" aria-label="Move ' + esc(title) + ' up"' + (i === 0 ? ' disabled' : '') + '>↑</button><button type="button" class="mini icon-btn" data-act="tf-move" data-id="' + key + '" data-dir="down" aria-label="Move ' + esc(title) + ' down"' + (i === list.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        '<details class="tf-menu" data-disc="tfm-' + key + '"' + (disc['tfm-' + key] ? ' open' : '') + '><summary class="mini" aria-label="More for ' + esc(title) + '">More</summary><div class="tf-menu-list">' +
+        '<button type="button" data-act="hist-open" data-id="type" data-item="' + item + '" aria-haspopup="dialog">' + I('clock') + 'History</button><button type="button" data-act="tf-remove" data-id="' + key + '">Remove ' + noun + '</button></div></details></span></div>';
+      if (!open && mine.length) c += '<p class="ferr tf-item-err">' + mine.length + ' to fix. Open it to see.</p>';
+      if (open) {
+        var kinds = kind === 'f' ? Object.keys(KIND_HELP) : ['text', 'url', 'choice'], help = kind === 'f' ? KIND_HELP : REC_HELP;
+        c += '<div class="tf-item-ed" id="tf-ed-' + kind + '-' + k + '"><div class="tf-two">' +
+          field(id('label'), 'Label people see', '<input id="' + id('label') + '" maxlength="40" value="' + esc(r.label) + '"' + attrs(id('label'), !!r.label, false) + '>', '', !!r.label) +
+          field(id('name'), kind === 'f' ? 'Name used in a checklist' : 'Name in the record', '<input id="' + id('name') + '" maxlength="30" spellcheck="false" class="mono" value="' + esc(r.name) + '"' + attrs(id('name'), !!r.name, true) + '>', kind === 'f' ? 'Written as ' + esc(r.name || 'name') + ': value. Made from the label until you change it.' : 'Made from the label until you change it.', !!r.name) + '</div>' +
+          field(id('kind'), 'Type', '<select id="' + id('kind') + '"' + attrs(id('kind'), true, false) + '>' + kinds.map(function (x) { return '<option value="' + x + '"' + (r.kind === x ? ' selected' : '') + '>' + (KIND_NAMES[x] || x) + ': ' + help[x] + '</option>'; }).join('') + '</select>', '', true);
+        if (r.kind === 'choice') {
+          var opts = optsOf(r), oe = shown(id('optadd'), opts.length > 0);
+          c += '<div class="tf-field"><label for="' + id('optadd') + '">Options</label><div class="tf-chipbox">' + (opts.length ? '<ul class="tf-chips" aria-label="Options">' + opts.map(function (o, j) { return '<li class="tf-chip">' + esc(o) + '<button type="button" data-act="tf-opt-del" data-id="' + key + ':' + j + '" aria-label="Remove option ' + esc(o) + '">×</button></li>'; }).join('') + '</ul>' : '') +
+            '<input id="' + id('optadd') + '" maxlength="40" placeholder="Add an option" data-enter="tf-opt-add" data-id="' + key + '"' + (oe.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + oe.map(function (n) { return 'tf-err-' + n; }).concat([id('optadd') + '-help']).join(' ') + '"><button type="button" class="mini" data-act="tf-opt-add" data-id="' + key + '">Add</button></div>' +
+            errHtml(id('optadd'), opts.length > 0) + '<p class="tf-help" id="' + id('optadd') + '-help">Press Enter after each one; it\'s also added when you leave the box. People pick one of them.</p></div>';
+        }
+        if (kind === 'f') c += '<label class="tf-switch"><input type="checkbox" role="switch" id="' + id('required') + '" data-bound' + (r.required ? ' checked' : '') + ' aria-describedby="' + id('required') + '-help"><span>Usually filled in</span></label><p class="tf-help" id="' + id('required') + '-help">Leaving it out is a tip in the checklist, not an error.</p>';
+        else if (r.kind === 'text') c += '<label class="tf-switch"><input type="checkbox" role="switch" id="' + id('long') + '" data-bound' + (r.long ? ' checked' : '') + '><span>Long text: a bigger box for notes</span></label>';
+        c += '</div>';
+      }
+      return c + '</li>';
     };
+    var addMenu = function (kind) {
+      var kinds = kind === 'f' ? Object.keys(KIND_HELP) : ['text', 'url', 'choice'], help = kind === 'f' ? KIND_HELP : REC_HELP, dk = 'tf-add-' + kind;
+      return '<details class="tf-addmenu" data-disc="' + dk + '"' + (disc[dk] ? ' open' : '') + '><summary class="tf-addbtn">' + I('plus') + (kind === 'f' ? 'Add a field' : 'Add evidence') + '</summary><ul class="tf-addlist">' +
+        kinds.map(function (x) { return '<li><button type="button" data-act="tf-add" data-id="' + kind + '" data-kind="' + x + '"><b>' + (KIND_NAMES[x] || x) + '</b><span class="small">' + help[x] + '</span></button></li>'; }).join('') + '</ul></details>';
+    };
+    var section = function (kind, list, title, help) {
+      return '<section class="panel tf-card" aria-labelledby="tf-' + kind + '-h"><h2 id="tf-' + kind + '-h">' + title + '</h2><p class="tf-help">' + help + '</p>' +
+        (list.length ? '<ol class="tf-items" aria-labelledby="tf-' + kind + '-h">' + list.map(function (r, i) { return row(kind, list, r, i); }).join('') + '</ol>' : '') + addMenu(kind) + '</section>';
+    };
+    h += section('f', d.fields, 'Fields', 'What a checklist can say about each step of this type. All are optional.');
+    h += section('r', d.record, 'Evidence', 'Proof people record when they check a step of this type.');
     var json = JSON.stringify(defOf(d), null, 2);
-    return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Step types</div><h1>' + (f.existing ? 'Edit {' + esc(f.existing) + '}' : 'New step type') + '</h1><div class="small">Saved as <code>step-types/' + esc(d.id || '<id>') + '.json</code>. Checklists can use it as <code>{' + esc(d.id || 'your.type') + '}</code> as soon as it\'s saved; publishing freezes it into each version, so later edits never change an old one.</div></div></div>' +
-      '<div class="editor-grid"><form class="panel stack" id="type-form" data-scope="type-form">' +
-      '<div class="grid2"><label class="field" for="tf-id">ID <span class="small">lowercase with dots, like change.request</span><input id="tf-id" value="' + esc(d.id) + '"' + (f.existing ? ' readonly' : '') + a11y('tf-id') + '></label><label class="field" for="tf-label">Label<input id="tf-label" value="' + esc(d.label) + '"' + a11y('tf-label') + '></label></div>' +
-      '<div class="grid2"><label class="field" for="tf-group">Group <span class="small">where it sits, like Releases / Approvals</span><input id="tf-group" maxlength="80" value="' + esc(d.group || '') + '"' + a11y('tf-group') + '></label><label class="field" for="tf-tags">Tags <span class="small">comma-separated</span><input id="tf-tags" maxlength="400" value="' + esc(d.tags || '') + '"' + a11y('tf-tags') + '></label></div>' +
-      '<div class="grid2"><label class="field" for="tf-hint">What it\'s for<input id="tf-hint" maxlength="120" value="' + esc(d.hint) + '"' + a11y('tf-hint') + '></label><label class="field" for="tf-icon">Icon<select id="tf-icon" data-bound>' + T.ICONS.map(function (ic) { return '<option' + (d.icon === ic ? ' selected' : '') + '>' + ic + '</option>'; }).join('') + '</select></label></div>' +
-      '<h3>Fields <span class="small">what a checklist can say about the step</span></h3>' + d.fields.map(function (r, i) { return row('f', i, r); }).join('') + '<button class="mini" type="button" data-act="tf-add" data-id="f">Add a field</button>' +
-      '<h3>Evidence <span class="small">what can be recorded when it\'s checked</span></h3>' + d.record.map(function (r, i) { return row('r', i, r); }).join('') + '<button class="mini" type="button" data-act="tf-add" data-id="r">Add evidence</button>' +
-      (f.conflict ? '<div class="notice bad" role="alert"><span><b>Someone else changed this file</b> since you opened it. Nothing was saved. Compare, then keep yours or take theirs.</span>' + (f.saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" type="button" data-act="type-keep-mine">Keep mine</button><button class="mini" type="button" data-act="type-take-theirs">Take theirs</button>') + '</div>' +
-        '<details open><summary class="small">Their version</summary><pre class="source">' + esc(f.conflict.theirs == null ? '(the file was deleted)' : f.conflict.theirs) + '</pre></details>' : '') +
-      '<div class="row"><button class="btn go" type="submit"' + (errs.length || f.saving ? ' disabled' : '') + (errs.length ? ' aria-describedby="tf-errs"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button><button class="mini" type="button" data-act="type-cancel">Cancel</button></div></form>' +
-      '<aside class="stack"><section class="panel"><h2 role="status">' + (errs.length ? 'Not ready yet · ' + errs.length + ' to fix' : 'Ready to save') + '</h2>' + (errs.length ? '<ul class="checks" id="tf-errs">' + errs.map(function (e, n) { return '<li id="tf-err-' + n + '"><span class="lvl bad">Fix</span><span>' + esc(e) + '</span></li>'; }).join('') + '</ul>' : '<p class="small">Checked with the same rules the team folder uses.</p>') + '</section>' +
-      '<section class="panel"><h2>In a checklist</h2><pre class="source">' + esc('- [ ] {' + (d.id || 'your.type') + '} What to do {#step-id}' + d.fields.filter(function (r) { return r.name; }).map(function (r) { return '\n  ' + r.name + ': ...'; }).join('') + (d.record.length ? '\n  require: all' : '')) + '</pre></section>' +
-      '<section class="panel"><h2>The file</h2><pre class="source">' + esc(json) + '</pre></section></aside></div>';
+    h += '<details class="panel tf-where" data-disc="tf-where"' + (disc['tf-where'] ? ' open' : '') + '><summary>Where this is saved</summary><p class="small">In the team folder, as <code>step-types/' + esc(d.id || '…') + '.json</code>. Checklists can use it as soon as it\'s saved. Publishing a checklist keeps a copy of this type with that version, so changing the type later never changes a version already published. Your AI assistant can read and edit the same file.</p><pre class="source">' + esc(json) + '</pre></details>';
+    var leftover = errs.map(function (e, n) { return n; }).filter(function (n) { return !(/^"id"/.test(errs[n]) && !at['tf-id']) && !Object.keys(at).some(function (t) { return at[t].indexOf(n) >= 0; }); });
+    if (tried && leftover.length) h += '<ul class="checks" id="tf-errs">' + leftover.map(function (n) { return '<li id="tf-err-' + n + '"><span class="lvl bad">Fix</span><span>' + esc(plain(errs[n])) + '</span></li>'; }).join('') + '</ul>';
+    h += '</form></section>';
+
+    /* The preview: a step of this type as runners see it (read-only), then as a checklist writes it. */
+    var named = d.fields.filter(function (r) { return String(r.name || '').trim(); }), recs = d.record.filter(function (r) { return String(r.name || '').trim(); });
+    var sample = function (r) { var o = optsOf(r); return r.kind === 'choice' ? (o[0] || '…') : SAMPLE[r.kind] || '…'; };
+    var line = '- [ ] {' + (d.id || 'your.type') + '} What to do {#step-id}' + named.map(function (r) { return '\n  ' + r.name + ': ' + sample(r); }).join('') + (recs.length ? '\n  require: all' : '');
+    h += '<aside class="fpe-pane tf-preview' + (modal ? ' open" id="tf-preview" role="dialog" aria-modal="true" aria-labelledby="tf-prev-h"' : '" id="tf-preview" aria-label="Preview"') + '><div class="tf-prevhead"><h2 id="tf-prev-h">Run preview</h2><button type="button" class="mini tf-prevclose" data-act="tf-preview">Close</button></div>' +
+      '<p class="tf-help">How a step of this type looks in a run. It\'s a picture: nothing here can be clicked.</p>' +
+      '<div class="tf-run" aria-label="Sample step"><div class="tf-run-head' + flash('type:icon') + '">' + I(d.icon || 'check') + '<b>What to do</b><span class="cat' + flash('type:label') + '">' + esc(String(d.label || '').trim() || 'Your type') + '</span></div>' +
+      (d.hint ? '<p class="small tf-run-hint' + flash('type:hint') + '">' + esc(d.hint) + '</p>' : '') +
+      (named.length ? '<dl class="tf-run-fields">' + named.map(function (r) { var fl = flash('field:' + r.k) ? ' class="flash"' : ''; return '<dt' + fl + '>' + esc(r.label || r.name) + '</dt><dd' + fl + '>' + esc(sample(r)) + '</dd>'; }).join('') + '</dl>' : '') +
+      (recs.length ? '<div class="tf-run-ev"><div class="small"><b>When it\'s checked</b></div>' + recs.map(function (r) { return '<div class="tf-fakefield' + flash('evidence:' + r.k) + '"><span class="small">' + esc(r.label || r.name) + '</span><span class="tf-fake' + (r.long ? ' long' : '') + '">' + esc(r.kind === 'choice' ? (optsOf(r).join(' / ') || 'Choose…') : r.kind === 'url' ? 'https://…' : '') + '</span></div>'; }).join('') + '</div>' : '') +
+      '<div class="row"><span class="tf-fakebtn">' + I('check') + 'Done</span></div></div>' +
+      '<h3 class="tf-prevsub">As written in a checklist</h3><p class="tf-help">How you, a teammate or your AI assistant write a step of this type.</p><pre class="source">' + esc(line) + '</pre></aside></div></div>';
+    return h;
   }
   /* What's wrong with the form: the folder's own checks, plus two names the same (which a JSON object would silently merge). */
   function formErrors(d) {
@@ -209,8 +327,8 @@
       else if (/^"hint"/.test(e)) add('tf-hint', n);
       else if (/^"group"/.test(e)) add('tf-group', n);
       else if (/^"tags"/.test(e)) add('tf-tags', n);
-      else if ((m = /^(field|record) "([^"]*)"(: label)?/.exec(e))) { var kind = m[1] === 'field' ? 'f' : 'r', r = rowOf(kind === 'f' ? d.fields : d.record, m[2]); if (r) add('tf-' + kind + '-' + r.k + '-' + (m[3] ? 'label' : /options|choice/.test(e) ? 'options' : 'name'), n); }
-      else if ((m = /^record (\d+): /.exec(e))) { var named = d.record.filter(function (r) { return r.name; }), rr = named[+m[1] - 1]; if (rr) add('tf-r-' + rr.k + '-' + (/options/.test(e) ? 'options' : /label/.test(e) ? 'label' : /kind/.test(e) ? 'kind' : 'name'), n); }
+      else if ((m = /^(field|record) "([^"]*)"(: label)?/.exec(e))) { var kind = m[1] === 'field' ? 'f' : 'r', r = rowOf(kind === 'f' ? d.fields : d.record, m[2]); if (r) add('tf-' + kind + '-' + r.k + '-' + (m[3] ? 'label' : /options|choice/.test(e) ? 'optadd' : /kind/.test(e) ? 'kind' : 'name'), n); }
+      else if ((m = /^record (\d+): /.exec(e))) { var named = d.record.filter(function (r) { return r.name; }), rr = named[+m[1] - 1]; if (rr) add('tf-r-' + rr.k + '-' + (/options/.test(e) ? 'optadd' : /label/.test(e) ? 'label' : /kind/.test(e) ? 'kind' : 'name'), n); }
       else if ((m = /^(a field|evidence) (?:labeled "([^"]*)"|with options) has no name/.exec(e))) { var k2 = m[1] === 'a field' ? 'f' : 'r'; (k2 === 'f' ? d.fields : d.record).forEach(function (r) { if (!(r.name || '').trim() && (m[2] == null ? !(r.label || '').trim() && (r.options || '').trim() : (r.label || '').trim() === m[2])) add('tf-' + k2 + '-' + r.k + '-name', n); }); }
     });
     return at;
@@ -231,10 +349,10 @@
   }
   /* A definition (from a file or a built-in) → the form's state. */
   function formOf(t, keepId) {
-    return { id: keepId ? t.id : '', label: t.label || '', hint: t.hint || '', icon: t.icon || 'check', group: keepId && t.group ? t.group.join(' / ') : '', tags: keepId && t.tags ? t.tags.join(', ') : '',
-      fields: Object.keys(t.fields || {}).map(function (n) { var x = t.fields[n], fixed = x.kind !== 'choice' || ((x.options || []).length && !x.optionsFrom); return { k: nextKey(), name: n, label: x.label, kind: fixed ? x.kind : 'text', required: !!x.required, options: fixed ? (x.options || []).join('\n') : '', orig: fixed && x.options ? x.options.slice() : null }; }),
+    return { id: keepId ? t.id : '', idSet: !!keepId, label: t.label || '', hint: t.hint || '', icon: t.icon || 'check', group: keepId && t.group ? t.group.join(' / ') : '', tags: keepId && t.tags ? t.tags.join(', ') : '',
+      fields: Object.keys(t.fields || {}).map(function (n) { var x = t.fields[n], fixed = x.kind !== 'choice' || ((x.options || []).length && !x.optionsFrom); return { k: nextKey(), name: n, nameSet: true, label: x.label, kind: fixed ? x.kind : 'text', required: !!x.required, options: fixed ? (x.options || []).join('\n') : '', orig: fixed && x.options ? x.options.slice() : null }; }),
       /* A built-in choice whose options come from the step (optionsFrom) has no fixed list a team type can hold: it becomes text. */
-      record: (t.record || []).map(function (r) { var fixed = r.kind === 'choice' && (r.options || []).length && !r.optionsFrom; return { k: nextKey(), name: r.name, label: r.label, kind: fixed ? 'choice' : r.kind === 'url' ? 'url' : 'text', long: !!r.long, options: fixed ? r.options.join('\n') : '', orig: fixed ? r.options.slice() : null }; }) };
+      record: (t.record || []).map(function (r) { var fixed = r.kind === 'choice' && (r.options || []).length && !r.optionsFrom; return { k: nextKey(), name: r.name, nameSet: true, label: r.label, kind: fixed ? 'choice' : r.kind === 'url' ? 'url' : 'text', long: !!r.long, options: fixed ? r.options.join('\n') : '', orig: fixed ? r.options.slice() : null }; }) };
   }
 
   /* ---------- one skill: what it is, where it lives, what it follows, and whether it still matches ---------- */
@@ -301,7 +419,13 @@
   function nextKey() { return 'k' + (++keySeq); }
   V.settings = settings; V.skill = skillPage; V.typeErrors = formErrors; V.nextRowKey = nextKey;
   V.tabOf = tabOf; V.checklistPanel = checklistPanel; V.shownOf = shownOf; V.editTab = editTab; V.insTabOf = insTabOf; V.newProcess = newProcess; V.starterMap = starterMap;
-  V.types = types; V.typeDefOf = defOf; V.typeFormOf = formOf;
+  V.types = types; V.typeDefOf = defOf; V.typeFormOf = formOf; V.typeSlugs = { id: slugId, name: slugName };
   /* Everything a person can change in the form, unnamed rows included, so a half-filled row still counts as a change. */
-  V.typeFormSnapshot = function (d) { var row = function (r) { return [r.name, r.label, r.kind, String(r.options || '').replace(/\r\n?/g, '\n'), !!r.required, !!r.long]; }; return JSON.stringify([d.id, d.label, d.hint, d.icon, d.group || '', d.tags || '', d.fields.map(row), d.record.map(row)]); };
+  /* The type's own text is compared the way saving writes it (trimmed, the group and tags as the file keeps them), so a form
+     just saved is never "unsaved" because of spaces the file doesn't keep. Rows are compared as typed; half-filled ones count. */
+  V.typeFormSnapshot = function (d) {
+    var t = function (x) { return String(x == null ? '' : x).trim(); };
+    var row = function (r) { return [r.name, r.label, r.kind, String(r.options || '').replace(/\r\n?/g, '\n'), !!r.required, !!r.long]; };
+    return JSON.stringify([t(d.id), t(d.label), t(d.hint), d.icon, T.groupText(d.group || ''), String(d.tags || '').split(',').map(T.tagText).filter(Boolean), d.fields.map(row), d.record.map(row)]);
+  };
 })();

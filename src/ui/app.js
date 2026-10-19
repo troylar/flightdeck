@@ -398,9 +398,10 @@
 
   /* ---------- rendering ---------- */
   var app = document.getElementById('app'), topEl = document.getElementById('top'), overlayEl = document.getElementById('overlay');
-  function say(text, kind) { state.msg = text ? { text: text, kind: kind || '' } : null; }
+  /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
+  function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
-  function sayUndo(text) { say(text, 'good'); state.msg.act = 'ob-undo'; state.msg.label = 'Undo'; }
+  function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
   function renderTop() {
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
     if (meVal) patch(topEl, V.top(ctx));
@@ -451,7 +452,7 @@
      state, never a stale value the browser held on to (a textarea's value stops following its text once typed in). */
   function syncBound() {
     app.querySelectorAll('[data-bound]').forEach(function (el) {
-      if (el.type === 'checkbox') { if (el.checked !== el.defaultChecked) el.checked = el.defaultChecked; return; }
+      if (el.type === 'checkbox' || el.type === 'radio') { if (el.checked !== el.defaultChecked) el.checked = el.defaultChecked; return; }
       var want = el.defaultValue;
       if (el.tagName === 'SELECT') { want = el.options.length ? el.options[0].value : ''; for (var i = 0; i < el.options.length; i++) if (el.options[i].defaultSelected) want = el.options[i].value; }
       if (el.value === want) return;
@@ -491,6 +492,7 @@
     var v = state.view;
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
     var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess };
+    tfPreviewFits();
     patch(app, (PAGES[v] || V.home)(ctx));
     Object.keys(keep).forEach(function (id) {
       var el = document.getElementById(id);
@@ -503,6 +505,7 @@
     });
     state.clearInputs = null;
     syncBound();
+    typeEditorPage();
     /* The draft editor's text is only there in Markdown mode; in the builder, focus goes to the editor's heading instead. */
     if (state.focus === 'draft-editor' && !document.getElementById('draft-editor')) state.focus = 'ed-h';
     var target = state.focus ? document.getElementById(state.focus) || app.querySelector(state.focus) || topEl.querySelector(state.focus) : focusKey ? app.querySelector(focusKey) || topEl.querySelector(focusKey) : null;
@@ -583,11 +586,12 @@
     sheetWasOpen = open;
   }
   /* Messages are announced from one stable live region outside the redrawn screen, so screen readers hear each one once. */
-  var said = '';
+  /* The same words said again (Undo twice in a row) are a new message, so they're announced again. */
+  var said = '', saidMsg = null;
   function announce() {
     var t = state.msg ? state.msg.text : '', el = document.getElementById('live');
-    if (el && t && t !== said) el.textContent = t;
-    said = t;
+    if (el && t && (t !== said || state.msg !== saidMsg)) el.textContent = t === said && el.textContent === t ? t + '\u00a0' : t;
+    said = t; saidMsg = state.msg;
   }
   function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/"/g, '\\"'); }
 
@@ -776,10 +780,12 @@
     processes().forEach(function (p) {
       /* Only a read that started after the editor's own save or Take theirs counts, so an older copy still in memory or
          an older read finishing late never undoes it. A later read is the folder as it is, whatever it holds. */
-      /* Text typed in the builder's form and not yet applied is unsaved too. */
-      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || !p.draft || (data.readSeq || 0) <= (ed.after || 0)) return;
-      /* Undo steps were taken against the old text; one applied now would bring it back over the newer draft. */
-      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; ed.undo = null; ed.redo = null; ed.fresh = null; }
+      /* Nor while this window's own save of it is still finishing (an Undo made meanwhile is newer than either), nor while
+         text typed in the builder's form isn't applied yet (that's unsaved too). */
+      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || !p.draft || state.draftSaving[edKey(p.id)] || (data.readSeq || 0) <= (ed.after || 0)) return;
+      /* Undo steps were taken against the old text; one applied now would bring it back over the newer draft. They stay
+         listed in History, behind a barrier. */
+      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; ed.fresh = null; TL.barrier(tlOf(ed), 'The draft changed in the folder here. Earlier changes can\'t be undone.'); }
     });
   }
   function currentProcess() { var id = state.processId; return processes().filter(function (x) { return x.id === id; })[0] || null; }
@@ -795,6 +801,9 @@
     var sfs = state.fs, g = gen, key = fsKey(), file = p.draft ? p.draft.file : p.id + '.md', sk = edKey(p.id, key);
     if (state.draftSaving[sk]) { say('Still saving this draft. Try again in a moment.', 'warn'); render(); return; }
     state.draftSaving[sk] = opts.replace ? 'restore' : 'save';
+    /* The changes this save carries, so History can say they were saved; typing after it starts a new unit. */
+    var ed0 = editorOf(p.id, key), carried = ed0 && ed0.tl ? ed0.tl.entries.slice(0, ed0.tl.pos) : [];
+    if (ed0 && ed0.tl) TL.close(ed0.tl);
     /* When it ends, the controls it disabled come back, also if someone left this folder and returned meanwhile. */
     var done = function () { delete state.draftSaving[sk]; if (fsKey() === key) scheduleRender(); };
     render();
@@ -814,8 +823,13 @@
         return;
       }
       /* Saved: the editor now starts from what was saved. Anything typed while it saved stays, as unsaved changes. */
-      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.undo = null; ed.redo = null; ed.fresh = null; }
-      else setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted });
+      /* Undo steps survive a save: undoing one makes the draft unsaved again, and saving it is checked like any other. A
+         restore replaced the text, so nothing before it can be undone. Parts saved are no longer new. */
+      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.fresh = null; }
+      else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
+      if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
+      else TL.saved(carried, res.hash);
+      if (ed.tl) learnIds(ed, text);
       if (g !== gen) return;
       if (opts.replace) dropPending();
       if (opts.replace && here) { state.mapVer = null; state.focus = 'cl-h'; }
@@ -841,16 +855,16 @@
       render(); return null;
     }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
+    var before = obSnap(ed);
+    learnIds(ed, ed.base);
     dropPending();
     if (res.same) return res;
-    /* Undo steps belong to the text they were taken from: once the editor starts from another draft, they're dropped. */
-    if (ed.undoBase !== ed.base) { ed.undo = null; ed.redo = null; }
-    ed.undoBase = ed.base;
-    /* Each Undo step keeps what was selected and being added then, so undoing puts those back with the text. */
-    var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; };
-    (ed.undo = ed.undo || []).push({ text: cur, sel: snap(state.obSel), add: snap(state.obAdd), what: what || whatOf(op), fresh: freshCopy(ed) }); if (ed.undo.length > 50) ed.undo.shift();
-    ed.redo = null;
-    ed.text = res.text; state.planFormReset = true; state.obFlash = null; state.obReveal = null; state.obAsk = null; say(null);
+    /* Each change keeps what was selected, being added, new in this window and typed but not applied then, so undoing
+       puts those back with the text. */
+    var lb = TL.labelOf(op), subj = opSubject(cur, op);
+    TL.record(tlOf(ed), cur, res.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: opItems(op, res), selBefore: before });
+    ed.text = res.text; state.planFormReset = true; state.obFlash = null; state.obReveal = null; state.obAsk = null;
+    say(TL.past(lb.past, subj) + '. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
     /* A step or phase without a unique ID is known by its place, so what's selected or being added to follows the change. */
     var F = function (kind, key) { return PF.outline.follow(cur, res.text, op, res.at, kind, key); };
     var sl = state.obSel; if (sl && sl.pid === p.id) { var nk = F(sl.kind === 'track' ? 'phase' : sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
@@ -861,6 +875,262 @@
       if (ad.kind === 'step' && ad.after == null && ad.phase == null) state.obAdd = null;
     }
     return res;
+  }
+  /* ---------- Undo, Redo and History (PF.timeline): one timeline per draft editor and per step-type form ---------- */
+  var TL = PF.timeline;
+  function tlOf(ed) { return ed.tl || (ed.tl = TL.create()); }
+  /* Every ID that was ever in a saved or loaded draft in this session: such a part is never new again, so no Undo can let
+     its ID follow its name. Kept on the timeline, which outlives the editor objects a save replaces. */
+  function learnIds(ed, text) { if (!ed || text == null) return; var tl = tlOf(ed), ids = PF.outline.parse(text).ids, k = tl.savedIds || (tl.savedIds = Object.create(null)); Object.keys(ids).forEach(function (x) { k[x] = true; }); }
+  /* What rides along with a builder change: the selection, what's being added and the parts new in this window (freshCopy),
+     so Undo and Redo put them back with the text. Typing not yet applied is never replayed: Undo waits for it instead. */
+  function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null }; }
+  /* The step or phase an outline operation is about, in words and as a History item. */
+  function opSubject(text, op) {
+    if (op.op === 'add') return String(op.text || '').trim();
+    if (op.op === 'addPhase' || op.op === 'addTrack') return String(op.title || '').trim();
+    if (op.op === 'editTrack' || op.op === 'deleteTrack') { var ph = PF.outline.parse(text).phases.filter(function (y) { return y.key === String(op.phase); })[0], tr = ph && ph.tracks[+op.track]; return tr ? String(tr.title || '') : ''; }
+    var o = PF.outline.parse(text), isStep = op.step != null, k = String(isStep ? op.step : op.phase), x = (isStep ? o.steps : o.phases).filter(function (y) { return y.key === k; })[0];
+    return x ? String(isStep ? x.text : x.title).replace(/\*\*|__|`/g, '') : '';
+  }
+  function opItems(op, res) {
+    if (op.op === 'add') return res.id ? ['step:' + res.id] : [];
+    if (op.op === 'addPhase') return res.id ? ['phase:' + res.id] : [];
+    return op.step != null ? ['step:' + op.step] : op.phase != null ? ['phase:' + op.phase] : [];
+  }
+  var INPUT_KINDS = { insertFromPaste: ['paste', 'paste'], insertFromPasteAsQuotation: ['paste', 'paste'], deleteByCut: ['cut', 'cut'], insertFromDrop: ['drop', 'drag and drop', 'join'], deleteByDrag: ['drop', 'drag and drop', 'wait'], insertReplacementText: ['correction', 'spelling correction'] };
+  function inputKind(t) { var k = INPUT_KINDS[t], o = k ? { kind: k[0], label: k[1] } : { kind: 'typing', label: 'typing' }; if (k && k[2]) o[k[2]] = 'drag'; return o; }
+  /* An input method (Japanese, Chinese, Korean…) shows text that changes until it's committed: the whole composition is one
+     change, from the text before it started. */
+  var ime = null;
+  function imeStep(e, id, now) {
+    if (composing || e.isComposing) { if (!ime || ime.id !== id) ime = { id: id, before: now }; return true; }
+    return false;
+  }
+  document.addEventListener('compositionstart', function (e) {
+    var id = (e.target && e.target.id) || '', p, ed;
+    if (id === 'draft-editor' && (p = currentProcess()) && (ed = editorOf(p.id)) && ed.tl) TL.close(ed.tl);
+    if (/^tf-/.test(id) && state.typeForm && state.typeForm.tl) TL.close(state.typeForm.tl);
+  });
+  function imeBefore(id, fallback) { var b = ime && ime.id === id ? ime.before : null; ime = null; return b != null ? b : fallback; }
+  /* Typing in the Markdown: one unit per run of typing, named by the step or phase it's in. */
+  function recordTyping(ed, before, after, inputType) {
+    var tl = tlOf(ed), seq = tl.seq, k = inputKind(inputType);
+    var e = TL.record(tl, before, after, { kind: k.kind, label: k.label, lines: true, wait: k.wait, join: k.join });
+    if (e && e.id > seq) { var hit = TL.itemAt(after, e.start); if (hit) { e.subject = hit.subject; e.items = [hit.item]; } }
+  }
+  /* The step-type form's controls in words, and what each one holds, for naming and showing typing there. */
+  var TF_NAMES = { id: 'ID', label: 'Label', hint: 'What it\'s for', icon: 'Icon', group: 'Group', tags: 'Tags' };
+  var TF_PARTS = { name: 'name', label: 'label', kind: 'kind', options: 'options', required: 'usually filled in', long: 'long text' };
+  function tfControl(def, id) {
+    var m = /^tf-(f|r)-(k\d+)-(\w+)$/.exec(id || '');
+    if (m) {
+      var r = (m[1] === 'f' ? def.fields : def.record).filter(function (x) { return x.k === m[2]; })[0]; if (!r) return null;
+      return { name: (TF_PARTS[m[3]] || m[3]) + ' of ' + (m[1] === 'f' ? 'field ' : 'evidence ') + (r.name || '(unnamed)'), item: (m[1] === 'f' ? 'field:' : 'evidence:') + m[2], value: String(r[m[3]] == null ? '' : r[m[3]]) };
+    }
+    if (/^tf-icon-/.test(id || '')) return { name: 'Icon', item: 'type:icon', value: def.icon || '' };
+    var k = /^tf-(\w+)$/.exec(id || ''); if (!k || !TF_NAMES[k[1]]) return null;
+    return { name: TF_NAMES[k[1]], item: 'type:' + k[1], value: String(def[k[1]] == null ? '' : def[k[1]]) };
+  }
+  function typeTl(f) { return f.tl || (f.tl = TL.create()); }
+  /* Text typed in Add an option or Add a tag is added as soon as the person leaves the box or does anything else (another
+     row, Save, Done, Undo…): one recorded change each, trimmed. Empty text, or an option or tag already there, is left out.
+     There's no half-typed state to keep, so nothing can be lost or block Undo. */
+  function optsList(r) { return String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); }
+  function tagsList(d) { return String(d.tags || '').split(',').map(function (x) { return x.trim().replace(/^#/, ''); }).filter(Boolean); }
+  function cleanTag(v) { return String(v || '').trim().replace(/^#/, '').replace(/,/g, ' ').trim().slice(0, 30); }
+  function addOption(f, p, v) {
+    var r = rowOf(f.def, p); v = String(v || '').trim().slice(0, 40); if (!r || r.kind !== 'choice' || !v) return null;
+    var o = optsList(r); if (o.indexOf(v) >= 0) return 'dup';
+    var before = typeSnap(f), focus = '#tf-' + p[0] + '-' + p[1] + '-optadd';
+    r.options = o.concat(v).join('\n');
+    recordTypeForm(f, before, { kind: 'form', label: 'new option', subject: v, items: [rowItem(p)], selBefore: { focus: focus }, selAfter: { focus: focus } });
+    return 'added';
+  }
+  function addTag(f, v) {
+    v = cleanTag(v); if (!v) return null;
+    var t = tagsList(f.def); if (t.indexOf(v) >= 0) return 'dup';
+    var before = typeSnap(f); f.def.tags = t.concat(v).join(', ');
+    recordTypeForm(f, before, { kind: 'form', label: 'new tag', subject: v, items: ['type:tags'], selBefore: { focus: '#tf-tagadd' }, selAfter: { focus: '#tf-tagadd' } });
+    return 'added';
+  }
+  /* Add whatever the Add boxes on screen hold. noRead: the caller reads the form itself (a change of a field's type must not
+     be read before its options are added). */
+  function flushAdds(f, noRead) {
+    if (!f) return false; if (!noRead) readTypeForm();
+    var any = false, box = function (id) { var el = document.getElementById(id); if (!el || !String(el.value || '').trim()) return null; var v = el.value; el.value = ''; return v; };
+    var tv = box('tf-tagadd'); if (tv != null && addTag(f, tv) === 'added') any = true;
+    [['f', f.def.fields], ['r', f.def.record]].forEach(function (x) { x[1].slice().forEach(function (r) { if (r.kind !== 'choice') return; var v = box('tf-' + x[0] + '-' + r.k + '-optadd'); if (v != null && addOption(f, [x[0], r.k], v) === 'added') any = true; }); });
+    return any;
+  }
+  /* The step-type editor is a page of its own, like the draft editor: the app's top bar hides while it's open. */
+  /* The phone preview sheet exists only below 800 px: on a wider screen it's closed before anything is drawn, so the page
+     never shows an inert editor without a way out. Widening the window redraws at once. */
+  function narrowNow() { return !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); }
+  function tfPreviewFits() { if (state.tfPreview && !narrowNow()) state.tfPreview = false; }
+  (function () { var mq = window.matchMedia && window.matchMedia('(max-width: 800px)'); if (mq && mq.addEventListener) mq.addEventListener('change', function () { if (state.tfPreview && !mq.matches) render(); }); })();
+  function typeEditorPage() {
+    var on = state.view === 'types' && !!state.typeForm && state.typeForm.fsKey === fsKey(), de = document.documentElement;
+    if (de && de.classList) { if (on) de.classList.add('tfe-on'); else de.classList.remove('tfe-on'); }
+    if (!on) state.tfPreview = false;
+  }
+  function rowIndex(list, k) { return list.map(function (r) { return r.k; }).indexOf(k); }
+  function rowOf(d, p) { var list = p[0] === 'f' ? d.fields : d.record; return list[rowIndex(list, p[1])] || null; }
+  function rowItem(p) { return (p[0] === 'f' ? 'field:' : 'evidence:') + p[1]; }
+  /* One change to the step type from a button (a move, an option, a tag): fn changes the definition and returns what it was
+     about, or null for no change. Recorded, so Undo takes it back. */
+  function typeChange(label, fn, items, focus) {
+    var f = state.typeForm; if (!f) return; flushAdds(f);
+    var before = typeSnap(f), subject = fn(f.def);
+    if (subject == null) return;
+    recordTypeForm(f, before, { kind: 'form', label: label, subject: String(subject), items: items, selBefore: { focus: focus }, selAfter: { focus: focus } });
+    state.focus = focus; render();
+  }
+  /* A step type's timeline outlives its form, as a draft's does: saving or closing keeps it (with the form as saved, row keys
+     and all), and opening the type again picks it up. If the file changed since, earlier changes stay listed but can't be
+     undone. */
+  var typeTls = {};
+  function keepTypeTl(f, id, def, hash) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, hash: hash, tail: def ? typeTail(f) : null }; }
+  function resumeTypeTl(f, id, hash) {
+    var k = typeTls[fsKey() + '\n' + id]; if (!k) return f;
+    f.tl = k.tl;
+    if (k.def && k.hash === hash) { f.def = k.def; f.tlTail = k.tail; f.initial = V.typeFormSnapshot(f.def); }
+    else TL.barrier(f.tl, 'The step type changed in the folder here. Earlier changes can\'t be undone.');
+    return f;
+  }
+  /* A change in the step-type form: its whole definition before and after, rows with their keys, so undoing a removal puts
+     the row back in place with everything it had. */
+  function recordTypeForm(f, before, meta) { var e = TL.record(typeTl(f), before, typeSnap(f), meta); if (e) f.flash = { items: meta.items || [], at: Date.now() }; return e; }
+  /* What the timeline records of a step type: everything a person set, and nothing made from it. A name or ID still made
+     from its label isn't stored (so typing a label is one change, not two far apart), and a saved type's ID isn't stored at
+     all (so no Undo can move it to another file). A typed ID goes last, apart from the rest. */
+  function typeSnap(f) {
+    /* A switch that was never touched and one switched off are the same: both are stored as false, so reading the page
+       never looks like a change. */
+    var row = function (flag) { return function (r) { var o = {}; Object.keys(r).forEach(function (k) { if (k !== 'name' || r.nameSet) o[k] = r[k]; }); o[flag] = !!r[flag]; return o; }; };
+    var d = f.def, out = {};
+    Object.keys(d).forEach(function (k) { if (k !== 'id' && k !== 'idSet') out[k] = d[k]; });
+    out.fields = d.fields.map(row('required')); out.record = d.record.map(row('long'));
+    /* The typed ID stays in the text after saving too (it's then fixed and ignored), so its earlier changes still undo. */
+    return JSON.stringify(out) + '\n' + typeTail(f);
+  }
+  /* The ID part of the history's text. Once the type is saved its ID is fixed: the history keeps the ID part as it last
+     replayed it, so every earlier change still applies, while the form always shows the saved ID. */
+  function typeTail(f) {
+    if (f.existing && f.tlTail != null) return f.tlTail;
+    /* idSet first: the first letter typed into the ID flips it, and the letters after it then join the same Undo. */
+    var d = f.def, t = JSON.stringify({ idSet: !!d.idSet, id: d.idSet ? d.id : '' });
+    if (f.existing) f.tlTail = t;
+    return t;
+  }
+  function typeUnsnap(f, text) {
+    var i = text.indexOf('\n'), d = JSON.parse(i < 0 ? text : text.slice(0, i)), t = i < 0 ? null : JSON.parse(text.slice(i + 1)), S = V.typeSlugs;
+    if (f.existing) f.tlTail = i < 0 ? null : text.slice(i + 1);
+    d.idSet = !!f.existing || !!(t && t.idSet);
+    d.id = f.existing || (t && t.idSet ? t.id : S.id(d.label));
+    d.fields.concat(d.record).forEach(function (r) { if (!r.nameSet) r.name = S.name(r.label); });
+    f.def = d;
+  }
+  function typeFormInput(e, typing) {
+    var f = state.typeForm, id = e.target.id;
+    if (!typing && /-kind$/.test(id)) flushAdds(f, true);
+    var cur = typeSnap(f);
+    if (typing && imeStep(e, id, { json: cur, val: tfControl(f.def, id) })) { readTypeForm(); return; }
+    var start = typing ? imeBefore(id, null) : null, before = start ? start.json : cur, was = start ? start.val : tfControl(f.def, id);
+    readTypeForm();
+    var now = tfControl(f.def, id), k = typing && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT' ? inputKind(e.inputType) : { kind: 'form', label: /-kind$/.test(id) ? 'type change' : /^tf-icon/.test(id) ? 'icon change' : 'setting change' };
+    if (now) recordTypeForm(f, before, { kind: k.kind, label: k.label, subject: now.name, group: id, items: [now.item], selBefore: { focus: '#' + id }, selAfter: { focus: '#' + id }, show: { before: was ? was.value : '', after: now.value }, wait: k.wait, join: k.join });
+    /* A committed composition is a change of its own: typing after it starts another. */
+    if (start) TL.close(typeTl(f));
+  }
+  /* Which editor Undo and Redo act on here, or null to leave the keys to the browser. */
+  function tlScope() {
+    if (state.overlay) return state.overlay.hist || null;
+    if (state.view === 'process' && state.ptab === 'edit' && currentProcess()) return 'draft';
+    if (state.view === 'types' && state.typeForm && state.typeForm.fsKey === fsKey()) return 'type';
+    return null;
+  }
+  function tlFor(scope) {
+    if (scope === 'type') return state.typeForm ? typeTl(state.typeForm) : null;
+    var p = currentProcess(); return p ? tlOf(openEditor(p)) : null;
+  }
+  /* Focus the first of these that's on the page. */
+  function focusFirst(sels) {
+    for (var i = 0; i < sels.length; i++) { var el = sels[i] && (document.getElementById(sels[i]) || app.querySelector(sels[i])); if (el && el.focus) { if (document.activeElement !== el) el.focus({ preventScroll: true }); return; } }
+  }
+  function itemSel(item) { var m = /^(step|phase):(.+)$/.exec(item || ''); return m ? '[data-act="' + (m[1] === 'step' ? 'ob-sel' : 'ob-sel-phase') + '"][data-id="' + cssEsc(m[2]) + '"]' : null; }
+  /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
+     to what changed (the step's row, the field, or the caret in the Markdown). Either way the message says what happened. */
+  function tlMove(scope, redo, how) {
+    var tl = tlFor(scope); if (!tl) return;
+    var p = scope === 'draft' ? currentProcess() : null, ed = p && openEditor(p), f = scope === 'type' ? state.typeForm : null;
+    if (p && builderBlocked(p)) return;
+    /* Text typed in a builder box and not applied (or refused) isn't in the draft: Undo would replace the box and lose it,
+       so it waits until that text is applied or cleared. An Add box keeps its text through Undo (below). */
+    var pf = p && state.obPending === p.id && state.obPendingField;
+    if (pf && !/^ob-new-/.test(pf)) {
+      say('Apply or clear what you typed in the box first (Enter applies it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn');
+      state.focus = '#' + pf; render(); return;
+    }
+    /* The step-type editor's Add boxes add what they hold first, so Undo takes that back like any other change. */
+    if (f) flushAdds(f, true);
+    var top = TL.peek(tl).undo;
+    /* What's selected now is what Redo will put back. */
+    if (!redo && top && scope === 'draft' && top.kind === 'op') top.selAfter = obSnap(ed);
+    var cur = p ? (ed.text != null ? ed.text : ed.base) : typeSnap(f), r = redo ? TL.redo(tl, cur) : TL.undo(tl, cur);
+    /* A new step or phase being written in its Add box isn't in the text yet: Undo and Redo keep the box and what's typed in
+       it. If the step or phase it goes after would change or disappear, nothing is undone, so the typing is never lost. */
+    var adding = p && !r.error && state.obAdd && state.obAdd.pid === p.id && (val('ob-new-text') || val('ob-new-title')) ? state.obAdd : null;
+    if (adding && !addAnchorKept(adding, cur, r.text)) {
+      tl.pos += redo ? -1 : 1;
+      say('Add or cancel the new ' + (adding.kind === 'phase' ? 'phase' : 'step') + ' you\'re writing first: ' + (redo ? 'Redo' : 'Undo') + ' would take away the place it goes.', 'warn');
+      state.focus = adding.kind === 'phase' ? 'ob-new-title' : 'ob-new-text'; render(); return;
+    }
+    if (r.error) {
+      var locked = r.none && TL.peek(tl).locked && !redo;
+      say(locked ? 'Earlier changes can\'t be undone: the ' + (p ? 'draft' : 'step type') + ' was replaced since. History shows where.' : r.error, 'warn'); render(); return;
+    }
+    var k = TL.peek(tl), words = (redo ? 'Redid ' : 'Undid ') + TL.describe(r.entry) + '.';
+    if (p) {
+      ed.text = r.text; obClearErr(); state.planFormReset = !adding; state.obPlace = null; state.obAsk = null; state.obFlash = null;
+      if (r.sel && 'obSel' in r.sel) {
+        state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd;
+        /* Parts already in the saved draft are never new again, whatever an older change remembered. */
+        if (r.sel.fresh) { learnIds(ed, ed.base); var saved = tl.savedIds, fr = Object.create(null); Object.keys(r.sel.fresh).forEach(function (k) { if (!saved[k]) fr[k] = true; }); ed.fresh = fr; }
+      }
+    } else { typeUnsnap(f, r.text); state.fieldErr = null; }
+    say(words + (redo ? (k.undo ? ' Undo available.' : '') : ' Redo available.'), 'good', redo ? { act: 'tl-undo', id: scope, label: 'Undo' } : { act: 'tl-redo', id: scope, label: 'Redo' });
+    var mine = '[data-act="' + (redo ? 'tl-redo' : 'tl-undo') + '"][data-id="' + scope + '"]', sl = state.obSel, md = p && !state.builder;
+    /* In the builder, Undo from its button goes to the item it restored (as the builder always has); with nothing to go to,
+       focus stays on the button so it can be pressed again. */
+    var back = p && state.builder && how === 'button' && !state.overlay && state.obSel ? selFocus(state.obSel) : null;
+    state.focus = back || (how === 'button' && !state.overlay ? mine : md && !state.overlay ? 'draft-editor' : null);
+    render();
+    /* The Markdown's caret marks the change, whichever way Undo was pressed. */
+    var ta = md && document.getElementById('draft-editor');
+    if (ta && ta.setSelectionRange) try { ta.setSelectionRange(r.caret.start, r.caret.end); } catch (err) { /* not a text field */ }
+    if (how === 'button' || state.overlay || md) return;
+    focusFirst(p ? [sl ? selFocus(sl) : null, itemSel(r.entry.items[0]), mine] : [r.sel && r.sel.focus, mine]);
+  }
+  /* The step or phase an open Add box goes after (or into) is the same one, with the same words, in the new text. */
+  function addAnchorKept(a, oldText, newText) {
+    var O1 = PF.outline.parse(oldText), O2 = PF.outline.parse(newText);
+    var same = function (kind, key) {
+      var list = kind === 'phase' ? 'phases' : 'steps', w = kind === 'phase' ? 'title' : 'text', find = function (o) { return o[list].filter(function (x) { return x.key === String(key); })[0]; };
+      var x = find(O1), y = find(O2); return !!x && !!y && x[w] === y[w];
+    };
+    if (a.after != null && !same(a.kind === 'phase' ? 'phase' : 'step', a.after)) return false;
+    if (a.phase != null && !same('phase', a.phase)) return false;
+    return true;
+  }
+  function openHistory(scope, item) {
+    var tl = tlFor(scope); if (!tl) return;
+    openOverlay({ hist: scope, item: item || null, html: function () {
+      var o = this, t = tlFor(o.hist), p = currentProcess(), f = state.typeForm, name = o.item;
+      if (o.item && o.hist === 'draft' && p) { var m = /^(step|phase):(.+)$/.exec(o.item), ed = editorOf(p.id); if (m && ed) { var x = PF.outline.parse(ed.text != null ? ed.text : ed.base)[m[1] === 'step' ? 'steps' : 'phases'].filter(function (y) { return y.key === m[2]; })[0]; if (x) name = m[1] + ' "' + String(m[1] === 'step' ? x.text : x.title).replace(/\*\*|__|`/g, '') + '"'; } }
+      if (o.item && o.hist === 'type' && f) { var c = tfControl(f.def, 'tf-' + (/^field:/.test(o.item) ? 'f-' : 'r-') + o.item.split(':')[1] + '-name'); if (c) name = c.name.replace(/^name of /, ''); }
+      return V.historyDrawer(ctx, { scope: o.hist, tl: t, item: o.item, itemName: name, title: o.hist === 'draft' ? (p ? 'Draft of ' + p.title : '') : f ? (f.existing ? '{' + f.existing + '}' : 'New step type') : '' });
+    } });
   }
   /* A value as the outline ops apply it (lineValue): line breaks become spaces and the ends are trimmed; spaces inside
      (a command's arguments) are its content. */
@@ -878,20 +1148,7 @@
     return '';
   }
   function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; dropPending(); }
-  /* Undo names what it undoes. */
-  function whatOf(op) {
-    var o = op.op, set = op.set || {};
-    if (o === 'move' || o === 'moveTo') return 'moved a step';
-    if (o === 'movePhase') return 'moved a phase';
-    if (o === 'add') return 'added a step';
-    if (o === 'delete') return 'deleted a step';
-    if (o === 'addPhase') return 'added a phase';
-    if (o === 'gate') return 'changed a gate';
-    if (o === 'editPhase') return 'changed a phase';
-    if (o === 'editTrack') return 'changed a lane';
-    if (o === 'edit') return 'text' in set ? 'changed a step\'s text' : 'mark' in set ? 'changed a step\'s kind' : 'type' in set ? 'changed a step\'s type' : 'role' in set ? 'changed who does a step' : 'bind' in set ? 'changed a step\'s run details' : 'changed a field';
-    return 'the last change';
-  }
+
   /* Parts added in this window and not saved yet, by ID: own keys only, so an ID like "constructor" is never one of them.
      Each Undo step keeps a copy, so undoing an addition also undoes its being new. */
   function isFresh(ed, id) { return !!(id && ed && ed.fresh && Object.prototype.hasOwnProperty.call(ed.fresh, id)); }
@@ -1076,49 +1333,112 @@
     var nk = PF.outline.keyAt(openEditor(currentProcess()).text, res.at) || key;
     state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(nk) + '"]'; render();
   });
-  document.addEventListener('dragend', function () { if (drag || partDrag) dragClear(); });
+  document.addEventListener('dragend', function () { if (drag || partDrag) dragClear(); tfDrag = null; });
   /* Pointing at a place while placing a part previews it in words. */
   document.addEventListener('mouseover', function (e) {
     var d = state.obPlace && e.target && e.target.closest && e.target.closest('.ob-dest'), pv = d && document.getElementById('ob-preview');
     if (pv) pv.textContent = d.getAttribute('data-say');
   });
+  /* Dragging a field or evidence row in the step-type editor by its grip; Move up / Move down do the same from the keyboard. */
+  var tfDrag = null;
+  document.addEventListener('dragstart', function (e) {
+    var row = e.target && e.target.closest && e.target.closest('[data-tf-row]'); if (!row) return;
+    tfDrag = row.getAttribute('data-tf-row');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', tfDrag); } catch (err) { /* older browsers */ }
+  });
+  document.addEventListener('dragover', function (e) {
+    if (!tfDrag) return;
+    var row = e.target && e.target.closest && e.target.closest('[data-tf-row]');
+    if (row && row.getAttribute('data-tf-row').split(':')[0] === tfDrag.split(':')[0]) e.preventDefault();
+  });
+  document.addEventListener('drop', function (e) {
+    if (!tfDrag) return;
+    var from = tfDrag, row = e.target && e.target.closest && e.target.closest('[data-tf-row]'); tfDrag = null;
+    if (!row) return;
+    var to = row.getAttribute('data-tf-row'), a = from.split(':'), b = to.split(':');
+    if (a[0] !== b[0] || a[1] === b[1]) return;
+    e.preventDefault(); tfMoveTo(a, b[1]);
+  });
+  /* After a move, focus stays on the button pressed, or goes to the row once that button is disabled at the end of the list. */
+  function tfMoveFocus(p, up) {
+    var f = state.typeForm, list = f ? (p[0] === 'f' ? f.def.fields : f.def.record) : [], i = rowIndex(list, p[1]), j = i + (up ? -1 : 1);
+    var edge = up ? j <= 0 : j >= list.length - 1;
+    return edge ? '[data-act="tf-open"][data-id="' + cssEsc(p.join(':')) + '"]' : '[data-act="tf-move"][data-id="' + cssEsc(p.join(':')) + '"][data-dir="' + (up ? 'up' : 'down') + '"]';
+  }
+  function tfMoveTo(a, beforeKey) {
+    typeChange('move', function (d) { var list = a[0] === 'f' ? d.fields : d.record, i = rowIndex(list, a[1]); if (i < 0) return null; var r = list.splice(i, 1)[0], j = rowIndex(list, beforeKey); list.splice(j < 0 ? list.length : j + (i <= j ? 1 : 0), 0, r); return r.label || r.name; }, [rowItem(a)], '[data-act="tf-open"][data-id="' + cssEsc(a.join(':')) + '"]');
+  }
   /* The step-type form's inputs → its state, read in one place so typing, choosing and saving all agree. */
   function readTypeForm() {
     var f = state.typeForm; if (!f) return;
     var v = function (id) { var el = document.getElementById(id); return el ? el.value : undefined; }, c = function (id) { var el = document.getElementById(id); return el ? !!el.checked : undefined; };
-    var d = f.def;
-    ['id', 'label', 'hint', 'icon', 'group', 'tags'].forEach(function (k) { var x = v('tf-' + k); if (x !== undefined) d[k] = x; });
-    d.fields.forEach(function (r) { ['name', 'label', 'kind', 'options'].forEach(function (k) { var x = v('tf-f-' + r.k + '-' + k); if (x !== undefined) r[k] = x; }); var q = c('tf-f-' + r.k + '-required'); if (q !== undefined) r.required = q; });
-    d.record.forEach(function (r) { ['name', 'label', 'kind', 'options'].forEach(function (k) { var x = v('tf-r-' + r.k + '-' + k); if (x !== undefined) r[k] = x; }); var q = c('tf-r-' + r.k + '-long'); if (q !== undefined) r.long = q; });
+    var d = f.def, S = V.typeSlugs;
+    /* A box was typed in if it no longer holds what was drawn in it. Comparing with the state instead would mistake a box
+       not yet redrawn (typing redraws every 250 ms) for one someone changed. */
+    var typed = function (id, cur) { var el = document.getElementById(id); if (!el) return undefined; var was = el.defaultValue != null ? el.defaultValue : cur; return el.value !== was ? el.value : undefined; };
+    /* The ID and each name follow the label until someone types their own; once saved, the ID never changes. */
+    var id = typed('tf-id', d.id); if (!f.existing && id !== undefined) { d.id = id; d.idSet = true; }
+    ['label', 'group'].forEach(function (k) { var x = v('tf-' + k); if (x !== undefined) d[k] = x; });
+    var hint = v('tf-hint'); if (hint !== undefined) d.hint = hint.replace(/\s*\n\s*/g, ' ');
+    T.ICONS.forEach(function (ic) { if (c('tf-icon-' + ic)) d.icon = ic; });
+    if (!f.existing && !d.idSet) d.id = S.id(d.label);
+    var rows = function (list, kind, flag) {
+      list.forEach(function (r) {
+        var p = 'tf-' + kind + '-' + r.k + '-', n = typed(p + 'name', r.name);
+        if (n !== undefined) { r.name = n; r.nameSet = true; }
+        ['label', 'kind'].forEach(function (k) { var x = v(p + k); if (x !== undefined) r[k] = x; });
+        if (!r.nameSet) r.name = S.name(r.label);
+        var q = c(p + flag); if (q !== undefined) r[flag] = q;
+      });
+    };
+    rows(d.fields, 'f', 'required'); rows(d.record, 'r', 'long');
   }
   var typeOpens = 0;
   function typeFormFor(def, existing, baseHash) { typeOpens++; return { fsKey: fsKey(), def: def, existing: existing, baseHash: baseHash, initial: V.typeFormSnapshot(def) }; }
   function typeFormChanged(f) { return V.typeFormSnapshot(f.def) !== f.initial; }
   function saveType() {
     var f = state.typeForm; if (!f) return;
+    flushAdds(f);
     var def = V.typeDefOf(f.def), errs = V.typeErrors(f.def), sent = JSON.stringify(def), savedSnap = V.typeFormSnapshot(f.def);
-    if (errs.length) { say(errs[0], 'warn'); render(); return; }
+    if (errs.length) {
+      /* Show every problem next to its box, open the rows that have one, and go to the first. */
+      f.tried = true; f.leaving = false; f.closeAfterSave = false; render();
+      var bad = document.querySelector && document.querySelector('#type-form [aria-invalid="true"]');
+      say('Not saved yet. ' + errs.length + (errs.length === 1 ? ' thing needs' : ' things need') + ' fixing first.', 'warn');
+      state.focus = bad && bad.id ? '#' + bad.id : 'tf-h'; render(); return;
+    }
     if (!f.existing && (T.get(def.id) || ((data.stepTypes || {}).types || {})[def.id])) { say('There\'s already a step type {' + def.id + '}. Choose another ID, or edit that one.', 'warn'); render(); return; }
     if (f.saving) { say('Still saving this step type. Try again in a moment.', 'warn'); render(); return; }
-    var sfs = state.fs, g = gen;
+    var sfs = state.fs, g = gen, carried = f.tl ? f.tl.entries.slice(0, f.tl.pos) : [], savedDef = JSON.parse(JSON.stringify(f.def));
+    if (f.tl) TL.close(f.tl);
     f.saving = true; render();
     queued(function () { return repo.saveStepType(sfs, def, f.baseHash, { lock: LOCKS ? lock : null }); }).then(function (res) {
       f.saving = false;
       /* The form is updated in its own folder even if someone switched folders meanwhile; only the screen waits. */
       var here = g === gen, open = typeForms[f.fsKey] === f;
-      if (res.conflict) { f.conflict = res; if (here) render(); return; }
+      if (res.conflict) { f.conflict = res; f.closeAfterSave = false; if (here) render(); return; }
+      TL.saved(carried, res.hash);
       /* Saved. If the form changed while it saved, it stays open on the saved version, with those changes still unsaved. */
       if (open && V.typeFormSnapshot(f.def) !== savedSnap) {
         /* If the ID was changed while it saved, the form now describes a different, unsaved type; keep it a new one. */
-        var sameId = (f.def.id || '').trim() === def.id;
+        /* An ID still made from the label is the saved one now: changing the label later doesn't make it another type. */
+        var sameId = !f.def.idSet || (f.def.id || '').trim() === def.id;
+        if (sameId) { var keepTail = typeTail(f); f.def.id = def.id; f.justSaved = Date.now(); }
         f.existing = sameId ? def.id : null; f.baseHash = sameId ? res.hash : null; f.initial = sameId ? savedSnap : '';
+        if (sameId) f.tlTail = keepTail;
         if (!here) return;
         say(sameId ? 'Saved {' + def.id + '}. Your later changes aren\'t saved yet.' : 'Saved {' + def.id + '}. The ID you changed it to isn\'t saved yet; save again to create it.', 'good');
         return load(true);
       }
-      if (open) delete typeForms[f.fsKey];
+      /* Saving keeps you in the editor, on the saved version, like the draft editor; Done goes back to the list. */
+      if (open) {
+        /* The saved ID can differ from what was typed (spaces trimmed); the history keeps what was typed, so it still applies. */
+        var tail = typeTail(f);
+        f.existing = def.id; f.def.id = def.id; f.tlTail = tail; f.baseHash = res.hash; f.initial = savedSnap; f.tried = false; f.idEdit = false; f.leaving = false; f.justSaved = Date.now();
+        keepTypeTl(f, def.id, savedDef, res.hash);
+      }
       if (!here) return;
-      if (open) state.focus = '[data-act="edit-type"][data-id="' + cssEsc(def.id) + '"]';
+      if (open && f.closeAfterSave) { f.closeAfterSave = false; ACTIONS['type-cancel'](); }
       say('Saved {' + def.id + '}. Checklists can use it now.', 'good');
       return load(true);
     }, function (err) { f.saving = false; if (fsKey() !== f.fsKey) return; say('Couldn\'t save the step type {' + def.id + '}: ' + err.message, 'bad'); render(); });
@@ -1248,12 +1568,12 @@
     },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
-    'toggle-md': function () { state.showMd = !state.showMd; state.focus = '[data-act="toggle-md"]'; render(); },
     /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
-    flight: function (id) { state.flight = id === 'plan'; state.focus = '[data-act="flight"][data-id="' + (state.flight ? 'plan' : 'list') + '"]'; render(); },
+    /* Checklist, Flight plan or Markdown: the same version three ways. The choice stays while you move around. */
+    flight: function (id) { state.clView = id === 'plan' || id === 'md' ? id : 'list'; state.focus = '[data-act="flight"][data-id="' + state.clView + '"]'; render(); },
     'flight-phase': function (id) {
       var want = /^\d+$/.test(id) ? 'cl-ph-' + id : 'cl-h';
-      state.flight = false; state.showMd = false; state.focus = want;
+      state.clView = 'list'; state.focus = want;
       render();
       var el = document.getElementById(want) || document.getElementById('cl-h');
       if (!el) return;
@@ -1270,21 +1590,28 @@
       if (sure) expect = state.pick.expect;
       state.pick = null;
       state.planFormReset = true;
-      saveDraftText(p, v.md, expect, 'Restored v' + v.info.version + ' as the draft. Edit it, then publish a new version.', { replace: true });
+      saveDraftText(p, v.md, expect, 'Restored v' + v.info.version + ' as the draft. Edit it, then publish a new version.', { replace: true, why: 'You restored v' + v.info.version + ' as the draft here. Earlier changes can\'t be undone.' });
     },
     /* Saving keeps you in the editor: focus goes back to the text, since the Save button is disabled while it saves. */
     'save-draft': function () { var p = currentProcess(); if (!p) return; var ed = openEditor(p); state.focus = 'draft-editor'; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.'); },
-    'revert-draft': function () { var p = currentProcess(); if (!p || stillSaving(p)) return; dropPending(); obClearErr(); dropEditor(p.id); openEditor(p); state.planFormReset = true; state.focus = 'draft-editor'; render(); },
+    'revert-draft': function () {
+      var p = currentProcess(); if (!p || stillSaving(p)) return;
+      dropPending(); obClearErr();
+      var old = editorOf(p.id); dropEditor(p.id); var ne = openEditor(p);
+      if (old && old.tl) { ne.tl = old.tl; TL.barrier(ne.tl, 'You discarded your changes here. Earlier changes can\'t be undone.'); }
+      state.planFormReset = true; state.focus = 'draft-editor'; render();
+    },
     /* The draft file disappeared while it had unsaved edits: write them back as a new draft. */
     'recover-draft': function () {
       var ed = editorOf(state.processId); if (!ed || ed.text == null) return;
       saveDraftText({ id: state.processId, title: state.processId, draft: null }, ed.text, null, 'Saved your draft again.');
     },
     'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.'); },
-    'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted }); state.planFormReset = true; render(); },
+    'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
     /* ---------- the outline builder: every change is an operation on the editor's text (PF.outline) ---------- */
     'ed-mode': function (id) {
       state.builder = id !== 'markdown'; lsSet('builder', state.builder); state.obPlace = null;
+      var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce && ce.tl) TL.close(ce.tl);
       state.focus = '[data-act="ed-mode"][data-id="' + (state.builder ? 'builder' : 'markdown') + '"]'; render();
     },
     'ob-sel': function (id) { var p = currentProcess(); if (!p || !id) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
@@ -1329,13 +1656,13 @@
       var res = builderEdit({ op: 'deleteTrack', phase: s.key, track: s.track, steps: how === 'keep' ? 'keep' : 'all' }, null, 'deleted the ' + name + ' lane'); if (!res) return;
       state.obSel = { pid: p.id, kind: 'phase', key: state.obSel ? state.obSel.key : s.key };
       sayUndo('Deleted the ' + name + ' lane' + (!res.steps ? '' : how === 'keep' ? '; its steps moved up into the phase' : ' and its ' + res.steps + ' step' + (res.steps === 1 ? '' : 's')) + '.');
-      state.focus = '[data-act="ob-undo"]'; render();
+      state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
     },
     'ob-del-phase': function (id) {
       var p = currentProcess(); if (!p) return;
       var ph = PF.outline.parse(edText(p)).phases.filter(function (x) { return x.key === id; })[0], name = ph && ph.title || 'the phase';
       var res = builderEdit({ op: 'deletePhase', phase: id }, null, 'deleted ' + name); if (!res) return;
-      state.obSel = null; sayUndo('Deleted ' + name + (res.steps ? ' and its ' + res.steps + ' step' + (res.steps === 1 ? '' : 's') : '') + '.'); state.focus = '[data-act="ob-undo"]'; render();
+      state.obSel = null; sayUndo('Deleted ' + name + (res.steps ? ' and its ' + res.steps + ' step' + (res.steps === 1 ? '' : 's') : '') + '.'); state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
     },
     'ob-gate-remove': function (id) {
       var res = builderEdit({ op: 'removeGate', phase: id }, null, 'removed a gate'); if (!res) return;
@@ -1362,7 +1689,7 @@
     'ob-del': function (id) {
       var p = currentProcess(), st = p && PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === id; })[0];
       var res = builderEdit({ op: 'delete', step: id }, null, 'deleted the step “' + (st ? String(st.text).slice(0, 60) : '') + '”'); if (!res) return;
-      state.obSel = null; sayUndo('Deleted the step.'); state.focus = '[data-act="ob-undo"]'; render();
+      state.obSel = null; sayUndo('Deleted the step.'); state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
     },
     'ob-add': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', phase: id, track: b && b.dataset.track != null ? +b.dataset.track : -1 }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
     'ob-add-after': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', after: id }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
@@ -1379,25 +1706,17 @@
       var res = builderEdit({ op: 'add', to: to, text: val('ob-new-text'), type: val('ob-new-type') || 'confirm' }, 'ob-new-text'); if (!res) return;
       state.obAdd = null; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-text'; render();
     },
-    'ob-redo': function () {
-      var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.redo || !ed.redo.length || builderBlocked(p)) return;
-      if (ed.undoBase !== ed.base) { ed.redo = null; say('The draft changed in the folder since then, so there\'s nothing to redo.', 'warn'); render(); return; }
-      var r = ed.redo.pop(); (ed.undo = ed.undo || []).push({ text: edText(p), sel: JSON.parse(JSON.stringify(state.obSel || null)), add: JSON.parse(JSON.stringify(state.obAdd || null)), what: r.what, fresh: freshCopy(ed) });
-      ed.text = r.text; ed.fresh = r.fresh || null; state.obSel = r.sel; state.obAdd = r.add; state.obPlace = null; state.obAsk = null; state.obFlash = null; obClearErr(); state.planFormReset = true;
-      state.focus = selFocus(r.sel) || '[data-act="ob-redo"]'; say('Redone: ' + (r.what || 'the change') + '.', 'good'); render();
-    },
     'ob-commit': function (id, t) { if (t && t.id) builderField(t.id, t.value); },
-    'ob-undo': function () {
-      var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.undo || !ed.undo.length) return;
-      if (builderBlocked(p)) return;
-      if (ed.undoBase !== ed.base) { ed.undo = null; say('The draft changed in the folder since then, so there\'s nothing to undo.', 'warn'); render(); return; }
-      var u = ed.undo.pop(); (ed.redo = ed.redo || []).push({ text: edText(p), sel: JSON.parse(JSON.stringify(state.obSel || null)), add: JSON.parse(JSON.stringify(state.obAdd || null)), what: u.what, fresh: freshCopy(ed) }); ed.text = u.text; ed.fresh = u.fresh || null; state.obSel = u.sel; state.obAdd = u.add; state.obPlace = null; state.obAsk = null; state.obFlash = null; obClearErr(); state.planFormReset = true; state.focus = selFocus(u.sel) || (ed.undo.length ? '[data-act="ob-undo"]' : 'ed-h'); say(u.what ? 'Undone: ' + u.what + '.' : 'Undone.', 'good'); render();
-    },
+    /* ---------- Undo, Redo and History, the same on every editor (id: 'draft' or 'type') ---------- */
+    'tl-undo': function (id) { if (id === 'draft' || id === 'type') tlMove(id, false, 'button'); },
+    'tl-redo': function (id) { if (id === 'draft' || id === 'type') tlMove(id, true, 'button'); },
+    'hist-open': function (id, b) { if (id === 'draft' || id === 'type') openHistory(id, b && b.dataset && b.dataset.item); },
+    'hist-item': function (id) { if (!state.overlay || !state.overlay.hist) return; state.overlay.item = id || null; state.overlayFocus = '#hist-t'; render(); },
     'open-skill': function (id) { state.view = 'skill'; state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     'new-process': function () { state.view = 'new-process'; state.newProc = {}; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
-    'new-type': function () { partsSheetAway(); state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [{ k: V.nextRowKey(), name: '', label: '', kind: 'text' }], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
+    'new-type': function () { partsSheetAway(); state.view = 'types'; state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
     'copy-type': function (id) { var t = T.get(id); if (!t) return; state.view = 'types'; state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
     'edit-type': function (id) {
@@ -1409,28 +1728,87 @@
         var o = null; try { o = f ? JSON.parse(f.text) : null; } catch (e) { o = null; }
         var errs = o ? T.checkCustom(o) : ['it can\'t be read'];
         if (!o || errs.length) { say('step-types/' + id + '.json ' + (errs[0] || 'has a problem') + '. Fix the file, or ask your AI assistant to.', 'warn'); render(); return; }
-        state.view = 'types'; state.typeForm = typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
+        state.view = 'types'; state.typeForm = resumeTypeTl(typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)), id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
       }, function (e) { if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
-    'tf-add': function (id) { var d = state.typeForm && state.typeForm.def; if (!d) return; readTypeForm(); var row = { k: V.nextRowKey(), name: '', label: '', kind: 'text' }; (id === 'f' ? d.fields : d.record).push(row); state.focus = 'tf-' + id + '-' + row.k + '-name'; render(); },
+    'tf-add': function (id, b) {
+      var f = state.typeForm, d = f && f.def; if (!d) return; flushAdds(f);
+      var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice'];
+      var before = typeSnap(f), row = { k: V.nextRowKey(), name: '', label: '', kind: kinds.indexOf(kd) >= 0 ? kd : 'text' }; (id === 'f' ? d.fields : d.record).push(row);
+      f.open = id + ':' + row.k; (state.disc = state.disc || {})['tf-add-' + id] = false;
+      recordTypeForm(f, before, { kind: 'form', label: id === 'f' ? 'new field' : 'new evidence', items: [(id === 'f' ? 'field:' : 'evidence:') + row.k], selBefore: { focus: '[data-act="tf-add"][data-id="' + id + '"]' }, selAfter: { focus: '#tf-' + id + '-' + row.k + '-label' } });
+      state.focus = 'tf-' + id + '-' + row.k + '-label'; render();
+    },
     'tf-remove': function (id) {
       var d = state.typeForm && state.typeForm.def, parts = String(id).split(':'); if (!d) return;
-      readTypeForm();
+      flushAdds(state.typeForm);
       var list = parts[0] === 'f' ? d.fields : d.record, i = list.map(function (r) { return r.k; }).indexOf(parts[1]);
       if (i < 0) return;
+      var before = typeSnap(state.typeForm), gone = list[i], what = (parts[0] === 'f' ? 'field' : 'evidence');
+      if (state.typeForm.open === id) state.typeForm.open = null;
       list.splice(i, 1);
+      recordTypeForm(state.typeForm, before, { kind: 'form', label: what + ' removal', subject: gone.name || '', items: [what + ':' + gone.k], selBefore: { focus: '[data-act="tf-open"][data-id="' + parts[0] + ':' + gone.k + '"]' }, show: { before: [gone.name, gone.label, gone.kind].filter(Boolean).join(' · '), after: '' } });
+      say('Removed ' + what + (gone.name ? ' "' + gone.name + '"' : '') + '. Undo available.', 'good', { act: 'tl-undo', id: 'type', label: 'Undo' });
       /* Focus goes to the row that took its place, or the add button. */
       var next = list[i] || list[i - 1];
-      state.focus = next ? 'tf-' + parts[0] + '-' + next.k + '-name' : '[data-act="tf-add"][data-id="' + parts[0] + '"]';
+      if (state.disc) delete state.disc['tfm-' + id];
+      state.focus = next ? '[data-act="tf-open"][data-id="' + parts[0] + ':' + next.k + '"]' : '[data-disc="tf-add-' + parts[0] + '"] summary';
       render();
     },
-    'type-cancel': function () { state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
+    /* ---------- the step-type editor's own controls; every change to the type goes through typeChange, so it's undoable ---------- */
+    'type-done': function () {
+      var f = state.typeForm; if (!f) return; flushAdds(f);
+      if (typeFormChanged(f)) { f.leaving = true; state.focus = '[data-act="type-save"]'; render(); return; }
+      ACTIONS['type-cancel']();
+    },
+    /* On a phone the preview is a sheet over the form, so the place being edited stays where it was. */
+    'tf-preview': function () { state.tfPreview = !state.tfPreview; state.focus = state.tfPreview ? '.tf-prevclose' : '.tf-prevbtn'; render(); },
+    'type-stay': function () { var f = state.typeForm; if (f) f.leaving = false; state.focus = 'tf-h'; render(); },
+    /* Save from the leave prompt saves, then goes back to the list. */
+    'type-save': function () { var f = state.typeForm; if (f && f.leaving) f.closeAfterSave = true; readTypeForm(); saveType(); },
+    'tf-id-edit': function () { var f = state.typeForm; if (!f || f.existing) return; f.idEdit = true; state.focus = 'tf-id'; render(); },
+    'tf-open': function (id) {
+      var f = state.typeForm; if (!f) return; flushAdds(f);
+      f.open = f.open === id ? null : id;
+      var p = String(id).split(':');
+      state.focus = f.open ? 'tf-' + p[0] + '-' + p[1] + '-label' : '[data-act="tf-open"][data-id="' + cssEsc(id) + '"]'; render();
+    },
+    'tf-move': function (id, b) {
+      var up = b && b.dataset && b.dataset.dir === 'up', p = String(id).split(':');
+      typeChange('move', function (d) { var list = p[0] === 'f' ? d.fields : d.record, i = rowIndex(list, p[1]), j = i + (up ? -1 : 1); if (i < 0 || j < 0 || j >= list.length) return null; var r = list.splice(i, 1)[0]; list.splice(j, 0, r); return r.label || r.name; }, [rowItem(p)], tfMoveFocus(p, up));
+    },
+    'tf-opt-add': function (id) {
+      var f = state.typeForm; if (!f) return; readTypeForm();
+      var p = String(id).split(':'), box = 'tf-' + p[0] + '-' + p[1] + '-optadd', v = val(box).trim();
+      if (v && addOption(f, p, v) === 'dup') say('"' + v + '" is already an option.', 'warn');
+      state.clearInputs = box; state.focus = '#' + box; render();
+    },
+    'tf-opt-del': function (id) {
+      var p = String(id).split(':'), j = +p[2];
+      typeChange('option removal', function (d) { var r = rowOf(d, p); if (!r) return null; var o = String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (!(j >= 0 && j < o.length)) return null; var gone = o.splice(j, 1)[0]; r.options = o.join('\n'); return gone; }, [rowItem(p)], '#tf-' + p[0] + '-' + p[1] + '-optadd');
+    },
+    'tf-tag-add': function () {
+      var f = state.typeForm; if (!f) return; readTypeForm();
+      var v = cleanTag(val('tf-tagadd'));
+      if (v && addTag(f, v) === 'dup') say('#' + v + ' is already a tag.', 'warn');
+      state.clearInputs = 'tf-tagadd'; state.focus = '#tf-tagadd'; render();
+    },
+    'tf-tag-del': function (id) {
+      typeChange('tag removal', function (d) { var t = String(d.tags || '').split(',').map(function (x) { return x.trim().replace(/^#/, ''); }).filter(Boolean), i = t.indexOf(id); if (i < 0) return null; t.splice(i, 1); d.tags = t.join(', '); return id; }, ['type:tags'], '#tf-tagadd');
+    },
+    'type-cancel': function () {
+      var f = state.typeForm;
+      /* Closing without saving: unsaved changes are dropped, so they can't be undone over the file when it's opened again. */
+      if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseHash); }
+      state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
     'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { f.baseHash = f.conflict.theirsHash; f.conflict = null; saveType(); } },
     'type-take-theirs': function () {
       var f = state.typeForm; if (!f || !f.conflict || f.saving) return;
       var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; }
       if (!o || T.checkCustom(o).length) { say('Their version can\'t be used as a step type' + (f.conflict.theirs == null ? ' (the file was deleted)' : '') + '. Keep yours, or cancel.', 'warn'); render(); return; }
-      f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true; render();
+      f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true;
+      if (f.tl) TL.barrier(f.tl, 'You took their version here. Earlier changes can\'t be undone.');
+      render();
     },
     'open-run': function (id) { openRun(id); render(); },
     'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.view = 'start'; state.processId = p.process; state.planId = id; state.planning = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
@@ -1860,9 +2238,11 @@
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */
     if (e.target.id === 'draft-editor') {
       var p = currentProcess(); if (!p) return;
-      var ed = openEditor(p); ed.text = e.target.value; ed.undo = null; ed.redo = null; scheduleRender();
+      var ed = openEditor(p), next = e.target.value, prev = ed.text != null ? ed.text : ed.base;
+      if (!imeStep(e, 'draft-editor', prev)) { var was = ime ? true : false, from = imeBefore('draft-editor', prev); recordTyping(ed, from, next, e.inputType); if (from !== prev || was) TL.close(tlOf(ed)); }
+      ed.text = next; scheduleRender();
     }
-    if (/^tf-/.test(e.target.id || '') && state.typeForm) { readTypeForm(); scheduleRender(); }
+    if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, true); scheduleRender(); }
     /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
     if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title)$/.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
@@ -1871,6 +2251,21 @@
       if (was !== !!state.obPending) scheduleRender();
     }
     if (e.target.id === 'ob-part-q' || e.target.id === 'ob-part-q2') { state.obQ = String(e.target.value || '').slice(0, 60); render(); }
+  });
+  /* The browser's own Undo and Redo (the Edit menu, a context menu) in the draft editor and step-type form go to the timeline,
+     so there is one history, never two that disagree. Leaving the editor ends the typing unit. */
+  document.addEventListener('beforeinput', function (e) {
+    if ((e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') || composing) return;
+    var id = (e.target && e.target.id) || '', scope = id === 'draft-editor' ? 'draft' : /^tf-/.test(id) && !/add$/.test(id) && state.typeForm ? 'type' : null;
+    if (!scope) return;
+    e.preventDefault(); tlMove(scope, e.inputType === 'historyRedo', 'key');
+  });
+  document.addEventListener('focusout', function (e) {
+    var id = (e.target && e.target.id) || '', p, ed;
+    if (id === 'draft-editor' && (p = currentProcess()) && (ed = editorOf(p.id)) && ed.tl) TL.close(ed.tl);
+    if (/^tf-/.test(id) && state.typeForm && state.typeForm.tl) TL.close(state.typeForm.tl);
+    /* Leaving an Add box adds what it holds. */
+    if ((id === 'tf-tagadd' || /^tf-[fr]-k\d+-optadd$/.test(id)) && state.typeForm && flushAdds(state.typeForm)) render();
   });
   /* Folded groups and opened or closed details (a brief, a list of deviations) stay as the person left them across redraws. */
   document.addEventListener('toggle', function (e) {
@@ -1881,7 +2276,7 @@
   document.addEventListener('change', function (e) {
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
-    if (/^tf-/.test(e.target.id || '') && state.typeForm) { readTypeForm(); render(); }
+    if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
@@ -1919,13 +2314,43 @@
 
   document.addEventListener('keydown', function (e) {
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { state.pick = null; state.edit = null; render(); return; } if (state.fixForm) { ACTIONS['fix-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { state.pick = null; state.edit = null; render(); return; } if (state.fixForm) { ACTIONS['fix-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { state.view = 'run'; render(); } return; }
+    /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
+    var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
+    if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      /* Only controls on screen count: a hidden one (a narrow screen's other panel, a closed section) can't take focus. */
+      var fo = Array.prototype.slice.call(trap.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(function (el) { return !el.getClientRects || el.getClientRects().length > 0; });
+      if (fo.length) {
+        var fa = document.activeElement, inside = trap.contains(fa);
+        if (e.shiftKey && (!inside || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
+        else if (!e.shiftKey && (!inside || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
+      }
+      return;
+    }
     if (state.overlay && state.overlay.list && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { ACTIONS['lb-step'](e.key === 'ArrowLeft' ? '-1' : '1'); return; }
+    /* A comma ends a tag: it's added at once (a tag can't hold a comma). */
+    if (typing && e.key === ',' && t.id === 'tf-tagadd') { e.preventDefault(); ACTIONS['tf-tag-add'](); return; }
     if (typing && e.key === 'Enter' && t.dataset.enter) {
       e.preventDefault();
       var act = t.dataset.enter;
       if (act === 'save-edit') ACTIONS['save-edit'](); else if (act === 'block') ACTIONS.block(t.dataset.id, t); else if (ACTIONS[act]) ACTIONS[act](t.dataset.id, t);
       return;
+    }
+    /* Undo and Redo in the draft editor and the step-type form, also while typing: Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z or Ctrl+Y.
+       A builder box with typing not yet applied keeps the browser's own undo for that typing; once it matches what's
+       applied, the keys go to the timeline. Other boxes (the name at the top, searches) keep the browser's. */
+    var zk = String(e.key || '').toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (zk === 'z' || (zk === 'y' && e.ctrlKey && !e.metaKey && !e.shiftKey))) {
+      /* While an input method is composing, its own keys come first. */
+      if (composing || e.isComposing || e.keyCode === 229) return;
+      var zs = tlScope(); if (!zs) return;
+      var zid = (t && t.id) || '';
+      /* The step-type editor's Add-a-tag and Add-an-option boxes hold typing not yet applied, like the builder's boxes. */
+      /* Searches and filters (the parts search) aren't part of the draft: their typing is the browser's to undo. */
+      if (typing && (t.type === 'search' || /^ob-part-q/.test(zid))) return;
+      var pending = /^ob-/.test(zid) || /^tf-.*add$/.test(zid);
+      if (typing && !(zid === 'draft-editor' || (/^tf-/.test(zid) && !pending) || (pending && (t.tagName === 'SELECT' || t.value === (t.defaultValue || ''))))) return;
+      e.preventDefault(); tlMove(zs, zk === 'y' || e.shiftKey, 'key'); return;
     }
     /* The inspector's tabs: the arrow keys (Home, End) move between them. */
     if (t && t.dataset && t.dataset.act === 'ins-tab' && /^(Arrow(Left|Right)|Home|End)$/.test(e.key) && !e.altKey && !e.metaKey && !e.ctrlKey) {

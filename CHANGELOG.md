@@ -4,16 +4,21 @@
 
 ## 1.12.0 · Oct 18, 2026
 
-Build a checklist from parts.
+Build a checklist from parts, with Undo, Redo and History in every editor and a clearer step-type editor.
 
 ### New
 
 - **A parts box beside the builder** (Processes). Add phases, parallel lanes, gates and any type of step from a searchable parts box. Drag a part onto the checklist: only places it can go light up and the nearest says where it lands. Or choose a part, pick a place with the arrow keys, and press Enter. The new item is selected with its name ready to type over, and Undo takes it back. *Where:* A process page: Edit, then the Builder. On a phone, Add part.
 - **Edit lanes, gates and phases in the builder** (Processes). Parallel lanes show side by side. Select a lane to rename it, change who works it, or delete it, keeping its steps or deleting them with it. A phase's form can delete the phase or remove its gate. A step's kind is one choice: Step, Must do or Automation planned. A part you just added takes its ID from the name you give it, until you save the draft. *Where:* A process page: Edit, then select a lane or phase in the Builder.
+- **Undo, Redo and History in the checklist editor** (Checklists). Undo, Redo and History sit beside the Builder | Markdown switch, in both views, with one history for both. Undo names what it takes back, like Undo move, and says what it undid. Ctrl+Z or Cmd+Z undoes, Ctrl+Shift+Z, Cmd+Shift+Z or Ctrl+Y redoes, even while typing. Undo still works after a save; saving again is checked like any save. *Where:* A process page: Edit. A selected step or phase also has History of this step or phase.
+- **Undo, Redo and History in the step-type form** (Step types). The step-type form has the same Undo, Redo and History and the same keys. Removing a field or evidence and undoing puts it back where it was, with everything it had. Each row has its own History. *Where:* Step types: New step type, or Edit on a team type.
 
 ### Improved
 
-- **The draft editor is a page of its own** (Processes). Editing a draft fills the window: a header with Done, save state, Builder or Markdown, Undo and Redo, Checks and Save, then side-by-side panes that each scroll on their own. The inspector has Selected, Checks and Preview tabs, and Preview marks the selected step. Parts fold to a rail of icons. A refresh comes back to the editor, and the browser asks before leaving unsaved edits. *Where:* A process page: Edit.
+- **The draft editor is a page of its own** (Processes). Editing a draft fills the window: a header with Done, save state, Builder or Markdown, Undo, Redo and History, Checks and Save, then side-by-side panes that each scroll on their own. The inspector has Selected, Checks and Preview tabs, and Preview marks the selected step. Parts fold to a rail of icons. A refresh comes back to the editor, and the browser asks before leaving unsaved edits. *Where:* A process page: Edit.
+- **A clearer step-type editor** (Step types). A full page with Save, Undo and History at the top and a live preview of the type in a checklist and in a run. The ID comes from the label. Tags are chips, the icon is a grid, and each field is a card you open, reorder or remove. Save says what's missing and keeps you in the editor, and Done asks before you lose changes. *Where:* Step types: New step type, or Edit on a team type.
+- **Undo never puts older text over newer work** (Saving). When the draft changes in the folder, or you take their version, restore a version or discard your changes, History marks the spot and Undo stops there. Changes before it stay listed but can't be undone, so Undo never brings older text back over someone else's work.
+- **Checklist, Flight plan or Markdown in one switch** (Processes). The checklist panel has one switch: Checklist, Flight plan or Markdown. Markdown shows the version's source, read-only, with Copy. The choice stays while you move around. *Where:* A process page, the checklist panel.
 
 ## 1.11.1 · Oct 18, 2026
 
