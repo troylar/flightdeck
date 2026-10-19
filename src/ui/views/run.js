@@ -343,6 +343,7 @@
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
+  V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill;
   V.redline = redline; V.corrRow = corrRow; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
@@ -581,8 +582,75 @@
   }
   function followUps(ctx, r, rec) {
     if (!ctx.state.fuOpen) return '';
-    var fus = r.followUps || [];
-    return '<section class="rw-panel" id="rw-fu" aria-label="Follow-ups"><h2 class="rw-h2">Follow-ups</h2>' + (fus.length ? '<ul class="fulist">' + fus.map(function (f) { return '<li><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (f.owner ? ' <span class="small">· ' + esc(nameOf(ctx, f.owner)) + '</span>' : '') + '</span>' + (rec ? '<button class="mini" data-act="remove-followup" data-id="' + esc(f.id) + '">Remove</button>' : '') + '</li>'; }).join('') + '</ul>' : '<p class="small">None yet. ' + (rec ? 'Make one from a note on a step, or when you finish the run.' : 'The recorder adds them.') + '</p>') + '</section>';
+    var xs = PF.followups.forRun(fuList(ctx), r);
+    return '<section class="rw-panel" id="rw-fu" aria-label="Follow-ups"><h2 class="rw-h2">Follow-ups</h2>' + (xs.length ? '<ul class="fulist">' + xs.map(function (x) { return fuRow(ctx, x, { remove: rec }); }).join('') + '</ul>' : '<p class="small">None yet. ' + (rec ? 'Make one from a note on a step, or when you finish the run.' : 'The recorder adds them.') + '</p>') + '</section>';
+  }
+  /* ---------- What became of follow-ups (PF.followups) ---------- */
+  var FU_PILL = { open: 'open', done: 'passed', ticket: 'waived', moved: 'waived', wont: 'locked' };
+  var FU_FORM = { done: 'Done', ticket: 'Moved to a ticket', moved: 'Moved to another run', wont: 'Won\'t do' };
+  /* Every follow-up with where it stands: from the app (worked out once per redraw) or here. */
+  function fuList(ctx) { return ctx.followUps ? ctx.followUps() : PF.followups.list(ctx.data.runs, ctx.data.fuDecisions || []); }
+  function fuPill(x) { return '<span class="pill ' + (x.tie ? 'review' : FU_PILL[x.status] || 'open') + '">' + esc(x.label) + '</span>'; }
+  /* What became of it, with who and when; links stay http(s), runs and plans open in the app. */
+  function fuDecided(ctx, x) {
+    var d = x.decision;
+    if (x.tie) return '<div class="small fu-dec">Two people decided at once. Decide again.</div>';
+    if (!d) return '';
+    var link = d.link ? '<a href="' + esc(U.safeUrl(d.link)) + '" target="_blank" rel="noopener noreferrer">' + esc(d.link) + '</a>' : '', what;
+    if (d.status === 'open') what = 'Reopened';
+    else if (d.status === 'done') what = 'Done' + (d.note ? ': ' + esc(d.note) : '') + (link ? ' · ' + link : '');
+    else if (d.status === 'ticket') what = 'Moved to ' + (d.ticket ? '<span class="cat">' + esc(d.ticket) + '</span>' : link);
+    else if (d.status === 'moved') {
+      var to = '';
+      if (d.to && d.to.run) { var tr = ctx.findRun ? ctx.findRun(d.to.run) : null; to = tr ? '<button class="linkish" data-act="open-run" data-id="' + esc(d.to.run) + '">' + esc(tr.title) + '</button>' : esc(d.to.run); }
+      else if (d.to && d.to.plan) { var pl = (ctx.data.plans || []).filter(function (q) { return q.id === d.to.plan; })[0]; to = pl ? '<button class="linkish" data-act="review-plan" data-id="' + esc(pl.id) + '">' + esc(pl.title) + '</button> (planned)' : 'a planned run'; }
+      what = 'Moved to ' + (to || link) + (to && link ? ' · ' + link : '');
+    } else what = 'Won\'t do: ' + esc(d.reason);
+    return '<div class="small fu-dec">' + what + ' · ' + esc(nameOf(ctx, d.by)) + ' · ' + esc(U.day(d.at)) + '</div>';
+  }
+  /* One follow-up: what it is, where it stands, and what anyone on the team can say became of it. opts: run (link to its run),
+     age (how long it's been open), remove (the recorder's Remove). */
+  function fuRow(ctx, x, opts) {
+    opts = opts || {};
+    var st = ctx.state, f = x.f, me = st.me, pick = st.fuPick && st.fuPick.key === x.key ? st.fuPick : null, days = PF.followups.ageDays(x, ctx.now());
+    var meta = [];
+    if (x.owner) meta.push(esc(nameOf(ctx, x.owner)));
+    if (opts.run) meta.push('<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
+    if (opts.age && x.status === 'open') meta.push(days === 0 ? 'added today' : 'open ' + days + ' day' + (days === 1 ? '' : 's'));
+    var h = '<li class="fu" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + fuPill(x) +
+      (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + fuDecided(ctx, x);
+    var acts = '';
+    if (opts.actions !== false && me && x.decidable) {
+      if (x.status === 'open') acts = ['done', 'ticket', 'moved', 'wont'].map(function (k) {
+        var on = !!pick && pick.status === k;
+        return '<button class="mini" data-act="fu-pick" data-id="' + esc(x.key) + '" data-status="' + k + '" aria-expanded="' + on + '"' + (on ? ' aria-controls="fud-form"' : '') + '>' + FU_FORM[k] + '</button>';
+      }).join('');
+      if (x.status !== 'open' || x.tie) acts += '<button class="mini" data-act="fu-reopen" data-id="' + esc(x.key) + '"' + (st.fuSaving === x.key ? ' disabled' : '') + '>Reopen</button>';
+    }
+    if (opts.remove) acts += '<button class="mini" data-act="remove-followup" data-id="' + esc(f.id) + '" aria-label="Remove follow-up: ' + esc(f.text) + '">Remove</button>';
+    if (acts) h += '<div class="row fu-acts" role="group" aria-label="' + esc('What became of it: ' + f.text) + '">' + acts + '</div>';
+    if (pick && opts.actions !== false) h += fuForm(ctx, x, pick.status);
+    return h + '</li>';
+  }
+  /* The form for one decision. Labels above boxes, errors next to their box. */
+  function fuForm(ctx, x, status) {
+    var st = ctx.state, saving = st.fuSaving === x.key;
+    var box = function (id, label, attrs, hint) {
+      var bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
+      return '<label class="field" for="' + id + '">' + label + '<input id="' + id + '" ' + attrs + (bad ? ' aria-invalid="true"' : '') + (desc ? ' aria-describedby="' + desc + '"' : '') + ' data-enter="fu-save" data-id="' + esc(x.key) + '"></label>' + (hint ? '<span class="small" id="' + id + '-hint">' + hint + '</span>' : '') + ferr(st, id);
+    };
+    var h = '<div class="fu-form" id="fud-form" role="group" aria-labelledby="fud-h"><p class="fu-form-h" id="fud-h"><b>' + FU_FORM[status] + '</b><span class="sr">: ' + esc(x.text) + '</span></p>';
+    if (status === 'done') h += box('fud-link', 'Link (optional)', 'type="url" maxlength="500" placeholder="https://"', 'Where the work is: a merged pull request, a page, a message.') + box('fud-note', 'Note (optional)', 'maxlength="300"');
+    else if (status === 'ticket') h += box('fud-ticket', 'Ticket key or link', 'maxlength="500" placeholder="ABC-123" autocomplete="off"');
+    else if (status === 'moved') {
+      var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && /^[\w-]{1,100}$/.test(p.id || ''); });
+      var bad = st.fieldErr && st.fieldErr.id === 'fud-to';
+      h += '<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to"' + (bad ? ' aria-invalid="true" aria-describedby="ferr-fud-to"' : '') + '><option value="">None: I\'ll paste a link</option>' +
+        (runs.length ? '<optgroup label="Running">' + runs.map(function (r) { return '<option value="' + esc(r.process + '/' + r.id) + '">' + esc(r.title) + '</option>'; }).join('') + '</optgroup>' : '') +
+        (plans.length ? '<optgroup label="Planned">' + plans.map(function (p) { return '<option value="plan:' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('') + '</optgroup>' : '') + '</select></label>' + ferr(st, 'fud-to') +
+        box('fud-link', 'Or a link (optional)', 'type="url" maxlength="500" placeholder="https://"');
+    } else if (status === 'wont') h += box('fud-reason', 'Why won\'t it be done?', 'maxlength="300"', 'Everyone who opens the run sees this.');
+    return h + '<div class="row"><button class="btn primary" data-act="fu-save" data-id="' + esc(x.key) + '"' + (saving ? ' disabled' : '') + '>' + (saving ? 'Saving…' : 'Save') + '</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
   }
   /* Steps outside any track first, then the phase's tracks side by side: parallel work, all finished before the gate. */
   function stepsHtml(ctx, r, p, row) {

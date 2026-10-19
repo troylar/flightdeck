@@ -726,7 +726,7 @@ PF.run = (function () {
   function describe(o) { return Object.keys(o || {}).map(function (k) { return k + ' ' + (o[k] || '(not set)'); }).join(', '); }
 
   /* Plain text for a Jira comment. Leaves out notes' attachments and file paths. */
-  function receipt(r, map, nameOf, now, notes, statusOf) {
+  function receipt(r, map, nameOf, now, notes, statusOf, fuStatusOf) {
     var h = headline(r, map), lines = [];
     lines.push('Flightdeck receipt: ' + r.title);
     lines.push('Process: ' + map.meta.title + ' (v' + r.version + ')');
@@ -748,8 +748,9 @@ PF.run = (function () {
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');
     });
     if ((r.pauses || []).length) { lines.push('Pauses'); r.pauses.forEach(function (p) { lines.push('  ' + U.hm(p.from) + '-' + U.hm(p.to) + ' ' + nameOf(p.by) + ': ' + p.reason); }); lines.push(''); }
+    /* Follow-ups, with what became of each when the caller knows the decisions (fuStatusOf). */
     var fus = r.followUps || [];
-    if (fus.length) { lines.push('Follow-ups'); fus.forEach(function (f) { lines.push('  - ' + f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : '')); }); lines.push(''); }
+    if (fus.length) { lines.push('Follow-ups'); fus.forEach(function (f) { lines.push('  - ' + f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : '') + (fuStatusOf ? ' · ' + fuStatusOf(f) : '')); }); lines.push(''); }
     /* Corrections, with where each stands (the caller knows the decisions; a run on its own says Open or One-off). */
     var cor = corrections(r, map, notes);
     if (cor.length) {

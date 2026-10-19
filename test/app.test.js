@@ -3823,4 +3823,35 @@ rule('App: Getting started never counts an answer from another team folder', asy
   assert.ok(/Getting started · 2 of 5/.test(app.html()), 'folder B: nobody has answered here');
 });
 
+
+rule('App: anyone says what became of a follow-up in a file of its own; Won\'t do needs a reason, Home drops it, Reopen brings it back, run.json never changes', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  assert.ok(/Your follow-ups · 1/.test(app.html()) && /Add a cache warm-up to the deploy job/.test(app.html()), 'Morgan\'s open follow-up is on Home');
+  const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1], runKey = key.split('/').slice(0, 2).join('/');
+  const runFile = 'runs/' + runKey + '/run.json', runText = app.fs.files[runFile].t;
+  const mine = () => app.files('followups/release/').filter(p => !/example-session/.test(p)).sort();
+  app.click('fu-pick', key, { status: 'wont' }); await app.tick();
+  assert.ok(/id="fud-reason"/.test(app.html()) && /aria-expanded="true" aria-controls="fud-form"/.test(app.html()), 'the form opens under its button');
+  app.click('fu-save', key); await app.tick(20);
+  assert.ok(/id="ferr-fud-reason" role="alert">Why won&#39;t it be done\? Say why\./.test(app.html()), 'a reason is required');
+  assert.strictEqual(mine().length, 0, 'nothing written');
+  app.set('fud-reason', 'The new cache warms itself'); app.click('fu-save', key); await app.tick(60);
+  assert.strictEqual(mine().length, 1);
+  const d = JSON.parse(app.fs.files[mine()[0]].t);
+  assert.deepStrictEqual([d.kind, d.status, d.reason, d.by, d.rev, d.seen], ['followup-decision', 'wont', 'The new cache warms itself', 'person-morgan', 1, null]);
+  assert.ok(/^followups\/release\/[\w-]+\.[\w-]+\.[\w-]+\.1\.json$/.test(mine()[0]));
+  assert.ok(!/Your follow-ups/.test(app.html()) && /Marked won&#39;t do|Marked won't do/.test(app.html() + app.live()), 'it drops off Home');
+  app.click('nav', 'followups'); await app.tick(20);
+  app.click('fu-filter', 'all'); await app.tick();
+  assert.ok(/<span class="pill locked">Won&#39;t do<\/span>/.test(app.html()) && /Won't do: The new cache warms itself · Morgan/.test(app.html()), 'all of them, with what became of it');
+  app.click('fu-reopen', key); await app.tick(60);
+  assert.strictEqual(mine().length, 2, 'one new file per decision');
+  const d2 = JSON.parse(app.fs.files[mine().filter(p => /\.2\.json$/.test(p))[0]].t);
+  assert.deepStrictEqual([d2.status, d2.rev, d2.seen], ['open', 2, mine()[0].split('/').pop()]);
+  app.click('nav', 'home'); await app.tick(20);
+  assert.ok(/Your follow-ups · 1/.test(app.html()), 'reopened, it\'s back on Home');
+  assert.strictEqual(app.fs.files[runFile].t, runText, 'run.json is unchanged');
+});
+
 run();

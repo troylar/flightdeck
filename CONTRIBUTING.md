@@ -12,7 +12,7 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 
 | Folder | What's there | Rules |
 |---|---|---|
-| `src/core/` | Pure logic: checklists, the builder's edits (`outline.js`), publishing, runs, gates, corrections, skills, Folder health (`health.js`) and the connection check (`connection.js`) | No DOM, no files. Tested in `test/rules.test.js` and `test/outline.test.js`. |
+| `src/core/` | Pure logic: checklists, the builder's edits (`outline.js`), publishing, runs, gates, corrections, follow-up decisions (`followups.js`), skills, Folder health (`health.js`) and the connection check (`connection.js`) | No DOM, no files. Tested in `test/rules.test.js` and `test/outline.test.js`. |
 | `src/storage/` | The team folder: reading, saving, conflict checks, caching | Every file has one writer. Tested in `test/folder.test.js`, and against simulated OneDrive sync between two computers in `test/sync.test.js`. |
 | `src/ui/` | Screens (`views/*.js`), wiring (`app.js`), the example history (`examples.js`), icons | Views return HTML strings. Everything from files goes through `esc()` or the escape-first Markdown. |
 | `src/page.html` | Styles and the page shell | Colors are tokens with light and dark values. No external resources. |

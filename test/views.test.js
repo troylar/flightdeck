@@ -1570,4 +1570,96 @@ rule('Setup and Settings: people with the same name are told apart in every pick
   assert.ok(/>Avery Lee \(person-avery-2\)<\/option>/.test(V.top(s2.ctx)), 'the top bar\'s You are');
 });
 
+
+/* ---------- What became of follow-ups (1.16) ---------- */
+function fuSetup(stateExtra) {
+  const env = setup(r => {
+    R.addFollowUp(r, { id: 'fu1', text: 'Fix <img src=x onerror=alert(1)> on the jump box', owner: 'person-casey', ticket: 'ABC-<b>1</b>' }, 'person-casey', '2026-08-01T10:00:00.000Z');
+    R.addFollowUp(r, { id: 'fu2', text: 'Ask for a window', owner: 'person-blake' }, 'person-casey', NOW);
+    R.addFollowUp(r, { id: 'fu3', text: 'Rotate the password', owner: 'person-casey' }, 'person-casey', NOW);
+  }, stateExtra);
+  env.ctx.data.fuDecisions = [];
+  env.ctx.findRun = k => k === 'release/run1' ? env.r : null;
+  return env;
+}
+const fuDecide = (ctx, id, by, status, o, writer) => {
+  const F = PF.followups, x = F.list(ctx.data.runs, ctx.data.fuDecisions).filter(y => y.id === id)[0];
+  const d = F.decision(x, by, status, o, NOW, x.decision);
+  ctx.data.fuDecisions.push(Object.assign(JSON.parse(JSON.stringify(d)), { _file: F.fileName(d, writer || 'w1') }));
+};
+
+rule('Home lists your open follow-ups however old, drops resolved ones, and escapes what they say', () => {
+  const { ctx, r, state } = fuSetup({ view: 'home' });
+  r.ended = { at: '2026-08-01T11:00:00.000Z', outcome: 'Completed', by: 'person-casey' };
+  let html = V.home(ctx);
+  assert.ok(/Your follow-ups · 2/.test(html), 'both of Casey\'s, the one from August included');
+  assert.ok(/open 77 days/.test(html), 'with how long it has been open');
+  assert.ok(!/<img src=x/.test(html) && /Fix &lt;img src=x onerror=alert\(1\)&gt;/.test(html) && /ABC-&lt;b&gt;1&lt;\/b&gt;/.test(html), 'escaped');
+  assert.ok(!/Ask for a window/.test(html), 'only yours');
+  assert.ok(/All open follow-ups · 3/.test(html));
+  fuDecide(ctx, 'fu1', 'person-blake', 'wont', { reason: 'The <script> is gone' });
+  html = V.home(ctx);
+  assert.ok(/Your follow-ups · 1/.test(html) && !/jump box/.test(html), 'a resolved one drops off');
+  state.me = null;
+  assert.ok(!/Your follow-ups/.test(V.home(ctx)));
+});
+
+rule('Follow-up actions are named for their follow-up, and the open form labels its boxes and ties errors to them', () => {
+  const { ctx, state } = fuSetup({ view: 'followups' });
+  let html = V.followUpsPage(ctx);
+  assert.ok(/<h1 id="page-h" tabindex="-1">Follow-ups<\/h1>/.test(html) && /Open · 3/.test(html));
+  assert.ok(/role="group" aria-label="What became of it: Ask for a window"/.test(html), 'the actions are a named group');
+  ['done', 'ticket', 'moved', 'wont'].forEach(k => assert.ok(new RegExp('data-act="fu-pick" data-id="release/run1/fu2" data-status="' + k + '" aria-expanded="false"').test(html), k));
+  assert.ok(/data-act="open-run" data-id="release\/run1">Release<\/button>/.test(html), 'each links to its run');
+  state.fuPick = { key: 'release/run1/fu2', status: 'wont' }; state.fieldErr = { id: 'fud-reason', msg: 'Why won\'t it be done? Say why.' };
+  html = V.followUpsPage(ctx);
+  assert.ok(/data-status="wont" aria-expanded="true" aria-controls="fud-form"/.test(html));
+  assert.ok(/<div class="fu-form" id="fud-form" role="group" aria-labelledby="fud-h">/.test(html));
+  assert.ok(/<label class="field" for="fud-reason">Why won't it be done\?<input id="fud-reason" maxlength="300" aria-invalid="true" aria-describedby="fud-reason-hint ferr-fud-reason"/.test(html), 'labeled, invalid, described by its hint and its error');
+  assert.ok(/<p class="ferr" id="ferr-fud-reason" role="alert">Why won&#39;t it be done\? Say why\.<\/p>/.test(html));
+  state.fuPick = { key: 'release/run1/fu2', status: 'moved' }; state.fieldErr = null;
+  html = V.followUpsPage(ctx);
+  assert.ok(/<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to">/.test(html) && /for="fud-link">Or a link \(optional\)/.test(html));
+  assert.ok(!/<option value="release\/run1">/.test(html), 'never the run it came from');
+  state.me = null;
+  assert.ok(!/data-act="fu-pick"/.test(V.followUpsPage(ctx)) && /Choose who you are/.test(V.followUpsPage(ctx)), 'deciding needs to know who you are');
+});
+
+rule('Follow-ups page: Open, Yours and All; a resolved one shows what became of it with safe links, and Reopen', () => {
+  const { ctx, state } = fuSetup({ view: 'followups' });
+  fuDecide(ctx, 'fu2', 'person-blake', 'done', { link: 'https://example.com/pr/9', note: 'Merged <b>it</b>' });
+  fuDecide(ctx, 'fu3', 'person-blake', 'moved', { to: 'release/run1x', link: '' }, 'w2');
+  let html = V.followUpsPage(ctx);
+  assert.ok(/Open · 1/.test(html) && !/Ask for a window/.test(html));
+  state.fuFilter = 'mine';
+  assert.ok(/Open and yours · 1/.test(V.followUpsPage(ctx)));
+  state.fuFilter = 'all';
+  html = V.followUpsPage(ctx);
+  assert.ok(/Every follow-up · 3/.test(html));
+  assert.ok(/<span class="pill passed">Done<\/span>/.test(html) && /Done: Merged &lt;b&gt;it&lt;\/b&gt; · <a href="https:\/\/example.com\/pr\/9" target="_blank" rel="noopener noreferrer">/.test(html));
+  assert.ok(/<span class="pill waived">Moved to another run<\/span>/.test(html) && /Moved to release\/run1x/.test(html), 'a run not in the folder is named, not linked');
+  assert.ok(/data-act="fu-reopen" data-id="release\/run1\/fu2">Reopen<\/button>/.test(html));
+  // Two decisions at the same rev: Needs review, still open, with every action.
+  fuDecide(ctx, 'fu1', 'person-blake', 'done', {}, 'wa');
+  ctx.data.fuDecisions.push(Object.assign({}, ctx.data.fuDecisions[ctx.data.fuDecisions.length - 1], { status: 'wont', reason: 'No', _file: 'run1.fu1.wb.1.json' }));
+  state.fuFilter = 'open';
+  html = V.followUpsPage(ctx);
+  assert.ok(/<span class="pill review">Needs review<\/span>/.test(html) && /Two people decided at once\. Decide again\./.test(html));
+  assert.ok(/data-id="release\/run1\/fu1" data-status="done"/.test(html) && /data-act="fu-reopen" data-id="release\/run1\/fu1"/.test(html));
+});
+
+rule('The run\'s Follow-ups, the finish page and the receipt show each follow-up\'s status', () => {
+  const { ctx, state } = fuSetup();
+  fuDecide(ctx, 'fu2', 'person-blake', 'ticket', { ticket: 'ABC-77' });
+  state.fuOpen = true;
+  let html = V.run(ctx);
+  assert.ok(/id="rw-fu"/.test(html) && /<span class="pill waived">Moved to a ticket<\/span>/.test(html) && /Moved to <span class="cat">ABC-77<\/span>/.test(html));
+  assert.ok(/data-act="remove-followup" data-id="fu1" aria-label="Remove follow-up: Fix &lt;img/.test(html), 'the recorder can still remove one');
+  state.view = 'finish';
+  html = V.finish(ctx);
+  assert.ok(/<span class="pill open">Open<\/span>/.test(html) && /Moved to a ticket/.test(html) && !/data-act="fu-pick"/.test(html), 'statuses, no deciding while finishing');
+  html = V.receipt(ctx);
+  assert.ok(/<span class="pill waived">Moved to a ticket<\/span>/.test(html) && /Ask for a window \([^)]+\) · Moved to ABC-77/.test(html), 'card and text');
+});
+
 run();

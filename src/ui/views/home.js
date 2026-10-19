@@ -74,17 +74,13 @@
     if (V.setupHome) h += V.setupHome(ctx);
     if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
     h += acksPanel(ctx);
+    h += myFollowUps(ctx);
     var running = d.runs.filter(function (r) { return r.state === 'running'; });
     h += '<section class="panel" aria-labelledby="go-h"><h2 id="go-h">At a glance</h2><div class="glance">' +
       '<button class="tile" data-act="nav" data-id="runs"><span class="big">' + running.length + '</span><span>running</span></button>' +
       '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + ctx.processes().length + '</span><span>processes</span></button>' +
       '<button class="tile" data-act="nav" data-id="skills"><span class="big">' + ctx.processes().reduce(function (n, p) { return n + p.skills.length; }, 0) + '</span><span>skills</span></button>' +
       '<button class="tile" data-act="nav" data-id="types"><span class="big">' + (T.LIST.length + Object.keys((d.stepTypes || {}).types || {}).length) + '</span><span>step types</span></button></div></section>';
-    var since = Date.now() - 30 * 86400000, fus = [];
-    d.runs.forEach(function (r) { if (r.ended && new Date(r.ended.at) > since) (r.followUps || []).forEach(function (f) { fus.push({ f: f, r: r }); }); });
-    if (fus.length) h += '<section class="panel"><h2>Follow-ups from recent runs</h2><ul class="fulist">' + fus.map(function (x) {
-      return '<li><span>' + esc(x.f.text) + (x.f.ticket ? ' <span class="cat">' + esc(x.f.ticket) + '</span>' : '') + '</span><span class="small">' + (x.f.owner ? esc(nameOf(ctx, x.f.owner)) + ' · ' : '') + esc(x.r.title) + '</span></li>';
-    }).join('') + '</ul></section>';
     return h;
   }
 
@@ -107,13 +103,37 @@
     }).join('') + '</ul></section>';
   }
 
+  /* Open follow-ups this person owns, however old; resolved ones drop off. Like acknowledgments, never counted in Needs you. */
+  function myFollowUps(ctx) {
+    var me = ctx.state.me, all = V.fuList(ctx), mine = PF.followups.mine(all, me), open = all.filter(PF.followups.isOpen).length;
+    if (!mine.length) return open ? '<p class="small fu-all"><button class="linkish" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></p>' : '';
+    return '<section class="panel" aria-labelledby="fu-home-h"><div class="row between"><h2 id="fu-home-h">Your follow-ups · ' + mine.length + '</h2><button class="mini" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></div>' +
+      '<ul class="fulist">' + mine.map(function (x) { return V.fuRow(ctx, x, { run: true, age: true }); }).join('') + '</ul></section>';
+  }
+
+  /* ---------- Runs › Follow-ups: every follow-up across runs, and what became of it ---------- */
+  function followUpsPage(ctx) {
+    var st = ctx.state, me = st.me, all = V.fuList(ctx), F = PF.followups, filter = st.fuFilter === 'mine' || st.fuFilter === 'all' ? st.fuFilter : 'open';
+    var open = all.filter(F.isOpen), mine = F.mine(all, me);
+    /* Oldest open first: what's waited longest is what most needs a decision. Everything else newest first. */
+    var shown = filter === 'all' ? all.slice().reverse() : filter === 'mine' ? mine : open;
+    var h = notices(ctx) + '<nav class="small fu-crumbs" aria-label="Breadcrumb"><button class="linkish" data-act="nav" data-id="runs">Runs</button> › Follow-ups</nav>' +
+      pageHead('Runs', 'Follow-ups', 'Work runs turned up that outlives them. Anyone on the team can say what became of one: done, moved to a ticket or another run, or won\'t do.', '', 'page-h');
+    h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 id="fu-list-h" tabindex="-1" style="margin:0">' + (filter === 'all' ? 'Every follow-up · ' + all.length : filter === 'mine' ? 'Open and yours · ' + mine.length : 'Open · ' + open.length) + '</h2>' +
+      '<div class="filter" role="group" aria-label="Show follow-ups">' + [['open', 'Open'], ['mine', 'Yours'], ['all', 'All']].map(function (f) { return '<button class="chipbtn" data-act="fu-filter" data-id="' + f[0] + '" aria-pressed="' + (filter === f[0]) + '">' + f[1] + '</button>'; }).join('') + '</div></div>';
+    if (!me && shown.length) h += '<p class="small">Choose who you are at the top right to say what became of a follow-up.</p>';
+    h += shown.length ? '<ul class="fulist">' + shown.map(function (x) { return V.fuRow(ctx, x, { run: true, age: true }); }).join('') + '</ul>'
+      : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>';
+    return h + '</section>';
+  }
+
   /* ---------- Runs: everything running, planned and finished ---------- */
   function runs(ctx) {
     var st = ctx.state, d = ctx.data;
     var running = d.runs.filter(function (r) { return r.state === 'running' && (st.filter === 'all' || (!!st.me && (r.recorder.person === st.me || Object.keys(r.roles).some(function (k) { return r.roles[k] === st.me; })))); });
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
-    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process. To start one, pick its process.', '<button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
+    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process. To start one, pick its process.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() + '<button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
     /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
     var bad = (d.unreadable || []).filter(function (u) { return /^runs\//.test(u.path); });
     if (bad.length) h += '<div class="notice bad" role="alert"><span><b>' + (bad.length === 1 ? 'A run file can\'t be read' : bad.length + ' run files can\'t be read') + '.</b> ' + bad.slice(0, 3).map(function (u) { return '<code>' + esc(u.path) + '</code> ' + esc(u.why); }).join('; ') + (bad.length > 3 ? '; and ' + (bad.length - 3) + ' more' : '') + '. ' + (bad.some(function (u) { return ctx.findRun(u.key); }) ? 'What was read before is still shown. ' : '') + 'It may still be arriving.</span><span class="row"><button class="mini" data-act="health">Folder health</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
@@ -177,5 +197,5 @@
     return h;
   }
 
-  V.planWhen = whenOf; V.home = home; V.runs = runs; V.processesPage = processesPage; V.skillsPage = skillsPage; V.pageHead = pageHead;
+  V.planWhen = whenOf; V.home = home; V.runs = runs; V.followUpsPage = followUpsPage; V.processesPage = processesPage; V.skillsPage = skillsPage; V.pageHead = pageHead;
 })();
