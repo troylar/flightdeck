@@ -454,6 +454,9 @@ PF.repo = (function () {
             .then(function () { e.keptAs = keep; throw e; }, function () { throw e; });
         }
       }
+      /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
+         never written back by an ordinary save, only by an explicit restore. A run never saved yet is created here. */
+      if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
       var copy = stripMeta(run); copy.rev = (run.rev || 0) + 1; copy.savedAt = new Date().toISOString(); copy.savedBy = session;
       /* Every save is first written to its own uniquely named candidate file, and run.json lists the saves it includes.
          Where windows can't take turns (two browsers, two computers, no Web Locks), a save that another save replaced is

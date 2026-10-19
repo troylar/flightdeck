@@ -10,7 +10,7 @@ PF.health = (function () {
   /* Sections of docs/recovery.md (and the in-app view), by their anchors. */
   var HELP = { conflicts: 'a-run-has-conflict-copies', copies: 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', access: 'flightdeck-lost-access-to-the-folder',
     syncing: 'onedrive-isnt-syncing', backup: 'restoring-from-a-backup', left: 'someone-left-the-team', newer: 'a-newer-flightdeck-wrote-files',
-    unreadable: 'a-file-cant-be-read', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name' };
+    unreadable: 'a-file-cant-be-read', gone: 'a-runs-file-is-gone', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name' };
   var ORDER = { stop: 0, warn: 1, info: 2 };
 
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
@@ -85,14 +85,34 @@ PF.health = (function () {
     }
 
     /* ---- conflict copies and OneDrive copies ---- */
-    var conflicted = runs.filter(function (r) { return r._conflicts && r._conflicts.length; });
+    var unreadKeys = Object.create(null);
+    (d.unreadable || []).forEach(function (u) { if (u.key) unreadKeys[u.key] = true; });
+    /* A run kept from an earlier read whose file can't be read now: its copies are found by name below, not from that read. */
+    var conflicted = runs.filter(function (r) { return r._conflicts && r._conflicts.length && !(scan && unreadKeys[r.process + '/' + r.id]); });
     conflicted.forEach(function (r) { add({ id: 'conflicts:' + r.process + '/' + r.id, severity: 'stop', area: 'Runs', title: '"' + r.title + '" has ' + plural(r._conflicts.length, 'other version'), detail: 'Two windows saved it without seeing each other. Compare the copies and keep the right one; nothing is merged for you.', paths: r._conflicts.map(function (n) { return 'runs/' + r.process + '/' + r.id + '/' + n; }), action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Compare copies' }, help: HELP.conflicts }); });
     /* Conflict copies in a run folder whose run.json is missing or couldn't be read: no run page lists them, so they're
        found by name. */
-    var orphans = Object.create(null), loadedRuns = Object.create(null);
-    runs.forEach(function (r) { loadedRuns[r.process + '/' + r.id] = true; });
-    if (scan) scan.list.forEach(function (f) { var m = /^runs\/([^/]+\/[^/]+)\/([^/]+)$/.exec(f.p); if (m && !loadedRuns[m[1]] && m[2] !== 'run.json' && /^run.*\.json$/i.test(m[2])) (orphans[m[1]] = orphans[m[1]] || []).push(f.p); });
-    Object.keys(orphans).sort().forEach(function (k) { add({ id: 'orphans:' + k, severity: 'stop', area: 'Runs', title: plural(orphans[k].length, 'copy', 'copies') + ' of a run that didn\'t load', detail: 'runs/' + k + ' has other versions of a run, but its run.json is missing or can\'t be read, so no run page shows them. Wait for OneDrive, or restore run.json from a backup; then compare the copies in the run.', paths: orphans[k], action: help(HELP.conflicts), help: HELP.conflicts }); });
+    var orphans = Object.create(null), hasRun = Object.create(null);
+    if (scan) {
+      scan.list.forEach(function (f) { var m = /^runs\/([^/]+\/[^/]+)\/run\.json$/.exec(f.p); if (m) hasRun[m[1]] = true; });
+      scan.list.forEach(function (f) {
+        var m = /^runs\/([^/]+\/[^/]+)\/([^/]+)$/.exec(f.p);
+        if (!m || m[2] === 'run.json' || (hasRun[m[1]] && !unreadKeys[m[1]])) return;
+        var kind = /^candidate-.+\.json$/.test(m[2]) ? 'saved' : /^run.*\.json$/i.test(m[2]) ? 'copy' : '';
+        if (kind) (orphans[m[1]] = orphans[m[1]] || { copy: [], saved: [] })[kind].push(f.p);
+      });
+    }
+    Object.keys(orphans).sort().forEach(function (k) {
+      var o = orphans[k], why = hasRun[k] ? 'can\'t be read' : 'is missing';
+      add({ id: 'orphans:' + k, severity: 'stop', area: 'Runs', title: o.copy.length ? plural(o.copy.length, 'copy', 'copies') + ' of a run whose run.json ' + why : 'A saved copy of a run whose run.json ' + why,
+        detail: 'runs/' + k + '/run.json ' + why + ', so no run page shows ' + (o.copy.length ? 'its other versions' : 'it') + '.' + (o.saved.length ? ' ' + plural(o.saved.length, 'save receipt') + ' (candidate-…json) hold' + (o.saved.length === 1 ? 's' : '') + ' the run as of a save.' : '') + ' Wait for OneDrive; if run.json doesn\'t come back, bring it back from one of these or a backup.',
+        paths: o.copy.concat(o.saved), action: help(HELP.gone), help: HELP.gone });
+    });
+    /* Runs this window holds whose file is gone from the folder (deleted or moved): never written back without asking. */
+    Object.keys(snap.missing || {}).sort().forEach(function (k) {
+      var r = runs.filter(function (x) { return x.process + '/' + x.id === k; })[0];
+      add({ id: 'missing:' + k, severity: 'stop', area: 'Runs', title: '"' + (r ? r.title : k) + '" is gone from the team folder', detail: 'Its run.json isn\'t there any more. Someone may have deleted or moved it. This window still has the version it read; nothing is written back unless someone chooses Restore it here.', paths: ['runs/' + k + '/run.json'], action: { act: 'open-run', id: k, label: 'Open the run' }, help: HELP.gone });
+    });
     var shared = sharedDrafts(d.drafts);
     shared.forEach(function (s) { add({ id: 'shared:' + s.process, severity: 'stop', area: 'Checklists', title: plural(s.files.length, 'draft') + ' say process: ' + s.process, detail: 'Flightdeck shows only one of them, so you may publish the wrong one. Agree which is right, copy anything missing into it, and delete the other.', paths: s.files.map(function (f) { return 'maps/drafts/' + f; }), action: help(HELP.copies), help: HELP.copies }); });
     var copies = [];
@@ -105,7 +125,7 @@ PF.health = (function () {
     copies = copies.filter(function (c) { return !sharedPaths[c.path]; });
     if (copies.length) add({ id: 'copies', severity: 'stop', area: 'Files', title: copies.length === 1 ? 'OneDrive kept a second copy of ' + copies[0].of : 'OneDrive kept ' + plural(copies.length, 'second copy', 'second copies') + ' of files',
       detail: 'Two people saved the same file before OneDrive delivered the first save. Decide which is right, copy anything missing into it, and delete the other.', paths: copies.map(function (c) { return c.path; }), action: help(HELP.copies), help: HELP.copies });
-    if (!conflicted.length && !shared.length && !copies.length && !Object.keys(orphans).length) ok('copies', scan ? 'No conflict copies, and no second copies from OneDrive.' : 'No run has conflict copies.');
+    if (!conflicted.length && !shared.length && !copies.length && !Object.keys(orphans).length && !Object.keys(snap.missing || {}).length) ok('copies', scan ? 'No conflict copies, and no second copies from OneDrive.' : 'No run has conflict copies.');
 
     /* ---- publications ---- */
     var clashes = 0, arriving = [], stuck = [], newerPubs = [];

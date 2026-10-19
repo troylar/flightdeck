@@ -2076,4 +2076,30 @@ rule('Connection check: an answer from a computer that couldn\'t read the run sa
   assert.ok(/couldn't read "Release"/.test(words) && !/same as you/.test(words), words);
 });
 
+rule('Folder health: copies that arrive beside a run.json that can\'t be read are found by name, even when the run is kept from an earlier read', () => {
+  const rep = H.check(healthy((s, r) => {
+    s.data.unreadable.push({ path: 'runs/release/run1/run.json', key: 'release/run1', why: 'isn\'t complete JSON' });
+    s.scan.list.push({ p: 'runs/release/run1/run.conflict-late.json', s: 5, m: HNOW });
+  }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'orphans:release/run1')[0];
+  assert.ok(i && i.severity === 'stop', ids(rep).join(','));
+  same(i.paths, ['runs/release/run1/run.conflict-late.json']);
+  assert.ok(!rep.clear.some(c => c.id === 'copies'));
+});
+
+rule('Folder health: save receipts left beside a missing run.json are reported as a saved copy of the run, with how to bring it back', () => {
+  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r7/candidate-w1-abcd2345.json', s: 900, m: HNOW }); }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'orphans:release/r7')[0];
+  assert.ok(i && i.severity === 'stop' && /saved cop/i.test(i.title + i.detail), JSON.stringify(i));
+  assert.strictEqual(i.action.id, 'a-runs-file-is-gone');
+  assert.ok(anchors.indexOf('a-runs-file-is-gone') >= 0);
+  assert.ok(!rep.clear.some(c => c.id === 'copies'));
+});
+
+rule('Folder health: a run this window holds whose file is gone from the folder needs action', () => {
+  const rep = H.check(healthy(s => { s.missing = { 'release/run1': true }; }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'missing:release/run1')[0];
+  assert.ok(i && i.severity === 'stop' && i.action.act === 'open-run' && i.help === 'a-runs-file-is-gone');
+});
+
 run();

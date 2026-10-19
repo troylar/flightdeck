@@ -22,6 +22,21 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What not to do:** don't delete or rename copies in the folder by hand, and don't edit `run.json`. Nothing is merged for you: if both copies have answers you need, keep one and redo the other's answers in the app.
 
+## A run's file is gone
+
+**What you see:** a run says **This run's file is gone from the team folder**, the Runs page marks a run "file is gone", or **Folder health** lists copies or a saved copy of a run whose `run.json` is missing.
+
+**What it means:** the run's `run.json` isn't in the folder any more. Someone deleted or moved it (on purpose, or by tidying the folder), or OneDrive is still bringing it back. Flightdeck never writes it back by itself: a window that still has the run won't quietly undo someone's deletion.
+
+**What to do:**
+
+1. Wait a minute and choose **Refresh**. If OneDrive was only replacing the file, the run comes back on its own.
+2. Ask the team whether it was deleted on purpose. If it was, leave it gone; reload Flightdeck and it's no longer listed.
+3. To bring it back from a window that still has it open, the recorder (or, for an ended run, whoever recorded or ended it) chooses **Restore it here**. That writes this window's version back as a new save and notes it in the run's log.
+4. No window has it: restore `run.json` from OneDrive's version history or a backup (see [Restoring from a backup](#restoring-from-a-backup)). If only save receipts are left (`candidate-<window>-<save>.json`), each is a whole copy of the run as of that save: copy the newest one to `run.json`, then open the run and check it.
+
+**What not to do:** don't restore a run someone deleted on purpose without asking them. Don't delete the save receipts or conflict copies until the run is back.
+
 ## OneDrive made a copy of a draft, people.json or a step type
 
 **What you see:** a second file with a computer's name in it, like `release-LAPTOP.md`, `people-DESKTOP.json` or `deploy-PC.json` (OneDrive's pattern is `name-COMPUTER.ext`), sometimes `name (1).ext`.

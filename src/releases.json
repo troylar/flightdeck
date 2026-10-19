@@ -89,6 +89,14 @@
         "title": "Step types and skills past the limit are reported",
         "before": "Past 100 step-type files or 500 skill registrations, the rest were quietly left out.",
         "now": "The first ones by name are read, and the Step types and Skills pages and Folder health say how many weren't."
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A deleted run is never written back by itself",
+        "before": "If someone deleted or moved a run's file while it was open in another window, that window's next change quietly wrote the run back.",
+        "now": "The run says its file is gone from the team folder, the Runs page marks it, and nothing is saved. Restore it here writes it back only when you choose it, and the run's log says so.",
+        "where": "The run, and Settings › Folder health"
       }
     ]
   },

@@ -656,4 +656,19 @@ rule('Reading the whole folder keeps at most 8 folder calls in flight, even for 
   assert.ok(calls.max <= 8, 'rereading one run too: ' + calls.max);
 });
 
+rule('A run whose file is gone from the folder is never written back by a save; only an explicit restore writes it', async () => {
+  const fs = folder(), r = await started(fs);
+  delete fs.files['runs/release/run1/run.json'];
+  Object.keys(fs.files).filter(k => /candidate-/.test(k)).forEach(k => delete fs.files[k]);
+  done(r, R.mapOf(r), 'approved', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, r, 'casey-laptop'), e => e.missing === true && /gone from the team folder/.test(e.message));
+  assert.ok(!fs.files['runs/release/run1/run.json'] && !Object.keys(fs.files).some(k => /^runs\/release\/run1\//.test(k)), 'nothing written');
+  await repo.saveRun(fs, r, 'casey-laptop', { restoreMissing: true });
+  assert.ok(JSON.parse(fs.files['runs/release/run1/run.json'].t).steps.approved, 'restored on request');
+  // A new run (never saved) is still created by its first save.
+  const fresh = R.create((await repo.loadAll(fs)).processes[0].index.latest, { title: 'New', details: {}, roles: {}, by: 'person-casey', session: 'casey-laptop', now: NOW, id: 'run2' });
+  await repo.saveRun(fs, fresh, 'casey-laptop');
+  assert.ok(fs.files['runs/release/run2/run.json']);
+});
+
 run();

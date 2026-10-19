@@ -3256,4 +3256,38 @@ rule('App: the hints appear on their own when a check has waited 3 minutes, and 
   assert.ok(/1 answer/.test(a.html()) && /saw check 1/.test(a.html()) && !/Things to look at/.test(a.html()), 'still answered after the check left the 15-minute window');
 });
 
+rule('App: a run whose file is deleted while it\'s open is marked gone, never written back by itself, and only Restore it here brings it back', async () => {
+  const c = clock();
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, Date: c.D }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), path = run.path, dir = path.replace('run.json', '');
+  Object.keys(app.fs.files).filter(k => k.indexOf(dir) === 0).forEach(k => delete app.fs.files[k]);
+  c.ahead(6000); app.every(); await app.tick(80);
+  let html = app.html();
+  assert.ok(/This run(&#39;|')s file is gone from the team folder/.test(html) && /data-act="restore-missing"/.test(html) && /data-id="a-runs-file-is-gone">What to do/.test(html), 'said, with both actions');
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'x'); app.click('pause', 'run'); await app.tick(40);
+  app.click('na', 'announce'); await app.tick(40);
+  assert.ok(!app.fs.files[path], 'not recreated by a change');
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(/file is gone/.test(app.html()), 'marked in the list');
+  app.click('open-run', run.key); await app.tick(40);
+  app.click('restore-missing'); await app.tick(80);
+  assert.ok(app.fs.files[path], 'restored on request');
+  const j = JSON.parse(app.fs.files[path].t);
+  assert.ok(j.log.some(l => /Restored this run(')?s file/.test(l.text || l.what || JSON.stringify(l))), 'logged');
+  assert.ok(!/file is gone from the team folder/.test(app.html()));
+});
+
+rule('App: a full refresh that no longer finds a saved run keeps it, marked gone, instead of dropping it silently', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const run = app.run(), dir = run.path.replace('run.json', '');
+  Object.keys(app.fs.files).filter(k => k.indexOf(dir) === 0).forEach(k => delete app.fs.files[k]);
+  app.click('nav', 'runs'); app.click('refresh'); await app.tick(80);
+  assert.ok(/Release 2026\.10\.16/.test(app.html()) && /file is gone/.test(app.html()));
+  app.click('nav', 'home'); await app.tick();
+  assert.ok(/The team folder needs attention/.test(app.html()));
+});
+
 run();

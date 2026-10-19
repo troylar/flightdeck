@@ -285,7 +285,9 @@
       if (g !== gen) return;
       d.readSeq = seq;
       loading = null;
+      var listed = {}; d.runs.forEach(function (x) { listed[x.process + '/' + x.id] = true; });
       keepUnread(d);
+      keepMissing(d, listed);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       for (var i = 0; i < d.runs.length; i++) {
         var id = d.runs[i].id, mine = localRun(id);
@@ -324,10 +326,25 @@
     });
     state.unread = unread;
   }
+  /* A run this window read from the folder (or saved to it) that a full read no longer finds was deleted or moved: it stays,
+     marked gone, so it's never silently dropped or written back. Runs never saved yet, and runs whose read failed, aren't. */
+  function keepMissing(d, listed) {
+    var miss = {}, unread = (state.unread || {}).runs || {};
+    if (!(d.failed || {}).runs) data.runs.forEach(function (x) {
+      var k = x.process + '/' + x.id;
+      if (listed[k] || unread[k] || !x._fileHash) return;
+      miss[k] = true;
+      if (!d.runs.some(function (y) { return y.process === x.process && y.id === x.id; })) d.runs.push(state.unsaved[x.id] || x);
+    });
+    else Object.keys(state.missing || {}).forEach(function (k) { miss[k] = true; });
+    state.missing = miss;
+  }
+  function setMissing(key, on) { var m = Object.assign({}, state.missing || {}); if (on) m[key] = true; else delete m[key]; state.missing = m; }
   /* Why a run can't be changed right now because its own latest read failed (or runs weren't read this time), or ''. The
      version on screen is the last one read; nothing is written over a file this copy couldn't read. */
   function runUnread(r) {
     var key = r.process + '/' + r.id, u = state.unread || {};
+    if ((state.missing || {})[key]) return 'This run\'s file is gone from the team folder. Someone may have deleted or moved it.';
     if (u.runs && u.runs[key]) return 'This run\'s file couldn\'t be read on the last check (' + u.runs[key] + ').';
     if ((data.failed || {}).runs) return 'The runs in the team folder couldn\'t be read on the last check.';
     return '';
@@ -339,9 +356,9 @@
   function healthReport(full) {
     if (!data.readSeq) return null;
     var hs = state.healthScan && state.healthScan.gen === gen ? state.healthScan : null, conn = state.conn;
-    var key = [sig, state.me, hs && full ? hs.n : 0, Math.floor(Date.now() / 60000), state.newer, conn ? conn.readAt : ''].join('|');
+    var key = [sig, state.me, Object.keys(state.missing || {}).join(','), hs && full ? hs.n : 0, Math.floor(Date.now() / 60000), state.newer, conn ? conn.readAt : ''].join('|');
     if (healthMemo && healthMemo.key === key) return healthMemo.rep;
-    var rep = PF.health.check({ data: data, scan: full && hs ? hs.scan : null, me: state.me, app: APP_VERSION, newer: state.newer, contract: hs ? hs.contract : null, connection: conn }, Date.now());
+    var rep = PF.health.check({ data: data, scan: full && hs ? hs.scan : null, me: state.me, app: APP_VERSION, newer: state.newer, contract: hs ? hs.contract : null, connection: conn, missing: state.missing }, Date.now());
     healthMemo = { key: key, rep: rep };
     return rep;
   }
@@ -439,6 +456,8 @@
       if (g !== gen) return;
       var was = runUnread(r);
       mark(bad.length ? bad[0].why : null);
+      /* No run.json at all (and nothing unreadable): gone from the folder, if this window had it from there. */
+      if (!f && !bad.length && r._fileHash && !(state.pendingSaves || {})[r.id]) setMissing(key, true); else if (f) setMissing(key, false);
       if (!!was !== !!runUnread(r)) render();
       loading = null; state.folderErr = null; state.runReadAt = new Date().toISOString();
       if (!f || !canReplace(r.id, revs)) { renderTop(); return; }
@@ -461,7 +480,7 @@
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
-    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; connListing = false;
+    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -900,6 +919,7 @@
           return false;
         });
       }
+      if (e.missing) setMissing(r.process + '/' + r.id, true);
       /* The run object holding the newest change is what's shown and what Try again saves. */
       state.unsaved[r.id] = r; state.saveErr[r.id] = e.message; (state.saveOpts = state.saveOpts || {})[r.id] = opts;
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = r;
@@ -1662,7 +1682,7 @@
     if (!r) return Promise.resolve(false);
     /* A run on a version this copy can't fully read is view-only for everyone here: no recording, take over or recovery. */
     if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return Promise.resolve(false); }
-    var unreadWhy = runUnread(r);
+    var unreadWhy = opts.restoreMissing && (state.missing || {})[key] ? '' : runUnread(r);
     if (unreadWhy) { say(unreadWhy + ' The run wasn\'t changed. Choose Refresh once the file can be read.', 'warn'); render(); return Promise.resolve(false); }
     /* While a copy is being kept or restored, nothing else may change the run; the person is told to wait. */
     if (state.recovering && !opts.recovery) { say('Wait until the copy is kept, then try again.', 'warn'); render(); return Promise.resolve(false); }
@@ -1740,6 +1760,16 @@
     connection: function () {
       releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
       state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = Date.now(); loadConn();
+    },
+    /* Writing a run back after its file disappeared is only ever this explicit choice, and the run's log says so. */
+    'restore-missing': function () {
+      var key = state.runKey, r = ctx.run(), g = gen;
+      if (!r || !(state.missing || {})[key]) return;
+      if (!ctx.canRecover(r)) { say(r.ended ? 'Only whoever recorded or ended this run can restore it.' : 'Only the recorder can restore this run. Take over first if they\'re gone.', 'warn'); render(); return; }
+      mutateRun(key, g, function (run, map, me, now) { R.log(run, me, now, 'Restored this run\'s file to the team folder after it went missing'); }, { restoreMissing: true, any: true }).then(function (ok) {
+        if (!ok || g !== gen) return;
+        setMissing(key, false); say('Restored. The run\'s file is back in the team folder.', 'good'); render();
+      });
     },
     'conn-send': function () { sendCheck(); },
     'conn-answer': function (id) { var p = ((state.conn || {}).probes || []).filter(function (x) { return x._file === id; })[0]; if (p) answerConn(p, false); },
