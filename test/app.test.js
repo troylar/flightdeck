@@ -2539,80 +2539,89 @@ rule('App: a part that was ever saved keeps its ID, even after it was deleted, s
   assert.ok(/Renamed saved step \{#persistent-step\}/.test(releaseText(app)), releaseText(app).split('\n').find(l => /Renamed/.test(l)));
 });
 
-rule('App: step-type Undo and Redo never lose text typed in Add an option or Add a tag; they say to add or clear it first', async () => {
-  const app = await newTypeOn();
-  app.input('tf-label', 'Risk'); await settle(app);
+/* A new type with a Choice field "Risk" open, and text typed in its Add an option box. Returns the field's key and box id. */
+async function optionTyped(app, text) {
+  app.input('tf-label', 'Risk review'); await settle(app);
+  app.fire('focusout', { target: app.el('tf-label') });
   app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
   const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
-  app.set(box, 'Ask QA before continuing');
+  app.input('tf-f-' + k + '-label', 'Risk'); await settle(app);
+  app.fire('focusout', { target: app.el('tf-f-' + k + '-label') });
+  app.set(box, text);
+  return { k, box };
+}
+const optionsOf = app => { const f = typeDef(app).fields.risk; return f ? f.options || null : 'no field'; };
+
+rule('App: leaving an Add an option box adds the option as one Undo step, whatever the person does next', async () => {
+  const triggers = {
+    'leaving the box': async (app, t) => app.fire('focusout', { target: app.el(t.box) }),
+    'closing the field': async (app, t) => app.click('tf-open', 'f:' + t.k),
+    'opening another field': async (app, t) => { app.click('tf-add', 'r'); await app.tick(); },
+    'adding a field': async (app) => app.click('tf-add', 'f'),
+    'adding evidence': async (app) => app.click('tf-add', 'r'),
+    'Done': async (app) => app.click('type-done'),
+    'Save': async (app) => app.click('type-save')
+  };
+  for (const [what, act] of Object.entries(triggers)) {
+    const app = await newTypeOn(), t = await optionTyped(app, '  Ask QA first  ');
+    await act(app, t); await app.tick(80);
+    app.gone(t.box);
+    assert.deepStrictEqual(optionsOf(app), ['Ask QA first'], what + ': added, trimmed');
+    if (/changes that aren.t saved/.test(app.html())) { app.click('type-stay'); await app.tick(); }
+    // Undo the steps that came after it (a new row), then the option itself.
+    while (JSON.stringify(optionsOf(app)) === '["Ask QA first"]') { app.click('tl-undo', 'type'); await app.tick(); }
+    assert.ok(!/Add or clear what you typed/.test(app.html()), what + ': Undo never waits');
+    assert.deepStrictEqual(optionsOf(app), [], what + ': one Undo removes the option');
+  }
+});
+
+rule('App: removing a field, changing its type, or Undo first add the option typed in it, so Undo can bring it back', async () => {
+  let app = await newTypeOn(), t = await optionTyped(app, 'Ask QA first');
+  app.click('tf-remove', 'f:' + t.k); await app.tick(); app.gone(t.box);
+  assert.strictEqual(optionsOf(app), 'no field', 'removed');
   app.click('tl-undo', 'type'); await app.tick();
-  assert.strictEqual(app.draft(box), 'Ask QA before continuing', 'the option text is kept');
-  assert.ok(/Add or clear what you typed/.test(app.html()) && /data-act="tf-open" data-id="f:/.test(app.html()), 'Undo waits, and the field is still there');
-  app.set(box, ''); app.set('tf-tagadd', 'half a tag');
+  assert.deepStrictEqual(optionsOf(app), ['Ask QA first'], 'Undo brings the field back with the option');
+
+  app = await newTypeOn(); t = await optionTyped(app, 'Ask QA first');
+  app.select('tf-f-' + t.k + '-kind', 'text'); await app.tick(); app.gone(t.box);
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.deepStrictEqual(optionsOf(app), ['Ask QA first'], 'undoing the type change shows the option was added first');
+
+  app = await newTypeOn(); t = await optionTyped(app, 'Ask QA first');
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(!/Add or clear what you typed/.test(app.html()), 'Undo never waits');
+  assert.deepStrictEqual(optionsOf(app), [], 'Undo takes back the option it just added');
   app.click('tl-redo', 'type'); await app.tick();
-  assert.strictEqual(app.draft('tf-tagadd'), 'half a tag', 'the tag text is kept too');
-  assert.ok(/Add or clear what you typed/.test(app.html()));
-  app.set('tf-tagadd', '');
-  app.click('tl-undo', 'type'); await app.tick();
-  assert.ok(!/data-act="tf-open" data-id="f:/.test(app.html()), 'with the boxes empty, Undo works');
+  assert.deepStrictEqual(optionsOf(app), ['Ask QA first'], 'and Redo puts it back');
 });
 
-rule('App: text typed in Add an option and not added survives closing and reopening its field', async () => {
+rule('App: an option typed into a field Save opened is added when the person leaves it, and undoes in one step', async () => {
   const app = await newTypeOn();
+  app.input('tf-label', 'Risk review'); await settle(app);
   app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
   const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
-  app.set(box, 'Ask QA before continuing');
+  app.input('tf-f-' + k + '-label', 'Risk'); await settle(app);
   app.click('tf-open', 'f:' + k); await app.tick();
-  assert.ok(!new RegExp('id="' + box + '"').test(app.html()), 'set-up: the field is closed, its box gone');
-  app.el(box).value = '';  // a closed field's box is gone from the page, and its text with it
-  app.click('tf-open', 'f:' + k); await app.tick();
-  assert.ok(new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'drawn again with the text');
-  app.el(box).value = 'Ask QA before continuing';  // the box as drawn now
-  app.click('tf-open', 'f:' + k); await app.tick();
-  app.el(box).value = '';
-  app.click('tl-undo', 'type'); await app.tick();
-  assert.ok(/Add or clear what you typed/.test(app.html()) && new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'Undo waits, and opens the field to show it');
-});
-
-rule('App: removing a field drops the option text typed in it, so Undo and Redo never wait on a field that is gone', async () => {
-  const app = await newTypeOn();
-  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
-  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
-  app.set(box, 'Ask QA before continuing');
-  app.click('tf-open', 'f:' + k); await app.tick();
-  app.el(box).value = '';  // the closed field's box is gone from the page
-  app.click('tf-remove', 'f:' + k); await app.tick();
-  app.click('tl-undo', 'type'); await app.tick();
-  assert.ok(!/Add or clear what you typed/.test(app.html()), 'Undo doesn\'t wait');
-  assert.ok(new RegExp('data-act="tf-open" data-id="f:' + k + '"').test(app.html()), 'the field is back');
+  app.click('type-save'); await app.tick(40);
+  assert.ok(new RegExp('id="' + box + '"').test(app.html()), 'set-up: Save opened the field to show what\'s missing');
+  app.set(box, 'Low');
+  app.click('tl-undo', 'type'); await app.tick(); app.gone(box);
   app.click('tl-redo', 'type'); await app.tick();
-  assert.ok(!/Add or clear what you typed/.test(app.html()) && !new RegExp('data-act="tf-open" data-id="f:' + k + '"').test(app.html()), 'and Redo removes it again');
+  assert.deepStrictEqual(optionsOf(app), ['Low'], 'nothing typed is lost');
 });
 
-rule('App: adding another field keeps the option text typed in the open one', async () => {
+rule('App: a tag typed and not added is added on leaving the box or typing a comma, as one Undo step; a repeat is left out', async () => {
   const app = await newTypeOn();
-  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
-  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
-  app.set(box, 'Ask QA before continuing');
-  app.click('tf-add', 'r'); await app.tick();
-  assert.ok(!new RegExp('id="' + box + '"').test(app.html()), 'set-up: the first field closed');
-  app.el(box).value = '';  // gone from the page
-  app.click('tf-open', 'f:' + k); await app.tick();
-  assert.ok(new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'its option text is still there');
-});
-
-rule('App: changing a Choice field to another type drops its unadded option text, so Undo never waits on it', async () => {
-  const app = await newTypeOn();
-  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
-  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
-  app.set(box, 'Ask QA before continuing');
-  app.click('tf-open', 'f:' + k); await app.tick(); app.click('tf-open', 'f:' + k); await app.tick();  // closed and opened: the text is kept
-  app.select('tf-f-' + k + '-kind', 'text'); await app.tick();
-  assert.ok(!new RegExp('id="' + box + '"').test(app.html()), 'set-up: no options box for text');
-  app.gone(box);
+  app.input('tf-label', 'Risk review'); await settle(app);
+  const tags = () => typeDef(app).tags || [];
+  app.set('tf-tagadd', ' #cab '); app.fire('focusout', { target: app.el('tf-tagadd') }); await app.tick();
+  assert.deepStrictEqual(tags(), ['cab'], 'leaving the box adds it');
+  app.set('tf-tagadd', 'prod'); app.keyOn(',', {}, { tagName: 'INPUT', id: 'tf-tagadd', value: 'prod', dataset: {}, closest: () => null }); await app.tick();
+  assert.deepStrictEqual(tags(), ['cab', 'prod'], 'a comma adds it');
+  app.set('tf-tagadd', 'cab'); app.fire('focusout', { target: app.el('tf-tagadd') }); await app.tick();
+  assert.deepStrictEqual(tags(), ['cab', 'prod'], 'a repeat is left out');
   app.click('tl-undo', 'type'); await app.tick();
-  assert.ok(!/Add or clear what you typed/.test(app.html()), 'Undo doesn\'t wait');
-  assert.ok(new RegExp('id="tf-f-' + k + '-kind"[^>]*>[\\s\\S]*?<option value="choice" selected>').test(app.html()), 'it undid the type change');
+  assert.deepStrictEqual(tags(), ['cab'], 'one Undo per tag');
 });
 
 run();

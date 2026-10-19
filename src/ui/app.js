@@ -933,26 +933,35 @@
     return { name: TF_NAMES[k[1]], item: 'type:' + k[1], value: String(def[k[1]] == null ? '' : def[k[1]]) };
   }
   function typeTl(f) { return f.tl || (f.tl = TL.create()); }
-  /* An option typed and not added yet belongs to its row: it's kept when the row closes and drawn again when it opens. */
-  function keepOptDrafts(f) {
-    var d = f.optDraft = f.optDraft || {};
-    f.def.fields.map(function (r) { return 'f:' + r.k; }).concat(f.def.record.map(function (r) { return 'r:' + r.k; })).forEach(function (key) {
-      if (f.open !== key) return; var p = key.split(':'), el = document.getElementById('tf-' + p[0] + '-' + p[1] + '-optadd'); if (el) d[key] = String(el.value || '');
-    });
-    /* A draft lives only while its row exists and still has an Add an option box (a choice); otherwise it's dropped. */
-    Object.keys(d).forEach(function (key) { if (!optRow(f, key)) delete d[key]; });
+  /* Text typed in Add an option or Add a tag is added as soon as the person leaves the box or does anything else (another
+     row, Save, Done, Undo…): one recorded change each, trimmed. Empty text, or an option or tag already there, is left out.
+     There's no half-typed state to keep, so nothing can be lost or block Undo. */
+  function optsList(r) { return String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); }
+  function tagsList(d) { return String(d.tags || '').split(',').map(function (x) { return x.trim().replace(/^#/, ''); }).filter(Boolean); }
+  function cleanTag(v) { return String(v || '').trim().replace(/^#/, '').replace(/,/g, ' ').trim().slice(0, 30); }
+  function addOption(f, p, v) {
+    var r = rowOf(f.def, p); v = String(v || '').trim().slice(0, 40); if (!r || r.kind !== 'choice' || !v) return null;
+    var o = optsList(r); if (o.indexOf(v) >= 0) return 'dup';
+    var before = typeSnap(f), focus = '#tf-' + p[0] + '-' + p[1] + '-optadd';
+    r.options = o.concat(v).join('\n');
+    recordTypeForm(f, before, { kind: 'form', label: 'new option', subject: v, items: [rowItem(p)], selBefore: { focus: focus }, selAfter: { focus: focus } });
+    return 'added';
   }
-  function optRow(f, key) { var p = key.split(':'), list = p[0] === 'f' ? f.def.fields : p[0] === 'r' ? f.def.record : null, r = list && list[rowIndex(list, p[1])]; return !!r && r.kind === 'choice'; }
-  /* The one way the open row changes: what's typed in the row closing is kept first. */
-  function setOpen(f, key) { keepOptDrafts(f); f.open = key; }
-  /* A step-type box holding text not added yet (a tag, an option, also in a closed row), or null; a closed row is opened.
-     keepOptDrafts drops drafts of rows that are gone or no longer choices, so those never count. */
-  function typePendingBox(f) {
-    keepOptDrafts(f);
-    var el = document.getElementById('tf-tagadd'); if (el && String(el.value || '').trim()) return 'tf-tagadd';
-    var d = f.optDraft || {}, keys = Object.keys(d).filter(function (k) { return String(d[k]).trim(); });
-    if (!keys.length) return null;
-    setOpen(f, keys[0]); var p = keys[0].split(':'); return 'tf-' + p[0] + '-' + p[1] + '-optadd';
+  function addTag(f, v) {
+    v = cleanTag(v); if (!v) return null;
+    var t = tagsList(f.def); if (t.indexOf(v) >= 0) return 'dup';
+    var before = typeSnap(f); f.def.tags = t.concat(v).join(', ');
+    recordTypeForm(f, before, { kind: 'form', label: 'new tag', subject: v, items: ['type:tags'], selBefore: { focus: '#tf-tagadd' }, selAfter: { focus: '#tf-tagadd' } });
+    return 'added';
+  }
+  /* Add whatever the Add boxes on screen hold. noRead: the caller reads the form itself (a change of a field's type must not
+     be read before its options are added). */
+  function flushAdds(f, noRead) {
+    if (!f) return false; if (!noRead) readTypeForm();
+    var any = false, box = function (id) { var el = document.getElementById(id); if (!el || !String(el.value || '').trim()) return null; var v = el.value; el.value = ''; return v; };
+    var tv = box('tf-tagadd'); if (tv != null && addTag(f, tv) === 'added') any = true;
+    [['f', f.def.fields], ['r', f.def.record]].forEach(function (x) { x[1].slice().forEach(function (r) { if (r.kind !== 'choice') return; var v = box('tf-' + x[0] + '-' + r.k + '-optadd'); if (v != null && addOption(f, [x[0], r.k], v) === 'added') any = true; }); });
+    return any;
   }
   /* The step-type editor is a page of its own, like the draft editor: the app's top bar hides while it's open. */
   /* The phone preview sheet exists only below 800 px: on a wider screen it's closed before anything is drawn, so the page
@@ -971,7 +980,7 @@
   /* One change to the step type from a button (a move, an option, a tag): fn changes the definition and returns what it was
      about, or null for no change. Recorded, so Undo takes it back. */
   function typeChange(label, fn, items, focus) {
-    var f = state.typeForm; if (!f) return; readTypeForm();
+    var f = state.typeForm; if (!f) return; flushAdds(f);
     var before = typeSnap(f), subject = fn(f.def);
     if (subject == null) return;
     recordTypeForm(f, before, { kind: 'form', label: label, subject: String(subject), items: items, selBefore: { focus: focus }, selAfter: { focus: focus } });
@@ -1023,7 +1032,9 @@
     f.def = d;
   }
   function typeFormInput(e, typing) {
-    var f = state.typeForm, id = e.target.id, cur = typeSnap(f);
+    var f = state.typeForm, id = e.target.id;
+    if (!typing && /-kind$/.test(id)) flushAdds(f, true);
+    var cur = typeSnap(f);
     if (typing && imeStep(e, id, { json: cur, val: tfControl(f.def, id) })) { readTypeForm(); return; }
     var start = typing ? imeBefore(id, null) : null, before = start ? start.json : cur, was = start ? start.val : tfControl(f.def, id);
     readTypeForm();
@@ -1061,9 +1072,8 @@
       say('Apply or clear what you typed in the box first (Enter applies it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn');
       state.focus = '#' + pf; render(); return;
     }
-    /* The same for the step-type editor's Add a tag and Add an option boxes. */
-    var tp = f ? typePendingBox(f) : null;
-    if (tp) { say('Add or clear what you typed in the box first (Enter adds it), then ' + (redo ? 'Redo' : 'Undo') + '.', 'warn'); state.focus = '#' + tp; render(); return; }
+    /* The step-type editor's Add boxes add what they hold first, so Undo takes that back like any other change. */
+    if (f) flushAdds(f, true);
     var top = TL.peek(tl).undo;
     /* What's selected now is what Redo will put back. */
     if (!redo && top && scope === 'draft' && top.kind === 'op') top.selAfter = obSnap(ed);
@@ -1388,6 +1398,7 @@
   function typeFormChanged(f) { return V.typeFormSnapshot(f.def) !== f.initial; }
   function saveType() {
     var f = state.typeForm; if (!f) return;
+    flushAdds(f);
     var def = V.typeDefOf(f.def), errs = V.typeErrors(f.def), sent = JSON.stringify(def), savedSnap = V.typeFormSnapshot(f.def);
     if (errs.length) {
       /* Show every problem next to its box, open the rows that have one, and go to the first. */
@@ -1721,21 +1732,20 @@
       }, function (e) { if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
     'tf-add': function (id, b) {
-      var f = state.typeForm, d = f && f.def; if (!d) return; readTypeForm();
+      var f = state.typeForm, d = f && f.def; if (!d) return; flushAdds(f);
       var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice'];
       var before = typeSnap(f), row = { k: V.nextRowKey(), name: '', label: '', kind: kinds.indexOf(kd) >= 0 ? kd : 'text' }; (id === 'f' ? d.fields : d.record).push(row);
-      setOpen(f, id + ':' + row.k); (state.disc = state.disc || {})['tf-add-' + id] = false;
+      f.open = id + ':' + row.k; (state.disc = state.disc || {})['tf-add-' + id] = false;
       recordTypeForm(f, before, { kind: 'form', label: id === 'f' ? 'new field' : 'new evidence', items: [(id === 'f' ? 'field:' : 'evidence:') + row.k], selBefore: { focus: '[data-act="tf-add"][data-id="' + id + '"]' }, selAfter: { focus: '#tf-' + id + '-' + row.k + '-label' } });
       state.focus = 'tf-' + id + '-' + row.k + '-label'; render();
     },
     'tf-remove': function (id) {
       var d = state.typeForm && state.typeForm.def, parts = String(id).split(':'); if (!d) return;
-      readTypeForm();
+      flushAdds(state.typeForm);
       var list = parts[0] === 'f' ? d.fields : d.record, i = list.map(function (r) { return r.k; }).indexOf(parts[1]);
       if (i < 0) return;
       var before = typeSnap(state.typeForm), gone = list[i], what = (parts[0] === 'f' ? 'field' : 'evidence');
-      /* Removing a field is deliberate: the option text typed in it and not added goes with it (Undo brings the field back). */
-      keepOptDrafts(state.typeForm); if (state.typeForm.optDraft) delete state.typeForm.optDraft[id]; if (state.typeForm.open === id) state.typeForm.open = null;
+      if (state.typeForm.open === id) state.typeForm.open = null;
       list.splice(i, 1);
       recordTypeForm(state.typeForm, before, { kind: 'form', label: what + ' removal', subject: gone.name || '', items: [what + ':' + gone.k], selBefore: { focus: '[data-act="tf-open"][data-id="' + parts[0] + ':' + gone.k + '"]' }, show: { before: [gone.name, gone.label, gone.kind].filter(Boolean).join(' · '), after: '' } });
       say('Removed ' + what + (gone.name ? ' "' + gone.name + '"' : '') + '. Undo available.', 'good', { act: 'tl-undo', id: 'type', label: 'Undo' });
@@ -1747,7 +1757,7 @@
     },
     /* ---------- the step-type editor's own controls; every change to the type goes through typeChange, so it's undoable ---------- */
     'type-done': function () {
-      var f = state.typeForm; if (!f) return; readTypeForm();
+      var f = state.typeForm; if (!f) return; flushAdds(f);
       if (typeFormChanged(f)) { f.leaving = true; state.focus = '[data-act="type-save"]'; render(); return; }
       ACTIONS['type-cancel']();
     },
@@ -1758,8 +1768,8 @@
     'type-save': function () { var f = state.typeForm; if (f && f.leaving) f.closeAfterSave = true; readTypeForm(); saveType(); },
     'tf-id-edit': function () { var f = state.typeForm; if (!f || f.existing) return; f.idEdit = true; state.focus = 'tf-id'; render(); },
     'tf-open': function (id) {
-      var f = state.typeForm; if (!f) return; readTypeForm();
-      setOpen(f, f.open === id ? null : id);
+      var f = state.typeForm; if (!f) return; flushAdds(f);
+      f.open = f.open === id ? null : id;
       var p = String(id).split(':');
       state.focus = f.open ? 'tf-' + p[0] + '-' + p[1] + '-label' : '[data-act="tf-open"][data-id="' + cssEsc(id) + '"]'; render();
     },
@@ -1768,21 +1778,20 @@
       typeChange('move', function (d) { var list = p[0] === 'f' ? d.fields : d.record, i = rowIndex(list, p[1]), j = i + (up ? -1 : 1); if (i < 0 || j < 0 || j >= list.length) return null; var r = list.splice(i, 1)[0]; list.splice(j, 0, r); return r.label || r.name; }, [rowItem(p)], tfMoveFocus(p, up));
     },
     'tf-opt-add': function (id) {
+      var f = state.typeForm; if (!f) return; readTypeForm();
       var p = String(id).split(':'), box = 'tf-' + p[0] + '-' + p[1] + '-optadd', v = val(box).trim();
-      if (!v) { state.focus = '#' + box; render(); return; }
-      var dup = false;
-      typeChange('new option', function (d) { var r = rowOf(d, p); if (!r) return null; var o = String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (o.indexOf(v) >= 0) { dup = true; return null; } r.options = o.concat(v.slice(0, 40)).join('\n'); return v; }, [rowItem(p)], '#' + box);
-      if (dup) { say('"' + v + '" is already an option.', 'warn'); render(); } else { var f0 = state.typeForm; if (f0 && f0.optDraft) delete f0.optDraft[id]; state.clearInputs = box; render(); }
+      if (v && addOption(f, p, v) === 'dup') say('"' + v + '" is already an option.', 'warn');
+      state.clearInputs = box; state.focus = '#' + box; render();
     },
     'tf-opt-del': function (id) {
       var p = String(id).split(':'), j = +p[2];
       typeChange('option removal', function (d) { var r = rowOf(d, p); if (!r) return null; var o = String(r.options || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (!(j >= 0 && j < o.length)) return null; var gone = o.splice(j, 1)[0]; r.options = o.join('\n'); return gone; }, [rowItem(p)], '#tf-' + p[0] + '-' + p[1] + '-optadd');
     },
     'tf-tag-add': function () {
-      var v = val('tf-tagadd').trim().replace(/^#/, '').replace(/,/g, ' ').trim().slice(0, 30);
-      if (!v) return;
-      typeChange('new tag', function (d) { var t = String(d.tags || '').split(',').map(function (x) { return x.trim().replace(/^#/, ''); }).filter(Boolean); if (t.indexOf(v) >= 0) return null; d.tags = t.concat(v).join(', '); return v; }, ['type:tags'], '#tf-tagadd');
-      state.clearInputs = 'tf-tagadd'; render();
+      var f = state.typeForm; if (!f) return; readTypeForm();
+      var v = cleanTag(val('tf-tagadd'));
+      if (v && addTag(f, v) === 'dup') say('#' + v + ' is already a tag.', 'warn');
+      state.clearInputs = 'tf-tagadd'; state.focus = '#tf-tagadd'; render();
     },
     'tf-tag-del': function (id) {
       typeChange('tag removal', function (d) { var t = String(d.tags || '').split(',').map(function (x) { return x.trim().replace(/^#/, ''); }).filter(Boolean), i = t.indexOf(id); if (i < 0) return null; t.splice(i, 1); d.tags = t.join(', '); return id; }, ['type:tags'], '#tf-tagadd');
@@ -2255,6 +2264,8 @@
     var id = (e.target && e.target.id) || '', p, ed;
     if (id === 'draft-editor' && (p = currentProcess()) && (ed = editorOf(p.id)) && ed.tl) TL.close(ed.tl);
     if (/^tf-/.test(id) && state.typeForm && state.typeForm.tl) TL.close(state.typeForm.tl);
+    /* Leaving an Add box adds what it holds. */
+    if ((id === 'tf-tagadd' || /^tf-[fr]-k\d+-optadd$/.test(id)) && state.typeForm && flushAdds(state.typeForm)) render();
   });
   /* Folded groups and opened or closed details (a brief, a list of deviations) stay as the person left them across redraws. */
   document.addEventListener('toggle', function (e) {
@@ -2317,6 +2328,8 @@
       return;
     }
     if (state.overlay && state.overlay.list && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { ACTIONS['lb-step'](e.key === 'ArrowLeft' ? '-1' : '1'); return; }
+    /* A comma ends a tag: it's added at once (a tag can't hold a comma). */
+    if (typing && e.key === ',' && t.id === 'tf-tagadd') { e.preventDefault(); ACTIONS['tf-tag-add'](); return; }
     if (typing && e.key === 'Enter' && t.dataset.enter) {
       e.preventDefault();
       var act = t.dataset.enter;
