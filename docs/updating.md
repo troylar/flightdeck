@@ -69,13 +69,13 @@ In `AGENTS.md`, only the part between `<!-- flightdeck:begin -->` and `<!-- flig
 
 **When files need merging:** open your AI assistant in the team folder and give it the prompt in `.flightdeck/updates/<version>/README.md`. It compares each new default with your file, keeps your changes, brings in the new ones, and deletes each copy once merged. Run `flightdeck install <folder> --check` again; 0 means nothing is left.
 
-A copy left in any version's updates folder still counts as waiting, even after a later update, until someone deletes it.
+A copy left in any version's updates folder (`.flightdeck/updates/<version>/<the file's path>`) still counts as waiting, even after a later update and even if the file now matches the default, until someone deletes it or `--force` files it away.
 
-`--force` replaces files your team changed with the new defaults instead. Each run saves a copy of every file it replaces in a new folder of its own under `.flightdeck/updates/<version>/replaced/`, and moves any copies still waiting to be merged for those files there too (under `staged/`). `--app-only` installs only `flightdeck.html`.
+`--force` replaces files your team changed with the new defaults instead. Each run saves a copy of every file it replaces in a new folder of its own under `.flightdeck/updates/<version>/replaced/`, and moves any copies still waiting to be merged there too (under `staged/`), including copies for files that already match the default. Each copy is read back and checked before the file it protects is replaced. `--app-only` installs only `flightdeck.html`.
 
-**What install trusts.** `.flightdeck/installed.json` only ever makes install more careful. Install replaces a file without `--force` only when it's exactly a default Flightdeck shipped; a record that's damaged or wasn't written by Flightdeck is ignored, and install says so. A file that changes while install is running (an AI assistant saving it, say) is left as it is, and install ends with exit code 1 so you run it again.
+**What install trusts.** `.flightdeck/installed.json` only ever makes install more careful. Install replaces a file without `--force` only when it's exactly a default Flightdeck shipped; a record that's damaged or wasn't written by Flightdeck is ignored, and install says so. A file that changes while install is running (an AI assistant saving it, say) is left as it is, and install ends with exit code 1 so you run it again. One exception: a program that keeps the old file open and writes into it in place, at the same moment, writes into the copy install moved aside, which install then removes. Close editors on AGENTS.md and the skills while you install.
 
-**Links.** Install never writes through a link or outside the folder: it checks every folder on the way, writes to a new temporary file, and checks again just before moving it into place. Those checks can't stop someone who renames folders inside your team folder at the same instant on purpose; that's outside what a file copy can guard against. Don't run install while something else is reorganizing the folder.
+**Links.** Install never writes through a link or outside the folder: it checks every folder on the way, writes a new temporary file in full and reads it back, and checks again just before putting it in place. Those checks can't stop someone who renames folders inside your team folder at the same instant on purpose; that's outside what a file copy can guard against. Don't run install while something else is reorganizing the folder.
 
 ## 6. Verify
 

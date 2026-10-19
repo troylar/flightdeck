@@ -387,4 +387,60 @@ rule('A merge left from an earlier version still counts until its copy is delete
   assert.strictEqual(cli('install', dir, '--check').code, 0, 'a later change is just kept');
 });
 
+// Replaces one fs function for the length of a call.
+function patched(name, impl, fn) { const orig = fs[name]; fs[name] = function () { return impl.call(this, orig, ...arguments); }; try { return fn(); } finally { fs[name] = orig; } }
+
+rule('A write that the system cuts short is finished, and a copy that doesn\'t read back right stops --force before it replaces anything', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'Important customization');
+  let r = patched('writeSync', (orig, fd, buf, ...rest) => orig(fd, Buffer.isBuffer(buf) || ArrayBuffer.isView(buf) ? Buffer.from(buf).subarray(rest[0] || 0, (rest[0] || 0) + 3) : String(buf).slice(0, 3)), () => inProcess(['install', dir, '--force'], () => {}));
+  assert.strictEqual(r.code, 0, r.out);
+  const rep = at(dir, '.flightdeck/updates/' + VER + '/replaced');
+  assert.strictEqual(fs.readFileSync(at(path.join(rep, fs.readdirSync(rep)[0]), STATUS), 'utf8'), 'Important customization', 'the copy is whole');
+  assert.strictEqual(read(dir, STATUS), EX[STATUS]);
+  const d2 = tmp();
+  cli('install', d2);
+  write(d2, STATUS, 'Important customization');
+  let target = null;
+  r = patched('openSync', (orig, p, flags) => { const fd = orig(p, flags); if (flags === 'wx' && String(p).includes('replaced')) target = fd; return fd; },
+    () => patched('writeSync', (orig, fd, buf, ...rest) => fd === target ? orig(fd, Buffer.from('garbled!')) && (Buffer.isBuffer(buf) ? buf.length : Buffer.byteLength(String(buf))) : orig(fd, buf, ...rest), () => inProcess(['install', d2, '--force'], () => {})));
+  assert.ok(target !== null, 'the hook ran');
+  assert.strictEqual(r.code, 1, r.out);
+  assert.strictEqual(read(d2, STATUS), 'Important customization', 'not replaced without a good copy');
+});
+
+rule('skills keeps the record\'s entries for files it doesn\'t handle, such as AGENTS.md', () => {
+  const dir = tmp();
+  cli('install', dir);
+  const rec = record(dir), before = rec.files['AGENTS.md'];
+  write(dir, '.flightdeck/installed.json', JSON.stringify(Object.assign(rec, { version: '1.14.0' })));
+  assert.strictEqual(cli('skills', dir).code, 0);
+  assert.strictEqual(record(dir).files['AGENTS.md'], before);
+});
+
+rule('An edit that lands at the last moment before install replaces a file is never overwritten', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, STATUS, 'Ours');
+  const target = at(fs.realpathSync(dir), STATUS);
+  let hit = false;
+  const late = (orig, from, to) => { if (!hit && to === target && /\.tmp$/.test(String(from))) { hit = true; fs.writeFileSync(target, 'A late edit'); } return orig(from, to); };
+  const r = patched('renameSync', late, () => patched('linkSync', late, () => inProcess(['install', dir, '--force'], () => {})));
+  assert.ok(hit, 'the hook ran');
+  assert.strictEqual(read(dir, STATUS), 'A late edit');
+  assert.ok(r.code === 1 && /changed during install/.test(r.out), r.out);
+});
+
+rule('A waiting copy counts even when the file already matches the default, and --force files it away then too', () => {
+  const dir = tmp();
+  cli('install', dir);
+  write(dir, '.flightdeck/updates/1.14.9/' + STATUS, 'an earlier default');
+  assert.strictEqual(cli('install', dir, '--check').code, 3);
+  assert.strictEqual(cli('install', dir, '--force').code, 0);
+  assert.ok(!fs.existsSync(at(dir, '.flightdeck/updates/1.14.9/' + STATUS)));
+  write(dir, STATUS, 'Ours');
+  assert.strictEqual(cli('install', dir, '--check').code, 0);
+});
+
 run();

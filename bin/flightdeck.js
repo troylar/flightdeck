@@ -88,44 +88,74 @@ function folders(dir, parts, create) {
   if (fs.realpathSync(cur) !== cur) fail('refusing to write through a link: ' + cur);
   return cur;
 }
-/* Write a file inside the folder, and only there, never through a link. The text goes to a new temporary file first
-   (created exclusively, so it can't be an existing file or a link), then is moved into place, so an interrupted write never
-   leaves half a file. Just before the move, the folders are checked again, the temporary file must still be the one this
-   process created, and with expect (the text install read, or null for "not there") the file must not have changed since.
-   Limit: these checks narrow the window, they can't close it. Someone who can rename folders inside your own team folder
-   during the instant between the last check and the move can still redirect it; that's out of scope. Ordinary accidents
-   (a link already in the folder, an assistant editing a file mid-install) are caught. */
+/* Write a file inside the folder, and only there, never through a link.
+   - The text goes to a new temporary file (created exclusively, so never an existing file or a link), written in full,
+     flushed to disk and read back before anything else happens: a short or failed write never replaces a file.
+   - Just before it's put in place, the folders are checked again and the temporary file must still be the one this
+     process made.
+   - With expect (the text install read, or null for "not there"), the file must still be exactly that. The old file is
+     first moved aside and compared, then the new one is linked in only if nothing has taken its place, so an edit that
+     lands at any moment is either noticed or left in place, never overwritten.
+   Limit: someone who renames folders inside your own team folder at the same instant, on purpose, can still redirect a
+   write, and a program that keeps the old file open and writes into it in place writes into the copy moved aside. That's
+   out of scope; ordinary accidents (a link in the folder, an assistant saving a file mid-install) are caught. */
 function safeWrite(dir, parts, text, expect) {
   const name = parts[parts.length - 1], sub = parts.slice(0, -1);
   if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) fail('refusing to write outside the folder: ' + parts.join('/'));
-  const home = folders(dir, sub, true), target = path.join(home, name);
+  const home = folders(dir, sub, true), target = path.join(home, name), data = Buffer.from(text, 'utf8');
   const was = lstatOrNull(target);
   if (was && (was.isSymbolicLink() || !was.isFile())) fail('refusing to write through a link: ' + target);
   const tmp = path.join(home, '.' + name + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
-  let fd = null, mine = null, moved = false;
+  let fd = null, mine = null, placed = false;
   try {
     fd = fs.openSync(tmp, 'wx');
-    fs.writeSync(fd, text);
+    for (let off = 0; off < data.length;) {
+      const n = fs.writeSync(fd, data, off, data.length - off);
+      if (!(n > 0)) throw new Error('the disk accepted no more bytes');
+      off += n;
+    }
+    fs.fsyncSync(fd);
     mine = fs.fstatSync(fd);
     fs.closeSync(fd); fd = null;
     folders(dir, sub, false);
     const now = lstatOrNull(tmp);
     if (!now || now.isSymbolicLink() || now.ino !== mine.ino || now.dev !== mine.dev) fail('refusing to write through a link: ' + home);
-    if (expect !== undefined) {
-      const st = lstatOrNull(target);
-      if (st && (st.isSymbolicLink() || !st.isFile())) fail('refusing to write through a link: ' + target);
-      if ((st ? fs.readFileSync(target, 'utf8') : null) !== expect) throw new Changed(parts.join('/'));
-    }
-    fs.renameSync(tmp, target);
-    moved = true;
+    if (!fs.readFileSync(tmp).equals(data)) throw new Error('the written file didn\'t read back the same');
+    place(tmp, target, expect, parts.join('/'));
+    placed = true;
   } catch (e) {
     if (e instanceof Refused || e instanceof Changed) throw e;
     fail('couldn\'t write ' + target + ': ' + e.message);
   } finally {
     if (fd !== null) fs.closeSync(fd);
     /* Remove the temporary file only if it's still the one this process made, wherever a swapped folder now points. */
-    if (!moved && mine) { const left = lstatOrNull(tmp); if (left && !left.isSymbolicLink() && left.ino === mine.ino && left.dev === mine.dev) fs.unlinkSync(tmp); }
+    const left = mine && lstatOrNull(tmp);
+    if (left && !left.isSymbolicLink() && left.ino === mine.ino && left.dev === mine.dev && (!placed || lstatOrNull(target))) fs.unlinkSync(tmp);
   }
+}
+/* Put tmp at target without ever replacing a file nobody has checked. */
+function place(tmp, target, expect, label) {
+  if (expect === undefined) { fs.renameSync(tmp, target); return; }
+  let aside = null;
+  if (expect !== null) {
+    aside = path.join(path.dirname(target), '.' + path.basename(target) + '.' + crypto.randomBytes(6).toString('hex') + '.old');
+    try { fs.renameSync(target, aside); } catch (e) { if (e.code === 'ENOENT') throw new Changed(label); throw e; }
+    if (fs.readFileSync(aside, 'utf8') !== expect) { putBack(aside, target, label); throw new Changed(label); }
+  }
+  try { fs.linkSync(tmp, target); }
+  catch (e) {
+    if (e.code === 'EEXIST') { if (aside) fs.unlinkSync(aside); throw new Changed(label); }
+    /* A file system without hard links: fall back to a move, still only into an empty place. */
+    if (lstatOrNull(target)) { if (aside) fs.unlinkSync(aside); throw new Changed(label); }
+    fs.renameSync(tmp, target);
+  }
+  if (aside) fs.unlinkSync(aside);
+}
+/* A file that changed after install read it goes back where it was; if something already took its place, it stays aside
+   under a name the message gives, so nothing is lost. */
+function putBack(aside, target, label) {
+  try { fs.linkSync(aside, target); fs.unlinkSync(aside); }
+  catch (e) { if (!lstatOrNull(target)) fs.renameSync(aside, target); else throw new Changed(label + ' (its earlier text is kept in ' + aside + ')'); }
 }
 
 /* The example folder and the baselines are built into the app, so the contract always matches this version. */
@@ -171,11 +201,11 @@ function classify(t, files, base, force) {
     const parts = f.rel.split('/'), now = readInside(t.dir, parts), want = hash(managed(f.key, f.text));
     const item = { key: f.key, rel: f.rel, parts, text: f.text, now, want, staged: staged(t, f.rel) };
     if (now === null) return Object.assign(item, { status: t.record.files[f.key] ? 'missing' : 'new' });
+    if (item.staged.length && !force) return Object.assign(item, { status: 'merge', waiting: item.staged.map((x) => x.version).join(', ') });
     const have = hash(managed(f.key, now));
     if (have === want) return Object.assign(item, { status: 'current' });
     if ((base[f.baseKey || baselineKey(f.key)] || {})[have]) return Object.assign(item, { status: 'update' });
     if (force) return Object.assign(item, { status: 'forced' });
-    if (item.staged.length) return Object.assign(item, { status: 'merge', waiting: item.staged.map((x) => x.version).join(', ') });
     if (t.record.files[f.key] === want) return Object.assign(item, { status: 'kept' });
     return Object.assign(item, { status: 'merge' });
   });
@@ -208,9 +238,10 @@ function readRecord(t, keys) {
     && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
     && Object.keys(r.files).every((k) => typeof r.files[k] === 'string' && /^[0-9a-f]{64}$/.test(r.files[k]));
   if (!ok) return Object.assign(none, { ignored: true });
+  /* files: what this command may consult; all: every entry, kept as it is for files this command doesn't handle. */
   const files = {};
   keys.forEach((k) => { if (Object.prototype.hasOwnProperty.call(r.files, k)) files[k] = r.files[k]; });
-  return { version: r.version, files };
+  return { version: r.version, files, all: Object.assign({}, r.files) };
 }
 function stamp(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + p(d.getMinutes()); }
 function fineStamp(d) { const p = (n, w) => String(n).padStart(w || 2, '0'); return stamp(d).replace(' ', '-') + p(d.getSeconds()) + '-' + p(d.getMilliseconds(), 3); }
@@ -244,7 +275,10 @@ function contract(t, files, opts) {
   const items = classify(t, files, base, opts.force);
   if (opts.check) return items;
   for (const i of items) {
-    if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting)) continue;
+    if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting)) {
+      if (opts.force) i.staged.forEach((x) => fileAway(t, x));
+      continue;
+    }
     try {
       if (i.status === 'merge') { safeWrite(t.dir, t.updates.concat(t.version, i.rel.split('/')), i.text, null); continue; }
       const out = merged(i);
@@ -258,9 +292,9 @@ function contract(t, files, opts) {
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
   if (merges.some((i) => !i.waiting)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.staged.some((x) => x.version === t.version)), t));
-  const rec = Object.assign({}, t.record.files);
+  const rec = Object.assign({}, t.record.all || {});
   items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
-  if (!t.record.ignored && t.record.version === t.version && JSON.stringify(rec) === JSON.stringify(t.record.files)) return items;
+  if (!t.record.ignored && t.record.version === t.version && JSON.stringify(rec) === JSON.stringify(t.record.all)) return items;
   safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
   return items;
 }
@@ -276,6 +310,8 @@ function keepCopy(t, parts, text) {
     }
   }
   safeWrite(t.dir, t.replacedAt.concat(parts), text, null);
+  /* Nothing is replaced or removed on the strength of a copy that doesn't read back exactly. */
+  if (readInside(t.dir, t.replacedAt.concat(parts)) !== text) fail('the copy of ' + parts.join('/') + ' didn\'t read back the same, so nothing was replaced. Check the disk and try again.');
 }
 /* A staged copy that --force made obsolete: moved beside the files it replaced (staged/<version>/...), never deleted. */
 function fileAway(t, x) {
