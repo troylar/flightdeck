@@ -21,6 +21,30 @@ Safer updates: install keeps your team's changes, says what it would do first, a
 
 - **A new team folder's starter checklist names you as owner** (Team folder). The starter checklist names whoever created the folder as its owner, and the folder records which Flightdeck set it up. *Where:* Settings: Start a new team folder
 
+## 1.14.0 · Oct 18, 2026
+
+Five new step types: Jira sprints, deploys, health checks, GitHub pull requests and measurements.
+
+### New
+
+- **Jira sprint steps** (Step types). A {jira.sprint} step starts or closes a sprint, moves its unfinished issues, or sets its goal, on a named board. Checking it can note the sprint link, plus the new sprint's name and dates when starting, or how many issues carried over when closing. *Where:* The parts box and the Type list in the draft editor, under Tools.
+- **Deploy and health check steps** (Step types). A {deploy} step names the environment, what to deploy, its version, the deploy tool and what to roll back to; checking it can note the version that went out, a link and when it finished. A {verify.health} step names a dashboard, a metric, when it counts as healthy and how long to watch; checking it can note Pass or Fail, the value you saw and a screenshot or link. *Where:* The parts box and the Type list in the draft editor, under Tools.
+- **GitHub pull request steps** (Step types). A {github.pr} step opens, reviews, approves or merges a pull request in a named repository. Checking it can note the pull request link, whether its checks pass, and the merge commit for a merge. *Where:* The parts box and the Type list in the draft editor, under Tools.
+- **Measure steps** (Step types). A {measure} step records a number with its unit, like velocity or points carried over, so runs keep a history of it. When later steps need the number as a run detail, use a step with sets: instead, like the capacity step in the sprint start example. *Where:* The parts box and the Type list in the draft editor, under General.
+
+### Improved
+
+- **The examples use the new types** (Checklists). The sprint start example closes the last sprint, records velocity, carry-over and capacity, then starts the new sprint and sets its goal. The release example records the deploy and watches the error dashboard. A new example merges a GitHub pull request. Versions that use the new types still open and run in earlier copies of Flightdeck. *Where:* The example folder.
+
+## 1.13.1 · Oct 18, 2026
+
+Fill in keeps the evidence you typed, and Done differently tells the truth about a refused save.
+
+### Fixed
+
+- **Fill in keeps evidence typed before it opened** (Runs). Fill in starts with the evidence you already typed on the step, and saving it keeps that evidence with the step. Done records it. *Where:* A run: the selected step, Record the result, Fill in.
+- **Done differently no longer says it saved when it didn't** (Runs). Flightdeck says the run changed elsewhere and shows "Correction saved; the step wasn't marked done." with Mark it now, which stays on the run until you act. If the save failed and is waiting for Try again, it says that instead. *Where:* A run: Done differently.
+
 ## 1.13.0 · Oct 18, 2026
 
 Runs get a workspace of their own, corrections replace Suggest a fix, and notes take files.

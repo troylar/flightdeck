@@ -5,7 +5,7 @@ const assert = require('assert');
 const { load, example, exampleSetup, rule, run } = require('./harness');
 const PF = load(), M = PF.map, O = PF.outline;
 const EX = exampleSetup(PF);
-const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup'];
+const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup', 'github-pr'];
 const RELEASE = example('maps/drafts/release.md');
 
 const lines = t => t.split('\n');

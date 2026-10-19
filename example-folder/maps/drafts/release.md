@@ -68,12 +68,22 @@ roles: release-lead, qa, backend
 - [!] {confirm} Smoke prompts return their expected answers @qa {#smoke}
   where: Release ticket, "Smoke prompts" section
   evidence: note
-- [ ] {confirm} No new error events on the logs dashboard @qa {#logs}
-  where: Logs dashboard, last 30 minutes
+- [ ] {verify.health} No new error events on the logs dashboard @qa {#logs}
+  dashboard: https://logs.example.com/d/web-app-errors
+  metric: New error events
+  threshold: None that weren't there before the release
+  watch: 30m
 ### Track: Wrap-up @release-lead {#wrap}
 - [ ] {communicate} Post the result in the team channel @release-lead {#result}
   channel: #team-releases
   message: ^tag (^commit) is live in ^environment and verified. Thanks, everyone.
+- [ ] {deploy} Deploy record shows ^tag in ^environment @release-lead {#deploy-record}
+  environment: ^environment
+  artifact: web-app
+  version: ^tag
+  tool: https://deploy.example.com/apps/web-app
+  rollback: The rollback commit in the release ticket
+  > The Jenkins job does the deploy. This step records what actually landed, so the receipt says which version went out and when.
 - [ ] {jira.issue} Close the release ticket @release-lead {#close}
   action: transition
   issue: ^ticket

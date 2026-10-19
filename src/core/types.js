@@ -76,7 +76,26 @@ PF.types = (function () {
       record: [{ name: 'output', label: 'Link to the output', kind: 'url' }] },
     { id: 'ci.gate', label: 'Pipeline result', icon: 'pipeline', hint: 'A build or test result for a specific commit.',
       fields: { pipeline: { label: 'Pipeline', kind: 'text', required: true }, page: { label: 'Pipeline page', kind: 'url' } },
-      record: [{ name: 'run', label: 'Run number', kind: 'text' }, { name: 'runLink', label: 'Run link', kind: 'url' }] }
+      record: [{ name: 'run', label: 'Run number', kind: 'text' }, { name: 'runLink', label: 'Run link', kind: 'url' }] },
+    { id: 'jira.sprint', label: 'Jira sprint', icon: 'flag', hint: 'Start or close a Jira sprint, move its unfinished issues, or set its goal.',
+      fields: { action: { label: 'Action', kind: 'choice', options: ['start', 'close', 'move-incomplete', 'set-goal'], required: true }, board: { label: 'Board', kind: 'text', required: true },
+        sprint: { label: 'Sprint', kind: 'text', required: true }, goal: { label: 'Sprint goal', kind: 'text', requiredWhen: { action: 'set-goal' } } },
+      record: [{ name: 'sprintLink', label: 'Sprint link', kind: 'url' }, { name: 'name', label: 'Sprint name', kind: 'text', when: { action: 'start' } }, { name: 'dates', label: 'Sprint dates', kind: 'text', when: { action: 'start' } },
+        { name: 'carriedOver', label: 'Issues carried over', kind: 'text', when: { action: 'close' } }, { name: 'moved', label: 'Issues moved', kind: 'text', when: { action: 'move-incomplete' } }] },
+    { id: 'deploy', label: 'Deploy', icon: 'deploy', hint: 'Deploy a version of something to an environment.',
+      fields: { environment: { label: 'Environment', kind: 'text', required: true }, artifact: { label: 'What to deploy', kind: 'text', required: true }, version: { label: 'Version', kind: 'text' },
+        tool: { label: 'Deploy tool', kind: 'url' }, rollback: { label: 'Roll back to', kind: 'text' } },
+      record: [{ name: 'deployed', label: 'Version deployed', kind: 'text' }, { name: 'deployLink', label: 'Deploy link', kind: 'url' }, { name: 'finished', label: 'Finished at', kind: 'text' }] },
+    { id: 'verify.health', label: 'Health check', icon: 'pulse', hint: 'Watch a dashboard or metric for a while and say whether it stayed healthy.',
+      fields: { dashboard: { label: 'Dashboard', kind: 'url', required: true }, metric: { label: 'Metric', kind: 'text', required: true }, threshold: { label: 'Healthy when', kind: 'text' }, watch: { label: 'Watch for', kind: 'text' } },
+      record: [{ name: 'result', label: 'Result', kind: 'choice', options: ['Pass', 'Fail'] }, { name: 'observed', label: 'Value you saw', kind: 'text' }, { name: 'snapshot', label: 'Screenshot or link', kind: 'url' }] },
+    { id: 'github.pr', label: 'GitHub pull request', icon: 'merge', hint: 'Open, review, approve or merge a GitHub pull request.',
+      fields: { action: { label: 'Action', kind: 'choice', options: ['open', 'review', 'approve', 'merge'], required: true }, repo: { label: 'Repository', kind: 'text', required: true },
+        pull: { label: 'Pull request', kind: 'url', requiredUnless: { action: 'open' } }, from: { label: 'From branch', kind: 'text' }, to: { label: 'Into branch', kind: 'text' } },
+      record: [{ name: 'pr', label: 'Pull request link', kind: 'url' }, { name: 'checks', label: 'Checks', kind: 'choice', options: ['Passing', 'Failing', 'Pending'] }, { name: 'mergeCommit', label: 'Merge commit', kind: 'text', when: { action: 'merge' } }] },
+    { id: 'measure', label: 'Measure', icon: 'chart', hint: 'Record a number with its unit, like velocity or points carried over.',
+      fields: { metric: { label: 'What to measure', kind: 'text', required: true }, unit: { label: 'Unit', kind: 'text' }, where: { label: 'Where to read it', kind: 'text' } },
+      record: [{ name: 'value', label: 'Value', kind: 'text' }, { name: 'unit', label: 'Unit', kind: 'text' }] }
   ];
 
   var BY = {};
@@ -232,6 +251,7 @@ PF.types = (function () {
   }
   var GROUPS = { confirm: 'General', communicate: 'General', meeting: 'General', decide: 'General', review: 'General', wait: 'General',
     'ui.action': 'Tools', 'jenkins.job': 'Tools', 'bitbucket.pr': 'Tools', 'jira.issue': 'Tools', 'ci.gate': 'Tools',
+    'jira.sprint': 'Tools', deploy: 'Tools', 'verify.health': 'Tools', 'github.pr': 'Tools', measure: 'General',
     'run.process': 'Automation', 'run.command': 'Automation', 'run.script': 'Automation', 'run.skill': 'Automation' };
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }

@@ -447,11 +447,12 @@
     var valueOf = function (d) { return evidenceDefault(ctx, r, st, d); };
     var recBody = '';
     if (s.pick && s.pick.id === st.id && s.pick.kind === 'fields') {
-      /* Choices made in this form but not saved yet (an action) decide which other fields and evidence it shows. */
+      /* Choices made in this form but not saved yet (an action) decide which other fields and evidence it shows. Evidence
+         starts from the step's draft (typed before Fill in opened), so saving the form never drops that typing. */
       var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, draft = s.fieldsDraft && s.fieldsDraft.id === st.id ? s.fieldsDraft.values : {}, eff2 = Object.assign({}, eff, draft), recFields2 = R.evidenceFor(r, st, eff2).list;
       recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for this run. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
         T.relevant(t, eff2).map(function (f) { var d = T.fieldDef(t, f); return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', errFor(s, st.id, 'fld-' + f)); }).join('') +
-        (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name)); }).join('') : '') +
+        (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
       recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.map(function (d) {

@@ -111,6 +111,15 @@ BUILTIN = {
     "run.script": {"fields": {"script": {"kind": "code"}, "args": {"kind": "code"}, "where": {"kind": "text"}, "expected": {"kind": "text"}}, "record": [{"name": "result"}]},
     "run.skill": {"fields": {"skill": {"kind": "text"}, "inputs": {"kind": "text"}, "expected": {"kind": "text"}}, "record": [{"name": "output"}]},
     "ci.gate": {"fields": {"pipeline": {"kind": "text"}, "page": {"kind": "url"}}, "record": [{"name": "run"}, {"name": "runLink"}]},
+    "jira.sprint": {"fields": {"action": {"kind": "choice", "options": ["start", "close", "move-incomplete", "set-goal"]}, "board": {"kind": "text"}, "sprint": {"kind": "text"}, "goal": {"kind": "text"}},
+                    "record": [{"name": "sprintLink"}, {"name": "name"}, {"name": "dates"}, {"name": "carriedOver"}, {"name": "moved"}]},
+    "deploy": {"fields": {"environment": {"kind": "text"}, "artifact": {"kind": "text"}, "version": {"kind": "text"}, "tool": {"kind": "url"}, "rollback": {"kind": "text"}},
+               "record": [{"name": "deployed"}, {"name": "deployLink"}, {"name": "finished"}]},
+    "verify.health": {"fields": {"dashboard": {"kind": "url"}, "metric": {"kind": "text"}, "threshold": {"kind": "text"}, "watch": {"kind": "text"}},
+                      "record": [{"name": "result"}, {"name": "observed"}, {"name": "snapshot"}]},
+    "github.pr": {"fields": {"action": {"kind": "choice", "options": ["open", "review", "approve", "merge"]}, "repo": {"kind": "text"}, "pull": {"kind": "url"}, "from": {"kind": "text"}, "to": {"kind": "text"}},
+                  "record": [{"name": "pr"}, {"name": "checks"}, {"name": "mergeCommit"}]},
+    "measure": {"fields": {"metric": {"kind": "text"}, "unit": {"kind": "text"}, "where": {"kind": "text"}}, "record": [{"name": "value"}, {"name": "unit"}]},
 }
 
 # The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
