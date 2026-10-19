@@ -3099,4 +3099,89 @@ rule('App: a new team folder\'s starter checklist names whoever created it as it
   assert.ok(/Created the team folder/.test(app.html() + app.live()), 'says it was created');
 });
 
+/* ---------- Folder health, the connection check, When something goes wrong (1.15) ---------- */
+rule('App: Folder health reads the folder, lists a conflict copy under Needs action, and its one button opens the run; Home says so too', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const run = app.run();
+  await app.fs.write(run.path.replace('run.json', 'run.conflict-wx-1.json'), JSON.stringify(run.json));
+  app.click('nav', 'settings'); await app.tick();
+  assert.ok(/data-act="health">Check folder health/.test(app.html()));
+  app.click('health'); await app.tick(200);
+  let html = app.html();
+  assert.ok(/Folder health<\/h1>/.test(html) && /Needs action · 1/.test(html) && /All clear ·/.test(html), 'scanned and grouped');
+  assert.ok(/files in /.test(html) && /What's in the folder/.test(html));
+  assert.ok(new RegExp('data-act="open-run" data-id="' + run.key.replace('/', '\\/') + '">Compare copies').test(html));
+  app.click('nav', 'home'); await app.tick();
+  assert.ok(/The team folder needs attention/.test(app.html()) && /data-act="health"/.test(app.html()), 'Home line');
+  app.click('open-run', run.key); await app.tick(40);
+  assert.ok(/data-act="recovery" data-id="a-run-has-conflict-copies">What to do/.test(app.html()));
+});
+
+rule('App: What to do opens that section of the guide in the app, and Back returns to the run', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(40);
+  app.click('recovery', 'a-run-has-conflict-copies'); await app.tick();
+  const html = app.html();
+  assert.ok(/When something goes wrong<\/h1>/.test(html) && /class="panel rv-sec on" id="rv-a-run-has-conflict-copies"/.test(html), 'the guide, at that section');
+  assert.ok(/Back to the run/.test(html) && app.focused() === 'rv-h-a-run-has-conflict-copies', 'its heading takes focus');
+  assert.ok(/aria-current="page">Settings</.test(app.top()), 'it belongs to Settings');
+  app.click('recovery-back'); await app.tick(40);
+  assert.ok(/class="fpe rw"/.test(app.html()) && /Release 2026\.10\.16/.test(app.html()), 'back on the run');
+});
+
+rule('App: a run file that stops parsing stays on screen as last read, the Runs page lists it, and Folder health needs action', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const run = app.run();
+  await app.fs.write(run.path, '{"format":"preflight-run/2","id":');
+  app.click('nav', 'runs'); await app.tick(); app.click('refresh'); await app.tick(80);
+  const html = app.html();
+  assert.ok(/A run file can't be read/.test(html) && html.indexOf(run.path) >= 0, 'listed by its file');
+  assert.ok(/Release 2026\.10\.16/.test(html), 'the run is still shown, as last read');
+  app.click('health'); await app.tick(200);
+  assert.ok(/A run file can(&#39;|')t be read/.test(app.html()) && /data-id="a-file-cant-be-read">What to do/.test(app.html()));
+});
+
+rule('App: a connection check from one window is answered with one click in another, and the sender sees the answer timed', async () => {
+  const files = {};
+  const a = boot({ sharedFiles: files }); await a.tick(60);
+  const b = boot({ sharedFiles: files }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  a.click('connection'); await a.tick(40);
+  assert.ok(/Connection check<\/h1>/.test(a.html()) && /data-act="conn-send"/.test(a.html()));
+  a.click('conn-send'); await a.tick(60);
+  const probe = Object.keys(files).filter(k => /^connection\/probe-/.test(k));
+  assert.strictEqual(probe.length, 1, 'one check file');
+  const rec = JSON.parse(files[probe[0]].t);
+  assert.ok(rec.kind === 'connection-probe' && rec.cv === 1 && rec.n === 1 && rec.by === 'person-casey' && rec.run && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(rec.run.key), JSON.stringify(rec));
+  assert.ok(/Check 1/.test(a.html()) && /Waiting/.test(a.html()));
+  // B is on Home: its next refresh finds the check and offers Answer; nothing is answered by itself there.
+  b.click('refresh'); await b.tick(60);
+  assert.ok(/Casey Nguyen is checking the connection/.test(b.html()) && /data-act="conn-answer"/.test(b.html()));
+  assert.strictEqual(Object.keys(files).filter(k => /^connection\/ack-/.test(k)).length, 0, 'not answered without a click');
+  b.click('conn-answer', probe[0].split('/')[1]); await b.tick(60);
+  const ack = Object.keys(files).filter(k => /^connection\/ack-/.test(k));
+  assert.strictEqual(ack.length, 1);
+  const ar = JSON.parse(files[ack[0]].t);
+  assert.ok(ar.probe === rec.id && ar.by === 'person-blake' && ar.firstSeenAt && ar.run && ar.run.key === rec.run.key);
+  assert.ok(!/data-act="conn-answer"/.test(b.html()), 'answered: the banner goes');
+  // A lists connection/ every 5 seconds on that page.
+  await new Promise(r => setTimeout(r, 5100)); a.every(); await a.tick(60);
+  assert.ok(/saw check 1 at/.test(a.html()) && /Their answer reached this computer/.test(a.html()) && /class="cx-route"/.test(a.html()));
+});
+
+rule('App: on the Connection check page, checks from other windows are answered by themselves', async () => {
+  const files = {};
+  const a = boot({ sharedFiles: files }); await a.tick(60);
+  const b = boot({ sharedFiles: files }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  b.click('connection'); await b.tick(40);
+  a.click('connection'); await a.tick(40); a.click('conn-send'); await a.tick(60);
+  await new Promise(r => setTimeout(r, 5100)); b.every(); await b.tick(80);
+  assert.strictEqual(Object.keys(files).filter(k => /^connection\/ack-/.test(k)).length, 1, 'B answered by itself');
+  assert.ok(/You answered at/.test(b.html()));
+});
+
 run();

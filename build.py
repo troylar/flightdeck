@@ -8,9 +8,9 @@ notes and the contract baselines (src/baselines.json) are inlined. Also regenera
 import base64, datetime, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent
-CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/skills.js", "core/attach.js", "core/contract.js"]
+CORE = ["core/util.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/health.js", "core/connection.js"]
 APP = ["storage/fs.js", "storage/repo.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
-       "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/examples.js", "ui/app.js"]
+       "ui/views/run.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/flight.js", "ui/views/health.js", "ui/examples.js", "ui/app.js"]
 
 # ---- release notes: validate, then embed. A bad entry fails the build rather than shipping a broken page. ----
 KINDS = {"new": "New", "improved": "Improved", "fixed": "Fixed"}
@@ -147,10 +147,12 @@ def main():
     core = core.replace("/*@BASELINES@*/{}", releases_js(baselines))
     app = "\n".join(read(f) for f in APP)
     blob = json.dumps(examples, ensure_ascii=False).replace("</", "<\\/")
-    for marker in ("/*@EXAMPLES@*/{}", "/*@RELEASES@*/[]"):
+    for marker in ("/*@EXAMPLES@*/{}", "/*@RELEASES@*/[]", "/*@RECOVERY@*/''"):
         if app.count(marker) != 1:
             sys.exit(f"ui/app.js must contain the {marker} placeholder exactly once")
-    app = app.replace("/*@EXAMPLES@*/{}", blob).replace("/*@RELEASES@*/[]", releases_js(releases))
+    # docs/recovery.md, shown in the app as "When something goes wrong", so the two never differ.
+    recovery = (root / "docs" / "recovery.md").read_text(encoding="utf-8")
+    app = app.replace("/*@EXAMPLES@*/{}", blob).replace("/*@RELEASES@*/[]", releases_js(releases)).replace("/*@RECOVERY@*/''", releases_js(recovery))
     fonts = "".join(
         "@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:%s;font-display:swap;"
         "src:url(data:font/woff2;base64,%s) format('woff2');}" % (w, base64.b64encode((root / "src" / "fonts" / ("barlow-condensed-%s.woff2" % w)).read_bytes()).decode("ascii"))
@@ -172,7 +174,7 @@ def main():
     # Copies from before the rename look for preflight-version; both stamps let them see an update.
     page = page.replace(VERSION_META, f'<meta name="flightdeck-version" content="{version}"><meta name="preflight-version" content="{version}">')
     out = page.replace("/*@CORE@*/", script_safe(core)).replace("/*@APP@*/", script_safe(app))
-    for marker in ("/*@CORE@*/", "/*@APP@*/", "/*@EXAMPLES@*/", "/*@FONTS@*/", "/*@RELEASES@*/", "/*@BASELINES@*/"):
+    for marker in ("/*@CORE@*/", "/*@APP@*/", "/*@EXAMPLES@*/", "/*@FONTS@*/", "/*@RELEASES@*/", "/*@BASELINES@*/", "/*@RECOVERY@*/"):
         if marker in out:
             sys.exit(f"unreplaced placeholder {marker}")
     (root / "dist").mkdir(exist_ok=True)

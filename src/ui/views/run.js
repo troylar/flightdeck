@@ -203,7 +203,7 @@
     var s = ctx.state, copies = r._conflicts || [], local = ctx.localCopy(r);
     if (!copies.length && !local) return '';
     var h = '<section class="notice bad recovery" aria-labelledby="rec-t"><div class="stack" style="gap:8px;width:100%"><h3 id="rec-t" tabindex="-1" style="margin:0">' + (copies.length + (local ? 1 : 0)) + ' other version' + (copies.length + (local ? 1 : 0) === 1 ? '' : 's') + ' of this run</h3>' +
-      '<span class="small">Two computers saved at once, or a save couldn\'t be written. Compare, keep the right one, and delete the rest. Nothing is merged automatically.</span>';
+      '<span class="small">Two computers saved at once, or a save couldn\'t be written. Compare, keep the right one, and delete the rest. Nothing is merged automatically. <button type="button" class="linkish" data-act="recovery" data-id="a-run-has-conflict-copies">What to do</button></span>';
     copies.forEach(function (name) {
       var open = s.copyView && s.copyView.name === name && s.copyView.key === runKey(r);
       h += '<div class="copyrow"><code>' + esc(name) + '</code><span class="row"><button class="mini" data-act="compare-copy" data-id="' + esc(name) + '">' + (open ? 'Compared' : 'Compare') + '</button>' +
@@ -597,7 +597,7 @@
       /* On a phone the header keeps only Runs and More, so Details and Screen share are here too. */
       '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>' +
       (rec && hl.s !== 'complete' ? '<button type="button" class="mini" data-act="finish">End run…</button>' : '') + planAgain(ctx, r, 'mini') +
-      '<button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
+      '<button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="health">Folder health</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
       (s.me ? '<span class="rw-me" title="Everything you do here is stamped with your name">You: <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '') + '</div></header>';
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
@@ -609,6 +609,7 @@
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
     if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + esc(px ? px.step.text : part.step) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     al += recovery(ctx, r, ctx.canRecover(r));
+    if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);
     h += '<div class="fpe-alerts rw-alerts">' + al + '</div>';
 

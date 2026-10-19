@@ -7,6 +7,8 @@
      this is the unbuilt source, not a copy people should use. */
   var RELEASES = /*@RELEASES@*/[];
   var APP_VERSION = RELEASES[0] ? RELEASES[0].version : 'dev';
+  /* docs/recovery.md, embedded by build.py: the in-app "When something goes wrong". */
+  var RECOVERY = /*@RECOVERY@*/'';
   var LS = 'preflight';
   var resumeEdit = (function () { try { return sessionStorage.getItem('preflight:editing'); } catch (e) { return null; } })();
   var canFolder = typeof window.showDirectoryPicker === 'function';
@@ -55,7 +57,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -101,6 +103,12 @@
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
     localCopy: function (r) { var c = lsGet(localKey(r.id), null); return c && c.id === r.id ? c : null; },
+    /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
+    health: function (full) { return healthReport(full); },
+    recovery: RECOVERY, writer: WRITER,
+    device: function () { return PF.connection.device(navigator.userAgent, state.deviceName); },
+    /* Connection checks from other windows that this one hasn't answered or put off. */
+    connPending: function () { return state.conn ? PF.connection.pending(state.conn, WRITER, state.connDismissed).filter(function (p) { return !(state.connAnswering || {})[p._file]; }) : []; },
     /* Thumbnails are small copies made once per image; the full image is loaded only in the lightbox and released when it closes. */
     img: function (src, caption, full) {
       /* A run shows the screenshots frozen into its own publication. Only publications made before screenshots were frozen fall back to images/. */
@@ -199,6 +207,13 @@
     });
     data.drafts.forEach(function (d) {
       var m = M.parse(d.md), id = m.meta.process || d.file.replace(/\.md$/i, ''), e = entry(id);
+      /* Two drafts that say the same process (a OneDrive copy, release-LAPTOP.md): both are listed on the process page and in
+         Folder health. The one named for the process is shown; otherwise the first by name, the same on every computer. */
+      if (e.draft) {
+        e.sharedDrafts = (e.sharedDrafts || [e.draft.file]).concat([d.file]).sort();
+        var keep = e.draft.file === id + '.md' || (d.file !== id + '.md' && e.draft.file < d.file);
+        if (keep) return;
+      }
       e.draft = d;
       if (!e.latest) { e.title = m.meta.title || id; e.category = m.meta.category || 'Other'; e.group = m.meta.group; e.tags = m.meta.tags; }
       e.draftChanged = !e.latest || U.hash(d.md) !== e.latest.info.mapHash;
@@ -237,7 +252,7 @@
   /* ---------- loading ---------- */
   function signature(d) {
     return JSON.stringify([d.people.length, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; })]);
+      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -270,6 +285,7 @@
       if (g !== gen) return;
       d.readSeq = seq;
       loading = null;
+      keepUnread(d);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       for (var i = 0; i < d.runs.length; i++) {
         var id = d.runs[i].id, mine = localRun(id);
@@ -283,9 +299,112 @@
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
       syncChildren();
+      loadConn();
     }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
+  }
+  /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
+     be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], runs: ['runs'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'] };
+  function keepUnread(d) {
+    Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
+    (d.unreadable || []).forEach(function (u) {
+      if (!u.key) return;
+      var old = data.runs.filter(function (x) { return x.process + '/' + x.id === u.key; })[0];
+      if (old && !d.runs.some(function (y) { return y.process === old.process && y.id === old.id; })) d.runs.push(old);
+    });
+  }
+
+  /* ---------- Folder health (on demand) ---------- */
+  var healthMemo = null;
+  function healthReport(full) {
+    if (!data.readSeq) return null;
+    var hs = state.healthScan && state.healthScan.gen === gen ? state.healthScan : null, conn = state.conn;
+    var key = [sig, state.me, hs && full ? hs.n : 0, Math.floor(Date.now() / 60000), state.newer, conn ? conn.readAt : ''].join('|');
+    if (healthMemo && healthMemo.key === key) return healthMemo.rep;
+    var rep = PF.health.check({ data: data, scan: full && hs ? hs.scan : null, me: state.me, app: APP_VERSION, newer: state.newer, contract: hs ? hs.contract : null, connection: conn }, Date.now());
+    healthMemo = { key: key, rep: rep };
+    return rep;
+  }
+  /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them. */
+  function contractHashes(scan) {
+    var sub = typeof crypto !== 'undefined' && crypto.subtle, C = PF.contract, paths = Object.keys(scan.contractTexts || {});
+    if (!sub || typeof TextEncoder === 'undefined') return Promise.resolve(null);
+    return Promise.all(paths.map(function (p) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(p, scan.contractTexts[p]))); })).then(function (ds) {
+      var hashes = {}; ds.forEach(function (d, i) { hashes[paths[i]] = C.hex(d); }); return { hashes: hashes };
+    }, function () { return null; });
+  }
+  /* Reads the folder again, then every file in it, 8 at a time. Bound to the folder it started in. */
+  function runHealth() {
+    if (!state.fs || state.healthBusy) return;
+    var fs = state.fs, g = gen, n = (state.healthN || 0) + 1, last = 0;
+    state.healthN = n; state.healthBusy = true; state.healthErr = null; state.healthFound = 0; render();
+    load(true, true).then(function () {
+      if (g !== gen) return null;
+      return repo.scan(fs, { alive: function () { return g === gen; }, progress: function (k) { if (g !== gen) return; state.healthFound = k; var t = Date.now(); if (t - last > 400 && state.view === 'health') { last = t; scheduleRender(); } } });
+    }).then(function (scan) {
+      if (!scan || g !== gen) return null;
+      return contractHashes(scan).then(function (c) { if (g !== gen) return; state.healthScan = { gen: g, n: n, scan: scan, contract: c }; });
+    }).then(function () { if (g !== gen) return; state.healthBusy = false; render(); }, function (e) {
+      if (g !== gen) return; state.healthBusy = false; if (!(e && e.cancelled)) state.healthErr = e && e.message || String(e); render();
+    });
+  }
+
+  /* ---------- The connection check (connection/; core/connection.js) ---------- */
+  var connListing = false, lastConn = 0;
+  function connSig(l) { return l ? l.probes.concat(l.acks).map(function (x) { return x._file; }).sort().join('|') : ''; }
+  /* Lists connection/ (only the last 15 minutes are read). On the Connection check page it runs every 5 seconds and answers
+     checks from other computers; elsewhere it rides along with the routine refresh and only offers an Answer button. */
+  function loadConn() {
+    if (!state.fs || connListing) return Promise.resolve();
+    var fs = state.fs, g = gen;
+    connListing = true;
+    return repo.loadConnection(fs, Date.now()).then(function (list) {
+      connListing = false;
+      if (g !== gen) return;
+      var t = Date.now(), seen = state.connSeen = state.connSeen || {};
+      list.probes.concat(list.acks).forEach(function (x) { if (seen[x._file] == null) seen[x._file] = t; });
+      var was = connSig(state.conn); state.conn = list;
+      if (state.view === 'connection') PF.connection.pending(list, WRITER, null).forEach(function (p) { answerConn(p, true); });
+      if (connSig(list) !== was) render();
+    }, function () { connListing = false; });
+  }
+  function answerConn(p, auto) {
+    var busy = state.connAnswering = state.connAnswering || {};
+    if (!state.me || !state.fs || busy[p._file]) return;
+    busy[p._file] = true;
+    var fs = state.fs, g = gen, run = p.run ? ctx.findRun(p.run.key) : null, seenAt = (state.connSeen || {})[p._file] || Date.now();
+    var rec = { probe: p.id, probeFile: p._file, by: state.me, writer: WRITER, device: ctx.device(), at: new Date().toISOString(), firstSeenAt: new Date(seenAt).toISOString(), app: APP_VERSION,
+      run: p.run && run ? { key: p.run.key, rev: run.rev || 0, savedAt: run.savedAt || null } : null, folderReadAt: data.readAt };
+    queued(function () { return repo.sendAck(fs, rec); }).then(function (name) {
+      if (g !== gen) return;
+      (state.connAnswered = state.connAnswered || []).push({ probe: p.id, file: name, at: Date.now(), by: p.by });
+      if (!auto) say('Answered ' + V.nameOf(ctx, p.by) + '\'s check. Their computer shows your answer when it arrives there.', 'good');
+      render();
+      return loadConn();
+    }, function (e) { if (g !== gen) return; delete busy[p._file]; state.connErr = 'Couldn\'t answer the check: ' + (e && e.message || e); render(); });
+  }
+  function sendCheck() {
+    if (!state.me || !state.fs || state.connSending) return;
+    var fs = state.fs, g = gen, at = Date.now(), id = U.randomId(8), n = (state.connN || 0) + 1;
+    /* The run most recently saved, so the answer can say whether the other computer has its latest revision too. */
+    var at_ = function (r) { return r.savedAt || r.created || ''; };
+    var cur = data.runs.filter(function (r) { return !r.ended && r.state === 'running' && !r._unrunnable; }).sort(function (a, b) { return at_(a) < at_(b) ? 1 : -1; })[0];
+    var mine = (state.connSent || []).map(function (x) { return x.id; });
+    var seen = ((state.conn || {}).acks || []).filter(function (a) { return mine.indexOf(a.probe) >= 0; }).map(function (a) { return a._file; });
+    var rec = { id: id, n: n, by: state.me, writer: WRITER, device: ctx.device(), at: new Date(at).toISOString(), app: APP_VERSION, run: cur ? { key: cur.process + '/' + cur.id, rev: cur.rev || 0 } : null, seen: seen };
+    state.connSending = true; state.connErr = null; render();
+    queued(function () { return repo.sendProbe(fs, rec, at); }).then(function (name) {
+      if (g !== gen) return;
+      state.connSending = false; state.connN = n;
+      (state.connSent = state.connSent || []).push({ file: name, id: id, n: n, at: at, run: rec.run });
+      (state.connSeen = state.connSeen || {})[name] = at;
+      say('Check ' + n + ' sent. Waiting for another computer to answer.', 'good');
+      queued(function () { return repo.cleanConnection(fs, Date.now()); }).catch(function () {});
+      render();
+      return loadConn();
+    }, function (e) { if (g !== gen) return; state.connSending = false; state.connErr = 'Couldn\'t send the check: ' + (e && e.message || e); render(); });
   }
   /* While a run is open, refresh just that run and its notes. The rest of the folder refreshes less often. */
   function refreshRun() {
@@ -315,6 +434,7 @@
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
+    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -512,7 +632,7 @@
     state.tags = (state.tagsBy || {})[state.view] || [];
     var v = state.view;
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
-    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess };
+    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage };
     tfPreviewFits();
     if (drawn && drawn.fs === fsKey() && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
     var page = (PAGES[v] || V.home)(ctx), was = drawn;
@@ -708,6 +828,7 @@
   setInterval(function () {
     if (document.hidden || isBusy() || !state.fs || loading) return;
     var now = Date.now();
+    if (state.view === 'connection' && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
@@ -1563,8 +1684,44 @@
     handler(id, b);
   });
 
+  var BACK = { home: 'Home', runs: 'Runs', run: 'Back to the run', processes: 'Processes', process: 'Back to the process', skills: 'Skills', skill: 'Back to the skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
   var ACTIONS = {
     home: function () { home(); render(); },
+    /* ---------- Folder health, the connection check, When something goes wrong ---------- */
+    health: function () {
+      releaseUrls(state.urls); setView('health'); state.runKey = null; state.processId = null; resetRunUi();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0);
+      var hs = state.healthScan;
+      if (!hs || hs.gen !== gen || Date.now() - Date.parse(hs.scan.at) > 300000) runHealth();
+    },
+    'health-again': function () { runHealth(); },
+    'health-copy': function () {
+      var hs = state.healthScan, rep = healthReport(true); if (!rep || !hs) return;
+      copyText(PF.health.text(rep, { folder: state.fs && state.fs.name, at: U.when(hs.scan.at), app: APP_VERSION, files: hs.scan.files }), null, 'Copied. Paste it to a teammate or your AI assistant.');
+    },
+    'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
+    connection: function () {
+      releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = Date.now(); loadConn();
+    },
+    'conn-send': function () { sendCheck(); },
+    'conn-answer': function (id) { var p = ((state.conn || {}).probes || []).filter(function (x) { return x._file === id; })[0]; if (p) answerConn(p, false); },
+    'conn-dismiss': function (id) { (state.connDismissed = state.connDismissed || {})[id] = true; render(); },
+    'dismiss-conn': function () { state.connErr = null; render(); },
+    'conn-name': function () {
+      state.deviceName = String(val('cx-name')).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 40); lsSet('device-name', state.deviceName);
+      say('Saved. Checks from this browser say "' + ctx.device() + '".', 'good'); render();
+    },
+    recovery: function (id) {
+      if (state.view !== 'recovery') state.recBack = { view: state.view, runKey: state.runKey, processId: state.processId, ptab: state.ptab, label: BACK[state.view] || 'Back' };
+      setView('recovery'); state.recoveryAt = id || ''; state.focus = id ? 'rv-h-' + id : 'page-h'; render();
+      var el = id && document.getElementById('rv-' + id);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
+    },
+    'recovery-back': function () {
+      var b = state.recBack || { view: 'settings' };
+      state.recBack = null; setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
+    },
     dismiss: function () { say(null); render(); announceRelease(); },
     refresh: function () { load(true, true); },
     connect: function () { connect(); },

@@ -83,7 +83,7 @@ A copy left in any version's updates folder (`.flightdeck/updates/<version>/<the
 
 ## 6. Verify
 
-Open the team folder's `flightdeck.html` and check What's new shows the new version. Open a run and a process to make sure they load. Once they exist (a later 1.15 release), also check **Folder health** and run a connection check with a teammate.
+Open the team folder's `flightdeck.html` and check What's new shows the new version. Open a run and a process to make sure they load. Then open **Settings → Folder health** and deal with anything under Needs action, and run a **Connection check** with a teammate on another computer (each of you sends one).
 
 ## 7. Tell the team
 
@@ -100,6 +100,7 @@ For a while after an update, some people will still have the older copy open. Ol
 | A note of a new kind (a correction, read by a copy older than 1.13) | Shows it as a plain note and keeps its files |
 | A draft that uses new checklist syntax | Shows errors on the draft; publish it from the newer copy |
 | `AGENTS.md`, the skills, `.flightdeck/installed.json` | Ignores them: the app doesn't read them |
+| Connection checks in `connection/` (1.15) | Ignores them: copies before 1.15 never read that folder, and can't answer a check |
 
 So the worst case is someone who can't record until they reopen the newer copy. Nothing they had is erased.
 

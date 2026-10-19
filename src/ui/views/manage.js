@@ -144,6 +144,8 @@
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1>Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
     if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(e.errors.join('; ')); }).join('<br>') + '</span></div>';
+    var skipped = (ctx.data.stepTypes || {}).skipped || 0;
+    if (skipped) h += '<div class="notice warn" role="status"><span><b>' + skipped + ' more step-type file' + (skipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 100 in <code>step-types/</code>, by name. Remove types nobody uses.</span><button class="mini" data-act="health">Folder health</button></div>';
     /* Organized like processes and skills: a tag filter, then each list as a tree by group. */
     var teamTypes = Object.keys(team).sort().map(function (id) { return team[id]; }), chosen = st.tags || [];
     var allT = chosen.slice(); teamTypes.forEach(function (t) { T.tagsOf(t).forEach(function (x) { if (allT.indexOf(x) < 0) allT.push(x); }); }); allT.sort();
@@ -404,6 +406,8 @@
       '<p class="small">Pick a shared OneDrive folder set to <i>Always keep on this device</i>.</p>'
       : '<p class="small">This browser can\'t open folders. Use Edge or Chrome on a computer.</p>';
     h += '</section>';
+    h += '<section class="panel stack" aria-labelledby="set-health"><h2 id="set-health">' + I('pulse') + 'Folder health</h2><p class="small">Conflict copies, files that can\'t be read, versions still arriving, and more, each with what to do. Then check that files travel between two computers.</p>' +
+      '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
     h += '<section class="panel" aria-labelledby="set-people"><h2 id="set-people">' + I('people') + 'People · ' + d.people.length + '</h2>' + (d.people.length ? '<ul class="vlist">' + d.people.map(function (p) { return '<li>' + K.avatar(ctx, p.id) + '<span><b>' + esc(p.name) + '</b>' + (p.inactive ? ' <span class="small">(inactive)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span></li>'; }).join('') + '</ul>' : '<p class="small">Nobody yet.</p>') +
       '<p class="small">To change this list, edit <code>people.json</code> in the team folder.</p></section>';
     h += V.teamSetup(ctx);

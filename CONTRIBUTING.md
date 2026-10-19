@@ -12,7 +12,7 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 
 | Folder | What's there | Rules |
 |---|---|---|
-| `src/core/` | Pure logic: checklists, the builder's edits (`outline.js`), publishing, runs, gates, corrections, skills | No DOM, no files. Tested in `test/rules.test.js` and `test/outline.test.js`. |
+| `src/core/` | Pure logic: checklists, the builder's edits (`outline.js`), publishing, runs, gates, corrections, skills, Folder health (`health.js`) and the connection check (`connection.js`) | No DOM, no files. Tested in `test/rules.test.js` and `test/outline.test.js`. |
 | `src/storage/` | The team folder: reading, saving, conflict checks, caching | Every file has one writer. Tested in `test/folder.test.js`, and against simulated OneDrive sync between two computers in `test/sync.test.js`. |
 | `src/ui/` | Screens (`views/*.js`), wiring (`app.js`), the example history (`examples.js`), icons | Views return HTML strings. Everything from files goes through `esc()` or the escape-first Markdown. |
 | `src/page.html` | Styles and the page shell | Colors are tokens with light and dark values. No external resources. |
@@ -36,6 +36,8 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 - **Change a step type's properties:** a frozen type with a property, field kind or type version this copy doesn't know makes its version unusable (`types.understood`, mirrored in `check_folder.py`). Add new properties to both, and test them in `test/checker.test.js`.
 - **Change `example-folder/AGENTS.md` or a skill:** run `node tools/baselines.js --write`, so `flightdeck install` recognizes the new text as a Flightdeck default in folders that have it. A test fails until you do.
 - **Add a built-in step type:** keep `PF.types.VERSION` as it is. Every built-in is frozen into each publication's `types.json` with the current version, so raising it makes every new version unusable in older copies, even ones that use only `confirm`. A new type built from fields, kinds and settings older copies already know runs there from its frozen definition (`test/rules.test.js` checks this with a copy that lacks the type). Raise `VERSION`, together with `TYPES_VERSION` in `check_folder.py`, only when what an existing setting means changes.
+- **Add a Folder health check:** add it to `PF.health.check` in `src/core/health.js` with exactly one action and, when it has one, a `help` anchor that is a section of `docs/recovery.md` (a rule test checks both), plus an all-clear line for when it finds nothing. Add its threshold to `LIMITS` and to docs/design.md section 21.
+- **Change the connection check's wording:** never "synced" or "everyone" (a rule test checks); it proves one trip, nothing more.
 - **Change saving or loading:** add a case to `test/sync.test.js`. Its two simulated computers sync only when told to, which is how OneDrive behaves on release night.
 
 ## Release notes: every user-visible change gets one

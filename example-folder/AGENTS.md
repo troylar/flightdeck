@@ -23,6 +23,8 @@ This folder holds the team's process checklists and runs for Flightdeck. Read th
 - Anyone's `*.status-*.json` in `proposals/`: those are people's decisions.
 - `corrections/` and `suggestions/`: people decide on corrections there (`suggestions/` holds decisions on suggested fixes from before 1.13). Read them; never write them.
 - Plans people made in the app (`"by"` is a person's ID): write a new plan instead.
+- `connection/`: connection checks between computers, written by Flightdeck windows. Never write, edit or delete anything there.
+- `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install`. Never write them; merge an update only when a person asks (see above).
 
 ## Skills for this folder
 

@@ -2,8 +2,29 @@
   {
     "version": "1.15.0",
     "date": "2026-10-18",
-    "headline": "Safer updates: install keeps your team's changes, says what it would do first, and backs up the team folder",
+    "headline": "Team confidence: Folder health, a connection check between computers, and safer updates and backups",
     "changes": [
+      {
+        "kind": "new",
+        "area": "Team folder",
+        "title": "Folder health",
+        "now": "Flightdeck checks every file in the team folder on request and lists what needs a person: conflict copies, OneDrive's second copies, files that can't be read, versions that never finished arriving, runs left for a week, clocks that are off, a folder getting too big. Each has one button for what to do. Home says when something needs action.",
+        "where": "Settings › Folder health, or a run's More menu"
+      },
+      {
+        "kind": "new",
+        "area": "Team folder",
+        "title": "Check the connection between two computers",
+        "now": "Send a check from one computer and watch the other answer, with each leg timed and whether both have the same revision of the latest run. While the page is open it answers checks by itself; elsewhere a banner offers Answer. If the two clocks differ, it says by how much at least.",
+        "where": "Settings › Connection check"
+      },
+      {
+        "kind": "new",
+        "area": "Recovery",
+        "title": "What to do, inside Flightdeck",
+        "now": "The guide for when something goes wrong (conflict copies, lost folder access, OneDrive not syncing, restoring a backup, someone leaving) is in the app. Folder health, a run's conflict copies and the top bar's \"can't read it\" link straight to the right section.",
+        "where": "Settings › When something goes wrong"
+      },
       {
         "kind": "improved",
         "area": "Command line",
@@ -47,6 +68,27 @@
         "before": "Start a new team folder made the starter Check in code checklist with an example person as its owner.",
         "now": "The starter checklist names whoever created the folder as its owner, and the folder records which Flightdeck set it up.",
         "where": "Settings: Start a new team folder"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A run file that can't be read is listed, not lost from view",
+        "before": "A run whose file couldn't be read disappeared from every list, and one file that couldn't be read stopped the whole folder from loading.",
+        "now": "The Runs page and Folder health name the file and say it may still be arriving, the run stays as last read, and the rest of the folder loads as usual. If part of the folder can't be read, a notice says which part."
+      },
+      {
+        "kind": "fixed",
+        "area": "Processes",
+        "title": "Two drafts for one process are both shown",
+        "before": "When two drafts said the same process (often a OneDrive copy like release-LAPTOP.md), only one was shown.",
+        "now": "The process page lists both and says which one it shows, so you settle it before publishing. Folder health lists them too."
+      },
+      {
+        "kind": "fixed",
+        "area": "Step types",
+        "title": "Step types and skills past the limit are reported",
+        "before": "Past 100 step-type files or 500 skill registrations, the rest were quietly left out.",
+        "now": "The first ones by name are read, and the Step types and Skills pages and Folder health say how many weren't."
       }
     ]
   },

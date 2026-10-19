@@ -4,6 +4,8 @@ What to do when a team folder looks wrong. Each section says what you see, what 
 
 Before you change anything by hand, back up the folder: `flightdeck backup <team folder>` (see [Updating Flightdeck](updating.md#4-back-up)).
 
+Flightdeck has this guide too: **Settings → When something goes wrong**. **Settings → Folder health** checks the whole team folder and links each problem it finds to its section here, and the **What to do** links on a run's conflict copies and on the top bar's "can't read it" open the right section.
+
 ## A run has conflict copies
 
 **What you see:** a run shows a panel listing other versions, with **Compare copies**. In the folder, the run has files like `run.conflict-<window>-<time>.json`, `run-<COMPUTER>.json` or `candidate-*.json` next to `run.json`.
@@ -70,11 +72,63 @@ Changes Flightdeck kept in this browser while it couldn't write are filed under 
 
 **What to do:**
 
-- **The whole folder:** ask everyone to close Flightdeck first. Then restore the backup over the team folder (or OneDrive's own **Restore your OneDrive** for a point in time), wait for OneDrive to finish syncing on every computer, and reopen Flightdeck. Once Folder health exists (a later 1.15 release), check it before anyone starts recording.
+- **The whole folder:** ask everyone to close Flightdeck first. Then restore the backup over the team folder (or OneDrive's own **Restore your OneDrive** for a point in time), wait for OneDrive to finish syncing on every computer, and reopen Flightdeck. Open **Settings → Folder health** and deal with what it lists before anyone starts recording.
 - **One draft or `people.json`:** copying a single file back from a backup is fine. Tell the team, since it replaces any change made since.
 - **One run's `run.json`:** don't copy it over the current one. Put the backup copy next to it as `run.conflict-restored.json`; the run then shows it under **Compare copies**, and the recorder chooses with **Keep this one**. That way the current version is kept as `replaced-*.json`.
 
 **What not to do:** never restore part of `publications/`. A published version is a whole folder that's checked as a unit; restore all of a version's folder or none of it. Don't restore while anyone is recording a run.
+
+## A file can't be read
+
+**What you see:** **Folder health** or the Runs page says a file can't be read, like `runs/release/<run>/run.json isn't complete JSON`, or a page says part of the team folder couldn't be read.
+
+**What it means:** usually the file is still arriving: OneDrive delivers big files a piece at a time, or the computer has only a placeholder (the folder isn't set to keep files on this device). Sometimes an editor or a failed copy left it damaged. Flightdeck never writes over a file it can't read, and keeps showing what it read before.
+
+**What to do:**
+
+1. Wait a minute and choose **Check again** in Folder health (or **Refresh**).
+2. If it stays unreadable, make sure the folder is set to **Always keep on this device** (see [OneDrive isn't syncing](#onedrive-isnt-syncing)).
+3. Still unreadable: restore that one file as in [Restoring from a backup](#restoring-from-a-backup). For a run's `run.json`, put the backup next to it as `run.conflict-restored.json`, never over it.
+
+**What not to do:** don't fix the JSON by hand in a text editor, and don't delete the file. A run file someone fixed by hand may open read-only.
+
+## Leftover files
+
+**What you see:** **Folder health** lists leftover temporary files (`*.tmp`) or old save receipts (`candidate-*.json`) in run folders.
+
+**What it means:** a save, a copy or an install stopped partway, often because a computer went to sleep. Old save receipts are saves that are already in the run, kept until the run's next save tidies them away.
+
+**What to do:** save receipts need nothing; the next save of that run removes them. A temporary file older than a couple of hours, while nobody is saving or installing, can be deleted.
+
+**What not to do:** don't delete a `candidate-*.json` that the run lists as a conflict copy (it shows under **Compare copies**). That one is a save that would otherwise be lost.
+
+## The folder is getting big
+
+**What you see:** **Folder health** says the folder has many runs, a run folder holds many files, attachments take a lot of space, or some file paths are very long.
+
+**What it means:** Flightdeck still works, but every computer keeps every file, and opening the folder reads more each time. Past about 2,000 runs, or 1 GB of attachments, it gets slow. Windows refuses paths that get too long once the team folder's own location is added.
+
+**What to do:**
+
+- **Many runs:** start a new team folder for new runs (**Settings → Start a new team folder**), copy the drafts and step types into it, and keep the old folder as the record.
+- **Big attachments:** keep large logs and recordings elsewhere and attach a link or a short excerpt. A `.zip` of many small files is one file instead of many.
+- **Long paths:** use shorter process IDs and file names in new checklists.
+- **Step types or skills not read:** Flightdeck reads the first 100 step types and the first 500 skill registrations, by name. Remove ones nobody uses.
+
+**What not to do:** don't delete or move old runs to save space. Runs are the record; move the whole folder or start a new one.
+
+## Two windows used the same name
+
+**What you see:** **Folder health** says two windows wrote under the same name: notes with the same ID but different text, or connection checks from two computers carrying the same window name.
+
+**What it means:** every Flightdeck window gives the files it writes its own name, so no two windows ever write the same file. Two with the same name usually means a browser profile or a whole computer was copied, with Flightdeck open.
+
+**What to do:**
+
+1. Reload Flightdeck in every window on both computers. Each window takes a fresh name when it opens.
+2. Open the runs Folder health lists and read their notes. A note that's missing or garbled can be added again.
+
+**What not to do:** don't edit or delete the notes files by hand.
 
 ## Someone left the team
 
