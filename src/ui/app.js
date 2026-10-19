@@ -495,7 +495,7 @@
       var cur = findRun(key) || r, was = runUnread(cur);
       var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : cur._fileHash ? { kind: 'missing' } : null;
       var changed = !!f && f._fileHash !== cur._fileHash;
-      if (!res || !applyRunRead(key, at, res)) { renderTop(); return; }
+      if (!res || !applyRunRead(key, at, res)) { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (res.kind !== 'run') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
       if (changed) flashChanged(cur, f);
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;

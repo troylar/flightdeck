@@ -3592,6 +3592,21 @@ rule('App: a run file that reads again clears "couldn\'t be read" even while a c
   assert.strictEqual(t.disk().details.commit, 'WAITING-B', 'Try again saves it');
 });
 
+rule('App: the 5-second reread of a run whose file reads again redraws the run, so "couldn\'t be read" goes away without a full refresh', async () => {
+  const t = await heldRelease(), app = t.app;
+  const g = t.hold(true);
+  t.commit('SAVED-A'); await app.tick(30);
+  t.commit('WAITING-B'); await app.tick(30);
+  const good = app.fs.files[t.path].t;
+  app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() };
+  g.open(); await app.tick(30);
+  assert.ok(/couldn't be read on the last check/.test(app.html()), 'set-up');
+  app.fs.files[t.path] = { t: good, m: Date.now() };
+  t.c.ahead(6000); app.every(); await app.tick(80);
+  assert.ok(!/couldn't be read on the last check/.test(app.html()), 'the open-run reread alone clears it on screen');
+  assert.ok(/WAITING-B/.test(app.html()), 'B still waits');
+});
+
 rule('App: Discard goes back to exactly what the save wrote, even when a later change was folded into that save', async () => {
   const t = await heldRelease(), app = t.app;
   const r1 = t.holdRead();
