@@ -38,7 +38,7 @@ PF.appjson = (function () {
         steps: [{ id: 'string', text: 'string', type: 'string', must: 'boolean', planned: 'boolean', roles: ['string'], binds: ['string'], sets: ['string'], fields: map('string'), track: opt('string'), timing: TIMING, evidence: [EVIDENCE] }],
         gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], timing: TIMING } }] },
     runs: { runs: [SUMMARY], planned: [{ id: 'string', process: 'string', title: 'string', version: opt('number'), when: opt('string'), by: 'string', created: opt('string'), note: 'string',
-      details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: 'boolean' }] },
+      details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: opt('boolean') }] },
     run: { run: opt(extend(SUMMARY, { roles: [ROLE],
       steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', must: 'boolean', roles: ['string'], state: 'string', by: opt(PERSON), at: opt('string'), reason: opt('string'),
         values: map('string'), differently: opt({ note: 'string', by: opt(PERSON), at: opt('string') }), marks: ['string'], child: opt({ process: 'string', id: 'string' }), evidence: [EVIDENCE] }],
@@ -173,8 +173,9 @@ PF.appjson = (function () {
   function byCreated(a, b) { return a.created < b.created ? 1 : a.created > b.created ? -1 : a.key < b.key ? -1 : 1; }
   /* Plans as the app shows them: pending, accepted (started, with its run), declined, conflicting (two decisions disagree)
      or changed (edited after a decision). */
-  /* procs: the processes as loaded, to say which version a person starting the plan gets (P.forPlan, as the app picks it). */
-  function plan(p, procs) {
+  /* procs: the processes as loaded, to say which version a person starting the plan gets (P.forPlan, as the app picks it).
+     unsure(process): true when some of that process's versions couldn't be read, so both are unknown (null). */
+  function plan(p, procs, unsure) {
     var st = p._status, status = p._conflicting ? 'conflicting' : st ? s(st.status) : p._changedAfterDecision ? 'changed' : 'pending';
     var v = typeof p.version === 'number' ? p.version : /^\d+$/.test(s(p.version)) ? +p.version : null;
     var out = { id: s(p.id), process: s(p.process), title: s(p.title || p.process), version: v, when: orNull(p.when), by: s(p.by), created: orNull(p.created), note: s(p.note),
@@ -183,11 +184,12 @@ PF.appjson = (function () {
     var proc = (procs || []).filter(function (x) { return x.process === p.process; })[0], pick = proc && proc.index ? P.forPlan(proc.index, p.version, null) : { pub: null, missing: false };
     out.startsOn = pick.pub ? { version: pick.pub.info.version, folder: s(pick.pub.info.folder) } : null;
     out.versionMissing = !!pick.missing || (p.version != null && !pick.pub);
+    if (unsure && unsure(p.process)) { out.startsOn = null; out.versionMissing = null; }
     return out;
   }
-  function runs(runList, plans, nameOf, procs) {
+  function runs(runList, plans, nameOf, procs, unsure) {
     return { runs: (runList || []).map(function (r) { return summary(r, nameOf); }).sort(byCreated),
-      planned: (plans || []).map(function (p) { return plan(p, procs); }).sort(function (a, b) { return a.id < b.id ? -1 : 1; }) };
+      planned: (plans || []).map(function (p) { return plan(p, procs, unsure); }).sort(function (a, b) { return a.id < b.id ? -1 : 1; }) };
   }
   function followUp(x, nameOf) {
     var d = x.decision;

@@ -8,7 +8,7 @@ Reading is the only thing an app can do so far. Asking for a run and reporting w
 
 - **It only reads.** The JSON commands never change a file in the team folder, not even the tidying the app does when it opens a run (removing a save receipt that lost nothing). They read through a view of the folder that refuses every change, and never through a link.
 - **It reads now, with the app's own rules.** What's next, a gate's status and a step's evidence come from the same code the app runs, from this install's own `flightdeck.html`. Another computer may be a minute ahead while the shared folder syncs.
-- **Every problem is named, file by file.** While it reads, the command keeps a list of problems: every folder or file that failed to list or read (including a screenshot whose bytes failed after it was opened), was too large, was a link, or was listed and then gone before it could be read or listed, and every file whose contents aren't in the format (a run, plan, decision, version or `people.json`). A file is never silently left out and a bad value is never replaced with a default. If the list has anything in the command's scope, the output names each file and why, `complete` is `false` and the exit code is 4. The data that could be read is still printed.
+- **Every problem is named, file by file.** While it reads, the command keeps a list of problems: every folder or file that failed to list or read (including a screenshot whose bytes failed after it was opened), was too large, was a link, or was listed and then gone before it could be read or listed, and every file whose contents aren't in the format (a run, plan, decision, version or `people.json`). A file is never silently left out and a bad value is never replaced with a default. If the list has anything, the output names each file and why, `complete` is `false` and the exit code is 4. The data that could be read is still printed.
 - **A passed gate is a record, not permission.** It means passed for those details, by that person, at that time. Nothing an app reads is permission to act.
 - **Privacy:** People-directory email fields are omitted. People appear as an ID and a name. Titles, details, evidence and notes may contain anything people typed, emails included.
 
@@ -83,14 +83,14 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
 | `vanished` | A file or folder that was listed and then gone before it could be read or listed itself (OneDrive replacing it, or someone deleting it). A folder gone like that is never read as empty, so a decided follow-up never looks open because its folder went missing mid-read. |
 
-Each command reports only what's in its own scope:
+Each command reads only what its output depends on, and every problem it meets there is reported (nothing it read is left out of `problems`):
 
-| Command | Scope |
+| Command | Reads |
 |---|---|
 | `processes`, `process` | `publications/` (for `process`, that process's versions) |
-| `runs` | `runs/`, `proposals/` and `people.json` |
+| `runs` | `runs/`, `proposals/`, `publications/` (whether a run's version can be used, and which version a plan starts on) and `people.json`; with `--process`, that process's runs and versions |
 | `run`, `next` | That run's folder, its version (checked on its own, so a version that can't be read or used is named), its follow-up decisions and `people.json` |
-| `followups` | `followups/`, `runs/` and `people.json` (every follow-up lives in its run's `run.json`, so a run that can't be read may hide some) |
+| `followups` | `followups/`, `runs/` and `people.json` (every follow-up lives in its run's `run.json`, so a run that can't be read may hide some); with `--process`, that process's part, plus its versions and the plans, to tell whether the process exists |
 
 ## The data
 
@@ -138,7 +138,7 @@ Each step: `id` (stable across versions; keep these in your app's settings), `te
 | `readOnly` | Why this copy can only show the run, or `null` |
 | `marksComplete` | `true` when the run kept marks from its start. When it's `false` (a run started before 1.15), a step with no `marks` may still have been blocked or redone in an answer the run no longer holds: read it as unknown, not as none. |
 
-Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, `changed` when the plan was edited after a decision) `run` (the started run's key, once accepted), `startsOn` (`version` and `folder` a person starting it now gets, as the app picks it, or `null` when the process has no usable version) and `versionMissing` (`true` when the plan names a version the folder doesn't have, so the app would start it on the latest instead). A `version` that isn't a version number (like `v3` or `1.5`) makes the plan `malformed`.
+Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, `changed` when the plan was edited after a decision) `run` (the started run's key, once accepted), `startsOn` (`version` and `folder` a person starting it now gets, as the app picks it, or `null` when the process has no usable version) and `versionMissing` (`true` when the plan names a version the folder doesn't have, so the app would start it on the latest instead). When any of the process's versions couldn't be read, both are `null`: unknown, never claimed missing. A `version` that isn't a version number (like `v3` or `1.5`) makes the plan `malformed`.
 
 ### run
 

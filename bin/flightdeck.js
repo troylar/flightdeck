@@ -690,16 +690,26 @@ function adapterProblems(adapter) {
   return (adapter.links || []).map((p) => ({ path: p, kind: 'link', why: 'A link. Flightdeck never reads through links.' }))
     .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + (x.more ? 'more than ' : '') + size(x.size) + '; the limit is ' + size(x.cap) + ').' })));
 }
-/* Only the ledger's problems under these paths (or exactly at one of exact), each once; a file named as a link or as too
-   large isn't named again as unreadable. */
-function scoped(list, prefixes, exact) {
-  const keep = list.filter((p) => prefixes.some((x) => p.path.indexOf(x) === 0) || (exact || []).indexOf(p.path) >= 0);
-  const special = {}; keep.forEach((p) => { if (p.kind === 'link' || p.kind === 'skipped') special[p.path] = true; });
-  const seen = {};
-  return keep.filter((p) => {
-    if (special[p.path] && p.kind !== 'link' && p.kind !== 'skipped') return false;
-    const k = p.path + '\u0000' + p.kind; if (seen[k]) return false; seen[k] = true; return true;
-  });
+
+/* What a whole-folder command's output depends on, as folders and files: its data, the publications that say whether a
+   run or plan can be used and which version a plan starts on, and people.json for names. With --process, that process's
+   part only (the plans are all read, since a plan's process is inside the file). */
+function needs(req) {
+  const sub = (top) => top + (req.proc ? '/' + req.proc : '');
+  if (req.cmd === 'processes' || req.cmd === 'process') return [req.cmd === 'process' ? 'publications/' + req.proc : 'publications'];
+  if (req.cmd === 'runs') return [sub('runs'), 'proposals', sub('publications'), 'people.json'];
+  return [sub('followups'), sub('runs'), 'people.json'].concat(req.proc ? [sub('publications'), 'proposals'] : []);
+}
+/* A view of the folder that holds only those paths (and the folders above them, listed to reach them). Anything else
+   looks absent: it's never read, so it's never a problem and never part of the output. It sits above the ledger, so
+   what it hides never reaches it. */
+function dependsOn(fs, prefixes) {
+  const ok = (p) => { p = p || ''; return p === '' || prefixes.some((x) => p === x || p.startsWith(x + '/') || x.startsWith(p + '/')); };
+  const v = {};
+  if (fs.list) v.list = (p, o) => (ok(p) ? fs.list(p, o) : Promise.resolve([]));
+  ['read', 'stat', 'blob'].forEach((m) => { if (fs[m]) v[m] = (p, o) => (ok(p) ? fs[m](p, o) : Promise.resolve(null)); });
+  ['write', 'append', 'remove'].forEach((m) => { v[m] = (...a) => fs[m](...a); });
+  return v;
 }
 
 /* eng: { PF, version } (loadEngine()). adapter: a folder with list, read, stat and blob (and links and skipped, as the
@@ -730,32 +740,28 @@ async function readData(eng, adapter, req) {
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
       const pw = peopleWhy(one.people);
       if (pw) L.note('people.json', 'malformed', pw);
-      const prefixes = ['runs/' + key + '/', 'followups/' + m[1] + '/' + m[2] + '.'], exact = ['people.json', 'followups', 'followups/', 'followups/' + m[1], 'followups/' + m[1] + '/', 'runs/', 'runs/' + m[1], 'runs/' + key];
       const usable = !!r && !newerRun(PF, r);
       if (r) {
         take(runProblems(PF, r));
         const dir = 'publications/' + r.process + '/' + r.folder + '/';
-        prefixes.push(dir); exact.push(dir.slice(0, -1), 'publications/', 'publications', 'publications/' + r.process, 'publications/' + r.process + '/');
         const pub = one.pub;
         /* The version itself: named when it can't be read or used (the run's own copy of its checklist still shows). */
         if (pub && !pub.ok && !pub._readFailed) { const x = A.pubProblem(pub); L.note(dir, x.kind, x.why); }
         else if (pub && pub.ok && usable && r._unrunnable) L.note(dir, 'unusable', r._unrunnable);
       }
-      const keep = (list) => scoped(list, prefixes, exact), nameOf = A.names(one.people);
+      /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
+      const keep = (list) => list, nameOf = A.names(one.people);
       if (req.cmd === 'run') return done(keep, usable ? A.run(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
       return done(keep, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
     }
-    const d = await repo.loadAll(L.fs, { readOnly: true, explain: true, deep: true });
+    /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
+       depends on, and all of them are reported: there's no scope to fall behind what's read. */
+    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true });
     take(folderProblems(PF, d));
-    const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r));
+    const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc)) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
-    /* A command's scope, as folders: a problem in one, or at the folder itself or any folder above it (a part that failed, a
-       linked folder), counts. */
-    const above = (x) => x.split('/').map((_, i, a) => a.slice(0, i + 1).join('/'));
-    const within = (dirs, more) => (list) => scoped(list, dirs.map((x) => x + '/'), [].concat(...dirs.map(above)).reduce((o, y) => o.concat([y, y + '/']), []).concat(more || []));
-    const sub = (top) => top + (req.proc ? '/' + req.proc : '');
-    if (req.cmd === 'processes') return done(within(['publications']), A.processes(d.processes), d.readAt);
+    if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
     if (req.cmd === 'process') {
       const proc = d.processes.filter((x) => x.process === req.proc)[0];
       if (!proc || !proc.pubs.length) return notFound('There\'s no published checklist for ' + req.proc + ' in the team folder.');
@@ -765,17 +771,19 @@ async function readData(eng, adapter, req) {
       else if (req.version != null) pub = proc.pubs.filter((p) => vOf(p) === +req.version).sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0) || (a.folder < b.folder ? -1 : 1))[0];
       else pub = proc.index.latest || proc.pubs.slice().sort((a, b) => (vOf(b) || 0) - (vOf(a) || 0))[0];
       if (!pub) return notFound('There\'s no version ' + (req.folder || req.version) + ' of ' + req.proc + ' in the team folder.');
-      return done(within(['publications/' + req.proc]), A.process(proc, pub), d.readAt);
+      return done(all, A.process(proc, pub), d.readAt);
     }
     if (req.cmd === 'runs') {
       const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
       const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
-      return done(within([sub('runs'), 'proposals'], ['people.json']), A.runs(list, plans, nameOf, d.processes), d.readAt);
+      /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read. */
+      const probs = ledger(), unsure = (proc) => probs.some((x) => ['', 'publications', 'publications/'].indexOf(x.path) >= 0 || x.path === 'publications/' + proc || x.path.indexOf('publications/' + proc + '/') === 0);
+      return done(all, A.runs(list, plans, nameOf, d.processes, unsure), d.readAt);
     }
     /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
     const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));
-    return done(within([sub('followups'), sub('runs')], ['people.json']), A.followUps(items, nameOf), d.readAt);
+    return done(all, A.followUps(items, nameOf), d.readAt);
   } catch (e) {
     return err(EXIT.error, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
   }

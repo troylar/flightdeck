@@ -1369,4 +1369,38 @@ rule('READ: a step\'s marks come from its durable marks and the answers it still
   assert.strictEqual(agree(await readMem(REQ.runs, old)).json.data.runs.filter(x => x.key === 'release/run1')[0].marksComplete, false);
 });
 
+
+/* The guard: a command's output depends on everything it reads, so a failure at ANY call it makes (every path the
+   folder saw, root listing and deferred blob reads included) must make it partial or an error naming that path. */
+const GUARD_REQ = [
+  { cmd: 'processes' }, { cmd: 'process', proc: 'shots' }, { cmd: 'process', proc: 'release' }, { cmd: 'runs' }, { cmd: 'runs', proc: 'release' },
+  { cmd: 'runs', status: 'planned' }, { cmd: 'run', key: 'shots/s1' }, { cmd: 'next', key: 'release/run1', person: 'person-blake' }, { cmd: 'run', key: 'release/run2' },
+  { cmd: 'followups' }, { cmd: 'followups', proc: 'release' }
+];
+rule('READ guard: a failure at any call a command makes, wherever it is, is named and the result isn\'t complete', async () => {
+  const files = await withShots(), eng = { PF: SRC, version: 'test' }, covered = new Set();
+  for (const req of GUARD_REQ) {
+    const seen = [], clean = await FD.readData(eng, failingFolder(files, null, null, seen), req);
+    assert.strictEqual(clean.code, 0, req.cmd + ' clean: ' + JSON.stringify(clean.json.problems || clean.json.error));
+    const calls = [...new Set(seen.map(x => x.join('\u0000')))].map(x => x.split('\u0000'));
+    for (const [m, at] of calls) {
+      const r = await FD.readData(eng, failingFolder(files, m, at), req), j = JSON.parse(JSON.stringify(r.json));
+      const where = JSON.stringify(req) + ': ' + m + ' "' + at + '" -> exit ' + r.code + ' ' + JSON.stringify(j.problems);
+      assert.ok(j.error ? r.code === 1 || r.code === 5 : !j.complete && r.code === 4, where);
+      assert.ok(j.problems.some(p => p.path === at), where);
+      covered.add(m);
+    }
+  }
+  ['list', 'read', 'stat', 'blob', 'arrayBuffer'].forEach(m => assert.ok(covered.has(m), 'covered ' + m + ': ' + [...covered]));
+});
+
+rule('READ: a plan whose version couldn\'t be checked says unknown (null), never missing', async () => {
+  const pubRec = 'publications/release/' + rfBuilt.folder + '/publication.json';
+  for (const hooks of [{ read: p => { if (p === pubRec) throw eacces(p); } }, { list: p => { if (p === 'publications/release') throw eacces(p); } }]) {
+    const r = agree(await readMem(REQ.runs, null, hooks)), p = r.json.data.planned[0];
+    assert.ok(r.code === 4 && r.json.problems.length, JSON.stringify(r.json.problems));
+    assert.ok(p && p.startsOn === null && p.versionMissing === null, JSON.stringify(p));
+  }
+});
+
 run();
