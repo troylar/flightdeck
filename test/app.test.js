@@ -3039,7 +3039,7 @@ rule('App: a row check or Done refused as a conflict ends on the conflict messag
    another step. Values carry their step's ID, so a value on the wrong step is caught. */
 rule('App: random sequences of selecting, typing evidence, Fill in, checking, Done differently with held writes, moving and switching folders never lose or misplace typed values', async () => {
   const STEPS = ['jenkins', 'approve', 'pods'], EV = { jenkins: 'rec-build', pods: 'rec-result' };
-  for (let seed = 1; seed <= 6; seed++) {
+  for (let seed = 1; seed <= (+process.env.TYPED_SEEDS || 6); seed++) {
     let x = seed * 9301 + 49297; const rnd = n => { x = (x * 9301 + 49297) % 233280; return Math.floor(x / 233280 * n); };
     const app = await recordingRelease();
     const typed = {}; let held = null, orig = app.PF.repo.addNote, n = 0;
@@ -3097,6 +3097,375 @@ rule('App: a new team folder\'s starter checklist names whoever created it as it
   assert.deepStrictEqual(Object.keys(rec.files).sort(), keys);
   keys.forEach(k => assert.strictEqual(rec.files[k], cli.hash(cli.managed(k, f[k])), k + ': the app and the command hash it the same way'));
   assert.ok(/Created the team folder/.test(app.html() + app.live()), 'says it was created');
+});
+
+/* ---------- Folder health, the connection check, When something goes wrong (1.15) ---------- */
+rule('App: Folder health reads the folder, lists a conflict copy under Needs action, and its one button opens the run; Home says so too', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const run = app.run();
+  await app.fs.write(run.path.replace('run.json', 'run.conflict-wx-1.json'), JSON.stringify(run.json));
+  app.click('nav', 'settings'); await app.tick();
+  assert.ok(/data-act="health">Check folder health/.test(app.html()));
+  app.click('health'); await app.tick(200);
+  let html = app.html();
+  assert.ok(/Folder health<\/h1>/.test(html) && /Needs action · 1/.test(html) && /All clear ·/.test(html), 'scanned and grouped');
+  assert.ok(/files in /.test(html) && /What's in the folder/.test(html));
+  assert.ok(new RegExp('data-act="open-run" data-id="' + run.key.replace('/', '\\/') + '">Compare copies').test(html));
+  app.click('nav', 'home'); await app.tick();
+  assert.ok(/The team folder needs attention/.test(app.html()) && /data-act="health"/.test(app.html()), 'Home line');
+  app.click('open-run', run.key); await app.tick(40);
+  assert.ok(/data-act="recovery" data-id="a-run-has-conflict-copies">What to do/.test(app.html()));
+});
+
+rule('App: What to do opens that section of the guide in the app, and Back returns to the run', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(40);
+  app.click('recovery', 'a-run-has-conflict-copies'); await app.tick();
+  const html = app.html();
+  assert.ok(/When something goes wrong<\/h1>/.test(html) && /class="panel rv-sec on" id="rv-a-run-has-conflict-copies"/.test(html), 'the guide, at that section');
+  assert.ok(/Back to the run/.test(html) && app.focused() === 'rv-h-a-run-has-conflict-copies', 'its heading takes focus');
+  assert.ok(/aria-current="page">Settings</.test(app.top()), 'it belongs to Settings');
+  app.click('recovery-back'); await app.tick(40);
+  assert.ok(/class="fpe rw"/.test(app.html()) && /Release 2026\.10\.16/.test(app.html()), 'back on the run');
+});
+
+rule('App: a run file that stops parsing stays on screen as last read, the Runs page lists it, and Folder health needs action', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const run = app.run();
+  await app.fs.write(run.path, '{"format":"preflight-run/2","id":');
+  app.click('nav', 'runs'); await app.tick(); app.click('refresh'); await app.tick(80);
+  const html = app.html();
+  assert.ok(/A run file can't be read/.test(html) && html.indexOf(run.path) >= 0, 'listed by its file');
+  assert.ok(/Release 2026\.10\.16/.test(html), 'the run is still shown, as last read');
+  app.click('health'); await app.tick(200);
+  assert.ok(/A run file can(&#39;|')t be read/.test(app.html()) && /data-id="a-file-cant-be-read">What to do/.test(app.html()));
+});
+
+rule('App: a connection check from one window is answered with one click in another, and the sender sees the answer timed', async () => {
+  const files = {};
+  const a = boot({ sharedFiles: files }); await a.tick(60);
+  const b = boot({ sharedFiles: files }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  a.click('connection'); await a.tick(40);
+  assert.ok(/Connection check<\/h1>/.test(a.html()) && /data-act="conn-send"/.test(a.html()));
+  a.click('conn-send'); await a.tick(60);
+  const probe = Object.keys(files).filter(k => /^connection\/probe-/.test(k));
+  assert.strictEqual(probe.length, 1, 'one check file');
+  const rec = JSON.parse(files[probe[0]].t);
+  assert.ok(rec.kind === 'connection-probe' && rec.cv === 1 && rec.n === 1 && rec.by === 'person-casey' && rec.run && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(rec.run.key), JSON.stringify(rec));
+  assert.ok(/Check 1/.test(a.html()) && /Waiting/.test(a.html()));
+  // B is on Home: its next refresh finds the check and offers Answer; nothing is answered by itself there.
+  b.click('refresh'); await b.tick(60);
+  assert.ok(/Casey Nguyen is checking the connection/.test(b.html()) && /data-act="conn-answer"/.test(b.html()));
+  assert.strictEqual(Object.keys(files).filter(k => /^connection\/ack-/.test(k)).length, 0, 'not answered without a click');
+  b.click('conn-answer', probe[0].split('/')[1]); await b.tick(60);
+  const ack = Object.keys(files).filter(k => /^connection\/ack-/.test(k));
+  assert.strictEqual(ack.length, 1);
+  const ar = JSON.parse(files[ack[0]].t);
+  assert.ok(ar.probe === rec.id && ar.by === 'person-blake' && ar.firstSeenAt && ar.run && ar.run.key === rec.run.key);
+  assert.ok(!/data-act="conn-answer"/.test(b.html()), 'answered: the banner goes');
+  // A lists connection/ every 5 seconds on that page.
+  await new Promise(r => setTimeout(r, 5100)); a.every(); await a.tick(60);
+  assert.ok(/saw check 1 at/.test(a.html()) && /Their answer reached this computer/.test(a.html()) && /class="cx-route"/.test(a.html()));
+});
+
+rule('App: on the Connection check page, checks from other windows are answered by themselves', async () => {
+  const files = {};
+  const a = boot({ sharedFiles: files }); await a.tick(60);
+  const b = boot({ sharedFiles: files }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  b.click('connection'); await b.tick(40);
+  a.click('connection'); await a.tick(40); a.click('conn-send'); await a.tick(60);
+  await new Promise(r => setTimeout(r, 5100)); b.every(); await b.tick(80);
+  assert.strictEqual(Object.keys(files).filter(k => /^connection\/ack-/.test(k)).length, 1, 'B answered by itself');
+  assert.ok(/You answered at/.test(b.html()));
+});
+
+/* A clock the test moves forward, for what happens minutes later. */
+function clock() { let off = 0; class D extends Date { constructor(...a) { if (a.length) super(...a); else super(Date.now() + off); } static now() { return Date.now() + off; } } return { D, ahead(ms) { off += ms; } }; }
+
+rule('App: a run whose own file stops reading says so in the run workspace, and changes to it are refused, not saved over it', async () => {
+  const app = await recordingRelease();
+  const run = app.run();
+  await app.fs.write(run.path, '{"format":"preflight-run/2","id":');
+  app.click('refresh'); await app.tick(80);
+  let html = app.html();
+  assert.ok(/class="fpe rw"/.test(html) && /couldn't be read on the last check/.test(html) && /data-act="recovery" data-id="a-file-cant-be-read"/.test(html), 'said in the run workspace');
+  const step = Object.keys(run.json.steps).find(k => run.json.steps[k].s === 'open') || 'announce';
+  app.click('na', step); await app.tick(40);
+  assert.strictEqual(app.fs.files[run.path].t, '{"format":"preflight-run/2","id":', 'nothing written over it');
+  assert.ok(/wasn(&#39;|')t changed/.test(app.html()) && !/Your last change isn't saved/.test(app.html()), 'refused before changing anything');
+});
+
+rule('App: when part of the folder can\'t be read, the run workspace says so too', async () => {
+  const app = await recordingRelease();
+  const list = app.fs.list.bind(app.fs);
+  app.fs.list = p => p === 'runs' ? Promise.reject(new Error('NotReadableError')) : list(p);
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/Part of the team folder couldn't be read/.test(app.html()) && /class="fpe rw"/.test(app.html()));
+  app.click('na', 'announce'); await app.tick(40);
+  assert.ok(/wasn(&#39;|')t changed/.test(app.html()), 'runs weren\'t read this time: changes wait');
+});
+
+rule('App: a draft that can\'t be read stays as last read, says so, and isn\'t edited or saved over', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const read = app.fs.read.bind(app.fs);
+  app.fs.read = p => p === 'maps/drafts/release.md' ? Promise.reject(new Error('NotReadableError')) : read(p);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  const html = app.html();
+  assert.ok(!/wasn't found/.test(html) && /Production release/.test(html), 'still there');
+  assert.ok(/release\.md couldn't be read on the last check/.test(html), 'marked unreadable');
+  app.click('ptab', 'edit'); await app.tick();
+  assert.ok(!/fpe-on/.test(app.bodyClasses().join(' ')) && /isn(&#39;|')t edited until it can be read/.test(app.html()), 'not opened for editing');
+});
+
+rule('App: an answer from a window that couldn\'t read the run says its revision is unknown', async () => {
+  const files = {};
+  const a = boot({ sharedFiles: files }); await a.tick(60);
+  const b = boot({ sharedFiles: files }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  a.click('connection'); await a.tick(40); a.click('conn-send'); await a.tick(60);
+  const probe = JSON.parse(files[Object.keys(files).find(k => /^connection\/probe-/.test(k))].t);
+  const read = b.fs.read.bind(b.fs);
+  b.fs.read = p => /^runs\//.test(p) && /run\.json$/.test(p) ? Promise.reject(new Error('NotReadableError')) : read(p);
+  b.click('refresh'); await b.tick(80);
+  b.click('conn-answer', Object.keys(files).find(k => /^connection\/probe-/.test(k)).split('/')[1]); await b.tick(60);
+  const ack = JSON.parse(files[Object.keys(files).find(k => /^connection\/ack-/.test(k))].t);
+  assert.ok(ack.run && ack.run.key === probe.run.key && ack.run.unknown === true, JSON.stringify(ack.run));
+});
+
+rule('App: the hints appear on their own when a check has waited 3 minutes, and an answered check stays answered after 15', async () => {
+  const c = clock(), files = {};
+  const a = boot({ sharedFiles: files, Date: c.D }); await a.tick(60);
+  const b = boot({ sharedFiles: files, Date: c.D }); await b.tick(60);
+  a.choose('person-casey'); b.choose('person-blake'); await a.tick(); await b.tick();
+  a.click('connection'); await a.tick(40); a.click('conn-send'); await a.tick(60);
+  assert.ok(!/Things to look at/.test(a.html()));
+  c.ahead(190000); a.every(); await a.tick(60);
+  assert.ok(/Things to look at/.test(a.html()), 'hints once 3 minutes pass, without a new file');
+  b.click('refresh'); await b.tick(60);
+  b.click('conn-answer', Object.keys(files).find(k => /^connection\/probe-/.test(k)).split('/')[1]); await b.tick(60);
+  c.ahead(6000); a.every(); await a.tick(60);
+  assert.ok(/1 answer/.test(a.html()) && !/Things to look at/.test(a.html()));
+  c.ahead(16 * 60000); a.every(); await a.tick(60);
+  assert.ok(/1 answer/.test(a.html()) && /saw check 1/.test(a.html()) && !/Things to look at/.test(a.html()), 'still answered after the check left the 15-minute window');
+});
+
+rule('App: a run whose file is deleted while it\'s open is marked gone, never written back by itself, and only Restore it here brings it back', async () => {
+  const c = clock();
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, Date: c.D }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), path = run.path, dir = path.replace('run.json', '');
+  Object.keys(app.fs.files).filter(k => k.indexOf(dir) === 0).forEach(k => delete app.fs.files[k]);
+  c.ahead(6000); app.every(); await app.tick(80);
+  let html = app.html();
+  assert.ok(/This run(&#39;|')s file is gone from the team folder/.test(html) && /data-act="restore-missing"/.test(html) && /data-id="a-runs-file-is-gone">What to do/.test(html), 'said, with both actions');
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'x'); app.click('pause', 'run'); await app.tick(40);
+  app.click('na', 'announce'); await app.tick(40);
+  assert.ok(!app.fs.files[path], 'not recreated by a change');
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(/file is gone/.test(app.html()), 'marked in the list');
+  app.click('open-run', run.key); await app.tick(40);
+  app.click('restore-missing'); await app.tick(80);
+  assert.ok(app.fs.files[path], 'restored on request');
+  const j = JSON.parse(app.fs.files[path].t);
+  assert.ok(j.log.some(l => /Restored this run(')?s file/.test(l.text || l.what || JSON.stringify(l))), 'logged');
+  assert.ok(!/file is gone from the team folder/.test(app.html()));
+});
+
+rule('App: a full refresh that no longer finds a saved run keeps it, marked gone, instead of dropping it silently', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const run = app.run(), dir = run.path.replace('run.json', '');
+  Object.keys(app.fs.files).filter(k => k.indexOf(dir) === 0).forEach(k => delete app.fs.files[k]);
+  app.click('nav', 'runs'); app.click('refresh'); await app.tick(80);
+  assert.ok(/Release 2026\.10\.16/.test(app.html()) && /file is gone/.test(app.html()));
+  app.click('nav', 'home'); await app.tick();
+  assert.ok(/The team folder needs attention/.test(app.html()));
+});
+
+rule('App: Discard my change after a refused save of a gone run puts back the version read, and Restore it here never saves the discarded change', async () => {
+  const app = await recordingRelease();
+  const run = app.run(), path = run.path, dir = path.replace('run.json', '');
+  Object.keys(app.fs.files).filter(k => k.indexOf(dir) === 0).forEach(k => delete app.fs.files[k]);
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Discard me'); app.click('pause', 'run'); await app.tick(60);
+  assert.ok(!app.fs.files[path] && /file is gone from the team folder/.test(app.html()), 'refused and marked gone');
+  app.click('discard-unsaved'); await app.tick(80);
+  assert.ok(!/Discard me/.test(app.html()), 'the discarded pause is gone from the screen');
+  app.click('restore-missing'); await app.tick(80);
+  const j = JSON.parse(app.fs.files[path].t);
+  assert.ok(!j.paused && !(j.pauses || []).some(p => p.reason === 'Discard me'), 'the discarded change was never saved');
+  assert.ok(!JSON.stringify(j.log).includes('Discard me'));
+});
+
+rule('App: a read that found the file missing but finished after a successful save never marks the run gone', async () => {
+  const c = clock();
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, Date: c.D }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), dir = run.path.replace('run.json', '').replace(/\/$/, '');
+  const saved = {}; Object.keys(app.fs.files).filter(k => k.indexOf(dir + '/') === 0).forEach(k => { saved[k] = app.fs.files[k]; delete app.fs.files[k]; });
+  const list = app.fs.list.bind(app.fs), g = gate(); let held = false;
+  app.fs.list = p => { if (p === dir && !held) { held = true; return list(p).then(x => g.p.then(() => x)); } return list(p); };
+  c.ahead(6000); app.every(); await app.tick(20);
+  assert.ok(held, 'the reread is holding');
+  Object.assign(app.fs.files, saved);
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Kept'); app.click('pause', 'run'); await app.tick(60);
+  assert.ok(JSON.parse(app.fs.files[run.path].t).paused, 'the save succeeded');
+  g.open(); await app.tick(80);
+  assert.ok(!/file is gone from the team folder/.test(app.html()), 'the stale read doesn\'t mark it gone');
+  app.click('resume', 'run'); await app.tick(60);
+  assert.ok(!JSON.parse(app.fs.files[run.path].t).paused, 'still recordable');
+});
+
+/* ---------- Reads, saves, Discard and Restore on one run, in every order (round 4) ---------- */
+/* The example release recorded by Casey, on a clock the test moves, with run.json writes that can be held: hold() makes the
+   next write of run.json wait (before or after it lands) until release(). */
+async function heldRelease(opts) {
+  opts = opts || {};
+  const c = clock();
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, Date: c.D }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const run = app.run(), path = run.path, dir = path.replace(/\/run\.json$/, '');
+  const write = app.fs.write.bind(app.fs), read = app.fs.read.bind(app.fs);
+  let hold = null, holdRead = null;
+  /* holdRead(): the next read of run.json reads the file now but answers only on release, as a slow OneDrive read would. */
+  app.fs.read = p => { if (p !== path || !holdRead) return read(p); const g = holdRead; holdRead = null; return read(p).then(v => g.p.then(() => v)); };
+  app.fs.write = (p, data) => {
+    if (p !== path || !hold) return write(p, data);
+    const h = hold; hold = null;
+    return h.after ? write(p, data).then(() => h.g.p) : h.g.p.then(() => write(p, data));
+  };
+  const t = { app, c, run, path, dir, read,
+    hold(after) { const g = gate(); hold = { g, after }; return g; },
+    holdRead() { const g = gate(); holdRead = g; return g; },
+    wipe() { Object.keys(app.fs.files).filter(k => k.indexOf(dir + '/') === 0).forEach(k => delete app.fs.files[k]); },
+    commit(v) { app.click('edit', 'detail:commit'); app.set('edit-input', v); app.click('save-edit'); },
+    disk() { const f = app.fs.files[path]; if (!f) return null; try { return JSON.parse(f.t); } catch (e) { return 'broken'; } } };
+  return t;
+}
+
+rule('App: Discard my change waits while Restore it here is saving, so a discarded change is never written by the restore', async () => {
+  const t = await heldRelease(), app = t.app;
+  t.wipe(); t.commit('KEEP-OR-DISCARD'); await app.tick(60);
+  assert.ok(/file is gone from the team folder/.test(app.html()) && !t.disk());
+  const g = t.hold(false);
+  app.click('restore-missing'); await app.tick(20);
+  app.click('discard-unsaved'); await app.tick(20);
+  assert.ok(/Wait for the save to finish/.test(app.html()), 'Discard is refused while the restore is saving');
+  g.open(); await app.tick(80);
+  const d = t.disk();
+  assert.ok(d && d.details.commit === 'KEEP-OR-DISCARD' && /KEEP-OR-DISCARD/.test(app.html()), 'what was restored is what the screen shows; nothing claimed discarded');
+});
+
+rule('App: a save that landed is the version Discard goes back to, even when a later change is still waiting', async () => {
+  const t = await heldRelease(), app = t.app;
+  const g = t.hold(true);
+  t.commit('SAVED-A'); await app.tick(20);
+  t.commit('PENDING-B'); await app.tick(20);
+  t.wipe();
+  g.open(); await app.tick(80);
+  assert.ok(/file is gone from the team folder/.test(app.html()), 'B was refused: the file is gone');
+  app.click('discard-unsaved'); await app.tick(60);
+  assert.ok(/SAVED-A/.test(app.html()) && !/PENDING-B/.test(app.html()), 'back to the save that landed, not before it');
+  app.click('restore-missing'); await app.tick(80);
+  const d = t.disk();
+  assert.ok(d.details.commit === 'SAVED-A' && JSON.stringify(d.log).indexOf('SAVED-A') >= 0, 'the restored run keeps save A and its log');
+});
+
+rule('App: an old read that found run.json unreadable never makes a run read-only after a later save succeeded', async () => {
+  const t = await heldRelease(), app = t.app, g = gate();
+  let first = true;
+  const read = app.fs.read.bind(app.fs);
+  app.fs.read = p => { if (p === t.path && first) { first = false; return g.p.then(() => ({ text: '{"format":"preflight-run/2","id":', mtime: 1 })); } return read(p); };
+  t.c.ahead(6000); app.every(); await app.tick(20);
+  t.commit('AFTER-READ'); await app.tick(60);
+  assert.strictEqual(t.disk().details.commit, 'AFTER-READ', 'the save succeeded');
+  g.open(); await app.tick(80);
+  assert.ok(!/couldn't be read on the last check/.test(app.html()), 'the stale read is ignored');
+  t.commit('STILL-WRITABLE'); await app.tick(60);
+  assert.strictEqual(t.disk().details.commit, 'STILL-WRITABLE');
+});
+
+rule('App: in any order of edits, held and refused saves, deletions, restores, discards and stale or fresh rereads, a discarded change never reaches the folder, a landed save is never rolled back by a read, and a gone run comes back only by Restore', async () => {
+  for (let seed = 1; seed <= (+process.env.SEEDS || 24); seed++) {
+    let x = seed * 7919; const rnd = n => { x = (x * 48271) % 2147483647; return x % n; };
+    const t = await heldRelease(), app = t.app;
+    const discarded = new Set(); let n = 0, gone = false, holds = [], lastGood = null, minRev = t.disk().rev, lastText = null, lastRev = 0, external = false;
+    const log = [];
+    const commitShown = () => { const m = /<span class="k">commit<\/span> <code>([^<]*)<\/code>/.exec(app.html()); return m ? m[1] : null; };
+    for (let step = 0; step < 45; step++) {
+      const a = ['edit', 'edit', 'edit', 'hold', 'hold-after', 'hold-read', 'release', 'release', 'delete', 'restore', 'discard', 'reread', 'reread', 'refresh', 'corrupt', 'fix'][rnd(16)];
+      log.push(a);
+      const before = t.disk();
+      if (a === 'edit') t.commit('V' + seed + '-' + (++n));
+      else if (a === 'hold' || a === 'hold-after') holds.push(t.hold(a === 'hold-after'));
+      else if (a === 'hold-read') { holds.push(t.holdRead()); t.c.ahead(6000); app.every(); }
+      else if (a === 'release') { const h = holds.shift(); if (h) h.open(); }
+      else if (a === 'delete') { t.wipe(); gone = true; }
+      else if (a === 'restore') { app.click('restore-missing'); }
+      else if (a === 'discard') {
+        const shown = commitShown(), pending = /Your last change isn(&#39;|')t saved/.test(app.html());
+        app.click('discard-unsaved'); await app.tick(5);
+        const ok = pending && !/Wait for the save to finish/.test(app.html());
+        if (ok && shown && !(before && before.details && before.details.commit === shown)) discarded.add(shown);
+        /* Discard goes back to the last saved file, exactly, when nothing outside this window wrote the file since. */
+        if (ok && lastText && !external) assert.strictEqual(commitShown(), JSON.parse(lastText).details.commit, 'Discard went back to something other than the last saved file · seed ' + seed + ' after ' + log.join(','));
+      }
+      else if (a === 'reread') { t.c.ahead(6000); app.every(); }
+      else if (a === 'refresh') app.click('refresh');
+      else if (a === 'corrupt' || a === 'fix') external = true;
+      if (a === 'corrupt') { if (before && before !== 'broken') { lastGood = app.fs.files[t.path].t; app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() }; } }
+      if (a === 'fix') { if (lastGood && t.disk() === 'broken') { app.fs.files[t.path] = { t: lastGood, m: Date.now() }; } }
+      await app.tick(30);
+      const d = t.disk(), where = 'seed ' + seed + ' after ' + log.join(',');
+      if (d && d !== 'broken') {
+        assert.ok(!discarded.has(d.details.commit), 'a discarded change reached the folder: ' + d.details.commit + ' · ' + where);
+        if (a !== 'fix') assert.ok(d.rev >= minRev, 'the folder went back from revision ' + minRev + ' to ' + d.rev + ' · ' + where);
+        /* Every write this window makes is a new revision after the last one that landed: a restore never rewrites an older one. */
+        const text = app.fs.files[t.path].t;
+        if (lastText !== null && text !== lastText && a !== 'fix') assert.ok(d.rev > lastRev, 'revision ' + d.rev + ' written over revision ' + lastRev + ' · ' + where);
+        if (text !== lastText && a !== 'fix') external = false;
+        lastText = text; lastRev = d.rev;
+        minRev = Math.max(minRev, d.rev); gone = false;
+      }
+      if (gone) assert.ok(!d || a === 'restore' || log.slice(log.lastIndexOf('delete')).indexOf('restore') >= 0, 'a gone run came back without Restore · ' + where);
+    }
+    // Let everything finish, then a fresh read must agree with the folder.
+    holds.forEach(h => h.open()); await app.tick(80);
+    app.click('refresh'); await app.tick(80);
+    const d = t.disk();
+    if (d && d !== 'broken') {
+      assert.ok(!discarded.has(d.details.commit), 'final: a discarded change in the folder · seed ' + seed);
+      assert.ok(!/file is gone from the team folder|couldn't be read on the last check/.test(app.html()), 'final: a readable run in the folder is shown as gone or unreadable · seed ' + seed + ' · ' + log.join(','));
+    }
+  }
+});
+
+rule('App: Discard goes back to exactly what the save wrote, even when a later change was folded into that save', async () => {
+  const t = await heldRelease(), app = t.app;
+  const r1 = t.holdRead();
+  t.commit('SAVED-A'); await app.tick(20);
+  t.commit('SAVED-B'); await app.tick(20);
+  const w = t.hold(true);
+  r1.open(); await app.tick(20);
+  assert.strictEqual(t.disk().details.commit, 'SAVED-B', 'the first save wrote the run as it was by then: with B');
+  delete app.fs.files[t.path];
+  w.open(); await app.tick(80);
+  assert.ok(/file is gone from the team folder/.test(app.html()));
+  app.click('discard-unsaved'); await app.tick(60);
+  assert.ok(/SAVED-B/.test(app.html()), 'Discard shows what landed');
+  app.click('restore-missing'); await app.tick(80);
+  const d = t.disk();
+  assert.strictEqual(d.details.commit, 'SAVED-B', 'the restore writes what landed, not an older snapshot');
+  assert.ok(JSON.stringify(d.log).indexOf('SAVED-B') >= 0, 'with B\'s log entry');
 });
 
 run();

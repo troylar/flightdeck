@@ -231,11 +231,16 @@ rule('A note on a step with a long ID still belongs to it after a reload', async
   assert.strictEqual(d.runs[0]._notes[0].step, id);
 });
 
-rule('An unreadable skills folder is a folder error, not an empty list', async () => {
+rule('An unreadable skills folder is named as unread, never an empty list, and the rest of the folder still loads', async () => {
   const fs = new PF.fs.MemoryFS('t4', null);
   fs.reset({ 'people.json': people, 'skills/a.json': JSON.stringify({ name: 'a', implements: 'x@1' }) });
   const list = fs.list.bind(fs);
   fs.list = p => p === 'skills' ? Promise.reject(Object.assign(new Error('NotReadableError'), { name: 'NotReadableError' })) : list(p);
+  const d = await repo.loadAll(fs);
+  assert.ok(/NotReadable/.test(d.failed.skills), 'the part that failed is named');
+  assert.strictEqual(d.people.length, 4, 'everything else loaded');
+  // A folder that can't be listed at all is still an unreadable folder.
+  fs.list = () => Promise.reject(Object.assign(new Error('NotReadableError'), { name: 'NotReadableError' }));
   await assert.rejects(repo.loadAll(fs), /NotReadable/);
 });
 
@@ -543,6 +548,127 @@ rule('An attachment named with a run of dots is saved under a name its note keep
   const back = await repo.loadRun(fs, 'release', 'run1');
   same(back._notes[0].files, [path], 'the file is still listed after a reload');
   same(back._notes[0].fileInfo[path], { name: 'deploy.output.log', size: 3 });
+});
+
+/* ---------- Reading never hides a failure; Folder health's scan (1.15) ---------- */
+/* A folder whose calls can be slowed, counted and made to fail: the kind of trouble OneDrive causes. */
+function faulty(fs, o) {
+  o = o || {};
+  const calls = { now: 0, max: 0, list: [] };
+  ['list', 'read', 'stat', 'blob'].forEach(m => {
+    const orig = fs[m].bind(fs);
+    fs[m] = p => {
+      calls.list.push(m + ' ' + p);
+      if (o.fail && o.fail(m, p)) return Promise.reject(Object.assign(new Error('NotReadableError: ' + p), { name: 'NotReadableError' }));
+      calls.now++; calls.max = Math.max(calls.max, calls.now);
+      return new Promise(res => setTimeout(res, o.delay || 0)).then(() => orig(p)).then(v => { calls.now--; return v; }, e => { calls.now--; throw e; });
+    };
+  });
+  return calls;
+}
+
+rule('A run.json that can\'t be understood is listed as unreadable, never just left out', async () => {
+  const fs = folder(); await started(fs);
+  await fs.write('runs/release/run2/run.json', '{"format": "preflight-run/2", "id": "run2", "proc');
+  const d = await repo.loadAll(fs);
+  assert.ok(d.runs.some(r => r.id === 'run1') && !d.runs.some(r => r.id === 'run2'));
+  same(d.unreadable.map(u => [u.path, u.key]), [['runs/release/run2/run.json', 'release/run2']]);
+  assert.ok(/isn't complete JSON/.test(d.unreadable[0].why));
+});
+
+rule('One read that fails doesn\'t fail the whole folder: its run or draft is listed as unreadable, and everything else loads', async () => {
+  const fs = folder(); await started(fs);
+  faulty(fs, { fail: (m, p) => m === 'read' && (p === 'runs/release/run1/run.json' || p === 'maps/drafts/release.md') });
+  const d = await repo.loadAll(fs);
+  assert.strictEqual(d.people.length, 4, 'people loaded');
+  assert.strictEqual(d.processes[0].index.latest.info.version, 1, 'publications loaded');
+  same(d.unreadable.map(u => u.path).sort(), ['maps/drafts/release.md', 'runs/release/run1/run.json']);
+  assert.strictEqual(d.unreadable.filter(u => u.key)[0].key, 'release/run1', 'the app keeps that run as last read');
+  same(d.failed, {});
+});
+
+rule('Step types past 100 and skill registrations past 500 are counted and reported, never silently cut', async () => {
+  const fs = folder();
+  for (let i = 0; i < 103; i++) { const id = 'team.t' + String(i).padStart(3, '0'); await fs.write('step-types/' + id + '.json', JSON.stringify({ id, label: 'T ' + i, icon: 'check' })); }
+  for (let i = 0; i < 502; i++) await fs.write('skills/s' + String(i).padStart(3, '0') + '.json', JSON.stringify({ name: 's' + i, process: 'release', implements: 'release@1', location: 'x' }));
+  const d = await repo.loadAll(fs);
+  assert.strictEqual(d.stepTypes.skipped, 3); assert.strictEqual(Object.keys(d.stepTypes.types).length, 100);
+  assert.ok(d.stepTypes.types['team.t000'] && !d.stepTypes.types['team.t102'], 'the first by name, the same on every computer');
+  assert.strictEqual(d.skillsSkipped, 3); assert.strictEqual(d.skills.length, 500);
+});
+
+rule('Drafts that say the same process: are both read, so both can be reported', async () => {
+  const fs = folder();
+  await fs.write('maps/drafts/release-LAPTOP.md', example('maps/drafts/release.md'));
+  const d = await repo.loadAll(fs);
+  same(PF.health.sharedDrafts(d.drafts), [{ process: 'release', files: ['release-LAPTOP.md', 'release.md'] }]);
+});
+
+rule('Flightdeck\'s loaders never list connection/, so a copy from before 1.15 never reads or writes it', async () => {
+  const fs = folder(); await started(fs);
+  await repo.sendProbe(fs, { id: 'k3m9p2q8', n: 1, by: 'person-avery', writer: 'w1', device: 'Mac · Chrome', at: NOW, app: '1.15.0', run: null, seen: [] }, Date.parse(NOW));
+  const calls = faulty(fs);
+  await repo.loadAll(fs, { deep: true });
+  await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(calls.list.length > 10 && !calls.list.some(c => /connection/.test(c)), 'nothing under connection/ was listed or read');
+  // check_folder.py, the skills' own checker, knows nothing of it either.
+  assert.ok(!/connection/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')));
+});
+
+rule('Folder health\'s scan reads every file with at most 8 calls in flight, and reports what it can\'t read', async () => {
+  const fs = folder(); await started(fs);
+  for (let i = 0; i < 40; i++) await fs.write('runs/release/run1/files/f' + i + '.txt', 'x'.repeat(i));
+  await fs.write('proposals/broken.json', '{ nope');
+  await fs.write('.flightdeck/installed.json', JSON.stringify({ format: 'flightdeck-installed/1', version: '1.15.0' }));
+  await fs.write('AGENTS.md', example('AGENTS.md'));
+  await fs.write('.flightdeck/updates/1.15.0/AGENTS.md', 'new'); await fs.write('.flightdeck/updates/1.15.0/README.md', 'merge me');
+  const calls = faulty(fs, { delay: 2, fail: (m, p) => m === 'stat' && p === 'runs/release/run1/files/f3.txt' });
+  let seen = 0;
+  const s = await repo.scan(fs, { progress: n => { seen = n; } });
+  assert.ok(calls.max <= 8 && calls.max >= 4, 'at most 8 at once, and more than one: ' + calls.max);
+  assert.ok(s.files >= 47 && seen === s.files);
+  assert.ok(s.unreadable.some(u => u.path === 'proposals/broken.json' && /valid JSON/.test(u.why)));
+  assert.ok(s.unreadable.some(u => u.path === 'runs/release/run1/files/f3.txt'));
+  assert.strictEqual(s.installed.version, '1.15.0');
+  assert.ok(typeof s.contractTexts['AGENTS.md'] === 'string');
+  same(s.updates, ['.flightdeck/updates/1.15.0/AGENTS.md']);
+  assert.ok(s.areas.runs.files >= 41 && s.areas.runs.bytes > 700 && s.longest > 20);
+  assert.ok(Object.keys(s.pubs).length === 1, 'the newest time of each publication folder');
+});
+
+rule('Folder health\'s scan stops when its folder is switched, and never mixes two folders', async () => {
+  const fs = folder(); await started(fs);
+  let live = true, n = 0;
+  faulty(fs, { delay: 1 });
+  const p = repo.scan(fs, { alive: () => live, progress: () => { if (++n === 2) live = false; } });
+  await assert.rejects(p, e => e.cancelled === true);
+});
+
+rule('Reading the whole folder keeps at most 8 folder calls in flight, even for a run with many notes files', async () => {
+  const fs = folder(); await started(fs);
+  for (let i = 0; i < 120; i++) await fs.write('runs/release/run1/notes-w' + i + '.jsonl', JSON.stringify({ id: 'n' + i, at: NOW, by: 'person-casey', text: 'hi' }) + '\n');
+  const calls = faulty(fs, { delay: 1 });
+  const d = await repo.loadAll(fs, { deep: true });
+  assert.strictEqual(d.runs[0]._notes.length, 120);
+  assert.ok(calls.max <= 8, 'at most 8 at once: ' + calls.max);
+  calls.max = 0;
+  await repo.loadRun(fs, 'release', 'run1');
+  assert.ok(calls.max <= 8, 'rereading one run too: ' + calls.max);
+});
+
+rule('A run whose file is gone from the folder is never written back by a save; only an explicit restore writes it', async () => {
+  const fs = folder(), r = await started(fs);
+  delete fs.files['runs/release/run1/run.json'];
+  Object.keys(fs.files).filter(k => /candidate-/.test(k)).forEach(k => delete fs.files[k]);
+  done(r, R.mapOf(r), 'approved', 'person-casey', NOW);
+  await assert.rejects(repo.saveRun(fs, r, 'casey-laptop'), e => e.missing === true && /gone from the team folder/.test(e.message));
+  assert.ok(!fs.files['runs/release/run1/run.json'] && !Object.keys(fs.files).some(k => /^runs\/release\/run1\//.test(k)), 'nothing written');
+  await repo.saveRun(fs, r, 'casey-laptop', { restoreMissing: true });
+  assert.ok(JSON.parse(fs.files['runs/release/run1/run.json'].t).steps.approved, 'restored on request');
+  // A new run (never saved) is still created by its first save.
+  const fresh = R.create((await repo.loadAll(fs)).processes[0].index.latest, { title: 'New', details: {}, roles: {}, by: 'person-casey', session: 'casey-laptop', now: NOW, id: 'run2' });
+  await repo.saveRun(fs, fresh, 'casey-laptop');
+  assert.ok(fs.files['runs/release/run2/run.json']);
 });
 
 run();

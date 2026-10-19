@@ -19,11 +19,12 @@ Flightdeck reads and writes files in the team folder on your computer. OneDrive 
 - **Half-synced publications are refused.** A version can't be used until all its files have arrived and match. Reference screenshots are copied into the version, so replacing an image later never changes an old version.
 - **A newer Flightdeck's files are left alone.** A version or run written by a newer copy, with features this copy doesn't understand, shows "Update Flightdeck to run it": the version can't be started and the run opens read-only. Every save also checks the run's own version record, so one replaced in the folder by a newer copy can't be recorded on, even before the next full refresh lists it as unusable. Put the newest `flightdeck.html` in the team folder when anyone updates.
 - **Each folder keeps to itself.** Switching folders discards anything still being read from the old one; a save always goes to the folder its change was made in; changes kept in this browser are filed under their folder's name.
-- **An unreadable folder isn't an empty one.** If OneDrive or permissions stop Flightdeck reading the folder, it keeps showing what it last read, says when that was, and offers **Try again**.
+- **An unreadable folder isn't an empty one.** If OneDrive or permissions stop Flightdeck reading the folder, it keeps showing what it last read, says when that was, and offers **Try again**. If only part of it can't be read (one run, the skills), that part keeps what was read before, everything else refreshes, and Folder health and the Runs page name what couldn't be read.
+- **Folder health and the connection check.** **Settings → Folder health** reads every file on request and lists what needs a person (conflict copies, OneDrive's second copies, files that can't be read, versions still arriving after 2 hours, hand-offs nobody picked up, runs nobody saved for a week, clocks that are off, a folder getting big), each with one thing to do. **Settings → Connection check** sends a small file from this computer and times another computer's answer, so you can see files travel both ways before a release. It proves the trip happened just now; it doesn't promise the next one will be as quick.
 
 ## What refreshing costs
 
-While a run is open, Flightdeck rereads only that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and finished runs and published versions are remembered rather than reread. **Refresh** in the top bar rereads everything. With 500 runs, a routine refresh reads about 10 files instead of about 2,000.
+While a run is open, Flightdeck rereads only that run and its notes every 5 seconds (about four files). The rest of the folder refreshes every 30 to 60 seconds, and finished runs and published versions are remembered rather than reread. **Refresh** in the top bar rereads everything. With 500 runs, a routine refresh reads about 10 files instead of about 2,000. A routine refresh also lists `connection/` and reads only the checks from the last 15 minutes; the Connection check page does that every 5 seconds while it's open. **Folder health** lists and checks every file, so it runs only when you open it or choose Check again.
 
 ## What it can't promise
 
@@ -48,6 +49,9 @@ While a run is open, Flightdeck rereads only that run and its notes every 5 seco
 | `.flightdeck/skills/**` | `flightdeck install` or `flightdeck skills`, run by the person who updates Flightdeck. A team that changes a skill keeps one person editing it. |
 | `.flightdeck/installed.json` | `flightdeck install` or `flightdeck skills`, and Flightdeck once when it starts a new team folder. Records which defaults the folder's AGENTS.md and skills are based on. |
 | `.flightdeck/updates/<version>/` | `flightdeck install` or `flightdeck skills`: new defaults waiting to be merged, with a README.md, and copies of the files `--force` replaced. The person merging (or their AI assistant) deletes each copy when it's merged. |
+| `connection/probe-<time>-<id>.<window>.json` | The window that sent the connection check, once. |
+| `connection/ack-<check id>.<window>.json` | The window that answered that check, once. |
+| `connection/` files older than 7 days | **The one exception to one writer per file:** any Flightdeck window may delete them when it sends a check. Nobody waits on a check that old, and only checks from the last 15 minutes are ever read. AI assistants never touch `connection/`; older copies of Flightdeck never read it. |
 
 ## Release gate: the two-computer rehearsal
 
@@ -61,11 +65,9 @@ The tests simulate two computers on a slow OneDrive, but only real OneDrive show
 
 Two computers, A and B, both signed in to OneDrive with the same shared test folder synced locally (**Always keep on this device**), Edge or Chrome on each, and the same Flightdeck version on both (check What's new). Use a test copy of the team folder, never the real one. Write down anything that doesn't match "Expect", and the delays you see.
 
-Step 0 needs the connection check, which comes in a later 1.15 release. Until then, skip it and write "not available" in its row.
-
 **Before you start (3 min)**
 
-0. Run the connection check from A, then from B. Expect: each computer's check is answered by the other, and the page says how long the round trip took.
+0. On both computers open **Settings → Connection check**. On A, **Send a check**. Expect on A, within about a minute: "<B's person> · <B's computer> saw check 1 …" with both legs timed. Then send one from B. Expect on B: A's answer, and on A, under Checks from other computers, "Their computer has your answer" once B's next check arrives. Note both round-trip times in the Delay column. If the page says the clocks differ, note that too.
 1. On A: open `flightdeck.html`, choose **Open team folder**, and choose yourself under You are. Expect: the processes load.
 2. On B: the same, choosing a different person. Expect: the same processes.
 3. Note the version shown in What's new on both, and the OneDrive version (OneDrive menu → Settings → About).
@@ -94,7 +96,7 @@ Step 0 needs the connection check, which comes in a later 1.15 release. Until th
 18. Resume OneDrive on B. Wait one to two minutes.
 19. Expect on both: the run shows a conflict copy panel (**Compare copies**). Nothing is silently lost: every step checked on A and B is in one of the copies.
 20. Recorder: compare, keep the right copy, and delete the other. Expect: both computers settle on the kept copy; the deleted copy's answers stay visible in the comparison until it's deleted.
-21. Pause OneDrive on A and edit a draft in the builder, then Save. On B, edit the same draft and Save. Both saves succeed: neither computer can see the other's change yet. Resume A. Expect: OneDrive keeps both versions, one of them as a copy with a computer's name (`release-LAPTOP.md`). Nothing is silently lost: both edits are in one of the two files. Resolve it as in [When something goes wrong](recovery.md#onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type); once Folder health exists (a later 1.15 release), it lists the copy too.
+21. Pause OneDrive on A and edit a draft in the builder, then Save. On B, edit the same draft and Save. Both saves succeed: neither computer can see the other's change yet. Resume A. Expect: OneDrive keeps both versions, one of them as a copy with a computer's name (`release-LAPTOP.md`). Nothing is silently lost: both edits are in one of the two files. Resolve it as in [When something goes wrong](recovery.md#onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type). Expect **Settings → Folder health** to list both drafts under Needs action.
     - 21b. With both computers syncing, open the same draft on A and B. On B, make an edit and don't save it yet. Then A edits and saves. Wait until A's save has reached B, then save on B. Expect on B: the save is refused with "Someone else changed this draft", offering Keep mine and Take theirs. Undo never brings back text over A's change.
 - P. Pause OneDrive on A. Publish a new version of a checklist on A, then resume. Expect on B: until every file of the new version has arrived, the version is either not there or shown as still syncing. It's never offered for a run before it's complete.
 - R. With a run open on both computers, restore that run's `run.json` to an earlier version from OneDrive's version history (on the OneDrive website: the run's folder → `run.json` → Version history → Restore). Then the recorder checks a step. Expect: the save is refused and a conflict copy appears; both the restored version and the recorder's are there to compare. Nothing is silently lost.

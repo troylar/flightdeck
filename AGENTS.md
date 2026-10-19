@@ -22,9 +22,9 @@ The team owns this code. Leave it easier to change than you found it.
 
 | Path | What it is | Rule |
 |---|---|---|
-| `src/core/` | `util`, `types`, `jira`, `map`, `outline` (the builder's line-preserving edits of a draft), `timeline` (Undo, Redo and History for the draft editor and the step-type form: text patches, typing units, baselines), `publish`, `run`, `corrections` (corrections recorded in runs: format, groups, decisions, the run's record), `skills`, `attach` (which files notes and corrections can carry, and how each is named and shown), `contract` (what part of `AGENTS.md` and the skills a hash covers, and the embedded baselines): every rule | Pure functions. No DOM, no files. Every rule has a test. |
-| `src/storage/` | `fs` (folder access), `repo` (load, save, publish, conflicts, cache) | One writer per file, always. |
-| `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `builder` (the draft editor's outline builder), `run` (the run workspace: header, status strip, Phases, the checklist with Next up, and the inspector), `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
+| `src/core/` | `util`, `types`, `jira`, `map`, `outline` (the builder's line-preserving edits of a draft), `timeline` (Undo, Redo and History for the draft editor and the step-type form: text patches, typing units, baselines), `publish`, `run`, `corrections` (corrections recorded in runs: format, groups, decisions, the run's record), `skills`, `attach` (which files notes and corrections can carry, and how each is named and shown), `contract` (what part of `AGENTS.md` and the skills a hash covers, and the embedded baselines), `health` (Folder health: issues with one action each, the all-clear list, the recovery guide's sections), `connection` (the connection check: file names, records, results in words): every rule | Pure functions. No DOM, no files. Every rule has a test. |
+| `src/storage/` | `fs` (folder access), `repo` (load, save, publish, conflicts, cache, Folder health's scan, the connection check's files) | One writer per file, always. |
+| `src/ui/` | `views/` (HTML strings: `common` (top bar and sections), `home` (Home, Runs, Processes, Skills), `process`, `manage` (the checklist panel on a process page, draft editor, new process, step types, Settings), `builder` (the draft editor's outline builder), `run` (the run workspace: header, status strip, Phases, the checklist with Next up, and the inspector), `pages`, `overlays`, `flight` (the read-only Flight plan diagram of a checklist), `health` (Folder health, Connection check, When something goes wrong)), `app` (state, events, refresh, patching), `examples` (the example folder's seeded run history), `icons` | Calls core; never reimplements a rule. |
 | `src/page.html` | Styles, color tokens, page shell | Light and dark tokens; no external resources. |
 | `build.py` | Joins `src/` into `dist/flightdeck.html` | Order is fixed in `CORE` and `APP` at the top. |
 | `example-folder/` | A complete team folder, built into the app as examples | Synthetic people only. Its `AGENTS.md` is the contract for working **in a team folder**; its `.flightdeck/skills/` are the Flightdeck skills for AI assistants that every new team folder gets (`flightdeck skills --to <dir>` installs them anywhere else). |
@@ -64,7 +64,7 @@ node tools/baselines.js --write    # after changing example-folder/AGENTS.md or 
 ## Rules you must not break
 
 1. **The build stays one self-contained HTML file.** No CDN scripts, no font or network fetches. Fonts are embedded by `build.py`.
-2. **One writer per file in the team folder.** Never add a second writer to an existing file. New shared data gets a per-session file.
+2. **One writer per file in the team folder.** Never add a second writer to an existing file. New shared data gets a per-session file. The one documented exception: any window may delete `connection/` files older than 7 days (docs/design.md section 21).
 3. **Escape everything that comes from files.** Use `esc`, `mdInline` or `mdBlock`. Never put raw HTML from a checklist, note or run into the page. Links must stay `http(s)` or `mailto`.
 4. **`R.sanitize` guards every run read from disk.** A new run field gets a sanitize line with an allowed type and a length cap, an entry in `KNOWN` (a run with a field this copy doesn't know opens read-only, so a newer copy's data is never erased), plus a fixture in `test/fixtures/` showing that older files still load.
 5. **Gates are never locks.** Don't write UI or docs implying "safe right now". Irreversible actions keep a person's confirmation.
@@ -130,7 +130,7 @@ Don't file or "fix" these choices without a change to `docs/design.md`. They nev
 - Typed fields are informational. Missing usual fields are tips; evidence is opt-in with `require:`.
 - A plain `confirm` is one click. Only required evidence opens a form.
 - `run.json` keeps 300 log entries and 10 earlier answers per step; older ones are archived, not lost.
-- Polling, not push. A run view rereads only that run every 5 seconds; complete publications and ended runs are cached.
+- Polling, not push. A run view rereads only that run every 5 seconds; complete publications and ended runs are cached. The Connection check page lists `connection/` every 5 seconds; Folder health reads every file only when asked.
 - Screens are HTML strings; `render()` patches only the regions that changed (`patch`/`morph` in `app.js`), so focus, the caret and typed text stay put. Don't add per-element listeners; events are delegated by `data-act`.
 - Reminders and the timeline work only while the app is open. There are no notifications.
 - Flightdeck never calls Jira. `jira/workflows.json` is what the team says its workflow is.

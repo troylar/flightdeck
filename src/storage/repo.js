@@ -18,10 +18,15 @@ PF.repo = (function () {
   function loadDrafts(fs) {
     return fs.list('maps/drafts').then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.md$/i.test(i.name); }).map(function (i) {
-        return fs.read('maps/drafts/' + i.name).then(function (f) { return f ? { file: i.name, md: f.text, mtime: f.mtime } : null; });
+        return fs.read('maps/drafts/' + i.name).then(function (f) { return f ? { file: i.name, md: f.text, mtime: f.mtime } : null; }, function (e) { return { unread: 'maps/drafts/' + i.name, file: i.name, why: why(e) }; });
       }));
-    }).then(function (x) { return x.filter(Boolean); });
+    }).then(function (x) {
+      var out = x.filter(function (d) { return d && !d.unread; });
+      out.unreadable = x.filter(function (d) { return d && d.unread; }).map(function (d) { return { path: d.unread, draft: d.file, why: d.why }; });
+      return out;
+    });
   }
+  function why(e) { return 'couldn\'t be read (' + (e && e.message || String(e)) + ')'; }
 
   /* What's already been read from a folder. Complete publications never change, and ended runs rarely do, so routine refreshes
      skip them; a deep refresh (the Refresh button) reads everything again. */
@@ -92,16 +97,22 @@ PF.repo = (function () {
       }));
     }).then(function (nested) {
       /* One limit across every process, so a folder with hundreds of runs never has more than 8 being read at once. */
+      var unreadable = [];
       return limited([].concat.apply([], nested), 8, function (key) {
         var hit = cache.ended[key], proc = key.split('/')[0], id = key.split('/')[1];
+        /* One run that can't be read (a placeholder OneDrive hasn't downloaded, a file being replaced) is listed as unreadable;
+           the rest of the folder still loads. */
+        return go().then(null, function (e) { delete cache.ended[key]; unreadable.push({ path: 'runs/' + key + '/run.json', key: key, why: why(e) }); return null; });
+        function go() {
         /* An ended run is reread only if a file in it arrived, left, or changed size or time (a late note, a conflict copy). */
         if (!deep && hit) return fingerprint(fs, 'runs/' + key).then(function (fp) { return fp === hit.fp && !(hit.run._recheckAt && Date.now() >= hit.run._recheckAt) ? hit.run : fresh(); });
         return fresh();
+        }
         /* Fingerprint before and after reading: the run is cached only if nothing changed in between, so a cached copy
            always matches the fingerprint it's checked against. */
         function fresh() {
           var before;
-          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return loadRun(fs, proc, id, cache, deep, true); })
+          return fingerprint(fs, 'runs/' + key).then(function (fp) { before = fp; return loadRun(fs, proc, id, cache, deep, true, unreadable); })
             .then(function (run) {
               return fingerprint(fs, 'runs/' + key).then(function (after) {
                 if (run && run.ended && after === before) cache.ended[key] = { run: run, fp: after }; else delete cache.ended[key];
@@ -109,8 +120,8 @@ PF.repo = (function () {
               });
             });
         }
-      });
-    }).then(function (runs) { return runs.filter(Boolean); });
+      }).then(function (runs) { return { runs: runs.filter(Boolean), unreadable: unreadable }; });
+    });
   }
   /* Names, sizes and times of the files directly in a run folder: cheap to get, and different whenever anything in it changed. */
   function fingerprint(fs, dir) {
@@ -169,7 +180,9 @@ PF.repo = (function () {
   }
   /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
      one run (the open one) also checks its own publication. */
-  function loadRun(fs, proc, id, cacheIn, deep, allRuns) {
+  /* bad: a list that a run.json which can't be understood is added to (it's never just left out). */
+  function loadRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
+    cacheIn = cacheIn || cacheOf(fs); fs = bounded(fs);
     var base = 'runs/' + proc + '/' + id + '/';
     function withPublication(res) {
       if (allRuns) return res;
@@ -197,7 +210,7 @@ PF.repo = (function () {
       }
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(readNotes))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
-        if (!run) return null;
+        if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
            its own copy of the checklist happens to read. */
         if (!run._unrunnable && res.pubProblem) run._unrunnable = res.pubProblem;
@@ -272,15 +285,33 @@ PF.repo = (function () {
     }).then(function (x) { return x.filter(Boolean); });
   }
 
+  /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
+     A folder that can't be listed, or where every part fails, is an unreadable folder. */
+  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections'];
+  /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
+     Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
+     folder itself. */
+  function bounded(fs) {
+    if (fs._bounded) return fs;
+    var go = pool(8), b = Object.create(fs);
+    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof fs[m] === 'function') b[m] = function (p) { return go(function () { return fs[m](p); }); }; });
+    b._bounded = true;
+    return b;
+  }
   function loadAll(fs, opts) {
-    var cache = cacheOf(fs), deep = !!(opts && opts.deep);
-    return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep), loadLegacy(fs),
+    var cache = cacheOf(fs); fs = bounded(fs); var deep = !!(opts && opts.deep), failed = {}, errs = [];
+    var EMPTY = [[], [], [], { runs: [], unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], []];
+    /* The folder itself must list: one that can't is unreadable, never empty. */
+    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep), loadLegacy(fs),
       loadSkills(fs),
       loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
       loadCorrectionDecisions(fs)
-    ]).then(function (r) {
+    ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
+      if (errs.length === PARTS.length) throw errs[0];
+      var unreadable = r[3].unreadable.concat(r[1].unreadable || []);
+      r[3] = r[3].runs;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
       r[9] = r[9].map(function (v) { return { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; });
       var props = r[6], statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
@@ -296,7 +327,8 @@ PF.repo = (function () {
       });
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       r[3].forEach(function (run) { var bad = cache.bad && cache.bad['publications/' + run.process + '/' + run.folder + '/']; if (bad && !run._unrunnable) run._unrunnable = bad; });
-      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8], readAt: new Date().toISOString() };
+      return { people: r[0], drafts: r[1], processes: r[2], runs: r[3], legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
+        unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString() };
     });
   }
   /* Decisions on corrections: corrections/<process>/<group>.<writer>.<rev>.json, each written once. Decisions on suggested
@@ -337,9 +369,12 @@ PF.repo = (function () {
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
+    var skipped = 0;
     return fs.list('step-types').then(function (items) {
-      return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).slice(0, 100).map(function (i) {
-        return fs.read('step-types/' + i.name).then(function (f) { var o = f && json(f.text); return { file: i.name, def: o, errors: o === undefined ? ['isn\'t valid JSON'] : PF.types.checkCustom(o) }; });
+      var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+      skipped = Math.max(0, files.length - MAX_TYPES);
+      return Promise.all(files.slice(0, MAX_TYPES).map(function (i) {
+        return fs.read('step-types/' + i.name).then(function (f) { var o = f && json(f.text); return { file: i.name, def: o, errors: o === undefined ? ['isn\'t valid JSON'] : PF.types.checkCustom(o) }; }, function (e) { return { file: i.name, def: null, errors: [why(e)] }; });
       }));
     }).then(function (list) {
       var types = {}, errors = [];
@@ -349,13 +384,18 @@ PF.repo = (function () {
         if (!x.errors.length) { try { types[x.def.id] = PF.types.customType(x.def); } catch (e) { x.errors.push('couldn\'t be read as a step type'); } }
         if (x.errors.length) errors.push({ file: x.file, errors: x.errors });
       });
-      return { types: types, errors: errors };
+      return { types: types, errors: errors, skipped: skipped };
     });
   }
+  /* Past these, the first files by name are read and the rest are counted (Folder health reports them), never silently cut. */
+  var MAX_TYPES = 100, MAX_SKILLS = 500;
   /* Skill registrations, one file at a time: a file that can't be read, isn't JSON or isn't an object is listed with why. */
   function loadSkills(fs) {
+    var skipped = 0;
     return fs.list('skills').then(function (items) {
-      return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).slice(0, 500).map(function (i) {
+      var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+      skipped = Math.max(0, files.length - MAX_SKILLS);
+      return Promise.all(files.slice(0, MAX_SKILLS).map(function (i) {
         var bad = function (why) { return { skill: null, errors: ['skills/' + i.name + ': ' + why], file: i.name }; };
         return fs.read('skills/' + i.name).then(function (f) {
           if (!f) return bad('couldn\'t be read');
@@ -365,7 +405,7 @@ PF.repo = (function () {
           try { var c = PF.skills.check(o, i.name); c.file = i.name; return c; } catch (e) { return bad('couldn\'t be read as a skill registration'); }
         }, function () { return bad('couldn\'t be read'); });
       }));
-    });
+    }).then(function (list) { list.skipped = skipped; return list; });
   }
   /* The team's Jira workflows: jira/workflows.json (see core/jira.js). Missing is fine; a broken file is reported. */
   function loadWorkflows(fs) {
@@ -414,6 +454,9 @@ PF.repo = (function () {
             .then(function () { e.keptAs = keep; throw e; }, function () { throw e; });
         }
       }
+      /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
+         never written back by an ordinary save, only by an explicit restore. A run never saved yet is created here. */
+      if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
       var copy = stripMeta(run); copy.rev = (run.rev || 0) + 1; copy.savedAt = new Date().toISOString(); copy.savedBy = session;
       /* Every save is first written to its own uniquely named candidate file, and run.json lists the saves it includes.
          Where windows can't take turns (two browsers, two computers, no Web Locks), a save that another save replaced is
@@ -426,7 +469,8 @@ PF.repo = (function () {
         .then(function () { return fs.write(path, text); })
         .then(function () {
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = U.hash(text); run.lineage = copy.lineage;
-          return cleanCandidates(fs, dir, copy.lineage).then(function () { return copy.savedAt; });
+          /* What was written, exactly: the run may change in memory while this save is under way. */
+          return cleanCandidates(fs, dir, copy.lineage).then(function () { return { savedAt: copy.savedAt, text: text }; });
         }, function (e) { return fs.remove(cand).then(function () { throw e; }, function () { throw e; }); });
     });
     }
@@ -582,5 +626,114 @@ PF.repo = (function () {
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
   }
 
-  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection };
+
+  /* ---------- Folder health: every file, on demand (never during routine refreshes) ---------- */
+  /* At most n folder calls in flight at once, across a whole scan, so a big folder never floods OneDrive or the browser. */
+  function pool(n) {
+    var active = 0, waiting = [];
+    function next() { if (active >= n || !waiting.length) return; active++; var job = waiting.shift(); Promise.resolve().then(job.fn).then(function (v) { active--; next(); job.res(v); }, function (e) { active--; next(); job.rej(e); }); }
+    return function (fn) { return new Promise(function (res, rej) { waiting.push({ fn: fn, res: res, rej: rej }); next(); }); };
+  }
+  var SCAN_MAX = 50000, SKIP_DIRS = { '.git': 1, 'node_modules': 1 };
+  /* Lists every file with its size and time (8 calls at a time), and reads the few small files nothing else checks: people.json,
+     plans and sign-offs, the Jira workflows, and the files for AI assistants. opts.alive() false stops it (the folder was
+     switched); opts.progress(n) hears how many files it has found. Returns what PF.health.check needs. */
+  function scan(fs, opts) {
+    opts = opts || {};
+    var go = pool(8), alive = opts.alive || function () { return true; }, files = [], unreadable = [], truncated = false, started = Date.now();
+    function stop() { var e = new Error('The folder changed before the check finished.'); e.cancelled = true; return e; }
+    function walk(dir) {
+      if (!alive()) return Promise.reject(stop());
+      return go(function () { return fs.list(dir); }).then(function (items) {
+        var subs = [];
+        items.forEach(function (i) {
+          var p = dir ? dir + '/' + i.name : i.name;
+          if (i.kind === 'dir') { if (!SKIP_DIRS[i.name]) subs.push(p); }
+          else if (files.length < SCAN_MAX) files.push({ p: p, s: null, m: null }); else truncated = true;
+        });
+        if (opts.progress) opts.progress(files.length);
+        return Promise.all(subs.map(walk));
+      }, function (e) { unreadable.push({ path: dir || '(the team folder)', why: why(e) }); });
+    }
+    return walk('').then(function () {
+      if (!fs.stat) return;
+      return Promise.all(files.map(function (f) {
+        return go(function () { if (!alive()) throw stop(); return fs.stat(f.p); }).then(function (st) { if (st) { f.s = st.size; f.m = st.mtime; } }, function (e) { if (e && e.cancelled) throw e; unreadable.push({ path: f.p, why: why(e) }); });
+      }));
+    }).then(function () {
+      var want = files.filter(function (f) { return f.p === 'people.json' || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p); });
+      var texts = {}, installed = null;
+      return Promise.all(want.map(function (f) {
+        return go(function () { if (!alive()) throw stop(); return fs.read(f.p); }).then(function (r) {
+          if (!r) return;
+          if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
+          var o = json(r.text);
+          if (f.p === '.flightdeck/installed.json') { installed = o && typeof o === 'object' && !Array.isArray(o) ? o : 'bad'; return; }
+          if (o === undefined) unreadable.push({ path: f.p, why: 'isn\'t valid JSON' });
+          else if (f.p === 'people.json' && !Array.isArray(o) && !(o && Array.isArray(o.people))) unreadable.push({ path: f.p, why: 'isn\'t a list of people' });
+        }, function (e) { if (e && e.cancelled) throw e; unreadable.push({ path: f.p, why: why(e) }); });
+      })).then(function () {
+        var bytes = 0, longest = 0, pubs = {}, areas = {};
+        files.forEach(function (f) {
+          bytes += f.s || 0; if (f.p.length > longest) longest = f.p.length;
+          var top = f.p.indexOf('/') < 0 ? '(top)' : f.p.slice(0, f.p.indexOf('/')), a = areas[top] = areas[top] || { files: 0, bytes: 0 };
+          a.files++; a.bytes += f.s || 0;
+          var m = /^(publications\/[^/]+\/[^/]+)\//.exec(f.p);
+          if (m && f.m != null && (pubs[m[1]] == null || f.m > pubs[m[1]])) pubs[m[1]] = f.m;
+        });
+        return { at: new Date().toISOString(), ms: Date.now() - started, files: files.length, bytes: bytes, longest: longest, areas: areas, pubs: pubs, list: files, unreadable: unreadable, truncated: truncated,
+          contractTexts: texts, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
+          updates: files.filter(function (f) { return /^\.flightdeck\/updates\//.test(f.p) && !/\/README\.md$/i.test(f.p) && !/\/replaced\//.test(f.p) && !/\.base$/.test(f.p); }).map(function (f) { return f.p; }) };
+      });
+    });
+  }
+
+  /* ---------- The connection check: connection/ (see core/connection.js) ---------- */
+  /* Only checks from the last 15 minutes and the answers to them are read; older copies never list this folder. */
+  function loadConnection(fs, now) {
+    var CN = PF.connection;
+    return fs.list(CN.DIR).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; });
+      var probes = names.filter(function (n) { return CN.fresh(n, now); }), ids = {};
+      probes.forEach(function (n) { ids[CN.parseName(n).id] = true; });
+      var acks = names.filter(function (n) { var x = CN.parseName(n); return x && x.kind === 'ack' && ids[x.probe]; });
+      return limited(probes.concat(acks), 8, function (n) {
+        return fs.read(CN.DIR + '/' + n).then(function (f) { return f ? CN.clean(json(f.text), n) : null; }, function () { return null; });
+      }).then(function (list) {
+        list = list.filter(Boolean);
+        return { probes: list.filter(function (x) { return x.kind === 'probe'; }), acks: list.filter(function (x) { return x.kind === 'ack'; }), readAt: new Date(now).toISOString() };
+      });
+    });
+  }
+  /* Each check and each answer is a new file named for its window, written once: never over a file that's there. */
+  function writeOnce(fs, path, rec) {
+    var text = JSON.stringify(rec, null, 2) + '\n';
+    return fs.read(path).then(function (f) {
+      if (f) throw new Error('A file with that name is already in the folder.');
+      return fs.write(path, text);
+    }).then(function () { return path; });
+  }
+  function sendProbe(fs, rec, atMs) {
+    var CN = PF.connection, name = CN.probeName(atMs, rec.id, rec.writer);
+    return writeOnce(fs, CN.DIR + '/' + name, CN.probe(rec)).then(function () { return name; });
+  }
+  function sendAck(fs, rec) {
+    var CN = PF.connection, name = CN.ackName(rec.probe, rec.writer);
+    return writeOnce(fs, CN.DIR + '/' + name, CN.ack(rec)).then(function () { return name; });
+  }
+  /* Checks and answers older than 7 days may be deleted by any window: the one exception to one writer per file, since nobody
+     waits on them any more (docs/onedrive.md). At most 100 at a time. */
+  function cleanConnection(fs, now) {
+    var CN = PF.connection;
+    return fs.list(CN.DIR).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && CN.parseName(i.name); }).map(function (i) { return i.name; }).slice(0, 2000), gone = 0;
+      return limited(names, 8, function (n) {
+        if (gone >= 100) return null;
+        var x = CN.parseName(n), when = x.kind === 'probe' || !fs.stat ? Promise.resolve(null) : fs.stat(CN.DIR + '/' + n).then(function (st) { return st ? st.mtime : null; }, function () { return null; });
+        return when.then(function (mtime) { if (gone < 100 && CN.old(n, mtime, now)) { gone++; return fs.remove(CN.DIR + '/' + n).catch(function () {}); } });
+      }).then(function () { return gone; });
+    });
+  }
+
+  return { config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, saveStepType: saveStepType, recordValidation: recordValidation, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

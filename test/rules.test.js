@@ -1805,4 +1805,310 @@ rule('The Flightdeck part of AGENTS.md runs from its begin marker through its en
   assert.strictEqual(C.hex(new Uint8Array([0, 15, 255])), '000fff');
 });
 
+/* ---------- Folder health (core/health.js) ---------- */
+const H = PF.health, CN = PF.connection;
+const HNOW = Date.parse('2026-10-18T12:00:00.000Z'), HOUR = 3600000, DAY = 24 * HOUR;
+const ACTS = ['open-run', 'open-process', 'recovery', 'connection', 'nav', 'health-cmd', 'health-again'];
+const recoveryDoc = require('fs').readFileSync(require('path').join(__dirname, '..', 'docs', 'recovery.md'), 'utf8');
+const anchors = H.sections(recoveryDoc).list.map(s => s.id);
+function healthy(extra) {
+  const p = pub('release');
+  const r = R.create(p, { title: 'Release 1', details: {}, roles: {}, by: 'person-casey', session: 's1', now: new Date(HNOW - HOUR).toISOString(), id: 'run1' });
+  r.savedAt = new Date(HNOW - HOUR).toISOString(); r._conflicts = []; r._notes = [];
+  const data = { people: people.map(x => Object.assign({}, x)), drafts: [{ file: 'release.md', md: example('maps/drafts/release.md') }], processes: [{ process: 'release', pubs: [Object.assign({ folder: p.info.folder }, p)], index: { latest: p, all: [p], clashes: [] } }],
+    runs: [r], skills: [], stepTypes: { types: {}, errors: [], skipped: 0 }, jira: { workflows: null, errors: [] }, unreadable: [], failed: {}, corrUnread: [], skillsSkipped: 0 };
+  const list = [{ p: 'people.json', s: 400, m: HNOW - DAY }, { p: 'maps/drafts/release.md', s: 3000, m: HNOW - DAY }, { p: 'runs/release/run1/run.json', s: 5000, m: HNOW - HOUR }];
+  const scan = { at: new Date(HNOW).toISOString(), ms: 10, files: list.length, bytes: 8400, longest: 26, areas: {}, pubs: {}, list, unreadable: [], truncated: false, contractTexts: {}, installed: null, updates: [] };
+  const snap = { data, scan, me: 'person-casey', app: '1.15.0', newer: null, contract: null, connection: null };
+  if (extra) extra(snap, r, p);
+  return snap;
+}
+const ids = rep => rep.issues.map(i => i.id);
+function oneAction(rep) {
+  rep.issues.forEach(i => {
+    assert.ok(i.action && typeof i.action.act === 'string' && typeof i.action.label === 'string' && i.action.label, i.id + ' has an action');
+    assert.ok(ACTS.indexOf(i.action.act) >= 0, i.id + ': ' + i.action.act + ' is something the app does');
+    if (i.action.act === 'recovery') assert.ok(anchors.indexOf(i.action.id) >= 0, i.id + ' links to a real section: ' + i.action.id);
+    if (i.help) assert.ok(anchors.indexOf(i.help) >= 0, i.id + ' help is a real section: ' + i.help);
+    assert.ok(['stop', 'warn', 'info'].indexOf(i.severity) >= 0);
+  });
+}
+
+rule('Folder health: a healthy folder is all clear, and says what it checked', () => {
+  const rep = H.check(healthy(), HNOW);
+  same(ids(rep), []);
+  assert.ok(rep.scanned && rep.clear.length >= 8, 'an all-clear line for each check');
+  assert.ok(rep.clear.some(c => /Every file Flightdeck uses can be read \(3 files\)/.test(c.text)));
+  assert.ok(rep.clear.some(c => /people\.json lists 4 people, you included/.test(c.text)));
+});
+
+rule('Folder health: every issue has exactly one action, and its help is a real section of docs/recovery.md', () => {
+  const rep = H.check(healthy((s, r, p) => {
+    r._conflicts = ['run.conflict-w1-1.json'];
+    s.data.drafts.push({ file: 'release-LAPTOP.md', md: example('maps/drafts/release.md') });
+    s.scan.list.push({ p: 'people-DESKTOP.json', s: 1, m: HNOW }, { p: 'x.tmp', s: 1, m: HNOW - 3 * HOUR }, { p: 'a/' + 'b'.repeat(210), s: 1, m: HNOW });
+    s.data.unreadable.push({ path: 'runs/release/run2/run.json', key: 'release/run2', why: 'isn\'t complete JSON' });
+    s.data.failed = { skills: 'NotReadableError' };
+    s.data.stepTypes.skipped = 3; s.data.skillsSkipped = 2;
+    s.newer = '1.16.0';
+  }), HNOW);
+  ['conflicts:release/run1', 'shared:release', 'copies', 'tmp', 'cap-paths', 'unreadable-runs', 'read-failed', 'cap-types', 'cap-skills', 'newer'].forEach(id => assert.ok(ids(rep).indexOf(id) >= 0, id + ' found'));
+  oneAction(rep);
+  assert.strictEqual(rep.issues[0].severity, 'stop', 'needs action comes first');
+  const conflict = rep.issues.filter(i => i.id === 'conflicts:release/run1')[0];
+  same(conflict.action, { act: 'open-run', id: 'release/run1', label: 'Compare copies' });
+  same(rep.issues.filter(i => i.id === 'copies')[0].paths, ['people-DESKTOP.json']);
+});
+
+rule('Folder health: OneDrive\'s second copies are told apart from a team\'s own dashed names', () => {
+  assert.strictEqual(H.copyOf('release-LAPTOP.md', { 'release.md': true }), 'release.md');
+  assert.strictEqual(H.copyOf('people (1).json', { 'people.json': true }), 'people.json');
+  assert.strictEqual(H.copyOf('deploy-DESKTOP-4F2K.json', { 'deploy.json': true }), 'deploy.json', 'computer names can have dashes');
+  assert.strictEqual(H.copyOf('deploy-PC.json', { 'deploy.json': true }), 'deploy.json');
+  assert.strictEqual(H.copyOf('deploy-prod.json', { 'deploy.json': true }), null, 'lowercase suffixes are the team\'s own names');
+  assert.strictEqual(H.copyOf('release-LAPTOP.md', {}), null, 'no original, no copy');
+  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/run1/run-LAPTOP.json', s: 1, m: HNOW }, { p: 'runs/release/run1/run.json.bak', s: 1, m: HNOW }); }), HNOW);
+  assert.ok(ids(rep).indexOf('copies') < 0, 'run folders have their own conflict handling');
+});
+
+rule('Folder health thresholds: a version incomplete over 2 hours, a hand-off over 2 hours, a week without a save, a clock over 10 minutes', () => {
+  const half = (age) => H.check(healthy((s, r, p) => { s.data.processes[0].pubs.push({ ok: false, why: 'Still syncing: some files haven\'t arrived.', folder: 'v2-zzzz1111' }); s.scan.pubs['publications/release/v2-zzzz1111'] = HNOW - age; }), HNOW);
+  assert.ok(ids(half(HOUR)).indexOf('arriving') >= 0 && ids(half(HOUR)).indexOf('half:publications/release/v2-zzzz1111') < 0, 'under 2 hours: still arriving');
+  assert.ok(ids(half(2 * HOUR + 60000)).indexOf('half:publications/release/v2-zzzz1111') >= 0, 'over 2 hours: worth a look');
+  const hand = (age) => H.check(healthy((s, r) => { r.recorder = { person: 'person-blake', session: null, handoff: { from: 'person-casey', rev: 2, at: new Date(HNOW - age).toISOString() } }; }), HNOW);
+  assert.ok(ids(hand(HOUR)).indexOf('handoff:release/run1') < 0);
+  assert.ok(ids(hand(3 * HOUR)).indexOf('handoff:release/run1') >= 0);
+  assert.ok(/handed to Blake Okafor 3 hours ago/.test(hand(3 * HOUR).issues[0].title) || /handed to/.test(hand(3 * HOUR).issues[0].title));
+  const idle = (age) => H.check(healthy((s, r) => { r.savedAt = new Date(HNOW - age).toISOString(); }), HNOW);
+  assert.ok(ids(idle(6 * DAY)).indexOf('abandoned:release/run1') < 0);
+  assert.ok(ids(idle(8 * DAY)).indexOf('abandoned:release/run1') >= 0);
+  const gone = H.check(healthy((s, r) => { s.data.people.forEach(x => { if (x.id === 'person-casey') x.inactive = true; }); }), HNOW);
+  assert.ok(ids(gone).indexOf('abandoned:release/run1') >= 0, 'an inactive recorder leaves the run behind');
+  const clock = (ahead) => H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/run1/notes-x.jsonl', s: 1, m: HNOW + ahead }); }), HNOW);
+  assert.ok(ids(clock(9 * 60000)).indexOf('clock') < 0);
+  const c = clock(25 * 60000);
+  assert.ok(ids(c).indexOf('clock') >= 0 && c.issues.filter(i => i.id === 'clock')[0].action.act === 'connection', 'the connection check shows whose clock differs');
+  const tmp = (age) => H.check(healthy(s => { s.scan.list.push({ p: '.flightdeck/write-test-a.tmp', s: 0, m: HNOW - age }); }), HNOW);
+  assert.ok(ids(tmp(HOUR)).indexOf('tmp') < 0 && ids(tmp(3 * HOUR)).indexOf('tmp') >= 0, 'only leftovers older than 2 hours');
+});
+
+rule('Folder health capacity: 500 runs is worth a look, 2,000 needs action; big run folders, attachments and long paths are reported', () => {
+  const many = (n) => H.check(healthy((s, r) => { for (let i = 0; i < n; i++) s.data.runs.push(Object.assign({}, r, { id: 'x' + i, ended: { at: r.created }, state: 'completed' })); }), HNOW);
+  assert.ok(ids(many(499)).indexOf('cap-runs') < 0);
+  assert.strictEqual(many(500).issues.filter(i => i.id === 'cap-runs')[0].severity, 'warn');
+  assert.strictEqual(many(2000).issues.filter(i => i.id === 'cap-runs')[0].severity, 'stop');
+  const rep = H.check(healthy(s => {
+    for (let i = 0; i < 501; i++) s.scan.list.push({ p: 'runs/release/run1/files/f' + i + '.png', s: 3 * 1024 * 1024, m: HNOW });
+  }), HNOW);
+  assert.ok(ids(rep).indexOf('cap-run-files:release/run1') >= 0 && ids(rep).indexOf('cap-attach') >= 0);
+  assert.ok(/1\.\d GB/.test(rep.issues.filter(i => i.id === 'cap-attach')[0].title));
+});
+
+rule('Folder health people: nobody listed, a shared ID, you missing, and an owner who left', () => {
+  assert.ok(ids(H.check(healthy(s => { s.data.people = []; }), HNOW)).indexOf('people-missing') >= 0);
+  assert.ok(ids(H.check(healthy(s => { s.data.people.push(Object.assign({}, s.data.people[0])); }), HNOW)).indexOf('people-dup') >= 0);
+  assert.ok(ids(H.check(healthy(s => { s.me = 'person-zed'; }), HNOW)).indexOf('me-missing') >= 0);
+  const owner = healthy().data.processes[0].index.latest.map.meta.owner;
+  const rep = H.check(healthy(s => { s.data.people.forEach(x => { if (x.id === owner) x.inactive = true; }); }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'owner:release')[0];
+  assert.ok(i && i.action.act === 'open-process' && i.action.id === 'release', 'the process page is where its owner changes');
+});
+
+rule('Folder health: notes with one ID and different text, or one window name on two computers, mean two windows shared a name', () => {
+  const rep = H.check(healthy((s, r) => { r._notes = [{ id: 'n1', text: 'a', by: 'person-casey', at: '2026-10-18T10:00:00Z' }, { id: 'n1', text: 'b', by: 'person-blake', at: '2026-10-18T10:01:00Z' }]; }), HNOW);
+  assert.strictEqual(rep.issues.filter(i => i.id === 'same-name')[0].severity, 'stop');
+  const same2 = H.check(healthy((s, r) => { r._notes = [{ id: 'n1', text: 'a', by: 'x', at: '2026-10-18T10:00:00Z' }, { id: 'n1', text: 'a', by: 'x', at: '2026-10-18T10:00:00Z' }]; }), HNOW);
+  assert.ok(ids(same2).indexOf('same-name') < 0, 'the same note read twice is not a clash');
+  const conn = H.check(healthy(s => { s.connection = { probes: [{ writer: 'w1', device: 'Mac · Chrome', at: '2026-10-18T11:59:00Z', _file: 'p1' }], acks: [{ writer: 'w1', device: 'Windows · Edge', at: '2026-10-18T11:59:10Z', _file: 'a1' }] }; }), HNOW);
+  assert.ok(ids(conn).indexOf('same-name') >= 0);
+  const renamed = H.check(healthy(s => { s.connection = { probes: [{ writer: 'w1', device: 'Mac · Chrome', at: '2026-10-18T11:59:00Z', _file: 'p1' }], acks: [{ writer: 'w1', device: 'Release laptop · Mac · Chrome', at: '2026-10-18T11:59:10Z', _file: 'a1' }] }; }), HNOW);
+  assert.ok(ids(renamed).indexOf('same-name') < 0, 'naming the browser between two checks is not a clash');
+});
+
+rule('Folder health without a scan (Home) checks only what is already loaded', () => {
+  const s = healthy((x, r) => { r._conflicts = ['run-PC.json']; }); s.scan = null;
+  const rep = H.check(s, HNOW);
+  assert.ok(!rep.scanned && ids(rep).indexOf('conflicts:release/run1') >= 0 && ids(rep).indexOf('tmp') < 0);
+});
+
+rule('Folder health compares the files for AI assistants with every default shipped', () => {
+  const PB = load(false, (f, src) => f === 'core/contract.js' ? src.replace('/*@BASELINES@*/{}', JSON.stringify({ files: { 'AGENTS.md#flightdeck': { aaa: ['1.14.0'], bbb: ['1.15.0'] }, '.flightdeck/skills/s/SKILL.md': { ccc: ['1.15.0'] } } })) : src);
+  const check = (hashes, more) => { const s = Object.assign(healthy(), { contract: { hashes } }, more || {}); s.scan.installed = { format: 'flightdeck-installed/1', version: '1.15.0' }; return PB.health.check(s, HNOW); };
+  const cur = check({ 'AGENTS.md': 'bbb', '.flightdeck/skills/s/SKILL.md': 'ccc' });
+  assert.ok(cur.issues.every(i => !/^contract/.test(i.id)) && cur.clear.some(c => /match this version/.test(c.text)), 'current defaults are all clear');
+  const old = check({ 'AGENTS.md': 'aaa', '.flightdeck/skills/s/SKILL.md': 'ccc' }).issues.filter(i => i.id === 'contract-old')[0];
+  assert.ok(old && old.severity === 'warn' && old.action.act === 'health-cmd', 'an old default: copy the install command');
+  const mine = check({ 'AGENTS.md': 'zzz', '.flightdeck/skills/s/SKILL.md': 'ccc' });
+  assert.ok(mine.issues.every(i => !/^contract-old/.test(i.id)) && mine.clear.some(c => /your team's own changes/.test(c.text)), 'a team\'s change is fine');
+  const gone = check({ '.flightdeck/skills/s/SKILL.md': 'ccc' });
+  assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
+  const none = healthy(); none.contract = { hashes: { 'AGENTS.md': 'bbb', '.flightdeck/skills/s/SKILL.md': 'ccc' } };
+  assert.ok(PB.health.check(none, HNOW).issues.some(i => i.id === 'contract-record' && i.severity === 'info'), 'no installed.json: worth knowing');
+  const s = healthy(); s.scan.updates = ['.flightdeck/updates/1.15.0/AGENTS.md']; s.contract = { hashes: { 'AGENTS.md': 'bbb', '.flightdeck/skills/s/SKILL.md': 'ccc' } };
+  const merge = PB.health.check(s, HNOW).issues.filter(i => i.id === 'contract-merge')[0];
+  assert.ok(merge && merge.action.id === 'merge' && /\.flightdeck\/updates\//.test(PB.health.command('merge')));
+});
+
+rule('Folder health\'s report copies as plain text, grouped, with each problem\'s files and section', () => {
+  const rep = H.check(healthy((s, r) => { r._conflicts = ['run-PC.json']; }), HNOW);
+  const t = H.text(rep, { folder: 'Team <ops>', at: 'Oct 18, 12:00 PM', app: '1.15.0', files: 3 });
+  assert.ok(/^Flightdeck folder health: Team <ops>\nChecked Oct 18, 12:00 PM by Flightdeck 1\.15\.0, 3 files read\n/.test(t));
+  assert.ok(/\nNeeds action \(1\)\n- "Release 1" has 1 other version\n/.test(t) && /Files: runs\/release\/run1\/run-PC\.json/.test(t) && /See docs\/recovery\.md#a-run-has-conflict-copies/.test(t));
+  assert.ok(/\nAll clear\n- /.test(t));
+});
+
+rule('The in-app guide has every section of docs/recovery.md, with GitHub\'s anchors', () => {
+  const doc = H.sections(recoveryDoc);
+  assert.strictEqual(doc.title, 'When something goes wrong');
+  ['a-run-has-conflict-copies', 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', 'flightdeck-lost-access-to-the-folder', 'onedrive-isnt-syncing', 'restoring-from-a-backup', 'a-file-cant-be-read', 'leftover-files', 'the-folder-is-getting-big', 'two-windows-used-the-same-name', 'someone-left-the-team', 'a-newer-flightdeck-wrote-files']
+    .forEach(a => assert.ok(anchors.indexOf(a) >= 0, a));
+  Object.keys(H.HELP).forEach(k => assert.ok(anchors.indexOf(H.HELP[k]) >= 0, 'HELP.' + k));
+  // Links other documents make into the guide land on a real section.
+  const docs = ['onedrive.md', 'updating.md'].map(f => require('fs').readFileSync(require('path').join(__dirname, '..', 'docs', f), 'utf8')).join('\n') + recoveryDoc;
+  (docs.match(/recovery\.md#[\w-]+|\]\(#[\w-]+\)/g) || []).forEach(l => { const a = l.replace(/^.*#/, '').replace(/\)$/, ''); assert.ok(anchors.indexOf(a) >= 0, 'link to #' + a); });
+});
+
+/* ---------- Connection check (core/connection.js) ---------- */
+rule('Connection check files are named for their time, check and window, and only the last 15 minutes are read', () => {
+  const at = Date.parse('2026-10-18T09:51:10Z'), n = CN.probeName(at, 'k3m9p2q8', 'w1abc');
+  assert.strictEqual(n, 'probe-20261018T095110Z-k3m9p2q8.w1abc.json');
+  same(CN.parseName(n), { kind: 'probe', at, id: 'k3m9p2q8', writer: 'w1abc' });
+  assert.strictEqual(CN.ackName('k3m9p2q8', 'w2xyz'), 'ack-k3m9p2q8.w2xyz.json');
+  same(CN.parseName('ack-k3m9p2q8.w2xyz.json'), { kind: 'ack', probe: 'k3m9p2q8', writer: 'w2xyz' });
+  ['probe-2026-k3m9p2q8.w1.json', 'ack-..x.json', 'notes-x.jsonl', 'probe-20261018T095110Z-k3m9p2q8.w1.json.tmp'].forEach(x => assert.strictEqual(CN.parseName(x), null, x));
+  assert.ok(CN.fresh(n, at + 14 * 60000) && !CN.fresh(n, at + 16 * 60000), 'older than 15 minutes is skipped');
+  assert.ok(CN.fresh(n, at - 10 * 60000), 'a clock up to 15 minutes ahead still counts');
+  assert.ok(!CN.old(n, null, at + 6 * DAY) && CN.old(n, null, at + 8 * DAY), 'a check older than 7 days may be deleted');
+  assert.ok(CN.old('ack-k3m9p2q8.w2.json', at, at + 8 * DAY) && !CN.old('ack-k3m9p2q8.w2.json', null, at + 8 * DAY), 'an answer by its file time');
+  assert.ok(!CN.old('someone-elses.json', 0, at), 'only Flightdeck\'s own files');
+});
+
+rule('Connection records are read only in the shape this copy knows, and only when they agree with their file name', () => {
+  const p = CN.probe({ id: 'k3m9p2q8', n: 3, by: 'person-avery', writer: 'w1', device: 'Mac · Chrome', at: '2026-10-18T09:51:10.000Z', app: '1.15.0', run: { key: 'release/run1', rev: 14 }, seen: ['ack-aaaa1111.w2.json', 'x'] });
+  const name = 'probe-20261018T095110Z-k3m9p2q8.w1.json';
+  const c = CN.clean(JSON.parse(JSON.stringify(p)), name);
+  assert.ok(c && c.n === 3 && c.run.rev === 14 && c._file === name);
+  same(c.seen, ['ack-aaaa1111.w2.json'], 'only answer file names are kept');
+  assert.strictEqual(CN.clean(Object.assign({}, p, { cv: 2 }), name), null, 'a newer record version is left alone');
+  assert.strictEqual(CN.clean(Object.assign({}, p, { writer: 'w9' }), name), null, 'it must match its file name');
+  assert.strictEqual(CN.clean(Object.assign({}, p, { kind: 'connection-ack' }), name), null);
+  assert.strictEqual(CN.clean(p, 'ack-k3m9p2q8.w1.json'), null);
+  const a = CN.ack({ probe: 'k3m9p2q8', probeFile: name, by: 'person-blake', writer: 'w2', device: 'Windows · Edge', at: '2026-10-18T09:51:43Z', firstSeenAt: '2026-10-18T09:51:42Z', app: '1.15.0', run: { key: 'release/run1', rev: 14, savedAt: '2026-10-18T09:50:00Z' }, folderReadAt: '2026-10-18T09:51:30Z' });
+  const ca = CN.clean(JSON.parse(JSON.stringify(a)), 'ack-k3m9p2q8.w2.json');
+  assert.ok(ca && ca.firstSeenAt === '2026-10-18T09:51:42Z' && ca.run.savedAt);
+  assert.strictEqual(CN.clean(Object.assign({}, a, { run: { key: '../x', rev: 1 } }), 'ack-k3m9p2q8.w2.json').run, null, 'a run key outside runs/ is dropped');
+});
+
+rule('Connection check: what waits for an answer, and what came back, timed on each computer\'s own clock', () => {
+  const sent = Date.parse('2026-10-18T09:51:10Z');
+  const probes = [{ _file: 'probe-a', id: 'p1', writer: 'w1', by: 'person-avery', at: '2026-10-18T09:51:10Z', seen: [] }, { _file: 'probe-b', id: 'p2', writer: 'w2', by: 'person-blake', at: '2026-10-18T09:52:00Z', seen: [] }];
+  const acks = [{ _file: 'ack-p1.w2.json', probe: 'p1', writer: 'w2', by: 'person-blake', device: 'Windows · Edge', at: '2026-10-18T09:51:43Z', firstSeenAt: '2026-10-18T09:51:42Z', run: { key: 'release/run1', rev: 12 }, folderReadAt: '2026-10-18T09:51:30Z' }];
+  same(CN.pending({ probes, acks }, 'w1', null).map(p => p.id), ['p2'], 'not my own, not answered by me');
+  same(CN.pending({ probes, acks }, 'w2', null).map(p => p.id), [], 'w2 answered p1 and sent p2');
+  same(CN.pending({ probes, acks }, 'w3', { 'probe-a': true }).map(p => p.id), ['p2'], 'put off with Not now');
+  const rows = CN.results([{ file: 'probe-a', id: 'p1', n: 3, at: sent, run: { key: 'release/run1', rev: 14 } }], { probes, acks }, { 'ack-p1.w2.json': sent + 64000 }, sent + 70000);
+  const a = rows[0].answers[0];
+  assert.strictEqual(a.oneWay, 32000); assert.strictEqual(a.roundTrip, 64000); assert.strictEqual(a.skew, null);
+  same(a.run, { state: 'behind', key: 'release/run1', mine: 14, theirs: 12 });
+  const words = CN.sentences(rows[0], a, 'Blake', () => 'Release 2026.10.16');
+  assert.ok(/^Blake · Windows · Edge saw check 3 at \d{1,2}:51:42 [AP]M on their clock, 32 s after you sent it\.$/.test(words[0]), words[0]);
+  assert.strictEqual(words[1], 'Their answer reached this computer 1 min 4 s after you sent the check.');
+  assert.strictEqual(words[2], 'They have "Release 2026.10.16" at revision 12; you have 14. Their copy is behind.');
+  // Their clock 4 minutes behind: they "saw" the check before it was sent. No one-way time, and the gap is said.
+  const slow = Object.assign({}, acks[0], { firstSeenAt: '2026-10-18T09:47:42Z', at: '2026-10-18T09:47:43Z' });
+  const b = CN.results([{ file: 'probe-a', id: 'p1', n: 3, at: sent, run: null }], { probes, acks: [slow] }, { 'ack-p1.w2.json': sent + 64000 }, sent + 70000)[0].answers[0];
+  assert.ok(b.skew && b.skew.dir === 'behind' && b.skew.ms === 208000 && b.oneWay === null && b.run === null);
+  assert.ok(/at least 3 min 28 s behind yours/.test(CN.sentences({ n: 3, at: sent }, b, 'Blake', x => x).join(' ')));
+  const fast = Object.assign({}, acks[0], { at: '2026-10-18T09:58:00Z' });
+  assert.strictEqual(CN.results([{ file: 'probe-a', id: 'p1', n: 3, at: sent }], { probes, acks: [fast] }, { 'ack-p1.w2.json': sent + 64000 }, sent + 70000)[0].answers[0].skew.dir, 'ahead');
+  // Nothing back after 3 minutes: hints.
+  const none = (wait) => CN.results([{ file: 'probe-c', id: 'p9', n: 4, at: sent }], { probes, acks }, {}, sent + wait)[0];
+  assert.ok(!none(170000).hint && none(180000).hint && CN.HINTS.length >= 3);
+  assert.ok(CN.confirmed({ probes: [{ seen: ['ack-p1.w2.json'] }] }, 'ack-p1.w2.json') && !CN.confirmed({ probes }, 'ack-p1.w2.json'));
+});
+
+rule('Connection check: the computer is named by its system and browser, after the name a person gave it', () => {
+  const edge = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Edg/130.0';
+  assert.strictEqual(CN.device(edge, ''), 'Windows · Edge');
+  assert.strictEqual(CN.device('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', ' Release laptop '), 'Release laptop · Mac · Chrome');
+  assert.strictEqual(CN.device('', ''), 'A computer');
+});
+
+rule('The connection check never says "synced" or "everyone": it proves one trip, not that the folder or the team is in step', () => {
+  const src = f => require('fs').readFileSync(require('path').join(__dirname, '..', 'src', f), 'utf8');
+  const strings = text => (text.match(/'(?:[^'\\\n]|\\.)*'/g) || []).join('\n');
+  const view = src('ui/views/health.js'), app = src('ui/app.js');
+  const conn = view.slice(view.indexOf('/* ---------- Connection check'), view.indexOf('/* ---------- When something goes wrong'));
+  const appConn = app.slice(app.indexOf('/* ---------- The connection check'), app.indexOf('/* ---------- Folder health (on demand)') > app.indexOf('/* ---------- The connection check') ? app.indexOf('function sendCheck') + 2000 : undefined);
+  assert.ok(conn.length > 1000 && appConn.length > 1000, 'found the connection check code');
+  [['core/connection.js', strings(src('core/connection.js'))], ['the Connection check screen', strings(conn)], ['the app\'s connection check', strings(appConn)]].forEach(([where, s]) => {
+    assert.ok(!/synced|everyone/i.test(s), where + ' says "synced" or "everyone": ' + (s.match(/.*(synced|everyone).*/i) || [''])[0]);
+  });
+  CN.HINTS.forEach(h => assert.ok(!/synced|everyone/i.test(h)));
+});
+
+rule('Folder health: conflict copies beside a missing or unreadable run.json still need action', () => {
+  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r9/run.conflict-restored.json', s: 10, m: HNOW }, { p: 'runs/release/r9/notes-w1.jsonl', s: 10, m: HNOW }); }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'orphans:release/r9')[0];
+  assert.ok(i && i.severity === 'stop' && i.action.act === 'recovery', 'orphaned copies are their own issue');
+  same(i.paths, ['runs/release/r9/run.conflict-restored.json']);
+  assert.ok(!rep.clear.some(c => c.id === 'copies'), 'never "No conflict copies"');
+  const loaded = H.check(healthy((s, r) => { r._conflicts = ['run-PC.json']; s.scan.list.push({ p: 'runs/release/run1/run-PC.json', s: 1, m: HNOW }); }), HNOW);
+  assert.ok(!loaded.issues.some(x => /^orphans:/.test(x.id)), 'copies of a run that loaded are listed once, on the run');
+});
+
+rule('Folder health: OneDrive copies named for a computer with dashes in its name are found; a team\'s own dashed names aren\'t', () => {
+  assert.strictEqual(H.copyOf('people-DESKTOP-ABC123.json', { 'people.json': true }), 'people.json');
+  assert.strictEqual(H.copyOf('release-LAPTOP-7Q2.md', { 'release.md': true }), 'release.md');
+  assert.strictEqual(H.copyOf('deploy-prod.json', { 'deploy.json': true }), null);
+  assert.strictEqual(H.copyOf('deploy-prod-eu.json', { 'deploy.json': true, 'deploy-prod.json': true }), null);
+  assert.strictEqual(H.copyOf('deploy-prod-PC.json', { 'deploy-prod.json': true }), 'deploy-prod.json');
+});
+
+rule('Connection check: an answer from a computer that couldn\'t read the run says its revision is unknown, never the same', () => {
+  const sent = Date.parse('2026-10-18T09:51:10Z');
+  const ack = { _file: 'ack-pq11.wb.json', probe: 'pq11', writer: 'wb', by: 'person-blake', device: 'Mac · Chrome', at: '2026-10-18T09:51:13Z', firstSeenAt: '2026-10-18T09:51:12Z', run: { key: 'release/run1', rev: 0, savedAt: null, unknown: true }, folderReadAt: null };
+  const clean = CN.clean(JSON.parse(JSON.stringify(CN.ack(Object.assign({}, ack, { probeFile: 'probe-x' })))), 'ack-pq11.wb.json');
+  assert.ok(clean.run.unknown === true, 'kept when read back');
+  const a = CN.results([{ file: 'probe-x', id: 'pq11', n: 1, at: sent, run: { key: 'release/run1', rev: 4 } }], { probes: [], acks: [ack] }, { 'ack-pq11.wb.json': sent + 4000 }, sent + 5000)[0].answers[0];
+  assert.strictEqual(a.run.state, 'unknown');
+  const words = CN.sentences({ n: 1, at: sent }, a, 'Blake', () => 'Release').join(' ');
+  assert.ok(/couldn't read "Release"/.test(words) && !/same as you/.test(words), words);
+});
+
+rule('Folder health: copies that arrive beside a run.json that can\'t be read are found by name, even when the run is kept from an earlier read', () => {
+  const rep = H.check(healthy((s, r) => {
+    s.data.unreadable.push({ path: 'runs/release/run1/run.json', key: 'release/run1', why: 'isn\'t complete JSON' });
+    s.scan.list.push({ p: 'runs/release/run1/run.conflict-late.json', s: 5, m: HNOW });
+  }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'orphans:release/run1')[0];
+  assert.ok(i && i.severity === 'stop', ids(rep).join(','));
+  same(i.paths, ['runs/release/run1/run.conflict-late.json']);
+  assert.ok(!rep.clear.some(c => c.id === 'copies'));
+});
+
+rule('Folder health: save receipts left beside a missing run.json are reported as a saved copy of the run, with how to bring it back', () => {
+  const rep = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r7/candidate-w1-abcd2345.json', s: 900, m: HNOW - 5 * 60000 }); }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'orphans:release/r7')[0];
+  assert.ok(i && i.severity === 'stop' && /saved cop/i.test(i.title + i.detail), JSON.stringify(i));
+  assert.strictEqual(i.action.id, 'a-runs-file-is-gone');
+  assert.ok(anchors.indexOf('a-runs-file-is-gone') >= 0);
+  assert.ok(!rep.clear.some(c => c.id === 'copies'));
+});
+
+rule('Folder health: a run this window holds whose file is gone from the folder needs action', () => {
+  const rep = H.check(healthy(s => { s.missing = { 'release/run1': true }; }), HNOW);
+  const i = rep.issues.filter(x => x.id === 'missing:release/run1')[0];
+  assert.ok(i && i.severity === 'stop' && i.action.act === 'open-run' && i.help === 'a-runs-file-is-gone');
+});
+
+rule('Folder health: a save receipt younger than 2 minutes beside no run.json may be a first save still finishing, not a lost run', () => {
+  const young = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r8/candidate-w1-abcd2345.json', s: 900, m: HNOW - 30000 }); }), HNOW);
+  assert.ok(!young.issues.some(i => i.severity === 'stop' && /r8/.test(i.id)), 'no stop for a save in progress');
+  const note = young.issues.filter(i => i.id === 'saving:release/r8')[0];
+  assert.ok(note && note.severity === 'info' && /may still be finishing/.test(note.title));
+  const old = H.check(healthy(s => { s.scan.list.push({ p: 'runs/release/r8/candidate-w1-abcd2345.json', s: 900, m: HNOW - 3 * 60000 }); }), HNOW);
+  assert.strictEqual(old.issues.filter(i => i.id === 'orphans:release/r8')[0].severity, 'stop');
+});
+
 run();

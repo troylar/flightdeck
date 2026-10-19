@@ -4,10 +4,13 @@
 
 ## 1.15.0 · Oct 18, 2026
 
-Safer updates: install keeps your team's changes, says what it would do first, and backs up the team folder.
+Team confidence: Folder health, a connection check between computers, and safer updates and backups.
 
 ### New
 
+- **Folder health** (Team folder). Flightdeck checks every file in the team folder on request and lists what needs a person: conflict copies, OneDrive's second copies, files that can't be read, versions that never finished arriving, runs left for a week, clocks that are off, a folder getting too big. Each has one button for what to do. Home says when something needs action. *Where:* Settings › Folder health, or a run's More menu
+- **Check the connection between two computers** (Team folder). Send a check from one computer and watch the other answer, with each leg timed and whether both have the same revision of the latest run. While the page is open it answers checks by itself; elsewhere a banner offers Answer. If the two clocks differ, it says by how much at least. *Where:* Settings › Connection check
+- **What to do, inside Flightdeck** (Recovery). The guide for when something goes wrong (conflict copies, lost folder access, OneDrive not syncing, restoring a backup, someone leaving) is in the app. Folder health, a run's conflict copies and the top bar's "can't read it" link straight to the right section. *Where:* Settings › When something goes wrong
 - **See what an update would do first** (Command line). Add --check to install or skills to see what would change, without changing anything. It exits with 0 when there's nothing to do, 2 when updates are ready, and 3 when files need merging, so a script can tell. *Where:* flightdeck install <team folder> --check
 - **Back up a team folder** (Command line). flightdeck backup copies the whole team folder to a dated folder in Flightdeck backups in your home folder, or wherever you name with --to. It never copies links and never puts a backup inside the folder it backs up. *Where:* flightdeck backup <team folder>
 
@@ -20,6 +23,10 @@ Safer updates: install keeps your team's changes, says what it would do first, a
 ### Fixed
 
 - **A new team folder's starter checklist names you as owner** (Team folder). The starter checklist names whoever created the folder as its owner, and the folder records which Flightdeck set it up. *Where:* Settings: Start a new team folder
+- **A file that can't be read is listed, not lost from view** (Runs). The run or draft stays as last read and says its file couldn't be read; nothing is changed or saved over it until it reads again. The Runs page, the run itself and Folder health name the file, and the rest of the folder loads as usual.
+- **Two drafts for one process are both shown** (Processes). The process page lists both and says which one it shows, so you settle it before publishing. Folder health lists them too.
+- **Step types and skills past the limit are reported** (Step types). The first ones by name are read, and the Step types and Skills pages and Folder health say how many weren't.
+- **A deleted run is never written back by itself** (Runs). The run says its file is gone from the team folder, the Runs page marks it, and nothing is saved. Restore it here writes it back only when you choose it, and the run's log says so. *Where:* The run, and Settings › Folder health
 
 ## 1.14.0 · Oct 18, 2026
 

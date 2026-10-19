@@ -1207,4 +1207,133 @@ rule('Run workspace: on a phone the More menu has Receipt too, Details can take 
   assert.ok(/<div class="rw-dock"><div class="rw-next"/.test(html), 'Next up and the picker share one pinned bar');
 });
 
+/* ---------- Folder health, the connection check, When something goes wrong (1.15) ---------- */
+const H = PF.health, CN = PF.connection;
+const RECOVERY = require('fs').readFileSync(require('path').join(__dirname, '..', 'docs', 'recovery.md'), 'utf8');
+function healthCtx(mut) {
+  const { r, ctx, state } = setup(x => { x.title = 'Night <script>alert(1)</script>'; });
+  ctx.releases = { list: [], version: '1.15.0', lastSeen: '1.15.0', fresh: false, newer: null };
+  state.view = 'health'; state.fs = { kind: 'folder', name: 'Team <b>ops</b>' };
+  r._conflicts = ['run-<img src=x onerror=alert(1)>.json'];
+  ctx.data.drafts = []; ctx.data.stepTypes = { types: {}, errors: [] }; ctx.data.jira = { errors: [] }; ctx.data.unreadable = []; ctx.data.failed = {};
+  const scan = { at: NOW, ms: 1200, files: 3, bytes: 900, longest: 30, areas: { runs: { files: 2, bytes: 800 }, '(top)': { files: 1, bytes: 100 } }, pubs: {}, list: [{ p: 'people.json', s: 100, m: Date.parse(NOW) }], unreadable: [], truncated: false, contractTexts: {}, installed: null, updates: [] };
+  state.healthScan = { n: 1, scan, contract: null };
+  ctx.health = full => H.check({ data: ctx.data, scan: full ? scan : null, me: state.me, app: '1.15.0' }, Date.parse(NOW));
+  ctx.recovery = RECOVERY; ctx.writer = 'wme'; ctx.device = () => 'Windows · Edge'; ctx.findRun = k => (k === 'release/run1' ? r : null);
+  if (mut) mut(ctx, state, r);
+  return { ctx, state, r };
+}
+const buttons = html => (html.match(/<button[^>]*data-act="([^"]+)"/g) || []).length;
+
+rule('Folder health: Needs action first, one button per problem, all clear after, and everything from files escaped', () => {
+  const { ctx } = healthCtx();
+  const html = V.health(ctx);
+  assert.ok(/<h1 id="page-h" tabindex="-1">Folder health<\/h1>/.test(html));
+  assert.ok(/class="hz-sum stop"/.test(html) && /1 thing needs action/.test(html));
+  assert.ok(html.indexOf('Needs action · 1') < html.indexOf('All clear ·'), 'needs action comes first');
+  const issues = html.match(/<li class="hz-issue[\s\S]*?<\/li><\/ul><\/section>|<li class="hz-issue[\s\S]*?<\/button><\/li>/g) || [];
+  assert.ok(issues.length >= 1);
+  issues.forEach(i => assert.strictEqual(buttons(i), 1, 'exactly one action: ' + i.slice(0, 120)));
+  assert.ok(/data-act="open-run" data-id="release\/run1">Compare copies</.test(html));
+  assert.ok(!/<script>alert|<img src=x/.test(html) && /Night &lt;script&gt;/.test(html) && /run-&lt;img src=x/.test(html), 'run titles and file names are escaped');
+  assert.ok(/Team &lt;b&gt;ops&lt;\/b&gt;/.test(html), 'the folder name is escaped');
+  assert.ok(/What's in the folder/.test(html) && /<code>top level<\/code>/.test(html), 'per-area counts');
+  assert.ok(/data-act="connection"/.test(html) && /data-act="recovery" data-id=""/.test(html), 'links to the connection check and the guide');
+});
+
+rule('Folder health while checking shows progress, and an all-clear folder says so', () => {
+  const busy = healthCtx((ctx, st) => { st.healthScan = null; st.healthBusy = true; st.healthFound = 340; ctx.health = () => null; });
+  const h1 = V.health(busy.ctx);
+  assert.ok(/Checking every file…/.test(h1) && /340 files found so far/.test(h1) && /data-act="health-again" disabled/.test(h1));
+  const ok = healthCtx((ctx, st, r) => { r._conflicts = []; });
+  const h2 = V.health(ok.ctx);
+  assert.ok(/class="hz-sum ok"/.test(h2) && />All clear</.test(h2) && !/Needs action ·/.test(h2));
+});
+
+rule('Home says when the team folder needs attention, with one way to see it all', () => {
+  const { ctx, state } = healthCtx(); state.view = 'home';
+  const html = V.home(ctx);
+  assert.ok(/The team folder needs attention/.test(html) && /data-act="health" data-id="">Open Folder health</.test(html));
+  const calm = healthCtx((c, s, r) => { r._conflicts = []; }); calm.state.view = 'home';
+  assert.ok(!/needs attention/.test(V.home(calm.ctx)));
+});
+
+rule('Settings links to Folder health, the connection check and the guide; the top bar\'s can\'t-read state says what to do', () => {
+  const { ctx, state } = healthCtx(); state.view = 'settings';
+  const set = V.settings(ctx);
+  assert.ok(/data-act="health">Check folder health/.test(set) && /data-act="connection"/.test(set) && /data-act="recovery" data-id="">When something goes wrong/.test(set));
+  state.folderErr = 'NotReadableError';
+  assert.ok(/can't read it<\/span><button[^>]*data-act="refresh"[^>]*>Refresh<\/button><button class="mini" data-act="recovery" data-id="onedrive-isnt-syncing">What to do/.test(V.top(ctx)));
+  state.folderErr = null; state.fs = null; state.needsReconnect = { dir: { name: 'Ops' } };
+  assert.ok(/data-id="flightdeck-lost-access-to-the-folder">What to do/.test(V.top(ctx)));
+});
+
+rule('A run file that can\'t be read is listed on Runs, part of a folder that can\'t be read is said, and drafts sharing a process are named', () => {
+  const { ctx, state } = healthCtx(c => { c.data.unreadable = [{ path: 'runs/release/<b>x</b>/run.json', key: 'release/x', why: 'isn\'t complete JSON' }]; c.data.failed = { skills: 'NotReadableError' }; });
+  state.view = 'runs';
+  const html = V.runs(ctx);
+  assert.ok(/A run file can't be read/.test(html) && /runs\/release\/&lt;b&gt;x&lt;\/b&gt;\/run\.json/.test(html) && /data-id="a-file-cant-be-read"/.test(html));
+  assert.ok(/Part of the team folder couldn't be read<\/b> \(skills\)/.test(html));
+});
+
+rule('Connection check: waiting, answered with a timed route, hints after 3 minutes, and a fixed Send button', () => {
+  const sent = Date.parse(NOW);
+  const probe = { _file: 'probe-x', id: 'p1', writer: 'wme', by: 'person-casey', at: NOW, seen: [] };
+  const ack = { _file: 'ack-p1.wb.json', probe: 'p1', writer: 'wb', by: 'person-blake', device: 'Mac <i>Chrome</i>', at: new Date(sent + 33000).toISOString(), firstSeenAt: new Date(sent + 32000).toISOString(), run: { key: 'release/run1', rev: 3 }, folderReadAt: NOW };
+  const { ctx, state } = healthCtx((c, st) => {
+    st.view = 'connection';
+    st.connSent = [{ file: 'probe-x', id: 'p1', n: 1, at: sent, run: { key: 'release/run1', rev: 3 } }, { file: 'probe-y', id: 'p2', n: 2, at: sent - 200000, run: null }];
+    st.conn = { probes: [probe, { _file: 'probe-z', id: 'p3', writer: 'wb', by: 'person-blake', device: 'Mac · Chrome', at: NOW, n: 5, seen: [] }], acks: [ack] };
+    st.connSeen = { 'ack-p1.wb.json': sent + 64000 };
+    c.now = () => sent + 70000;
+  });
+  const html = V.connection(ctx);
+  assert.ok(/<h1 id="page-h" tabindex="-1">Connection check<\/h1>/.test(html));
+  assert.ok(/class="cx-route"/.test(html) && /Sent here/.test(html) && /Seen by Blake Ortiz/.test(html) && /Answer here/.test(html));
+  assert.ok(/Blake Ortiz · Mac &lt;i&gt;Chrome&lt;\/i&gt; saw check 1 at [^<]+ on their clock, 32 s after you sent it\./.test(html), 'in words');
+  assert.ok(!/<i>Chrome/.test(html), 'device names are escaped');
+  assert.ok(/They have &quot;Night &lt;script&gt;/.test(html) && /the same as you/.test(html), 'run titles escaped in the comparison');
+  assert.ok(/No answer after 4 min 30 s/.test(html) && /Is OneDrive running there/.test(html), 'hints after 3 minutes');
+  assert.ok(/class="cx-foot"/.test(html) && /data-act="conn-send">[\s\S]*Send another check/.test(html));
+  assert.ok(/sent check 5 at/.test(html) && /Checks from other computers · 1/.test(html), 'checks from others listed');
+  assert.ok(!/synced|everyone/i.test(html.replace(/<[^>]+>/g, ' ')), 'never "synced" or "everyone"');
+  state.me = '';
+  assert.ok(/data-act="conn-send" disabled/.test(V.connection(ctx)) && /Choose who you are at the top right first/.test(V.connection(ctx)));
+  state.fs = { kind: 'memory', name: 'Examples' };
+  assert.ok(/only another tab of this browser can answer/.test(V.connection(ctx)));
+});
+
+rule('Another computer\'s check offers one-click Answer on other pages, never on the Connection check page itself', () => {
+  const p = { _file: 'probe-20261017T210000Z-p1.wb.json', id: 'p1', writer: 'wb', by: 'person-blake', device: 'Mac <b>Chrome</b>', at: NOW, seen: [] };
+  const { ctx, state } = healthCtx((c, st) => { c.connPending = () => [p]; st.view = 'home'; });
+  const home = V.home(ctx);
+  assert.ok(/class="notice cx-ask"/.test(home) && /Blake Ortiz is checking the connection<\/b> from Mac &lt;b&gt;Chrome&lt;\/b&gt;/.test(home));
+  assert.ok(/data-act="conn-answer" data-id="probe-20261017T210000Z-p1\.wb\.json">Answer</.test(home) && /data-act="conn-dismiss"/.test(home));
+  state.view = 'run';
+  assert.ok(/data-act="conn-answer"/.test(V.run(ctx)), 'the run screen too');
+  state.view = 'connection';
+  assert.ok(!/data-act="conn-answer"/.test(V.connection(ctx)), 'that page answers by itself');
+  state.view = 'home'; state.me = '';
+  assert.ok(!/data-act="conn-answer"/.test(V.home(ctx)) && /Choose who you are to answer/.test(V.home(ctx)));
+});
+
+rule('When something goes wrong shows every section of docs/recovery.md with its anchor, and links stay inside the app', () => {
+  const { ctx, state } = healthCtx((c, st) => { st.view = 'recovery'; st.recoveryAt = 'a-run-has-conflict-copies'; st.recBack = { label: 'Back to the run' }; });
+  const html = V.recoveryPage(ctx), doc = H.sections(RECOVERY);
+  doc.list.forEach(s => assert.ok(html.indexOf('id="rv-' + s.id + '"') >= 0 && html.indexOf('id="rv-h-' + s.id + '"') >= 0, s.id));
+  assert.ok(/class="panel rv-sec on" id="rv-a-run-has-conflict-copies"/.test(html), 'the section asked for is marked');
+  assert.ok(/<ol><li>Open the run and choose <strong>Compare<\/strong>/.test(html), 'numbered steps are a list');
+  assert.ok(/<button type="button" class="linkish" data-act="recovery" data-id="onedrive-isnt-syncing">OneDrive isn&#39;t syncing<\/button>/.test(html), 'a link to another section stays in the app');
+  assert.ok(/Updating Flightdeck \(<code>docs\/updating\.md<\/code>\)/.test(html), 'a link to another document names it');
+  assert.ok(/id="rv-back"[^>]*>[\s\S]*Back to the run</.test(html));
+  assert.ok(!/<a href="updating/.test(html));
+});
+
+rule('The run\'s conflict copies and its More menu lead to the guide and to Folder health', () => {
+  const { r, ctx } = setup(); r._conflicts = ['run-PC.json'];
+  const html = V.run(ctx);
+  assert.ok(/data-act="recovery" data-id="a-run-has-conflict-copies">What to do</.test(html));
+  assert.ok(/data-act="health">Folder health</.test(html));
+});
+
 run();

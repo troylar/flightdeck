@@ -7,6 +7,8 @@
      this is the unbuilt source, not a copy people should use. */
   var RELEASES = /*@RELEASES@*/[];
   var APP_VERSION = RELEASES[0] ? RELEASES[0].version : 'dev';
+  /* docs/recovery.md, embedded by build.py: the in-app "When something goes wrong". */
+  var RECOVERY = /*@RECOVERY@*/'';
   var LS = 'preflight';
   var resumeEdit = (function () { try { return sessionStorage.getItem('preflight:editing'); } catch (e) { return null; } })();
   var canFolder = typeof window.showDirectoryPicker === 'function';
@@ -55,7 +57,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), fieldErr: null, startMode: {}, showRoles: false, copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -101,6 +103,12 @@
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
     localCopy: function (r) { var c = lsGet(localKey(r.id), null); return c && c.id === r.id ? c : null; },
+    /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
+    health: function (full) { return healthReport(full); },
+    recovery: RECOVERY, writer: WRITER,
+    device: function () { return PF.connection.device(navigator.userAgent, state.deviceName); },
+    /* Connection checks from other windows that this one hasn't answered or put off. */
+    connPending: function () { return state.conn ? PF.connection.pending(state.conn, WRITER, state.connDismissed).filter(function (p) { return !(state.connAnswering || {})[p._file]; }) : []; },
     /* Thumbnails are small copies made once per image; the full image is loaded only in the lightbox and released when it closes. */
     img: function (src, caption, full) {
       /* A run shows the screenshots frozen into its own publication. Only publications made before screenshots were frozen fall back to images/. */
@@ -199,6 +207,13 @@
     });
     data.drafts.forEach(function (d) {
       var m = M.parse(d.md), id = m.meta.process || d.file.replace(/\.md$/i, ''), e = entry(id);
+      /* Two drafts that say the same process (a OneDrive copy, release-LAPTOP.md): both are listed on the process page and in
+         Folder health. The one named for the process is shown; otherwise the first by name, the same on every computer. */
+      if (e.draft) {
+        e.sharedDrafts = (e.sharedDrafts || [e.draft.file]).concat([d.file]).sort();
+        var keep = e.draft.file === id + '.md' || (d.file !== id + '.md' && e.draft.file < d.file);
+        if (keep) return;
+      }
       e.draft = d;
       if (!e.latest) { e.title = m.meta.title || id; e.category = m.meta.category || 'Other'; e.group = m.meta.group; e.tags = m.meta.tags; }
       e.draftChanged = !e.latest || U.hash(d.md) !== e.latest.info.mapHash;
@@ -237,7 +252,7 @@
   /* ---------- loading ---------- */
   function signature(d) {
     return JSON.stringify([d.people.length, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
-      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; })]);
+      d.runs.map(function (r) { return r.id + ':' + r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length; }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).length, (d.corrDecisions || []).map(function (x) { return x._file + x.at; }), (d.corrUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -257,7 +272,9 @@
   function localRun(id) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === id) return data.runs[i]; return null; }
   function canReplace(id, before) {
     if (state.unsaved[id] || (state.pendingSaves || {})[id]) return false;
-    return edits(id) === (before[id] || 0);
+    /* '~' + id counts this window's successful saves and restores of the run: a read that started before one is older than
+       what's in the folder now. */
+    return edits(id) === (before[id] || 0) && edits('~' + id) === (before['~' + id] || 0);
   }
   /* Reads are numbered as they start, so an editor can tell a read that began after its own save from an older one. */
   var readsStarted = 0;
@@ -270,36 +287,208 @@
       if (g !== gen) return;
       d.readSeq = seq;
       loading = null;
+      keepUnread(d);
+      d.runs = applyRunsRead(d, { seq: seq, revs: before });
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
-      for (var i = 0; i < d.runs.length; i++) {
-        var id = d.runs[i].id, mine = localRun(id);
-        if (!canReplace(id, before)) d.runs[i] = state.unsaved[id] || mine || d.runs[i];
-        else if (!mine || mine._fileHash !== d.runs[i]._fileHash) bump(id);
-      }
-      /* Any run this read may not replace stays, even if the read didn't list it (a file briefly missing mid-sync). */
-      data.runs.forEach(function (x) { if (!canReplace(x.id, before) && !d.runs.some(function (y) { return y.id === x.id; })) d.runs.push(state.unsaved[x.id] || x); });
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
       syncChildren();
+      loadConn();
     }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
+  }
+  /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
+     be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'] };
+  function keepUnread(d) {
+    Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
+    var drafts = {};
+    (d.unreadable || []).forEach(function (u) {
+      if (!u.draft) return;
+      drafts[u.draft] = u.why;
+      var od = data.drafts.filter(function (x) { return x.file === u.draft; })[0];
+      if (od && !d.drafts.some(function (y) { return y.file === od.file; })) d.drafts.push(od);
+    });
+    state.unread = { runs: (state.unread || {}).runs || {}, drafts: drafts };
+  }
+  /* ---------- What a read found about a run: applied in one place, by one rule ---------- */
+  /* A read result is { kind: 'run', run } (the file read), { kind: 'missing' } (no run.json, for a run that has been on
+     disk) or { kind: 'unread', why }. at = { seq, revs }: when the read started. applyRunRead ignores the whole result if
+     the run was edited, saved or restored since then (canReplace: every one of those advances its version) or a newer read
+     of it was applied first. Nothing about a run (its contents, gone, unreadable) changes any other way, except the
+     outcome of this window's own save, which is newer than any read (runOutcome). */
+  var applied = {}, baselines = {};
+  function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
+  function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
+  function setRunStatus(key, kind, why) {
+    var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
+    delete runs[key]; delete m[key];
+    if (kind === 'unread') runs[key] = why;
+    if (kind === 'missing') m[key] = true;
+    u.runs = runs; state.missing = m;
+  }
+  function applyRunRead(key, at, res) {
+    var id = key.slice(key.indexOf('/') + 1);
+    if (!canReplace(id, at.revs) || (applied[key] || 0) > at.seq) return false;
+    applied[key] = at.seq;
+    setRunStatus(key, res.kind, res.why);
+    if (res.kind === 'run') {
+      var mine = findRun(key);
+      if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
+      baselines[id] = { run: res.run };
+    }
+    return true;
+  }
+  /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
+  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; setRunStatus(key, kind, why); }
+  /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
+     gone (unless runs couldn't be read at all); one never saved yet, or one the read may not replace, stays as it is. */
+  function applyRunsRead(d, at) {
+    var got = {}, why = {}, keys = [], out = [], failed = !!(d.failed || {}).runs;
+    function note(k) { if (keys.indexOf(k) < 0) keys.push(k); }
+    data.runs.forEach(function (x) { note(x.process + '/' + x.id); });
+    d.runs.forEach(function (x) { var k = x.process + '/' + x.id; got[k] = x; note(k); });
+    (d.unreadable || []).forEach(function (u) { if (u.key) { why[u.key] = u.why; note(u.key); } });
+    keys.forEach(function (k) {
+      var prev = findRun(k), res = got[k] ? { kind: 'run', run: got[k] } : why[k] ? { kind: 'unread', why: why[k] } : !failed && prev && prev._fileHash ? { kind: 'missing' } : null;
+      var show = res && applyRunRead(k, at, res) ? (res.kind === 'run' ? res.run : prev) : prev ? state.unsaved[prev.id] || prev : res && res.kind === 'run' ? res.run : null;
+      if (show) out.push(show);
+    });
+    return out;
+  }
+  function clone(r) { return JSON.parse(JSON.stringify(r)); }
+  /* Saves and restores of a run, and copies being kept, are one at a time: anything that rewrites the run waits for them. */
+  function runBusy(r) {
+    if (!r || !((state.pendingSaves || {})[r.id] || state.recovering)) return false;
+    say('Wait for the save to finish, then try again.', 'warn'); render(); return true;
+  }
+  /* Why a run can't be changed right now because its own latest read failed (or runs weren't read this time), or ''. The
+     version on screen is the last one read; nothing is written over a file this copy couldn't read. */
+  function runUnread(r) {
+    var key = r.process + '/' + r.id, u = state.unread || {};
+    if ((state.missing || {})[key]) return 'This run\'s file is gone from the team folder. Someone may have deleted or moved it.';
+    if (u.runs && u.runs[key]) return 'This run\'s file couldn\'t be read on the last check (' + u.runs[key] + ').';
+    if ((data.failed || {}).runs) return 'The runs in the team folder couldn\'t be read on the last check.';
+    return '';
+  }
+  function draftUnread(p) { var f = p && p.draft && p.draft.file, u = (state.unread || {}).drafts || {}; return f && u[f] ? f + ' couldn\'t be read on the last check (' + u[f] + ').' : ''; }
+
+  /* ---------- Folder health (on demand) ---------- */
+  var healthMemo = null;
+  function healthReport(full) {
+    if (!data.readSeq) return null;
+    var hs = state.healthScan && state.healthScan.gen === gen ? state.healthScan : null, conn = state.conn;
+    var key = [sig, state.me, Object.keys(state.missing || {}).join(','), hs && full ? hs.n : 0, Math.floor(Date.now() / 60000), state.newer, conn ? conn.readAt : ''].join('|');
+    if (healthMemo && healthMemo.key === key) return healthMemo.rep;
+    var rep = PF.health.check({ data: data, scan: full && hs ? hs.scan : null, me: state.me, app: APP_VERSION, newer: state.newer, contract: hs ? hs.contract : null, connection: conn, missing: state.missing }, Date.now());
+    healthMemo = { key: key, rep: rep };
+    return rep;
+  }
+  /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them. */
+  function contractHashes(scan) {
+    var sub = typeof crypto !== 'undefined' && crypto.subtle, C = PF.contract, paths = Object.keys(scan.contractTexts || {});
+    if (!sub || typeof TextEncoder === 'undefined') return Promise.resolve(null);
+    return Promise.all(paths.map(function (p) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(p, scan.contractTexts[p]))); })).then(function (ds) {
+      var hashes = {}; ds.forEach(function (d, i) { hashes[paths[i]] = C.hex(d); }); return { hashes: hashes };
+    }, function () { return null; });
+  }
+  /* Reads the folder again, then every file in it, 8 at a time. Bound to the folder it started in. */
+  function runHealth() {
+    if (!state.fs || state.healthBusy) return;
+    var fs = state.fs, g = gen, n = (state.healthN || 0) + 1, last = 0;
+    state.healthN = n; state.healthBusy = true; state.healthErr = null; state.healthFound = 0; render();
+    load(true, true).then(function () {
+      if (g !== gen) return null;
+      return repo.scan(fs, { alive: function () { return g === gen; }, progress: function (k) { if (g !== gen) return; state.healthFound = k; var t = Date.now(); if (t - last > 400 && state.view === 'health') { last = t; scheduleRender(); } } });
+    }).then(function (scan) {
+      if (!scan || g !== gen) return null;
+      return contractHashes(scan).then(function (c) { if (g !== gen) return; state.healthScan = { gen: g, n: n, scan: scan, contract: c }; });
+    }).then(function () { if (g !== gen) return; state.healthBusy = false; render(); }, function (e) {
+      if (g !== gen) return; state.healthBusy = false; if (!(e && e.cancelled)) state.healthErr = e && e.message || String(e); render();
+    });
+  }
+
+  /* ---------- The connection check (connection/; core/connection.js) ---------- */
+  var connListing = false, lastConn = 0;
+  function connSig(l) { return l ? l.probes.concat(l.acks).map(function (x) { return x._file; }).sort().join('|') : ''; }
+  /* Lists connection/ (only the last 15 minutes are read). On the Connection check page it runs every 5 seconds and answers
+     checks from other computers; elsewhere it rides along with the routine refresh and only offers an Answer button. */
+  function loadConn() {
+    if (!state.fs || connListing) return Promise.resolve();
+    var fs = state.fs, g = gen;
+    connListing = true;
+    return repo.loadConnection(fs, Date.now()).then(function (list) {
+      connListing = false;
+      if (g !== gen) return;
+      var t = Date.now(), seen = state.connSeen = state.connSeen || {};
+      list.probes.concat(list.acks).forEach(function (x) { if (seen[x._file] == null) seen[x._file] = t; });
+      /* Answers to this window's own checks stay once seen, so an answered check never turns unanswered when it leaves the
+         15-minute window. */
+      var mine = (state.connSent || []).map(function (x) { return x.id; }), kept = state.connKept = state.connKept || {};
+      list.acks.forEach(function (a) { if (mine.indexOf(a.probe) >= 0) kept[a._file] = a; });
+      Object.keys(kept).forEach(function (f) { if (!list.acks.some(function (a) { return a._file === f; })) list.acks.push(kept[f]); });
+      var was = connSig(state.conn); state.conn = list;
+      if (state.view === 'connection') PF.connection.pending(list, WRITER, null).forEach(function (p) { answerConn(p, true); });
+      if (connSig(list) !== was) render();
+    }, function () { connListing = false; });
+  }
+  function answerConn(p, auto) {
+    var busy = state.connAnswering = state.connAnswering || {};
+    if (!state.me || !state.fs || busy[p._file]) return;
+    busy[p._file] = true;
+    var fs = state.fs, g = gen, run = p.run ? ctx.findRun(p.run.key) : null, seenAt = (state.connSeen || {})[p._file] || Date.now();
+    var rec = { probe: p.id, probeFile: p._file, by: state.me, writer: WRITER, device: ctx.device(), at: new Date().toISOString(), firstSeenAt: new Date(seenAt).toISOString(), app: APP_VERSION,
+      run: !p.run ? null : run && runUnread(run) ? { key: p.run.key, rev: 0, savedAt: null, unknown: true } : run ? { key: p.run.key, rev: run.rev || 0, savedAt: run.savedAt || null } : (data.failed || {}).runs ? { key: p.run.key, rev: 0, savedAt: null, unknown: true } : null, folderReadAt: data.readAt };
+    queued(function () { return repo.sendAck(fs, rec); }).then(function (name) {
+      if (g !== gen) return;
+      (state.connAnswered = state.connAnswered || []).push({ probe: p.id, file: name, at: Date.now(), by: p.by });
+      if (!auto) say('Answered ' + V.nameOf(ctx, p.by) + '\'s check. Their computer shows your answer when it arrives there.', 'good');
+      render();
+      return loadConn();
+    }, function (e) { if (g !== gen) return; delete busy[p._file]; state.connErr = 'Couldn\'t answer the check: ' + (e && e.message || e); render(); });
+  }
+  function sendCheck() {
+    if (!state.me || !state.fs || state.connSending) return;
+    var fs = state.fs, g = gen, at = Date.now(), id = U.randomId(8), n = (state.connN || 0) + 1;
+    /* The run most recently saved, so the answer can say whether the other computer has its latest revision too. */
+    var at_ = function (r) { return r.savedAt || r.created || ''; };
+    var cur = data.runs.filter(function (r) { return !r.ended && r.state === 'running' && !r._unrunnable; }).sort(function (a, b) { return at_(a) < at_(b) ? 1 : -1; })[0];
+    var mine = (state.connSent || []).map(function (x) { return x.id; });
+    var seen = ((state.conn || {}).acks || []).filter(function (a) { return mine.indexOf(a.probe) >= 0; }).map(function (a) { return a._file; });
+    var rec = { id: id, n: n, by: state.me, writer: WRITER, device: ctx.device(), at: new Date(at).toISOString(), app: APP_VERSION, run: cur ? { key: cur.process + '/' + cur.id, rev: cur.rev || 0 } : null, seen: seen };
+    state.connSending = true; state.connErr = null; render();
+    queued(function () { return repo.sendProbe(fs, rec, at); }).then(function (name) {
+      if (g !== gen) return;
+      state.connSending = false; state.connN = n;
+      (state.connSent = state.connSent || []).push({ file: name, id: id, n: n, at: at, run: rec.run });
+      (state.connSeen = state.connSeen || {})[name] = at;
+      say('Check ' + n + ' sent. Waiting for another computer to answer.', 'good'); state.msg.quiet = true;
+      queued(function () { return repo.cleanConnection(fs, Date.now()); }).catch(function () {});
+      render();
+      return loadConn();
+    }, function (e) { if (g !== gen) return; state.connSending = false; state.connErr = 'Couldn\'t send the check: ' + (e && e.message || e); render(); });
   }
   /* While a run is open, refresh just that run and its notes. The rest of the folder refreshes less often. */
   function refreshRun() {
     var r = ctx.run();
     if (!r || !state.fs || (loading && loading.gen === gen)) return Promise.resolve();
     var before = r._fileHash + ':' + (r._notes || []).length + ':' + (r._conflicts || []).length, g = gen, revs = revsNow();
-    var p = repo.loadRun(state.fs, r.process, r.id).then(function (f) {
+    var at = startRead(), key = r.process + '/' + r.id, bad = [];
+    var p = repo.loadRun(state.fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return;
       loading = null; state.folderErr = null; state.runReadAt = new Date().toISOString();
-      if (!f || !canReplace(r.id, revs)) { renderTop(); return; }
-      if (f._fileHash !== r._fileHash) { bump(r.id); flashChanged(r, f); }
-      for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = f;
-      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before) render(); else { renderTop(); updateFreshness(); }
-    }, function (e) { if (g !== gen) return; loading = null; state.folderErr = e.message || String(e); render(); });
+      var cur = findRun(key) || r, was = runUnread(cur);
+      var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : cur._fileHash ? { kind: 'missing' } : null;
+      var changed = !!f && f._fileHash !== cur._fileHash;
+      if (!res || !applyRunRead(key, at, res)) { renderTop(); return; }
+      if (res.kind !== 'run') { if (runUnread(cur) !== was) render(); else renderTop(); return; }
+      if (changed) flashChanged(cur, f);
+      for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f;
+      if (f._fileHash + ':' + (f._notes || []).length + ':' + (f._conflicts || []).length !== before || runUnread(f) !== was) render(); else { renderTop(); updateFreshness(); }
+    }, function (e) { if (g !== gen) return; loading = null; applyRunRead(key, at, { kind: 'unread', why: 'couldn\'t be read (' + (e.message || String(e)) + ')' }); state.folderErr = e.message || String(e); render(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -315,6 +504,7 @@
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null;
+    state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
     return load(true, true);
@@ -512,7 +702,7 @@
     state.tags = (state.tagsBy || {})[state.view] || [];
     var v = state.view;
     app.dataset.scope = [v, state.runKey, state.processId, state.fs ? state.fs.id || state.fs.name : '', gen].join('|');
-    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess };
+    var PAGES = { run: V.run, mission: V.mission, receipt: V.receipt, finish: V.finish, process: V.process, start: V.start, runs: V.runs, processes: V.processesPage, skills: V.skillsPage, skill: V.skill, types: V.types, settings: V.settings, 'new-process': V.newProcess, health: V.health, connection: V.connection, recovery: V.recoveryPage };
     tfPreviewFits();
     if (drawn && drawn.fs === fsKey() && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
     var page = (PAGES[v] || V.home)(ctx), was = drawn;
@@ -681,8 +871,14 @@
     if (planSig !== null && sig !== planSig) render();
     planSig = sig;
   }
+  var hintsShown = 0;
   function tick() {
     var now = Date.now(), soonest = null;
+    /* A check that has waited 3 minutes without an answer shows what to look at, without waiting for a new file. */
+    if (state.view === 'connection') {
+      var waits = PF.connection.results(state.connSent || [], state.conn, state.connSeen || {}, now).filter(function (r) { return r.hint; }).length;
+      if (waits !== hintsShown) { hintsShown = waits; later(); }
+    }
     document.querySelectorAll('[data-since]').forEach(function (el) {
       var ms = now - new Date(el.dataset.since) - (+el.dataset.offset || 0), exp = +el.dataset.expect || 0;
       el.textContent = U.clock(ms); el.classList.toggle('over', !!exp && ms > exp);
@@ -708,6 +904,7 @@
   setInterval(function () {
     if (document.hidden || isBusy() || !state.fs || loading) return;
     var now = Date.now();
+    if (state.view === 'connection' && now - lastConn >= PF.connection.EVERY_MS) { lastConn = now; loadConn(); }
     if (inRun() && now - lastRun >= 5000) { lastRun = now; refreshRun(); return; }
     if (now - lastAll >= (inRun() ? 60000 : 30000)) { lastAll = now; load(); }
   }, 1000);
@@ -720,11 +917,21 @@
     var fs = state.fs, g = gen, endBusy = busyStart(), rev = edits(r.id), pend = state.pendingSaves = state.pendingSaves || {};
     pend[r.id] = (pend[r.id] || 0) + 1;
     function settled() { endBusy(); if (g === gen) { pend[r.id]--; if (pend[r.id] <= 0) delete pend[r.id]; } }
-    return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function () {
+    return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function (wrote) {
       settled();
       if (g !== gen) return true;
+      var key = r.process + '/' + r.id, done = edits(r.id) === rev;
       /* Only the change this save carried is now safe; a newer one stays marked until its own save lands. */
-      if (edits(r.id) === rev && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
+      if (done && (!state.unsaved[r.id] || state.unsaved[r.id] === r)) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
+      /* What this save wrote is now the last version known to be in the folder: Discard goes back to it, and every read
+         that started before it is too old to apply. */
+      var landed = wrote && wrote.text ? R.sanitize(JSON.parse(wrote.text)) : null;
+      if (landed) {
+        Object.keys(r).forEach(function (f) { if (f[0] === '_' && !(f in landed)) landed[f] = r[f]; });
+        landed._fileHash = U.hash(wrote.text); landed._overflow = [];
+        baselines[r.id] = { run: landed };
+      }
+      runOutcome(key, 'run'); bump('~' + r.id);
       render();
       return true;
     }, function (e) {
@@ -734,11 +941,12 @@
         if (state.unsaved[r.id] === r && edits(r.id) === rev) delete state.unsaved[r.id];
         if (!e.keptAs) lsSet(localKey(r.id), r);
         /* "Before" is this save's own revision: if the person changed anything after it, the newer change stays on screen. */
-        var mineAt = {}; mineAt[r.id] = rev;
+        var mineAt = {}; mineAt[r.id] = rev; mineAt['~' + r.id] = edits('~' + r.id);
+        var at = { seq: ++readsStarted, revs: mineAt };
         return repo.loadRun(fs, r.process, r.id).then(function (fresh) {
           if (g !== gen) return false;
-          var replaced = !!fresh && canReplace(r.id, mineAt);
-          if (replaced) { bump(r.id); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
+          var replaced = !!fresh && applyRunRead(r.process + '/' + r.id, at, { kind: 'run', run: fresh });
+          if (replaced) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
           say(V.nameOf(ctx, e.disk.recorder.person) + ' saved this run from another window or computer, so your change wasn\'t written over theirs. ' +
             (replaced ? 'You\'re seeing their version. ' : 'Your newer change is still on screen and will be checked against theirs when it saves. ') +
             (e.keptAs ? 'Yours is kept as a conflict copy; compare it below and keep whichever is right.' : 'Your copy is kept in this browser.'), 'bad');
@@ -746,6 +954,8 @@
           return false;
         });
       }
+      if (e.missing) runOutcome(r.process + '/' + r.id, 'missing');
+      else if (e.unreadable) runOutcome(r.process + '/' + r.id, 'unread', 'isn\'t a run this copy can read');
       /* The run object holding the newest change is what's shown and what Try again saves. */
       state.unsaved[r.id] = r; state.saveErr[r.id] = e.message; (state.saveOpts = state.saveOpts || {})[r.id] = opts;
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = r;
@@ -852,6 +1062,8 @@
   function saveDraftText(p, text, expectHash, okMsg, opts) {
     opts = opts || {};
     var sfs = state.fs, g = gen, key = fsKey(), file = p.draft ? p.draft.file : p.id + '.md', sk = edKey(p.id, key);
+    var dw = draftUnread(p);
+    if (dw) { say(dw + ' Nothing was saved over it. Choose Refresh, then save again.', 'warn'); render(); return; }
     if (state.draftSaving[sk]) { say('Still saving this draft. Try again in a moment.', 'warn'); render(); return; }
     state.draftSaving[sk] = opts.replace ? 'restore' : 'save';
     /* The changes this save carries, so History can say they were saved; typing after it starts a new unit. */
@@ -1506,6 +1718,8 @@
     if (!r) return Promise.resolve(false);
     /* A run on a version this copy can't fully read is view-only for everyone here: no recording, take over or recovery. */
     if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return Promise.resolve(false); }
+    var unreadWhy = opts.restoreMissing && (state.missing || {})[key] ? '' : runUnread(r);
+    if (unreadWhy) { say(unreadWhy + ' The run wasn\'t changed. Choose Refresh once the file can be read.', 'warn'); render(); return Promise.resolve(false); }
     /* While a copy is being kept or restored, nothing else may change the run; the person is told to wait. */
     if (state.recovering && !opts.recovery) { say('Wait until the copy is kept, then try again.', 'warn'); render(); return Promise.resolve(false); }
     /* Recovery applies only to the exact contents it backed up: same object and same contents. */
@@ -1513,6 +1727,10 @@
     var allowed = ctx.recording(r) || opts.any || (opts.recovery && ctx.canRecover(r));
     if (!allowed) { say('Only the recorder\'s window can change the run.', 'warn'); render(); return Promise.resolve(false); }
     var map = R.mapOf(r), recoveringEnded = !!(opts.recovery && r.ended);
+    /* The version the folder had before this window's first unsaved change, so Discard my change can put it back even when
+       the folder can't give it back (the file is gone). */
+    var base = baselines[r.id];
+    if (!base) baselines[r.id] = { run: clone(r) }; else if (base.run === r) base.run = clone(r);
     try {
       var now = new Date().toISOString();
       fn(r, map, state.me, now);
@@ -1563,8 +1781,54 @@
     handler(id, b);
   });
 
+  var BACK = { home: 'Home', runs: 'Runs', run: 'Back to the run', processes: 'Processes', process: 'Back to the process', skills: 'Skills', skill: 'Back to the skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
   var ACTIONS = {
     home: function () { home(); render(); },
+    /* ---------- Folder health, the connection check, When something goes wrong ---------- */
+    health: function () {
+      releaseUrls(state.urls); setView('health'); state.runKey = null; state.processId = null; resetRunUi();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0);
+      var hs = state.healthScan;
+      if (!hs || hs.gen !== gen || Date.now() - Date.parse(hs.scan.at) > 300000) runHealth();
+    },
+    'health-again': function () { runHealth(); },
+    'health-copy': function () {
+      var hs = state.healthScan, rep = healthReport(true); if (!rep || !hs) return;
+      copyText(PF.health.text(rep, { folder: state.fs && state.fs.name, at: U.when(hs.scan.at), app: APP_VERSION, files: hs.scan.files }), null, 'Copied. Paste it to a teammate or your AI assistant.');
+    },
+    'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
+    connection: function () {
+      releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0); lastConn = Date.now(); loadConn();
+    },
+    /* Writing a run back after its file disappeared is only ever this explicit choice, and the run's log says so. */
+    'restore-missing': function () {
+      var key = state.runKey, r = ctx.run(), g = gen;
+      if (!r || !(state.missing || {})[key] || runBusy(r)) return;
+      if (!ctx.canRecover(r)) { say(r.ended ? 'Only whoever recorded or ended this run can restore it.' : 'Only the recorder can restore this run. Take over first if they\'re gone.', 'warn'); render(); return; }
+      mutateRun(key, g, function (run, map, me, now) { R.log(run, me, now, 'Restored this run\'s file to the team folder after it went missing'); }, { restoreMissing: true, any: true }).then(function (ok) {
+        if (!ok || g !== gen) return;
+        runOutcome(key, 'run'); say('Restored. The run\'s file is back in the team folder.', 'good'); render();
+      });
+    },
+    'conn-send': function () { sendCheck(); },
+    'conn-answer': function (id) { var p = ((state.conn || {}).probes || []).filter(function (x) { return x._file === id; })[0]; if (p) answerConn(p, false); },
+    'conn-dismiss': function (id) { (state.connDismissed = state.connDismissed || {})[id] = true; render(); },
+    'dismiss-conn': function () { state.connErr = null; render(); },
+    'conn-name': function () {
+      state.deviceName = String(val('cx-name')).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 40); lsSet('device-name', state.deviceName);
+      say('Saved. Checks from this browser say "' + ctx.device() + '".', 'good'); render();
+    },
+    recovery: function (id) {
+      if (state.view !== 'recovery') state.recBack = { view: state.view, runKey: state.runKey, processId: state.processId, ptab: state.ptab, label: BACK[state.view] || 'Back' };
+      setView('recovery'); state.recoveryAt = id || ''; state.focus = id ? 'rv-h-' + id : 'page-h'; render();
+      var el = id && document.getElementById('rv-' + id);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
+    },
+    'recovery-back': function () {
+      var b = state.recBack || { view: 'settings' };
+      state.recBack = null; setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
+    },
     dismiss: function () { say(null); render(); announceRelease(); },
     refresh: function () { load(true, true); },
     connect: function () { connect(); },
@@ -1620,7 +1884,7 @@
     ptab: function (id) {
       if (['overview', 'edit', 'insights'].indexOf(id) < 0) return;
       state.ptab = id; state.pick = null;
-      if (id === 'edit') { var p = currentProcess(); if (p && state.draftSaving[edKey(p.id)] === 'restore') { state.ptab = 'overview'; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return; } if (p) openEditor(p); state.mapVer = null; }
+      if (id === 'edit') { var p = currentProcess(); var dw = draftUnread(p); if (dw) { state.ptab = 'overview'; say(dw + ' The draft isn\'t edited until it can be read, so nothing is saved over it. Choose Refresh.', 'warn'); render(); return; } if (p && state.draftSaving[edKey(p.id)] === 'restore') { state.ptab = 'overview'; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return; } if (p) openEditor(p); state.mapVer = null; }
       state.focus = id === 'edit' ? 'draft-editor' : id === 'insights' ? '[data-act="ptab"][data-id="overview"]' : 'cl-h';
       render(); window.scrollTo(0, 0);
     },
@@ -1998,8 +2262,8 @@
     },
     handoff: function () { var to = val('handoff-to'); if (!to) return; mutate(function (r, map, me, now) { R.handOff(r, to, me, now); }); },
     /* Picking up or taking over starts from the newest copy in the folder, never from what this screen showed earlier. */
-    pickup: function () { fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
-    takeover: function () { fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
+    pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
+    takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
     end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { setView('receipt'); render(); window.scrollTo(0, 0); } }); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
@@ -2027,7 +2291,7 @@
     /* Keep a conflict copy. Pending saves finish first, then the run is locked: the exact current contents are backed up, the
        copy replaces them only if nothing changed since, and other changes are refused until it's done. The save is checked
        against the backed-up version's fingerprint, so a change on disk becomes a conflict copy rather than being overwritten. */
-    'use-copy': function (name) { recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
+    'use-copy': function (name) { if (runBusy(ctx.run())) return; recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
     'delete-copy': function (name) {
       var r = ctx.run(); if (!r) return;
       if (!(state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name)) { state.pick = { kind: 'delete-copy', id: name }; render(); return; }
@@ -2035,7 +2299,7 @@
       repo.removeCopy(state.fs, r, name).then(function () { if (g !== gen) return; if (state.runKey === key) { if (state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name) state.pick = null; if (state.copyView && state.copyView.name === name) state.copyView = null; } say('Conflict copy deleted.', 'good'); return refreshRun(); }, function (e) { if (g === gen) { say('Couldn\'t delete it: ' + e.message, 'bad'); render(); } });
     },
     'restore-local': function () {
-      var r = ctx.run(); if (!r) return;
+      var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
       recover(function () { var c = R.sanitize(local); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
@@ -2091,7 +2355,13 @@
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
     'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { setView('receipt'); render(); } }); },
-    'discard-unsaved': function () { var r = ctx.run(); if (!r) return; delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true); },
+    'discard-unsaved': function () {
+      var r = ctx.run(); if (!r || runBusy(r)) return;
+      /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
+      var base = baselines[r.id];
+      if (base) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = base.run; bump(r.id); }
+      delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
+    },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
     /* Correct this step (anyone who has said who they are; it doesn't answer the step) or Done differently (the recorder; it
        answers the step). Correcting starts on the wording, filled in with what the step says now. */
@@ -2315,11 +2585,12 @@
     }).catch(function (e) { if (g === gen) say('Couldn\'t keep that copy: ' + e.message, 'bad'); }).then(done);
   }
   function fresh() {
-    var r = ctx.run(), g = gen, fs = state.fs, revs = revsNow(); if (!r) return Promise.resolve(null);
+    var r = ctx.run(), g = gen, fs = state.fs, at = startRead(), bad = []; if (!r) return Promise.resolve(null);
     var key = r.process + '/' + r.id;
-    return repo.loadRun(fs, r.process, r.id).then(function (f) {
+    return repo.loadRun(fs, r.process, r.id, null, false, false, bad).then(function (f) {
       if (g !== gen) return null;
-      if (f && canReplace(r.id, revs)) { if (f._fileHash !== r._fileHash) bump(r.id); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f; }
+      var res = f ? { kind: 'run', run: f } : bad.length ? { kind: 'unread', why: bad[0].why } : r._fileHash ? { kind: 'missing' } : null;
+      if (res && applyRunRead(key, at, res) && f) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) data.runs[i] = f; }
       return { key: key, g: g };
     });
   }

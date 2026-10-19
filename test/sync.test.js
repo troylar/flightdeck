@@ -452,4 +452,68 @@ rule('A run loaded before its publication record synced is refused at save time 
   assert.ok(!paths.some(p => /publication\.json$/.test(p)), 'no extra read: ' + paths.join(', '));
 });
 
+/* ---------- The connection check between two computers (1.15) ---------- */
+const CN = PF.connection;
+function check(n, writer, by, atMs, seen) { return { id: 'chk' + n + writer.slice(0, 4), n, by, writer, device: writer === 'wa' ? 'Windows · Edge' : 'Mac · Chrome', at: new Date(atMs).toISOString(), app: '1.15.0', run: { key: 'release/run1', rev: 1 }, seen: seen || [] }; }
+
+rule('A connection check goes from A to B and its answer from B to A only as OneDrive delivers each file', async () => {
+  const { a, b } = await twoComputers();
+  const t0 = Date.now();
+  const name = await repo.sendProbe(a, check(1, 'wa', 'person-casey', t0), t0);
+  assert.strictEqual((await repo.loadConnection(b, t0)).probes.length, 0, 'not on B until OneDrive delivers it');
+  a.sync(); b.sync();
+  const onB = await repo.loadConnection(b, t0 + 5000);
+  assert.strictEqual(onB.probes.length, 1);
+  const p = onB.probes[0];
+  assert.strictEqual(p._file, name);
+  same(CN.pending(onB, 'wb', null).map(x => x.id), [p.id], 'B has a check to answer');
+  const rb = await repo.loadRun(b, 'release', 'run1');
+  const ack = await repo.sendAck(b, { probe: p.id, probeFile: p._file, by: 'person-blake', writer: 'wb', device: 'Mac · Chrome', at: new Date(t0 + 6000).toISOString(), firstSeenAt: new Date(t0 + 5000).toISOString(), app: '1.15.0', run: { key: 'release/run1', rev: rb.rev, savedAt: rb.savedAt }, folderReadAt: new Date(t0 + 4000).toISOString() });
+  same(CN.pending(await repo.loadConnection(b, t0 + 7000), 'wb', null), [], 'answered: nothing waits on B');
+  assert.strictEqual((await repo.loadConnection(a, t0 + 7000)).acks.length, 0, 'the answer isn\'t on A yet');
+  b.sync(); a.sync();
+  const onA = await repo.loadConnection(a, t0 + 9000);
+  const rows = CN.results([{ file: name, id: p.id, n: 1, at: t0, run: { key: 'release/run1', rev: rb.rev } }], onA, { [ack]: t0 + 9000 }, t0 + 9000);
+  assert.strictEqual(rows[0].answers.length, 1);
+  assert.strictEqual(rows[0].answers[0].roundTrip, 9000, 'the round trip, on A\'s clock alone');
+  assert.strictEqual(rows[0].answers[0].run.state, 'same', 'B has the run\'s latest revision');
+  // A's next check lists the answer it saw; once that reaches B, B knows its answer arrived.
+  assert.ok(!CN.confirmed(await repo.loadConnection(b, t0 + 10000), ack));
+  await repo.sendProbe(a, check(2, 'wa', 'person-casey', t0 + 10000, [ack]), t0 + 10000);
+  a.sync(); b.sync();
+  assert.ok(CN.confirmed(await repo.loadConnection(b, t0 + 11000), ack));
+});
+
+rule('Two computers answering one check write two files; a check or an answer is never written over', async () => {
+  const { a, b } = await twoComputers();
+  const t0 = Date.now(), name = await repo.sendProbe(a, check(1, 'wa', 'person-casey', t0), t0);
+  a.sync(); b.sync();
+  const p = (await repo.loadConnection(b, t0)).probes[0];
+  const rec = w => ({ probe: p.id, probeFile: name, by: 'person-blake', writer: w, device: 'x', at: new Date(t0).toISOString(), firstSeenAt: null, app: '1.15.0', run: null, folderReadAt: null });
+  await repo.sendAck(b, rec('wb')); await repo.sendAck(a, rec('wc'));
+  await assert.rejects(repo.sendAck(b, rec('wb')), /already in the folder/);
+  await assert.rejects(repo.sendProbe(a, check(1, 'wa', 'person-casey', t0), t0), /already in the folder/);
+  b.sync(); a.sync(); b.sync();
+  assert.strictEqual((await repo.loadConnection(a, t0)).acks.length, 2);
+  assert.ok(!Object.keys(a.cloud.files).some(k => /^connection\/.*-(CASEY|BLAKE)\.json$/.test(k)), 'no OneDrive copies: each file has one writer');
+});
+
+rule('Only the last 15 minutes of checks are read; files older than 7 days are cleaned up by any window, and nothing else is', async () => {
+  const { a, b } = await twoComputers();
+  const now = Date.now(), DAY = 86400000;
+  const oldName = await repo.sendProbe(a, check(1, 'wa', 'person-casey', now - 8 * DAY), now - 8 * DAY);
+  const staleName = await repo.sendProbe(a, check(2, 'wa', 'person-casey', now - 20 * 60000), now - 20 * 60000);
+  const freshName = await repo.sendProbe(a, check(3, 'wa', 'person-casey', now - 60000), now - 60000);
+  await a.write('connection/ack-chk1wa.wz.json', '{}'); a.mt = { 'connection/ack-chk1wa.wz.json': now - 9 * DAY };
+  await a.write('connection/notes.txt', 'not Flightdeck\'s');
+  a.sync(); b.sync();
+  same((await repo.loadConnection(b, now)).probes.map(p => p._file), [freshName], 'only the fresh check is read');
+  b.mt = { 'connection/ack-chk1wa.wz.json': now - 9 * DAY };
+  assert.strictEqual(await repo.cleanConnection(b, now), 2, 'B cleans up what A wrote a week ago');
+  assert.ok(!b.files['connection/' + oldName] && !b.files['connection/ack-chk1wa.wz.json']);
+  assert.ok(b.files['connection/' + staleName] && b.files['connection/' + freshName] && b.files['connection/notes.txt'], 'everything newer, and anything not named like a check, stays');
+  b.sync(); a.sync();
+  assert.ok(!a.files['connection/' + oldName], 'the deletion reaches A');
+});
+
 run();

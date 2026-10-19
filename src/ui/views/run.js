@@ -203,7 +203,7 @@
     var s = ctx.state, copies = r._conflicts || [], local = ctx.localCopy(r);
     if (!copies.length && !local) return '';
     var h = '<section class="notice bad recovery" aria-labelledby="rec-t"><div class="stack" style="gap:8px;width:100%"><h3 id="rec-t" tabindex="-1" style="margin:0">' + (copies.length + (local ? 1 : 0)) + ' other version' + (copies.length + (local ? 1 : 0) === 1 ? '' : 's') + ' of this run</h3>' +
-      '<span class="small">Two computers saved at once, or a save couldn\'t be written. Compare, keep the right one, and delete the rest. Nothing is merged automatically.</span>';
+      '<span class="small">Two computers saved at once, or a save couldn\'t be written. Compare, keep the right one, and delete the rest. Nothing is merged automatically. <button type="button" class="linkish" data-act="recovery" data-id="a-run-has-conflict-copies">What to do</button></span>';
     copies.forEach(function (name) {
       var open = s.copyView && s.copyView.name === name && s.copyView.key === runKey(r);
       h += '<div class="copyrow"><code>' + esc(name) + '</code><span class="row"><button class="mini" data-act="compare-copy" data-id="' + esc(name) + '">' + (open ? 'Compared' : 'Compare') + '</button>' +
@@ -597,18 +597,23 @@
       /* On a phone the header keeps only Runs and More, so Details and Screen share are here too. */
       '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>' +
       (rec && hl.s !== 'complete' ? '<button type="button" class="mini" data-act="finish">End run…</button>' : '') + planAgain(ctx, r, 'mini') +
-      '<button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
+      '<button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="health">Folder health</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
       (s.me ? '<span class="rw-me" title="Everything you do here is stamped with your name">You: <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '') + '</div></header>';
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
     var al = '';
     if (s.msg && !s.msg.quiet) al += '<div class="notice ' + (s.msg.kind || '') + '" role="status"><span>' + esc(s.msg.text) + '</span><span class="row">' + (s.msg.act ? '<button class="btn" data-act="' + esc(s.msg.act) + '">' + esc(s.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (s.unsaved[r.id]) al += '<div class="notice bad" role="alert"><span><b>Your last change isn\'t saved.</b> ' + esc(s.saveErr[r.id] || '') + ' It\'s on this screen but not in the team folder' + (r.ended ? ', so the run hasn\'t really ended yet' : '') + '. Try again, or discard it, from the bar above.</span></div>';
+    /* Part of the folder, or this run's own file, couldn't be read on the last check: what's shown is the last version read. */
+    if ((s.missing || {})[runKey(r)]) al += '<div class="notice bad rw-gone" role="alert"><span><b>This run\'s file is gone from the team folder.</b> Someone may have deleted or moved it. You\'re seeing the version this window read; nothing is saved, so a deletion is never undone by accident.</span><span class="row">' + (ctx.canRecover(r) ? '<button class="btn" data-act="restore-missing">Restore it here</button>' : '') + '<button class="mini" data-act="recovery" data-id="a-runs-file-is-gone">What to do</button></span></div>';
+    var ownWhy = ((s.unread || {}).runs || {})[runKey(r)], parts = Object.keys(ctx.data.failed || {});
+    if (!s.folderErr && (ownWhy || parts.length)) al += '<div class="notice bad rw-partial" role="alert"><span>' + (ownWhy ? '<b>This run\'s file couldn\'t be read on the last check</b> (' + esc(ownWhy) + '). You\'re seeing the version read before, and nothing is saved over the file until it reads again.' : '<b>Part of the team folder couldn\'t be read</b> (' + esc(parts.join(', ')) + '). You\'re seeing what was read before' + (parts.indexOf('runs') >= 0 ? ', and changes to runs wait until they read again' : '') + '.') + '</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="' + (ownWhy ? 'a-file-cant-be-read' : 'onedrive-isnt-syncing') + '">What to do</button></span></div>';
     if (s.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(s.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><button class="btn" data-act="refresh">Try again</button></div>';
     /* A Done differently whose correction was saved but whose answer couldn't be: said here until someone acts. */
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
     if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + esc(px ? px.step.text : part.step) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     al += recovery(ctx, r, ctx.canRecover(r));
+    if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);
     h += '<div class="fpe-alerts rw-alerts">' + al + '</div>';
 

@@ -9,7 +9,7 @@
     return '<button class="card" data-act="open-run" data-id="' + esc(runKey(r)) + '"><div class="row between"><span class="cat">' + esc(ctx.processTitle(r.process)) + ' · v' + esc(r.version) + '</span>' + avatar(ctx, r.recorder.person) + '</div>' +
       '<span class="card-title">' + esc(r.title) + '</span><span class="state ' + hl.s + '">' + esc(hl.text) + '</span>' +
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
-      '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + '</span></button>';
+      '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
   }
   var SKILL_PILL = { current: ['passed', 'current'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'] };
   function allTags(ctx) {
@@ -24,8 +24,9 @@
     return all.sort();
   }
   function hasTags(ctx) { var chosen = ctx.state.tags || []; return function (tags) { return chosen.every(function (t) { return (tags || []).indexOf(t) >= 0; }); }; }
-  function pageHead(eyebrow, title, sub, actions) {
-    return '<div class="runhead"><div><div class="eyebrow">' + eyebrow + '</div><h1>' + title + '</h1>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div>' + (actions ? '<div class="row">' + actions + '</div>' : '') + '</div>';
+  /* id: a heading that takes focus when the page opens (page-h). */
+  function pageHead(eyebrow, title, sub, actions, id) {
+    return '<div class="runhead"><div><div class="eyebrow">' + eyebrow + '</div><h1' + (id ? ' id="' + id + '" tabindex="-1"' : '') + '>' + title + '</h1>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div>' + (actions ? '<div class="row">' + actions + '</div>' : '') + '</div>';
   }
 
   /* A plan's time, or null when it has none or it can't be read. */
@@ -44,6 +45,9 @@
   function home(ctx) {
     var st = ctx.state, d = ctx.data, me = st.me, items = [];
     var add = function (kind, title, sub, act, id, label) { items.push('<li class="todo ' + kind + '"><div><b>' + title + '</b>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div><button class="btn" data-act="' + act + '" data-id="' + esc(id) + '">' + esc(label) + '</button></li>'); };
+    /* Folder problems that need a person come first, with one way to see them all. */
+    var hr = ctx.health ? ctx.health(false) : null, stops = hr ? hr.issues.filter(function (i) { return i.severity === 'stop'; }) : [];
+    if (stops.length) add('health', 'The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.', 'health', '', 'Open Folder health');
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
       var map = R.mapOf(r), hl = R.headline(r, map), nx = R.myNext(r, map, me);
       if (r.recorder.person === me) add('run', esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
@@ -88,6 +92,9 @@
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
     var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process. To start one, pick its process.', '<button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
+    /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
+    var bad = (d.unreadable || []).filter(function (u) { return /^runs\//.test(u.path); });
+    if (bad.length) h += '<div class="notice bad" role="alert"><span><b>' + (bad.length === 1 ? 'A run file can\'t be read' : bad.length + ' run files can\'t be read') + '.</b> ' + bad.slice(0, 3).map(function (u) { return '<code>' + esc(u.path) + '</code> ' + esc(u.why); }).join('; ') + (bad.length > 3 ? '; and ' + (bad.length - 3) + ' more' : '') + '. ' + (bad.some(function (u) { return ctx.findRun(u.key); }) ? 'What was read before is still shown. ' : '') + 'It may still be arriving.</span><span class="row"><button class="mini" data-act="health">Folder health</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 style="margin:0">Running</h2><div class="filter" role="group" aria-label="Show runs"><button class="chipbtn" data-act="filter" data-id="mine" aria-pressed="' + (st.filter !== 'all') + '">Mine</button><button class="chipbtn" data-act="filter" data-id="all" aria-pressed="' + (st.filter === 'all') + '">Everyone</button></div></div>';
     h += '<div class="cards">' + (running.map(function (r) { return runCard(ctx, r); }).join('') || '<p class="muted">' + (st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p>') + '</div></section>';
     if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
@@ -130,6 +137,7 @@
     var attention = skills.filter(function (k) { return k.x.status.s === 'update' || k.x.status.s === 'missing'; });
     var ready = ctx.processes().filter(function (p) { return p.latest && !p.skills.length && PF.skills.signoffs(d.validations, p.latest).length; });
     var h = notices(ctx) + pageHead('Skills', 'Skills', 'AI automations built from your processes.');
+    if (d.skillsSkipped) h += '<div class="notice warn" role="status"><span><b>' + d.skillsSkipped + ' more skill registration' + (d.skillsSkipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 500 in <code>skills/</code>, by name.</span><button class="mini" data-act="health">Folder health</button></div>';
     /* The how-to is the page's job when there are no skills yet; after that it's a closed reference. */
     h += '<details class="panel"' + (skills.length ? '' : ' open') + '><summary><h2 style="display:inline">How a process becomes a skill</h2></summary><ol class="howto">' +
       '<li><b>Prove it.</b><span>Run a published version until it has 3 clean runs.</span></li>' +
