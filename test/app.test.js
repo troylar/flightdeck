@@ -2601,4 +2601,18 @@ rule('App: adding another field keeps the option text typed in the open one', as
   assert.ok(new RegExp('<input id="' + box + '"[^>]*value="Ask QA before continuing"').test(app.html()), 'its option text is still there');
 });
 
+rule('App: changing a Choice field to another type drops its unadded option text, so Undo never waits on it', async () => {
+  const app = await newTypeOn();
+  app.click('tf-add', 'f', { kind: 'choice' }); await app.tick();
+  const k = /data-act="tf-open" data-id="f:(k\d+)"/.exec(app.html())[1], box = 'tf-f-' + k + '-optadd';
+  app.set(box, 'Ask QA before continuing');
+  app.click('tf-open', 'f:' + k); await app.tick(); app.click('tf-open', 'f:' + k); await app.tick();  // closed and opened: the text is kept
+  app.select('tf-f-' + k + '-kind', 'text'); await app.tick();
+  assert.ok(!new RegExp('id="' + box + '"').test(app.html()), 'set-up: no options box for text');
+  app.gone(box);
+  app.click('tl-undo', 'type'); await app.tick();
+  assert.ok(!/Add or clear what you typed/.test(app.html()), 'Undo doesn\'t wait');
+  assert.ok(new RegExp('id="tf-f-' + k + '-kind"[^>]*>[\\s\\S]*?<option value="choice" selected>').test(app.html()), 'it undid the type change');
+});
+
 run();

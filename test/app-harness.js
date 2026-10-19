@@ -124,6 +124,8 @@ function boot(opts) {
     fire(type, props) { (listeners[type] || []).forEach(fn => fn(Object.assign({ preventDefault() {} }, props || {}))); },
     // An element stand-in by id, and the document, for tests that need focus or a dialog's controls.
     el: get, doc: document,
+    // A control no longer drawn: the page no longer finds it (this stand-in otherwise keeps every node it ever made).
+    gone(id) { delete els[id]; inputs.delete(id); },
     asked: () => asked.slice(),
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
     // Like set(), for an input inside one data-scope element with no other scope opened before it closes (the builder's

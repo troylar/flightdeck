@@ -939,16 +939,18 @@
     f.def.fields.map(function (r) { return 'f:' + r.k; }).concat(f.def.record.map(function (r) { return 'r:' + r.k; })).forEach(function (key) {
       if (f.open !== key) return; var p = key.split(':'), el = document.getElementById('tf-' + p[0] + '-' + p[1] + '-optadd'); if (el) d[key] = String(el.value || '');
     });
+    /* A draft lives only while its row exists and still has an Add an option box (a choice); otherwise it's dropped. */
+    Object.keys(d).forEach(function (key) { if (!optRow(f, key)) delete d[key]; });
   }
+  function optRow(f, key) { var p = key.split(':'), list = p[0] === 'f' ? f.def.fields : p[0] === 'r' ? f.def.record : null, r = list && list[rowIndex(list, p[1])]; return !!r && r.kind === 'choice'; }
   /* The one way the open row changes: what's typed in the row closing is kept first. */
   function setOpen(f, key) { keepOptDrafts(f); f.open = key; }
-  function rowExists(f, key) { var p = key.split(':'); return rowIndex(p[0] === 'f' ? f.def.fields : f.def.record, p[1]) >= 0; }
   /* A step-type box holding text not added yet (a tag, an option, also in a closed row), or null; a closed row is opened.
-     Drafts of rows that no longer exist never count. */
+     keepOptDrafts drops drafts of rows that are gone or no longer choices, so those never count. */
   function typePendingBox(f) {
     keepOptDrafts(f);
     var el = document.getElementById('tf-tagadd'); if (el && String(el.value || '').trim()) return 'tf-tagadd';
-    var d = f.optDraft || {}, keys = Object.keys(d).filter(function (k) { return String(d[k]).trim() && rowExists(f, k); });
+    var d = f.optDraft || {}, keys = Object.keys(d).filter(function (k) { return String(d[k]).trim(); });
     if (!keys.length) return null;
     setOpen(f, keys[0]); var p = keys[0].split(':'); return 'tf-' + p[0] + '-' + p[1] + '-optadd';
   }
