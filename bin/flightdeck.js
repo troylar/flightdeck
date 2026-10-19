@@ -475,8 +475,10 @@ function readAdapter(root, opts) {
     links, skipped,
     list: (p) => new Promise((res) => {
       const a = partsOf(p), dir = dirAt(a);
-      if (!dir) return res([]);
-      const entries = fs.readdirSync(dir.cur, { withFileTypes: true });
+      /* No such folder: empty, and marked missing, so a reader that saw it listed can tell gone from empty. */
+      if (!dir) { const none = []; none.missing = true; return res(none); }
+      let entries;
+      try { entries = fs.readdirSync(dir.cur, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; const none = []; none.missing = true; return res(none); }
       sameWalk(a, dir.ids, p || '.');
       res(entries.map((e) => {
         const rel = (p ? p + '/' : '') + e.name;
@@ -699,7 +701,7 @@ async function readData(eng, adapter, req) {
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
       const pw = peopleWhy(one.people);
       if (pw) L.note('people.json', 'malformed', pw);
-      const prefixes = ['runs/' + key + '/', 'followups/' + m[1] + '/' + m[2] + '.'], exact = ['people.json', 'followups/', 'followups/' + m[1], 'followups/' + m[1] + '/', 'runs/', 'runs/' + m[1], 'runs/' + key];
+      const prefixes = ['runs/' + key + '/', 'followups/' + m[1] + '/' + m[2] + '.'], exact = ['people.json', 'followups', 'followups/', 'followups/' + m[1], 'followups/' + m[1] + '/', 'runs/', 'runs/' + m[1], 'runs/' + key];
       const usable = !!r && !newerRun(PF, r);
       if (r) {
         take(runProblems(PF, r));

@@ -8,7 +8,7 @@ Reading is the only thing an app can do so far. Asking for a run and reporting w
 
 - **It only reads.** The JSON commands never change a file in the team folder, not even the tidying the app does when it opens a run (removing a save receipt that lost nothing). They read through a view of the folder that refuses every change, and never through a link.
 - **It reads now, with the app's own rules.** What's next, a gate's status and a step's evidence come from the same code the app runs, from this install's own `flightdeck.html`. Another computer may be a minute ahead while the shared folder syncs.
-- **Every problem is named, file by file.** While it reads, the command keeps a list of problems: every folder or file that failed to list or read, was too large, was a link, or was listed and then gone before it could be read, and every file whose contents aren't in the format (a run, plan, decision, version or `people.json`). A file is never silently left out and a bad value is never replaced with a default. If the list has anything in the command's scope, the output names each file and why, `complete` is `false` and the exit code is 4. The data that could be read is still printed.
+- **Every problem is named, file by file.** While it reads, the command keeps a list of problems: every folder or file that failed to list or read (including a screenshot whose bytes failed after it was opened), was too large, was a link, or was listed and then gone before it could be read or listed, and every file whose contents aren't in the format (a run, plan, decision, version or `people.json`). A file is never silently left out and a bad value is never replaced with a default. If the list has anything in the command's scope, the output names each file and why, `complete` is `false` and the exit code is 4. The data that could be read is still printed.
 - **A passed gate is a record, not permission.** It means passed for those details, by that person, at that time. Nothing an app reads is permission to act.
 - **Privacy:** People-directory email fields are omitted. People appear as an ID and a name. Titles, details, evidence and notes may contain anything people typed, emails included.
 
@@ -81,7 +81,7 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | `still-syncing` | A version whose files haven't all arrived |
 | `link` | A link the command didn't follow |
 | `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
-| `vanished` | A file that was listed and then gone before it could be read (OneDrive replacing it, or someone deleting it) |
+| `vanished` | A file or folder that was listed and then gone before it could be read or listed itself (OneDrive replacing it, or someone deleting it). A folder gone like that is never read as empty, so a decided follow-up never looks open because its folder went missing mid-read. |
 
 Each command reports only what's in its own scope:
 

@@ -897,7 +897,7 @@ rule('READ: every mutating method of the folder throws, and no command calls one
 rule('READ: run and next read only their own run, its version, its follow-up decisions and the people list', async () => {
   await readFolder();
   const files = Object.assign({}, rfBuilt.files), eng = { PF: SRC, version: 'test' };
-  const ok = ['list runs/release', 'runs/release/run1/', 'runs/release/run1', 'publications/release/' + rfBuilt.folder + '/', 'list followups/release', 'followups/release/run1.', 'read people.json'];
+  const ok = ['list followups', 'list runs/release', 'runs/release/run1/', 'runs/release/run1', 'publications/release/' + rfBuilt.folder + '/', 'list followups/release', 'followups/release/run1.', 'read people.json'];
   for (const k of ['run', 'next']) {
     const seen = [], r = await FD.readData(eng, strictFolder(files, seen), REQ[k]);
     assert.strictEqual(r.code, 0, k);
@@ -1095,6 +1095,84 @@ rule('READ: a flag without its value is a JSON usage error when --json is given'
   for (const a of [['runs', dir, '--status', '--json'], ['runs', dir, '--json', '--process'], ['next', dir, 'release/run1', '--person', '--json']]) {
     const r = agree(readCli(...a));
     assert.ok(r.code === 1 && r.json.error.kind === 'usage', a.join(' ') + ': ' + r.out + r.err);
+  }
+});
+
+
+/* ---------- READ second review: deferred blob failures and folders gone after their parent listed them ---------- */
+/* The fixture plus a checklist with a screenshot and a run on it, so every command meets blobs too. */
+let shotFiles = null;
+async function withShots() {
+  if (shotFiles) return shotFiles;
+  await readFolder();
+  const R = SRC.run, repo = SRC.repo, people = H.example('people.json');
+  const mem = new SRC.fs.MemoryFS('shots2:' + Math.random(), null);
+  mem.reset(rfBuilt.files);
+  await mem.write('images/x/job.png', new Blob(['picture one'], { type: 'image/png' }));
+  const md = '---\nprocess: shots\ntitle: Shots\n---\n## P · READ-DO {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)';
+  const pub = await repo.publish(mem, md, { people: JSON.parse(people), ...H.exampleSetup(SRC), by: 'person-avery', changes: 'x', existing: [], now: RF.NOW });
+  assert.ok(!pub.blockers, String(pub.blockers));
+  const v = (await repo.loadAll(mem, { deep: true })).processes.filter(p => p.process === 'shots')[0].index.latest;
+  const r = R.create(v, { title: 'Shots run', details: {}, roles: {}, by: 'person-casey', session: 'w1', now: RF.NOW, id: 's1' });
+  await repo.saveRun(mem, r, 'w1');
+  shotFiles = EV.bytesOf(mem);
+  return shotFiles;
+}
+/* A folder in memory that fails one call (method at path) with EIO; blob's deferred arrayBuffer and text can fail too.
+   seen collects every [method, path] made, deferred ones included. */
+function failingFolder(files, method, at, seen) {
+  const B = new EV.BytesFS(files, { strict: true });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, RF.OLD.getTime()));
+  const eio = () => Object.assign(new Error('EIO: i/o error, ' + method + ' \'' + at + '\''), { code: 'EIO' });
+  const hit = (m, p) => { if (seen) seen.push([m, p]); return m === method && p === at; };
+  const w = { calls: B.calls, mutations: B.mutations };
+  ['list', 'read', 'stat'].forEach(m => { w[m] = (p, o) => hit(m, p) ? Promise.reject(eio()) : B[m](p, o); });
+  w.blob = (p, o) => hit('blob', p) ? Promise.reject(eio()) : B.blob(p, o).then(b => b && {
+    size: b.size, slice: (x, y) => b.slice(x, y),
+    arrayBuffer: () => hit('arrayBuffer', p) ? Promise.reject(eio()) : b.arrayBuffer(),
+    text: () => hit('text', p) ? Promise.reject(eio()) : b.text()
+  });
+  ['write', 'append', 'remove'].forEach(m => { w[m] = (...a) => B[m](...a); });
+  return w;
+}
+const SHOT_REQ = [
+  [{ cmd: 'processes' }, ['publications']],
+  [{ cmd: 'process', proc: 'shots' }, ['publications/shots']],
+  [{ cmd: 'process', proc: 'release' }, ['publications/release']],
+  [{ cmd: 'runs' }, ['runs', 'proposals', 'people.json']],
+  [{ cmd: 'run', key: 'shots/s1' }, null],
+  [{ cmd: 'next', key: 'shots/s1' }, null],
+  [{ cmd: 'run', key: 'release/run2' }, null],
+  [{ cmd: 'followups' }, ['followups', 'runs', 'people.json']]
+];
+
+rule('READ: a failure injected at any call a command makes in its scope, deferred blob reads included, is named and the result isn\'t complete', async () => {
+  const files = await withShots(), eng = { PF: SRC, version: 'test' }, covered = new Set();
+  for (const [req, scope] of SHOT_REQ) {
+    const seen = [], clean = await FD.readData(eng, failingFolder(files, null, null, seen), req);
+    assert.strictEqual(clean.code, 0, req.cmd + ' clean: ' + JSON.stringify(clean.json.problems || clean.json.error));
+    const inScope = p => !scope || scope.some(x => p === x || p.startsWith(x + '/'));
+    const calls = [...new Set(seen.filter(([m, p]) => p && inScope(p)).map(x => x.join('\u0000')))].map(x => x.split('\u0000'));
+    for (const [m, at] of calls) {
+      const r = await FD.readData(eng, failingFolder(files, m, at), req), j = JSON.parse(JSON.stringify(r.json));
+      const where = req.cmd + ' ' + (req.key || req.proc || '') + ': ' + m + ' ' + at + ' -> exit ' + r.code + ' ' + JSON.stringify(j.problems);
+      assert.ok(j.error ? r.code === 1 || r.code === 5 : !j.complete && r.code === 4, where);
+      assert.ok(j.problems.some(p => p.path === at), where);
+      covered.add(m);
+    }
+  }
+  ['list', 'read', 'stat', 'blob', 'arrayBuffer'].forEach(m => assert.ok(covered.has(m), 'covered ' + m + ': ' + [...covered]));
+});
+
+rule('READ: a folder listed by its parent and gone when listed itself is vanished, never empty: a decided follow-up never looks open', async () => {
+  const dir = await readFolder(), eng = { PF: SRC, version: 'test' };
+  for (const [gone, req] of [['followups/release', { cmd: 'followups' }], ['followups/release', { cmd: 'run', key: 'release/run2' }], ['runs/release/run2', { cmd: 'runs' }]]) {
+    const copy = tmp(); fs.cpSync(dir, copy, { recursive: true });
+    const A = FD.readAdapter(fs.realpathSync(copy)), list = A.list;
+    let parentListed = false;
+    A.list = p => { const up = gone.split('/').slice(0, -1).join('/'); if (p === up) parentListed = true; if (p === gone && parentListed) fs.rmSync(path.join(copy, ...gone.split('/')), { recursive: true }); return list(p); };
+    const r = await FD.readData(eng, A, req), j = JSON.parse(JSON.stringify(r.json));
+    assert.ok(r.code === 4 && j.problems.some(p => p.path === gone && p.kind === 'vanished'), gone + ' ' + req.cmd + ': ' + JSON.stringify(j.problems));
   }
 });
 

@@ -1483,4 +1483,20 @@ rule('The problem ledger records every failed list and read by path, a listed fi
   assert.throws(() => L.fs.write('a/z.json', 'x'), /read-only/);
 });
 
+
+rule('The problem ledger records a blob\'s later failures (arrayBuffer, text, a slice\'s) and a folder listed, then marked missing, as vanished', async () => {
+  const bad = () => Promise.reject(new Error('EIO'));
+  const raw = {
+    list: p => { if (p === 'a/gone') { const none = []; none.missing = true; return Promise.resolve(none); } if (p === 'a/never') { const none = []; none.missing = true; return Promise.resolve(none); } return Promise.resolve(p === 'a' ? [{ name: 'gone', kind: 'dir' }, { name: 'empty', kind: 'dir' }] : []); },
+    blob: p => Promise.resolve({ size: 3, arrayBuffer: bad, text: bad, slice: () => ({ arrayBuffer: bad }) }),
+    read: () => Promise.resolve(null), stat: () => Promise.resolve(null)
+  };
+  const L = repo.ledger(repo.readOnly(raw));
+  await L.fs.list('a'); same(await L.fs.list('a/empty'), []); await L.fs.list('a/gone'); await L.fs.list('a/never');
+  await assert.rejects((await L.fs.blob('x.png')).arrayBuffer(), /EIO/);
+  await assert.rejects((await L.fs.blob('y.png')).text(), /EIO/);
+  await assert.rejects((await L.fs.blob('z.png')).slice(0, 1).arrayBuffer(), /EIO/);
+  same(L.problems().map(p => [p.path, p.kind]), [['a/gone', 'vanished'], ['x.png', 'unreadable'], ['y.png', 'unreadable'], ['z.png', 'unreadable']]);
+});
+
 run();

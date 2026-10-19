@@ -9263,7 +9263,11 @@ PF.repo = (function () {
       var runP = readRun(fs, proc, id, cache, true, false, bad, { readOnly: true, explain: true }).then(function (entry) {
         if (entry === NOFILE) out.nofile = true; else if (entry) out.run = build(entry, null);
       }, function (e) { bad.push({ path: 'runs/' + key + '/run.json', key: key, kind: errKind(e), why: why(e) }); });
-      var fuP = fs.list('followups/' + proc).then(function (list) {
+      /* The process's decisions folder is found through its parent's listing, so one gone between the two is named (vanished)
+         by a ledger, never read as "no decisions". */
+      var fuP = fs.list('followups').then(function (top) {
+        return top.some(function (i) { return i.kind === 'dir' && i.name === proc; }) ? fs.list('followups/' + proc) : [];
+      }).then(function (list) {
         var mine = list.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && i.name.indexOf(id + '.') === 0; });
         return Promise.all(mine.map(function (i) {
           var path = 'followups/' + proc + '/' + i.name;
@@ -9897,9 +9901,11 @@ PF.repo = (function () {
     return bad ? 'is a plan decision whose ' + bad + ' isn\'t text' : '';
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
-     link, skipped or unreadable), and every file that was listed but gone by the time it was read (vanished). Loaders add
-     what they found malformed with note(). A file that failed to read isn't named again for what it holds. problems() is
-     the list the envelope reports; complete means it's empty. Calls that throw at once are failures like any other. */
+     link, skipped or unreadable), including a failure that comes later from a blob it handed out (arrayBuffer, text, a
+     slice's), and every file or folder that was listed but gone by the time it was read or listed itself (vanished). A
+     folder counts as gone only when the folder says so (a listing marked missing); an empty listing is just empty. Loaders
+     add what they found malformed with note(). A file that failed to read isn't named again for what it holds. problems()
+     is the list the envelope reports; complete means it's empty. Calls that throw at once are failures like any other. */
   var IO_KINDS = { unreadable: true, link: true, skipped: true, vanished: true };
   function ledger(fs) {
     var byKey = {}, order = [], listed = {}, w = {};
@@ -9910,13 +9916,30 @@ PF.repo = (function () {
         .sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0; })
         .map(function (p) { return { path: p.path, kind: p.kind, why: p.why }; });
     }
-    function call(m, p, o) { return new Promise(function (res) { res(fs[m](p, o)); }); }
+    function attempt(f) { return new Promise(function (res) { res(f()); }); }
+    function call(m, p, o) { return attempt(function () { return fs[m](p, o); }); }
     function failed(p) { return function (e) { note(p || '', errKind(e), why(e)); throw e; }; }
     function gone(p) { return function (f) { if (!f && listed[p]) note(p, 'vanished', 'was listed, then gone before it could be read'); return f; }; }
-    if (typeof fs.list === 'function') w.list = function (p, o) { return call('list', p, o).then(function (items) { (items || []).forEach(function (i) { if (i && i.kind === 'file') listed[(p ? p + '/' : '') + i.name] = true; }); return items; }, failed(p)); };
+    /* A blob's own reads fail later than blob() itself: each is recorded at the blob's path too. */
+    function watched(b, p) {
+      if (!b || typeof b !== 'object') return b;
+      var o = { size: b.size, type: b.type };
+      ['arrayBuffer', 'text'].forEach(function (m) { if (typeof b[m] === 'function') o[m] = function () { return attempt(function () { return b[m](); }).then(null, failed(p)); }; });
+      if (typeof b.slice === 'function') o.slice = function (x, y) { try { return watched(b.slice(x, y), p); } catch (e) { failed(p)(e); } };
+      if (typeof b.stream === 'function') o.stream = function () { try { return b.stream(); } catch (e) { failed(p)(e); } };
+      if (typeof b.close === 'function') o.close = function () { return b.close(); };
+      return o;
+    }
+    if (typeof fs.list === 'function') w.list = function (p, o) {
+      return call('list', p, o).then(function (items) {
+        if (items && items.missing && listed[p]) note(p, 'vanished', 'was listed, then gone before it could be listed itself');
+        (items || []).forEach(function (i) { if (i && (i.kind === 'file' || i.kind === 'dir')) listed[(p ? p + '/' : '') + i.name] = true; });
+        return items;
+      }, failed(p));
+    };
     if (typeof fs.read === 'function') w.read = function (p, o) { return call('read', p, o).then(gone(p), failed(p)); };
-    if (typeof fs.blob === 'function') w.blob = function (p, o) { return call('blob', p, o).then(gone(p), failed(p)); };
-    if (typeof fs.stat === 'function') w.stat = function (p, o) { return call('stat', p, o).then(null, failed(p)); };
+    if (typeof fs.blob === 'function') w.blob = function (p, o) { return call('blob', p, o).then(function (b) { return watched(gone(p)(b), p); }, failed(p)); };
+    if (typeof fs.stat === 'function') w.stat = function (p, o) { return call('stat', p, o).then(gone(p), failed(p)); };
     ['write', 'append', 'remove'].forEach(function (m) { w[m] = function () { return fs[m].apply(fs, arguments); }; });
     return { fs: w, note: note, problems: problems };
   }
