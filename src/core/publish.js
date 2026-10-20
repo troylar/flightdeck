@@ -105,6 +105,8 @@ PF.publish = (function () {
     Object.keys(src).forEach(function (k) { images[k] = src[k]; });
     return { implied: true, map: info.mapHash, types: info.typesHash, images: images, extensions: {}, pins: {} };
   }
+  /* The files that make up a version, by its payload: the three records and every screenshot the payload lists. */
+  function payloadFiles(info) { return ['map.md', 'types.json', 'publication.json'].concat(Object.keys(payloadOf(info).images || {}).sort()); }
   function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   /* A /2 version whose payload this copy can't read or check (missing, odd, or with a pin or extension it doesn't have): a
      later Flightdeck wrote it, so it's refused like a newer format, by name, never read for meaning. */
@@ -206,5 +208,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

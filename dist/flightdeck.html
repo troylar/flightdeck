@@ -4227,6 +4227,8 @@ PF.publish = (function () {
     Object.keys(src).forEach(function (k) { images[k] = src[k]; });
     return { implied: true, map: info.mapHash, types: info.typesHash, images: images, extensions: {}, pins: {} };
   }
+  /* The files that make up a version, by its payload: the three records and every screenshot the payload lists. */
+  function payloadFiles(info) { return ['map.md', 'types.json', 'publication.json'].concat(Object.keys(payloadOf(info).images || {}).sort()); }
   function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   /* A /2 version whose payload this copy can't read or check (missing, odd, or with a pin or extension it doesn't have): a
      later Flightdeck wrote it, so it's refused like a newer format, by name, never read for meaning. */
@@ -4328,7 +4330,7 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();
 
 /* Runs: one execution of one published map. Pure functions over a plain run object (saved as run.json). */
@@ -12150,11 +12152,15 @@ PF.repo = (function () {
           if (ctx.why) Object.keys(p.ids.corr).forEach(function (cid) { p.claims.push({ correction: cid, group: '', text: 'Where it stands', folder: '', why: ctx.why }); });
           return Promise.all(Object.keys(vers).map(function (folder) {
             var b = 'publications/' + proc + '/' + folder;
-            return listFiles(b).then(function (items) {
+            /* The version the run ran is its payload (2.0): the screenshots it lists. One its payload doesn't list still goes in,
+               labeled as not part of the version. */
+            var mine = vers[folder] === 'publication' ? record(b + '/publication.json').then(function (x) { var i = x.text != null ? json(x.text) : null; return i && typeof i === 'object' ? P.payloadFiles(i) : null; }) : Promise.resolve(null);
+            return Promise.all([listFiles(b), mine]).then(function (both) {
+              var items = both[0], listed = both[1];
               items.forEach(function (x) {
                 if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
                 var rel = x.path.slice(b.length + 1);
-                if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') === 0 ? 'A screenshot in the version the run ran' : 'The version the run ran' });
+                if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') !== 0 ? 'The version the run ran' : !listed || listed.indexOf(rel) >= 0 ? 'A screenshot in the version the run ran' : 'In the version\'s folder, but it isn\'t part of the version (its payload doesn\'t list it)' });
                 else if (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '"' });
               });
             });

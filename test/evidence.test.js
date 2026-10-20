@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto'), cp = require('child_process');
 const { load, rule, run } = require('./harness');
 const { BytesFS, build, NOW } = require('./evidence-fixture');
-const PF = load(), S = PF.sha256, Z = PF.zip, E = PF.evidence, repo = PF.repo;
+const PF = load(), S = PF.sha256, Z = PF.zip, E = PF.evidence, repo = PF.repo, P = PF.publish;
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 let fixture = null;
@@ -526,6 +526,20 @@ rule('Choosing runs by date reads one run.json at a time, inside the memory budg
   assert.strictEqual(most, 1, 'one at a time');
   same(res.col.runs.map(r => r.key), ['release/run1']);
   assert.ok(res.col.retained.peak >= 2 * 1048576 && res.col.retained.peak <= 3 * 1048576, 'counted, within the cap: ' + res.col.retained.peak);
+});
+
+rule('2.0: the version a run ran goes in the pack by its payload: its files and the screenshots it lists; anything else in its folder is labeled as not part of it', async () => {
+  await folder();
+  const files = Object.assign({}, fixture.files), base = 'publications/release/' + fixture.v1 + '/', info = JSON.parse(files[base + 'publication.json'].toString());
+  same(P.payloadFiles(info), ['map.md', 'types.json', 'publication.json'].concat(Object.keys(info.images || {}).sort()));
+  same(P.payloadFiles({ format: 'preflight-publication/2', payload: { images: { 'images/x/b.png': 'a'.repeat(64), 'images/x/a.png': 'b'.repeat(64) } } }), ['map.md', 'types.json', 'publication.json', 'images/x/a.png', 'images/x/b.png']);
+  files[base + 'images/release/stray.png'] = require('./evidence-fixture').PNG;
+  files[base + 'notes.txt'] = Buffer.from('hand-added');
+  const col = await repo.collectEvidence(new BytesFS(files), { run: 'release/run1' }, { plan: true });
+  const byPath = p => col.files.filter(x => x.path === base + p)[0];
+  assert.strictEqual(byPath('map.md').label, 'The version the run ran');
+  assert.ok(byPath('images/release/stray.png') && /isn't part of the version/.test(byPath('images/release/stray.png').label), JSON.stringify(byPath('images/release/stray.png')));
+  assert.ok(!byPath('notes.txt'), 'other files in a version folder stay out, as before');
 });
 
 run();

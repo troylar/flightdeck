@@ -1939,11 +1939,15 @@ PF.repo = (function () {
           if (ctx.why) Object.keys(p.ids.corr).forEach(function (cid) { p.claims.push({ correction: cid, group: '', text: 'Where it stands', folder: '', why: ctx.why }); });
           return Promise.all(Object.keys(vers).map(function (folder) {
             var b = 'publications/' + proc + '/' + folder;
-            return listFiles(b).then(function (items) {
+            /* The version the run ran is its payload (2.0): the screenshots it lists. One its payload doesn't list still goes in,
+               labeled as not part of the version. */
+            var mine = vers[folder] === 'publication' ? record(b + '/publication.json').then(function (x) { var i = x.text != null ? json(x.text) : null; return i && typeof i === 'object' ? P.payloadFiles(i) : null; }) : Promise.resolve(null);
+            return Promise.all([listFiles(b), mine]).then(function (both) {
+              var items = both[0], listed = both[1];
               items.forEach(function (x) {
                 if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
                 var rel = x.path.slice(b.length + 1);
-                if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') === 0 ? 'A screenshot in the version the run ran' : 'The version the run ran' });
+                if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') !== 0 ? 'The version the run ran' : !listed || listed.indexOf(rel) >= 0 ? 'A screenshot in the version the run ran' : 'In the version\'s folder, but it isn\'t part of the version (its payload doesn\'t list it)' });
                 else if (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '"' });
               });
             });
