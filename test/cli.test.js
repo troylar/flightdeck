@@ -105,6 +105,25 @@ const at = (dir, rel) => path.join(dir, ...rel.split('/'));
 const read = (dir, rel) => fs.readFileSync(at(dir, rel), 'utf8');
 const write = (dir, rel, text) => { fs.mkdirSync(path.dirname(at(dir, rel)), { recursive: true }); fs.writeFileSync(at(dir, rel), text); };
 const record = (dir) => JSON.parse(read(dir, '.flightdeck/installed.json'));
+
+rule('install and skills refuse an installed.json written by a newer Flightdeck (a newer major, or a feature), change nothing, even with --force; the command and Folder health agree', () => {
+  const PF = require('./harness').load();
+  const cases = [[{ format: 'flightdeck-installed/2', version: '2.0.0', files: {} }, true], [{ format: 'flightdeck-installed/1', features: ['from-the-future'], version: '2.1.0', files: {} }, true],
+    [{ format: 'flightdeck-installed/1', features: [], version: '1.18.0', at: 'x', by: 'cli', files: {} }, false], [{ format: 'flightdeck-installed/1', version: '1.18.0', files: {} }, false], [{ kind: 'x' }, false], [[], false]];
+  cases.forEach(([o, newer]) => {
+    assert.strictEqual(!!C.installedNewer(o), newer, JSON.stringify(o));
+    const h = PF.contract.cleanInstalled(o);
+    assert.strictEqual(!!(h && h.newer), newer, 'Folder health agrees: ' + JSON.stringify(o));
+  });
+  for (const args of [['install'], ['skills'], ['install', '--force']]) {
+    const dir = tmp(); cli('install', dir); const text = JSON.stringify(cases[0][0], null, 2);
+    write(dir, '.flightdeck/installed.json', text);
+    const before = fs.readdirSync(dir, { recursive: true }).sort().map(f => [f, fs.statSync(at(dir, f)).isFile() ? read(dir, f) : '']);
+    const r = cli(args[0], dir, ...args.slice(1));
+    assert.ok(r.code !== 0 && /newer Flightdeck/.test(r.out), args.join(' ') + ': ' + r.out);
+    assert.deepStrictEqual(fs.readdirSync(dir, { recursive: true }).sort().map(f => [f, fs.statSync(at(dir, f)).isFile() ? read(dir, f) : '']), before, 'nothing changed');
+  }
+});
 const setRecord = (dir, files) => { const r = record(dir); Object.assign(r.files, files); write(dir, '.flightdeck/installed.json', JSON.stringify(r)); };
 // Every file in a folder with its text, to show a command changed nothing.
 const snapshot = (dir) => { const out = {}; (function walk(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else out[path.relative(dir, p)] = e.isSymbolicLink() ? 'link' : fs.readFileSync(p, 'utf8'); } })(dir); return out; };

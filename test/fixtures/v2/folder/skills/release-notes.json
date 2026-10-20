@@ -1,0 +1,6 @@
+{
+  "name": "release-notes",
+  "implements": "moved",
+  "movedTo": "skill-registrations/release-notes/",
+  "id": "sk-aaaa1111"
+}

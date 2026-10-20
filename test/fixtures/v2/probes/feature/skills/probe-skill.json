@@ -1,0 +1,11 @@
+{
+  "format": "flightdeck-skill/1",
+  "features": [
+    "from-the-future"
+  ],
+  "app": "9.1.0",
+  "name": "probe-skill",
+  "version": "1.0.0",
+  "location": "https://example.com/skills/probe",
+  "implements": "backup@1"
+}

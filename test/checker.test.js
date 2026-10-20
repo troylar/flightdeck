@@ -245,4 +245,35 @@ rule('The assistants\' folder checker agrees with the app on OneDrive copies of 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+/* ---------- The format envelope, mirrored (2.0 plan, slice 1b) ---------- */
+rule('The checker\'s envelope verdict agrees with PF.envelope.judge on every 2.0 sample and probe it reads, and names a newer version in the app\'s words', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const S = require('../tools/v2-samples'), H = require('./compat-harness'), G = require('../tools/old-folders');
+  const objs = [];
+  ['folder', 'probes/major', 'probes/feature'].forEach(w => Object.entries(S.tree(w)).forEach(([p, t]) => {
+    const fam = PF.envelope.familyOfPath(p);
+    if ((fam === 'preflight-publication' || fam === 'flightdeck-step-type') && !/types\.json$/.test(p)) objs.push([fam, JSON.parse(t)]);
+  }));
+  objs.push(['preflight-publication', { format: 'preflight-publication/1' }], ['flightdeck-step-type', { id: 'x' }], ['preflight-publication', { format: 'preflight-run/2' }], ['preflight-publication', { format: 'acme/1', app: '3.2.1' }], ['preflight-publication', null]);
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps([c.judge(f, o) for f, o in json.loads(sys.stdin.read())]))', path.dirname(CHECKER)], { encoding: 'utf8', input: JSON.stringify(objs) }));
+  objs.forEach(([f, o], i) => {
+    const js = PF.envelope.judge(f, o);
+    assert.deepStrictEqual([out[i].ok, out[i].ok ? '' : out[i].kind, out[i].ok ? '' : out[i].needs], [js.ok, js.ok ? '' : js.kind, js.ok ? '' : js.needs || ''], f + ' ' + JSON.stringify(o).slice(0, 100));
+  });
+  assert.deepStrictEqual(JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps([c.FROZEN, c.FAMILY_NAMES]))', path.dirname(CHECKER)], { encoding: 'utf8' })), JSON.parse(JSON.stringify([PF.envelope.FROZEN, Object.keys(PF.envelope.FAMILIES)])));
+  // On a folder with every 2.0 sample: the /2 version and the 2.0 step type, in the app's words.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-env-'));
+  try {
+    const files = Object.assign(H.readTree(path.join(G.DIR, 'v1.18.0')), S.tree('folder')); H.writeTree(root, files);
+    const res = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const v2 = res.publications.backup.versions.find(v => v.folder === S.PUB2);
+    const app = await repo.loadAll(new DiskFS(root));
+    assert.strictEqual(v2.why, app.processes.find(p => p.process === 'backup').pubs.find(x => x.folder === S.PUB2).why);
+    assert.strictEqual(res.publications.backup.current, 'v1-ab9ysnqh');
+    const st = JSON.stringify(res).indexOf('This step type needs Flightdeck 2.0. This copy shows it but can\'t use or change it.') >= 0;
+    assert.ok(st, 'the 2.0 step type is named: ' + JSON.stringify(res.team || res).slice(0, 400));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

@@ -188,8 +188,12 @@ PF.corrections = (function () {
   }
 
   /* A decision file read from disk, or null if it isn't one. Decisions on suggested fixes from before 1.13 are read too. */
+  /* The envelope's verdict on a decision file: dv above 2, or a feature this copy doesn't know, is a decision from a newer
+     Flightdeck, refused for every consumer, never read with today's meaning. */
+  function verdict(o) { return PF.envelope.judge(o && o.kind === 'fix-decision' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', o); }
   function cleanDecision(o, process, file) {
     if (!o || typeof o !== 'object') return null;
+    if ((o.kind === 'correction-decision' || o.kind === 'fix-decision') && !verdict(o).ok) return null;
     if (typeof o.at !== 'string' || typeof o.by !== 'string') return null;
     var d = { process: process, reason: str(o.reason, REASON_MAX), by: o.by.slice(0, 80), at: o.at.slice(0, 40), rev: whole(o.rev), seen: typeof o.seen === 'string' && FILE.test(o.seen) ? o.seen : null };
     if (o.kind === 'fix-decision') {
@@ -660,7 +664,7 @@ PF.corrections = (function () {
     return L.join('\n');
   }
 
-  return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision,
+  return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision, verdict: verdict,
     decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary,
     toOps: toOps, review: review, inverse: inverse, outcome: outcome, changedSince: changedSince, alternatives: alternatives, applies: function (g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer; },
     LISTED_MAX: LISTED_MAX, listed: listed, satisfied: satisfied, landing: landing, forProcess: forProcess, forPublish: forPublish, changedIn: changedIn, acks: acks, checkable: checkable };

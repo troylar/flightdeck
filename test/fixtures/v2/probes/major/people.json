@@ -1,0 +1,10 @@
+{
+  "format": "flightdeck-people/9",
+  "app": "9.0.0",
+  "people": [
+    {
+      "id": "person-avery",
+      "name": "Avery Lee"
+    }
+  ]
+}

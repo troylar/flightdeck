@@ -1,5 +1,47 @@
 [
   {
+    "version": "1.21.0",
+    "date": "2026-10-20",
+    "headline": "Ready for teammates on Flightdeck 2.0",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Versions and runs",
+        "title": "Files made with Flightdeck 2.0 say so",
+        "before": "A version or run from a newer Flightdeck said only \"Update Flightdeck to run it\".",
+        "now": "Versions and runs made with Flightdeck 2.0 say \"Needs Flightdeck 2.0\". A test run from Flightdeck 2.0 says so too. This copy still shows them by name and never changes them.",
+        "where": "Process pages, Runs and the run itself"
+      },
+      {
+        "kind": "improved",
+        "area": "Folder health",
+        "title": "See what a newer Flightdeck wrote, and who is on an older one",
+        "now": "Folder health lists each file a newer Flightdeck wrote, by kind, with the version it needs. It also names older copies of Flightdeck that answered connection checks or edited drafts here in the last 7 days, and says to move every computer to this version before anyone uses Flightdeck 2.0 features.",
+        "where": "Folder health"
+      },
+      {
+        "kind": "fixed",
+        "area": "Follow-ups and corrections",
+        "title": "Decisions from a newer Flightdeck aren't read as older ones",
+        "before": "A follow-up or correction decision saved by a newer Flightdeck was read as if this copy had written it.",
+        "now": "A decision from a newer Flightdeck is no longer read as if it were an older one. It's listed as needing a newer Flightdeck, and the follow-up or correction stays as it was."
+      },
+      {
+        "kind": "fixed",
+        "area": "Checklist editor",
+        "title": "A \"format:\" line no longer passes for a requirement",
+        "before": "A checklist with a \"format:\" or \"features:\" line in its front matter published as an ordinary version.",
+        "now": "A checklist with a \"format:\" or \"features:\" line can't be published until the line is removed, and the editor says why. Nothing in a checklist needs one."
+      },
+      {
+        "kind": "fixed",
+        "area": "Plans",
+        "title": "Plans from a newer Flightdeck are named, never started on the wrong version",
+        "now": "A planned run saved by Flightdeck 2.0 for one exact version isn't shown as a plan here, so it can't start on the latest by mistake. Folder health lists it as needing Flightdeck 2.0."
+      }
+    ]
+  },
+  {
     "version": "1.20.0",
     "date": "2026-10-20",
     "headline": "Let another app ask for a run",

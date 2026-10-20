@@ -1,0 +1,19 @@
+{
+  "format": "flightdeck-people/1",
+  "app": "2.0.0",
+  "people": [
+    {
+      "id": "person-avery",
+      "name": "Avery Lee",
+      "initials": "AL",
+      "email": "avery@example.com",
+      "folderRole": "owner"
+    },
+    {
+      "id": "person-blake",
+      "name": "Blake Ortiz",
+      "initials": "BO",
+      "email": "blake@example.com"
+    }
+  ]
+}

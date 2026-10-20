@@ -1,0 +1,10 @@
+{
+  "format": "flightdeck-step-type/9",
+  "app": "9.0.0",
+  "id": "team.probe",
+  "label": "Probe",
+  "icon": "doc",
+  "hint": "A probe.",
+  "fields": {},
+  "record": []
+}

@@ -43,6 +43,15 @@ The first time a big folder opens, runs appear as they're read, running runs fir
 - **A write in the gap:** a shared folder has no atomic compare-and-swap. A hand edit, an older copy of Flightdeck or a direct file write that lands between Flightdeck's final check and its write can still be replaced, as before 1.19.
 - **Clocks:** each computer's clock can be slightly off. Deadlines come from the real tool (for example Jenkins), not from Flightdeck.
 
+## Older copies
+
+Teammates won't all update on the same day. Every Flightdeck from 1.11.1 on refuses a file in a format it doesn't know: it shows it by name, never writes it, and refuses to save over it, writing nothing. From 1.21 on it also says which Flightdeck the file needs and lists those files in Folder health. Two things it can't do, because older copies can't be changed:
+
+- Copies older than 1.11.1 (1.10.0 and 1.11.0) have no format check: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as the latest.
+- A change an older window couldn't save stays in that window only. It can't be restored from there; re-enter it in a newer Flightdeck.
+
+So move every computer to 1.21 before anyone records on a Flightdeck 2.0 version (see [Updating Flightdeck](updating.md#when-computers-run-different-versions)). To rehearse it, run the two-computer script below with one computer on 1.21 and one on 2.0.
+
 ## Who writes the other files
 
 | File | Writer |
@@ -50,7 +59,7 @@ The first time a big folder opens, runs appear as they're read, running runs fir
 | `maps/drafts/*.md` | One person in Flightdeck's editor, or an AI assistant through `flightdeck draft save`, which writes only when no editor this computer can see has the draft open and the draft is exactly the text it read; otherwise the change becomes a proposal. Flightdeck saves only over the exact text it opened, but two editors at once can still produce a OneDrive copy; keep one. |
 | `proposed/<process>/<operation>.json` | The `flightdeck draft` command, once per proposal (created exclusively, never changed or deleted). |
 | `proposed/<process>/<proposal>.<window>.<rev>.json`, `<proposal>.attempt.<window>.<n>.json` | The window that decided (applied, declined, reopened) or started applying the proposal, once each. |
-| `presence/<window>.json` | The window it's named for, every 10 seconds while it holds a draft editor. **The second exception to one writer per file:** any window that writes presence may delete files there older than 24 hours (at most 20 at a time), after checking they didn't change. |
+| `presence/<window>.json` | The window it's named for, every 10 seconds while it holds a draft editor. From 1.21 on it says which Flightdeck that window runs (`app`), for Folder health's "Teammates are using an older Flightdeck". **The second exception to one writer per file:** any window that writes presence may delete files there older than 24 hours (at most 20 at a time), after checking they didn't change. |
 | `people.json` | One named person on the team. Edit it, save, and let it sync before anyone else edits it. |
 | `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there; `flightdeck plan request` writes each request from another app (`req-<tool>-<hash>.json`) once, never over a file that's there. Each person's decision is its own `*.status-<window>.json`. Two computers that request the same key while disconnected each write it, and OneDrive keeps both (see *A planned run arrived twice* in docs/recovery.md). |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |

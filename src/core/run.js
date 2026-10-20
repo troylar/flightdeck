@@ -7,7 +7,7 @@ PF.run = (function () {
 
   function create(pub, o) {
     /* Only a version this copy fully understands can start a run; P.verify already sets the others aside. */
-    var bad = !pub.info || pub.info.format !== PF.publish.FORMAT ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types);
+    var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
     var map = pub.map, details = {}, roles = {};
     map.meta.context.forEach(function (f) { details[f] = String((o.details || {})[f] || '').trim(); });
@@ -838,11 +838,44 @@ PF.run = (function () {
   /* A run file in a run format this copy doesn't know (a newer Flightdeck's) is listed by name, read-only, with no steps:
      this copy can't tell what any of it means, so it shows nothing it might misread and never writes the file. */
   function newerFormat(o) {
-    if (!o || typeof o !== 'object' || typeof o.format !== 'string' || !/^preflight-run\//.test(o.format) || o.format === FORMAT) return null;
+    if (!o || typeof o !== 'object' || typeof o.format !== 'string' || !/^preflight-run\//.test(o.format)) return null;
+    var env = PF.envelope.judge('preflight-run', o);
+    if (env.ok || env.kind !== 'newer') return null;
+    return nameOnly(o, env.needs || '');
+  }
+  /* What this copy says about a run it can only list by name: the Flightdeck it needs (from the file's own app and features, or
+     the contract), and whether it's a 2.0 test run. */
+  function nameOnly(o, needs) {
     if (typeof o.id !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(o.id)) return null;
     var r = sanitize({ format: FORMAT, id: o.id, process: o.process, title: o.title, created: o.created, createdBy: o.createdBy, version: o.version, folder: o.folder, state: o.state, ended: o.ended, snapshot: '', steps: {}, gates: {}, recorder: { person: o.recorder && o.recorder.person } });
-    r._unrunnable = 'This run was saved by a newer copy of Flightdeck, in a format this copy can\'t read. Update Flightdeck to see or record it.';
+    var test = o.test === true;
+    r._unrunnable = (test ? 'Test run · needs ' + (needs ? 'Flightdeck ' + needs : 'a newer Flightdeck') + '. ' : 'Made with ' + (needs ? 'Flightdeck ' + needs : 'a newer Flightdeck') + '. ') + 'This copy shows its name only and won\'t change it.';
+    r._needs = needs; if (test) r._test = true;
     return r;
+  }
+  /* A copy beside a run (run.conflict-*, run-<COMPUTER>, candidate-*, replaced-*), read as a run, except the placeholder an older
+     copy's Restore leaves next to a run it could only list by name (docs/design.md section 28, H10): preflight-run/2 with no
+     steps, gates or checklist and the run's own id. It holds no answers, so it's named and never kept, compared or counted. */
+  var PLACEHOLDER = 'An older Flightdeck left this placeholder. It holds no answers.';
+  function isPlaceholder(o, current) {
+    if (!o || typeof o !== 'object' || o.format !== FORMAT || o.snapshot !== '' || !o.steps || typeof o.steps !== 'object' || Object.keys(o.steps).length || !o.gates || typeof o.gates !== 'object' || Object.keys(o.gates).length) return false;
+    /* Beside a run: only when that run.json is one this copy lists by name only (a newer format), with the same id. */
+    return !current || (o.id === current.id && !!current._unrunnable && !Object.keys(current.steps || {}).length);
+  }
+  function cleanCopy(o, current) {
+    if (isPlaceholder(o, current)) { var r = sanitize(o); if (r) { r._unrunnable = PLACEHOLDER; r._placeholder = true; } return r; }
+    return sanitize(o);
+  }
+  /* Records archived from a run (history-*.jsonl): log and answer lines, unversioned, read as they always were; a 2.0 migration
+     record (kind migration, av 1) is kept for 2.0 and never shown here; anything else, or a newer av, is refused with a reason.
+     Returns { ok: true, rec } or a refusal. */
+  var ARCHIVE_SHOWN = { log: 1, answer: 1 };
+  function cleanArchive(x) {
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return { ok: false, kind: 'malformed', why: 'isn\'t an archived record' };
+    if (!ARCHIVE_SHOWN[x.kind] && x.kind !== 'migration') return { ok: false, kind: 'newer', why: 'is an archived record this copy doesn\'t know ("' + String(x.kind).slice(0, 40) + '"). ' + PF.envelope.needsText(''), needs: '' };
+    var env = PF.envelope.judge('flightdeck-run-archive', x);
+    if (!env.ok) return env;
+    return { ok: true, rec: x, shown: !!ARCHIVE_SHOWN[x.kind] };
   }
   /* The times in a run file that sanitize can't read, from the file as parsed (docs/design.md section 23). Sanitize keeps
      1.16's shapes, so every copy reads and writes the same file: it drops a pause, the pause under way, a log entry or an
@@ -1001,6 +1034,8 @@ PF.run = (function () {
   }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
+    /* A run/2 with a must-understand feature this copy doesn't know is listed by name only, never read for meaning. */
+    if (o.features != null) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
     var r = {
       format: FORMAT, id: o.id, process: str(o.process, 60), version: Math.max(0, parseInt(o.version, 10) || 0), folder: str(o.folder, 60), mapHash: str(o.mapHash, 16),
       title: str(o.title, 100) || 'Untitled run', category: str(o.category, 60), snapshot: o.snapshot, types: o.types && typeof o.types === 'object' ? o.types : {},
@@ -1057,7 +1092,7 @@ PF.run = (function () {
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

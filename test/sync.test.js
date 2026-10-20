@@ -439,8 +439,8 @@ rule('A run loaded before its publication record synced is refused at save time 
   b.sync();
   const before = b.files['runs/release/run1/run.json'];
   R.setDetail(r, R.mapOf(r), 'ticket', 'ABC-2', 'person-casey', NOW);
-  await assert.rejects(repo.saveRun(b, r, 'casey'), e => e.unrunnable && /doesn't understand\. Update Flightdeck/.test(e.message));
-  assert.ok(/doesn't understand/.test(r._unrunnable || ''), 'the run is now read-only in this window');
+  await assert.rejects(repo.saveRun(b, r, 'casey'), e => e.unrunnable && /needs Flightdeck 2\.0\. This copy shows it but won't run it/.test(e.message));
+  assert.ok(/needs Flightdeck 2\.0/.test(r._unrunnable || ''), 'the run is now read-only in this window');
   assert.strictEqual(b.files['runs/release/run1/run.json'], before, 'run.json is untouched');
   // Once a publication's format is known good, a save reads it no more (here on a computer that never loaded the versions).
   cloud.files[pubPath] = good;

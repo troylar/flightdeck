@@ -1,0 +1,13 @@
+{
+  "format": "flightdeck-plan-status/2",
+  "app": "2.0.0",
+  "proposal": "plan-backup-pinned",
+  "proposalHash": "aaaa0003",
+  "status": "retargeted",
+  "to": {
+    "folder": "v2-zzzz2222",
+    "version": 2
+  },
+  "by": "person-avery",
+  "at": "2026-10-20T09:00:00.000Z"
+}

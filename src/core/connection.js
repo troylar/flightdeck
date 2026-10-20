@@ -41,6 +41,8 @@ PF.connection = (function () {
   function clean(o, name) {
     var x = parseName(name);
     if (!x || !o || typeof o !== 'object' || Array.isArray(o) || o.cv !== CV) return null;
+    /* A must-understand feature this copy doesn't know: left alone, as a newer cv is. */
+    if (o.features != null && !PF.envelope.judge('flightdeck-connection', o).ok) return null;
     if (x.kind === 'probe') {
       if (o.kind !== 'connection-probe' || o.id !== x.id || o.writer !== x.writer || !iso(o.at)) return null;
       return { kind: 'probe', _file: name, id: x.id, n: Math.max(0, parseInt(o.n, 10) || 0), by: str(o.by, 80), writer: x.writer, device: str(o.device, 80), at: iso(o.at), app: str(o.app, 20), run: runRef(o.run), seen: Array.isArray(o.seen) ? o.seen.filter(function (s) { return typeof s === 'string' && !!parseName(s); }).slice(-20) : [] };

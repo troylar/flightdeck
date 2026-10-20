@@ -1,0 +1,6 @@
+{
+  "format": "flightdeck-extension/1",
+  "check": "ticket-key",
+  "severity": "block",
+  "message": "Use a ticket key like ABC-123."
+}

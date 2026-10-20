@@ -70,7 +70,10 @@ PF.publish = (function () {
     try { info = files['publication.json'] ? JSON.parse(files['publication.json']) : null; } catch (e) { return { ok: false, why: 'publication.json is unreadable.' }; }
     if (!info) return { ok: false, why: 'Still syncing: publication.json hasn\'t arrived.' };
     if (typeof info !== 'object' || Array.isArray(info)) return { ok: false, why: 'publication.json isn\'t a publication record.' };
-    if (info.format !== FORMAT) return { ok: false, why: NEWER, info: info, unusable: true };
+    /* The envelope first (docs/design.md section 28): another format, a newer major or a feature this copy doesn't know makes
+       the version unusable here, named with the Flightdeck it needs, never read for meaning. */
+    var env = envelopeOf(info);
+    if (env) return { ok: false, why: newerWhy(info, env.needs), info: info, unusable: true, newer: true, needs: env.needs || '' };
     if (files['map.md'] == null || files['types.json'] == null) return { ok: false, why: 'Still syncing: some files haven\'t arrived.', info: info };
     if (U.hash(files['map.md']) !== info.mapHash || U.hash(files['types.json']) !== info.typesHash) return { ok: false, why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', info: info };
     if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
@@ -79,6 +82,21 @@ PF.publish = (function () {
     var bad = unrunnable(files['map.md'], types);
     if (bad) return { ok: false, why: bad, info: info, unusable: true };
     return { ok: true, info: info, map: M.parse(files['map.md']), md: files['map.md'], types: types };
+  }
+
+  /* The envelope's refusal of a publication record, or null when this copy reads its format. */
+  function envelopeOf(info) {
+    if (info.format === FORMAT && info.features == null) return null;
+    var env = PF.envelope.judge('preflight-publication', info);
+    return env.ok ? null : { needs: env.needs || '' };
+  }
+  /* Why a run's version can't be used because a newer Flightdeck wrote it, or '' (pubProblem, before anything else is read). */
+  function newerOf(info) { var env = envelopeOf(info); return env ? newerWhy(info, env.needs) : ''; }
+  /* Why a version from a newer Flightdeck can't run here: the version it needs when the file or the contract says, else NEWER. */
+  function newerWhy(info, needs) {
+    if (!needs) return NEWER;
+    var v = typeof info.version === 'number' && isFinite(info.version) ? 'v' + Math.floor(info.version) : 'This version';
+    return v + ' needs Flightdeck ' + needs + '. This copy shows it but won\'t run it. Open the team folder\'s own flightdeck.html.';
   }
 
   /* Group verified publications by version; two with the same number is a clash for people to settle. */
@@ -124,5 +142,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, NEWER: NEWER, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, NEWER: NEWER, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

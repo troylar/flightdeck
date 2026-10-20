@@ -1,0 +1,30 @@
+{
+  "format": "flightdeck-step-type/2",
+  "features": [
+    "typed-evidence"
+  ],
+  "app": "2.0.0",
+  "id": "team.count",
+  "label": "Count rows",
+  "icon": "doc",
+  "hint": "Counts the rows in a restored copy.",
+  "fields": {
+    "system": {
+      "label": "System",
+      "kind": "text"
+    }
+  },
+  "record": [
+    {
+      "name": "rows",
+      "label": "Rows",
+      "kind": "number",
+      "min": "0"
+    },
+    {
+      "name": "matches",
+      "label": "Matches the source",
+      "kind": "yes-no"
+    }
+  ]
+}

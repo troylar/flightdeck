@@ -122,6 +122,9 @@ PF.map = (function () {
     if (!meta.process) blockers.push('Front matter needs "process" (the process ID, like release).');
     else if (!/^[a-z0-9][a-z0-9-]*$/.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
     if (!meta.title) blockers.push('Front matter needs a title.');
+    /* A format: or features: line is never a minimum by itself (every older copy publishes it as ordinary text). */
+    var env = PF.envelope.markdown(meta);
+    if (!env.ok) blockers.push(env.why);
     /* Within what a run file keeps (a child run's record of its details included), so nothing a map declares is lost on reload. */
     if (meta.context.length > 40) blockers.push('"context" lists ' + meta.context.length + ' run details; the most a checklist can have is 40.');
     /* Names JavaScript objects already use (like __proto__ or constructor) would be lost or mixed up when a run stores them. */

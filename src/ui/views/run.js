@@ -531,7 +531,9 @@
       return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
     }).join('') + '</ul></details>';
     var arch = s.archive[runKey(r)];
-    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary><ul class="tnotes">' + mine.map(function (y) { return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul></details>'; }
+    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary><ul class="tnotes">' + mine.map(function (y) { return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul></details>';
+      /* Archived records this copy refused (a newer Flightdeck's) are counted, never hidden. */
+      var nr = (arch.refused || []).length; if (nr) h += '<p class="small">' + nr + ' archived record' + (nr === 1 ? ' needs' : 's need') + ' a newer Flightdeck. This copy leaves ' + (nr === 1 ? 'it' : 'them') + ' alone.</p>'; }
     else if (a && a.history && a.history.length >= 10) h += '<button class="mini" style="align-self:flex-start" data-act="load-history">Show older answers</button>';
 
     /* Notes, with attachments; anyone who has said who they are can add one. */

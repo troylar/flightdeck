@@ -10,7 +10,15 @@ PF.people = (function () {
   /* The list inside the file: people.json is an array; an older { "people": [...] } is read too. */
   function listOf(doc) { return Array.isArray(doc) ? doc : doc && Array.isArray(doc.people) ? doc.people : []; }
   /* What the app shows and checks, from what the file says. Entries without an id and a name are skipped. */
+  /* The envelope's verdict on people.json: an array or { people } is format 1; a newer major or an unknown feature is refused,
+     so nothing reads it as a list of people and Settings never rewrites it. */
+  function verdict(doc) {
+    if (doc == null) return { ok: true };
+    var v = PF.envelope.judge('flightdeck-people', doc);
+    return v.ok || v.kind !== 'newer' ? { ok: true } : { ok: false, kind: 'newer', why: 'people.json was made with a newer Flightdeck. ' + PF.envelope.needsText(v.needs) + ' This copy can\'t read or change it.', needs: v.needs || '' };
+  }
   function clean(doc) {
+    if (!verdict(doc).ok) return [];
     return listOf(doc).filter(function (p) { return p && typeof p.id === 'string' && typeof p.name === 'string'; }).map(function (p) {
       return { id: p.id, name: p.name.slice(0, 60), initials: String(p.initials || initials(p.name)).slice(0, 3).toUpperCase(), email: String(p.email || ''), inactive: !!p.inactive, folderRole: ROLES.indexOf(p.folderRole) >= 0 ? p.folderRole : '' };
     });
@@ -117,5 +125,5 @@ PF.people = (function () {
       'In Flightdeck: Settings, People, Add a person. Then I can choose my name when I open the folder.', '', 'Thanks!'].join('\n');
   }
 
-  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, label: label, listOf: listOf, clean: clean, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
+  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, label: label, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
 })();

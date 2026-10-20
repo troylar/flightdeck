@@ -1,0 +1,13 @@
+{
+  "format": "flightdeck-step-type/1",
+  "features": [
+    "from-the-future"
+  ],
+  "app": "9.1.0",
+  "id": "team.probe",
+  "label": "Probe",
+  "icon": "doc",
+  "hint": "A probe.",
+  "fields": {},
+  "record": []
+}

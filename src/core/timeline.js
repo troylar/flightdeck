@@ -301,6 +301,7 @@ PF.timeline = (function () {
   /* A line read from the folder, checked: the right types and lengths, or null. file is the file it came from (for order). */
   function cleanEntry(o, file) {
     if (!o || typeof o !== 'object' || Array.isArray(o) || o.v !== 1) return null;
+    if (o.features != null && !PF.envelope.judge('flightdeck-editor-history', o).ok) return null;
     if (o.kind !== 'draft-edit' && o.kind !== 'type-edit') return null;
     if (typeof o.id !== 'string' || !ID.test(o.id) || typeof o.writer !== 'string' || !ID.test(o.writer) || typeof o.to !== 'string' || !HASH.test(o.to)) return null;
     if (o.from != null && (typeof o.from !== 'string' || !HASH.test(o.from))) return null;

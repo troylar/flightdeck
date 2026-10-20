@@ -1,0 +1,12 @@
+{
+  "format": "flightdeck-stage-decision/1",
+  "app": "2.0.0",
+  "process": "backup",
+  "stage": "stage-aaaa1111",
+  "status": "retired",
+  "reason": "Replaced by a new stage",
+  "by": "person-avery",
+  "at": "2026-10-20T09:00:00.000Z",
+  "rev": 1,
+  "seen": null
+}

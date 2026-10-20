@@ -3032,7 +3032,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   const fpath = 'runs/release/newer2/run.json', ftext = JSON.stringify(Object.assign({}, run, { format: 'preflight-run/3', id: 'newer2', title: 'Newer format' }));
   put(fpath, ftext); app.click('refresh'); await app.tick(80);
   app.click('open-run', 'release/newer2'); await app.tick();
-  assert.ok(/Newer format/.test(app.html()) && /saved by a newer copy of Flightdeck, in a format this copy can&#39;t read/.test(app.html()), 'shown with the reason');
+  assert.ok(/Newer format/.test(app.html()) && /Made with Flightdeck 2\.0\. This copy shows its name only and won&#39;t change it\./.test(app.html()), 'shown with the reason');
   app.click('pickup'); await app.tick(40); app.click('takeover'); await app.tick(40);
   assert.strictEqual(app.fs.files[fpath].t, ftext, 'never written');
 });

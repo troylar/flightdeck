@@ -1,0 +1,12 @@
+{
+  "kind": "plan",
+  "id": "plan-backup-probe",
+  "process": "backup",
+  "version": 1,
+  "title": "Probe",
+  "by": "person-avery",
+  "created": "2026-10-20T09:00:00.000Z",
+  "features": [
+    "from-the-future"
+  ]
+}

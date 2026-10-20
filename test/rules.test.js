@@ -1678,11 +1678,18 @@ Object.keys(NEWER_MAPS).forEach(what => {
   });
 });
 
-rule('A version with an unknown publication format isn\'t runnable, with the same explanation', () => {
+rule('A version with an unknown publication format isn\'t runnable, and says which Flightdeck it needs (1.21 bridge)', () => {
   const f = forged(CHECK_IN, info => { info.format = 'preflight-publication/2'; }), v = P.verify(f.folder, f.files);
   assert.strictEqual(v.ok, false);
-  assert.strictEqual(v.why, P.NEWER);
+  assert.ok(v.unusable && v.newer);
+  assert.strictEqual(v.why, 'v' + v.info.version + ' needs Flightdeck 2.0. This copy shows it but won\'t run it. Open the team folder\'s own flightdeck.html.');
+  assert.strictEqual(v.needs, '2.0');
   assert.strictEqual(v.info.format, 'preflight-publication/2');
+  // A major nobody knows yet, and a known major with a feature nobody knows: refused the same way, never run.
+  const w = P.verify(f.folder, forged(CHECK_IN, info => { info.format = 'preflight-publication/7'; }).files);
+  assert.ok(!w.ok && w.newer && w.why.indexOf(P.NEWER) === 0 && w.needs === '', w.why);
+  const g = forged(CHECK_IN, info => { info.features = ['typed-details']; info.app = '2.0.0'; }), x = P.verify(g.folder, g.files);
+  assert.ok(!x.ok && x.unusable && x.newer && x.needs === '2.0', x.why);
 });
 
 rule('A version using a step type that\'s neither built in nor in its own types.json isn\'t runnable', () => {
@@ -1772,7 +1779,7 @@ rule('A frozen step type this copy doesn\'t fully understand (a newer type versi
 
 rule('A run can\'t be created from a publication with a format this copy doesn\'t know, even if its checklist reads', () => {
   const f = forged(CHECK_IN), info = JSON.parse(f.files['publication.json']); info.format = 'preflight-publication/2';
-  assert.throws(() => R.create({ map: M.parse(CHECK_IN), md: CHECK_IN, types: JSON.parse(f.files['types.json']), info }, { by: 'a', session: 's', now: NOW }), /doesn't understand/);
+  assert.throws(() => R.create({ map: M.parse(CHECK_IN), md: CHECK_IN, types: JSON.parse(f.files['types.json']), info }, { by: 'a', session: 's', now: NOW }), /needs Flightdeck 2\.0/);
 });
 
 rule('A run file in a format this copy doesn\'t know is shown read-only with the reason, not dropped', () => {
@@ -1780,8 +1787,15 @@ rule('A run file in a format this copy doesn\'t know is shown read-only with the
   o.format = 'preflight-run/3';
   const r = R.sanitize(o);
   assert.ok(r, 'it is listed');
-  assert.ok(/saved by a newer copy of Flightdeck/.test(r._unrunnable), r._unrunnable);
+  assert.strictEqual(r._unrunnable, 'Made with Flightdeck 2.0. This copy shows its name only and won\'t change it.');
+  assert.strictEqual(r._needs, '2.0');
   same([r.id, r.process, r.title], [o.id, o.process, o.title], 'named as it is in the file');
+  const test = R.sanitize(Object.assign({}, o, { test: true }));
+  assert.ok(/^Test run · needs Flightdeck 2\.0\./.test(test._unrunnable) && test._test === true, test._unrunnable);
+  const later = R.sanitize(Object.assign({}, o, { format: 'preflight-run/9', app: '2.1.0' }));
+  assert.ok(/^Made with Flightdeck 2\.1\./.test(later._unrunnable), later._unrunnable);
+  const feat = R.sanitize(Object.assign({}, o, { format: 'preflight-run/2', features: ['from-the-future'] }));
+  assert.ok(feat && feat._unrunnable && !Object.keys(feat.steps).length && /newer Flightdeck/.test(feat._unrunnable), 'a run/2 with a feature this copy doesn\'t know: name only');
   assert.strictEqual(M.parse(r.snapshot).phases.length, 0, 'no steps are shown as if this copy could tell their state');
   assert.strictEqual(R.sanitize(Object.assign({}, o, { format: 'something-else' })), null, 'a file that isn\'t a run at all is still unreadable');
 });
@@ -2157,7 +2171,8 @@ rule('Folder health\'s report copies as plain text, grouped, with each problem\'
 rule('The in-app guide has every section of docs/recovery.md, with GitHub\'s anchors', () => {
   const doc = H.sections(recoveryDoc);
   assert.strictEqual(doc.title, 'When something goes wrong');
-  ['a-run-has-conflict-copies', 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', 'flightdeck-lost-access-to-the-folder', 'onedrive-isnt-syncing', 'restoring-from-a-backup', 'a-file-cant-be-read', 'leftover-files', 'the-folder-is-getting-big', 'two-windows-used-the-same-name', 'someone-left-the-team', 'a-newer-flightdeck-wrote-files']
+  ['a-run-has-conflict-copies', 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', 'flightdeck-lost-access-to-the-folder', 'onedrive-isnt-syncing', 'restoring-from-a-backup', 'a-file-cant-be-read', 'leftover-files', 'the-folder-is-getting-big', 'two-windows-used-the-same-name', 'someone-left-the-team', 'a-newer-flightdeck-wrote-files',
+    'an-older-flightdeck-said-it-couldnt-save', 'a-replaced-file-with-no-steps', 'a-teammate-cant-run-a-version', 'teammates-on-an-older-flightdeck']
     .forEach(a => assert.ok(anchors.indexOf(a) >= 0, a));
   Object.keys(H.HELP).forEach(k => assert.ok(anchors.indexOf(H.HELP[k]) >= 0, 'HELP.' + k));
   // Links other documents make into the guide land on a real section.

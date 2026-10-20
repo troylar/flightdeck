@@ -1,0 +1,15 @@
+{
+  "kind": "followup-decision",
+  "process": "backup",
+  "run": "run-b",
+  "followUp": "probe1",
+  "status": "done",
+  "by": "person-avery",
+  "at": "2026-10-20T09:00:00.000Z",
+  "rev": 1,
+  "seen": null,
+  "fv": 1,
+  "features": [
+    "from-the-future"
+  ]
+}

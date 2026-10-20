@@ -133,6 +133,28 @@
         "fs.js": "8fd507b6ff748bb624276e7e4f548b36c767ec0fcf9e6c28da28b7b732f5a414",
         "storage.js": "0f7a2625682281ed7a7a0e78ebba5f81f45e757f35c0da090e263101b94e08f9"
       }
+    },
+    "v1.19.0": {
+      "commit": "4ff85c572b4469d709e18aaca733729dde8fee45",
+      "sha256": {
+        "check_folder.py": "de80b2a7bbfbf787504288303c130dd83d430969cc87b6001ad72712ca299da8",
+        "core.js": "807bd21679274ef6d4b0b4178cd37f5a4ef0f24e32afd88e01261a6fecc239a5",
+        "flightdeck.html": "32e7833eb277b576a692ef3e99a75519652988fefb952d7b3f472c52f78c2e81",
+        "flightdeck.js": "bdc148ce6e475bfcd191ce4ea0cd53f1ba86301578fb30929fe42369ce06a158",
+        "fs.js": "03f84931455138e8fdef924bb2509854492755f287ad8ef5b65937aefed20985",
+        "storage.js": "2b934d4b03e284b59cb4a0e99100d1ed01ff4dbe4a05146d0fb2f259cb030ad0"
+      }
+    },
+    "v1.20.0": {
+      "commit": "fdfc010caee667608fbc01bb91887297dffb8a58",
+      "sha256": {
+        "check_folder.py": "78c95781e0df96d09a0af9bb52847b7f6b2ea8bc7e2b3db45f6b5461e678a323",
+        "core.js": "8762fb89d3f887f40957e22b6f0adad4bd218cea096b6d4d4c6b14f1120df0cf",
+        "flightdeck.html": "d2468feff6ba44a4f37b39bb3d04717a58b29baccd9be6be93feccf052b67f48",
+        "flightdeck.js": "32f2b7df8c3084c544abf1a5dc7a825f8bb3244c0da06435297586e1f5b5d773",
+        "fs.js": "03f84931455138e8fdef924bb2509854492755f287ad8ef5b65937aefed20985",
+        "storage.js": "a1f896a82e534c7da81a172a169042d15eaca1443521af882e02bd510b0d771f"
+      }
     }
   }
 }

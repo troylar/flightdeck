@@ -392,6 +392,79 @@ def read_text(path):
         return None
 
 
+# The format envelope (Flightdeck's PF.envelope, docs/design.md section 28), for the families this checker reads. A file in a
+# newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
+# test/checker.test.js fails if this disagrees with src/core/envelope.js.
+FAMILIES = {
+    "preflight-publication": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False},
+    "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
+}
+# Every family's name, so a file of another known family is malformed here, never "newer".
+FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
+                "flightdeck-plan-status", "flightdeck-validation", "flightdeck-followup-decision", "flightdeck-correction-decision", "flightdeck-fix-decision", "flightdeck-proposal",
+                "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
+                "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
+FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions"]
+
+
+def _semver(v):
+    m = re.match(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$", v) if isinstance(v, str) else None
+    return [int(x) for x in m.groups()] if m else None
+
+
+def _needs(fam, major, features, o):
+    a = _semver(o.get("app") if isinstance(o, dict) else None)
+    if a and a[0] >= 2:
+        return "%d.%d" % (a[0], a[1])
+    if fam and major is not None and major in fam["future"]:
+        return fam["future"][major]
+    if any(f in FROZEN for f in (features or [])):
+        return "2.0"
+    return ""
+
+
+def judge(family, o):
+    """{"ok": True, "major": n} or {"ok": False, "kind": "newer" | "malformed", "needs": "2.0" | ""}."""
+    fam = FAMILIES.get(family)
+    if fam is None or not isinstance(o, dict):
+        return {"ok": False, "kind": "malformed", "needs": ""}
+    major = None
+    if o.get("format") is not None:
+        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})$", o["format"]) if isinstance(o["format"], str) else None
+        if not m:
+            return {"ok": False, "kind": "malformed", "needs": ""}
+        if m.group(1) != family:
+            if m.group(1) in FAMILY_NAMES:
+                return {"ok": False, "kind": "malformed", "needs": ""}
+            return {"ok": False, "kind": "newer", "needs": _needs(None, None, None, o)}
+        major = int(m.group(2))
+    elif fam["unmarked"]:
+        major = 1
+    else:
+        return {"ok": False, "kind": "malformed", "needs": ""}
+    features = []
+    if o.get("features") is not None:
+        f = o["features"]
+        if not isinstance(f, list) or len(f) > 32 or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{1,39}$", x) for x in f):
+            return {"ok": False, "kind": "malformed", "needs": ""}
+        features = list(f)
+    if major not in fam["majors"]:
+        return {"ok": False, "kind": "newer", "needs": _needs(fam, major, features, o)}
+    unknown = [x for x in features if x not in fam["majors"][major]]
+    if unknown:
+        return {"ok": False, "kind": "newer", "needs": _needs(fam, None, unknown, o)}
+    return {"ok": True, "major": major}
+
+
+def newer_why(info, needs):
+    """The app's words for a version a newer Flightdeck wrote (PF.publish.newerOf)."""
+    if not needs:
+        return NEWER
+    v = info.get("version")
+    label = "v%d" % int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else "This version"
+    return label + " needs Flightdeck " + needs + ". This copy shows it but won't run it. Open the team folder's own flightdeck.html."
+
+
 def check_publication(folder, name):
     files = {n: read_text(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
@@ -402,8 +475,10 @@ def check_publication(folder, name):
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
         return "damaged", "publication.json isn't a publication record", None
-    if info.get("format") != PUBLICATION_FORMAT:
-        return "unusable", NEWER, info
+    if info.get("format") != PUBLICATION_FORMAT or info.get("features") is not None:
+        v = judge("preflight-publication", info)
+        if not v["ok"]:
+            return "unusable", newer_why(info, v["needs"]), info
     if files["map.md"] is None or files["types.json"] is None:
         return "syncing", "some files haven't arrived", info
     if text_hash(files["map.md"]) != info.get("mapHash") or text_hash(files["types.json"]) != info.get("typesHash"):
@@ -447,6 +522,11 @@ def team_files(root):
         except (OSError, ValueError):
             problems.append({"file": "step-types/" + name, "problem": "isn't valid JSON"})
             continue
+        if isinstance(d, dict) and (d.get("format") is not None or d.get("features") is not None):
+            v = judge("flightdeck-step-type", d)
+            if not v["ok"] and v["kind"] == "newer":
+                problems.append({"file": "step-types/" + name, "problem": "This step type needs " + ("Flightdeck " + v["needs"] if v["needs"] else "a newer Flightdeck") + ". This copy shows it but can't use or change it."})
+                continue
         if not isinstance(d, dict) or d.get("id") is None or name != str(d.get("id")) + ".json":
             problems.append({"file": "step-types/" + name, "problem": "the file name must be <id>.json"})
         else:
