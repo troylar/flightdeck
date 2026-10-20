@@ -152,10 +152,11 @@ PF.requests = (function () {
     Object.keys(s.roles || {}).forEach(function (k) { if (meta.roles.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a role in ' + title + '. It has: ' + (meta.roles.join(', ') || 'none') + '.'); });
     return errors.length ? { errors: errors } : { pub: pub };
   }
-  /* Roles whose person isn't active in people.json: kept in the plan as asked, and left empty by the start form (it offers
+  /* Roles (a request's, or a plan's already in the folder) whose person isn't active in people.json: kept in the plan as asked, and left empty by the start form (it offers
      active people only), so the person who starts the run chooses. */
-  function leftEmpty(intent, people) {
-    var on = Object.create(null), roles = intent.supplied.roles || {};
+  function leftEmpty(roles, people) {
+    var on = Object.create(null);
+    roles = isMap(roles) ? roles : {};
     (people || []).forEach(function (p) { if (p && typeof p.id === 'string' && !p.inactive) on[p.id] = true; });
     return Object.keys(roles).filter(function (k) { return !on[roles[k]]; }).sort();
   }
@@ -171,6 +172,14 @@ PF.requests = (function () {
     return plan;
   }
   function text(plan) { return JSON.stringify(plan, null, 2) + '\n'; }
+  /* Whether a file that isn't complete JSON is the start of exactly the text this request would write, apart from its own
+     time (`created` is the last field): a write of this request cut short, never anyone else's file. */
+  function isOwnPartial(part, whole) {
+    var at = whole.indexOf('"created": "');
+    if (typeof part !== 'string' || at < 0 || !part.length || part.length >= whole.length + 8) return false;
+    if (part.length <= at) return whole.slice(0, part.length) === part;
+    return part.slice(0, at) === whole.slice(0, at) && /^"created": "[0-9T:.Z+-]{0,40}("\n?}?\n?)?$/.test(part.slice(at)) && part !== whole;
+  }
 
   /* Who a plan says asked for it, when it's a request: { name, version } from its id and by, or null. A claim: anyone who can
      write to the folder can write this. */
@@ -183,15 +192,17 @@ PF.requests = (function () {
   function same(a, b) {
     function canon(v) {
       if (Array.isArray(v)) return v.map(canon);
-      if (isMap(v)) { var o = {}; Object.keys(v).sort().forEach(function (k) { if (k[0] !== '_') o[k] = canon(v[k]); }); return o; }
+      if (isMap(v)) { var o = {}; Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; }
       return v;
     }
-    var x = canon(a), y = canon(b), ca = claim(a), cb = claim(b);
+    /* Only the plan's own top level holds what loading adds (_file, _hash…); a detail or role may well start with _. */
+    function root(p) { var o = {}; Object.keys(p).forEach(function (k) { if (k[0] !== '_') o[k] = p[k]; }); return canon(o); }
+    var x = root(a), y = root(b), ca = claim(a), cb = claim(b);
     delete x.created; delete y.created;
     if (ca && cb && ca.name === cb.name) { delete x.by; delete y.by; }
     return JSON.stringify(x) === JSON.stringify(y);
   }
 
   return { KEY: KEY, TOOL: TOOL, LIMITS: LIMITS, CLI: CLI, idFor: idFor, isCopyName: isCopyName, clean: clean, canonical: canonical, differs: differs, check: check,
-    leftEmpty: leftEmpty, build: build, text: text, claim: claim, same: same };
+    leftEmpty: leftEmpty, build: build, text: text, isOwnPartial: isOwnPartial, claim: claim, same: same };
 })();

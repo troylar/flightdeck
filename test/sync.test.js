@@ -718,4 +718,29 @@ rule('REQUEST: one plan started on two computers while OneDrive was paused shows
   assert.ok(p2[0]._status && p2[0]._status.run === 'runb', 'started once, from the copy B had');
 });
 
+rule('REQUEST review: copies whose details differ only in a name starting with _ are different copies, never one startable plan', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a);
+  const ra = requested(d, NOW, p => { p.details = { _site: 'east' }; }), rb = requested(d, NOW, p => { p.details = { _site: 'west' }; });
+  await a.write('proposals/' + ra.id + '.json', ra.text); await b.write('proposals/' + rb.id + '.json', rb.text);
+  a.sync(); b.sync(); a.sync();
+  const plans = (await repo.loadAll(a)).plans.filter(p => p.id === ra.id);
+  same(plans.map(p => [p._copies, p._copiesDiffer]), [[2, true], [2, true]]);
+  assert.strictEqual(PF.requests.same({ id: 'x', roles: { _qa: 'p1' }, _file: 'a' }, { id: 'x', roles: { _qa: 'p2' }, _file: 'b' }), false);
+});
+
+rule('REQUEST review: two different copies of one request, each started on its own computer, show as a double start', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a);
+  const ra = requested(d, NOW), rb = requested(d, NOW, p => { p.title = 'Something else'; });
+  await a.write('proposals/' + ra.id + '.json', ra.text); await b.write('proposals/' + rb.id + '.json', rb.text);
+  const pa = (await repo.loadAll(a)).plans.filter(p => p.id === ra.id)[0], pb = (await repo.loadAll(b)).plans.filter(p => p.id === rb.id)[0];
+  await repo.recordPlanStatus(a, pa, 'wa', 'accepted', 'runa', 'person-casey');
+  await repo.recordPlanStatus(b, pb, 'wb', 'accepted', 'runb', 'person-blake');
+  a.sync(); b.sync(); a.sync();
+  for (const c of [a, b]) {
+    const plans = (await repo.loadAll(c)).plans.filter(x => x.id === ra.id);
+    assert.strictEqual(plans.length, 2);
+    assert.ok(plans.every(p => p._conflicting && !p._status), 'both shown, as conflicting');
+  }
+});
+
 run();

@@ -887,9 +887,15 @@ function writeRequest(dir, name, text, hooks) {
     catch (e) {
       if (e.code === 'EEXIST') return 'exists';
       if (['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'].indexOf(e.code) < 0) throw e;
-      let f2;
+      /* The temporary file already holds the whole text. The final name is created exclusively and filled; if that fails
+         part way (a full disk), the file this process created is removed, checked to be the very file it opened. */
+      let f2, made = null;
       try { f2 = fs.openSync(target, EXCL); } catch (e2) { if (e2.code === 'EEXIST' || e2.code === 'ELOOP') return 'exists'; throw e2; }
-      try { put(f2); } finally { fs.closeSync(f2); }
+      try { made = fs.fstatSync(f2); put(f2); }
+      catch (e3) {
+        try { const left = lstatOrNull(target); if (made && left && !left.isSymbolicLink() && left.ino === made.ino && left.dev === made.dev) fs.unlinkSync(target); } catch (e4) { /* the error below says what happened */ }
+        throw e3;
+      } finally { fs.closeSync(f2); }
     }
     folders(dir, ['proposals'], false);
     const st = lstatOrNull(target);
@@ -906,12 +912,23 @@ function writeRequest(dir, name, text, hooks) {
   }
 }
 
+/* Remove proposals/<name>, this command's own partial write, only while it is a plain file holding exactly text. */
+function removePartial(dir, name, text) {
+  if (!/^req-[a-z0-9-]{1,60}\.json$/.test(name)) fail('refusing an unexpected request name: ' + name);
+  const home = folders(dir, ['proposals'], false), target = home && path.join(home, name), st = target && lstatOrNull(target);
+  if (!st || st.isSymbolicLink() || !st.isFile()) fail('refusing to remove proposals/' + name + ': it isn\'t the file that was read.');
+  if (fs.readFileSync(target, 'utf8') !== text) fail('proposals/' + name + ' changed while it was checked. Nothing was written.');
+  fs.unlinkSync(target);
+}
+
 /* eng: { PF, version }. adapter: the team folder (list, read, stat, blob), only ever read through PF.repo.readOnly inside a
    problem ledger, as the --json commands read it. req: { key, text (the request's JSON), dryRun, now }. write(name, text):
    writes proposals/<name> once (writeRequest), resolving 'written' or 'exists'; without it nothing is ever written. Resolves
-   to { code, json }: READ's envelope (exit 0, or 4 when something it depends on couldn't be read, and then nothing is
+   remove(name, text): removes proposals/<name> only while it still holds exactly text (this command's own partial write).
+   Resolves to { code, json }: READ's envelope (exit 0, or 4 when something it depends on couldn't be read, and then nothing is
    written) with data { request }, or an error object (exit 1: usage, invalid, key-taken, failed; exit 5: not-found). */
-async function requestData(eng, adapter, req, write) {
+const PARTIAL_WHY = 'This file isn\'t complete JSON (it may still be arriving), so Flightdeck can\'t tell whether it\'s this request. Nothing was written.';
+async function requestData(eng, adapter, req, write, remove) {
   const PF = eng.PF, A = PF.appjson, RQ = PF.requests, repo = PF.repo, app = eng.version || '';
   const L = repo.ledger(repo.readOnly(adapter, 'Checking a request'));
   const take = (list) => list.forEach((p) => L.note(p.path, p.kind, p.why));
@@ -952,7 +969,7 @@ async function requestData(eng, adapter, req, write) {
     const found = async () => {
       let items;
       try { items = await L.fs.list('proposals'); } catch (e) { return null; }
-      const copies = [], statuses = [], own = (i) => (i.name === id + '.json' ? 0 : 1);
+      const copies = [], statuses = [], partials = [], own = (i) => (i.name === id + '.json' ? 0 : 1);
       let unsure = false;
       const names = items.filter((i) => RQ.isCopyName(i.name, id)).sort((a, b) => own(a) - own(b) || (a.name < b.name ? -1 : 1));
       for (const i of names) {
@@ -962,13 +979,18 @@ async function requestData(eng, adapter, req, write) {
         try { f = await L.fs.read(at, { maxBytes: RQ.LIMITS.file }); } catch (e) { unsure = true; continue; }
         if (!f) { unsure = true; continue; }
         let o;
-        try { o = JSON.parse(f.text); } catch (e) { L.note(at, 'malformed', 'This file isn\'t complete JSON (it may still be arriving), so Flightdeck can\'t tell whether it\'s this request. Nothing was written.'); unsure = true; continue; }
+        /* Not complete JSON under the request's own name: maybe this command's own write, cut short (judged once the plan
+           it would write is known); anywhere else, or if it isn't that, it's named and nothing is written. */
+        try { o = JSON.parse(f.text); } catch (e) { if (own(i) === 0) partials.push({ at, text: f.text }); else { L.note(at, 'malformed', PARTIAL_WHY); unsure = true; } continue; }
         const plan = !!o && typeof o === 'object' && !Array.isArray(o) && o.kind === 'plan' && typeof o.id === 'string';
         if (plan && o.id !== id) {
           if (own(i) === 0) { L.note(at, 'malformed', 'This file has this request\'s name but holds another plan (' + String(o.id).slice(0, 120) + '). Nothing was written.'); unsure = true; }
           continue;
         }
         if (!plan) { L.note(at, 'malformed', 'This file has this request\'s name but isn\'t a plan, so Flightdeck can\'t tell whether it\'s this request. Nothing was written.'); unsure = true; continue; }
+        /* A plan READ would call malformed is malformed here too. */
+        const why = repo.planWhy(o);
+        if (why) { L.note(at, 'malformed', 'This file ' + why + ', so Flightdeck can\'t compare it with this request. Nothing was written.'); unsure = true; continue; }
         o._file = i.name;
         copies.push(o);
       }
@@ -976,21 +998,35 @@ async function requestData(eng, adapter, req, write) {
         let o = null;
         try { const f = await L.fs.read('proposals/' + i.name, { maxBytes: RQ.LIMITS.file }); o = f ? JSON.parse(f.text) : null; }
         catch (e) { if (e instanceof SyntaxError) L.note('proposals/' + i.name, 'malformed', 'This plan decision isn\'t complete JSON, so whether the request was started may not be shown.'); }
-        if (o && typeof o === 'object' && o.kind === 'status' && o.proposal === id) statuses.push(o);
+        if (!o || typeof o !== 'object' || Array.isArray(o) || o.kind !== 'status') continue;
+        /* A decision READ would call malformed is named, as READ names it, and never counted. */
+        const why = repo.statusWhy(o);
+        if (why) { L.note('proposals/' + i.name, 'malformed', 'This file ' + why + '.'); continue; }
+        if (o.proposal === id) statuses.push(o);
       }
-      return { copies, unsure, statuses };
+      if (partials.length && copies.length) { partials.forEach((x) => L.note(x.at, 'malformed', PARTIAL_WHY)); unsure = true; }
+      return { copies, unsure, statuses, partials };
     };
     /* A request already there: the same canonical intent in every copy is "already requested"; anything else is refused. */
-    const compare = (there) => {
+    /* The roles of a plan whose person isn't active in people.json, which a retry reports again. */
+    const peopleNow = async () => {
+      if (scope.indexOf('people.json') < 0) scope.push('people.json');
+      const d = await repo.loadAll(dependsOn(L.fs, ['people.json']), { readOnly: true, explain: true, deep: true });
+      take(folderProblems(PF, d));
+      return d.people;
+    };
+    const compare = async (there) => {
       const diffs = there.copies.map((x) => ({ name: x._file, d: RQ.differs(intent, x) })).filter((x) => x.d.length);
       if (diffs.length) return err(EXIT.error, 'key-taken', 'A request with that key is already in the folder with other details: ' + diffs.map((x) => 'proposals/' + x.name + ' (' + x.d.join(', ') + ')').join('; ') + '. Use another key for another request. Nothing was written.');
       const shown = repo.groupPlans(there.copies.map((x) => Object.assign({}, x)), there.statuses), st = shown.length === 1 ? shown[0]._status : null;
-      const first = there.copies[0];
-      return done('proposals/' + first._file, 'already', first, [], st && st.status === 'accepted' && typeof st.run === 'string' ? proc + '/' + st.run : null);
+      const first = there.copies[0], left = RQ.leftEmpty(first.roles, await peopleNow());
+      return done('proposals/' + first._file, 'already', first, left, st && st.status === 'accepted' && typeof st.run === 'string' ? proc + '/' + st.run : null);
     };
     const there = await found();
     if (!there || there.unsure) return done(file, 'held', null, [], null);
     if (there.copies.length) return compare(there);
+    /* A partial file under its name is set aside until the plan is known; while it's there nothing else is decided. */
+    const partials = there.partials;
 
     /* 2. Nothing there: resolve what it asks for against the process's versions, check it, then write. */
     scope.push('publications/' + proc, 'people.json');
@@ -1000,7 +1036,18 @@ async function requestData(eng, adapter, req, write) {
     const ck = RQ.check(intent, d.processes.filter((x) => x.process === proc)[0]);
     if (ck.notFound) return err(EXIT.notFound, 'not-found', ck.notFound);
     if (ck.errors) return err(EXIT.error, 'invalid', ck.errors.join(' '));
-    const plan = RQ.build(intent, ck.pub, req.now || new Date().toISOString()), left = RQ.leftEmpty(intent, d.people);
+    const plan = RQ.build(intent, ck.pub, req.now || new Date().toISOString()), left = RQ.leftEmpty(plan.roles, d.people);
+    if (partials.length) {
+      /* This command's own write cut short (a crash, or a full disk it couldn't clean up after) is the start of exactly the
+         text it would write now, up to its own time: removed, then written again. Anything else is named and kept. */
+      const mine = partials.filter((x) => RQ.isOwnPartial(x.text, RQ.text(plan)));
+      if (mine.length !== partials.length || req.dryRun || !write || !remove) {
+        partials.forEach((x) => L.note(x.at, 'malformed', PARTIAL_WHY));
+        return done(file, 'held', null, [], null);
+      }
+      try { for (const x of mine) await remove(x.at.slice('proposals/'.length), x.text); }
+      catch (e) { return err(EXIT.error, 'failed', e && e.message || String(e)); }
+    }
     if (req.dryRun || !write) return done(file, 'would-request', plan, left, null);
     let res;
     try { res = await write(id + '.json', RQ.text(plan)); } catch (e) { return err(EXIT.error, 'failed', e && e.message || String(e)); }
@@ -1072,7 +1119,7 @@ async function requestMain(argv) {
   if (input.tooBig) return out(failureJson(eng, 'invalid', 'A request is at most 16 KB; this one is more.'), EXIT.error);
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(input.buf); } catch (e) { return out(failureJson(eng, 'invalid', 'The request isn\'t UTF-8 text.'), EXIT.error); }
-  const r = await requestData(eng, readAdapter(dir, { maxBytes: READ_MAX }), { key, text, dryRun }, (name, t) => writeRequest(dir, name, t));
+  const r = await requestData(eng, readAdapter(dir, { maxBytes: READ_MAX }), { key, text, dryRun }, (name, t) => writeRequest(dir, name, t), (name, t) => removePartial(dir, name, t));
   return out(r.json, r.code);
 }
 

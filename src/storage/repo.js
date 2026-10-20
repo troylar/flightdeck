@@ -1452,19 +1452,21 @@ PF.repo = (function () {
      from when each was written) are one plan, shown once from the file under its own name (_copies says how many files);
      copies that differ are each shown, flagged (_copiesDiffer, _files), and the app starts neither until a person deletes one.
      A decision counts only for the exact plan it was made on (any copy of it); if the plan changed afterwards, it's pending
-     again. Decisions that disagree (one accepted and one declined, or two starts naming different runs) leave the plan
-     undecided rather than picking one, so a plan started on two computers is shown, never hidden. */
+     again. Decisions that disagree (one accepted and one declined, or two starts naming different runs, on any of its copies)
+     leave the plan undecided rather than picking one, so a plan started on two computers is shown, never hidden. */
   function groupPlans(plans, statuses) {
     var byId = Object.create(null), order = [], out = [];
     plans.forEach(function (p) { p._hash = U.hash(JSON.stringify(stripMeta(p))); if (!byId[p.id]) { byId[p.id] = []; order.push(p.id); } byId[p.id].push(p); });
     order.forEach(function (id) {
       var own = id + '.json', g = byId[id].sort(function (a, b) { var ca = a._file === own ? 0 : 1, cb = b._file === own ? 0 : 1; return ca - cb || (String(a._file) < String(b._file) ? -1 : String(a._file) > String(b._file) ? 1 : 0); });
-      var alike = g.every(function (p) { return PF.requests.same(p, g[0]); }), files = g.map(function (p) { return p._file; });
+      var alike = g.every(function (p) { return PF.requests.same(p, g[0]); }), files = g.map(function (p) { return p._file; }), allHashes = g.map(function (p) { return p._hash; });
       (alike ? [g[0]] : g).forEach(function (p) {
         var hashes = alike ? g.map(function (x) { return x._hash; }) : [p._hash];
         var mine = statuses.filter(function (s) { return s.proposal === p.id; });
         var match = mine.filter(function (s) { return hashes.indexOf(s.proposalHash) >= 0; });
-        var started = match.filter(function (s) { return s.status === 'accepted'; });
+        /* Starts count across every copy of the plan, whatever each copy says: two copies that differ, each started on its own
+           computer, are one request started twice. */
+        var started = mine.filter(function (s) { return s.status === 'accepted' && allHashes.indexOf(s.proposalHash) >= 0; });
         p._conflicting = match.some(function (s) { return s.status !== match[0].status; }) || started.some(function (s) { return (s.run || null) !== (started[0].run || null); });
         p._status = match.length && !p._conflicting ? match[0] : null;
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
@@ -2133,5 +2135,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, planWhy: planWhy, statusWhy: statusWhy, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

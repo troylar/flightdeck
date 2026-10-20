@@ -246,7 +246,7 @@ With `--json`, READ's envelope (`flightdeck-read/1`): `contract`, `app`, `readAt
 | `file` | The file, relative to the team folder |
 | `status` | `requested` (written now), `already` (it was there; nothing written), `would-request` (with `--dry-run`; nothing written) or `held` (nothing written, because something it depends on couldn't be read; `problems` says what) |
 | `plan` | The plan as written, as it already was, or as it would be written; `null` when `held` |
-| `leftEmpty` | Roles whose person isn't active in `people.json`, for the person who starts it to fill |
+| `leftEmpty` | Roles whose person isn't active in `people.json` now, for the person who starts it to fill (on a retry too) |
 | `run` | When the request was already started, that run's key; else `null` |
 
 Without `--json` it says the same in words.
@@ -260,12 +260,12 @@ Without `--json` it says the same in words.
 
 ### What it reads and writes
 
-It reads only `proposals/` (this request's own files and their decisions), the process's versions and `people.json`, and a problem anywhere else never holds it back. It writes one new file in `proposals/` and nothing else: never through a link, never outside the folder. The file is written to a temporary name first, flushed, then put in place in one step that fails if the name is already taken, so it never replaces a file and the final name never holds half a request. It's read back byte for byte. `--dry-run` only reads: it doesn't even make `proposals/` when it's missing.
+It reads only `proposals/` (this request's own files and their decisions), the process's versions and `people.json`, and a problem anywhere else never holds it back. It writes one new file in `proposals/` and nothing else: never through a link, never outside the folder. The file is written to a temporary name first, flushed, then put in place in one step that fails if the name is already taken, so it never replaces a file and the final name never holds half a request. It's read back byte for byte. On a disk without hard links the final name is created exclusively and filled from the finished temporary file; if that's cut short (a full disk), the command removes the file it created. A file under the request's own name that isn't complete JSON and is exactly the start of what this request would write (a write of its own cut short by a crash) is removed and written again; anything else there is named and kept, and nothing is written. Plans and plan decisions under the request's name are checked as `runs` checks them: one not in the format is named (`malformed`, exit 4) and never counted. `--dry-run` only reads: it doesn't even make `proposals/` when it's missing, and it never removes anything.
 
 ### What it can't promise
 
 - **Two computers that aren't syncing.** Creating the file exclusively stops a second request from replacing the first on one computer, but it doesn't stop two computers that can't see each other (OneDrive paused or offline) from both writing it. OneDrive then keeps both, one as `req-…-COMPUTER.json`. Flightdeck shows copies that say the same thing once ("This request arrived twice"). Copies that say different things are both listed, flagged, and can't be started until a person deletes the wrong one. Copies of the same request made by different versions of your tool count as the same.
-- **A run starting exactly once.** A request is a plan, and a person starts it. Two people starting it from two computers before their files sync makes two runs; Flightdeck then shows the plan's decisions as conflicting (`conflicting`) instead of hiding one. Check Runs before starting it again.
+- **A run starting exactly once.** A request is a plan, and a person starts it. Two people starting it from two computers before their files sync makes two runs, even from two different copies of it; Flightdeck then shows the plan's decisions as conflicting (`conflicting`) instead of hiding one. Check Runs before starting it again.
 - **Who asked.** The tool's name is what the file says.
 - **Older copies.** Flightdeck 1.13 to 1.19 list a request as an ordinary planned run ("planned by backup-script 1.4.0 (a tool)") and can start it. They show each OneDrive copy as its own planned run and don't flag a plan started twice, so with older copies still in use, delete a duplicate copy as soon as you see one (Folder health, from 1.15, reports it).
 

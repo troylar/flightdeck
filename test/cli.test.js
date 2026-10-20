@@ -2025,4 +2025,56 @@ rule('REQUEST: the canonical intent keeps what the caller supplied apart from wh
   assert.deepStrictEqual(Object.keys(c.intent.supplied), ['details']);
 });
 
+rule('REQUEST review: without hard links, a write cut short leaves no partial request, and a retry cleans up a partial one of its own', async () => {
+  const dir = fs.realpathSync(await readFolder()), id = reqId('ci-check', 'nolink'), target = path.join(dir, 'proposals', id + '.json');
+  const eng = FD.loadEngine(), adapter = () => FD.readAdapter(dir, { maxBytes: 16 * 1048576 });
+  // No hard links on this disk, and the disk fills up halfway through the final name.
+  let targetFd = null, cut = 0;
+  const orig = { linkSync: fs.linkSync, openSync: fs.openSync, writeSync: fs.writeSync };
+  fs.linkSync = () => { throw Object.assign(new Error('EPERM: operation not permitted, link'), { code: 'EPERM' }); };
+  fs.openSync = function (p, ...rest) { const fd = orig.openSync.call(this, p, ...rest); if (p === target) targetFd = fd; return fd; };
+  fs.writeSync = function (fd, buf, off, len, ...rest) {
+    if (fd !== targetFd) return orig.writeSync.call(this, fd, buf, off, len, ...rest);
+    if (cut++ === 0) return orig.writeSync.call(this, fd, buf, off, Math.min(len, 40), ...rest);
+    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+  };
+  let r;
+  try { r = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(MONTHLY) }, (n, t) => FD.writeRequest(dir, n, t)); }
+  finally { Object.assign(fs, orig); }
+  assert.ok(cut === 2, 'the final name was written, cut short and then refused');
+  assert.ok(r.code === 1 && r.json.error.kind === 'failed', JSON.stringify(r.json));
+  assert.ok(!fs.existsSync(target), 'no partial request left under its name');
+  assert.deepStrictEqual(proposalsIn(dir).filter(n => /\.tmp$/.test(n)), [], 'no temporary file left');
+  // A partial request of its own left by a crash (the start of what it writes) is recognized and replaced on the retry.
+  const whole = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(MONTHLY), dryRun: true });
+  fs.writeFileSync(target, SRC.requests.text(whole.json.data.request.plan ? Object.assign({ kind: 'plan' }, whole.json.data.request.plan) : {}).slice(0, 90));
+  const again = reqAgree(request(dir, MONTHLY, 'nolink'));
+  assert.ok(again.code === 0 && again.json.data.request.status === 'requested', again.out);
+  assert.ok(JSON.parse(fs.readFileSync(target, 'utf8')).id === id);
+  // A partial file that isn't the start of this request is never removed: nothing is written.
+  const id2 = reqId('ci-check', 'other'), t2 = path.join(dir, 'proposals', id2 + '.json');
+  fs.writeFileSync(t2, '{\n  "kind": "plan",\n  "id": "someone-else');
+  const held = reqAgree(request(dir, MONTHLY, 'other'));
+  assert.ok(held.code === 4 && fs.readFileSync(t2, 'utf8') === '{\n  "kind": "plan",\n  "id": "someone-else', held.out);
+});
+
+rule('REQUEST review: a plan decision not in the format is named, as READ names it (exit 4)', async () => {
+  const dir = await readFolder(), id = reqId('ci-check', 'dec');
+  assert.strictEqual(request(dir, MONTHLY, 'dec').code, 0);
+  fs.writeFileSync(path.join(dir, 'proposals', id + '.status-w1.json'), JSON.stringify({ kind: 'status', proposal: id, proposalHash: 7, status: 'accepted', run: 'run9', by: 'person-casey', at: RF.NOW }));
+  const r = reqAgree(request(dir, MONTHLY, 'dec'));
+  assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'proposals/' + id + '.status-w1.json' && p.kind === 'malformed') && r.json.data.request.status === 'already' && r.json.data.request.run === null, r.out);
+  const read = agree(readCli('runs', dir, '--json'));
+  assert.ok(read.code === 4 && read.json.problems.some(p => p.path === 'proposals/' + id + '.status-w1.json' && p.kind === 'malformed'), 'READ says the same');
+});
+
+rule('REQUEST review: a retry still names the roles left for the person who starts it', async () => {
+  const dir = await readFolder(), body = Object.assign({}, MONTHLY, { roles: { qa: 'person-nobody' } });
+  const first = reqAgree(request(dir, body, 'left'));
+  assert.deepStrictEqual(first.json.data.request.leftEmpty, ['qa']);
+  const again = reqAgree(request(dir, body, 'left'));
+  assert.ok(again.json.data.request.status === 'already', again.out);
+  assert.deepStrictEqual(again.json.data.request.leftEmpty, ['qa']);
+});
+
 run();
