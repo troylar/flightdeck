@@ -16,6 +16,8 @@ PF.fs = (function () {
      so an unreadable folder never looks like an empty one. */
   function missing(e) { return e && e.name === 'NotFoundError'; }
   function orNull(e) { if (missing(e)) return null; throw e; }
+  /* A file over the size a reader allows: named with its size, never read. */
+  function tooBig(path, size, max) { var e = new Error(path + ' is ' + (Math.ceil(size / 1048576 * 100) / 100) + ' MB, over the ' + (Math.round(max / 1048576 * 100) / 100) + ' MB Flightdeck reads'); e.skipped = true; e.size = size; return e; }
 
   function FolderFS(dir) { this.dir = dir; this.name = dir.name; this.kind = 'folder'; }
   FolderFS.prototype.walk = function (parts, create) {
@@ -33,10 +35,11 @@ PF.fs = (function () {
   };
   /* The size and time come from the same snapshot as the text (a file that changes while it's read fails to read), so a
      caller can remember them without asking again. */
-  FolderFS.prototype.read = function (path) {
-    var parts = split(path), file = parts.pop();
+  /* o.maxBytes: a file bigger than that is refused from its size, before any of it is decoded (tooBig). */
+  FolderFS.prototype.read = function (path, o) {
+    var parts = split(path), file = parts.pop(), max = o && o.maxBytes;
     return this.walk(parts).then(function (d) { return d.getFileHandle(file); }).then(function (h) { return h.getFile(); })
-      .then(function (f) { return f.text().then(function (t) { return { text: t, mtime: f.lastModified, size: f.size }; }); }, orNull);
+      .then(function (f) { if (max && f.size > max) throw tooBig(path, f.size, max); return f.text().then(function (t) { return { text: t, mtime: f.lastModified, size: f.size }; }); }, orNull);
   };
   /* Size and time without reading the contents, so unchanged files can be skipped. */
   FolderFS.prototype.stat = function (path) {
@@ -95,7 +98,11 @@ PF.fs = (function () {
     });
     return Promise.resolve(out);
   };
-  MemoryFS.prototype.read = function (path) { var f = this.files[path]; return Promise.resolve(f ? { text: f.t, mtime: f.m, size: utf8(f.t) } : null); };
+  MemoryFS.prototype.read = function (path, o) {
+    var f = this.files[path], max = o && o.maxBytes;
+    if (f && max && utf8(f.t) > max) return Promise.reject(tooBig(path, utf8(f.t), max));
+    return Promise.resolve(f ? { text: f.t, mtime: f.m, size: utf8(f.t) } : null);
+  };
   MemoryFS.prototype.write = function (path, data) {
     split(path);
     var self = this;

@@ -38,13 +38,19 @@ The first time a big folder opens, runs appear as they're read, running runs fir
 
 - **Freshness:** another screen may be a minute behind. Each run shows three separate facts: when this computer saved, when it last checked the folder, and whether it can read the folder at all. None of them proves another computer has the change yet.
 - **Gates aren't locks:** a gate means "passed for this commit, by this person, at this time". It doesn't mean nobody changed anything since. People confirm irreversible actions themselves.
+- **Who's editing:** "Being edited by" shows the editors this computer can see right now. Another computer's editor can arrive late, and a tab in the background may stop saying it's there, so an AI assistant can still write a draft directly while someone elsewhere has unsaved changes. Their save is then refused with Keep mine / Take theirs; nothing of theirs is lost.
+- **Applying a proposal on two computers:** each window records an attempt before it applies anything, and windows on one computer take turns. A window on another computer that started before the first attempt reached it can still apply the same proposal a second time; once both computers sync, the proposal shows **Applied twice**. When two computers have the draft open, take back an assistant's change with **Decline** on the process page rather than undoing it in the editor.
+- **A write in the gap:** a shared folder has no atomic compare-and-swap. A hand edit, an older copy of Flightdeck or a direct file write that lands between Flightdeck's final check and its write can still be replaced, as before 1.19.
 - **Clocks:** each computer's clock can be slightly off. Deadlines come from the real tool (for example Jenkins), not from Flightdeck.
 
 ## Who writes the other files
 
 | File | Writer |
 |---|---|
-| `maps/drafts/*.md` | One person in Flightdeck's editor, or an AI assistant. Flightdeck saves only over the draft it opened, but two editors at once can still produce a OneDrive copy; keep one. |
+| `maps/drafts/*.md` | One person in Flightdeck's editor, or an AI assistant through `flightdeck draft save`, which writes only when no editor this computer can see has the draft open and the draft is exactly the text it read; otherwise the change becomes a proposal. Flightdeck saves only over the exact text it opened, but two editors at once can still produce a OneDrive copy; keep one. |
+| `proposed/<process>/<operation>.json` | The `flightdeck draft` command, once per proposal (created exclusively, never changed or deleted). |
+| `proposed/<process>/<proposal>.<window>.<rev>.json`, `<proposal>.attempt.<window>.<n>.json` | The window that decided (applied, declined, reopened) or started applying the proposal, once each. |
+| `presence/<window>.json` | The window it's named for, every 10 seconds while it holds a draft editor. **The second exception to one writer per file:** any window that writes presence may delete files there older than 24 hours (at most 20 at a time), after checking they didn't change. |
 | `people.json` | One named person on the team. Edit it, save, and let it sync before anyone else edits it. |
 | `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there. Each person's decision is its own `*.status-<window>.json`. |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |
@@ -108,6 +114,9 @@ Two computers, A and B, both signed in to OneDrive with the same shared test fol
 20. Recorder: compare, keep the right copy, and delete the other. Expect: both computers settle on the kept copy; the deleted copy's answers stay visible in the comparison until it's deleted.
 21. Pause OneDrive on A and edit a draft in the builder, then Save. On B, edit the same draft and Save. Both saves succeed: neither computer can see the other's change yet. Resume A. Expect: OneDrive keeps both versions, one of them as a copy with a computer's name (`release-LAPTOP.md`). Nothing is silently lost: both edits are in one of the two files. Resolve it as in [When something goes wrong](recovery.md#onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type). Expect **Settings → Folder health** to list both drafts under Needs action.
     - 21b. With both computers syncing, open the same draft on A and B. On B, make an edit and don't save it yet. Then A edits and saves. Wait until A's save has reached B, then save on B. Expect on B: the save is refused with "Someone else changed this draft", offering Keep mine and Take theirs. Undo never brings back text over A's change.
+    - 21c. On B, an AI assistant saves the draft with `flightdeck draft save` while A has the draft open in its editor (wait until A's "Being edited by" shows on B first). Expect: the command says `proposed` with `why` `open`; on A, the editor says "Your AI assistant proposed changes" and the process page lists it. On A: **Review**, then **Apply**. Expect on both: the draft has the change, and the proposal shows **Applied**.
+    - 21e. Pause OneDrive on A and type in its editor without saving. On B, close every editor, then have the assistant save the draft (B can't see A's editor, so it writes directly). Resume A, then save on A. Expect on A: "Someone else changed this draft" with Keep mine and Take theirs; A's text is still there.
+    - 21f. Open the same draft on A and B. On A, choose **Make this the main editor**. Expect on B, within a minute: "… made their editor the main one for this draft. You can still edit and save."
 - P. Pause OneDrive on A. Publish a new version of a checklist on A, then resume. Expect on B: until every file of the new version has arrived, the version is either not there or shown as still syncing. It's never offered for a run before it's complete.
 - R. With a run open on both computers, restore that run's `run.json` to an earlier version from OneDrive's version history (on the OneDrive website: the run's folder → `run.json` → Version history → Restore). Then the recorder checks a step. Expect: the save is refused and a conflict copy appears; both the restored version and the recorder's are there to compare. Nothing is silently lost.
 
@@ -160,6 +169,9 @@ Copy this into `docs/rehearsals/<version>-<date>.md` and fill it in.
 | 20 | Both settle on the kept copy | | | |
 | 21 | Both offline saves kept: the draft plus a OneDrive copy | | | |
 | 21b | Save after A's change arrived is refused; Undo safe | | | |
+| 21c | Proposal from B listed on A and applied once | | | |
+| 21e | Late presence: direct write; A's save refused, A's text kept | | | |
+| 21f | Main editor claim seen on B | | | |
 | P | Half-synced version never usable on B | | | |
 | R | Restored run.json gives a conflict copy | | | |
 | 22 | Corrections group with both people; Done differently joined | | | |

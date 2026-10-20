@@ -162,6 +162,8 @@
     if (e.source === 'new') return e.kind === 'type-edit' ? 'Created in Flightdeck' : 'Started the draft in Flightdeck';
     if (e.source === 'correction') return 'Applied correction';
     if (e.source === 'editor') return 'Saved in Flightdeck';
+    if (e.source === 'agent') return 'Changed by your AI assistant';
+    if (e.source === 'proposal') return 'Changed by your AI assistant, applied in Flightdeck';
     return 'Saved';
   }
   /* A draft's hunks that touch one step or phase (its {#id}), or all of them when none does. */

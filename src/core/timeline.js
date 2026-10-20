@@ -155,7 +155,9 @@ PF.timeline = (function () {
      history/drafts/<process>/<writer>.jsonl and history/step-types/<id>/<writer>.jsonl get one line after each successful
      checked save. Lines are ordered by the fingerprints they link (from → to), never by clocks: `at` is for display only. */
   var HIST = { LINE: 81920, HUNKS: 65536, ROLL: 524288, READ: 2000, FILES: 8, UNITS: 20, ITEMS: 50, CONTEXT: 3 };
-  var SOURCES = ['editor', 'restore', 'reverse', 'keep-mine', 'new', 'correction'];
+  /* agent: an AI assistant's direct save (flightdeck draft save); proposal: a proposal applied in Flightdeck, naming it. Older
+     copies read both as '' (shown as "Saved"). */
+  var SOURCES = ['editor', 'restore', 'reverse', 'keep-mine', 'new', 'correction', 'agent', 'proposal'], PROPOSAL = /^p-[a-z0-9]{1,12}-[a-z0-9]{10}$/;
   function bytes(s) {
     var n = 0; s = String(s);
     for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 ? (i++, 4) : 3; }
@@ -258,6 +260,7 @@ PF.timeline = (function () {
     e.writer = String(o.writer); e.seq = +o.seq || 0; e.by = String(o.by || '').slice(0, 80); e.at = String(o.at || '').slice(0, 40);
     e.from = o.from || null; e.to = String(o.to); e.seen = o.seen || null; e.source = SOURCES.indexOf(o.source) >= 0 ? o.source : 'editor';
     if (o.version) e.version = +o.version;
+    if (o.proposal && PROPOSAL.test(o.proposal)) e.proposal = o.proposal;
     var items = (o.items || []).slice();
     if (!draft) typeChanges(o.before, o.after).forEach(function (c) { if (items.indexOf(c.item) < 0) items.push(c.item); });
     e.units = (o.units || []).slice(0, HIST.UNITS).map(function (u) { return String(u).slice(0, 200); });
@@ -306,6 +309,7 @@ PF.timeline = (function () {
     e.from = o.from || null; e.to = o.to; e.seen = typeof o.seen === 'string' && ID.test(o.seen) ? o.seen : null;
     e.source = SOURCES.indexOf(o.source) >= 0 ? o.source : '';
     if (typeof o.version === 'number' && isFinite(o.version) && o.version >= 1 && o.version < 1e6) e.version = Math.floor(o.version);
+    if (typeof o.proposal === 'string' && PROPOSAL.test(o.proposal)) e.proposal = o.proposal;
     e.units = strs(o.units, HIST.UNITS, 200); e.items = strs(o.items, HIST.ITEMS, 120); e.big = o.big === true;
     /* Hunks are kept exactly or not trusted: anything cut or odd leaves Compare (what could be read) but never Reverse. */
     if (draft && Array.isArray(o.hunks)) {

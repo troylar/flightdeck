@@ -71,7 +71,7 @@
     get: function () { return typeForms[fsKey()] || null; },
     set: function (v) { if (v) typeForms[fsKey()] = v; else delete typeForms[fsKey()]; } });
   applyTheme();
-  var data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
+  var data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, proposed: { procs: {} }, presence: [], readAt: new Date().toISOString() };
   /* Writes to the folder happen one at a time, in order, so a later change never lands before an earlier one. */
   var writes = sessionReady;
   function queued(task) { var p = writes.then(task); writes = p.catch(function () {}); return p; }
@@ -429,6 +429,17 @@
       }
     });
     data.runs.forEach(function (r) { var e = by[r.process]; if (e && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
+    /* Proposals from AI assistants, judged against the draft as this window last read or saved it; a process with only a
+       proposal is listed too ("Proposed, not drafted yet"). Who else is editing, as far as this computer can see. */
+    var PP = PF.proposals, procs = (data.proposed || {}).procs || {};
+    Object.keys(procs).forEach(function (pid) {
+      var pr = procs[pid], e = by[pid], fresh = !e;
+      e = entry(pid); if (fresh) e.proposedOnly = true;
+      var recs = {}; pr.proposals.forEach(function (m) { recs[m.id] = []; });
+      pr.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m && recs[m[1]]) recs[m[1]].push(r); });
+      e.proposed = { list: PP.judge(pr.proposals, recs, draftInfo(e)), bad: pr.bad, older: pr.older, records: recs };
+    });
+    presenceInto(by);
     /* Each registered skill, with where it stands against its process. "Needs attention" = its steps changed, or it can't be matched. */
     /* Registrations that match no process here, or can't be read, are kept and listed with why, never dropped. */
     orphanSkills = [];
@@ -461,7 +472,9 @@
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
       d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
-      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {})]);
+      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
+      Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.proposals.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
+      (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); })]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -532,6 +545,8 @@
       d.readSeq = seq;
       loading = null;
       keepUnread(d);
+      keepNewerDrafts(d, seq);
+      notePresence(d);
       d.runs = applyRunsRead(d, at);
       R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
@@ -549,7 +564,7 @@
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     var drafts = {};
@@ -986,7 +1001,7 @@
     var pid = M.parse(md).meta.process, sfs = state.fs, g = gen, by = state.me;
     su.busy = true; render();
     var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Done, then publish it.', 'good'); render(); window.scrollTo(0, 0); };
-    queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
+    queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return null;
       if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Processes.', 'warn'); render(); return null; }
       if (res.ok) logSave(sfs, fsKey(), { kind: 'draft-edit', id: pid, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
@@ -1632,6 +1647,272 @@
       var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; ed.fresh = null; TL.barrier(tlOf(ed), 'The draft changed in the folder here. Earlier changes can\'t be undone.'); }
     });
   }
+  /* ---------- drafts as this window last read or saved them (docs/design.md section 27) ----------
+     Each draft file carries the sequence of the read (or this window's own save) it came from. A folder read that finishes
+     after a newer one, or after this window saved the draft, never puts back the older text it read. */
+  var fileSeq = {};
+  function keepNewerDrafts(d, seq) {
+    var paths = {};
+    d.drafts.concat(data.drafts || []).forEach(function (x) { paths[x.file] = true; });
+    Object.keys(paths).forEach(function (f) {
+      if ((fileSeq[f] || 0) <= seq) { fileSeq[f] = seq; return; }
+      var mine = (data.drafts || []).filter(function (x) { return x.file === f; })[0];
+      d.drafts = d.drafts.filter(function (x) { return x.file !== f; });
+      if (mine) d.drafts.push(mine);
+    });
+  }
+  /* This window saved a draft: that text is what the folder has now, newer than any read already under way. */
+  function savedDraft(file, text) {
+    fileSeq[file] = ++readsStarted;
+    var mine = { file: file, md: text, mtime: Date.now() };
+    data.drafts = (data.drafts || []).filter(function (x) { return x.file !== file; }).concat([mine]);
+    procCache = null;
+  }
+  /* A draft's SHA-256, remembered per text: proposals are judged against it on every redraw. */
+  var shaMemo = {};
+  function draftInfo(e) {
+    if (!e.draft) return { exists: false, rev: null };
+    var m = shaMemo[e.id];
+    if (!m || m.text !== e.draft.md) m = shaMemo[e.id] = { text: e.draft.md, rev: PF.sha256.hex(e.draft.md) };
+    return { exists: true, rev: m.rev };
+  }
+
+  /* ---------- presence: who has a draft open, the soft lock (docs/design.md section 27) ----------
+     While this window holds a draft editor for this folder (on screen, or with unsaved work kept in memory), it rewrites
+     presence/<WRITER>.json every 10 s; it removes it when it holds none, and on pagehide. Other windows' presence is fresh by
+     its beat in elapsed time (PF.proposals.freshApp). It decides nothing about saving: every save is checked anyway. */
+  var pres = { memo: {}, beat: 0, at: -Infinity, since: null, written: null, busy: false, cleanAt: -Infinity, fsKey: '' };
+  state.claims = {};
+  function heldDrafts() {
+    var k = fsKey() + '\n', out = [];
+    Object.keys(state.editors || {}).forEach(function (e) {
+      var ed = state.editors[e];
+      if (e.indexOf(k) !== 0) return;
+      var onScreen = state.view === 'process' && state.ptab === 'edit' && state.processId === ed.pid;
+      if ((onScreen || dirty(ed) || state.obPending === ed.pid) && out.indexOf(ed.pid) < 0) out.push(ed.pid);
+    });
+    return out.sort();
+  }
+  function ownPresence() {
+    var drafts = heldDrafts();
+    if (!drafts.length) return null;
+    return PF.proposals.presence({ writer: WRITER, by: state.me || '', device: ctx.device(), since: pres.since || new Date().toISOString(), at: new Date().toISOString(), beat: pres.beat,
+      drafts: drafts, main: drafts.filter(function (pid) { return state.claims[fsKey() + '|' + pid]; }).map(function (pid) { var c = state.claims[fsKey() + '|' + pid]; return { process: pid, claimRev: c.claimRev, seen: c.seen }; }) });
+  }
+  /* now: write a beat whatever the time (opening an editor, a claim, coming back from sleep). */
+  function presenceBeat(now) {
+    var sfs = state.fs, key = fsKey();
+    if (!sfs) return;
+    if (pres.busy) { if (now) pres.again = true; return; }
+    if (pres.written && pres.fsKey !== key) { var oldFs = pres.fs; pres.written = null; if (oldFs) repo.removePresence(oldFs, WRITER); }
+    var rec = ownPresence(), t = elapsed();
+    if (!rec) {
+      if (!pres.written) return;
+      pres.busy = true; pres.written = null; pres.since = null;
+      repo.removePresence(sfs, WRITER).then(function () { pres.busy = false; }, function () { pres.busy = false; });
+      return;
+    }
+    var shape = JSON.stringify([rec.drafts, rec.main, rec.by]);
+    if (!now && pres.written === shape && t - pres.at < PF.proposals.BEAT_MS) return;
+    pres.beat++; rec.beat = pres.beat; if (!pres.since) pres.since = rec.since = rec.at;
+    pres.busy = true; pres.at = t;
+    repo.writePresence(sfs, rec).then(function () {
+      pres.busy = false; pres.written = shape; pres.fsKey = key; pres.fs = sfs;
+      if (pres.again) { pres.again = false; presenceBeat(true); }
+      /* Old presence files are cleaned up now and then by any window that writes presence (at most 20 a pass). */
+      if (t - pres.cleanAt > 600000) { pres.cleanAt = t; repo.cleanPresence(sfs, Date.now()).then(null, function () {}); }
+    }, function () { pres.busy = false; });
+  }
+  setInterval(function () { if (!document.hidden) presenceBeat(false); }, 1000);
+  window.addEventListener('pagehide', function () { if (pres.written && pres.fs) { pres.written = null; repo.removePresence(pres.fs, WRITER); } });
+  /* What the last read found in presence/, remembered by elapsed time: a beat seen now is fresh for 60 s. */
+  function notePresence(d) {
+    var mono = elapsed(), wall = Date.now(), memo = {};
+    (d.presence || []).forEach(function (x) { if (!x.rec || x.writer === WRITER) return; memo[x.writer] = PF.proposals.freshApp(x.rec, pres.memo[x.writer], mono, wall).memo; });
+    pres.memo = memo; pres.listedAt = mono;
+  }
+  function freshOthers() {
+    var mono = elapsed(), wall = Date.now();
+    return (data.presence || []).filter(function (x) { var m = x.rec && pres.memo[x.writer]; return m && x.writer !== WRITER && mono - m.at <= PF.proposals.FRESH_MS; })
+      .map(function (x) { var m = pres.memo[x.writer]; return Object.assign({}, x.rec, { ago: m.at === -Infinity ? wall - Date.parse(x.rec.at) : mono - m.at }); });
+  }
+  /* Each process: who else has its draft open (editing), and, where this window holds it, which window is the main editor. */
+  function presenceInto(by) {
+    var others = freshOthers(), mine = ownPresence(), held = mine ? mine.drafts : [];
+    Object.keys(by).forEach(function (pid) {
+      var e = by[pid], eds = others.filter(function (r) { return r.drafts.indexOf(pid) >= 0; });
+      e.editing = eds.map(function (r) { return { writer: r.writer, by: r.by, device: r.device, ago: r.ago }; });
+      if (held.indexOf(pid) < 0 || !eds.length && !state.claims[fsKey() + '|' + pid]) { e.main = null; return; }
+      var m = PF.proposals.mainOf(pid, eds.concat([mine])), win = m.writer && eds.concat([mine]).filter(function (r) { return r.writer === m.writer; })[0];
+      e.main = { me: m.writer === WRITER, ambiguous: m.ambiguous, claimRev: m.claimRev, by: win ? win.by : '', lost: !!m.writer && m.writer !== WRITER && m.claimRev > 0 };
+    });
+  }
+
+  /* ---------- proposals: Review, Apply, Decline, Reopen (docs/design.md section 27) ---------- */
+  function propOf(pid, id) {
+    var p = processes().filter(function (x) { return x.id === pid; })[0] || null, x = p && p.proposed && p.proposed.list.filter(function (y) { return y.id === id; })[0];
+    return { p: p, x: x || null };
+  }
+  /* Why nothing may be applied to this draft from this window right now (caBlocked's rules, and an input method composing). */
+  function propBlocked(p) {
+    if (!p) return 'That process isn\'t in this folder any more.';
+    var why = caBlocked(p); if (why) return why;
+    if (composing) return 'Finish typing first.';
+    return '';
+  }
+  /* Everything about this window's editor that a change would show: its identity, text, base and conflict, and builder text
+     waiting. Captured before any file is read or written, and compared again right before saving. */
+  function edToken(pid) { var ed = editorOf(pid); return { ed: ed, text: ed ? ed.text : null, base: ed ? ed.base : null, conflict: ed ? ed.conflict : null, ob: state.obPending === pid }; }
+  function sameToken(a, b) { return a.ed === b.ed && a.text === b.text && a.base === b.base && a.conflict === b.conflict && a.ob === b.ob; }
+  var attemptN = 0;
+  state.propTx = {};
+  var PROP_SAY = {
+    older: 'This started from an older draft. Review it on the process page.', already: 'That\'s already in the draft. Review it to mark it as applied.',
+    waiting: 'It follows an earlier proposal that isn\'t applied yet.', review: 'The proposal it follows was declined or replaced. Review it first.',
+    replaced: 'A newer proposal replaces this one.', invalid: 'This proposal can\'t be used.', applied: 'This was already applied.', 'applied-twice': 'This was already applied.',
+    declined: 'This was declined. Reopen it to apply it.', unknown: 'A record about this proposal can\'t be read yet. Try again once it has arrived.'
+  };
+  /* The one acceptance transaction for a folder and process (docs/design.md section 27): one at a time per key in this window,
+     and inside a Web Lock across this browser's windows. It captures the editor first, rechecks everything when it runs,
+     records an attempt before anything changes, checks again right before saving that nothing changed and that the records
+     are exactly the expected set (the person's reviewed set plus this attempt), saves with the exact text it expects, and
+     only then records applied. Nothing is retried on its own. reviewed: the records a person saw in Review, or null. */
+  function acceptProposal(pid, id, how, reviewed) {
+    var sfs = state.fs, g = gen, fk = fsKey(), key = fk + '|' + pid, tok = edToken(pid), PP = PF.proposals;
+    var first = propBlocked(propOf(pid, id).p);
+    if (first) { say(first, 'warn'); render(); return Promise.resolve(false); }
+    function live() { return g === gen; }
+    function stop(msg, kind, act) { if (live() && msg) { say(msg, kind || 'warn', act); render(); } return false; }
+    function judged(proposal, recs) {
+      var p = propOf(pid, id).p, metas = ((data.proposed.procs[pid] || {}).proposals || []).filter(function (m) { return m.id !== id; }).concat([PP.check(proposal, id + '.json', pid, 0).meta]), all = {};
+      metas.forEach(function (m) { all[m.id] = ((p && p.proposed && p.proposed.records) || {})[m.id] || []; });
+      all[id] = recs;
+      return PP.judge(metas, all, p ? draftInfo(p) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0];
+    }
+    /* Everything that must hold to go on, from the proposal and its records as read now. */
+    function eligible(r, recs) {
+      if (!live()) return 'gone';
+      if (!r.ok) return 'This proposal ' + r.why + '.';
+      if (recs.some(function (x) { return !x.rec; })) return PROP_SAY.unknown;
+      if (reviewed ? !PP.sameSet(PP.reviewed(recs), reviewed) : recs.length) return reviewed ? 'This proposal changed since you reviewed it. Look again.' : 'Flightdeck tried to apply this before. Review it first.';
+      var x = judged(r.proposal, recs); if (!x) return 'That proposal isn\'t listed any more.';
+      if (x.fit !== 'ready') return PROP_SAY[x.fit] || 'This can\'t be applied now.';
+      if (U.draftTooBig(r.proposal.text)) return U.draftTooBig(r.proposal.text).why;
+      var p = propOf(pid, id).p, why = p ? propBlocked(p) : '';
+      if (why) return why;
+      if (!sameToken(tok, edToken(pid))) return 'The draft changed while you were applying it. Look again.';
+      return '';
+    }
+    function look() { return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id)]); }
+    function run() {
+      if (!live()) return false;
+      /* Checked before waiting for the lock, so a refusal is said at once; checked again inside it. */
+      return look().then(function (got) {
+        var why = eligible(got[0], got[1]);
+        if (why) return stop(why === 'gone' ? '' : why);
+        return LOCKS ? lock('preflight:accept:' + fk + '|' + pid, locked) : locked();
+      });
+    }
+    function locked() {
+      if (!live()) return false;
+      return look().then(function (got) {
+        var r = got[0], recs = got[1], why = eligible(r, recs);
+        if (why) return stop(why === 'gone' ? '' : why);
+        var p = propOf(pid, id).p, file = p && p.draft ? p.draft.file : pid + '.md', expectText = p && p.draft ? p.draft.md : null, text = r.proposal.text;
+        var at = PP.attempt({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, n: ++attemptN, how: how, from: expectText == null ? null : PP.sha(expectText), by: state.me || '', at: new Date().toISOString() });
+        var mineSha = PP.sha(JSON.stringify(at.rec, null, 2) + '\n'), expected = (reviewed || []).concat([{ name: at.name, sha: mineSha }]);
+        return repo.writeRecord(sfs, pid, at.name, at.rec).then(function () {
+          /* Immediately before adopting: nothing changed here, and the records are exactly the expected set. */
+          return repo.listRecords(sfs, pid, id).then(function (now) {
+            if (!still(now)) return outcome('cancelled');
+            return queued(function () {
+              return repo.listRecords(sfs, pid, id).then(function (again) {
+                if (!still(again)) return { cancelled: true };
+                return repo.saveDraft(sfs, file, text, expectText == null ? null : U.hash(expectText), { lock: LOCKS ? lock : null, expectText: expectText });
+              });
+            }).then(function (res) {
+              if (res.cancelled) return outcome('cancelled');
+              if (!res.ok) return outcome('not-saved', null, 'Not saved: someone else changed this draft. Review the proposal again on the process page.');
+              if (live() && fsKey() === fk) {
+                savedDraft(file, text);
+                var ed = editorOf(pid);
+                if (ed && !dirty(ed) && !ed.conflict && state.obPending !== pid) { ed.base = text; ed.baseHash = res.hash; ed.text = null; ed.after = readsStarted; if (ed.tl) TL.barrier(ed.tl, 'Your AI assistant\'s change was applied here. Earlier changes can\'t be undone.'); }
+              }
+              logSave(sfs, fk, { kind: 'draft-edit', id: pid, from: expectText == null ? null : U.hash(expectText), to: res.hash, before: expectText == null ? '' : expectText, after: text, source: 'proposal', proposal: id, units: ['Applied your AI assistant\'s change'], items: [] });
+              return outcome('applied', { rev: PP.sha(text) });
+            }, function (e) { return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the process page.'); });
+          });
+          function still(list) {
+            if (!live() || fsKey() !== fk) return false;
+            var p2 = propOf(pid, id).p;
+            if (!sameToken(tok, edToken(pid)) || (p2 && propBlocked(p2)) || (p2 && p2.draft ? p2.draft.md : null) !== expectText) return false;
+            return PP.sameSet(PP.reviewed(list) || [], expected) && !list.some(function (x) { return !x.rec; });
+          }
+          function outcome(status, result, msg) {
+            return repo.listRecords(sfs, pid, id).then(function (list) {
+              var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: WRITER + '.' + attemptNo(at), result: result, by: state.me || '', at: new Date().toISOString() });
+              return repo.writeRecord(sfs, pid, d.name, d.rec);
+            }).then(function () { return true; }, function () { return false; }).then(function (recorded) {
+              if (status === 'applied') { stop(recorded ? 'Applied your AI assistant\'s change to the draft.' : 'Applied your AI assistant\'s change to the draft, but recording that didn\'t save. The process page shows it as May already be applied.', recorded ? 'good' : 'warn'); if (live()) load(true); return true; }
+              stop(msg || 'Your AI assistant\'s change wasn\'t applied because the draft changed while it was being applied. Review it on the process page.', 'warn');
+              if (live()) load(true);
+              return false;
+            });
+          }
+        }, function () {
+          return stop('Couldn\'t record that your AI assistant\'s change is being applied, so it wasn\'t.', 'bad', { act: 'prop-apply', id: id, label: 'Try again' });
+        });
+      });
+    }
+    var prev = state.propTx[key] || Promise.resolve();
+    var p = prev.then(run, run);
+    state.propTx[key] = p.then(null, function () {});
+    return p;
+  }
+  function attemptNo(at) { return /\.(\d+)\.json$/.exec(at.name)[1]; }
+  /* A decision a person makes on a proposal (declined, reopened, applied as found): written once, one more than the
+     highest decisionRev, naming it. reviewed, when given, must still be exactly the records Review showed. */
+  function decideProposal(pid, id, status, opts) {
+    opts = opts || {};
+    var sfs = state.fs, g = gen, PP = PF.proposals;
+    return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id)]).then(function (got) {
+      if (g !== gen) return;
+      var r = got[0], recs = got[1], st = PP.recState(recs);
+      if (!r.ok) { say('This proposal ' + r.why + '.', 'warn'); render(); return; }
+      if (opts.reviewed && !PP.sameSet(PP.reviewed(recs), opts.reviewed)) { say('This proposal changed since you reviewed it. Look again.', 'warn'); render(); return; }
+      if (status === 'reopened' && st.state !== 'declined') { say('Only a declined proposal can be reopened.', 'warn'); render(); return; }
+      var result = null, attemptId = null;
+      if (status === 'applied') {
+        var p = propOf(pid, id).p, now = p && p.draft ? p.draft.md : null;
+        if (st.state !== 'maybe' && now !== r.proposal.text) { say('The draft doesn\'t have this change. Apply it, or decline it.', 'warn'); render(); return; }
+        result = { rev: PP.sha(now == null ? '' : now) }; attemptId = st.open[0] || null;
+      }
+      var d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: attemptId, result: result, by: state.me || '', at: new Date().toISOString() });
+      return repo.writeRecord(sfs, pid, d.name, d.rec).then(function () {
+        if (g !== gen) return;
+        if (state.overlay && state.overlay.propReview) closeOverlay();
+        say(status === 'declined' ? 'Declined. It stays listed on the process page.' : status === 'reopened' ? 'Reopened. Review it to apply it.' : 'Marked as applied.', 'good');
+        return load(true);
+      }, function (e) { if (g !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
+    });
+  }
+  /* Review: the proposal read whole and its records read now; what they were is the reviewed set Apply carries. */
+  function openReview(pid, id) {
+    var x = propOf(pid, id), p = x.p, sfs = state.fs, g = gen;
+    state.overlayFocus = '#pr-t';
+    var ov = { propReview: true, pid: pid, id: id, item: x.x, proposal: null, records: [], reviewed: null, draftText: p && p.draft ? p.draft.md : null, err: null, html: function () { return V.proposalReview(ctx, this); } };
+    openOverlay(ov);
+    Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id)]).then(function (got) {
+      if (g !== gen || state.overlay !== ov) return;
+      if (!got[0].ok) { ov.loadErr = 'This proposal ' + got[0].why + '.'; render(); return; }
+      ov.proposal = got[0].proposal; ov.records = got[1]; ov.reviewed = PF.proposals.reviewed(got[1]);
+      var p2 = propOf(pid, id).p, metas = ((data.proposed.procs[pid] || {}).proposals || []), all = {};
+      metas.forEach(function (m) { all[m.id] = ((p2 && p2.proposed && p2.proposed.records) || {})[m.id] || []; }); all[id] = got[1];
+      ov.item = PF.proposals.judge(metas, all, p2 ? draftInfo(p2) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0] || ov.item;
+      ov.draftText = p2 && p2.draft ? p2.draft.md : null;
+      render();
+    }, function (e) { if (state.overlay === ov) { ov.loadErr = 'This proposal couldn\'t be read: ' + e.message; render(); } });
+  }
   function currentProcess() { var id = state.processId; return processes().filter(function (x) { return x.id === id; })[0] || null; }
   var renderTimer = null;
   function scheduleRender() { if (renderTimer) return; renderTimer = setTimeout(function () { renderTimer = null; render(); }, 250); }
@@ -1670,19 +1951,28 @@
     var dw = draftUnread(p);
     if (dw) { say(dw + ' Nothing was saved over it. Choose Refresh, then save again.', 'warn'); render(); return; }
     if (state.draftSaving[sk]) { say('Still saving this draft. Try again in a moment.', 'warn'); render(); return; }
+    /* Over the size limit: nothing is written, the text stays where it is, and the message says how much to cut. */
+    var big = U.draftTooBig(text);
+    if (big) { say(big.why, 'bad'); render(); return; }
     state.draftSaving[sk] = opts.replace ? 'restore' : 'save';
+    var done0 = function () { delete state.draftSaving[sk]; };
     /* The changes this save carries, so History can say they were saved; typing after it starts a new unit. */
     var ed0 = editorOf(p.id, key), carried = ed0 && ed0.tl ? ed0.tl.entries.slice(0, ed0.tl.pos) : [];
     if (ed0 && ed0.tl) TL.close(ed0.tl);
     /* For the saved history: the text this save replaces (the one whose fingerprint it expects) and what it carries. */
-    var hu = histUnits(carried), before = expectHash == null ? '' : [ed0 && ed0.base, ed0 && ed0.conflict && ed0.conflict.theirs, p.draft && p.draft.md].filter(function (t) { return t != null && U.hash(t) === expectHash; })[0];
+    /* The exact text this save expects to find (opts.expectText), compared right before writing; also what History says it
+       replaced. Never one found by matching fingerprints. */
+    var expectText = opts.expectText !== undefined ? opts.expectText : expectHash == null ? null : undefined;
+    if (expectText === undefined) { done0(); say('Couldn\'t save the draft of ' + p.title + ': Flightdeck doesn\'t know the exact text it started from. Choose Refresh, then save again.', 'bad'); render(); return; }
+    var hu = histUnits(carried), before = expectText == null ? '' : expectText;
     var hsource = opts.source || (expectHash == null ? 'new' : hu.reverse ? 'reverse' : 'editor');
     /* When it ends, the controls it disabled come back, also if someone left this folder and returned meanwhile. */
     var done = function () { delete state.draftSaving[sk]; if (fsKey() === key) scheduleRender(); };
     render();
     var write = opts.write || function (f, name, t, h, o) { return repo.saveDraft(f, name, t, h, o); };
-    queued(function () { return write(sfs, file, text, expectHash, { lock: LOCKS ? lock : null }); }).then(function (res) {
+    queued(function () { return write(sfs, file, text, expectHash, { lock: LOCKS ? lock : null, expectText: expectText }); }).then(function (res) {
       done();
+      if (res.ok && fsKey() === key && g === gen) savedDraft(file, text);
       /* Only this process's editor in its own folder is touched, whatever is on screen now, even after a folder switch. */
       var ed = editorOf(p.id, key), here = g === gen && state.processId === p.id && fsKey() === key;
       if (res.conflict && opts.replace) { if (g === gen) { say('The draft changed since you looked, so nothing was restored. Look again, then restore.', 'warn'); render(); } return; }
@@ -1703,7 +1993,7 @@
       else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
       if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
       else TL.saved(carried, res.hash);
-      logSave(sfs, key, { kind: 'draft-edit', id: p.id, from: expectHash, to: res.hash, before: before == null ? null : before, after: text, source: hsource, version: opts.version, units: opts.units || hu.units, items: hu.items });
+      logSave(sfs, key, { kind: 'draft-edit', id: p.id, from: expectHash, to: res.hash, before: before, after: text, source: hsource, version: opts.version, units: opts.units || hu.units, items: hu.items });
       if (ed.tl) learnIds(ed, text);
       if (g !== gen) return;
       if (opts.replace) dropPending();
@@ -1715,7 +2005,7 @@
       if (!opts.replace) { var mark = state.justSaved = { pid: p.id }; setTimeout(function () { if (state.justSaved === mark) { state.justSaved = null; scheduleRender(); } }, 1600); }
       /* What has to follow the save (an applied correction's decision) happens only once the draft is in the folder. */
       return Promise.resolve(opts.after ? opts.after(res) : null).then(function () { if (g === gen) return load(true); });
-    }, function (err) { done(); if (fsKey() !== key) return; say('Couldn\'t save the draft of ' + p.title + ': ' + err.message + (opts.failed ? opts.failed(err) || '' : ''), 'bad'); render(); });
+    }, function (err) { done(); if (fsKey() !== key) return; say(err && err.tooBig ? err.message : 'Couldn\'t save the draft of ' + p.title + ': ' + err.message + (opts.failed ? opts.failed(err) || '' : ''), 'bad'); render(); });
   }
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
@@ -1778,7 +2068,7 @@
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
-      act: { act: 'tl-undo', id: 'draft', label: 'Undo' }, source: 'correction',
+      act: { act: 'tl-undo', id: 'draft', label: 'Undo' }, source: 'correction', expectText: ed.baseHash == null ? null : base,
       /* Not saved: the change waits in the editor as unsaved, so the editor opens rather than hiding it. */
       failed: function () { if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
       write: function (f, file, t, h, o) { return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
@@ -2715,16 +3005,16 @@
     'restore-draft': function (id, b) {
       var p = currentProcess(), v = p && p.all.filter(function (x) { return x.folder === id; })[0];
       if (!v) return;
-      var expect = p.draft ? U.hash(p.draft.md) : null, sure = b && b.dataset.sure && state.pick && state.pick.kind === 'restore' && state.pick.id === id;
+      var expect = p.draft ? U.hash(p.draft.md) : null, expectText = p.draft ? p.draft.md : null, sure = b && b.dataset.sure && state.pick && state.pick.kind === 'restore' && state.pick.id === id;
       /* Ask first if anything would be lost (unpublished changes, or unsaved edits), and save over exactly what was shown then. */
-      if (!sure && ((p.draft && p.draftChanged) || editorDirty(p))) { state.pick = { kind: 'restore', id: id, expect: expect, dirty: editorDirty(p) }; render(); return; }
-      if (sure) expect = state.pick.expect;
+      if (!sure && ((p.draft && p.draftChanged) || editorDirty(p))) { state.pick = { kind: 'restore', id: id, expect: expect, expectText: expectText, dirty: editorDirty(p) }; render(); return; }
+      if (sure) { expect = state.pick.expect; expectText = state.pick.expectText; }
       state.pick = null;
       state.planFormReset = true;
-      saveDraftText(p, v.md, expect, 'Restored v' + v.info.version + ' as the draft. Edit it, then publish a new version.', { replace: true, why: 'You restored v' + v.info.version + ' as the draft here. Earlier changes can\'t be undone.', source: 'restore', version: v.info.version, units: ['Restored v' + v.info.version + ' as the draft'] });
+      saveDraftText(p, v.md, expect, 'Restored v' + v.info.version + ' as the draft. Edit it, then publish a new version.', { replace: true, why: 'You restored v' + v.info.version + ' as the draft here. Earlier changes can\'t be undone.', source: 'restore', version: v.info.version, units: ['Restored v' + v.info.version + ' as the draft'], expectText: expectText });
     },
     /* Saving keeps you in the editor: focus goes back to the text, since the Save button is disabled while it saves. */
-    'save-draft': function () { var p = currentProcess(); if (!p) return; var ed = openEditor(p); state.focus = 'draft-editor'; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.'); },
+    'save-draft': function () { var p = currentProcess(); if (!p) return; var ed = openEditor(p); state.focus = 'draft-editor'; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.', { expectText: ed.baseHash == null ? null : ed.base }); },
     'revert-draft': function () {
       var p = currentProcess(); if (!p || stillSaving(p)) return;
       dropPending(); obClearErr();
@@ -2735,10 +3025,32 @@
     /* The draft file disappeared while it had unsaved edits: write them back as a new draft. */
     'recover-draft': function () {
       var ed = editorOf(state.processId); if (!ed || ed.text == null) return;
-      saveDraftText({ id: state.processId, title: state.processId, draft: null }, ed.text, null, 'Saved your draft again.');
+      saveDraftText({ id: state.processId, title: state.processId, draft: null }, ed.text, null, 'Saved your draft again.', { expectText: null });
     },
-    'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.', { source: 'keep-mine' }); },
+    'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.', { source: 'keep-mine', expectText: ed.conflict.theirs == null ? null : ed.conflict.theirs }); },
     'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
+    /* ---------- proposals from AI assistants (docs/design.md section 27) ---------- */
+    'prop-review': function (id) { var pid = state.processId; if (!pid || !id) return; openReview(pid, id); },
+    /* From Review, Apply carries the records the person saw there; from the list, there are none to carry. */
+    'prop-apply': function (id) {
+      var ov = state.overlay && state.overlay.propReview && state.overlay.id === id ? state.overlay : null, pid = ov ? ov.pid : state.processId;
+      if (!pid || !id || !state.me) { if (!state.me) { say('Choose who you are first.', 'warn'); render(); } return; }
+      if (ov && !ov.proposal) return;
+      var reviewed = ov ? ov.reviewed : null;
+      if (ov) closeOverlay();
+      acceptProposal(pid, id, 'apply', reviewed);
+    },
+    'prop-decline': function (id) { var ov = state.overlay && state.overlay.propReview ? state.overlay : null, pid = ov ? ov.pid : state.processId; if (pid && id && state.me) decideProposal(pid, id, 'declined'); },
+    'prop-reopen': function (id) { var ov = state.overlay && state.overlay.propReview ? state.overlay : null, pid = ov ? ov.pid : state.processId; if (pid && id && state.me) decideProposal(pid, id, 'reopened'); },
+    'prop-mark-applied': function (id) { var ov = state.overlay && state.overlay.propReview && state.overlay.id === id ? state.overlay : null; if (ov && ov.proposal && state.me) decideProposal(ov.pid, id, 'applied', { reviewed: ov.reviewed || [] }); },
+    /* Make this the main editor: a claim one higher than any this window has seen for the process. It decides only which
+       window will apply proposals live; it never lets anything else write. */
+    'main-editor': function () {
+      var pid = state.processId; if (!pid) return;
+      var mine = ownPresence(), list = freshOthers().concat(mine ? [mine] : []);
+      state.claims[fsKey() + '|' + pid] = PF.proposals.claim(pid, list);
+      presenceBeat(true); say('This is the main editor for this draft now.', 'good'); render();
+    },
     /* ---------- the outline builder: every change is an operation on the editor's text (PF.outline) ---------- */
     'ed-mode': function (id) {
       state.builder = id !== 'markdown'; lsSet('builder', state.builder); state.obPlace = null;
@@ -3646,7 +3958,7 @@
     if (!f.title) { say('Give the process a title.', 'warn'); state.focus = 'np-title'; render(); return; }
     if (processes().some(function (x) { return x.id === f.id; })) { say('There\'s already a process called "' + f.id + '". Choose another ID, or open that one.', 'warn'); state.focus = 'np-id'; render(); return; }
     var md = V.starterMap(f), sfs = state.fs, g = gen, mine = f.token;
-    queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null }); }).then(function (res) {
+    queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });

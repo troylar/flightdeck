@@ -170,10 +170,11 @@
     var h = notices(ctx) + pageHead('Processes', 'Processes', 'Open one to run it or edit its checklist.', '<button class="btn go" data-act="new-process">' + I('edit') + 'New process</button>');
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
     h += '<section class="panel">' + K.tagBar(allTags(ctx), st.tags || []) + (procs.length ? K.tree(procs.filter(function (p) { return has(p.tags); }), function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
-      var pub = p.latest, info = pub ? 'v' + pub.info.version + ' · published by ' + esc(nameOf(ctx, pub.info.publishedBy)) : 'not published yet';
+      var pub = p.latest, info = pub ? 'v' + pub.info.version + ' · published by ' + esc(nameOf(ctx, pub.info.publishedBy)) : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
       if (p.draftChanged) flags.push('draft changes');
       if (p.clashes.length) flags.push('version clash');
+      if (p.proposed && p.proposed.list.some(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'review' || x.fit === 'already'; })) flags.push('proposed changes');
       /* Its skills by name, each with its status and a link to its own page. */
       var skills = p.skills.length ? '<div class="pskills"><span class="small">' + I('spark') + 'Skills</span>' + p.skills.map(function (x) {
         var pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;

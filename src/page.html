@@ -151,6 +151,10 @@ button.card:hover { border-color: var(--ink); }
 .rlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .rlist .row { justify-content: space-between; align-items: center; }
 .rlist .t { font-weight: 600; }
+.props .prop { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+.props .prop:first-child { border-top: 0; }
+.props .prop .row { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+.prop-st { margin: 2px 0 0; }
 .tgroup > details > summary { cursor: pointer; padding: 6px 4px; font-family: var(--display); text-transform: uppercase; letter-spacing: .05em; font-size: 14px; }
 .tgroup > details > .plist { margin-left: 12px; border-left: 2px solid var(--line); padding-left: 6px; }
 .tagbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }

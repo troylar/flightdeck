@@ -272,4 +272,48 @@ rule('READ: runs --json on the 2,000-run folder reads within the cold-open budge
   assert.strictEqual(r.json.complete, r.json.problems.length === 0);
 });
 
+/* ---------- 1.19 slice 1: proposals and presence (docs/design.md section 27) ---------- */
+rule('Proposals: 50 in a big folder cost one list per process folder and one read each the first time, then only lists; verification of 2 MB stays quick', async () => {
+  const PF = load(), fs = bigFolder(PF, {}), PP = PF.proposals, NOWP = '2026-10-19T14:00:00.000Z';
+  const md = fs.files.get([...fs.files.keys()].find(p => /^publications\/.+\/map\.md$/.test(p) && fs.files.get(p).t)).t, proc = /process: (\S+)/.exec(md)[1];
+  for (let i = 0; i < 50; i++) {
+    const p = PP.make({ id: 'p-' + (100000 + i).toString(36) + '-aaaaaaaaaa', process: proc, session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: NOWP, app: '1.19.0', base: { kind: 'draft', ref: 'maps/drafts/' + proc + '.md', text: md }, text: md + '\n<!-- ' + i + ' -->\n', replaces: null, after: null, note: '' });
+    fs._put('proposed/' + proc + '/' + p.id + '.json', { t: JSON.stringify(p), m: 1 });
+  }
+  fs._put('presence/w1.json', { t: JSON.stringify(PP.presence({ writer: 'w1', by: 'person-avery', device: 'D', since: NOWP, at: NOWP, beat: 1, drafts: [proc], main: [] })), m: 1 });
+  let now = 1000; const clock = () => now;
+  await PF.repo.loadAll(fs, { clock, now: Date.parse(NOW) });
+  const cold = fs.by.proposed || {}, coldP = fs.by.presence || {};
+  assert.deepStrictEqual([cold.list, cold.read], [2, 50], 'proposed/ and its one process folder listed, each proposal read once: ' + JSON.stringify(cold));
+  assert.deepStrictEqual([coldP.list, coldP.read], [1, 1], JSON.stringify(coldP));
+  fs.reset(); now += 30000;
+  await PF.repo.loadAll(fs, { clock, now: Date.parse(NOW) });
+  const routine = fs.by.proposed || {};
+  assert.deepStrictEqual([routine.list, routine.read || 0], [2, 0], 'a routine refresh lists, and reads nothing it already verified: ' + JSON.stringify(routine));
+  const big = '---\nprocess: release\n---\n' + 'x'.repeat(1048000);
+  let t = Date.now();
+  const p = PP.make({ id: 'p-a1-aaaaaaaaaa', process: 'release', session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: NOWP, app: '1.19.0', base: { kind: 'draft', ref: 'maps/drafts/release.md', text: big }, text: big + 'y', replaces: null, after: null, note: '' });
+  const json = JSON.stringify(p);
+  t = Date.now();
+  const ok = PP.check(JSON.parse(json), p.id + '.json', 'release', Buffer.byteLength(json));
+  const ms = Date.now() - t;
+  console.log('  verifying a proposal with 2 MB of text: ' + ms + ' ms');
+  assert.ok(ok.ok && ms < 2000, ms + ' ms');
+});
+
+rule('Review\'s comparison is capped: thousands of identical lines with a few changes are quick, and too many changes stop early', () => {
+  const PF = loadViews(), PP = PF.proposals;
+  const same = Array.from({ length: 20000 }, (x, i) => 'line ' + i), changed = same.slice();
+  changed[100] = 'changed'; changed[15000] = 'also changed';
+  let t = Date.now();
+  const d = PP.diff(same.join('\n'), changed.join('\n'));
+  const ms = Date.now() - t;
+  console.log('  Review comparison, 20,000 lines with 2 changes: ' + ms + ' ms');
+  assert.ok(!d.tooMany && d.rows.filter(r => r.op === '+' || r.op === '-').length === 4 && ms < 300, ms + ' ms');
+  t = Date.now();
+  const many = PP.diff(same.join('\n'), same.map(x => x + '!').join('\n'));
+  console.log('  Review comparison, 20,000 lines all changed: ' + (Date.now() - t) + ' ms');
+  assert.ok(many.tooMany && Date.now() - t < 1500);
+});
+
 run();
