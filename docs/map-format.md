@@ -53,6 +53,8 @@ roles: author, reviewer
 | `## Title · DO-CONFIRM {#id}` | A phase where the work is done first, then confirmed together. |
 | `## Gate: Title · owner @role {#id}` | The gate at the end of the phase above it. Without one, a phase ends with "confirm together". |
 | `  approves: text with ^details` | What passing the gate approves, shown on the confirm button. |
+| `  > text` under a gate | The gate's note, shown above Pass the gate in every version. |
+| `  > text` under a phase heading | The phase's note (Needs Flightdeck 2.0), shown under the phase's heading during a run. |
 | `- [!] {type} Text {#id}` | A must-do step (can't be N/A, can't be waived). |
 | `- [ ] {type} Text {#id}` | A step. |
 | `- [~] {type} Text {#id}` | A step with automation planned. Still done by hand. |
@@ -60,7 +62,7 @@ roles: author, reviewer
 | `^detail` in a step | Ties the step to a run detail: if the detail changes, the step needs a re-check. |
 | `  field: value` | A field of the step's type (see below). |
 | `  > text` | A note shown in the step's panel. Markdown: **bold**, `code`, links, lists. |
-| `  ![caption](images/…)` | A reference screenshot from the folder's `images/`. A step can have several (see Screenshots). |
+| `  ![caption](images/…)` | A reference screenshot from the folder's `images/`. A step can have several (see Screenshots). Under a phase heading or a gate it Needs Flightdeck 2.0. |
 | `### Track: Name @role {#id}` | Inside a phase: the steps below it, up to the next track or gate, are worked in parallel by that role. Every track finishes before the phase's gate. |
 | `  at: 15:00` | On a step or gate: it should start at that clock time on the run's day. |
 | `  due: 17:30` | On a step or gate: it should be done by that clock time on the run's day. |
@@ -81,7 +83,30 @@ A step can show reference screenshots: one `![caption](images/…)` line each, i
   ![The values file in the pull request](images/release/flags-1760000000123-w8k2m4q7xa-x7w1q4.png)
 ```
 
-In the builder, select a step: its Screenshots section adds images with Choose files, by dropping them on it, or by pasting one. Each image is checked (PNG, JPEG, WebP or GIF, up to 5 MB, and its contents match), written once as `images/<process>/<step-id>-<time>-<window>-<random>.<ext>`, a name that includes the window adding it, so it never replaces another file, and read back; only then is its line added to the draft. Captions are edited in place, Move up and Move down reorder them, and Remove takes the line out of the draft only: the image stays in the folder, since other versions and runs may use it. Every one of these is a change Undo takes back, and nothing reaches the draft file until Save draft. Publishing copies each screenshot into the version, so a published version keeps its pictures even if `images/` changes later. Phases and gates don't have screenshots.
+In the builder, select a step: its Screenshots section adds images with Choose files, by dropping them on it, or by pasting one. Each image is checked (PNG, JPEG, WebP or GIF, up to 5 MB, and its contents match), written once as `images/<process>/<step-id>-<time>-<window>-<random>.<ext>`, a name that includes the window adding it, so it never replaces another file, and read back; only then is its line added to the draft. Captions are edited in place, Move up and Move down reorder them, and Remove takes the line out of the draft only: the image stays in the folder, since other versions and runs may use it. Every one of these is a change Undo takes back, and nothing reaches the draft file until Save draft. Publishing copies each screenshot into the version, so a published version keeps its pictures even if `images/` changes later.
+
+A phase can have a note and screenshots too, right under its heading and before its first step, and a gate can have screenshots under its note (both Need Flightdeck 2.0). In the builder, select a phase: its form has the note and a Screenshots section that works like a step's. During a run the phase's note and screenshots show under its heading until the phase is done, and a gate's show above Pass the gate.
+
+```markdown
+## Prepare · READ-DO {#prep}
+  > Use the scratch server, never production.
+  ![The scratch server's status page](images/backup/scratch.png)
+- [ ] {confirm} Read the restore runbook {#read}
+
+## Gate: Restored {#restored}
+  > The restored copy opens and its row counts match.
+  ![The row counts](images/backup/counts.png)
+```
+
+## Needs Flightdeck 2.0
+
+A checklist that uses nothing on this list publishes as before, and every teammate can run it. One that uses any of these publishes a version that only Flightdeck 2.0 or later runs. The publish panel names what the draft uses before you publish; teammates on Flightdeck 1.21 or earlier see the version but can't run it until they update.
+
+- A note on a phase (`  > text` under a phase heading).
+- Screenshots on a phase (`  ![caption](images/…)` under a phase heading).
+- Screenshots on a gate.
+
+A gate's note isn't on this list: every copy since 1.10 publishes it, and 2.0 shows it for every version.
 
 ## Step types
 
