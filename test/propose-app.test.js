@@ -23,7 +23,7 @@ function plant(app, o) {
 }
 const retitle = (app, t) => app.fs.files[DRAFT].t.replace('title: Production release', 'title: ' + t);
 async function refresh(app) { app.click('refresh'); await app.tick(120); }
-const recs = (app, id) => Object.keys(app.fs.files).filter(p => p.indexOf('proposed/release/' + id + '.') === 0 && p !== 'proposed/release/' + id + '.json').map(p => ({ name: p.split('/').pop(), rec: JSON.parse(app.fs.files[p].t) }));
+const recs = (app, id) => Object.keys(app.fs.files).filter(p => p.indexOf('proposed/release/' + id + '.') === 0 && p !== 'proposed/release/' + id + '.json').map(p => { let rec = null; try { rec = JSON.parse(app.fs.files[p].t); } catch (e) { rec = { kind: 'unreadable' }; } return { name: p.split('/').pop(), rec }; });
 const statuses = (app, id) => recs(app, id).filter(r => r.rec.kind === 'proposal-decision').sort((a, b) => a.rec.decisionRev - b.rec.decisionRev).map(r => r.rec.status);
 const attempts = (app, id) => recs(app, id).filter(r => r.rec.kind === 'proposal-attempt');
 const said = (app, re) => re.test(app.html()) || re.test(app.live());
@@ -362,6 +362,39 @@ rule('The size limit: saving and Keep mine refuse a draft over 1 MB with the siz
   app.click('draft-keep-mine'); await app.tick(120);
   assert.ok(said(app, /Not saved: this draft is 1\.2 MB/));
   assert.ok(/title: Theirs/.test(app.fs.files[DRAFT].t));
+});
+
+/* ---------- review 1 ---------- */
+rule('Review 1: Apply rereads the process\'s proposals: a replacement that arrived since the page was drawn stops it', async () => {
+  const app = await page(), p1 = plant(app, { id: 'p-a1-aaaaaaaaaa', text: retitle(app, 'B') });
+  await refresh(app);
+  plant(app, { id: 'p-a2-bbbbbbbbbb', text: retitle(app, 'C'), replaces: p1.id });
+  await applied(app, p1);
+  assert.ok(/title: Production release/.test(app.fs.files[DRAFT].t), 'not applied');
+  assert.deepStrictEqual(recs(app, p1.id), [], 'no attempt');
+  assert.ok(said(app, /A newer proposal replaces this one/));
+});
+
+rule('Review 1: Decline after an interrupted attempt settles it: Declined, with Reopen, and nothing says May already be applied', async () => {
+  const app = await page(), p = plant(app, { text: retitle(app, 'B') }), PP = app.PF.proposals;
+  const at = PP.attempt({ proposal: p.id, proposalRev: p.rev, writer: 'zz1', n: 1, how: 'apply', from: null, by: 'person-avery', at: new Date().toISOString() });
+  app.fs.files['proposed/release/' + at.name] = { t: JSON.stringify(at.rec), m: 1 };
+  await refresh(app);
+  await review(app, p.id);
+  app.click('prop-decline', p.id); await app.tick(160);
+  const d = recs(app, p.id).filter(r => r.rec.kind === 'proposal-decision')[0].rec;
+  assert.deepStrictEqual([d.status, d.settles], ['declined', ['zz1.1']]);
+  await refresh(app);
+  assert.ok(/data-act="prop-reopen" data-id="p-mh4k2a-x7w1k3m9p2"/.test(app.html()) && !/May already be applied/.test(app.html()));
+});
+
+rule('Review 1: a decision is refused while a record about the proposal can\'t be read, and no success is announced', async () => {
+  const app = await page(), p = plant(app, { text: retitle(app, 'B') });
+  await refresh(app);
+  app.fs.files['proposed/release/' + p.id + '.zz9.10.json'] = { t: '{"kind":"proposal-deci', m: 1 };
+  app.click('prop-decline', p.id); await app.tick(160);
+  assert.deepStrictEqual(recs(app, p.id).filter(r => r.name !== p.id + '.zz9.10.json').length, 0, 'nothing written');
+  assert.ok(!said(app, /^Declined/) && said(app, /can.t be read yet/));
 });
 
 run();

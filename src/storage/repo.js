@@ -1217,7 +1217,8 @@ PF.repo = (function () {
           });
           return Promise.all([gotProps, gotRecs]).then(function (r) {
             var list = r[0].filter(Boolean).sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1; });
-            return { process: p.name, proposals: list.slice(0, PP.LIST_MAX), older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
+            /* all: every proposal's metadata, so one that depends on an older one is judged against it (only metadata is kept). */
+            return { process: p.name, proposals: list.slice(0, PP.LIST_MAX), all: list, older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
           });
         });
       });
@@ -1225,6 +1226,17 @@ PF.repo = (function () {
       [pc, rc].forEach(function (m) { Object.keys(m).forEach(function (k) { if (!seen[k]) delete m[k]; }); });
       var procs = {}; list.forEach(function (x) { if (x.proposals.length || x.bad.length || x.older) procs[x.process] = x; });
       return { procs: procs };
+    });
+  }
+  /* One process's proposals and every record about them, read now (records never from memory; a proposal, written once,
+     may come from the cache), for the acceptance transaction and decisions: { metas, bad, records: { <id>: [...] } }. */
+  function loadProposalSet(fs, proc) {
+    var PP = PF.proposals, c = cacheOf(fs), sub = { prop: Object.assign({}, c.prop || {}), recs: {} };
+    return loadProposed({ list: function (p) { return p === PP.DIR ? Promise.resolve([{ name: proc, kind: 'dir' }]) : fs.list(p); }, read: function (p, o) { return fs.read(p, o); } }, sub, false).then(function (got) {
+      var x = got.procs[proc] || { all: [], bad: [], records: [] }, recs = {};
+      x.all.forEach(function (m) { recs[m.id] = []; });
+      x.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m) (recs[m[1]] = recs[m[1]] || []).push(r); });
+      return { metas: x.all, bad: x.bad, records: recs };
     });
   }
   function readRecord(fs, path, name) {
@@ -2085,6 +2097,6 @@ PF.repo = (function () {
     });
   }
 
-  return { loadProposed: loadProposed, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
+  return { loadProposed: loadProposed, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
     readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

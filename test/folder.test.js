@@ -1818,4 +1818,53 @@ rule('A correction that would take the draft over 1 MB is refused before anythin
   assert.strictEqual(fs.files['maps/drafts/release.md'].t, base);
 });
 
+/* ---------- 1.19 slice 1, review 1: a proposal's state from all its records and relatives ---------- */
+const recOf = (x) => ({ name: x.name, sha: sha(JSON.stringify(x.rec)), rec: PP.cleanRecord(JSON.parse(JSON.stringify(x.rec)), x.name) });
+const ATT = (pid, w, n) => recOf(PP.attempt({ proposal: pid, proposalRev: 'a'.repeat(64), writer: w, n, how: 'apply', from: null, by: 'person-casey', at: NOW }));
+const DEC = (pid, w, r, status, extra) => recOf(PP.decision(Object.assign({ proposal: pid, proposalRev: 'a'.repeat(64), writer: w, decisionRev: r, seen: null, status, by: 'person-casey', at: NOW }, extra || {})));
+
+rule('Review 1: a decision settles the interrupted attempts it names, so Decline shows Declined and Apply again leaves nothing open', () => {
+  const pid = 'p-mh4k2a-x7w1k3m9p2', open = ATT(pid, 'w1', 1);
+  assert.strictEqual(PP.recState([open]).state, 'maybe');
+  same(PP.recState([open]).open, ['w1.1']);
+  const declined = DEC(pid, 'w2', 1, 'declined', { settles: ['w1.1'] });
+  assert.strictEqual(PP.recState([open, declined]).state, 'declined', 'the interrupted attempt is settled by the decline');
+  // Apply again: its own attempt, and an outcome that settles the earlier one too.
+  const again = [open, ATT(pid, 'w2', 1), DEC(pid, 'w2', 1, 'applied', { attempt: 'w2.1', settles: ['w1.1', 'w2.1'], result: { rev: 'b'.repeat(64) } })];
+  const st = PP.recState(again);
+  same([st.state, st.open], ['applied', []]);
+  // Marking the original as applied afterwards isn't a second application: the later decision settled it.
+  assert.strictEqual(PP.recState(again.concat([DEC(pid, 'w3', 2, 'applied', { attempt: 'w1.1', settles: ['w1.1'], result: { rev: 'b'.repeat(64) } })])).state, 'applied');
+  // Two windows that never saw each other's application are still Applied twice.
+  assert.strictEqual(PP.recState([ATT(pid, 'w1', 1), DEC(pid, 'w1', 1, 'applied', { attempt: 'w1.1', settles: ['w1.1'] }), ATT(pid, 'w2', 1), DEC(pid, 'w2', 1, 'applied', { attempt: 'w2.1', settles: ['w2.1'] })]).state, 'applied-twice');
+});
+
+rule('Review 1: another window\'s cancelled attempt at a higher decisionRev never hides an application that succeeded', () => {
+  const pid = 'p-mh4k2a-x7w1k3m9p2';
+  const recs = [ATT(pid, 'w1', 1), ATT(pid, 'w2', 1), DEC(pid, 'w1', 1, 'applied', { attempt: 'w1.1', settles: ['w1.1'], result: { rev: 'b'.repeat(64) } }), DEC(pid, 'w2', 2, 'cancelled', { attempt: 'w2.1', settles: ['w2.1'] })];
+  assert.strictEqual(PP.recState(recs).state, 'applied');
+  // Its dependent is a fast-forward once the draft is P1's text, whatever P1's records say.
+  const B = RELEASE.replace('Production release', 'B'), C = RELEASE.replace('Production release', 'C');
+  const p1 = proposal({ id: 'p-a1-aaaaaaaaaa', text: B }), dep = proposal({ id: 'p-a3-cccccccccc', base: { kind: 'proposal', ref: p1.id, text: B }, text: C, after: p1.id });
+  const meta = p => PP.check(JSON.parse(JSON.stringify(p)), p.id + '.json', 'release', 10).meta;
+  const fit = (r) => PP.judge([meta(p1), meta(dep)], { [p1.id]: r }, { exists: true, rev: sha(B) }).filter(x => x.id === dep.id)[0].fit;
+  assert.strictEqual(fit(recs.map(r => Object.assign({}, r, { name: r.name.replace(pid, p1.id), rec: Object.assign({}, r.rec, { proposal: p1.id }) }))), 'ready');
+  assert.strictEqual(fit([Object.assign(ATT(p1.id, 'w1', 1)), DEC(p1.id, 'w1', 1, 'cancelled', { attempt: 'w1.1', settles: ['w1.1'] })]), 'ready', 'P1 tried, yet the draft is its text: the dependent starts from the draft');
+});
+
+rule('Review 1: the 200-proposal list never drops a parent a listed proposal depends on', async () => {
+  const fs = proposalFolder(), B = RELEASE.replace('Production release', 'B');
+  const parent = proposal({ id: 'p-0-aaaaaaaaaa', text: B, at: '2026-01-01T00:00:00.000Z' });
+  await put(fs, parent);
+  for (let i = 0; i < 200; i++) await put(fs, proposal({ id: 'p-' + (1000000 + i).toString(36) + '-aaaaaaaaaa', at: new Date(Date.parse(NOW) + i * 1000).toISOString() }));
+  const dep = proposal({ id: 'p-zzzzzz-cccccccccc', base: { kind: 'proposal', ref: parent.id, text: B }, text: B + '\nmore\n', after: parent.id, at: '2026-12-01T00:00:00.000Z' });
+  await put(fs, dep);
+  const rel = (await repo.loadAll(fs)).proposed.procs.release;
+  assert.strictEqual(rel.proposals.length, 200, 'still 200 listed');
+  assert.ok(rel.all.some(m => m.id === parent.id), 'every proposal\'s metadata is kept for judging');
+  const recs = {}; rel.all.forEach(m => { recs[m.id] = []; });
+  const x = PP.judge(rel.all, recs, { exists: true, rev: sha(B) }).filter(y => y.id === dep.id)[0];
+  assert.strictEqual(x.fit, 'ready');
+});
+
 run();

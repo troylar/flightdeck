@@ -1722,4 +1722,17 @@ rule('Two overlapping invocations of one session write separate files and never 
   assert.strictEqual(mine.filter(m => m.id === p1.operation)[0].status, 'replaced');
 });
 
+rule('Review 1: a direct save that continues from this session\'s pending proposal records that it replaced it', () => {
+  const dir = draftFolder(), S = 's-k3m9p2q8x7w1', B = edited(DRAFT_MD, 'B'), C = edited(DRAFT_MD, 'C');
+  presence(dir, live(new Date().toISOString()));
+  const p1 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(dir, B), '--json').json;
+  assert.strictEqual(p1.outcome, 'proposed');
+  fs.rmSync(path.join(dir, 'presence'), { recursive: true });
+  const w = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(B), '--from', inFile(dir, C), '--json').json;
+  assert.deepStrictEqual([w.outcome, w.link], ['written', 'replaces']);
+  const r = draftCli('read', dir, 'release', '--session', S, '--json').json;
+  assert.deepStrictEqual([r.continueFrom.kind, r.continueFrom.text], ['draft', C], 'continues from the draft it wrote, not from P1');
+  assert.strictEqual(r.mine.filter(m => m.id === p1.operation)[0].status, 'replaced');
+});
+
 run();

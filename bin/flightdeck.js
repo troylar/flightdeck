@@ -1023,6 +1023,16 @@ async function draftMain(argv) {
           writeNew(dir, ['history', 'drafts', proc, 'agent-' + operation + '.jsonl'], JSON.stringify(line) + '\n');
           result.history = { written: true };
         } catch (e) { result.history = { written: false, why: e.message }; }
+        /* It continued from this session's own pending proposal: that one is replaced by what was just written, so a
+           decision says so (written once, named for this operation) and nothing offers it again. */
+        if (base.replaces) {
+          try {
+            const set = await PF.repo.loadProposalSet(readAdapter(dir, { maxBytes: READ_MAX }), proc), st = PP.recState(set.records[base.replaces] || []);
+            const old = s.mine.filter((m) => m.id === base.replaces)[0];
+            const d = PP.decision({ proposal: base.replaces, proposalRev: old ? old.rev : null, writer: operation, decisionRev: st.nextRev, seen: st.seen, status: 'replaced', settles: st.open, result: { rev: PP.sha(text) }, by: val['--by'] || '', at });
+            writeNew(dir, [PP.DIR, proc, d.name], JSON.stringify(d.rec, null, 2) + '\n');
+          } catch (e) { result.warnings.push('Your earlier proposal ' + base.replaces + ' couldn\'t be marked as replaced (' + e.message + '). Decline it on the process page.'); }
+        }
         return { out: JSON.stringify(draftJson(eng, result), null, 2), code: 0 };
       }
     }

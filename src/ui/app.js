@@ -435,9 +435,11 @@
     Object.keys(procs).forEach(function (pid) {
       var pr = procs[pid], e = by[pid], fresh = !e;
       e = entry(pid); if (fresh) e.proposedOnly = true;
-      var recs = {}; pr.proposals.forEach(function (m) { recs[m.id] = []; });
+      var all = pr.all || pr.proposals, shown = {}, recs = {};
+      pr.proposals.forEach(function (m) { shown[m.id] = true; }); all.forEach(function (m) { recs[m.id] = []; });
       pr.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m && recs[m[1]]) recs[m[1]].push(r); });
-      e.proposed = { list: PP.judge(pr.proposals, recs, draftInfo(e)), bad: pr.bad, older: pr.older, records: recs };
+      /* Judged with every proposal (a listed one may follow an older one), shown at most the newest 200. */
+      e.proposed = { list: PP.judge(all, recs, draftInfo(e)).filter(function (x) { return shown[x.id]; }), bad: pr.bad, older: pr.older, records: recs };
     });
     presenceInto(by);
     /* Each registered skill, with where it stands against its process. "Needs attention" = its steps changed, or it can't be matched. */
@@ -1783,19 +1785,21 @@
     if (first) { say(first, 'warn'); render(); return Promise.resolve(false); }
     function live() { return g === gen; }
     function stop(msg, kind, act) { if (live() && msg) { say(msg, kind || 'warn', act); render(); } return false; }
-    function judged(proposal, recs) {
-      var p = propOf(pid, id).p, metas = ((data.proposed.procs[pid] || {}).proposals || []).filter(function (m) { return m.id !== id; }).concat([PP.check(proposal, id + '.json', pid, 0).meta]), all = {};
-      metas.forEach(function (m) { all[m.id] = ((p && p.proposed && p.proposed.records) || {})[m.id] || []; });
+    /* How it stands, judged with every proposal of the process and all their records as read now (set), never from what
+       the page last drew: a replacement or a relative that arrived since counts. */
+    function judged(proposal, recs, set) {
+      var p = propOf(pid, id).p, metas = set.metas.filter(function (m) { return m.id !== id; }).concat([PP.check(proposal, id + '.json', pid, 0).meta]), all = {};
+      metas.forEach(function (m) { all[m.id] = set.records[m.id] || []; });
       all[id] = recs;
       return PP.judge(metas, all, p ? draftInfo(p) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0];
     }
     /* Everything that must hold to go on, from the proposal and its records as read now. */
-    function eligible(r, recs) {
+    function eligible(r, recs, set) {
       if (!live()) return 'gone';
       if (!r.ok) return 'This proposal ' + r.why + '.';
       if (recs.some(function (x) { return !x.rec; })) return PROP_SAY.unknown;
       if (reviewed ? !PP.sameSet(PP.reviewed(recs), reviewed) : recs.length) return reviewed ? 'This proposal changed since you reviewed it. Look again.' : 'Flightdeck tried to apply this before. Review it first.';
-      var x = judged(r.proposal, recs); if (!x) return 'That proposal isn\'t listed any more.';
+      var x = judged(r.proposal, recs, set); if (!x) return 'That proposal isn\'t listed any more.';
       if (x.fit !== 'ready') return PROP_SAY[x.fit] || 'This can\'t be applied now.';
       if (U.draftTooBig(r.proposal.text)) return U.draftTooBig(r.proposal.text).why;
       var p = propOf(pid, id).p, why = p ? propBlocked(p) : '';
@@ -1803,12 +1807,12 @@
       if (!sameToken(tok, edToken(pid))) return 'The draft changed while you were applying it. Look again.';
       return '';
     }
-    function look() { return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id)]); }
+    function look() { return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]); }
     function run() {
       if (!live()) return false;
       /* Checked before waiting for the lock, so a refusal is said at once; checked again inside it. */
       return look().then(function (got) {
-        var why = eligible(got[0], got[1]);
+        var why = eligible(got[0], got[1], got[2]);
         if (why) return stop(why === 'gone' ? '' : why);
         return LOCKS ? lock('preflight:accept:' + fk + '|' + pid, locked) : locked();
       });
@@ -1816,18 +1820,18 @@
     function locked() {
       if (!live()) return false;
       return look().then(function (got) {
-        var r = got[0], recs = got[1], why = eligible(r, recs);
+        var r = got[0], recs = got[1], why = eligible(r, recs, got[2]), openBefore = PP.recState(recs).open;
         if (why) return stop(why === 'gone' ? '' : why);
         var p = propOf(pid, id).p, file = p && p.draft ? p.draft.file : pid + '.md', expectText = p && p.draft ? p.draft.md : null, text = r.proposal.text;
         var at = PP.attempt({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, n: ++attemptN, how: how, from: expectText == null ? null : PP.sha(expectText), by: state.me || '', at: new Date().toISOString() });
         var mineSha = PP.sha(JSON.stringify(at.rec, null, 2) + '\n'), expected = (reviewed || []).concat([{ name: at.name, sha: mineSha }]);
         return repo.writeRecord(sfs, pid, at.name, at.rec).then(function () {
           /* Immediately before adopting: nothing changed here, and the records are exactly the expected set. */
-          return repo.listRecords(sfs, pid, id).then(function (now) {
-            if (!still(now)) return outcome('cancelled');
+          return Promise.all([repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]).then(function (now) {
+            if (!still(now[0], now[1])) return outcome('cancelled');
             return queued(function () {
-              return repo.listRecords(sfs, pid, id).then(function (again) {
-                if (!still(again)) return { cancelled: true };
+              return Promise.all([repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]).then(function (again) {
+                if (!still(again[0], again[1])) return { cancelled: true };
                 return repo.saveDraft(sfs, file, text, expectText == null ? null : U.hash(expectText), { lock: LOCKS ? lock : null, expectText: expectText });
               });
             }).then(function (res) {
@@ -1842,15 +1846,19 @@
               return outcome('applied', { rev: PP.sha(text) });
             }, function (e) { return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the process page.'); });
           });
-          function still(list) {
+          function still(list, set) {
             if (!live() || fsKey() !== fk) return false;
+            var x = judged(r.proposal, list.filter(function (y) { return y.name !== at.name; }), set);
+            if (!x || x.fit !== 'ready') return false;
             var p2 = propOf(pid, id).p;
             if (!sameToken(tok, edToken(pid)) || (p2 && propBlocked(p2)) || (p2 && p2.draft ? p2.draft.md : null) !== expectText) return false;
             return PP.sameSet(PP.reviewed(list) || [], expected) && !list.some(function (x) { return !x.rec; });
           }
           function outcome(status, result, msg) {
             return repo.listRecords(sfs, pid, id).then(function (list) {
-              var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: WRITER + '.' + attemptNo(at), result: result, by: state.me || '', at: new Date().toISOString() });
+              /* An application settles the attempts the person reviewed as open, too (Apply again); other outcomes only their own. */
+              var mine = WRITER + '.' + attemptNo(at), settles = status === 'applied' ? openBefore.concat([mine]) : [mine];
+              var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: mine, settles: settles, result: result, by: state.me || '', at: new Date().toISOString() });
               return repo.writeRecord(sfs, pid, d.name, d.rec);
             }).then(function () { return true; }, function () { return false; }).then(function (recorded) {
               if (status === 'applied') { stop(recorded ? 'Applied your AI assistant\'s change to the draft.' : 'Applied your AI assistant\'s change to the draft, but recording that didn\'t save. The process page shows it as May already be applied.', recorded ? 'good' : 'warn'); if (live()) load(true); return true; }
@@ -1879,6 +1887,8 @@
       if (g !== gen) return;
       var r = got[0], recs = got[1], st = PP.recState(recs);
       if (!r.ok) { say('This proposal ' + r.why + '.', 'warn'); render(); return; }
+      /* Never decide over a record this window can't read: it may be a newer decision still arriving. */
+      if (st.bad.length) { say('A record about this proposal can\'t be read yet (' + st.bad.join(', ') + '). Nothing was decided. Try again once it has arrived.', 'warn'); render(); return; }
       if (opts.reviewed && !PP.sameSet(PP.reviewed(recs), opts.reviewed)) { say('This proposal changed since you reviewed it. Look again.', 'warn'); render(); return; }
       if (status === 'reopened' && st.state !== 'declined') { say('Only a declined proposal can be reopened.', 'warn'); render(); return; }
       var result = null, attemptId = null;
@@ -1887,7 +1897,8 @@
         if (st.state !== 'maybe' && now !== r.proposal.text) { say('The draft doesn\'t have this change. Apply it, or decline it.', 'warn'); render(); return; }
         result = { rev: PP.sha(now == null ? '' : now) }; attemptId = st.open[0] || null;
       }
-      var d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: attemptId, result: result, by: state.me || '', at: new Date().toISOString() });
+      /* A person's decision settles every attempt still open, so an interrupted one never lingers as May already be applied. */
+      var d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: attemptId, settles: st.open, result: result, by: state.me || '', at: new Date().toISOString() });
       return repo.writeRecord(sfs, pid, d.name, d.rec).then(function () {
         if (g !== gen) return;
         if (state.overlay && state.overlay.propReview) closeOverlay();
@@ -1906,7 +1917,7 @@
       if (g !== gen || state.overlay !== ov) return;
       if (!got[0].ok) { ov.loadErr = 'This proposal ' + got[0].why + '.'; render(); return; }
       ov.proposal = got[0].proposal; ov.records = got[1]; ov.reviewed = PF.proposals.reviewed(got[1]);
-      var p2 = propOf(pid, id).p, metas = ((data.proposed.procs[pid] || {}).proposals || []), all = {};
+      var p2 = propOf(pid, id).p, pr2 = data.proposed.procs[pid] || {}, metas = pr2.all || pr2.proposals || [], all = {};
       metas.forEach(function (m) { all[m.id] = ((p2 && p2.proposed && p2.proposed.records) || {})[m.id] || []; }); all[id] = got[1];
       ov.item = PF.proposals.judge(metas, all, p2 ? draftInfo(p2) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0] || ov.item;
       ov.draftText = p2 && p2.draft ? p2.draft.md : null;

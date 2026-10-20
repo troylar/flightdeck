@@ -8833,7 +8833,9 @@ PF.proposals = (function () {
   var ID = /^p-[a-z0-9]{1,12}-[a-z0-9]{10}$/, PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,59}$/, SESSION = /^[a-z0-9][a-z0-9-]{0,59}$/, SHA = /^[0-9a-f]{64}$/;
   var BASES = ['draft', 'proposal', 'version', 'none'], HOW = ['live', 'apply'];
   /* What a decision can say: a person's (applied, declined, reopened) and an attempt's outcome (withdrawn, not-saved, cancelled). */
-  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled'];
+  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled', 'replaced'];
+  /* A person's decisions (and the command line's replaced): the latest of these decides; an attempt's outcome never overrides them. */
+  var DECIDING = { applied: 1, declined: 1, reopened: 1, replaced: 1 };
   /* The command line's contract, flightdeck-draft/1: every field and word docs/apps.md must document (test/build.test.js). */
   var CLI = {
     read: ['contract', 'app', 'process', 'session', 'draft', 'exists', 'path', 'rev', 'text', 'openIn', 'by', 'device', 'seenAgo', 'mine', 'id', 'status', 'continueFrom', 'kind', 'ref', 'checks', 'blockers', 'suggestions', 'copies', 'readAt', 'complete', 'problems'],
@@ -8898,6 +8900,7 @@ PF.proposals = (function () {
   function decision(o) {
     var rec = { kind: 'proposal-decision', dv: 1, proposal: o.proposal, proposalRev: o.proposalRev, decisionRev: o.decisionRev, seen: o.seen || null, status: o.status, by: o.by || '', at: o.at || '' };
     if (o.attempt) rec.attempt = o.attempt;
+    if (o.settles && o.settles.length) rec.settles = o.settles.slice(0, 50);
     if (o.result) rec.result = { rev: o.result.rev };
     return { name: o.proposal + '.' + o.writer + '.' + o.decisionRev + '.json', rec: rec };
   }
@@ -8916,26 +8919,40 @@ PF.proposals = (function () {
     if (o.seen != null && (typeof o.seen !== 'string' || !parseName(o.seen))) return null;
     if (o.attempt != null && (typeof o.attempt !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}\.[1-9]\d{0,8}$/.test(o.attempt))) return null;
     if (o.result != null && (typeof o.result !== 'object' || typeof o.result.rev !== 'string' || !SHA.test(o.result.rev))) return null;
-    return Object.assign(base, { kind: 'decision', decisionRev: o.decisionRev, seen: o.seen || null, status: o.status, attempt: o.attempt || null, result: o.result ? { rev: o.result.rev } : null });
+    if (o.settles != null && (!Array.isArray(o.settles) || o.settles.length > 50 || !o.settles.every(function (a) { return typeof a === 'string' && /^[a-z0-9][a-z0-9-]{0,59}\.[1-9]\d{0,8}$/.test(a); }))) return null;
+    var settles = (o.settles || []).slice(); if (o.attempt && settles.indexOf(o.attempt) < 0) settles.push(o.attempt);
+    return Object.assign(base, { kind: 'decision', decisionRev: o.decisionRev, seen: o.seen || null, status: o.status, attempt: o.attempt || null, settles: settles, result: o.result ? { rev: o.result.rev } : null });
   }
-  /* Where a proposal stands from its records [{ name, sha, rec (null: couldn't be read) }], by decisionRev, never by clocks:
-     unknown (a record can't be read), applied-twice, decided-twice (two decisions share the top decisionRev), maybe (an
-     attempt without an outcome: may already be applied), applied, declined, reopened, tried (withdrawn, not saved or
-     cancelled), or pending. auto: only a proposal with no record at all may ever be applied without a person. nextRev and
-     seen: what the next decision carries. */
+  /* Where a proposal stands from all its records [{ name, sha, rec (null: couldn't be read) }], by decisionRev, never by
+     clocks. Each decision names the attempts it settles (an outcome its own; a person's decision, Apply again and Mark as
+     applied every attempt still open when it was made). In order: unknown (a record can't be read), applied-twice (two
+     applications neither of which settled the other's attempt), decided-twice (two of the deciding decisions share the top
+     decisionRev), maybe (an attempt nothing settled: may already be applied), then the latest deciding decision (applied,
+     declined, reopened, replaced), else tried (only outcomes: withdrawn, not saved, cancelled), else pending. An attempt's
+     outcome never overrides an application: a cancellation of another window's attempt doesn't hide a successful one.
+     auto: only a proposal with no record at all may ever be applied without a person. nextRev and seen: what the next
+     decision carries; open: the attempts it should settle. */
   function recState(records) {
     records = records || [];
     var atts = [], decs = [], bad = [];
     records.forEach(function (r) { if (!r || !r.rec) { bad.push(r && r.name || '?'); return; } (r.rec.kind === 'attempt' ? atts : decs).push(r); });
     var top = 0; decs.forEach(function (d) { if (d.rec.decisionRev > top) top = d.rec.decisionRev; });
-    var tops = decs.filter(function (d) { return d.rec.decisionRev === top; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-    var outcome = {}; decs.forEach(function (d) { if (d.rec.attempt) outcome[d.rec.attempt] = true; });
-    var open = atts.filter(function (a) { return !outcome[a.rec.attempt]; }).map(function (a) { return a.rec.attempt; });
-    var applied = decs.filter(function (d) { return d.rec.status === 'applied'; }).length;
-    var state = bad.length ? 'unknown' : applied >= 2 ? 'applied-twice' : tops.length > 1 ? 'decided-twice' : open.length ? 'maybe'
-      : tops.length ? ({ applied: 'applied', declined: 'declined', reopened: 'reopened' }[tops[0].rec.status] || 'tried') : 'pending';
-    return { state: state, auto: records.length === 0, bad: bad, open: open, attempts: atts.map(function (a) { return a.rec.attempt; }), applied: applied, nextRev: top + 1, seen: tops.length ? tops[0].name : null,
-      top: tops.length === 1 ? tops[0].rec : null };
+    var last = decs.filter(function (d) { return d.rec.decisionRev === top; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+    var settled = {}; decs.forEach(function (d) { (d.rec.settles || []).forEach(function (a) { settled[a] = true; }); if (d.rec.attempt) settled[d.rec.attempt] = true; });
+    var open = atts.filter(function (a) { return !settled[a.rec.attempt]; }).map(function (a) { return a.rec.attempt; });
+    var applied = decs.filter(function (d) { return d.rec.status === 'applied'; }).sort(function (a, b) { return a.rec.decisionRev - b.rec.decisionRev; }), twice = false;
+    for (var i = 0; i < applied.length; i++) for (var j = i + 1; j < applied.length; j++) {
+      var a = applied[i].rec, b = applied[j].rec;
+      /* The same application when either settled the other's attempt (Apply again, Mark as applied); otherwise two. */
+      if (!((a.attempt && (b.settles || []).indexOf(a.attempt) >= 0) || (b.attempt && (a.settles || []).indexOf(b.attempt) >= 0))) twice = true;
+    }
+    var deciding = decs.filter(function (d) { return DECIDING[d.rec.status]; }), dtop = 0;
+    deciding.forEach(function (d) { if (d.rec.decisionRev > dtop) dtop = d.rec.decisionRev; });
+    var dtops = deciding.filter(function (d) { return d.rec.decisionRev === dtop; });
+    var state = bad.length ? 'unknown' : twice ? 'applied-twice' : dtops.length > 1 ? 'decided-twice' : open.length ? 'maybe'
+      : dtops.length ? dtops[0].rec.status : decs.length ? 'tried' : 'pending';
+    return { state: state, auto: records.length === 0, bad: bad, open: open, attempts: atts.map(function (a) { return a.rec.attempt; }), applied: applied.length, nextRev: top + 1, seen: last.length ? last[0].name : null,
+      top: dtops.length === 1 ? dtops[0].rec : null };
   }
   /* The records a person saw in Review, by name and SHA-256 of their bytes; null when one can't be read (it can't be reviewed). */
   function reviewed(records) {
@@ -8971,13 +8988,16 @@ PF.proposals = (function () {
       if (bad[m.id]) return 'invalid';
       var st = states[m.id].state;
       if (st === 'applied' || st === 'applied-twice' || st === 'declined' || st === 'unknown') return st;
-      if (replaced[m.id]) return 'replaced';
+      if (replaced[m.id] || st === 'replaced') return 'replaced';
       if (m.after) {
         var t = by[m.after];
         if (!t) return 'waiting';
         var ts = states[t.id].state;
-        if (replaced[t.id] || ts === 'declined' || bad[t.id]) return 'review';
-        if (ts !== 'applied' && ts !== 'applied-twice') return 'waiting';
+        /* The draft is already the text it starts from: a fast-forward, whatever the earlier one's records say. */
+        if (!(draft && draft.exists && m.base.rev === draft.rev)) {
+          if (replaced[t.id] || ts === 'declined' || ts === 'replaced' || bad[t.id]) return 'review';
+          if (ts !== 'applied' && ts !== 'applied-twice') return 'waiting';
+        }
       }
       if (draft && draft.exists) return m.rev === draft.rev ? 'already' : m.base.rev === draft.rev ? 'ready' : 'older';
       return m.base.kind === 'none' || m.base.kind === 'version' ? 'ready' : 'older';
@@ -10340,7 +10360,8 @@ PF.repo = (function () {
           });
           return Promise.all([gotProps, gotRecs]).then(function (r) {
             var list = r[0].filter(Boolean).sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1; });
-            return { process: p.name, proposals: list.slice(0, PP.LIST_MAX), older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
+            /* all: every proposal's metadata, so one that depends on an older one is judged against it (only metadata is kept). */
+            return { process: p.name, proposals: list.slice(0, PP.LIST_MAX), all: list, older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
           });
         });
       });
@@ -10348,6 +10369,17 @@ PF.repo = (function () {
       [pc, rc].forEach(function (m) { Object.keys(m).forEach(function (k) { if (!seen[k]) delete m[k]; }); });
       var procs = {}; list.forEach(function (x) { if (x.proposals.length || x.bad.length || x.older) procs[x.process] = x; });
       return { procs: procs };
+    });
+  }
+  /* One process's proposals and every record about them, read now (records never from memory; a proposal, written once,
+     may come from the cache), for the acceptance transaction and decisions: { metas, bad, records: { <id>: [...] } }. */
+  function loadProposalSet(fs, proc) {
+    var PP = PF.proposals, c = cacheOf(fs), sub = { prop: Object.assign({}, c.prop || {}), recs: {} };
+    return loadProposed({ list: function (p) { return p === PP.DIR ? Promise.resolve([{ name: proc, kind: 'dir' }]) : fs.list(p); }, read: function (p, o) { return fs.read(p, o); } }, sub, false).then(function (got) {
+      var x = got.procs[proc] || { all: [], bad: [], records: [] }, recs = {};
+      x.all.forEach(function (m) { recs[m.id] = []; });
+      x.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m) (recs[m[1]] = recs[m[1]] || []).push(r); });
+      return { metas: x.all, bad: x.bad, records: recs };
     });
   }
   function readRecord(fs, path, name) {
@@ -11208,7 +11240,7 @@ PF.repo = (function () {
     });
   }
 
-  return { loadProposed: loadProposed, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
+  return { loadProposed: loadProposed, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
     readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
 
@@ -15721,9 +15753,11 @@ PF.examples = (function () {
     Object.keys(procs).forEach(function (pid) {
       var pr = procs[pid], e = by[pid], fresh = !e;
       e = entry(pid); if (fresh) e.proposedOnly = true;
-      var recs = {}; pr.proposals.forEach(function (m) { recs[m.id] = []; });
+      var all = pr.all || pr.proposals, shown = {}, recs = {};
+      pr.proposals.forEach(function (m) { shown[m.id] = true; }); all.forEach(function (m) { recs[m.id] = []; });
       pr.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m && recs[m[1]]) recs[m[1]].push(r); });
-      e.proposed = { list: PP.judge(pr.proposals, recs, draftInfo(e)), bad: pr.bad, older: pr.older, records: recs };
+      /* Judged with every proposal (a listed one may follow an older one), shown at most the newest 200. */
+      e.proposed = { list: PP.judge(all, recs, draftInfo(e)).filter(function (x) { return shown[x.id]; }), bad: pr.bad, older: pr.older, records: recs };
     });
     presenceInto(by);
     /* Each registered skill, with where it stands against its process. "Needs attention" = its steps changed, or it can't be matched. */
@@ -17069,19 +17103,21 @@ PF.examples = (function () {
     if (first) { say(first, 'warn'); render(); return Promise.resolve(false); }
     function live() { return g === gen; }
     function stop(msg, kind, act) { if (live() && msg) { say(msg, kind || 'warn', act); render(); } return false; }
-    function judged(proposal, recs) {
-      var p = propOf(pid, id).p, metas = ((data.proposed.procs[pid] || {}).proposals || []).filter(function (m) { return m.id !== id; }).concat([PP.check(proposal, id + '.json', pid, 0).meta]), all = {};
-      metas.forEach(function (m) { all[m.id] = ((p && p.proposed && p.proposed.records) || {})[m.id] || []; });
+    /* How it stands, judged with every proposal of the process and all their records as read now (set), never from what
+       the page last drew: a replacement or a relative that arrived since counts. */
+    function judged(proposal, recs, set) {
+      var p = propOf(pid, id).p, metas = set.metas.filter(function (m) { return m.id !== id; }).concat([PP.check(proposal, id + '.json', pid, 0).meta]), all = {};
+      metas.forEach(function (m) { all[m.id] = set.records[m.id] || []; });
       all[id] = recs;
       return PP.judge(metas, all, p ? draftInfo(p) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0];
     }
     /* Everything that must hold to go on, from the proposal and its records as read now. */
-    function eligible(r, recs) {
+    function eligible(r, recs, set) {
       if (!live()) return 'gone';
       if (!r.ok) return 'This proposal ' + r.why + '.';
       if (recs.some(function (x) { return !x.rec; })) return PROP_SAY.unknown;
       if (reviewed ? !PP.sameSet(PP.reviewed(recs), reviewed) : recs.length) return reviewed ? 'This proposal changed since you reviewed it. Look again.' : 'Flightdeck tried to apply this before. Review it first.';
-      var x = judged(r.proposal, recs); if (!x) return 'That proposal isn\'t listed any more.';
+      var x = judged(r.proposal, recs, set); if (!x) return 'That proposal isn\'t listed any more.';
       if (x.fit !== 'ready') return PROP_SAY[x.fit] || 'This can\'t be applied now.';
       if (U.draftTooBig(r.proposal.text)) return U.draftTooBig(r.proposal.text).why;
       var p = propOf(pid, id).p, why = p ? propBlocked(p) : '';
@@ -17089,12 +17125,12 @@ PF.examples = (function () {
       if (!sameToken(tok, edToken(pid))) return 'The draft changed while you were applying it. Look again.';
       return '';
     }
-    function look() { return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id)]); }
+    function look() { return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]); }
     function run() {
       if (!live()) return false;
       /* Checked before waiting for the lock, so a refusal is said at once; checked again inside it. */
       return look().then(function (got) {
-        var why = eligible(got[0], got[1]);
+        var why = eligible(got[0], got[1], got[2]);
         if (why) return stop(why === 'gone' ? '' : why);
         return LOCKS ? lock('preflight:accept:' + fk + '|' + pid, locked) : locked();
       });
@@ -17102,18 +17138,18 @@ PF.examples = (function () {
     function locked() {
       if (!live()) return false;
       return look().then(function (got) {
-        var r = got[0], recs = got[1], why = eligible(r, recs);
+        var r = got[0], recs = got[1], why = eligible(r, recs, got[2]), openBefore = PP.recState(recs).open;
         if (why) return stop(why === 'gone' ? '' : why);
         var p = propOf(pid, id).p, file = p && p.draft ? p.draft.file : pid + '.md', expectText = p && p.draft ? p.draft.md : null, text = r.proposal.text;
         var at = PP.attempt({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, n: ++attemptN, how: how, from: expectText == null ? null : PP.sha(expectText), by: state.me || '', at: new Date().toISOString() });
         var mineSha = PP.sha(JSON.stringify(at.rec, null, 2) + '\n'), expected = (reviewed || []).concat([{ name: at.name, sha: mineSha }]);
         return repo.writeRecord(sfs, pid, at.name, at.rec).then(function () {
           /* Immediately before adopting: nothing changed here, and the records are exactly the expected set. */
-          return repo.listRecords(sfs, pid, id).then(function (now) {
-            if (!still(now)) return outcome('cancelled');
+          return Promise.all([repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]).then(function (now) {
+            if (!still(now[0], now[1])) return outcome('cancelled');
             return queued(function () {
-              return repo.listRecords(sfs, pid, id).then(function (again) {
-                if (!still(again)) return { cancelled: true };
+              return Promise.all([repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]).then(function (again) {
+                if (!still(again[0], again[1])) return { cancelled: true };
                 return repo.saveDraft(sfs, file, text, expectText == null ? null : U.hash(expectText), { lock: LOCKS ? lock : null, expectText: expectText });
               });
             }).then(function (res) {
@@ -17128,15 +17164,19 @@ PF.examples = (function () {
               return outcome('applied', { rev: PP.sha(text) });
             }, function (e) { return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the process page.'); });
           });
-          function still(list) {
+          function still(list, set) {
             if (!live() || fsKey() !== fk) return false;
+            var x = judged(r.proposal, list.filter(function (y) { return y.name !== at.name; }), set);
+            if (!x || x.fit !== 'ready') return false;
             var p2 = propOf(pid, id).p;
             if (!sameToken(tok, edToken(pid)) || (p2 && propBlocked(p2)) || (p2 && p2.draft ? p2.draft.md : null) !== expectText) return false;
             return PP.sameSet(PP.reviewed(list) || [], expected) && !list.some(function (x) { return !x.rec; });
           }
           function outcome(status, result, msg) {
             return repo.listRecords(sfs, pid, id).then(function (list) {
-              var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: WRITER + '.' + attemptNo(at), result: result, by: state.me || '', at: new Date().toISOString() });
+              /* An application settles the attempts the person reviewed as open, too (Apply again); other outcomes only their own. */
+              var mine = WRITER + '.' + attemptNo(at), settles = status === 'applied' ? openBefore.concat([mine]) : [mine];
+              var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: mine, settles: settles, result: result, by: state.me || '', at: new Date().toISOString() });
               return repo.writeRecord(sfs, pid, d.name, d.rec);
             }).then(function () { return true; }, function () { return false; }).then(function (recorded) {
               if (status === 'applied') { stop(recorded ? 'Applied your AI assistant\'s change to the draft.' : 'Applied your AI assistant\'s change to the draft, but recording that didn\'t save. The process page shows it as May already be applied.', recorded ? 'good' : 'warn'); if (live()) load(true); return true; }
@@ -17165,6 +17205,8 @@ PF.examples = (function () {
       if (g !== gen) return;
       var r = got[0], recs = got[1], st = PP.recState(recs);
       if (!r.ok) { say('This proposal ' + r.why + '.', 'warn'); render(); return; }
+      /* Never decide over a record this window can't read: it may be a newer decision still arriving. */
+      if (st.bad.length) { say('A record about this proposal can\'t be read yet (' + st.bad.join(', ') + '). Nothing was decided. Try again once it has arrived.', 'warn'); render(); return; }
       if (opts.reviewed && !PP.sameSet(PP.reviewed(recs), opts.reviewed)) { say('This proposal changed since you reviewed it. Look again.', 'warn'); render(); return; }
       if (status === 'reopened' && st.state !== 'declined') { say('Only a declined proposal can be reopened.', 'warn'); render(); return; }
       var result = null, attemptId = null;
@@ -17173,7 +17215,8 @@ PF.examples = (function () {
         if (st.state !== 'maybe' && now !== r.proposal.text) { say('The draft doesn\'t have this change. Apply it, or decline it.', 'warn'); render(); return; }
         result = { rev: PP.sha(now == null ? '' : now) }; attemptId = st.open[0] || null;
       }
-      var d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: attemptId, result: result, by: state.me || '', at: new Date().toISOString() });
+      /* A person's decision settles every attempt still open, so an interrupted one never lingers as May already be applied. */
+      var d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: attemptId, settles: st.open, result: result, by: state.me || '', at: new Date().toISOString() });
       return repo.writeRecord(sfs, pid, d.name, d.rec).then(function () {
         if (g !== gen) return;
         if (state.overlay && state.overlay.propReview) closeOverlay();
@@ -17192,7 +17235,7 @@ PF.examples = (function () {
       if (g !== gen || state.overlay !== ov) return;
       if (!got[0].ok) { ov.loadErr = 'This proposal ' + got[0].why + '.'; render(); return; }
       ov.proposal = got[0].proposal; ov.records = got[1]; ov.reviewed = PF.proposals.reviewed(got[1]);
-      var p2 = propOf(pid, id).p, metas = ((data.proposed.procs[pid] || {}).proposals || []), all = {};
+      var p2 = propOf(pid, id).p, pr2 = data.proposed.procs[pid] || {}, metas = pr2.all || pr2.proposals || [], all = {};
       metas.forEach(function (m) { all[m.id] = ((p2 && p2.proposed && p2.proposed.records) || {})[m.id] || []; }); all[id] = got[1];
       ov.item = PF.proposals.judge(metas, all, p2 ? draftInfo(p2) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0] || ov.item;
       ov.draftText = p2 && p2.draft ? p2.draft.md : null;

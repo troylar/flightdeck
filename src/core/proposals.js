@@ -12,7 +12,9 @@ PF.proposals = (function () {
   var ID = /^p-[a-z0-9]{1,12}-[a-z0-9]{10}$/, PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,59}$/, SESSION = /^[a-z0-9][a-z0-9-]{0,59}$/, SHA = /^[0-9a-f]{64}$/;
   var BASES = ['draft', 'proposal', 'version', 'none'], HOW = ['live', 'apply'];
   /* What a decision can say: a person's (applied, declined, reopened) and an attempt's outcome (withdrawn, not-saved, cancelled). */
-  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled'];
+  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled', 'replaced'];
+  /* A person's decisions (and the command line's replaced): the latest of these decides; an attempt's outcome never overrides them. */
+  var DECIDING = { applied: 1, declined: 1, reopened: 1, replaced: 1 };
   /* The command line's contract, flightdeck-draft/1: every field and word docs/apps.md must document (test/build.test.js). */
   var CLI = {
     read: ['contract', 'app', 'process', 'session', 'draft', 'exists', 'path', 'rev', 'text', 'openIn', 'by', 'device', 'seenAgo', 'mine', 'id', 'status', 'continueFrom', 'kind', 'ref', 'checks', 'blockers', 'suggestions', 'copies', 'readAt', 'complete', 'problems'],
@@ -77,6 +79,7 @@ PF.proposals = (function () {
   function decision(o) {
     var rec = { kind: 'proposal-decision', dv: 1, proposal: o.proposal, proposalRev: o.proposalRev, decisionRev: o.decisionRev, seen: o.seen || null, status: o.status, by: o.by || '', at: o.at || '' };
     if (o.attempt) rec.attempt = o.attempt;
+    if (o.settles && o.settles.length) rec.settles = o.settles.slice(0, 50);
     if (o.result) rec.result = { rev: o.result.rev };
     return { name: o.proposal + '.' + o.writer + '.' + o.decisionRev + '.json', rec: rec };
   }
@@ -95,26 +98,40 @@ PF.proposals = (function () {
     if (o.seen != null && (typeof o.seen !== 'string' || !parseName(o.seen))) return null;
     if (o.attempt != null && (typeof o.attempt !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}\.[1-9]\d{0,8}$/.test(o.attempt))) return null;
     if (o.result != null && (typeof o.result !== 'object' || typeof o.result.rev !== 'string' || !SHA.test(o.result.rev))) return null;
-    return Object.assign(base, { kind: 'decision', decisionRev: o.decisionRev, seen: o.seen || null, status: o.status, attempt: o.attempt || null, result: o.result ? { rev: o.result.rev } : null });
+    if (o.settles != null && (!Array.isArray(o.settles) || o.settles.length > 50 || !o.settles.every(function (a) { return typeof a === 'string' && /^[a-z0-9][a-z0-9-]{0,59}\.[1-9]\d{0,8}$/.test(a); }))) return null;
+    var settles = (o.settles || []).slice(); if (o.attempt && settles.indexOf(o.attempt) < 0) settles.push(o.attempt);
+    return Object.assign(base, { kind: 'decision', decisionRev: o.decisionRev, seen: o.seen || null, status: o.status, attempt: o.attempt || null, settles: settles, result: o.result ? { rev: o.result.rev } : null });
   }
-  /* Where a proposal stands from its records [{ name, sha, rec (null: couldn't be read) }], by decisionRev, never by clocks:
-     unknown (a record can't be read), applied-twice, decided-twice (two decisions share the top decisionRev), maybe (an
-     attempt without an outcome: may already be applied), applied, declined, reopened, tried (withdrawn, not saved or
-     cancelled), or pending. auto: only a proposal with no record at all may ever be applied without a person. nextRev and
-     seen: what the next decision carries. */
+  /* Where a proposal stands from all its records [{ name, sha, rec (null: couldn't be read) }], by decisionRev, never by
+     clocks. Each decision names the attempts it settles (an outcome its own; a person's decision, Apply again and Mark as
+     applied every attempt still open when it was made). In order: unknown (a record can't be read), applied-twice (two
+     applications neither of which settled the other's attempt), decided-twice (two of the deciding decisions share the top
+     decisionRev), maybe (an attempt nothing settled: may already be applied), then the latest deciding decision (applied,
+     declined, reopened, replaced), else tried (only outcomes: withdrawn, not saved, cancelled), else pending. An attempt's
+     outcome never overrides an application: a cancellation of another window's attempt doesn't hide a successful one.
+     auto: only a proposal with no record at all may ever be applied without a person. nextRev and seen: what the next
+     decision carries; open: the attempts it should settle. */
   function recState(records) {
     records = records || [];
     var atts = [], decs = [], bad = [];
     records.forEach(function (r) { if (!r || !r.rec) { bad.push(r && r.name || '?'); return; } (r.rec.kind === 'attempt' ? atts : decs).push(r); });
     var top = 0; decs.forEach(function (d) { if (d.rec.decisionRev > top) top = d.rec.decisionRev; });
-    var tops = decs.filter(function (d) { return d.rec.decisionRev === top; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-    var outcome = {}; decs.forEach(function (d) { if (d.rec.attempt) outcome[d.rec.attempt] = true; });
-    var open = atts.filter(function (a) { return !outcome[a.rec.attempt]; }).map(function (a) { return a.rec.attempt; });
-    var applied = decs.filter(function (d) { return d.rec.status === 'applied'; }).length;
-    var state = bad.length ? 'unknown' : applied >= 2 ? 'applied-twice' : tops.length > 1 ? 'decided-twice' : open.length ? 'maybe'
-      : tops.length ? ({ applied: 'applied', declined: 'declined', reopened: 'reopened' }[tops[0].rec.status] || 'tried') : 'pending';
-    return { state: state, auto: records.length === 0, bad: bad, open: open, attempts: atts.map(function (a) { return a.rec.attempt; }), applied: applied, nextRev: top + 1, seen: tops.length ? tops[0].name : null,
-      top: tops.length === 1 ? tops[0].rec : null };
+    var last = decs.filter(function (d) { return d.rec.decisionRev === top; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+    var settled = {}; decs.forEach(function (d) { (d.rec.settles || []).forEach(function (a) { settled[a] = true; }); if (d.rec.attempt) settled[d.rec.attempt] = true; });
+    var open = atts.filter(function (a) { return !settled[a.rec.attempt]; }).map(function (a) { return a.rec.attempt; });
+    var applied = decs.filter(function (d) { return d.rec.status === 'applied'; }).sort(function (a, b) { return a.rec.decisionRev - b.rec.decisionRev; }), twice = false;
+    for (var i = 0; i < applied.length; i++) for (var j = i + 1; j < applied.length; j++) {
+      var a = applied[i].rec, b = applied[j].rec;
+      /* The same application when either settled the other's attempt (Apply again, Mark as applied); otherwise two. */
+      if (!((a.attempt && (b.settles || []).indexOf(a.attempt) >= 0) || (b.attempt && (a.settles || []).indexOf(b.attempt) >= 0))) twice = true;
+    }
+    var deciding = decs.filter(function (d) { return DECIDING[d.rec.status]; }), dtop = 0;
+    deciding.forEach(function (d) { if (d.rec.decisionRev > dtop) dtop = d.rec.decisionRev; });
+    var dtops = deciding.filter(function (d) { return d.rec.decisionRev === dtop; });
+    var state = bad.length ? 'unknown' : twice ? 'applied-twice' : dtops.length > 1 ? 'decided-twice' : open.length ? 'maybe'
+      : dtops.length ? dtops[0].rec.status : decs.length ? 'tried' : 'pending';
+    return { state: state, auto: records.length === 0, bad: bad, open: open, attempts: atts.map(function (a) { return a.rec.attempt; }), applied: applied.length, nextRev: top + 1, seen: last.length ? last[0].name : null,
+      top: dtops.length === 1 ? dtops[0].rec : null };
   }
   /* The records a person saw in Review, by name and SHA-256 of their bytes; null when one can't be read (it can't be reviewed). */
   function reviewed(records) {
@@ -150,13 +167,16 @@ PF.proposals = (function () {
       if (bad[m.id]) return 'invalid';
       var st = states[m.id].state;
       if (st === 'applied' || st === 'applied-twice' || st === 'declined' || st === 'unknown') return st;
-      if (replaced[m.id]) return 'replaced';
+      if (replaced[m.id] || st === 'replaced') return 'replaced';
       if (m.after) {
         var t = by[m.after];
         if (!t) return 'waiting';
         var ts = states[t.id].state;
-        if (replaced[t.id] || ts === 'declined' || bad[t.id]) return 'review';
-        if (ts !== 'applied' && ts !== 'applied-twice') return 'waiting';
+        /* The draft is already the text it starts from: a fast-forward, whatever the earlier one's records say. */
+        if (!(draft && draft.exists && m.base.rev === draft.rev)) {
+          if (replaced[t.id] || ts === 'declined' || ts === 'replaced' || bad[t.id]) return 'review';
+          if (ts !== 'applied' && ts !== 'applied-twice') return 'waiting';
+        }
       }
       if (draft && draft.exists) return m.rev === draft.rev ? 'already' : m.base.rev === draft.rev ? 'ready' : 'older';
       return m.base.kind === 'none' || m.base.kind === 'version' ? 'ready' : 'older';
