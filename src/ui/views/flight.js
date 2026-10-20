@@ -4,8 +4,10 @@
    exact version shown, so another version's history never reads as evidence for this one. */
 (function () {
   'use strict';
-  var V = PF.views, U = PF.util, R = PF.run, I = PF.icons.icon, esc = U.esc;
+  var V = PF.views, U = PF.util, R = PF.run, T = PF.types, I = PF.icons.icon, esc = U.esc;
   var MODE = { 'READ-DO': 'Read-Do', 'DO-CONFIRM': 'Do-Confirm' };
+  /* Up to this many steps in the whole checklist, every phase's steps start open; a longer one starts as an overview. */
+  var OPEN_MAX = 40;
 
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
   /* "41 min", "2 h 5 min": a typical time is approximate, so seconds would be false precision. */
@@ -41,12 +43,44 @@
   }
   function gateLabel(g) { return g.implicit ? 'then a check that the phase is done' : 'then gate ' + g.title; }
 
-  function leg(ctx, map, p, i, an, notes) {
-    var n = map.phases.length, musts = p.steps.filter(function (s) { return s.must; }).length, mode = MODE[p.mode] || '';
+  /* Whether phase i's steps are open: a phase opened or closed by hand, then Show all or Hide all, then the default.
+     The choice is this browser's, per process (app.js keeps it in state.fpSteps). */
+  function stepsOpen(kept, i, def) {
+    if (kept && kept.p && typeof kept.p[i] === 'boolean') return kept.p[i];
+    if (kept && typeof kept.d === 'boolean') return kept.d;
+    return def;
+  }
+  /* A step's line: its type, its text (a button that opens it in the checklist, in the version shown), must-do, the skill
+     built from this version that covers it, and its roles. */
+  function stepLine(s, go, types, auto) {
+    var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
+    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (by.length ? '<span class="badge b-skill">' + I('spark') + esc(by.join(', ')) + '</span>' : '') +
+      (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '');
+    return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + esc(s.text) +
+      '<span class="sr">. Show it in the checklist</span></button>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+  }
+  function stepList(steps, name, line) { return '<ol class="fp-sl" aria-label="Steps in ' + esc(name) + '">' + steps.map(line).join('') + '</ol>'; }
+  /* The phase's steps behind a native disclosure, lanes side by side as in the card, and the gate as the last line. */
+  function stepsBlock(p, i, open, go, types, auto) {
+    var musts = p.steps.filter(function (s) { return s.must; }).length;
+    var line = function (s) { return stepLine(s, go, types, auto); };
+    var lead = p.steps.filter(function (s) { return !s.track; }), body = '';
+    if (lead.length || !p.tracks.length) body += stepList(lead, p.title, line);
+    if (p.tracks.length) body += '<div class="fp-slanes">' + p.tracks.map(function (t) {
+      var name = t.title || 'Track';
+      return '<div class="fp-slane"><p class="fp-slane-h"><b>' + esc(name) + '</b>' + (t.roles.length ? ' <span class="pv-role">@' + esc(t.roles.join(' @')) + '</span>' : '') + '</p>' +
+        stepList(p.steps.filter(function (s) { return s.track === t.id && t.id; }), name, line) + '</div>';
+    }).join('') + '</div>';
+    body += p.gate.implicit ? '<p class="fp-sgate">' + I('check') + '<span>Phase checked, no named gate</span></p>' : '<p class="fp-sgate">' + I('gate') + '<span>Gate: ' + esc(p.gate.title) + '</span></p>';
+    return '<details class="fp-steps" data-fps="' + i + '" data-fps-open="' + (open ? 1 : 0) + '"' + (open ? ' open' : '') + '><summary id="fps-' + i + '">' + plural(p.steps.length, 'step') + (musts ? ' · ' + musts + ' must-do' : '') +
+      '<span class="sr"> in ' + esc(p.title) + '</span></summary><div class="fp-sbody">' + body + '</div></details>';
+  }
+
+  function leg(ctx, map, p, i, an, notes, steps) {
+    var n = map.phases.length, mode = MODE[p.mode] || '';
     var label = 'Phase ' + (i + 1) + ' of ' + n + ', ' + p.title + (mode ? ', ' + mode : '') + ', ' + plural(p.steps.length, 'step') + ', ' + gateLabel(p.gate) + '. Show it in the checklist';
     var head = '<div class="fp-head"><div class="fp-eye" aria-hidden="true">Phase ' + (i + 1) + (mode ? ' · ' + mode : '') + '</div>' +
-      '<h3 class="fp-name"><button class="fp-go" data-act="flight-phase" data-id="' + i + '" aria-label="' + esc(label) + '">' + esc(p.title) + '</button></h3>' +
-      '<div class="small">' + plural(p.steps.length, 'step') + (musts ? ' · ' + musts + ' must-do' : '') + '</div>';
+      '<h3 class="fp-name"><button class="fp-go" data-act="flight-phase" data-id="' + i + '" aria-label="' + esc(label) + '">' + esc(p.title) + '</button></h3>';
     var time = an && p.id && an.phasesById.filter(function (x) { return x.id === p.id; })[0];
     if (time && time.medianMs != null) head += '<div class="fp-line">' + I('clock') + '<span>Typically ' + about(time.medianMs) + ' <span class="small">(' + time.n + ' of ' + plural(time.of, 'run') + ')</span>' + V.insightsQual(time.q, null, 'span') + '</span></div>';
     else if (time && time.q && time.q.cohort) head += '<div class="fp-line">' + I('clock') + '<span>No typical time yet' + V.insightsQual(time.q, null, 'span') + '</span></div>';
@@ -67,7 +101,8 @@
     p.steps.filter(function (s) { return s.type === 'run.process' && s.fields.process; }).forEach(function (s) {
       lines += '<div class="fp-line fp-conn">' + I('fork') + '<span><b>Connecting</b> ' + esc(titleOf(ctx, s.fields.process)) + '</span></div>';
     });
-    return '<div class="fp-card">' + head + (lines ? '<div class="fp-lines">' + lines + '</div>' : '') + '</div>' + gate(p.gate);
+    return '<div class="fp-card">' + head + (lines ? '<div class="fp-lines">' + lines + '</div>' : '') +
+      stepsBlock(p, i, steps.open(i), steps.go, steps.types, notes.filter(function (x) { return x.kind === 'auto' && x.skill.steps; })) + '</div>' + gate(p.gate);
   }
   /* A gate the checklist names is a checkpoint with the hazard stripe; a phase without one just ends with a check. */
   function gate(g) {
@@ -85,10 +120,18 @@
     var said = an ? an.notes.concat(an.excluded) : [];
     if (an && !an.runs) an = null;
     var notes = skillNotes(p.skills, pub, p.latest), meta = map.meta;
-    var h = '<ol class="fp" aria-label="Flight plan">';
+    var total = map.phases.reduce(function (n, ph) { return n + ph.steps.length; }, 0), kept = ((ctx.state || {}).fpSteps || {})[p.id];
+    var steps = {
+      open: function (i) { return stepsOpen(kept, i, total <= OPEN_MAX); },
+      /* A step opens in the checklist through go(), in the version shown; the draft is shown when no version is named. */
+      go: 'data-view="process" data-process="' + esc(p.id) + '"' + (pub ? ' data-map-ver="' + esc(pub.folder || pub.info.folder) + '"' : ''),
+      types: pub ? pub.types : (ctx.data.stepTypes || {}).types
+    };
+    var all = map.phases.every(function (ph, i) { return steps.open(i); });
+    var h = '<div class="fp-tools"><button type="button" class="mini fp-all" data-act="fp-steps" data-id="' + (all ? 'hide">Hide all steps' : 'show">Show all steps') + '</button></div><ol class="fp" aria-label="Flight plan">';
     h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
       notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return noteLine(x, null); }).join('') + '</li>';
-    map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes) + '</li>'; });
+    map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes, steps) + '</li>'; });
     h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + (an ? V.insightsQual(an.durationQ, null, 'span') : '') + '</li>';
     /* The footer counts finished runs only; a run still going adds only what it has done so far. */
     var foot = !an ? (said.length ? 'No runs of this version could be counted.' : 'No runs of this version yet.')

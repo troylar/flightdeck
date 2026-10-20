@@ -18,6 +18,28 @@
   function lsSet(k, v) { try { localStorage.setItem(LS + ':' + k, JSON.stringify(v)); } catch (e) { /* per-viewer convenience only */ } }
   /* Editor sidebar widths this viewer chose (V.PANES): kept in this browser only, never in the team folder. */
   function panesKept() { var v = lsGet('panes', {}), out = {}; if (v && typeof v === 'object') Object.keys(PF.views.PANES).forEach(function (k) { if (typeof v[k] === 'number' && isFinite(v[k])) out[k] = Math.round(v[k]); }); return out; }
+  /* Which flight plan phases show their steps, per process (views/flight.js): kept in this browser only. Read, never
+     trusted: only a process id, Show all or Hide all (d) and phase numbers (p) with true or false are kept. */
+  var FP_MAX = 200;
+  function fpStepsKept() {
+    var v = lsGet('fpSteps', {}), out = Object.create(null);
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+    Object.keys(v).slice(0, FP_MAX).forEach(function (k) {
+      var x = v[k], o = {};
+      if (!/^[\w.-]{1,100}$/.test(k) || k === '__proto__' || !x || typeof x !== 'object') return;
+      if (typeof x.d === 'boolean') o.d = x.d;
+      if (x.p && typeof x.p === 'object') Object.keys(x.p).forEach(function (i) { if (/^\d{1,3}$/.test(i) && typeof x.p[i] === 'boolean') (o.p = o.p || {})[i] = x.p[i]; });
+      out[k] = o;
+    });
+    return out;
+  }
+  function fpStepsKeep(pid, o) {
+    var all = state.fpSteps = state.fpSteps || Object.create(null);
+    delete all[pid]; all[pid] = o;
+    var ks = Object.keys(all); if (ks.length > FP_MAX) delete all[ks[0]];
+    var plain = {}; Object.keys(all).forEach(function (k) { plain[k] = all[k]; });
+    lsSet('fpSteps', plain);
+  }
   /* Home acknowledgments this viewer dismissed in this folder: only keys of the form PF.corrections.acks makes are kept. */
   var ACK_KEY = /^[ld]\.[a-z0-9][a-z0-9-]{0,59}\.[\w-]{1,60}(\.\d{1,9})?$/, ACK_MAX = 300;
   function acksDismissed() { var v = lsGet('acks:' + fsKey(), []); return Array.isArray(v) ? v.filter(function (k) { return typeof k === 'string' && ACK_KEY.test(k); }).slice(-ACK_MAX) : []; }
@@ -62,7 +84,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -2711,6 +2733,12 @@
       if (el.scrollIntoView) el.scrollIntoView({ block: 'start' });
       if (document.activeElement !== el) el.focus({ preventScroll: true });
     },
+    /* Show all steps or Hide all steps in the flight plan: every phase of this process, kept in this browser. */
+    'fp-steps': function (id) {
+      if (!state.processId) return;
+      fpStepsKeep(state.processId, { d: id === 'show' });
+      state.focus = '[data-act="fp-steps"]'; render();
+    },
     'copy-map': function () { var pre = document.getElementById('map-source'); copyText(pre ? pre.textContent : '', pre, 'Copied.'); },
     'restore-draft': function (id, b) {
       var p = currentProcess(), v = p && p.all.filter(function (x) { return x.folder === id; })[0];
@@ -3786,6 +3814,14 @@
     var d = e.target; if (!d || !d.dataset) return;
     if (d.dataset.group) (state.groupsOpen = state.groupsOpen || {})[d.dataset.group] = d.open;
     if (d.dataset.disc) (state.disc = state.disc || {})[d.dataset.disc] = d.open;
+    /* A flight plan phase opened or closed by hand. Only a change from what the page drew counts: a browser also fires
+       toggle for a disclosure drawn open. */
+    if (d.dataset.fps != null && state.processId && /^\d{1,3}$/.test(d.dataset.fps) && !!d.open !== (d.dataset.fpsOpen === '1')) {
+      var was = (state.fpSteps || {})[state.processId] || {}, o = { p: Object.assign({}, was.p) };
+      if (typeof was.d === 'boolean') o.d = was.d;
+      o.p[d.dataset.fps] = !!d.open;
+      fpStepsKeep(state.processId, o); render();
+    }
   }, true);
   document.addEventListener('change', function (e) {
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
@@ -3977,6 +4013,13 @@
       ACTIONS['open-process'](t.process);
       if (t.mapVer) ACTIONS['view-version'](t.mapVer);
       if (t.ptab && t.ptab !== 'overview') ACTIONS.ptab(t.ptab);
+      /* A step opens in the checklist, at that step, with focus on it. */
+      if (t.step) {
+        var sid = 'cl-st-' + t.step;
+        state.clView = 'list'; state.focus = sid; render();
+        var el = document.getElementById(sid);
+        if (el) { if (el.scrollIntoView) el.scrollIntoView({ block: 'center' }); if (document.activeElement !== el) el.focus({ preventScroll: true }); }
+      }
       return true;
     }
     if (t.view === 'skill') { if (!t.skill) return false; ACTIONS['open-skill'](t.skill); return true; }

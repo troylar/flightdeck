@@ -159,6 +159,82 @@ rule('App: a process shows as a flight plan, and choosing a phase in it goes bac
   assert.ok(/<h3 id="cl-ph-1" tabindex="-1">/.test(app.html()) && !/class="fp"/.test(app.html()) && /data-act="flight" data-id="list" aria-pressed="true"/.test(app.html()), 'a phase opens the checklist at that phase');
 });
 
+/* A step's button in the flight plan, as the page drew it: its data-* attributes. */
+function fpStepData(html, id) {
+  const at = html.indexOf('data-step="' + id + '"'), tag = html.slice(html.lastIndexOf('<button', at), html.indexOf('>', at)), d = {};
+  tag.replace(/\sdata-([\w-]+)="([^"]*)"/g, (m, k, v) => { d[k.replace(/-(\w)/g, (x, c) => c.toUpperCase())] = v; });
+  return d;
+}
+const openPhases = html => (html.match(/<details class="fp-steps"[^>]* open>/g) || []).length;
+
+rule('App: choosing a step in the flight plan opens that step in the checklist, in the same version', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  const v1 = /data-act="view-version" data-id="(v1-[^"]+)"/.exec(app.html())[1];
+  app.click('view-version', v1); await app.tick();
+  app.click('flight', 'plan'); await app.tick();
+  const d = fpStepData(app.html(), 'jenkins');
+  assert.strictEqual(d.act, 'go'); assert.strictEqual(d.mapVer, v1, 'the step names the version shown');
+  app.click('go', undefined, d); await app.tick();
+  assert.ok(/data-act="flight" data-id="list" aria-pressed="true"/.test(app.html()) && !/class="fp"/.test(app.html()), 'the checklist');
+  assert.ok(/<li id="cl-st-jenkins" tabindex="-1">/.test(app.html()) && app.focused() === 'cl-st-jenkins', 'at that step, with focus on it');
+  assert.ok(/You're looking at v1/.test(app.html()), 'still v1');
+});
+
+rule('App: Show all steps and Hide all steps open and close every phase, and the choice is kept per process in this browser', async () => {
+  const app = boot(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('flight', 'plan'); await app.tick();
+  const n = (app.html().match(/<details class="fp-steps"/g) || []).length;
+  assert.ok(n > 1 && openPhases(app.html()) === n, 'a short checklist starts open');
+  app.click('fp-steps', 'hide'); await app.tick();
+  assert.ok(openPhases(app.html()) === 0 && /data-act="fp-steps" data-id="show">Show all steps</.test(app.html()), 'all closed');
+  assert.strictEqual(app.focused(), '[data-act="fp-steps"]', 'focus stays on the control');
+  assert.deepStrictEqual(JSON.parse(app.store['preflight:fpSteps']), { release: { d: false } }, 'kept in this browser');
+  assert.ok(!app.files('').some(f => /fpSteps/.test(app.fs.files[f].t || '')), 'never in the team folder');
+  // Opening one phase by hand is kept too; the control still offers Show all.
+  app.fire('toggle', { target: { dataset: { fps: '1', fpsOpen: '0' }, open: true } }); await app.tick();
+  assert.deepStrictEqual(JSON.parse(app.store['preflight:fpSteps']), { release: { d: false, p: { 1: true } } });
+  assert.ok(/data-fps="1" data-fps-open="1" open>/.test(app.html()) && openPhases(app.html()) === 1 && /data-id="show">Show all steps</.test(app.html()));
+  // A toggle the page drew itself (an open phase reported open) changes nothing.
+  app.fire('toggle', { target: { dataset: { fps: '1', fpsOpen: '1' }, open: true } }); await app.tick();
+  assert.deepStrictEqual(JSON.parse(app.store['preflight:fpSteps']), { release: { d: false, p: { 1: true } } });
+  app.click('fp-steps', 'show'); await app.tick();
+  assert.ok(openPhases(app.html()) === n && /data-id="hide">Hide all steps</.test(app.html()), 'all open again');
+  assert.deepStrictEqual(JSON.parse(app.store['preflight:fpSteps']), { release: { d: true } });
+  app.click('fp-steps', 'hide'); await app.tick();
+  // Another process keeps its own default; another window in this browser opens the release as it was left.
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(openPhases(app.html()) > 0, 'another process: its own default');
+  const two = boot({ localStore: { 'preflight:fpSteps': app.store['preflight:fpSteps'] } }); await two.tick(80);
+  two.choose('person-casey'); await two.tick();
+  two.click('open-process', 'release'); await two.tick(); two.click('flight', 'plan'); await two.tick();
+  assert.strictEqual(openPhases(two.html()), 0, 'closed, as left');
+  // What was kept is read, never trusted.
+  const odd = boot({ localStore: { 'preflight:fpSteps': '{"release":{"d":"yes","p":{"x":true,"0":"no","1":false}},"__proto__":{"d":false}}' } }); await odd.tick(80);
+  odd.choose('person-casey'); await odd.tick();
+  odd.click('open-process', 'release'); await odd.tick(); odd.click('flight', 'plan'); await odd.tick();
+  assert.ok(/data-fps="1" data-fps-open="0">/.test(odd.html()) && openPhases(odd.html()) === n - 1, 'only a phase number with true or false counts');
+});
+
+rule('App: when the browser refuses storage, Show all steps and Hide all steps still work on the page', async () => {
+  const app = boot({ storageThrows: /fpSteps/, localStore: { 'preflight:fpSteps': '{"release":{"d":false}}' } }); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('flight', 'plan'); await app.tick();
+  const n = (app.html().match(/<details class="fp-steps"/g) || []).length;
+  assert.strictEqual(openPhases(app.html()), n, 'nothing could be read: the default');
+  app.click('fp-steps', 'hide'); await app.tick();
+  assert.strictEqual(openPhases(app.html()), 0, 'for this page');
+  app.fire('toggle', { target: { dataset: { fps: '0', fpsOpen: '0' }, open: true } }); await app.tick();
+  assert.strictEqual(openPhases(app.html()), 1);
+  app.click('fp-steps', 'show'); await app.tick();
+  assert.strictEqual(openPhases(app.html()), n);
+  assert.strictEqual(app.store['preflight:fpSteps'], '{"release":{"d":false}}', 'what was kept before is untouched');
+});
+
 rule('App: the sections switch from the top bar, and Home never opens a run by itself', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-casey'); await app.tick();
