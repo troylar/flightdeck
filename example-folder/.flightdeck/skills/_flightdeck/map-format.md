@@ -60,7 +60,7 @@ roles: author, reviewer
 | `^detail` in a step | Ties the step to a run detail: if the detail changes, the step needs a re-check. |
 | `  field: value` | A field of the step's type (see below). |
 | `  > text` | A note shown in the step's panel. Markdown: **bold**, `code`, links, lists. |
-| `  ![caption](images/…)` | A reference screenshot from the folder's `images/`. |
+| `  ![caption](images/…)` | A reference screenshot from the folder's `images/`. A step can have several (see Screenshots). |
 | `### Track: Name @role {#id}` | Inside a phase: the steps below it, up to the next track or gate, are worked in parallel by that role. Every track finishes before the phase's gate. |
 | `  at: 15:00` | On a step or gate: it should start at that clock time on the run's day. |
 | `  due: 17:30` | On a step or gate: it should be done by that clock time on the run's day. |
@@ -70,6 +70,18 @@ roles: author, reviewer
 Clock times are read in the time zone of whoever started the run, so everyone sees the same moment in their own time. Give a step or gate one of `at:`, `due:` or `after:`, not more than one.
 
 **IDs** (`{#id}`) are required on every phase, step and written gate. Keep a step's ID when you reword it; give genuinely new work a new ID; never reuse an old one.
+
+## Screenshots
+
+A step can show reference screenshots: one `![caption](images/…)` line each, indented under the step, in the order they're shown. The caption is plain text on one line, without `[` or `]`, and it's also the picture's alt text, so say what it shows. The file must be in the folder's `images/` (usually `images/<process>/`) as a PNG, JPEG, WebP or GIF.
+
+```markdown
+- [ ] {confirm} Feature flags set in the deploy values {#flags}
+  ![The flags page with checkout on](images/release/flags-1760000000000-w8k2m4q7xa-k3m9p2.png)
+  ![The values file in the pull request](images/release/flags-1760000000123-w8k2m4q7xa-x7w1q4.png)
+```
+
+In the builder, select a step: its Screenshots section adds images with Choose files, by dropping them on it, or by pasting one. Each image is checked (PNG, JPEG, WebP or GIF, up to 5 MB, and its contents match), written once as `images/<process>/<step-id>-<time>-<window>-<random>.<ext>`, a name that includes the window adding it, so it never replaces another file, and read back; only then is its line added to the draft. Captions are edited in place, Move up and Move down reorder them, and Remove takes the line out of the draft only: the image stays in the folder, since other versions and runs may use it. Every one of these is a change Undo takes back, and nothing reaches the draft file until Save draft. Publishing copies each screenshot into the version, so a published version keeps its pictures even if `images/` changes later. Phases and gates don't have screenshots.
 
 ## Step types
 

@@ -1169,6 +1169,19 @@ mark { background: var(--mark); color: var(--on-mark); border-radius: 3px; paddi
 .ob-crumbs li:last-child { color: var(--ink); font-weight: 600; }
 .ob-src summary, .ob-help summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .ob-src > p { margin: 6px 0 0; }
+.ob-shots { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.ob-shot { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: start; }
+.ob-shot-pic { width: 120px; height: 76px; }
+.ob-shot-pic:hover { border-color: var(--line); }
+.ob-shot-body { display: grid; gap: 6px; min-width: 0; }
+.ob-shot-acts { flex-wrap: wrap; gap: 6px; }
+.ob-shot-src { margin: 0; overflow-wrap: anywhere; color: var(--muted); }
+.ob-shot-add { display: grid; gap: 8px; padding: 12px; border: 1px dashed var(--field); border-radius: 8px; }
+.ob-shot-add.dropping { outline: 2px dashed var(--focus); outline-offset: 2px; }
+.ob-shot-add-h { margin: 0; }
+.ob-shot-add .row { flex-wrap: wrap; gap: 8px; align-items: center; }
+#ob-shot-status:empty { display: none; }
+@media (max-width: 480px) { .ob-shot { grid-template-columns: 1fr; } .ob-shot-pic { width: 100%; max-width: 240px; height: 140px; } }
 .ob-help p { margin: 6px 0 0; max-width: 70ch; }
 .ob-bar { align-items: center; }
 .ob-switch:has(input:checked), .ob-switch:has(#ob-mark-must:checked) { border-color: var(--ink); background: var(--paper); }

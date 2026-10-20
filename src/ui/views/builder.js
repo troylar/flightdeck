@@ -266,6 +266,7 @@
       Object.keys(s.fields).forEach(function (f) { if (names.indexOf(f) < 0) names.push(f); });
       h += '<h3 class="ob-sec">Fields</h3>' + (names.length ? names.map(function (f) { return fieldRow(ctx, def, s, f); }).join('') : '<p class="small">This type asks for nothing more.</p>');
       if (s.notes) h += '<p class="small">Its ' + (s.notes === 1 ? 'note line stays' : s.notes + ' note lines stay') + ' as written; edit notes in Markdown.</p>';
+      h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
         '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button>' +
@@ -306,6 +307,31 @@
       '<label class="field" for="ob-g-approves">What passing it approves <span class="small">use ^details from the run</span><input id="ob-g-approves" maxlength="200" data-enter="ob-commit" value="' + esc(gt.approves) + '"' + errAt(ctx, 'ob-g-approves') + '></label>' + errMsg(ctx, 'ob-g-approves') +
       source(ctx, gt.id, 'gate', U.slug(gt.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this gate</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
+  }
+
+  /* A step's reference screenshots: thumbnails (alt text is the caption) with the caption as a box, Move up / Move down and
+     Remove (the line only; the file stays in images/), then a place to add more by Choose files, drop or paste (app.js
+     writes each image once and reads it back before its line is added). Thumbnails come from the folder's images/, never a
+     run's publication (the last argument to ctx.img). */
+  function shotsSection(ctx, p, s) {
+    var A = PF.attach, n = s.shots.length, busy = ctx.shotBusy ? +ctx.shotBusy(p.id) || 0 : 0;
+    var h = '<h3 class="ob-sec" id="ob-shots-h">Screenshots</h3>';
+    if (n) {
+      h += '<ol class="ob-shots" aria-labelledby="ob-shots-h">' + s.shots.map(function (sh, k) {
+        var id = 'ob-shot-cap-' + k, which = 'screenshot ' + (k + 1);
+        return '<li class="ob-shot"><div class="thumb ob-shot-pic">' + ctx.img(sh.src, sh.caption, false, true) + '</div><div class="ob-shot-body">' +
+          '<label class="field" for="' + id + '">Caption<span class="sr"> for ' + which + ' of ' + n + '</span><input id="' + id + '" maxlength="200" data-enter="ob-commit" value="' + esc(sh.caption) + '"' + errAt(ctx, id) + '></label>' + errMsg(ctx, id) +
+          '<div class="row ob-shot-acts"><button type="button" class="mini" data-act="ob-shot-move" data-id="' + k + '" data-dir="up" aria-label="Move ' + which + ' up">Move up</button>' +
+          '<button type="button" class="mini" data-act="ob-shot-move" data-id="' + k + '" data-dir="down" aria-label="Move ' + which + ' down">Move down</button>' +
+          '<button type="button" class="mini" data-act="ob-shot-remove" data-id="' + k + '" aria-label="Remove ' + which + ': ' + esc(sh.caption) + '">Remove</button></div>' +
+          '<p class="small ob-shot-src"><code>' + esc(sh.src) + '</code></p></div></li>';
+      }).join('') + '</ol><p class="small">Removing takes it out of this draft only. The image file stays in the folder, since other versions or runs may use it.</p>';
+    } else h += '<p class="small">No screenshots yet.</p>';
+    return h + '<div class="ob-shot-add" data-drop="shots" data-id="' + esc(s.key) + '" role="group" aria-labelledby="ob-shot-add-h"><p class="ob-shot-add-h" id="ob-shot-add-h"><b>Add screenshots</b></p>' +
+      '<label class="field" for="ob-shot-new">Caption for the next screenshot<input id="ob-shot-new" maxlength="200" data-nav-safe placeholder="What it shows"' + errAt(ctx, 'ob-shot-new') + '></label>' + errMsg(ctx, 'ob-shot-new') +
+      '<div class="row"><label class="btn" for="ob-shot-file">' + I('clip') + 'Choose files</label><input type="file" id="ob-shot-file" class="sr" accept="' + esc(A.SHOT_ACCEPT) + '" multiple' + (errOf(ctx, 'ob-shot-file') ? ' aria-invalid="true" aria-describedby="ferr-ob-shot-file ob-shot-hint"' : ' aria-describedby="ob-shot-hint"') + '>' +
+      '<span class="small" id="ob-shot-hint">Or drop or paste images here. PNG, JPEG, WebP or GIF, up to 5 MB each.</span></div>' + errMsg(ctx, 'ob-shot-file') +
+      '<p class="small" id="ob-shot-status" role="status">' + (busy ? 'Adding ' + busy + ' screenshot' + (busy === 1 ? '' : 's') + '…' : '') + '</p></div>';
   }
 
   /* After builder edits, the Markdown view lists the lines that changed since the draft was opened or saved. */
