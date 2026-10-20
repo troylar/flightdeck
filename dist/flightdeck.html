@@ -24412,18 +24412,33 @@ PF.examples = (function () {
   function acceptsOf(fk) { var all = state.reportIntents || (state.reportIntents = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
   function pendingAccepts(key) { var ins = acceptsOf(); return Object.keys(ins).filter(function (k) { return ins[k].runKey === key; }).map(function (k) { return { key: ins[k].gkey, err: ins[k].err }; }); }
   function dropAccepts(key) { var ins = acceptsOf(); Object.keys(ins).forEach(function (k) { if (ins[k].runKey === key && !ins[k].writing) delete ins[k]; }); }
-  /* Accept: the bytes are read again and must be the ones shown, then the answer goes through answerStep like every answer. */
+  /* A report as the folder has it now: every copy read again and grouped (PF.reports.group), so a copy that arrived or
+     changed since it was shown is judged too. Rejects when the reports folder can't be read. */
+  function freshGroup(dfs, g) {
+    return repo.loadRunReports(dfs, g.process, g.run).then(function (res) {
+      if (res.failed) throw new Error('The reports folder couldn\'t be read: ' + res.failed);
+      return res.list.filter(function (x) { return x.key === g.key; })[0] || null;
+    });
+  }
+  /* Every decision on a report is written here, and the hold is checked again right before the write, in the write queue. */
+  function putDecision(dfs, rec) {
+    return queued(function () {
+      var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
+      if (held) return Promise.reject(new Error(held));
+      return repo.decideReport(dfs, rec, WRITER);
+    });
+  }
+  /* Accept: every copy is read again and the report must be the bytes shown, with no copy that differs or can't be read; then
+     the answer goes through answerStep like every answer. */
   function acceptReport(id) {
     var o = repItem(id);
     if (!o.it || state.repSaving) return;
-    var X = PF.reports, g = o.it.g, key = o.r.process + '/' + o.r.id, gg = gen, fk = fsKey(), dfs = state.fs;
-    var copy = g.copies.filter(function (c) { return c.ok && c.sha256 === g.sha256; })[0];
-    if (!copy) return;
+    var X = PF.reports, shown = o.it.g, key = o.r.process + '/' + o.r.id, gg = gen, fk = fsKey(), dfs = state.fs;
     state.repSaving = id; render();
-    repo.rereadReport(dfs, g.process, copy.name).then(function (now) {
+    freshGroup(dfs, shown).then(function (g) {
       if (gg !== gen) return;
       state.repSaving = null;
-      if (!now || !now.report || now.sha256 !== g.sha256) { delete repCache[fk + '\n' + key]; state.repPick = null; say('This report changed in the team folder since it was shown, so nothing was accepted. Look at it again, then decide.', 'warn'); render(); return; }
+      if (!g || !g.report || g.differ || g.unreadable.length || g.sha256 !== shown.sha256) { delete repCache[fk + '\n' + key]; state.repPick = null; say('This report changed in the team folder since it was shown, so nothing was accepted. Look at it again, then decide.', 'warn'); render(); return; }
       var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2);
       var el = X.eligible(g, r2, map, { recording: ctx.recording(r2), readOnly: r2 ? repReadOnly(r2) : '', held: repHeld(g), fillOpen: fillOpenOn(key, g.step) });
       if (!el.ok) { say(el.why, 'warn'); render(); return; }
@@ -24469,7 +24484,7 @@ PF.examples = (function () {
     var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
     if (held) { it.tried = true; it.err = held; say(held, 'warn'); render(); return Promise.resolve(false); }
     it.writing = true; it.tried = true; it.err = '';
-    return queued(function () { return repo.decideReport(dfs, it.rec, WRITER); }).then(function () {
+    return putDecision(dfs, it.rec).then(function () {
       it.writing = false; if (ins[it.k] === it) delete ins[it.k];
       if (g !== gen) return true;
       say('Report accepted. The step is checked with its evidence.', 'good');
@@ -24491,7 +24506,7 @@ PF.examples = (function () {
     catch (e) { if (e.field) { if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: e.field, msg: e.message }; state.focus = e.field; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
     state.repSaving = id; render();
-    queued(function () { return repo.decideReport(dfs, rec, WRITER); }).then(function () {
+    putDecision(dfs, rec).then(function () {
       if (gg !== gen) return;
       state.repSaving = null; state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
@@ -24514,21 +24529,20 @@ PF.examples = (function () {
     var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
     if (!u || !u.recordable || !ctx.recording(r) || state.repSaving) return;
     if (repHeld(u.g)) { say(repHeld(u.g), 'warn'); render(); return; }
-    var g = u.g, copy = g.copies.filter(function (c) { return c.ok && c.sha256 === u.sha256; })[0], dfs = state.fs, gg = gen, fk = fsKey();
-    if (!copy) return;
+    var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();
-    repo.rereadReport(dfs, g.process, copy.name).then(function (now) {
+    freshGroup(dfs, u.g).then(function (g) {
       if (gg !== gen) return;
       state.repSaving = null;
-      if (!now || !now.report || now.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
-      var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
-      /* Judged again on the run as it is now, with the bytes just read: the same answer, holding exactly this report's evidence. */
-      var again = r2 ? X.unrecorded(r2, [Object.assign({}, g, { report: now.report })], repCur(), map).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+      if (!g || !g.report || g.differ || g.unreadable.length || g.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
+      var now = g, r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
+      /* Judged again on the run as it is now, with every copy just read: the same answer, holding exactly this report's evidence. */
+      var again = r2 ? X.unrecorded(r2, [g], repCur(), map).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
       if (!a || !again || !again.recordable) { say(again && again.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
       var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
       try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
       catch (e) { say(e.message, 'warn'); render(); return; }
-      return queued(function () { return repo.decideReport(dfs, rec, WRITER); }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
+      return putDecision(dfs, rec).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
     }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */

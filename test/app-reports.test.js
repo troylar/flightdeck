@@ -3,7 +3,7 @@
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
-const { boot } = require('./app-harness');
+const { boot, gate } = require('./app-harness');
 
 async function recording() {
   const app = boot({ localStore: { 'preflight:builder': 'false' } });
@@ -233,6 +233,38 @@ rule('App: a decision on a report that can\'t be read holds it: no Accept, Decli
   app.click('rep-accept-go', x.key); app.click('rep-decline-go', x.key); app.click('rep-reopen', x.key); await app.tick(120);
   assert.ok(!isDone(app), 'nothing accepted');
   assert.deepStrictEqual(decisions(app).filter(Boolean).length, 0, 'nothing decided');
+});
+
+rule('App: a differing copy that arrives after the confirmation opens stops Accept', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  app.click('rep-accept', x.key); await app.tick();
+  await app.fs.write(x.path.replace('.json', '-LAPTOP.json'), x.text.replace('"1432"', '"9999"'));
+  app.click('rep-accept-go', x.key); await app.tick(120);
+  assert.ok(!isDone(app), 'nothing accepted');
+  assert.deepStrictEqual(decisions(app), []);
+});
+
+rule('App: a decision that can\'t be read, found while a recovery reads the report, stops the recovery\'s write', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
+  j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '1432', buildLink: 'https://ci.example.com/jobs/1432' } };
+  j.log.push({ at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') });
+  j.rev = (j.rev || 0) + 1;
+  await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  const orig = app.PF.repo.loadRunReports, g = gate(); let hold = true;
+  app.PF.repo.loadRunReports = function () { const a = arguments; if (hold) { hold = false; return g.p.then(() => orig.apply(this, a)); } return orig.apply(this, a); };
+  app.click('rep-record', x.key); await app.tick(20);
+  const h = app.PF.reports.decisionHash({ process: 'release', run: j.id, step: 'jenkins', producer: 'ci-check', id: 'abcd1234' });
+  await app.fs.write('report-decisions/release/' + j.id + '.' + h + '.w9.4.json', '{"format": "flightdeck-report-decision/1", "status": "decl');
+  app.click('refresh'); await app.tick(120);
+  g.open(); await app.tick(120);
+  app.PF.repo.loadRunReports = orig;
+  assert.deepStrictEqual(decisions(app), [], 'nothing written while held');
 });
 
 rule('App: Fill in after an acceptance shows the evidence changed; Decline needs a reason; Reopen writes a decision only', async () => {
