@@ -1601,7 +1601,7 @@ PF.repo = (function () {
         var all = statuses.filter(function (s) { return s.proposal === p.id; });
         /* A plan/2 switched to another version by a person (plan-status/2, retargeted) for this exact plan: the switch, not a
            decision. Switches that name different versions ask again. */
-        var moves = all.filter(function (s) { return s.status === 'retargeted' && hashes.indexOf(s.proposalHash) >= 0; }), mine = all.filter(function (s) { return s.status !== 'retargeted'; });
+        var moves = all.filter(function (s) { return s.status === 'retargeted' && hashes.indexOf(s.proposalHash) >= 0 && s.to && typeof s.to.folder === 'string'; }), mine = all.filter(function (s) { return s.status !== 'retargeted'; });
         var to = moves.map(function (s) { return s.to.folder; }).filter(function (f, i, a) { return a.indexOf(f) === i; }).sort();
         p._retarget = to.length === 1 ? moves.sort(function (a, b) { return String(a.at) < String(b.at) ? 1 : -1; })[0] : null;
         p._retargetClash = to.length > 1 ? to : null;
@@ -1628,9 +1628,14 @@ PF.repo = (function () {
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only).then(function (props) {
       var plans = [], statuses = [];
       props.forEach(function (p) {
-        var v = PF.plans.clean(p, p._file, !!bad), path = 'proposals/' + p._file;
-        if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); if (v.kind === 'newer') refused.push(PF.envelope.refusal(path, PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan', v)); return; }
-        if (v.why) { if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; } }
+        var v = PF.plans.clean(p, p._file, !!bad), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
+        if (v.why) {
+          if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; }
+          /* A plan/2 or plan-status/2 that isn't in its format, and any decision that isn't one (a switch without its version
+             among them), is refused with its reason and never kept. A 1.x plan keeps what every 1.x copy did with it. */
+          if (PF.plans.isExact(p) || v.kind === 'status') { refused.push(PF.envelope.refusal(path, fam, { kind: 'malformed', why: v.why })); return; }
+        }
         if (v.kind === 'status') statuses.push(p);
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });

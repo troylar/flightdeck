@@ -15,7 +15,7 @@ PF.plans = (function () {
     var keys = hashes ? ['folder', 'version', 'mapHash', 'typesHash'] : ['folder', 'version'];
     if (!isObj(p) || Object.keys(p).some(function (k) { return keys.indexOf(k) < 0; })) return 'names a version that isn\'t a version folder';
     if (typeof p.folder !== 'string' || typeof p.version !== 'number' || PF.publish.versionOf(p.folder) !== p.version) return 'names a version that isn\'t a version folder';
-    if (hashes && !(HASH8.test(p.mapHash) && HASH8.test(p.typesHash))) return 'names a version without its fingerprints';
+    if (hashes && !(typeof p.mapHash === 'string' && HASH8.test(p.mapHash) && typeof p.typesHash === 'string' && HASH8.test(p.typesHash))) return 'names a version without its fingerprints';
     return '';
   }
   function textOr(v) { return v == null || typeof v === 'string'; }

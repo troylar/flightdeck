@@ -938,12 +938,12 @@ PF.run = (function () {
     if (extra != null) return 'The run has "' + String(extra).slice(0, 40) + '".';
     var p = o.payload, obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); };
     /* Every run/3 says its features and its types fingerprint; one without is no run/3 this copy wrote. */
-    if (!Array.isArray(o.features) || !/^[0-9a-f]{8}$/.test(o.typesHash)) return 'It doesn\'t say its features and step types as a 2.0 run does.';
+    if (!Array.isArray(o.features) || !(typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash))) return 'It doesn\'t say its features and step types as a 2.0 run does.';
     /* A run/3 on a /1 version (an explicit 2.0 run) has no payload: its version's is implied. */
     if (p != null) {
-      if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
+      if (!obj(p) || !(typeof p.map === 'string' && HEX64.test(p.map)) || !(typeof p.types === 'string' && HEX64.test(p.types)) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
       if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
-      if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p.images).some(function (k) { return !(typeof p.images[k] === 'string' && HEX64.test(p.images[k])); })) return 'Its payload isn\'t one this copy reads.';
       if (Object.keys(p.extensions).length) return 'It holds extensions.';
       if (!PF.pins.shapeOk(p.pins)) return 'It pins versions in a way this copy doesn\'t read.';
     }

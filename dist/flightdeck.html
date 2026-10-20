@@ -4440,7 +4440,7 @@ PF.pins = (function () {
   function childOk(p) {
     return isObj(p) && Object.keys(p).every(function (k) { return ['process', 'version', 'folder', 'mapHash', 'typesHash'].indexOf(k) >= 0; }) &&
       typeof p.process === 'string' && PROC.test(p.process) && typeof p.version === 'number' && p.version >= 1 && Math.floor(p.version) === p.version &&
-      typeof p.folder === 'string' && PF.publish.versionOf(p.folder) === p.version && HASH8.test(p.mapHash) && HASH8.test(p.typesHash);
+      typeof p.folder === 'string' && PF.publish.versionOf(p.folder) === p.version && typeof p.mapHash === 'string' && HASH8.test(p.mapHash) && typeof p.typesHash === 'string' && HASH8.test(p.typesHash);
   }
   function skillOk(p) {
     return isObj(p) && Object.keys(p).every(function (k) { return k === 'name' || k === 'version'; }) && typeof p.name === 'string' && p.name.length >= 1 && p.name.length <= 80 && p.name.trim() === p.name && !/[\u0000-\u001f]/.test(p.name) && typeof p.version === 'string' && /^\S{1,40}$/.test(p.version);
@@ -5477,12 +5477,12 @@ PF.run = (function () {
     if (extra != null) return 'The run has "' + String(extra).slice(0, 40) + '".';
     var p = o.payload, obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); };
     /* Every run/3 says its features and its types fingerprint; one without is no run/3 this copy wrote. */
-    if (!Array.isArray(o.features) || !/^[0-9a-f]{8}$/.test(o.typesHash)) return 'It doesn\'t say its features and step types as a 2.0 run does.';
+    if (!Array.isArray(o.features) || !(typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash))) return 'It doesn\'t say its features and step types as a 2.0 run does.';
     /* A run/3 on a /1 version (an explicit 2.0 run) has no payload: its version's is implied. */
     if (p != null) {
-      if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
+      if (!obj(p) || !(typeof p.map === 'string' && HEX64.test(p.map)) || !(typeof p.types === 'string' && HEX64.test(p.types)) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
       if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
-      if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p.images).some(function (k) { return !(typeof p.images[k] === 'string' && HEX64.test(p.images[k])); })) return 'Its payload isn\'t one this copy reads.';
       if (Object.keys(p.extensions).length) return 'It holds extensions.';
       if (!PF.pins.shapeOk(p.pins)) return 'It pins versions in a way this copy doesn\'t read.';
     }
@@ -9882,7 +9882,7 @@ PF.plans = (function () {
     var keys = hashes ? ['folder', 'version', 'mapHash', 'typesHash'] : ['folder', 'version'];
     if (!isObj(p) || Object.keys(p).some(function (k) { return keys.indexOf(k) < 0; })) return 'names a version that isn\'t a version folder';
     if (typeof p.folder !== 'string' || typeof p.version !== 'number' || PF.publish.versionOf(p.folder) !== p.version) return 'names a version that isn\'t a version folder';
-    if (hashes && !(HASH8.test(p.mapHash) && HASH8.test(p.typesHash))) return 'names a version without its fingerprints';
+    if (hashes && !(typeof p.mapHash === 'string' && HASH8.test(p.mapHash) && typeof p.typesHash === 'string' && HASH8.test(p.typesHash))) return 'names a version without its fingerprints';
     return '';
   }
   function textOr(v) { return v == null || typeof v === 'string'; }
@@ -12450,7 +12450,7 @@ PF.repo = (function () {
         var all = statuses.filter(function (s) { return s.proposal === p.id; });
         /* A plan/2 switched to another version by a person (plan-status/2, retargeted) for this exact plan: the switch, not a
            decision. Switches that name different versions ask again. */
-        var moves = all.filter(function (s) { return s.status === 'retargeted' && hashes.indexOf(s.proposalHash) >= 0; }), mine = all.filter(function (s) { return s.status !== 'retargeted'; });
+        var moves = all.filter(function (s) { return s.status === 'retargeted' && hashes.indexOf(s.proposalHash) >= 0 && s.to && typeof s.to.folder === 'string'; }), mine = all.filter(function (s) { return s.status !== 'retargeted'; });
         var to = moves.map(function (s) { return s.to.folder; }).filter(function (f, i, a) { return a.indexOf(f) === i; }).sort();
         p._retarget = to.length === 1 ? moves.sort(function (a, b) { return String(a.at) < String(b.at) ? 1 : -1; })[0] : null;
         p._retargetClash = to.length > 1 ? to : null;
@@ -12477,9 +12477,14 @@ PF.repo = (function () {
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only).then(function (props) {
       var plans = [], statuses = [];
       props.forEach(function (p) {
-        var v = PF.plans.clean(p, p._file, !!bad), path = 'proposals/' + p._file;
-        if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); if (v.kind === 'newer') refused.push(PF.envelope.refusal(path, PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan', v)); return; }
-        if (v.why) { if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; } }
+        var v = PF.plans.clean(p, p._file, !!bad), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
+        if (v.why) {
+          if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; }
+          /* A plan/2 or plan-status/2 that isn't in its format, and any decision that isn't one (a switch without its version
+             among them), is refused with its reason and never kept. A 1.x plan keeps what every 1.x copy did with it. */
+          if (PF.plans.isExact(p) || v.kind === 'status') { refused.push(PF.envelope.refusal(path, fam, { kind: 'malformed', why: v.why })); return; }
+        }
         if (v.kind === 'status') statuses.push(p);
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });

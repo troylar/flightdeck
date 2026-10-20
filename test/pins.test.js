@@ -397,6 +397,44 @@ rule('In a folder: plan/2 and its retarget are read and grouped (the switch is n
   assert.deepStrictEqual(bad.map(b => b.kind), ['newer', 'newer', 'newer']);
 });
 
+rule('Fuzz: every plan/2 and plan-status/2 sample with a field removed, wrong-typed or hostile never throws in loadAll or READ; each bad file is refused there, never kept', async () => {
+  const tree = require('../tools/v2-samples').tree('folder');
+  const PLAN = 'proposals/plan-backup-pinned.json', STATUS = 'proposals/plan-backup-pinned.status-w-twozero.json';
+  const hostile = JSON.parse('{"__proto__":{"polluted":1},"constructor":{"prototype":{"x":1}},"toString":1,"valueOf":{},"hasOwnProperty":"no"}');
+  const deep = JSON.parse('['.repeat(200) + ']'.repeat(200));
+  const values = [undefined, 1, -1, 1.5, true, null, '', 'x'.repeat(100000), [], {}, hostile, deep];
+  let n = 0, bad = 0;
+  for (const target of [PLAN, STATUS]) {
+    const base = JSON.parse(tree[target]);
+    const paths = [];
+    Object.keys(base).forEach(k => { paths.push([k]); if (base[k] && typeof base[k] === 'object' && !Array.isArray(base[k])) Object.keys(base[k]).forEach(k2 => paths.push([k, k2])); });
+    paths.push(['__proto__']);
+    for (const p of paths) for (const v of values) {
+      const o = JSON.parse(tree[target]);
+      const holder = p.length === 2 ? o[p[0]] : o, key = p[p.length - 1];
+      if (v === undefined) delete holder[key]; else Object.defineProperty(holder, key, { value: v, enumerable: true, writable: true, configurable: true });
+      const text = JSON.stringify(o);
+      const m = new PF.fs.MemoryFS('fuzz:' + Math.random(), null);
+      m.reset(Object.assign({}, { [PLAN]: tree[PLAN], [STATUS]: tree[STATUS] }, { [target]: text }));
+      const label = target + ' ' + p.join('.') + ' = ' + (v === undefined ? '(removed)' : JSON.stringify(v).slice(0, 40));
+      let app, read;
+      try { app = await PF.repo.loadAll(m); } catch (e) { assert.fail(label + ': loadAll threw ' + e.message); }
+      try { read = await PF.repo.loadAll(m, { readOnly: true, explain: true, deep: true }); } catch (e) { assert.fail(label + ': READ threw ' + e.message); }
+      n++;
+      const parsed = JSON.parse(text), dispatch = parsed && (typeof parsed.format === 'string' || parsed.kind === 'plan' || parsed.kind === 'status');
+      const v2 = PF.plans.clean(parsed, target.slice(10), false), isBad = !v2.ok || !!v2.why;
+      if (!isBad) continue;
+      bad++;
+      assert.ok((read.malformed || []).some(x => x.path === target), label + ': READ names it');
+      if (!dispatch) continue;
+      assert.ok((app.refused || []).some(x => x.path === target), label + ': the app refuses it: ' + JSON.stringify(app.refused));
+      const kept = target === PLAN ? app.plans.filter(x => x._file === target.slice(10)) : app.plans.filter(x => x._retarget || x._status);
+      assert.deepStrictEqual(kept.length, 0, label + ': never kept');
+    }
+  }
+  assert.ok(n > 150 && bad > 80, n + ' variants, ' + bad + ' bad');
+});
+
 /* ---------- Signatures ---------- */
 rule('PF.signature: a step\'s signature includes its resolved pin (child or skill), and the process signature hashes the pins as canonical JSON; correction identity is unchanged', () => {
   const kids = childProc(['Check in code', 'Check in code']), cp = { verify: proc(kids) };
