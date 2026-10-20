@@ -106,7 +106,8 @@
        offers a 2.0 run instead). */
     var procOf = ctx.procOf || function (id) { var p = ctx.latestPub(id); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
     var target = PF.pins.childTarget(r, s, procOf), two = r.format === R.FORMAT3;
-    var pinned = two && r.pins && r.pins.children && r.pins.children[s.id], fromPayload = pinned && r.payload && r.payload.pins && r.payload.pins.children && r.payload.pins.children[s.id];
+    var ownOf = function (o, k) { return o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null; };
+    var pinned = two && r.pins ? ownOf(r.pins.children, s.id) : null, fromPayload = pinned && r.payload && r.payload.pins ? ownOf(r.payload.pins.children, s.id) : null;
     var pinWords = pinned ? '<span class="small">' + esc(PF.pins.words(pinned, target.pub ? target.pub.map.meta.title : null, !!fromPayload)) + '</span>' : '';
     var cont = a && a.s === 'blocked' && !two && /^Continued in run (\S+)$/.exec(a.reason || '');
     if (cont) return '<div class="childbox">' + I('nest') + '<span>' + esc(a.reason) + ', made with Flightdeck 2.0.</span>' + (ctx.findRun(cont[1]) ? '<button class="mini" data-act="open-run" data-id="' + esc(cont[1]) + '">Open run</button>' : '') + '</div>';

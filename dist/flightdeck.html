@@ -4266,14 +4266,14 @@ PF.publish = (function () {
   function payloadHash(p) { return sha(canonical(p)); }
   /* The pins a checklist's own lines ask for, as publish records them by step: what a /2 version's payload pins must match. */
   function pinsProblem(info, map) {
-    var p = info.payload && info.payload.pins, want = { children: {}, skills: {} };
+    var p = info.payload && info.payload.pins, want = { children: Object.create(null), skills: Object.create(null) };
     if (!p) return '';
     M.steps(map).forEach(function (x) {
       var s = x.step;
       if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) want.children[s.id] = { process: s.fields.process, version: +s.fields.version };
       if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) want.skills[s.id] = { name: String(s.fields.skill || '').trim(), version: String(s.fields.skillVersion).trim() };
     });
-    var have = { children: {}, skills: {} };
+    var have = { children: Object.create(null), skills: Object.create(null) };
     Object.keys(p.children).forEach(function (k) { have.children[k] = { process: p.children[k].process, version: p.children[k].version }; });
     Object.keys(p.skills).forEach(function (k) { have.skills[k] = p.skills[k]; });
     return canonical(have) === canonical(want) ? '' : 'Its pins don\'t match its checklist. Edited by hand.';
@@ -4628,8 +4628,8 @@ PF.run = (function () {
        ones the caller resolved at the latest (PF.pins.atStart). A run/2 records none; its format is frozen. */
     if (two || explicit) {
       var kids = {}, own2 = two && pub.info.payload && pub.info.payload.pins ? pub.info.payload.pins.children || {} : {};
-      Object.keys(o.pins || {}).forEach(function (k) { if (PF.pins.childOk(o.pins[k])) kids[k] = JSON.parse(JSON.stringify(o.pins[k])); });
-      Object.keys(own2).forEach(function (k) { kids[k] = JSON.parse(JSON.stringify(own2[k])); });
+      Object.keys(o.pins || {}).forEach(function (k) { if (STEP_ID.test(k) && PF.pins.childOk(o.pins[k])) kids[k] = JSON.parse(JSON.stringify(o.pins[k])); });
+      Object.keys(own2).forEach(function (k) { if (STEP_ID.test(k)) kids[k] = JSON.parse(JSON.stringify(own2[k])); });
       if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
     }
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && typeof o.parent.folder === 'string' && o.parent.folder) r.parent.folder = o.parent.folder; }
@@ -4637,6 +4637,8 @@ PF.run = (function () {
     return r;
   }
 
+  /* A pin's step ID (never __proto__ or another key an object treats specially). */
+  var STEP_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
   /* A must-understand feature a run/3 now uses, kept in the frozen order. */
   function addFeature(r, f) { var list = (r.features || []).concat([f]); r.features = PF.envelope.FROZEN.filter(function (x) { return list.indexOf(x) >= 0; }); }
   /* run/3's pins and migrations sit right before its steps, as in the frozen samples. */
@@ -5493,7 +5495,8 @@ PF.run = (function () {
   function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
 
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
-  var STEP_STATES = { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }, GATE_STATES = { passed: 1, waived: 1, failed: 1, review: 1 };
+  /* Without a prototype, so a state named like an inherited property (constructor, toString) is never a state. */
+  var STEP_STATES = Object.assign(Object.create(null), { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }), GATE_STATES = Object.assign(Object.create(null), { passed: 1, waived: 1, failed: 1, review: 1 });
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
   function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }
@@ -7415,7 +7418,7 @@ PF.signature = (function () {
       var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
       var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
       p.steps.forEach(function (s) {
-        var parts = [s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)];
+        var parts = [s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && own(types, s.type) && types[s.type] ? types[s.type] : null, shots(s.shots, images)];
         /* Added only where they apply, so every other step's signature is exactly what it was. */
         var pin = s.type === 'run.process' ? pinOf(pins, 'children', s.id) : s.type === 'run.skill' ? pinOf(pins, 'skills', s.id) : null;
         if (pin) parts.push(['pin', pin]);
@@ -11568,7 +11571,7 @@ PF.repo = (function () {
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    var top = {};
+    var top = Object.create(null);
     return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
@@ -11840,7 +11843,7 @@ PF.repo = (function () {
     }, function (e) { whole = 'skill-registrations/ ' + listWhy(e) + '.'; return []; }).then(function (lists) {
       var paths = [].concat.apply([], lists).sort();
       skipped = Math.max(0, paths.length - MAX_SKILLS);
-      var cut = {};
+      var cut = Object.create(null);
       paths.slice(MAX_SKILLS).forEach(function (p) { var n = p.split('/')[1]; if (!cut[n]) { cut[n] = true; mark(n, 'skill-registrations/' + n + '/ has files past the ' + MAX_SKILLS + ' registrations a copy reads.'); } });
       return Promise.all(paths.slice(0, MAX_SKILLS).map(function (path) {
         var bad = function (why) { return { skill: null, errors: [path + ': ' + why], file: path }; };
@@ -12087,7 +12090,7 @@ PF.repo = (function () {
   function childProcsFor(fs, parsed) {
     var names = [];
     PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.version != null && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
-    var out = {};
+    var out = Object.create(null);
     return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
   }
   /* One process's versions, as the app lists them ({ latest, all, clashes, broken }), or null when none is there. One whose
@@ -14490,7 +14493,8 @@ PF.vk = (function () {
        offers a 2.0 run instead). */
     var procOf = ctx.procOf || function (id) { var p = ctx.latestPub(id); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
     var target = PF.pins.childTarget(r, s, procOf), two = r.format === R.FORMAT3;
-    var pinned = two && r.pins && r.pins.children && r.pins.children[s.id], fromPayload = pinned && r.payload && r.payload.pins && r.payload.pins.children && r.payload.pins.children[s.id];
+    var ownOf = function (o, k) { return o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null; };
+    var pinned = two && r.pins ? ownOf(r.pins.children, s.id) : null, fromPayload = pinned && r.payload && r.payload.pins ? ownOf(r.payload.pins.children, s.id) : null;
     var pinWords = pinned ? '<span class="small">' + esc(PF.pins.words(pinned, target.pub ? target.pub.map.meta.title : null, !!fromPayload)) + '</span>' : '';
     var cont = a && a.s === 'blocked' && !two && /^Continued in run (\S+)$/.exec(a.reason || '');
     if (cont) return '<div class="childbox">' + I('nest') + '<span>' + esc(a.reason) + ', made with Flightdeck 2.0.</span>' + (ctx.findRun(cont[1]) ? '<button class="mini" data-act="open-run" data-id="' + esc(cont[1]) + '">Open run</button>' : '') + '</div>';
@@ -19136,7 +19140,7 @@ PF.examples = (function () {
   function startChild(stepId) {
     var parent = ctx.run(), map = parent && R.mapOf(parent), x = map && M.findStep(map, stepId);
     if (!x || !ctx.recording(parent)) return;
-    var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = parent.steps[stepId], rkey = state.runKey + ':' + stepId;
+    var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = Object.prototype.hasOwnProperty.call(parent.steps, stepId) ? parent.steps[stepId] : null, rkey = state.runKey + ':' + stepId;
     /* One start at a time per step: a second click while the first is saving, or a step that already has a current child, does nothing. */
     if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childPinProblem(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return;
     /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */

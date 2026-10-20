@@ -627,7 +627,7 @@ PF.repo = (function () {
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    var top = {};
+    var top = Object.create(null);
     return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
@@ -899,7 +899,7 @@ PF.repo = (function () {
     }, function (e) { whole = 'skill-registrations/ ' + listWhy(e) + '.'; return []; }).then(function (lists) {
       var paths = [].concat.apply([], lists).sort();
       skipped = Math.max(0, paths.length - MAX_SKILLS);
-      var cut = {};
+      var cut = Object.create(null);
       paths.slice(MAX_SKILLS).forEach(function (p) { var n = p.split('/')[1]; if (!cut[n]) { cut[n] = true; mark(n, 'skill-registrations/' + n + '/ has files past the ' + MAX_SKILLS + ' registrations a copy reads.'); } });
       return Promise.all(paths.slice(0, MAX_SKILLS).map(function (path) {
         var bad = function (why) { return { skill: null, errors: [path + ': ' + why], file: path }; };
@@ -1146,7 +1146,7 @@ PF.repo = (function () {
   function childProcsFor(fs, parsed) {
     var names = [];
     PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.version != null && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
-    var out = {};
+    var out = Object.create(null);
     return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
   }
   /* One process's versions, as the app lists them ({ latest, all, clashes, broken }), or null when none is there. One whose

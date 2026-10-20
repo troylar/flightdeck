@@ -44,8 +44,8 @@ PF.run = (function () {
        ones the caller resolved at the latest (PF.pins.atStart). A run/2 records none; its format is frozen. */
     if (two || explicit) {
       var kids = {}, own2 = two && pub.info.payload && pub.info.payload.pins ? pub.info.payload.pins.children || {} : {};
-      Object.keys(o.pins || {}).forEach(function (k) { if (PF.pins.childOk(o.pins[k])) kids[k] = JSON.parse(JSON.stringify(o.pins[k])); });
-      Object.keys(own2).forEach(function (k) { kids[k] = JSON.parse(JSON.stringify(own2[k])); });
+      Object.keys(o.pins || {}).forEach(function (k) { if (STEP_ID.test(k) && PF.pins.childOk(o.pins[k])) kids[k] = JSON.parse(JSON.stringify(o.pins[k])); });
+      Object.keys(own2).forEach(function (k) { if (STEP_ID.test(k)) kids[k] = JSON.parse(JSON.stringify(own2[k])); });
       if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
     }
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && typeof o.parent.folder === 'string' && o.parent.folder) r.parent.folder = o.parent.folder; }
@@ -53,6 +53,8 @@ PF.run = (function () {
     return r;
   }
 
+  /* A pin's step ID (never __proto__ or another key an object treats specially). */
+  var STEP_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
   /* A must-understand feature a run/3 now uses, kept in the frozen order. */
   function addFeature(r, f) { var list = (r.features || []).concat([f]); r.features = PF.envelope.FROZEN.filter(function (x) { return list.indexOf(x) >= 0; }); }
   /* run/3's pins and migrations sit right before its steps, as in the frozen samples. */
@@ -909,7 +911,8 @@ PF.run = (function () {
   function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
 
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
-  var STEP_STATES = { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }, GATE_STATES = { passed: 1, waived: 1, failed: 1, review: 1 };
+  /* Without a prototype, so a state named like an inherited property (constructor, toString) is never a state. */
+  var STEP_STATES = Object.assign(Object.create(null), { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }), GATE_STATES = Object.assign(Object.create(null), { passed: 1, waived: 1, failed: 1, review: 1 });
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
   function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }

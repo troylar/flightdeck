@@ -125,14 +125,14 @@ PF.publish = (function () {
   function payloadHash(p) { return sha(canonical(p)); }
   /* The pins a checklist's own lines ask for, as publish records them by step: what a /2 version's payload pins must match. */
   function pinsProblem(info, map) {
-    var p = info.payload && info.payload.pins, want = { children: {}, skills: {} };
+    var p = info.payload && info.payload.pins, want = { children: Object.create(null), skills: Object.create(null) };
     if (!p) return '';
     M.steps(map).forEach(function (x) {
       var s = x.step;
       if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) want.children[s.id] = { process: s.fields.process, version: +s.fields.version };
       if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) want.skills[s.id] = { name: String(s.fields.skill || '').trim(), version: String(s.fields.skillVersion).trim() };
     });
-    var have = { children: {}, skills: {} };
+    var have = { children: Object.create(null), skills: Object.create(null) };
     Object.keys(p.children).forEach(function (k) { have.children[k] = { process: p.children[k].process, version: p.children[k].version }; });
     Object.keys(p.skills).forEach(function (k) { have.skills[k] = p.skills[k]; });
     return canonical(have) === canonical(want) ? '' : 'Its pins don\'t match its checklist. Edited by hand.';

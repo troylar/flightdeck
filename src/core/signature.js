@@ -19,7 +19,7 @@ PF.signature = (function () {
       var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
       var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
       p.steps.forEach(function (s) {
-        var parts = [s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)];
+        var parts = [s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && own(types, s.type) && types[s.type] ? types[s.type] : null, shots(s.shots, images)];
         /* Added only where they apply, so every other step's signature is exactly what it was. */
         var pin = s.type === 'run.process' ? pinOf(pins, 'children', s.id) : s.type === 'run.skill' ? pinOf(pins, 'skills', s.id) : null;
         if (pin) parts.push(['pin', pin]);

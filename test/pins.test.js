@@ -588,6 +588,44 @@ rule('A process whose versions can\'t be listed is unreadable, never unpublished
   assert.strictEqual(await PF.repo.readProcess({ list: () => Promise.resolve([]) }, 'verify'), null, 'a process with no versions is still not published');
 });
 
+rule('A process ID an object inherits (constructor) is an ordinary ID, and state names it inherits are never states: pins, the next child, the pin lookups and a run\'s history never read them from the prototype', () => {
+  // Step IDs are lowercase (toString is read as tostring), so constructor is the only inherited name one could be, and every
+  // copy's checklist check already refuses it; __proto__ isn't an ID at all.
+  assert.deepStrictEqual(['toString', 'valueOf', 'hasOwnProperty'].map(id => M.findStep(M.parse(CHILD().replace('{#look}', '{#' + id + '}')), id.toLowerCase()) ? id.toLowerCase() : null), ['tostring', 'valueof', 'hasownproperty']);
+  assert.ok(M.check(M.parse(CHILD().replace('{#look}', '{#constructor}')), {}).blockers.length, 'constructor is refused as a step ID');
+  const kid = publish(CHILD().replace('process: verify', 'process: constructor'));
+  assert.ok(!kid.blockers, 'constructor is a process ID: ' + JSON.stringify(kid.blockers));
+  const md = ['---', 'process: backup', 'title: Backup check', 'context: ticket', '---', '', '## Prepare {#prep}',
+    '- [ ] {run.process} Pinned at publish {#first}', '  process: constructor', '  version: 1',
+    '- [ ] {run.process} Not pinned {#later}', '  process: constructor',
+    '- [ ] {confirm} Look {#look}', ''].join('\n');
+  const procs = Object.create(null); procs.constructor = proc([kid]);
+  const procOf = (id) => Object.prototype.hasOwnProperty.call(procs, id) ? procs[id] : null;
+  const parent = publish(md, { childProcs: { constructor: procs.constructor } });
+  assert.ok(!parent.blockers, JSON.stringify(parent.blockers));
+  assert.deepStrictEqual(Object.keys(parent.info.payload.pins.children), ['first']);
+  const r = plain(R.create(parent, { by: 'a', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'T-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, () => null) }));
+  assert.deepStrictEqual(Object.keys(r.pins.children), ['first']);
+  const map = R.mapOf(r), step = (id) => M.findStep(map, id).step;
+  const t = PF.pins.childTarget(r, step('later'), procOf);
+  assert.ok(t.first && t.pin && t.pin.folder === kid.info.folder, 'no pin yet: the latest now, first: ' + JSON.stringify(t.why || t.pin));
+  assert.strictEqual(PF.pins.childTarget(r, step('first'), procOf).pin.folder, kid.info.folder);
+  // A process lookup through a plain object never finds the prototype's constructor.
+  assert.ok(/isn't published/.test(PF.pins.childTarget(r, step('later'), (id) => ({})[id] || null).why || ''), 'never the prototype\'s constructor');
+  // pins.children itself: a step whose ID an object inherits has no pin unless it's its own.
+  const hand = plain(r); hand.pins.children = JSON.parse('{"first":' + JSON.stringify(r.pins.children.first) + '}');
+  assert.strictEqual(R.childPinProblem(hand, 'constructor', {}, procOf), '', 'no own pin, no pin problem');
+  // A state named like an inherited property is never a state.
+  r.steps.look = { s: 'done', by: 'a', at: AT, history: [{ s: 'constructor', by: 'a', at: AT }, { s: 'open', by: 'a', at: AT }] };
+  const back = R.sanitize(plain(r));
+  assert.strictEqual(back.steps.look.s, 'done');
+  assert.deepStrictEqual(plain(back.steps.look.history).map(h => h.s), ['open'], 'an inherited name isn\'t a state');
+  const odd = plain(r); odd.steps.look = { s: 'valueOf', by: 'a', at: AT };
+  assert.ok(!R.sanitize(odd).steps.look, 'a step whose state is an inherited name is dropped');
+  const g = plain(r), gid = Object.keys(R.mapOf(r).phases.reduce((o, p) => (p.gate && p.gate.id ? (o[p.gate.id] = 1, o) : o), {}))[0];
+  if (gid) { g.gates[gid] = { s: 'toString', by: 'a', at: AT }; assert.ok(!R.sanitize(g).gates[gid] || R.sanitize(g).gates[gid].s !== 'toString', 'nor a gate state'); }
+});
+
 rule('Rechecking a {run.skill} step keeps the registration it observed in the step\'s history, through sanitize and the archive', () => {
   const kids = childProc(['A']), md = PARENT(['  version: 1']).replace('Write the report {#report}', 'Write the report for ^ticket {#report}');
   const parent = publish(md, { childProcs: { verify: proc(kids) } });

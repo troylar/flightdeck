@@ -35,6 +35,10 @@ const BADNUM = { 'rev-huge': ['rev', '1e999'], 'rev-neg': ['rev', '-1'], 'rev-fr
 REVS.push(...Object.keys(BADNUM));
 /* A name's folder that can't be listed (chmod 000 on skill-registrations/<name>/). */
 REVS.push('unlisted');
+/* Skill names that are also properties every JavaScript object inherits. __proto__ isn't a name flightdeck skill register
+   takes, but a legacy file can still say it. */
+const PROTO = ['constructor', 'toString', 'hasOwnProperty', 'valueOf'];
+const PROTO_CELLS = [['constructor', 'valid', 'valid'], ['toString', 'absent', 'valid'], ['hasOwnProperty', 'valid', 'two'], ['valueOf', 'tombstone', 'valid'], ['__proto__', 'valid', 'none']];
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 
 rule('Every consumer gives the same skill verdict for every legacy file × revisions cell, and flightdeck skill register refuses (writing nothing) exactly when the verdict blocks it', async () => {
@@ -51,9 +55,13 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     const proc = { latest: pr.index.latest, all: pr.index.all, clashes: pr.index.clashes, broken: [] };
     const cells = [];
     let k = 0;
-    for (const l of LEGACY) for (const r of REVS) {
+    const plan = [];
+    for (const l of LEGACY) for (const r of REVS) plan.push(['s-' + l + '-' + r, l, r]);
+    /* Names an object inherits (constructor, toString, …) are ordinary skill names: they get the same verdict. */
+    PROTO_CELLS.forEach(c => plan.push(c));
+    for (const [name, l, r] of plan) {
       if ((l === 'unreadable' || r === 'unlisted') && ROOT_USER) continue;
-      const name = 's-' + l + '-' + r, rand = ('0000000' + (++k).toString(36)).slice(-8);
+      const rand = ('0000000' + (++k).toString(36)).slice(-8);
       cells.push({ name, l, r });
       let rec = null;
       if (r !== 'none') {
@@ -76,7 +84,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
       if (l === 'unreadable') { fs.chmodSync(d.p(lf), 0o000); locked.push(d.p(lf)); }
     }
     /* Truncation: a copy reads the first 500 registration files by path and no more. z-a-part's revision 1 is the 500th and
-       its revision 2 is past it; all of z-b-all's are past it. Filler under t-filler/ sorts between the cells and them. */
+       its revision 2 is past it; all of z-b-all's are past it. Filler under w-filler/ sorts between the cells (valueOf included) and them. */
     const zs = [];
     for (const name of ['z-a-part', 'z-b-all']) {
       const rand = ('0000000' + (++k).toString(36)).slice(-8);
@@ -90,7 +98,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     (function walk(rel) { fs.readdirSync(d.p(rel), { withFileTypes: true }).forEach(e => { const r = rel + '/' + e.name; if (e.isDirectory()) walk(r); else if (/\.json$/i.test(e.name)) listed.push(r); }); })('skill-registrations');
     const unlistedDirs = cells.filter(c => c.r === 'unlisted').map(c => 'skill-registrations/' + c.name + '/');
     const before = listed.filter(p => !/^skill-registrations\/z-/.test(p) && !unlistedDirs.some(u => p.indexOf(u) === 0)).length;
-    for (let i = 0; i < 500 - before - 1; i++) await d.write('skill-registrations/t-filler/f' + String(i).padStart(4, '0') + '.json', '{}\n');
+    for (let i = 0; i < 500 - before - 1; i++) await d.write('skill-registrations/w-filler/f' + String(i).padStart(4, '0') + '.json', '{}\n');
     cells.unshift(...zs);
     for (const c of cells.filter(c => c.r === 'unlisted')) { const dir = d.p('skill-registrations/' + c.name); fs.chmodSync(dir, 0o000); locked.push(dir); }
     const pick = (x) => x ? { status: x.status, source: x.source || null, rev: x.rev == null ? null : x.rev, blocks: !!x.blocks, kinds: Array.from(x.kinds || []).sort() } : { status: 'absent', source: null, rev: null, blocks: false, kinds: [] };
@@ -101,7 +109,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
     const pySays = (n) => pick((out.skills || []).find(s => s.name === n));
     const input = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-skin-')), 'skill.json');
-    const seen = {};
+    const seen = Object.create(null);
     for (const c of cells) {
       const a = appSays(c.name), p = pySays(c.name);
       assert.deepStrictEqual(p, a, c.name + ': the checker agrees with the app');
@@ -109,6 +117,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
       fs.writeFileSync(input, JSON.stringify({ name: c.name, version: '2.0.0', location: 'here', implements: { process: 'verify', folder: v.folder } }));
       const before = tree(root), res = cp.spawnSync(process.execPath, [BIN, 'skill', 'register', root, '--from', input, '--json'], { encoding: 'utf8' });
       let j = null; try { j = JSON.parse(res.stdout); } catch (e) { /* below */ }
+      if (c.name === '__proto__') { assert.ok(res.status !== 0 && j && j.error, '__proto__: not a name the command takes'); assert.deepStrictEqual(tree(root), before, '__proto__: nothing written'); seen[c.name] = a; continue; }
       assert.ok(j && j.verdict, c.name + ': the command says its verdict: ' + res.stdout + res.stderr);
       assert.deepStrictEqual(pick(j.verdict), a, c.name + ': the command agrees with the app');
       if (a.blocks) { assert.ok(res.status !== 0 && j.error, c.name + ': refused'); assert.deepStrictEqual(tree(root), before, c.name + ': nothing written'); }
@@ -129,7 +138,12 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     // A name whose folder can't be listed, or whose revisions were cut by the 500-file limit, is never current, and blocks.
     LEGACY.forEach(l => { const x = seen['s-' + l + '-unlisted']; if (x) assert.ok(x.status === 'unmatched' && x.blocks && x.kinds.indexOf('revisions-unlisted') >= 0, l + '/unlisted: ' + JSON.stringify(x)); });
     ['z-a-part', 'z-b-all'].forEach(n => assert.ok(seen[n].status === 'unmatched' && seen[n].blocks && seen[n].kinds.indexOf('revisions-unlisted') >= 0, n + ': ' + JSON.stringify(seen[n])));
-    assert.ok(cells.length >= 80, cells.length + ' cells');
+    assert.ok(cells.length >= 85, cells.length + ' cells');
+    assert.deepStrictEqual(seen.constructor, { status: 'unmatched', source: null, rev: null, blocks: false, kinds: ['two'] }, 'constructor: two registrations, like any name');
+    assert.deepStrictEqual(seen.toString, { status: 'current', source: 'registration', rev: 1, blocks: false, kinds: [] });
+    assert.ok(seen.hasOwnProperty.status === 'unmatched' && seen.hasOwnProperty.blocks, 'hasOwnProperty: two at one rev');
+    assert.deepStrictEqual(seen.valueOf, { status: 'current', source: 'registration', rev: 1, blocks: false, kinds: [] });
+    assert.ok(seen.__proto__ && seen.__proto__.status !== undefined, '__proto__ has a verdict of its own');
   } finally {
     locked.forEach(f => { try { fs.chmodSync(f, 0o755); } catch (e) { /* gone */ } });
     fs.rmSync(root, { recursive: true, force: true });
@@ -178,6 +192,40 @@ rule('A skills/ or skill-registrations/ folder that can\'t be listed holds every
       try { fs.chmodSync(path.join(root, which), 0o755); } catch (e) { /* gone */ }
       fs.rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+rule('Names an object inherits (constructor, toString, hasOwnProperty, valueOf) whose revisions are cut by the 500-file limit are held like any name: the app, the command and the checker agree, and the command writes nothing', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  for (const [name, filler] of PROTO.map(n => [n, 499]).concat([['constructor', 500]])) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-skproto-'));
+    try {
+      const d = new DiskFS(root);
+      await d.write('people.json', JSON.stringify(people));
+      const v = await repo.publish(d, '---\nprocess: verify\ntitle: Verify\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n', { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+      const loaded = await repo.loadAll(d, { deep: true }), pr = loaded.processes.find(p => p.process === 'verify');
+      const proc = { latest: pr.index.latest, all: pr.index.all, clashes: pr.index.clashes, broken: [] };
+      const g = PF.skills.registration({ name, version: '1.0.0', location: 'here', implements: { process: 'verify', folder: v.folder } }, proc, null, { app: '2.0.0', now: NOW, by: 'a', window: 'w-one', rand: 'protoaaa' });
+      assert.ok(g.rec, g.why);
+      await d.write(g.path, JSON.stringify(g.rec, null, 2) + '\n');
+      await d.write(g.path.replace('.1.w-one.json', '.2.w-two.json'), JSON.stringify(Object.assign({}, g.rec, { rev: 2, seen: 1, version: '1.1.0' }), null, 2) + '\n');
+      // 0-filler sorts first: with 499 files the name's revision 1 is the 500th and revision 2 is cut; with 500, both are.
+      for (let i = 0; i < filler; i++) await d.write('skill-registrations/0-filler/f' + String(i).padStart(4, '0') + '.json', '{}\n');
+      const pick = (x) => x ? { status: x.status, source: x.source || null, rev: x.rev == null ? null : x.rev, blocks: !!x.blocks, kinds: Array.from(x.kinds || []).sort() } : null;
+      const app = await repo.loadAll(d, { deep: true });
+      const a = pick((app.skills.filter(x => x.verdict && x.verdict.name === name)[0] || {}).verdict);
+      assert.ok(a && a.status === 'unmatched' && a.blocks && a.kinds.indexOf('revisions-unlisted') >= 0, name + ' (' + filler + '): the app holds it: ' + JSON.stringify(a));
+      const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+      assert.deepStrictEqual(pick((out.skills || []).find(x => x.name === name)), a, name + ': the checker agrees');
+      const input = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-skin-')), 'skill.json');
+      fs.writeFileSync(input, JSON.stringify({ name, version: '2.0.0', location: 'here', implements: { process: 'verify', folder: v.folder } }));
+      const before = tree(root), res = cp.spawnSync(process.execPath, [BIN, 'skill', 'register', root, '--from', input, '--json'], { encoding: 'utf8' });
+      let j = null; try { j = JSON.parse(res.stdout); } catch (e) { /* below */ }
+      assert.ok(j && j.verdict, name + ': the command says its verdict: ' + res.stdout + res.stderr);
+      assert.deepStrictEqual(pick(j.verdict), a, name + ': the command agrees');
+      assert.ok(res.status !== 0, name + ': refused, never a revision built on the stale one'); assert.deepStrictEqual(tree(root), before, name + ': nothing written');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
 
