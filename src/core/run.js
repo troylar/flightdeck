@@ -289,9 +289,21 @@ PF.run = (function () {
   /* A step's registration snapshot: { id, rev, sha, snapshot } with a snapshot of at most 2 KB, or null. */
   function cleanSkill(s) {
     if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(s.id) || typeof s.rev !== 'number' || s.rev < 1 || Math.floor(s.rev) !== s.rev || typeof s.sha !== 'string' || !/^[0-9a-f]{64}$/.test(s.sha)) return null;
-    var snap = s.snapshot && typeof s.snapshot === 'object' && !Array.isArray(s.snapshot) ? s.snapshot : null, text = snap ? JSON.stringify(snap) : '';
-    if (!snap || text.length > 2048) return null;
+    var snap = s.snapshot, text = snapOk(snap) ? JSON.stringify(snap) : '';
+    if (!text || text.length > 2048) return null;
     return { id: s.id, rev: s.rev, sha: s.sha, snapshot: JSON.parse(text) };
+  }
+  /* A registration's snapshot exactly as PF.skills.observed writes it: name and version text, and only text where it has more
+     (the exact pin, step IDs, location, description). Anything else isn't one this copy wrote, so the run is read-only. */
+  function snapOk(n) {
+    var obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); }, txt = function (v, max) { return typeof v === 'string' && v.length <= max; };
+    if (!obj(n) || Object.keys(n).some(function (k) { return ['name', 'version', 'implements', 'steps', 'location', 'description'].indexOf(k) < 0; })) return false;
+    if (!txt(n.name, 80) || !n.name || !txt(n.version, 40)) return false;
+    if (n.implements !== undefined && !(obj(n.implements) && Object.keys(n.implements).every(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) >= 0 && (n.implements[k] == null || txt(n.implements[k], 80)); }))) return false;
+    if (n.steps !== undefined && !(Array.isArray(n.steps) && n.steps.length <= 200 && n.steps.every(function (x) { return txt(x, 60); }))) return false;
+    if (n.location !== undefined && !txt(n.location, 500)) return false;
+    if (n.description !== undefined && !txt(n.description, 300)) return false;
+    return true;
   }
   /* What a {run.skill} step expects (skillVersion:) against the registration the team folder holds now, or '' (a warning,
      never a block). */
