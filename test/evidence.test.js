@@ -542,4 +542,26 @@ rule('2.0: the version a run ran goes in the pack by its payload: its files and 
   assert.ok(!byPath('notes.txt'), 'other files in a version folder stay out, as before');
 });
 
+rule('2.0: Evidence checks every screenshot in the version\'s payload: a corrupted one fails the version check, as the app refuses the version', async () => {
+  const P2 = load(), m = new P2.fs.MemoryFS('ev-shots', null), people = JSON.parse(require('./harness').example('people.json'));
+  m.reset({ 'people.json': JSON.stringify(people) });
+  const png = require('./evidence-fixture').PNG;
+  await m.write('images/x/scratch.png', new Blob([png], { type: 'image/png' }));
+  const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n  > Use the scratch server.\n  ![The scratch server](images/x/scratch.png)\n- [ ] {confirm} Look {#a}\n';
+  const res = await P2.repo.publish(m, md, { people, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  assert.ok(!res.blockers, String(res.blockers));
+  const pub = (await P2.repo.loadAll(m)).processes[0].index.latest;
+  assert.strictEqual(pub.info.format, 'preflight-publication/2', 'set-up');
+  const r = P2.run.create(pub, { by: 'person-avery', session: 'w-ev', now: NOW, id: 'run1' });
+  await P2.repo.saveRun(m, r, 'w-ev');
+  const files = require('./evidence-fixture').bytesOf(m), shot = 'publications/x/' + pub.info.folder + '/images/x/scratch.png';
+  const good = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
+  const check = col => col.runs[0].checks.find(c => c.id === 'publication');
+  assert.strictEqual(check(good).ok, true, check(good).detail);
+  files[shot] = Buffer.concat([files[shot], Buffer.from([0])]);
+  const bad = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
+  assert.strictEqual(check(bad).ok, false, 'a corrupted screenshot fails the check: ' + check(bad).detail);
+  assert.ok(/scratch\.png/.test(check(bad).detail), check(bad).detail);
+});
+
 run();

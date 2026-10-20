@@ -9088,7 +9088,18 @@ PF.evidence = (function () {
   }
 
   /* The checks a run's own copy of its checklist and step types must pass against the version it names. */
-  function checks(raw, pub) {
+  /* A screenshot the version records, against the snapshot of its bytes ({ sha256, bytes } or null when it isn't in the
+     folder): '' when it matches, else why. For a /2 version the SHA-256 in its payload decides; the fingerprint is checked
+     whenever the bytes were kept. null: it can't be checked from what was kept. */
+  function imageProblem(info, src, x) {
+    if (!x) return 'Screenshot ' + src + ' isn\'t in the folder.';
+    var strong = info.format === PF.publish.FORMAT2 && info.payload && info.payload.images ? info.payload.images[src] : null;
+    if (strong && x.sha256 !== strong) return 'Screenshot ' + src + ' doesn\'t match the version\'s payload.';
+    if (x.bytes) { var s = ''; for (var i = 0; i < x.bytes.length; i += 32768) s += String.fromCharCode.apply(null, x.bytes.subarray(i, i + 32768)); if (U.hash(s) !== info.images[src]) return 'Screenshot ' + src + ' doesn\'t match its publication record.'; }
+    else if (!strong) return null;
+    return '';
+  }
+  function checks(raw, pub, images) {
     var out = [];
     function add(id, what, ok, detail) { out.push({ id: id, what: what, ok: ok, detail: detail || '' }); }
     var map = pub && pub['map.md'], types = pub && pub['types.json'], info = pub && pub['publication.json'];
@@ -9102,7 +9113,17 @@ PF.evidence = (function () {
     if (map == null) add('mapHash', 'The checklist fingerprint the run recorded matches map.md', null, 'map.md isn\'t in the folder.');
     else add('mapHash', 'The checklist fingerprint the run recorded matches map.md', raw.mapHash === U.hash(map), 'Recorded ' + String(raw.mapHash || 'none') + ', map.md gives ' + U.hash(map) + '.');
     if (info == null || map == null || types == null) add('publication', 'The version is complete and checks out', null, 'Some of its files aren\'t in the folder.');
-    else { var v = PF.publish.verify(raw.folder, pub); add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable ? null : false, v.ok ? 'publication.json, map.md and types.json agree.' : v.why); }
+    else {
+      var v = PF.publish.verify(raw.folder, pub), shot = '', unsure = '';
+      /* Its screenshots too, by the bytes in the pack: the version is checked as the app checks it. */
+      if (v.ok && images) Object.keys(v.info.images && typeof v.info.images === 'object' ? v.info.images : {}).forEach(function (src) {
+        if (shot) return;
+        var why = imageProblem(v.info, src, images[src] || null);
+        if (why) shot = why; else if (why === null && !unsure) unsure = src;
+      });
+      if (shot) add('publication', 'The version is complete and checks out', false, shot);
+      else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
+    }
     return out;
   }
 
@@ -12265,7 +12286,13 @@ PF.repo = (function () {
       rc.fuDecisions = p.files.filter(function (f) { return f.role === 'followup'; }).map(function (f) { var o = json(textOf(f.path)); return o ? PF.followups.cleanDecision(o, p.process, f.path.split('/').pop()) : null; }).filter(Boolean);
       var pubTexts = {};
       if (p.folder) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { var path = 'publications/' + p.process + '/' + p.folder + '/' + n, x = p.files.some(function (f) { return f.path === path; }) ? textOf(path) : null; if (x != null) pubTexts[n] = x; });
-      rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null);
+      /* The version's screenshots, as snapshotted for the pack: their SHA-256, and their bytes when kept. */
+      var pubShots = {};
+      if (p.folder) { var pinfo = pubTexts['publication.json'] != null ? json(pubTexts['publication.json']) : null; if (pinfo && typeof pinfo === 'object' && !Array.isArray(pinfo) && !P.newerOf(pinfo) && pinfo.images && typeof pinfo.images === 'object') Object.keys(pinfo.images).forEach(function (src) {
+        var path = 'publications/' + p.process + '/' + p.folder + '/' + src, x = done[path];
+        if (x && !x.gone && x.sha256) pubShots[src] = { sha256: x.sha256, bytes: x.bytes ? E.join(x.bytes) : null };
+      }); }
+      rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null);
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
       rc.claims = p.claims.map(function (c) {
         var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + p.process + '/' + c.folder + '/' + n; }) : [];
