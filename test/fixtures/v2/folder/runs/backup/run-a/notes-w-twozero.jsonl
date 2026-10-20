@@ -1,0 +1,1 @@
+{"id":"c-9","at":"2026-10-20T09:00:00.000Z","by":"person-avery","session":"w-twozero","step":"","text":"Say which server in the phase note.","files":[],"kind":"correction","cv":2,"version":1,"folder":"v1-ab9ysnqh","target":{"phase":"prep"},"change":{"op":"wording","to":"Use the scratch server, never production."}}

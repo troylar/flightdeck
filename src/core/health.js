@@ -10,9 +10,13 @@ PF.health = (function () {
   /* Sections of docs/recovery.md (and the in-app view), by their anchors. */
   var HELP = { conflicts: 'a-run-has-conflict-copies', copies: 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', access: 'flightdeck-lost-access-to-the-folder',
     syncing: 'onedrive-isnt-syncing', backup: 'restoring-from-a-backup', left: 'someone-left-the-team', newer: 'a-newer-flightdeck-wrote-files',
+    older: 'teammates-on-an-older-flightdeck', placeholder: 'a-replaced-file-with-no-steps',
     unreadable: 'a-file-cant-be-read', gone: 'a-runs-file-is-gone', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name' };
   var ORDER = { stop: 0, warn: 1, info: 2 };
 
+  function semverOf(v) { var m = typeof v === 'string' ? /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/.exec(v) : null; return m ? [+m[1], +m[2], +m[3]] : null; }
+  function cmpV(a, b) { for (var i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; }
+  function listOf(xs) { return xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
   function ms(iso) { var t = typeof iso === 'string' ? Date.parse(iso) : NaN; return isNaN(t) ? null : t; }
   function span(d) {
@@ -150,13 +154,13 @@ PF.health = (function () {
     if (!conflicted.length && !shared.length && !copies.length && !Object.keys(orphans).length && !Object.keys(snap.missing || {}).length) ok('copies', scan ? 'No conflict copies, and no second copies from OneDrive.' : 'No run has conflict copies.');
 
     /* ---- publications ---- */
-    var clashes = 0, arriving = [], stuck = [], newerPubs = [];
+    var clashes = 0, arriving = [], stuck = [], newerPubs = [], newerVers = [];
     procs.forEach(function (p) {
       (p.index && p.index.clashes || []).forEach(function (v) { clashes++; add({ id: 'clash:' + p.process + ':' + v, severity: 'stop', area: 'Checklists', title: 'Two people published v' + v + ' of "' + p.process + '" at once', detail: 'Neither copy is used until one is removed. Open the process to see both.', paths: ['publications/' + p.process], action: { act: 'open-process', id: p.process, label: 'Open the process' }, help: HELP.syncing }); });
       (p.pubs || []).forEach(function (x) {
         var base = 'publications/' + p.process + '/' + x.folder;
         if (x.ok) return;
-        if (x.unusable) { newerPubs.push(base); return; }
+        if (x.unusable) { newerPubs.push(base); if (x.newer) newerVers.push({ path: base, v: 'v' + (x.info && x.info.version) + ' of ' + p.process, needs: x.needs || '' }); return; }
         var newest = scan && scan.pubs ? scan.pubs[base] : null;
         if (newest != null && now - newest > LIMITS.halfSyncMs) stuck.push({ path: base, age: now - newest, why: x.why }); else arriving.push(base);
       });
@@ -195,17 +199,41 @@ PF.health = (function () {
       if (!tmp.length && !cands.length) ok('leftover', 'No leftover temporary files.');
     }
 
-    /* ---- newer copies ---- */
-    var ro = runs.filter(function (r) { return r._unrunnable; }), inst = scan && scan.installed && typeof scan.installed === 'object' ? scan.installed : null;
+    /* ---- newer copies: what a newer Flightdeck wrote, by family and the version each needs ---- */
+    var ro = runs.filter(function (r) { return r._unrunnable; }), inst = scan && scan.installed && typeof scan.installed === 'object' && !scan.installed.newer ? scan.installed : null;
+    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = d.refused || [];
     var newerInst = inst && typeof inst.version === 'string' && snap.app && snap.app !== 'dev' && semver(inst.version, snap.app) > 0 ? inst.version : null;
-    if (ro.length || newerPubs.length || snap.newer || newerInst) {
-      var parts = [];
+    if (ro.length || newerPubs.length || snap.newer || newerInst || instNewer || refused.length) {
+      var parts = [], needs = function (n) { return n ? 'Flightdeck ' + n : 'a newer Flightdeck'; };
       if (snap.newer) parts.push('Flightdeck ' + snap.newer + ' is in the team folder');
       if (newerInst) parts.push('flightdeck install ' + newerInst + ' set up the folder');
-      if (newerPubs.length) parts.push(plural(newerPubs.length, 'version') + ' can\'t be run here');
-      if (ro.length) parts.push(plural(ro.length, 'run') + ' open' + (ro.length === 1 ? 's' : '') + ' read-only here');
-      add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; })), action: help(HELP.newer), help: HELP.newer });
+      if (instNewer) parts.push('.flightdeck/installed.json needs ' + needs(instNewer.needs));
+      newerVers.forEach(function (x) { parts.push(x.v + ' needs ' + needs(x.needs)); });
+      if (newerPubs.length > newerVers.length) parts.push(plural(newerPubs.length - newerVers.length, 'version') + ' can\'t be run here');
+      var made = ro.filter(function (r) { return r._needs != null; }), tests = made.filter(function (r) { return r._test; });
+      if (made.length) parts.push(plural(made.length, 'run') + ' made with ' + needs(made[0]._needs) + (tests.length ? ' (' + plural(tests.length, 'test run') + ')' : '') + ' show' + (made.length === 1 ? 's' : '') + ' by name only');
+      if (ro.length > made.length) parts.push(plural(ro.length - made.length, 'run') + ' open' + (ro.length - made.length === 1 ? 's' : '') + ' read-only here');
+      var NAMES = { 'flightdeck-plan': ['plan', 'plans'], 'flightdeck-plan-status': ['plan decision', 'plan decisions'], 'flightdeck-validation': ['sign-off', 'sign-offs'], 'flightdeck-step-type': ['step type', 'step types'], 'flightdeck-skill': ['skill registration', 'skill registrations'], 'flightdeck-followup-decision': ['follow-up decision', 'follow-up decisions'], 'flightdeck-correction-decision': ['correction decision', 'correction decisions'], 'flightdeck-fix-decision': ['decision', 'decisions'] };
+      var byFam = {}; refused.forEach(function (x) { var k = x.family + '|' + (x.needs || ''); (byFam[k] = byFam[k] || []).push(x); });
+      Object.keys(byFam).sort().forEach(function (k) { var x = byFam[k], n = NAMES[x[0].family] || ['file', 'files']; parts.push(x.length + ' ' + (x.length === 1 ? n[0] : n[1]) + ' need' + (x.length === 1 ? 's ' : ' ') + needs(x[0].needs)); });
+      add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy shows them and leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; }), refused.map(function (x) { return x.path; }), instNewer ? ['.flightdeck/installed.json'] : []), action: help(HELP.newer), help: HELP.newer });
     } else ok('newer', 'Nothing here was written by a newer Flightdeck.');
+    /* An older copy's Restore beside a run it could only list by name leaves a placeholder (no steps, no answers). */
+    var ph = scan && scan.placeholders ? scan.placeholders.filter(function (p) { var m = /^runs\/([^/]+)\/([^/]+)\//.exec(p); return m && ro.some(function (r) { return r.process === m[1] && r.id === m[2] && r._needs != null; }); }) : [];
+    if (ph.length) add({ id: 'placeholder', severity: 'info', area: 'Runs', title: plural(ph.length, 'placeholder') + ' left by an older Flightdeck', detail: 'An older Flightdeck left ' + (ph.length === 1 ? 'this placeholder' : 'these placeholders') + ' beside a run made with a newer one. ' + (ph.length === 1 ? 'It holds' : 'They hold') + ' no answers. Once the run reads correctly in the newer Flightdeck, ' + (ph.length === 1 ? 'it' : 'they') + ' can be deleted.', paths: ph, action: help(HELP.placeholder), help: HELP.placeholder });
+
+    /* ---- copies seen lately: older Flightdecks that answered connection checks or edited drafts here ---- */
+    var seen = Object.create(null), mine = semverOf(snap.app);
+    (snap.connection ? (snap.connection.probes || []).concat(snap.connection.acks || []) : []).forEach(function (x) { note(x.app, x.at); });
+    (d.presence || []).forEach(function (p) { if (p && p.rec) note(p.rec.app, p.rec.at); });
+    function note(app, at) { var t = ms(at), v = semverOf(app); if (!v || t == null || now - t > 7 * DAY || now - t < -LIMITS.skewMs) return; if (mine && cmpV(v, mine) >= 0) return; seen[v.join('.')] = v; }
+    var olds = Object.keys(seen).map(function (k) { return seen[k]; }).sort(cmpV).map(function (v) { return v.join('.'); });
+    if (olds.length) {
+      var floor = olds.filter(function (v) { return cmpV(semverOf(v), [1, 11, 1]) < 0; });
+      add({ id: 'older-copies', severity: floor.length ? 'warn' : 'info', area: 'Flightdeck', title: 'Teammates are using an older Flightdeck',
+        detail: 'In the last 7 days, windows running Flightdeck ' + listOf(olds) + ' answered connection checks or edited drafts here.' + (floor.length ? ' Flightdeck ' + listOf(floor) + ' can\'t tell what a newer Flightdeck wrote: it may hide runs made with Flightdeck 2.0 and offer a version it can\'t read.' : '') + ' Move every computer to ' + (snap.app && snap.app !== 'dev' ? 'Flightdeck ' + snap.app : 'this Flightdeck') + ' before anyone uses Flightdeck 2.0 features, and re-enter any change an older window said it couldn\'t save.',
+        paths: [], action: help(HELP.older), help: HELP.older });
+    } else if (snap.connection || d.presence) ok('older-copies', 'No older Flightdeck answered a connection check or edited a draft here in the last 7 days.');
 
     /* ---- the same writer name twice: notes with one ID and different text, or one writer on two computers ---- */
     var clashNotes = [];

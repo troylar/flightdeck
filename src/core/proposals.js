@@ -45,6 +45,7 @@ PF.proposals = (function () {
     if (!o || typeof o !== 'object' || Array.isArray(o)) return no('can\'t be read as a proposal (it isn\'t JSON yet; it may still be arriving)');
     if (o.kind !== 'draft-proposal') return no('isn\'t in the proposal format');
     if (o.pv !== 1) return no(typeof o.pv === 'number' && o.pv > 1 ? 'was written by a newer Flightdeck' : 'isn\'t in the proposal format');
+    if (o.features != null && !PF.envelope.judge('flightdeck-proposal', o).ok) return no('was written by a newer Flightdeck (it uses ' + PF.envelope.txt(o.features).slice(0, 80) + ')');
     if (typeof o.id !== 'string' || !ID.test(o.id) || name !== o.id + '.json') return no('has a file name that doesn\'t match its ID');
     if (typeof o.process !== 'string' || o.process !== folderProcess) return no('says process ' + str(o.process, 60) + ', but it\'s in proposed/' + folderProcess);
     if (typeof o.session !== 'string' || !SESSION.test(o.session)) return no('has no session in the format');
@@ -88,6 +89,8 @@ PF.proposals = (function () {
   function cleanRecord(o, name) {
     var x = parseName(name);
     if (!x || x.kind === 'proposal' || !o || typeof o !== 'object' || Array.isArray(o) || o.proposal !== x.proposal) return null;
+    /* A record with a must-understand feature this copy doesn't know is unreadable, as one in a newer version is. */
+    if (o.features != null) return null;
     if (o.proposalRev != null && (typeof o.proposalRev !== 'string' || !SHA.test(o.proposalRev))) return null;
     var base = { proposal: x.proposal, writer: x.writer, proposalRev: o.proposalRev || null, by: str(o.by, 80), at: str(o.at, 40) };
     if (x.kind === 'attempt') {
@@ -319,7 +322,7 @@ PF.proposals = (function () {
 
   /* ---------- presence: presence/<writer>.json, each window its own, while it holds a draft editor ---------- */
   function presence(o) {
-    return { kind: 'presence', pv: 1, writer: o.writer, by: o.by || '', device: o.device || '', since: o.since || '', at: o.at || '', beat: +o.beat || 0,
+    return { kind: 'presence', pv: 1, app: o.app || '', writer: o.writer, by: o.by || '', device: o.device || '', since: o.since || '', at: o.at || '', beat: +o.beat || 0,
       drafts: (o.drafts || []).slice(0, 50), main: (o.main || []).slice(0, 50).map(function (c) { return { process: c.process, claimRev: c.claimRev, seen: c.seen || null }; }) };
   }
   function presenceName(writer) { return writer + '.json'; }
@@ -327,13 +330,16 @@ PF.proposals = (function () {
   function cleanPresence(o, name) {
     if (!o || typeof o !== 'object' || Array.isArray(o) || o.kind !== 'presence' || o.pv !== 1 || typeof o.writer !== 'string' || !WRITER.test(o.writer) || name !== o.writer + '.json') return null;
     if (typeof o.at !== 'string' || isNaN(Date.parse(o.at)) || typeof o.beat !== 'number' || !isFinite(o.beat) || !Array.isArray(o.drafts) || (o.main != null && !Array.isArray(o.main))) return null;
+    /* A feature this copy doesn't know: unreadable, which counts as fresh where that's the safe outcome. */
+    if (o.features != null && !PF.envelope.judge('flightdeck-presence', o).ok) return null;
     var main = [];
     (o.main || []).slice(0, 50).forEach(function (c) {
       if (!c || typeof c !== 'object' || typeof c.process !== 'string' || !PROC.test(c.process) || typeof c.claimRev !== 'number' || !(c.claimRev >= 1) || c.claimRev % 1) return;
       var seen = c.seen && typeof c.seen === 'object' && typeof c.seen.writer === 'string' && WRITER.test(c.seen.writer) && typeof c.seen.claimRev === 'number' ? { writer: c.seen.writer, claimRev: c.seen.claimRev } : null;
       main.push({ process: c.process, claimRev: c.claimRev, seen: seen });
     });
-    return { kind: 'presence', writer: o.writer, by: str(o.by, 80), device: str(o.device, 80), since: str(o.since, 40), at: o.at, beat: o.beat,
+    /* app: the Flightdeck that window runs (1.21 on; older copies ignore it), for Folder health's "Copies seen lately". */
+    return { kind: 'presence', writer: o.writer, app: PF.envelope.semver(o.app) ? o.app : '', by: str(o.by, 80), device: str(o.device, 80), since: str(o.since, 40), at: o.at, beat: o.beat,
       drafts: o.drafts.filter(function (d) { return typeof d === 'string' && PROC.test(d); }).slice(0, 50), main: main };
   }
   /* The command line looks once: fresh if its time is within 60 s, or ahead of this clock by up to 10 minutes. A malformed

@@ -245,4 +245,72 @@ rule('The assistants\' folder checker agrees with the app on OneDrive copies of 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+/* ---------- The format envelope, mirrored (2.0 plan, slice 1b) ---------- */
+rule('The checker\'s envelope verdict agrees with PF.envelope.judge on every 2.0 sample and probe it reads, and names a newer version in the app\'s words', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const S = require('../tools/v2-samples'), H = require('./compat-harness'), G = require('../tools/old-folders');
+  const objs = [];
+  ['folder', 'probes/major', 'probes/feature'].forEach(w => Object.entries(S.tree(w)).forEach(([p, t]) => {
+    const fam = PF.envelope.familyOfPath(p);
+    if ((fam === 'preflight-publication' || fam === 'flightdeck-step-type') && !/types\.json$/.test(p)) objs.push([fam, JSON.parse(t)]);
+  }));
+  objs.push(['preflight-publication', { format: 'preflight-publication/1' }], ['flightdeck-step-type', { id: 'x' }], ['preflight-publication', { format: 'preflight-run/2' }], ['preflight-publication', { format: 'acme/1', app: '3.2.1' }], ['preflight-publication', null]);
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps([c.judge(f, o) for f, o in json.loads(sys.stdin.read())]))', path.dirname(CHECKER)], { encoding: 'utf8', input: JSON.stringify(objs) }));
+  objs.forEach(([f, o], i) => {
+    const js = PF.envelope.judge(f, o);
+    assert.deepStrictEqual([out[i].ok, out[i].ok ? '' : out[i].kind, out[i].ok ? '' : out[i].needs], [js.ok, js.ok ? '' : js.kind, js.ok ? '' : js.needs || ''], f + ' ' + JSON.stringify(o).slice(0, 100));
+  });
+  assert.deepStrictEqual(JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps([c.FROZEN, c.FAMILY_NAMES]))', path.dirname(CHECKER)], { encoding: 'utf8' })), JSON.parse(JSON.stringify([PF.envelope.FROZEN, Object.keys(PF.envelope.FAMILIES)])));
+  // On a folder with every 2.0 sample: the /2 version and the 2.0 step type, in the app's words.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-env-'));
+  try {
+    const files = Object.assign(H.readTree(path.join(G.DIR, 'v1.18.0')), S.tree('folder')); H.writeTree(root, files);
+    const res = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const v2 = res.publications.backup.versions.find(v => v.folder === S.PUB2);
+    const app = await repo.loadAll(new DiskFS(root));
+    assert.strictEqual(v2.why, app.processes.find(p => p.process === 'backup').pubs.find(x => x.folder === S.PUB2).why);
+    assert.strictEqual(res.publications.backup.current, 'v1-ab9ysnqh');
+    const st = JSON.stringify(res).indexOf('This step type needs Flightdeck 2.0. This copy shows it but can\'t use or change it.') >= 0;
+    assert.ok(st, 'the 2.0 step type is named: ' + JSON.stringify(res.team || res).slice(0, 400));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker agrees with the app on plans, plan decisions, versions and step types in folders with every 2.0 sample and every probe', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const S = require('../tools/v2-samples'), H = require('./compat-harness'), G = require('../tools/old-folders');
+  for (const [label, extra] of [['samples', S.tree('folder')], ['major probes', S.tree('probes/major')], ['feature probes', S.tree('probes/feature')]]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-parity-'));
+    try {
+      const files = Object.assign(H.readTree(path.join(G.DIR, 'v1.18.0')), extra);
+      // A declined decision with an unknown feature on the baseline plan: the app refuses it, so the plan stays pending.
+      // A plan whose only decision has a feature this copy doesn't know: the app refuses the decision, so the plan is pending.
+      const may = { kind: 'plan', id: 'plan-backup-may', process: 'backup', version: 1, title: 'Backup check May', by: 'person-avery', created: NOW };
+      files['proposals/plan-backup-may.json'] = JSON.stringify(may);
+      files['proposals/plan-backup-may.status-w-feat.json'] = JSON.stringify({ kind: 'status', proposal: 'plan-backup-may', proposalHash: PF.util.hash(JSON.stringify(may)), status: 'declined', run: null, by: 'person-avery', at: NOW, features: ['from-the-future'] });
+      // And a plan with an unknown feature: refused by the app, never pending.
+      files['proposals/plan-backup-june.json'] = JSON.stringify(Object.assign({}, may, { id: 'plan-backup-june', features: ['from-the-future'] }));
+      H.writeTree(root, files);
+      const res = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+      const d = await repo.loadAll(new DiskFS(root), { deep: true });
+      const app = {}; d.plans.forEach(p => { app[p.id] = p._status ? 'decided' : (p._conflicting || p._changedAfterDecision || p._copiesDiffer) ? 'ambiguous' : 'pending'; });
+      const mine = {}; res.plans.filter(p => p.status !== 'newer').forEach(p => { mine[p.id] = p.status; });
+      assert.deepStrictEqual(mine, app, label + ': plans and their state');
+      assert.strictEqual(app['plan-backup-may'], 'pending', 'set-up: the app refuses the decision');
+      assert.ok(!('plan-backup-june' in app), 'set-up: the app refuses the plan');
+      const refusedApp = JSON.parse(JSON.stringify(d.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path).sort();
+      const refusedMine = (res.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file).sort();
+      assert.deepStrictEqual(refusedMine, refusedApp, label + ': plans and decisions from a newer Flightdeck');
+      const pubs = {}; d.processes.forEach(p => (p.pubs || []).forEach(x => { pubs[p.process + '/' + x.folder] = x.ok ? 'complete' : x.unusable ? 'unusable' : 'other'; }));
+      Object.keys(res.publications).forEach(proc => res.publications[proc].versions.forEach(v => {
+        const a = pubs[proc + '/' + v.folder];
+        if (a === 'complete' || a === 'unusable' || v.status === 'complete' || v.status === 'unusable') assert.strictEqual(v.status, a, label + ': ' + proc + '/' + v.folder + ' ' + v.why);
+      }));
+      const typeRefused = JSON.parse(JSON.stringify(d.refused)).filter(r => /^step-types\//.test(r.path)).map(r => r.path).sort();
+      assert.deepStrictEqual(res.teamFiles.problems.filter(p => /needs (Flightdeck|a newer)/.test(p.problem)).map(p => p.file).sort(), typeRefused, label + ': step types');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 run();

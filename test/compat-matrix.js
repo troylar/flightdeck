@@ -57,8 +57,8 @@ const ROWS = [
   { id: 'pf-storage', what: 'pf-storage block in the page', from: '1.17.0', has: (PF, page) => /<script id="pf-storage">/.test(page), writes: [] },
   { id: 'evidence', what: 'Evidence packs (PF.evidence, repo.collectEvidence)', from: '1.17.0', has: (PF) => !!PF.evidence && fn(PF.repo, 'collectEvidence'), writes: [] },
   { id: 'read', what: 'READ/1 (PF.appjson; flightdeck runs --json)', from: '1.18.0', has: (PF, page, cli) => !!PF.appjson && cli.indexOf('flightdeck-read/1') >= 0, writes: [] },
-  { id: 'proposals', what: 'Proposals and presence (PF.proposals)', from: '1.19.0', plan: '1.19 (unverified until tagged; checked on main)', has: (PF) => !!PF.proposals && fn(PF.repo, 'loadProposed'), writes: ['proposed/<process>/*.json', 'presence/<writer>.json'] },
-  { id: 'reports', what: 'Requests and reports (1.20)', from: '1.20.0', plan: '1.20 (unverified until tagged)', has: (PF) => !!PF.requests, writes: ['proposals/req-*.json'] },
+  { id: 'proposals', what: 'Proposals and presence (PF.proposals)', from: '1.19.0', has: (PF) => !!PF.proposals && fn(PF.repo, 'loadProposed'), writes: ['proposed/<process>/*.json', 'presence/<writer>.json'] },
+  { id: 'requests', what: 'Requests from other apps (PF.requests; flightdeck plan request)', from: '1.20.0', plan: '"Reports" in the plan\'s matrix: 1.20 shipped REQUEST only, and REPORT moved to 2.0 (slice 2b)', has: (PF) => !!PF.requests, writes: ['proposals/<request>.json (a plan)'] },
   // Readers that refuse what they don't know
   { id: 'publication-format', what: 'A publication in another format is unusable (P.verify)', from: '1.11.1', has: refusesNewerPublication, writes: [] },
   { id: 'run-format', what: 'A preflight-run/3 is kept by name only (R.newerFormat)', from: '1.11.1', has: namesNewerRun, writes: [] },

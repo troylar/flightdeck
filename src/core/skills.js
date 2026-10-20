@@ -28,6 +28,11 @@ PF.skills = (function () {
   function check(o, file) {
     var errors = [];
     if (!o || typeof o !== 'object' || Array.isArray(o)) return { skill: null, errors: [(file || 'A skill file') + ' must be a JSON object'] };
+    /* A registration from a newer Flightdeck, or a 2.0 tombstone (its registration moved to skill-registrations/ with an exact
+       pin): never matched to a version by number, and named for what it is (docs/design.md section 28). */
+    var env = PF.envelope.judge('flightdeck-skill', o), label = file || str(o.name, 80) || 'A skill file';
+    if (!env.ok) return { skill: null, errors: [label + ': ' + (env.kind === 'newer' ? 'made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why)], newer: env.kind === 'newer', needs: env.needs || '' };
+    if (o.implements === 'moved') return { skill: null, errors: [label + ': Registered in skill-registrations/ for Flightdeck 2.0. This copy can\'t match it to a version.'], newer: true, needs: '2.0', tombstone: true };
     var name = str(o.name, 80), imp = /^([a-z0-9][a-z0-9-]*)@v?(\d+)$/i.exec(str(o.implements, 80));
     if (!name) errors.push('needs a "name"');
     if (!imp) errors.push('"implements" must be <process>@<version>, like release@4');
@@ -229,5 +234,15 @@ PF.skills = (function () {
       evidenceBlock(ready, signs)].join('\n');
   }
 
-  return { READY_RUNS: READY_RUNS, check: check, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  /* A sign-off (validations/*.json), checked: { ok: true, rec } with plain strings and numbers only, so odd values can't break a
+     page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. */
+  function cleanValidation(v) {
+    var env = PF.envelope.judge('flightdeck-validation', v);
+    if (!env.ok) return { ok: false, kind: env.kind, why: env.kind === 'newer' ? 'is a sign-off made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why, needs: env.needs || '' };
+    if (typeof v.process !== 'string' || typeof v.folder !== 'string' || typeof v.by !== 'string' || typeof v.at !== 'string') return { ok: false, kind: 'malformed', why: 'isn\'t a sign-off this copy can read', needs: '' };
+    var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
+    if (v.as === 'backup') o.as = 'backup';
+    return { ok: true, rec: o };
+  }
+  return { READY_RUNS: READY_RUNS, check: check, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

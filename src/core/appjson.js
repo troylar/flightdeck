@@ -120,7 +120,7 @@ PF.appjson = (function () {
   /* Why a version can't be used, as a problem kind: from a newer Flightdeck, unusable here, still arriving, or damaged. */
   function pubProblem(res) {
     var why = s(res && res.why);
-    if (res && res.unusable) return { kind: why.indexOf(P.NEWER) === 0 ? 'newer' : 'unusable', why: why };
+    if (res && res.unusable) return { kind: res.newer || why.indexOf(P.NEWER) === 0 ? 'newer' : 'unusable', why: why };
     if (/^Still syncing|^Files don't match/.test(why)) return { kind: 'still-syncing', why: why };
     return { kind: 'malformed', why: why || 'This version can\'t be read.' };
   }

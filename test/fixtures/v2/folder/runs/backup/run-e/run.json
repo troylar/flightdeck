@@ -1,0 +1,98 @@
+{
+  "format": "preflight-run/3",
+  "features": [],
+  "app": "2.0.0",
+  "id": "run-e",
+  "process": "backup",
+  "version": 1,
+  "folder": "v1-ab9ysnqh",
+  "mapHash": "c2780532",
+  "typesHash": "c4143e9d",
+  "title": "Backup check (continued)",
+  "category": "Operations",
+  "snapshot": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook's first page](images/restore.png)\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n",
+  "types": {
+    "confirm": {
+      "id": "confirm",
+      "label": "Confirm",
+      "icon": "check",
+      "hint": "Check that something is true.",
+      "fields": {
+        "where": {
+          "label": "Where to check",
+          "kind": "text"
+        },
+        "looks": {
+          "label": "True when",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "team.restore": {
+      "id": "team.restore",
+      "label": "Restore a backup",
+      "icon": "doc",
+      "hint": "Restores a backup into a scratch copy.",
+      "fields": {
+        "system": {
+          "label": "System",
+          "kind": "text",
+          "required": true
+        }
+      },
+      "version": 2,
+      "custom": true,
+      "record": [
+        {
+          "name": "copy",
+          "label": "Restored copy",
+          "kind": "text"
+        }
+      ]
+    }
+  },
+  "details": {
+    "ticket": "ABC-202"
+  },
+  "roles": {
+    "lead": "person-avery",
+    "checker": "person-blake"
+  },
+  "recorder": {
+    "person": "person-avery",
+    "session": "w-twozero"
+  },
+  "followUps": [],
+  "shotsFrozen": true,
+  "jira": {},
+  "pauses": [],
+  "paused": null,
+  "lineage": [],
+  "state": "running",
+  "created": "2026-10-20T09:00:00.000Z",
+  "createdBy": "person-avery",
+  "tz": "America/New_York",
+  "migrations": [],
+  "steps": {
+    "read": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-10-20T09:00:00.000Z"
+    }
+  },
+  "gates": {},
+  "fields": {},
+  "log": [
+    {
+      "at": "2026-10-20T09:00:00.000Z",
+      "by": "person-avery",
+      "what": "Started"
+    }
+  ],
+  "ended": null,
+  "rev": 3,
+  "savedAt": "2026-10-20T09:00:00.000Z",
+  "savedBy": "w-twozero.k3m9p2q8"
+}

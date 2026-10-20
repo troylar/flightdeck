@@ -30,5 +30,14 @@ PF.contract = (function () {
     return JSON.stringify({ format: 'flightdeck-installed/1', version: version, at: at, by: by, files: files }, null, 2) + '\n';
   }
 
-  return { BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
+  /* .flightdeck/installed.json as Folder health reads it: the record (an object), 'bad' when it isn't one, or, from a newer
+     Flightdeck (flightdeck-installed/2 or a feature this copy doesn't know), { newer: true, needs, why }, which flightdeck
+     install never rewrites. bin/flightdeck.js repeats the check (installedNewer); test/cli.test.js checks the two agree. */
+  function cleanInstalled(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return 'bad';
+    var v = PF.envelope.judge('flightdeck-installed', o);
+    if (!v.ok && v.kind === 'newer') return { newer: true, needs: v.needs || '', why: '.flightdeck/installed.json was written by a newer Flightdeck. ' + PF.envelope.needsText(v.needs) };
+    return v.ok ? o : 'bad';
+  }
+  return { cleanInstalled: cleanInstalled, BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

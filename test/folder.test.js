@@ -394,9 +394,9 @@ rule('A run on a publication whose format this copy doesn\'t know opens read-onl
   await fs.write(base + 'publication.json', JSON.stringify(info));
   const text = (await fs.read('runs/release/run1/run.json')).text;
   const loaded = (await repo.loadAll(fs, { deep: true })).runs.find(x => x.id === 'run1');
-  assert.ok(/doesn't understand\. Update Flightdeck/.test(loaded._unrunnable || ''), 'through loadAll');
+  assert.ok(/^v1 needs Flightdeck 2\.0\. This copy shows it but won't run it\./.test(loaded._unrunnable || ''), 'through loadAll, naming the Flightdeck it needs');
   const one = await repo.loadRun(fs, 'release', 'run1');
-  assert.ok(/doesn't understand\. Update Flightdeck/.test(one._unrunnable || ''), 'and when the open run is reread');
+  assert.ok(/^v1 needs Flightdeck 2\.0\./.test(one._unrunnable || ''), 'and when the open run is reread');
   await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable);
   assert.strictEqual((await fs.read('runs/release/run1/run.json')).text, text);
 });
@@ -406,7 +406,7 @@ rule('A run file in a newer run format is listed read-only and never written', a
   const j = JSON.parse((await fs.read(path)).text); j.format = 'preflight-run/3';
   const text = JSON.stringify(j); await fs.write(path, text);
   const loaded = (await repo.loadAll(fs, { deep: true })).runs.find(x => x.id === 'run1');
-  assert.ok(loaded && /saved by a newer copy of Flightdeck/.test(loaded._unrunnable), 'listed, with the reason');
+  assert.ok(loaded && /^Made with Flightdeck 2\.0\./.test(loaded._unrunnable), 'listed, with the reason');
   await assert.rejects(repo.saveRun(fs, r, 'casey-laptop'), e => e.unrunnable);
   assert.strictEqual((await fs.read(path)).text, text);
 });
@@ -430,7 +430,7 @@ rule('A publication folder replaced by a newer copy\'s (same name, newer format)
   const d = await repo.loadAll(fs, { deep: true });
   assert.ok(!d.processes[0].pubs.find(x => x.folder === r.folder).ok, 'set-up: the publication is unusable');
   const again = d.runs.find(x => x.id === 'run1');
-  assert.ok(/doesn't understand\. Update Flightdeck/.test(again._unrunnable || ''), 'the reloaded run is read-only');
+  assert.ok(/needs Flightdeck 2\.0\. This copy shows it but won't run it\./.test(again._unrunnable || ''), 'the reloaded run is read-only');
   const text = (await fs.read(runPath)).text;
   R.setDetail(loaded, R.mapOf(loaded), 'ticket', 'ABC-3', 'person-casey', NOW);
   await assert.rejects(repo.saveRun(fs, loaded, 'casey-laptop'), e => e.unrunnable, 'the window that loaded it earlier can\'t save');
@@ -682,7 +682,8 @@ rule('Flightdeck\'s loaders never list connection/, so a copy from before 1.15 n
   await repo.loadRun(fs, 'release', 'run1');
   assert.ok(calls.list.length > 10 && !calls.list.some(c => /connection/.test(c)), 'nothing under connection/ was listed or read');
   // check_folder.py, the skills' own checker, knows nothing of it either.
-  assert.ok(!/connection/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')));
+  // The checker never names the folder as a path (its envelope mirror lists family names, which read no files).
+  assert.ok(!/["']connection[\/"']/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')));
 });
 
 rule('Folder health\'s scan reads every file with at most 8 calls in flight, and reports what it can\'t read', async () => {
@@ -897,7 +898,7 @@ rule('Saved history: the draft and step-type loaders never list or read history/
   assert.ok(calls.list.length > 10 && !calls.list.some(c => /history\//.test(c)), 'nothing under history/ was listed or read');
   assert.strictEqual(d.drafts.length, 1, 'only maps/drafts/');
   assert.ok(!d.stepTypes.errors.length, 'no step type from history/');
-  assert.ok(!/history/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')), 'the skills\' checker doesn\'t read it either');
+  assert.ok(!/["']history[\/"']/.test(example('.flightdeck/skills/_flightdeck/check_folder.py')), 'the skills\' checker doesn\'t read it either');
 });
 
 rule('Saved history: each window appends to its own file, rolls over at 512 KB, and reading checks every line', async () => {
@@ -1944,6 +1945,19 @@ rule('Two windows adding a screenshot at the same moment with the same random pa
   same(Array.from(new Uint8Array(await (await fs.blob(ra.path)).arrayBuffer())), PNG.concat([0xa]), 'each window\'s own bytes');
   same(Array.from(new Uint8Array(await (await fs.blob(rb.path)).arrayBuffer())), PNG.concat([0xb]));
   await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: a, now: 1, rand: () => 'x1' }), /window/, 'no writer, no write');
+});
+
+rule('A step type with a hostile envelope ({"format":{"toString":null}}) is refused and named; every other step type still loads', async () => {
+  const fs = folder();
+  await fs.write('step-types/team.good.json', JSON.stringify({ id: 'team.good', label: 'Good', fields: {}, record: [] }));
+  for (const [name, def] of [['team.bad.json', { format: { toString: null }, id: 'team.bad', label: 'Bad' }], ['team.worse.json', { features: [{ toString: null }], id: 'team.worse', label: 'Worse' }], ['team.app.json', { format: 'flightdeck-step-type/9', app: { toString: null }, id: 'team.app', label: 'App' }]]) await fs.write('step-types/' + name, JSON.stringify(def));
+  const d = await repo.loadAll(fs, { deep: true });
+  assert.ok(!d.failed['step types'], 'the part didn\'t fail: ' + d.failed['step types']);
+  assert.ok(d.stepTypes.types['team.good'], 'the good one loads');
+  ['team.bad.json', 'team.worse.json', 'team.app.json'].forEach(f => assert.ok(d.stepTypes.errors.some(e => e.file === f), f + ' is named'));
+  const sk = folder(); await sk.write('skills/odd.json', JSON.stringify({ format: { toString: null }, name: 'odd', implements: 'release@1' }));
+  const ds = await repo.loadAll(sk, { deep: true });
+  assert.ok(!ds.failed.skills && ds.skills.some(x => x.file === 'odd.json' && x.errors.length));
 });
 
 run();

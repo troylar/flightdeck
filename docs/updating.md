@@ -91,18 +91,31 @@ Say that Flightdeck was updated and to reopen it from the team folder's own `fli
 
 ## When computers run different versions
 
-For a while after an update, some people will still have the older copy open. Older copies never overwrite what they don't understand:
+For a while after an update, some people will still have the older copy open. Copies from 1.11.1 on never overwrite what they don't understand:
 
-| A newer copy wrote | An older copy |
+| A newer copy wrote | An older copy (1.11.1 on) |
 |---|---|
-| A published version with new step types or syntax | Shows "Update Flightdeck to run it" and won't start it |
+| A published version with new step types or syntax | Shows "Update Flightdeck to run it" and won't start it. From 1.21 on it says which version it needs: "v5 needs Flightdeck 2.0" |
 | A run with fields it doesn't know | Opens the run read-only |
+| A run in a newer run format (made with Flightdeck 2.0) | Shows its name only and won't change it. From 1.21 on: "Made with Flightdeck 2.0" |
+| A plan, a sign-off, a step type or a decision in a newer format | Doesn't use it. From 1.21 on, Folder health lists it with the version it needs |
 | A note of a new kind (a correction, read by a copy older than 1.13) | Shows it as a plain note and keeps its files |
 | A draft that uses new checklist syntax | Shows errors on the draft; publish it from the newer copy |
 | `AGENTS.md`, the skills, `.flightdeck/installed.json` | Ignores them: the app doesn't read them |
 | Connection checks in `connection/` (1.15) | Ignores them: copies before 1.15 never read that folder, and can't answer a check |
 
-So the worst case is someone who can't record until they reopen the newer copy. Nothing they had is erased.
+So the worst case is someone who can't record until they reopen the newer copy. Nothing in the team folder is erased.
+
+### Two limits to know
+
+- **Copies older than 1.11.1 can't tell.** Flightdeck 1.10.0 and 1.11.0 don't check a file's format. With Flightdeck 2.0 files in the folder they leave runs made with 2.0 out of their lists without a word, and they offer a 2.0 version as the latest, as if they could run it. Nobody should use them in a folder where anyone uses Flightdeck 2.0. Folder health (1.21 on) names older copies it saw answering connection checks or editing drafts in the last 7 days.
+- **A change an older window couldn't save is lost from that window.** When a newer Flightdeck saves a run while an older window has it open, the older window refuses to save over it and writes nothing, which keeps the team folder safe. But the change made in that window isn't kept on disk. If the window is switched to another folder, the browser keeps a copy, and back in the first folder the older copy shows "A copy kept in this browser" with only a Discard button. That copy isn't a way to get the change back. Re-enter the change in Flightdeck 1.21 or newer (see [An older Flightdeck said it couldn't save](recovery.md#an-older-flightdeck-said-it-couldnt-save)).
+
+### Moving a team to Flightdeck 2.0
+
+1. Put Flightdeck 1.21 in the team folder and have everyone reopen it from there. Check Folder health: "Teammates are using an older Flightdeck" should be gone once every computer has answered a connection check or opened a draft with 1.21.
+2. Then put Flightdeck 2.0 in the team folder.
+3. Only then start using 2.0 features (typed run details, staging, notes on phases). A checklist that uses none of them still publishes as a version every copy from 1.11.1 on can run.
 
 ## Rolling back
 

@@ -1,0 +1,21 @@
+{
+  "format": "flightdeck-plan/2",
+  "app": "2.0.0",
+  "id": "plan-backup-pinned",
+  "process": "backup",
+  "pin": {
+    "folder": "v1-ab9ysnqh",
+    "version": 1,
+    "mapHash": "c2780532",
+    "typesHash": "c4143e9d"
+  },
+  "title": "Backup check November",
+  "details": {
+    "ticket": "ABC-203"
+  },
+  "roles": {
+    "lead": "person-avery"
+  },
+  "by": "person-avery",
+  "created": "2026-10-20T09:00:00.000Z"
+}

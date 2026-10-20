@@ -219,6 +219,14 @@ function merged(item) {
   const old = region(item.now), fresh = region(item.text);
   return old.marked ? norm(item.now).slice(0, old.start) + fresh.text + norm(item.now).slice(old.end) : item.text;
 }
+/* A record written by a newer Flightdeck (flightdeck-installed/2 on, or a must-understand feature): never read for meaning and
+   never rewritten. The same verdict as PF.contract.cleanInstalled (test/cli.test.js checks they agree). */
+function installedNewer(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return '';
+  const m = typeof r.format === 'string' ? /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/.exec(r.format) : null;
+  if ((m && m[1] === 'flightdeck-installed' && m[2] !== '1') || (m && m[1] === 'flightdeck-installed' && (Array.isArray(r.features) ? r.features.length > 0 : r.features != null))) return 'was written by a newer Flightdeck' + (typeof r.version === 'string' && /^\d+\.\d+\.\d+$/.test(r.version) ? ' (' + r.version + ')' : '') + '.';
+  return '';
+}
 /* The folder's record, checked field by field. Anyone can edit it, so a record that isn't exactly what this command writes is
    ignored (and said so), and only entries for files this version installs, with a well-formed hash, are read. */
 function readRecord(t, keys) {
@@ -226,6 +234,8 @@ function readRecord(t, keys) {
   if (text === null) return none;
   let r = null;
   try { r = JSON.parse(text); } catch (e) { /* reported below */ }
+  const newer = installedNewer(r);
+  if (newer) fail(path.join(t.dir, ...t.recordAt) + ' ' + newer + ' Nothing was changed. Use the newer Flightdeck package.');
   const ok = r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && /^(\d+\.\d+\.\d+|dev)$/.test(r.version)
     && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
     && Object.keys(r.files).every((k) => typeof r.files[k] === 'string' && /^[0-9a-f]{64}$/.test(r.files[k]));
@@ -699,8 +709,8 @@ function folderProblems(PF, d) {
   (d.unreadable || []).forEach((u) => out.push({ path: u.path, kind: u.kind || 'unreadable', why: fileWhy(u.why) }));
   (d.nofile || []).forEach((n) => out.push({ path: n.path, kind: 'nofile', why: 'The run folder has no run.json.' }));
   (d.malformed || []).forEach((m) => out.push({ path: m.path, kind: m.kind || 'malformed', why: fileWhy(m.why) }));
-  (d.fuUnread || []).forEach((u) => out.push({ path: 'followups/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a follow-up decision this copy can read.' }));
-  (d.corrUnread || []).forEach((u) => out.push({ path: u.dir + '/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a decision this copy can read.' }));
+  (d.fuUnread || []).forEach((u) => out.push({ path: 'followups/' + u.process + '/' + u._file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : 'This file couldn\'t be read, or isn\'t a follow-up decision this copy can read.' }));
+  (d.corrUnread || []).forEach((u) => out.push({ path: u.dir + '/' + u.process + '/' + u._file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : 'This file couldn\'t be read, or isn\'t a decision this copy can read.' }));
   (d.processes || []).forEach((proc) => (proc.pubs || []).forEach((p) => { if (!p.ok && !p._readFailed) { const x = A.pubProblem(p); out.push({ path: 'publications/' + proc.process + '/' + p.folder + '/', kind: x.kind, why: x.why }); } }));
   (d.fuDecisions || []).forEach((x) => { const p = decisionDrift(x); if (p) out.push(p); });
   const pw = peopleWhy(d.people);
@@ -768,7 +778,7 @@ async function readData(eng, adapter, req) {
       const r = one.run, key = m[1] + '/' + m[2];
       if (one.nofile) L.note('runs/' + key + '/run.json', 'nofile', 'The run folder has no run.json.');
       take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
-      take(one.fuUnread.map((u) => ({ path: u.path, kind: u.kind || 'malformed', why: fileWhy(u.why) })));
+      take(one.fuUnread.map((u) => ({ path: u.path, kind: u.kind || 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) })));
       one.fuDecisions.forEach((x) => { const p = decisionDrift(x); if (p) take([p]); });
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
       const pw = peopleWhy(one.people);
@@ -1465,4 +1475,4 @@ if (require.main === module) {
     if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
   } catch (e) { failed(e); }
 }
-module.exports = { _hooks, main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, EXIT };
+module.exports = { _hooks, main, installedNewer, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, EXIT };

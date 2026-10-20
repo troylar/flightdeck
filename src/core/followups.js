@@ -75,12 +75,16 @@ PF.followups = (function () {
 
   /* A decision file read from disk, or null if it isn't one. Never throws: every field is checked for its type before it's
      tested, strings are capped, links stay http(s), and the rev in the file name must be the rev inside. */
+  /* The envelope's verdict on a decision file (docs/design.md section 28): fv above 1, or a feature this copy doesn't know, is
+     a decision from a newer Flightdeck, refused for every consumer (the app, READ, Evidence, Health), never read as a 1. */
+  function verdict(o) { return PF.envelope.judge('flightdeck-followup-decision', o); }
   function cleanDecision(o, process, file) {
     if (!o || typeof o !== 'object' || o.kind !== 'followup-decision' || typeof process !== 'string' || o.process !== process) return null;
+    if (!verdict(o).ok) return null;
     if (!is(/./, o.at) || !is(/./, o.by) || STATUS.indexOf(o.status) < 0 || !is(ID, o.run) || !is(ID, o.followUp) || !revOk(o.rev)) return null;
     var m = typeof file === 'string' ? FILE.exec(file) : null;
     if (file != null && !(m && m[1] === o.run && m[2] === o.followUp && +m[4] === o.rev)) return null;
-    var d = { kind: 'followup-decision', fv: typeof o.fv === 'number' && o.fv >= 1 && o.fv < 1000 ? Math.floor(o.fv) : 1, process: process, run: o.run, followUp: o.followUp, status: o.status,
+    var d = { kind: 'followup-decision', fv: 1, process: process, run: o.run, followUp: o.followUp, status: o.status,
       by: o.by.slice(0, LIMITS.by), at: o.at.slice(0, LIMITS.at), rev: o.rev, seen: is(FILE, o.seen) ? o.seen : null };
     if (typeof o.link === 'string' && o.link.length <= LIMITS.link && U.safeUrl(o.link)) d.link = o.link;
     if (typeof o.note === 'string' && o.note) d.note = o.note.slice(0, LIMITS.note);
@@ -148,6 +152,6 @@ PF.followups = (function () {
     return 'Won\'t do: ' + d.reason;
   }
 
-  return { STATUS: STATUS, LABEL: LABEL, LIMITS: LIMITS, STALE_MS: STALE_MS, MAX_REV: MAX_REV, key: key, formId: formId, revOk: revOk, decidable: decidable, fileName: fileName, decision: decision, cleanDecision: cleanDecision, current: current,
+  return { STATUS: STATUS, LABEL: LABEL, LIMITS: LIMITS, STALE_MS: STALE_MS, MAX_REV: MAX_REV, key: key, formId: formId, revOk: revOk, decidable: decidable, fileName: fileName, decision: decision, cleanDecision: cleanDecision, verdict: verdict, current: current,
     list: list, isOpen: isOpen, mine: mine, stale: stale, forRun: forRun, ageDays: ageDays, detail: detail };
 })();

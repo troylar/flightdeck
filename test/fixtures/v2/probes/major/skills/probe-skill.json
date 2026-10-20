@@ -1,0 +1,8 @@
+{
+  "format": "flightdeck-skill/9",
+  "app": "9.0.0",
+  "name": "probe-skill",
+  "version": "1.0.0",
+  "location": "https://example.com/skills/probe",
+  "implements": "backup@1"
+}

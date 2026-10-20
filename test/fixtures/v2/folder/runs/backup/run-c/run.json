@@ -1,0 +1,194 @@
+{
+  "format": "preflight-run/3",
+  "features": [
+    "typed-details",
+    "typed-evidence",
+    "pinned-children"
+  ],
+  "app": "2.0.0",
+  "id": "run-c",
+  "process": "backup",
+  "version": 2,
+  "folder": "v2-zzzz2222",
+  "mapHash": "b7bf4bf0",
+  "typesHash": "dff477ba",
+  "title": "Backup check October",
+  "category": "Operations",
+  "snapshot": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket, rows:number, due:date, approved:yes-no\nroles: lead, checker\n---\n\n## Prepare {#prep}\n  > Use the scratch server, never production.\n  ![The scratch server](images/scratch.png)\n- [!] {confirm} Read the restore runbook @lead {#read}\n- [ ] {team.count} Count the restored rows ^rows @checker {#count}\n- [ ] {run.process} Verify the copy {#verify}\n  process: verify\n  version: 4\n- [ ] {run.skill} Write the report {#report}\n  skill: release-notes\n  skillVersion: 1.2.0\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n  ![Row counts side by side](images/counts.png)\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#file}\n",
+  "types": {
+    "confirm": {
+      "id": "confirm",
+      "label": "Confirm",
+      "icon": "check",
+      "hint": "Check that something is true.",
+      "fields": {
+        "where": {
+          "label": "Where to check",
+          "kind": "text"
+        },
+        "looks": {
+          "label": "True when",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "team.count": {
+      "id": "team.count",
+      "label": "Count rows",
+      "icon": "doc",
+      "hint": "Counts the rows in a restored copy.",
+      "fields": {
+        "system": {
+          "label": "System",
+          "kind": "text"
+        }
+      },
+      "record": [
+        {
+          "name": "rows",
+          "label": "Rows",
+          "kind": "number",
+          "min": "0"
+        },
+        {
+          "name": "matches",
+          "label": "Matches the source",
+          "kind": "yes-no"
+        }
+      ],
+      "version": 3
+    }
+  },
+  "payload": {
+    "map": "c4be5c77f9b7b45f65b9808cc77b1b6541a7c169a0a70cb98a1c0e87c9a7b300",
+    "types": "3abf288ffcd3ffaec682c199eefd20f6fd400a8f5d8d548b70875b8b098dc66a",
+    "images": {
+      "images/scratch.png": "02a3e298f1533f62558c58e4c70edcab9af5a50d62d925fd5390942020fb0fb8",
+      "images/counts.png": "02a3e298f1533f62558c58e4c70edcab9af5a50d62d925fd5390942020fb0fb8"
+    },
+    "extensions": {},
+    "pins": {
+      "children": {
+        "verify": {
+          "process": "verify",
+          "version": 4,
+          "folder": "v4-cccc4444",
+          "mapHash": "aaaa0001",
+          "typesHash": "aaaa0002"
+        }
+      },
+      "skills": {
+        "report": {
+          "name": "release-notes",
+          "version": "1.2.0"
+        }
+      }
+    }
+  },
+  "details": {
+    "ticket": "ABC-201",
+    "rows": "1234.5",
+    "due": "2026-10-31",
+    "approved": "yes"
+  },
+  "roles": {
+    "lead": "person-avery",
+    "checker": "person-blake"
+  },
+  "recorder": {
+    "person": "person-avery",
+    "session": "w-twozero"
+  },
+  "followUps": [],
+  "shotsFrozen": true,
+  "jira": {},
+  "pauses": [],
+  "paused": null,
+  "lineage": [],
+  "state": "running",
+  "created": "2026-10-20T09:00:00.000Z",
+  "createdBy": "person-avery",
+  "tz": "America/New_York",
+  "pins": {
+    "children": {
+      "verify": {
+        "process": "verify",
+        "version": 4,
+        "folder": "v4-cccc4444",
+        "mapHash": "aaaa0001",
+        "typesHash": "aaaa0002"
+      }
+    }
+  },
+  "migrations": [
+    {
+      "path": "details.due",
+      "at": "2026-10-20T09:00:00.000Z",
+      "from": "10/31/2026",
+      "source": "plan",
+      "verdict": "ambiguous",
+      "result": null,
+      "resolved": {
+        "by": "person-avery",
+        "at": "2026-10-20T09:00:00.000Z",
+        "value": "2026-10-31"
+      }
+    }
+  ],
+  "steps": {
+    "read": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-10-20T09:00:00.000Z"
+    },
+    "count": {
+      "s": "done",
+      "by": "person-blake",
+      "at": "2026-10-20T09:00:00.000Z",
+      "values": {
+        "rows": "1234.5",
+        "matches": "yes"
+      }
+    },
+    "verify": {
+      "s": "open",
+      "child": {
+        "process": "verify",
+        "id": "run-v",
+        "inputs": {
+          "ticket": "ABC-201"
+        },
+        "folder": "v4-cccc4444"
+      }
+    },
+    "report": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-10-20T09:00:00.000Z",
+      "skill": {
+        "id": "sk-aaaa1111",
+        "rev": 1,
+        "sha": "29c9c30e0604515ced98b3d14fd88751a8f8e4b9bc69d483a67a257c14ab79fb",
+        "snapshot": {
+          "name": "release-notes",
+          "version": "1.2.0"
+        }
+      }
+    }
+  },
+  "gates": {},
+  "fields": {},
+  "log": [
+    {
+      "at": "2026-10-20T09:00:00.000Z",
+      "by": "person-avery",
+      "what": "Started"
+    }
+  ],
+  "ended": null,
+  "rev": 3,
+  "savedAt": "2026-10-20T09:00:00.000Z",
+  "savedBy": "w-twozero.k3m9p2q8"
+}

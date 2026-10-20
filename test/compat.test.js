@@ -325,35 +325,46 @@ eachTag('a draft in 2.0 syntax can\'t be published, and a step type with a 2.0 k
 
 /* ---------- Known: what older releases (and this one) still accept; the 1.21 bridge closes these ---------- */
 
-eachTag('Known: a follow-up decision with fv: 2 is read as an ordinary decision (the bridge refuses fv above 1)', async (OLD, t) => {
+eachTag('a follow-up decision with fv: 2 is read as an ordinary decision there (pre-bridge copies keep accepting it), and this version refuses it as newer, named', async (OLD, t) => {
   const files = fixture(t.tag), file = Object.keys(files).find(p => /^followups\//.test(p));
   const o = JSON.parse(files[file]); o.fv = 2; o.status = 'done'; o.rev = 2; o.seen = file.split('/').pop();
-  files[file.replace(/\.1\.json$/, '.2.json').replace('w-avery', 'w-blake')] = JSON.stringify(o, null, 2);
-  for (const PF of [OLD, H.loadMain()]) {
-    const d = await PF.repo.loadAll(H.memFolder(PF, files));
-    assert.ok(d.fuDecisions.some(x => x.rev === 2 && x.status === 'done'), PF.__tag + ' accepts it');
-    assert.strictEqual(d.fuUnread.length, 0);
-  }
+  const name = file.replace(/\.1\.json$/, '.2.json').replace('w-avery', 'w-blake');
+  files[name] = JSON.stringify(o, null, 2);
+  const d = await OLD.repo.loadAll(H.memFolder(OLD, files));
+  assert.ok(d.fuDecisions.some(x => x.rev === 2 && x.status === 'done'), t.tag + ' accepts it');
+  assert.strictEqual(d.fuUnread.length, 0);
+  const NEW = H.loadMain(), n = await NEW.repo.loadAll(H.memFolder(NEW, files));
+  assert.ok(!n.fuDecisions.some(x => x.rev === 2), 'this version never reads it as a decision');
+  const u = n.fuUnread.find(x => x._file === name.split('/').pop());
+  assert.ok(u && u.kind === 'newer' && /newer Flightdeck/.test(u.why), JSON.stringify(n.fuUnread));
+  assert.ok(n.refused.some(r => r.path === name && r.kind === 'newer'), 'and lists it with the files it refused');
 }, (t) => expects('followups', t.version));
 
-eachTag('Known: a correction decision with dv: 3 is read as an ordinary decision (the bridge refuses dv above 2)', async (OLD, t) => {
+eachTag('a correction decision with dv: 3 is read as an ordinary decision there (pre-bridge copies keep accepting it), and this version refuses it as newer, named', async (OLD, t) => {
   const files = fixture(t.tag), file = Object.keys(files).find(p => /^corrections\//.test(p));
   const o = JSON.parse(files[file]); o.dv = 3; o.rev = 2; o.seen = file.split('/').pop();
-  files[file.replace(/\.1\.json$/, '.2.json').replace('w-avery', 'w-blake')] = JSON.stringify(o, null, 2);
-  for (const PF of [OLD, H.loadMain()]) {
-    const d = await PF.repo.loadAll(H.memFolder(PF, files));
-    assert.ok(d.corrDecisions.some(x => x.kind === 'correction-decision' && x.rev === 2), PF.__tag + ' accepts it');
-    assert.strictEqual(d.corrUnread.length, 0);
-  }
+  const name = file.replace(/\.1\.json$/, '.2.json').replace('w-avery', 'w-blake');
+  files[name] = JSON.stringify(o, null, 2);
+  const d = await OLD.repo.loadAll(H.memFolder(OLD, files));
+  assert.ok(d.corrDecisions.some(x => x.kind === 'correction-decision' && x.rev === 2), t.tag + ' accepts it');
+  assert.strictEqual(d.corrUnread.length, 0);
+  const NEW = H.loadMain(), n = await NEW.repo.loadAll(H.memFolder(NEW, files));
+  assert.ok(!n.corrDecisions.some(x => x.rev === 2), 'this version never reads it as a decision');
+  const u = n.corrUnread.find(x => x._file === name.split('/').pop());
+  assert.ok(u && u.kind === 'newer' && /newer Flightdeck/.test(u.why), JSON.stringify(n.corrUnread));
+  assert.ok(n.refused.some(r => r.path === name && r.kind === 'newer'));
 }, (t) => expects('corrections', t.version));
 
-eachTag('Known: a front-matter format: or features: line is kept in meta and published as an ordinary version (so it can\'t be a boundary)', async (OLD, t) => {
+eachTag('a front-matter format: or features: line is kept in meta and published as an ordinary version there (so it can\'t be a boundary); this version refuses to publish it', async (OLD, t) => {
+  const NEW = H.loadMain();
   for (const extra of ['format: flightdeck-checklist/2', 'features: typed-details', 'format: flightdeck-checklist/9\nfeatures: future-thing']) {
     const md = G.CHECKLIST.replace('roles: lead, checker\n', 'roles: lead, checker\n' + extra + '\n');
     const m = H.memFolder(OLD, fixture(t.tag)), existing = (await OLD.repo.loadAll(m)).processes[0].index.all.map(p => p.info);
     const res = await OLD.repo.publish(m, md, { people: G.PEOPLE, customTypes: { 'team.restore': OLD.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Minimum only', existing, now: AT });
     assert.ok(!res.blockers, extra + ': ' + res.blockers);
     assert.strictEqual(JSON.parse(res.files['publication.json']).format, 'preflight-publication/1');
+    const mine = await NEW.repo.publish(H.memFolder(NEW, fixture(t.tag)), md, { people: G.PEOPLE, customTypes: { 'team.restore': NEW.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Minimum only', existing, now: AT });
+    assert.ok(mine.blockers && mine.blockers.some(b => /Flightdeck 2\.0|newer Flightdeck/.test(b)), extra + ': this version refuses it');
   }
 });
 

@@ -217,10 +217,42 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 ## A newer Flightdeck wrote files
 
-**What you see:** "Update Flightdeck to run it" on a version, a run that opens read-only, or "Flightdeck X is in the team folder" in the top bar.
+**What you see:** "v5 needs Flightdeck 2.0" on a version, "Made with Flightdeck 2.0" on a run that shows its name only, "needs a newer Flightdeck" on a plan, a sign-off, a decision or a step type, or "Flightdeck X is in the team folder" in the top bar. Folder health lists each of these files under "A newer Flightdeck wrote some of these files".
 
-**What it means:** someone used a newer copy of Flightdeck, and it wrote files with features this copy doesn't understand. This copy leaves them alone rather than risk erasing what it can't read.
+**What it means:** someone used a newer copy of Flightdeck, and it wrote files this copy doesn't fully understand. This copy shows them by name and leaves them alone rather than risk misreading or erasing what it can't read. It never counts them as if they were something it knows.
 
 **What to do:** open the team folder's own `flightdeck.html` (the newest one), not a copy you saved elsewhere. If the team folder's copy is the older one, whoever updates Flightdeck installs the newer version there (see [Updating Flightdeck](updating.md)).
 
 **What not to do:** don't go back to an older copy to "fix" the run. It can't record on files a newer copy wrote.
+
+## A teammate can't run a version
+
+**What you see:** a teammate sees "v5 needs Flightdeck 2.0" (or, on Flightdeck 1.20 and earlier, "Update Flightdeck to run it") where you can start runs on v5.
+
+**What it means:** v5 uses something their copy of Flightdeck can't read. Their copy shows it but won't run it, so runs already going on older versions aren't affected.
+
+**What to do:** they open the team folder's own `flightdeck.html`. If their computer still has an older copy saved somewhere, they stop using it. Until every computer is on the newer Flightdeck, start runs of v5 only from a computer that has it.
+
+## An older Flightdeck said it couldn't save
+
+**What you see:** in an older copy of Flightdeck, a save fails with "saved by a newer copy of Flightdeck" or "Update Flightdeck", and the run is read-only. If that window was then switched to another folder and back, it may also list "A copy kept in this browser" with only a **Discard** button.
+
+**What it means:** the run was saved by a newer Flightdeck while the older window had it open. The older copy refused to save over it and wrote nothing, so nothing in the team folder was lost. But the change made in that old window can't be restored from it: the copy kept in the browser offers only Discard, and switching folders to keep one isn't a way to get it back.
+
+**What to do:** open the team folder's own `flightdeck.html` (Flightdeck 1.21 or newer) and re-enter the change there, or write it down in a note on the run. Then move that computer to the newer Flightdeck (see [Updating Flightdeck](updating.md)).
+
+## A replaced file with no steps
+
+**What you see:** a `replaced-<window>-<time>.json` file beside a run made with Flightdeck 2.0. Folder health calls it "a placeholder left by an older Flightdeck", and an evidence pack labels it the same way.
+
+**What it means:** an older copy of Flightdeck tried to restore a change over a run it could only show by name. It kept the name-only view it had as a "replaced" file. That file holds no answers and isn't a version of the run.
+
+**What to do:** nothing is lost. Once the run reads correctly in the newer Flightdeck, the placeholder can be deleted. Don't use it to restore anything.
+
+## Teammates on an older Flightdeck
+
+**What you see:** Folder health says "Teammates are using an older Flightdeck" and names the versions it saw in the last 7 days, from connection checks and draft editors.
+
+**What it means:** some computers still run an older copy. Copies from 1.11.1 on refuse files they can't read and show them by name. Copies older than 1.11.1 (1.10.0 and 1.11.0) can't tell: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as if they could run it.
+
+**What to do:** move every computer to the newest Flightdeck in the team folder before anyone records on a Flightdeck 2.0 version (see [Updating Flightdeck](updating.md)). If an older window said it couldn't save, re-enter that change (see [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save)).

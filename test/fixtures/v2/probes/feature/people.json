@@ -1,0 +1,13 @@
+{
+  "format": "flightdeck-people/1",
+  "features": [
+    "from-the-future"
+  ],
+  "app": "9.1.0",
+  "people": [
+    {
+      "id": "person-avery",
+      "name": "Avery Lee"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "format": "flightdeck-skill/2",
+  "app": "2.0.0",
+  "id": "sk-aaaa1111",
+  "rev": 1,
+  "seen": null,
+  "name": "release-notes",
+  "version": "1.2.0",
+  "location": "https://example.com/skills/release-notes",
+  "implements": {
+    "process": "backup",
+    "folder": "v2-zzzz2222",
+    "mapHash": "b7bf4bf0",
+    "typesHash": "dff477ba"
+  },
+  "description": "Writes the release notes.",
+  "by": "person-avery",
+  "updated": "2026-10-20T09:00:00.000Z"
+}

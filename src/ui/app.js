@@ -1762,7 +1762,7 @@
   function ownPresence() {
     var drafts = heldDrafts();
     if (!drafts.length) return null;
-    return PF.proposals.presence({ writer: WRITER, by: state.me || '', device: ctx.device(), since: pres.since || new Date().toISOString(), at: new Date().toISOString(), beat: pres.beat,
+    return PF.proposals.presence({ app: APP_VERSION, writer: WRITER, by: state.me || '', device: ctx.device(), since: pres.since || new Date().toISOString(), at: new Date().toISOString(), beat: pres.beat,
       drafts: drafts, main: drafts.filter(function (pid) { return state.claims[fsKey() + '|' + pid]; }).map(function (pid) { var c = state.claims[fsKey() + '|' + pid]; return { process: pid, claimRev: c.claimRev, seen: c.seen }; }) });
   }
   /* now: write a beat whatever the time (opening an editor, a claim, coming back from sleep). */

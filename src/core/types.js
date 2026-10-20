@@ -111,6 +111,12 @@ PF.types = (function () {
   function checkCustom(def) {
     var errs = [];
     if (!def || typeof def !== 'object') return ['must be a JSON object'];
+    /* A step type from a newer Flightdeck (its own format, a newer major or a feature this copy doesn't know) is named for what
+       it is, never read field by field (docs/design.md section 28). */
+    if (def.format != null || def.features != null) {
+      var env = PF.envelope.judge('flightdeck-step-type', def);
+      if (!env.ok && env.kind === 'newer') return ['This step type needs ' + (env.needs ? 'Flightdeck ' + env.needs : 'a newer Flightdeck') + '. This copy shows it but can\'t use or change it.'];
+    }
     if (typeof def.id !== 'string' || !/^[a-z][a-z0-9-]*(\.[a-z0-9-]+)*$/.test(def.id) || def.id.length > 40) errs.push('"id" must be lowercase letters, numbers, dashes and dots, like "change.request"');
     else if (BY[def.id]) errs.push('"' + def.id + '" is a built-in type; choose another id');
     if (typeof def.label !== 'string' || !def.label.trim() || def.label.length > 40) errs.push('"label" must be 1-40 characters');
