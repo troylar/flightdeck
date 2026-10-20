@@ -2929,4 +2929,21 @@ rule('PF.signature.process signs every declared input, bound or not: run details
   assert.ok(/Roles: now lead, ops, qa/.test(S.changes(a, roles).map(c => c.what.join(' ')).join(' ')));
 });
 
+rule('Skill briefs carry a phase\'s note and screenshots and a gate\'s screenshots: create shows them, and an update for a note-only change shows it in Before and Now', () => {
+  const S = PF.skills, rich = SIG_MD.replace('  > Use the scratch server.\n', '  > Use the scratch server.\n  ![Server status](images/sg/a.png)\n').replace('  > The board said yes.\n', '  > The board said yes.\n  ![Board minutes](images/sg/b.png)\n');
+  const pub = (md, v) => Object.assign(sigPub(md), { info: { version: v, folder: 'v' + v + '-aaaa', images: {} } });
+  const ready = PF.skills.readiness([], pub(rich, 1), null);
+  const brief = S.createBrief(pub(rich, 1), null, ready, []);
+  assert.ok(/Use the scratch server\./.test(brief), 'the phase note');
+  assert.ok(/Server status \(images\/sg\/a\.png/.test(brief), 'the phase screenshot');
+  assert.ok(/Board minutes \(images\/sg\/b\.png/.test(brief), 'the gate screenshot');
+  assert.ok(/The board said yes\./.test(brief), 'the gate note');
+  const a = pub(SIG_MD, 1), b = pub(SIG_MD.replace('Use the scratch server.', 'Use the staging server.'), 2);
+  const st = { base: a, latest: b, changes: S.changes(a, b) };
+  const up = S.updateBrief({ name: 'sg-skill', process: 'sg', implements: 1 }, st, ready, []);
+  const changed = up.slice(up.indexOf('## What changed'), up.indexOf('## The process now'));
+  const before = changed.slice(changed.indexOf('Before:'), changed.indexOf('Now:')), now = changed.slice(changed.indexOf('Now:'));
+  assert.ok(/scratch server/.test(before) && /staging server/.test(now) && before.replace('Before:', '') !== now.replace('Now:', ''), changed);
+});
+
 run();
