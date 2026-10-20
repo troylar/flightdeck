@@ -50,7 +50,8 @@ const RAW = [
   { file: 'src/core/publish.js', has: "info = files['publication.json'] ? JSON.parse(", why: 'P.verify itself: shape, then the envelope, before any other field' },
   { file: 'src/core/publish.js', has: "types = JSON.parse(files['types.json'])", why: 'P.verify itself: types go through T.understood' },
   { file: 'src/core/evidence.js', has: 'var n = json(l);', why: 'E.notesFile: lines kept as written for the pack page, each note then through cleanNote' },
-  { file: 'src/core/evidence.js', has: 'json(types)', why: 'Evidence compares step types as data (canonical), never by meaning' }
+  { file: 'src/core/evidence.js', has: 'json(types)', why: 'Evidence compares step types as data (canonical), never by meaning' },
+  { file: 'src/core/evidence.js', has: 'json(info)', why: 'Evidence compares a run/3 payload and pins as data (P.payloadHash, canonical); the version itself is checked by P.verify in the same pack' }
 ];
 /* Every JavaScript file in src/ and bin/: a new reader anywhere is in scope. */
 function files() {
