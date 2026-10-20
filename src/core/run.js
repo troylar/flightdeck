@@ -699,10 +699,17 @@ PF.run = (function () {
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
   /* What the linked child means for its step: done only if it completed with the same values it was started with; blocked
      (and marked failed, so a new child can replace it) if it ended any other way or its carried values were changed. */
+  /* The one verdict on whether this child run can stand for the step at all, whatever its details: '' or why not. A run/2
+     parent never takes a child made with Flightdeck 2.0 (it offers a 2.0 run instead); a run/3 takes only a run on its pin
+     (PF.pins.childMatch). Settlement (childVerdict, settleChild) and the step on screen both ask this, so they can't disagree. */
+  function childHeld(r, stepId, child, procOf) {
+    if (!child) return '';
+    if (r.format !== FORMAT3) return isTwo(child) ? LEGACY_CHILD : '';
+    return PF.pins.childMatch(childPin(r, stepId), child, procOf);
+  }
   function childVerdict(r, step, a, child, procOf) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
-    if (r.format !== FORMAT3 && isTwo(child)) return null;
-    if (r.format === FORMAT3 && PF.pins.childMatch(childPin(r, step.id), child, procOf)) return null;
+    if (childHeld(r, step.id, child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
@@ -714,8 +721,7 @@ PF.run = (function () {
   function settleChild(r, map, id, child, who, now, procOf) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
-    if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
-    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(childPin(r, id), child, procOf); if (pm) throw new Error(pm); }
+    var held = childHeld(r, id, child, procOf); if (held) throw new Error(held);
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
     var v = childVerdict(r, x.step, a, child, procOf);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
@@ -1285,7 +1291,7 @@ PF.run = (function () {
   return {
     FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

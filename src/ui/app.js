@@ -1619,7 +1619,7 @@
     if (!x || !ctx.recording(parent)) return;
     var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = Object.prototype.hasOwnProperty.call(parent.steps, stepId) ? parent.steps[stepId] : null, rkey = state.runKey + ':' + stepId;
     /* One start at a time per step: a second click while the first is saving, or a step that already has a current child, does nothing. */
-    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childPinProblem(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return;
+    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childHeld(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return;
     /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */
     if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return; }
     var cp = R.childProblem(parent, x.step, pub.map.meta.context);

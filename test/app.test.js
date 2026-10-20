@@ -6059,6 +6059,42 @@ rule('Pins: a run/2 parent whose child is now a 2.0 version refuses to start it,
   assert.ok(/continued in run release\//.test(app.html()), 'says why');
 });
 
+rule('Pins: a run/2 parent with an existing link to a completed 2.0 child, inputs unchanged, is never checked by it, shows "Start it as a Flightdeck 2.0 run" with why, and that continues it', async () => {
+  const app = await recordingRelease();
+  app.click('reopen', '0'); await app.tick(40);
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'f00d123'); app.click('save-edit'); await app.tick(40);
+  app.click('clear', 'notes'); await app.tick(40);
+  const d = await app.PF.repo.loadAll(app.fs), ci = d.processes.find(p => p.process === 'check-in'), md = ci.index.latest.md.replace(/\n## ([^\n]+)\n/, '\n## $1\n  > Use the scratch server.\n');
+  const res = await app.PF.repo.publish(app.fs, md, { people: d.people, customTypes: d.stepTypes.types, workflows: {}, by: 'person-avery', changes: '2.0', existing: ci.index.all.map(p => p.info), now: new Date().toISOString(), app: '2.0.0' });
+  assert.ok(res && !res.blockers, JSON.stringify(res && res.blockers));
+  app.click('refresh'); await app.tick(80);
+  const parentKey = app.run().key, parentPath = 'runs/' + parentKey + '/run.json', parent = JSON.parse(app.fs.files[parentPath].t);
+  assert.strictEqual(parent.format, 'preflight-run/2', 'set-up: a run/2 parent');
+  // A link an older copy could have made: the 2.0 child, started with the parent's current details, then completed.
+  const d2 = await app.PF.repo.loadAll(app.fs), v2 = d2.processes.find(p => p.process === 'check-in').index.all.find(p => p.info.folder === res.folder);
+  const step = app.PF.map.findStep(app.PF.run.mapOf(parent), 'notes').step, inputs = app.PF.run.childDetails(parent, step, Object.keys(parent.details));
+  const kid = app.PF.run.create(v2, { id: 'twokid1', title: 'Check in (2.0)', details: Object.assign({}, inputs), roles: parent.roles, by: 'person-casey', session: 'w-other', now: new Date().toISOString(), parent: { process: parent.process, id: parent.id, step: 'notes', inputs }, app: '2.0.0', pins: {} });
+  assert.strictEqual(kid.format, 'preflight-run/3', 'set-up: a 2.0 child');
+  kid.state = 'completed'; kid.ended = { outcome: 'Completed', by: 'person-casey', at: new Date().toISOString() };
+  await app.PF.repo.saveRun(app.fs, kid, 'w-other');
+  parent.steps.notes = { s: 'open', child: { process: 'check-in', id: 'twokid1', inputs } };
+  await app.fs.write(parentPath, JSON.stringify(parent, null, 2));
+  app.click('refresh'); await app.tick(200);
+  app.click('open-run', parentKey); await app.tick(40);
+  app.click('select', 'notes'); await app.tick();
+  assert.notStrictEqual(JSON.parse(app.fs.files[parentPath].t).steps.notes.s, 'done', 'never checked by a 2.0 child');
+  const h = app.html();
+  assert.ok(/needs a run made with Flightdeck 2\.0/.test(h), 'says why: ' + (h.match(/class="childbox"[^]{0,400}/) || [''])[0]);
+  assert.ok(/data-act="continue-two" data-id="notes">Start it as a Flightdeck 2\.0 run</.test(h), 'the offer is shown');
+  const runsBefore = releaseRuns(app);
+  app.click('continue-two', 'notes'); await app.tick(400);
+  const made = releaseRuns(app).filter(p => runsBefore.indexOf(p) < 0);
+  assert.strictEqual(made.length, 1, 'one new run');
+  const n = JSON.parse(app.fs.files[made[0]].t);
+  assert.strictEqual(n.format, 'preflight-run/3');
+  assert.strictEqual(JSON.parse(app.fs.files[parentPath].t).steps.notes.reason, 'Continued in run release/' + n.id);
+});
+
 /* A run/3 (continued from the example release) whose notes step is pinned to check-in's 2.0 version. */
 async function pinnedRelease() {
   const app = await recordingRelease();
