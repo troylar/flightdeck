@@ -2088,4 +2088,25 @@ rule('REQUEST review: a retry still names the roles left for the person who star
   assert.deepStrictEqual(again.json.data.request.leftEmpty, ['qa']);
 });
 
+rule('REQUEST review: plan request and READ name the same problems in this request\'s plan and decision files, and a bad one stops the write', async () => {
+  const id = reqId('ci-check', 'par'), st = id + '.status-w1.json', cp1 = id + '-LAPTOP.json';
+  const bad = [[st, '{}'], [st, 'null'], [st, '[]'], [st, '7'], [st, '{"kind": "other"}'], [st, '{'], [st, ''],
+    [st, JSON.stringify({ kind: 'status', proposal: id, status: 'maybe', by: 'person-casey', at: RF.NOW })],
+    [st, JSON.stringify({ kind: 'status', proposal: id, proposalHash: 7, status: 'accepted', run: 'run9', by: 'person-casey', at: RF.NOW })],
+    [st, JSON.stringify({ kind: 'status', status: 'accepted' })],
+    [cp1, '{}'], [cp1, 'null'], [cp1, '{"kind": "status"}'], [cp1, JSON.stringify({ kind: 'plan', id, process: 'release', title: 5 })]];
+  const pk = (list, name) => JSON.stringify(list.filter(p => p.path === 'proposals/' + name).map(p => p.kind));
+  for (const [name, text] of bad) {
+    const dir = await readFolder();
+    fs.writeFileSync(path.join(dir, 'proposals', name), text);
+    const before = EV.tree(dir), r = reqAgree(request(dir, MONTHLY, 'par')), read = agree(readCli('runs', dir, '--json'));
+    const label = name + ' ' + JSON.stringify(text);
+    assert.ok(r.code === 4 && r.json.data.request.status === 'held', label + ': ' + r.out);
+    assert.deepStrictEqual(EV.tree(dir), before, label + ': nothing written');
+    assert.ok(read.code === 4, label + ': READ is partial too');
+    assert.strictEqual(pk(r.json.problems, name), pk(read.json.problems, name), label + ': the same problem as READ');
+    assert.notStrictEqual(pk(r.json.problems, name), '[]', label);
+  }
+});
+
 run();

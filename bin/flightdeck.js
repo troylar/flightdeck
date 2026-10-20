@@ -954,49 +954,24 @@ async function requestData(eng, adapter, req, write) {
     id = RQ.idFor(intent.producer.name, req.key);
     const file = 'proposals/' + id + '.json';
 
-    /* 1. Any request already under this name, or a OneDrive copy of it, before anything is resolved. unsure: something with
-       its name that couldn't be read or isn't a plan, so whether this request is there isn't known. */
+    /* 1. Any request already under this name, or a OneDrive copy of it, before anything is resolved. */
     const found = async () => {
-      let items;
-      try { items = await L.fs.list('proposals'); } catch (e) { return null; }
-      const copies = [], statuses = [], own = (i) => (i.name === id + '.json' ? 0 : 1);
-      let unsure = false;
-      const names = items.filter((i) => RQ.isCopyName(i.name, id)).sort((a, b) => own(a) - own(b) || (a.name < b.name ? -1 : 1));
-      for (const i of names) {
-        const at = 'proposals/' + i.name;
-        if (i.kind !== 'file') { L.note(at, i.kind === 'link' ? 'link' : 'unreadable', 'This has the request\'s name but isn\'t a file Flightdeck reads. Nothing was written.'); unsure = true; continue; }
-        let f;
-        try { f = await L.fs.read(at, { maxBytes: RQ.LIMITS.file }); } catch (e) { unsure = true; continue; }
-        if (!f) { unsure = true; continue; }
-        let o;
-        /* Not complete JSON: it may still be arriving, or another request may still be writing it, so it's never removed
-           here. It's named, with how to recover, and nothing is written. */
-        try { o = JSON.parse(f.text); } catch (e) { L.note(at, 'malformed', PARTIAL_WHY.replace('<file>', at)); unsure = true; continue; }
-        const plan = !!o && typeof o === 'object' && !Array.isArray(o) && o.kind === 'plan' && typeof o.id === 'string';
-        if (plan && o.id !== id) {
-          if (own(i) === 0) { L.note(at, 'malformed', 'This file has this request\'s name but holds another plan (' + String(o.id).slice(0, 120) + '). Nothing was written.'); unsure = true; }
-          continue;
-        }
-        if (!plan) { L.note(at, 'malformed', 'This file has this request\'s name but isn\'t a plan, so Flightdeck can\'t tell whether it\'s this request. Nothing was written.'); unsure = true; continue; }
-        /* A plan READ would call malformed is malformed here too. */
-        const why = repo.planWhy(o);
-        if (why) { L.note(at, 'malformed', 'This file ' + why + ', so Flightdeck can\'t compare it with this request. Nothing was written.'); unsure = true; continue; }
-        o._file = i.name;
-        copies.push(o);
-      }
-      for (const i of items.filter((x) => x.kind === 'file' && x.name.indexOf(id + '.status-') === 0 && /\.json$/.test(x.name))) {
-        let o = null;
-        try { const f = await L.fs.read('proposals/' + i.name, { maxBytes: RQ.LIMITS.file }); o = f ? JSON.parse(f.text) : null; }
-        catch (e) { if (e instanceof SyntaxError) L.note('proposals/' + i.name, 'malformed', 'This plan decision isn\'t complete JSON, so whether the request was started may not be shown.'); }
-        if (!o || typeof o !== 'object' || Array.isArray(o) || o.kind !== 'status') continue;
-        /* A decision READ would call malformed is named, as READ names it, and never counted. */
-        const why = repo.statusWhy(o);
-        if (why) { L.note('proposals/' + i.name, 'malformed', 'This file ' + why + '.'); continue; }
-        if (o.proposal === id) statuses.push(o);
-      }
-      return { copies, unsure, statuses };
+      /* The request's own files (its name, OneDrive copies of it, and decisions on it), read with exactly the code READ
+         uses (repo.readPlans), so a file READ calls malformed is malformed here too, and named. */
+      const mine = (n) => RQ.isCopyName(n, id) || (n.indexOf(id + '.status-') === 0 && /\.json$/.test(n));
+      const bad = [];
+      let got;
+      try { got = await repo.readPlans(L.fs, bad, mine); } catch (e) { return null; }
+      bad.forEach((b) => L.note(b.path, b.kind || 'malformed', b.kind === 'malformed' && /complete JSON/.test(b.why) && RQ.isCopyName(b.path.slice('proposals/'.length), id) ? PARTIAL_WHY.replace('<file>', b.path) : fileWhy(b.why)));
+      const copies = [], own = (p) => (p._file === id + '.json' ? 0 : 1);
+      got.plans.filter((p) => RQ.isCopyName(p._file, id)).forEach((p) => {
+        /* A file that looks like a copy of this name but holds another plan isn't this request, unless it has this very name. */
+        if (p.id === id) copies.push(p);
+        else if (own(p) === 0) L.note('proposals/' + p._file, 'malformed', 'This file has this request\'s name but holds another plan (' + String(p.id).slice(0, 120) + '). Nothing was written.');
+      });
+      copies.sort((a, b) => own(a) - own(b) || (a._file < b._file ? -1 : 1));
+      return { copies, statuses: got.statuses.filter((x) => x.proposal === id) };
     };
-    /* A request already there: the same canonical intent in every copy is "already requested"; anything else is refused. */
     /* The roles of a plan whose person isn't active in people.json, which a retry reports again. */
     const peopleNow = async () => {
       if (scope.indexOf('people.json') < 0) scope.push('people.json');
@@ -1012,8 +987,14 @@ async function requestData(eng, adapter, req, write) {
       return done('proposals/' + first._file, 'already', first, left, st && st.status === 'accepted' && typeof st.run === 'string' ? proc + '/' + st.run : null);
     };
     const there = await found();
-    if (!there || there.unsure) return done(file, 'held', null, [], null);
+    /* A file under the request's name (or a copy's) that couldn't be read or isn't in the format: whether this request is
+       there, and what it says, isn't known. A bad decision only leaves which run it started unknown. */
+    const nameProblem = () => ledger().some((p) => p.path.indexOf('proposals/' + id) === 0 && p.path.indexOf('proposals/' + id + '.status-') !== 0);
+    if (!there || nameProblem()) return done(file, 'held', null, [], null);
     if (there.copies.length) return compare(there);
+    /* No request there, but something under its name or a decision on it couldn't be read or isn't in the format (or a link
+       has its name): whether it's there isn't known, so nothing is written. */
+    if (ledger().length) return done(file, 'held', null, [], null);
 
     /* 2. Nothing there: resolve what it asks for against the process's versions, check it, then write. */
     scope.push('publications/' + proc, 'people.json');
@@ -1030,7 +1011,7 @@ async function requestData(eng, adapter, req, write) {
     if (res === 'written') return done(file, 'requested', plan, left, null);
     /* The name was taken between the check and the write: what's there now decides, exactly as on a retry. */
     const again = await found();
-    if (!again || again.unsure || !again.copies.length) return done(file, 'held', null, [], null);
+    if (!again || nameProblem() || !again.copies.length) return done(file, 'held', null, [], null);
     return compare(again);
   } catch (e) {
     return err(EXIT.error, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
