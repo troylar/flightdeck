@@ -83,7 +83,7 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
 | `vanished` | A file or folder that was listed and then gone before it could be read or listed itself (OneDrive replacing it, or someone deleting it). A folder gone like that is never read as empty, so a decided follow-up never looks open because its folder went missing mid-read. |
 
-Each command reads only what its output depends on, and every problem it meets there is reported (nothing it read is left out of `problems`):
+Each command reads only what its output depends on, and every problem it meets there is reported (nothing it read is left out of `problems`). A problem anywhere else, such as a link beside the process folder it reads, is not its problem and never makes it partial:
 
 | Command | Reads |
 |---|---|

@@ -721,8 +721,16 @@ function needs(req) {
 /* A view of the folder that holds only those paths (and the folders above them, listed to reach them). Anything else
    looks absent: it's never read, so it's never a problem and never part of the output. It sits above the ledger, so
    what it hides never reaches it. */
+/* Whether a path is one of these, inside one, or a folder above one (listed to reach it). */
+function covers(prefixes) { return (p) => { p = p || ''; return p === '' || prefixes.some((x) => p === x || p.startsWith(x + '/') || x.startsWith(p + '/')); }; }
+/* What run and next depend on: the run's folder, its version once it's known, people.json, and that run's own follow-up
+   decisions (the files named <run id>.*, not the other runs' in the same folder). */
+function runCovers(proc, id, r) {
+  const base = covers(['runs/' + proc + '/' + id, 'people.json'].concat(r && typeof r.folder === 'string' ? ['publications/' + r.process + '/' + r.folder] : []));
+  return (p) => base(p) || p === 'followups' || p === 'followups/' + proc || p === 'followups/' + proc + '/' || String(p).startsWith('followups/' + proc + '/' + id + '.');
+}
 function dependsOn(fs, prefixes) {
-  const ok = (p) => { p = p || ''; return p === '' || prefixes.some((x) => p === x || p.startsWith(x + '/') || x.startsWith(p + '/')); };
+  const ok = covers(prefixes);
   const v = {};
   if (fs.list) v.list = (p, o) => (ok(p) ? fs.list(p, o) : Promise.resolve([]));
   ['read', 'stat', 'blob'].forEach((m) => { if (fs[m]) v[m] = (p, o) => (ok(p) ? fs[m](p, o) : Promise.resolve(null)); });
@@ -740,7 +748,10 @@ async function readData(eng, adapter, req) {
   const PF = eng.PF, A = PF.appjson, repo = PF.repo, F = PF.followups, app = eng.version || '';
   const L = repo.ledger(repo.readOnly(adapter, 'Reading for other apps'));
   const take = (list) => list.forEach((p) => L.note(p.path, p.kind, p.why));
-  const ledger = () => { take(adapterProblems(adapter)); return L.problems(); };
+  /* What the command depends on (set once the command is known): problems anywhere else, a link met while listing a
+     folder above what it reads included, are never its problems. */
+  let relevant = () => true;
+  const ledger = () => { take(adapterProblems(adapter)); return L.problems().filter((p) => relevant(p.path)); };
   const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why, ledger()) });
   const notFound = (why) => err(EXIT.notFound, 'not-found', why);
   if (req.contract != null && A.VERSIONS.indexOf(+req.contract) < 0) return err(EXIT.error, 'contract', 'This copy of Flightdeck reads contract ' + A.VERSIONS.join(', ') + ' only (' + A.CONTRACT + '). Ask for one of those, or update Flightdeck.');
@@ -748,6 +759,7 @@ async function readData(eng, adapter, req) {
   try {
     if (req.cmd === 'run' || req.cmd === 'next') {
       const m = RUN_KEY.exec(req.key || '');
+      relevant = runCovers(m[1], m[2], null);
       const one = await repo.readRunOnly(L.fs, m[1], m[2]);
       if (!one.found) return notFound('There\'s no run ' + req.key + ' in the team folder.');
       const r = one.run, key = m[1] + '/' + m[2];
@@ -758,7 +770,7 @@ async function readData(eng, adapter, req) {
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
       const pw = peopleWhy(one.people);
       if (pw) L.note('people.json', 'malformed', pw);
-      if (r) take(judgeRun(PF, r, one.pub));
+      if (r) { relevant = runCovers(m[1], m[2], r); take(judgeRun(PF, r, one.pub)); }
       const usable = !!r && !newerRun(PF, r);
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
       const keep = (list) => list, nameOf = A.names(one.people);
@@ -767,6 +779,7 @@ async function readData(eng, adapter, req) {
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
+    relevant = covers(needs(req));
     const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true });
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */

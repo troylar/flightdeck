@@ -1448,4 +1448,39 @@ rule('READ: a run that doesn\'t match its version is named at its own run.json, 
   assert.deepStrictEqual([bad.startsOn, bad.versionMissing], [null, null], 'a real failure of the version does');
 });
 
+
+/* The inverse guard: what a command doesn't depend on never makes it partial, whether it's a link found while listing
+   or a broken file. Each: the request, then paths it doesn't depend on. */
+const UNRELATED = [
+  [{ cmd: 'processes' }, ['runs/release', 'proposals/plan-x.json', 'followups/release', 'people.json']],
+  [{ cmd: 'process', proc: 'release' }, ['publications/shots', 'publications/other-process', 'runs/release', 'people.json']],
+  [{ cmd: 'runs' }, ['followups/release', 'step-types/x.json']],
+  [{ cmd: 'runs', proc: 'release' }, ['runs/shots', 'publications/shots', 'followups/release']],
+  [{ cmd: 'run', key: 'shots/s1' }, ['runs/release', 'runs/shots/s9', 'publications/release', 'followups/release/run2.fu9.w1.1.json', 'proposals/plan-x.json']],
+  [{ cmd: 'next', key: 'release/run1' }, ['runs/release/run2', 'publications/shots', 'followups/shots', 'followups/release/run2.fu9.w1.1.json']],
+  [{ cmd: 'followups' }, ['publications/release', 'proposals/plan-x.json']],
+  [{ cmd: 'followups', proc: 'release' }, ['runs/shots', 'followups/shots']]
+];
+rule('READ inverse guard: a link or a broken file on a path a command doesn\'t depend on never makes it partial', async () => {
+  const files = await withShots(), eng = { PF: SRC, version: 'test' };
+  for (const [req, paths] of UNRELATED) for (const at of paths) {
+    const linked = failingFolder(files, null, null); linked.links = [at];
+    let r = await FD.readData(eng, linked, req);
+    assert.ok(r.code === 0 && r.json.complete, JSON.stringify(req) + ' link ' + at + ': ' + JSON.stringify(r.json.problems || r.json.error));
+    if (/\.json$/.test(at) || at.split('/').length >= 2) {
+      const f = Object.assign({}, files, { [/\.json$/.test(at) ? at : at + '/zz/run.json']: '{' });
+      r = await FD.readData(eng, failingFolder(f, null, null), req);
+      assert.ok(r.code === 0 && r.json.complete, JSON.stringify(req) + ' broken file under ' + at + ': ' + JSON.stringify(r.json.problems || r.json.error));
+    }
+  }
+});
+
+rule('READ: a link beside the process a command reads, on disk, isn\'t its problem; a link it reads through is', async () => {
+  const dir = await readFolder(null, d => { const o = tmp(); fs.mkdirSync(path.join(o, 'v1-bbbb2222')); fs.symlinkSync(o, path.join(d, 'publications', 'other-process')); });
+  let r = agree(readCli('process', dir, 'release', '--json'));
+  assert.ok(r.code === 0 && r.json.complete, r.out);
+  r = agree(readCli('processes', dir, '--json'));
+  assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'publications/other-process' && p.kind === 'link'), r.out);
+});
+
 run();
