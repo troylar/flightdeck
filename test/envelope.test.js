@@ -101,6 +101,25 @@ rule('Never throws on hostile values: wrong types, prototypes, huge lists', () =
   assert.strictEqual(E.judge('constructor', {}).ok, false);
 });
 
+rule('judge never throws for any JSON value in any field, for every family (a value with toString or valueOf that isn\'t a function included)', () => {
+  const odd = [{ toString: null }, { valueOf: null, toString: null }, { toString: 1 }, [], [null], { a: { toString: null } }, null, true, 1e308, -0, '', 'x'.repeat(5000), [{ toString: null }]];
+  const fields = ['format', 'features', 'kind', 'app', 'fv', 'dv', 'pv', 'cv', 'av', 'v', 'version'];
+  Object.keys(E.FAMILIES).concat(['nope', '__proto__', 'constructor']).forEach(f => {
+    odd.forEach(v => {
+      fields.forEach(k => {
+        const o = JSON.parse(JSON.stringify({ [k]: v }));
+        let r; assert.doesNotThrow(() => { r = E.judge(f, o); }, f + ' ' + k + ' ' + JSON.stringify(v).slice(0, 40));
+        assert.ok(r && typeof r.ok === 'boolean' && (r.ok || typeof r.why === 'string'));
+      });
+      assert.doesNotThrow(() => E.judge(f, JSON.parse(JSON.stringify(v === undefined ? null : v))));
+    });
+    const kinds = { 'flightdeck-followup-decision': 'followup-decision', 'flightdeck-plan': 'plan' };
+    assert.doesNotThrow(() => E.judge(f, { kind: kinds[f], format: { toString: null }, features: [{ toString: null }], app: { toString: null } }));
+  });
+  ['format', 'features'].forEach(k => odd.forEach(v => assert.doesNotThrow(() => E.markdown(JSON.parse(JSON.stringify({ [k]: v }))))));
+  assert.strictEqual(E.judge('preflight-run', { format: { toString: null } }).kind, 'malformed');
+});
+
 rule('A format from another family is malformed, never read as this one', () => {
   no('preflight-run', { format: 'preflight-publication/1' }, 'malformed');
   no('flightdeck-plan', { format: 'flightdeck-plan-status/1' }, 'malformed');
@@ -159,6 +178,44 @@ rule('Every 2.0 sample is refused by its family\'s verdict in this copy, and eve
   const types = JSON.parse(t['publications/backup/' + S.PUB2 + '/types.json']);
   assert.ok(!E.judge('flightdeck-types', types['team.count']).ok, 'a frozen type with 2.0 kinds is version 3');
   assert.ok(E.judge('flightdeck-types', types.confirm).ok, 'a built-in stays version 2');
+});
+
+/* A screenshot as the bytes on disk (the tree keeps binary files as data: URLs). */
+const bytesOf = (t) => { const m = /^data:[\w/+.-]+;base64,/.exec(t); return m ? Buffer.from(t.slice(m[0].length), 'base64') : Buffer.from(t, 'utf8'); };
+const fnvBytes = (b) => PF.util.hash(b.toString('latin1'));
+const sha = (b) => require('crypto').createHash('sha256').update(b).digest('hex');
+rule('Every sample and probe publication\'s screenshot fingerprints and payload hashes match the exact bytes of its files', () => {
+  ['folder', 'probes/major', 'probes/feature'].forEach(w => {
+    const t = S.tree(w);
+    Object.keys(t).filter(p => /publication\.json$/.test(p)).forEach(p => {
+      const dir = p.replace('publication.json', ''), info = JSON.parse(t[p]);
+      Object.keys(info.images || {}).forEach(src => {
+        assert.ok(t[dir + src] != null, p + ': ' + src + ' is there');
+        assert.strictEqual(info.images[src], fnvBytes(bytesOf(t[dir + src])), p + ': ' + src + ' fingerprint over its bytes');
+      });
+      if (info.payload) {
+        assert.strictEqual(info.payload.map, sha(Buffer.from(t[dir + 'map.md'], 'utf8')), p + ': payload map');
+        assert.strictEqual(info.payload.types, sha(Buffer.from(t[dir + 'types.json'], 'utf8')), p + ': payload types');
+        Object.keys(info.payload.images).forEach(src => assert.strictEqual(info.payload.images[src], sha(bytesOf(t[dir + src])), p + ': payload ' + src));
+      }
+      if (t[dir + 'map.md'] != null) assert.strictEqual(info.mapHash, PF.util.hash(t[dir + 'map.md']), p + ': mapHash');
+      if (t[dir + 'types.json'] != null) assert.strictEqual(info.typesHash, PF.util.hash(t[dir + 'types.json']), p + ': typesHash');
+    });
+  });
+});
+rule('Every sample run\'s checklist, step types and hashes are its named publication\'s (run/3 on a /1 version carries v1\'s own)', () => {
+  const H = require('./compat-harness'), G = require('../tools/old-folders');
+  const t = Object.assign(H.readTree(require('path').join(G.DIR, 'v1.18.0')), S.tree('folder'));
+  const runs = Object.keys(t).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p)).map(p => JSON.parse(t[p])).filter(r => r.format === 'preflight-run/3');
+  assert.ok(runs.length >= 3);
+  runs.forEach(r => {
+    const top = r.stage ? 'staged/' : 'publications/', dir = top + r.process + '/' + r.folder + '/', info = JSON.parse(t[dir + 'publication.json']);
+    assert.strictEqual(r.snapshot, t[dir + 'map.md'], r.id + ': snapshot is ' + dir + 'map.md');
+    assert.strictEqual(JSON.stringify(r.types, null, 2), t[dir + 'types.json'], r.id + ': types are ' + dir + 'types.json');
+    assert.strictEqual(r.mapHash, info.mapHash, r.id + ': mapHash'); assert.strictEqual(r.typesHash, info.typesHash, r.id + ': typesHash');
+    if (!r.stage) assert.strictEqual(r.version, info.version, r.id + ': version');
+    assert.deepStrictEqual(r.payload || null, info.payload || null, r.id + ': payload (a /1 version has none)');
+  });
 });
 
 run();

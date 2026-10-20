@@ -1947,4 +1947,17 @@ rule('Two windows adding a screenshot at the same moment with the same random pa
   await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: a, now: 1, rand: () => 'x1' }), /window/, 'no writer, no write');
 });
 
+rule('A step type with a hostile envelope ({"format":{"toString":null}}) is refused and named; every other step type still loads', async () => {
+  const fs = folder();
+  await fs.write('step-types/team.good.json', JSON.stringify({ id: 'team.good', label: 'Good', fields: {}, record: [] }));
+  for (const [name, def] of [['team.bad.json', { format: { toString: null }, id: 'team.bad', label: 'Bad' }], ['team.worse.json', { features: [{ toString: null }], id: 'team.worse', label: 'Worse' }], ['team.app.json', { format: 'flightdeck-step-type/9', app: { toString: null }, id: 'team.app', label: 'App' }]]) await fs.write('step-types/' + name, JSON.stringify(def));
+  const d = await repo.loadAll(fs, { deep: true });
+  assert.ok(!d.failed['step types'], 'the part didn\'t fail: ' + d.failed['step types']);
+  assert.ok(d.stepTypes.types['team.good'], 'the good one loads');
+  ['team.bad.json', 'team.worse.json', 'team.app.json'].forEach(f => assert.ok(d.stepTypes.errors.some(e => e.file === f), f + ' is named'));
+  const sk = folder(); await sk.write('skills/odd.json', JSON.stringify({ format: { toString: null }, name: 'odd', implements: 'release@1' }));
+  const ds = await repo.loadAll(sk, { deep: true });
+  assert.ok(!ds.failed.skills && ds.skills.some(x => x.file === 'odd.json' && x.errors.length));
+});
+
 run();

@@ -41,6 +41,8 @@ PF.envelope = (function () {
   /* The 2.0 must-understand features, frozen by name (the 2.0 plan). No copy before 2.0 knows any of them. */
   var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions'];
 
+  /* Any JSON value as text for a message, without calling anything on it (a file can hold {"toString": null}). */
+  function txt(v) { if (typeof v === 'string') return v; var t; try { t = JSON.stringify(v); } catch (e) { t = ''; } return typeof t === 'string' ? t : typeof v; }
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function cmp(a, b) { for (var i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0); return 0; }
@@ -65,13 +67,13 @@ PF.envelope = (function () {
      why, needs }. Never throws, whatever the value (prototype-free checks, types before tests). */
   function judge(family, o) {
     var fam = own(FAMILIES, family) ? FAMILIES[family] : null;
-    if (!fam) return refuse('malformed', 'isn\'t a kind of file Flightdeck knows (' + String(family).slice(0, 60) + ')');
+    if (!fam) return refuse('malformed', 'isn\'t a kind of file Flightdeck knows (' + txt(family).slice(0, 60) + ')');
     if (family === 'flightdeck-people' && Array.isArray(o)) return { ok: true, family: family, major: 1, features: [], legacy: true };
     if (!obj(o)) return refuse('malformed', 'isn\'t a JSON object');
     var major = null, legacy = false, features = [];
     if (own(o, 'format') && o.format != null) {
       var f = parseFormat(o.format);
-      if (!f) return refuse('malformed', 'has a format this copy can\'t read ("' + String(o.format).slice(0, 60) + '")');
+      if (!f) return refuse('malformed', 'has a format this copy can\'t read ("' + txt(o.format).slice(0, 60) + '")');
       if (f.family !== family) {
         var other = own(FAMILIES, f.family) ? FAMILIES[f.family] : null;
         if (!other) return refuse('newer', 'is a ' + f.family + ' file, which this copy doesn\'t know. ' + needsText(needsOf(null, null, null, o)), { needs: needsOf(null, null, null, o), format: o.format });
@@ -119,11 +121,11 @@ PF.envelope = (function () {
      (with a newer major or an unknown feature, the version that's needed is named). '' when there's no such line. */
   function markdown(meta) {
     if (!obj(meta) || (!own(meta, 'format') && !own(meta, 'features'))) return { ok: true, why: '' };
-    var f = own(meta, 'format') ? parseFormat(String(meta.format).trim()) : null;
-    var feats = own(meta, 'features') ? String(meta.features).split(',').map(function (x) { return x.trim(); }).filter(Boolean) : [];
+    var f = own(meta, 'format') ? parseFormat(txt(meta.format).trim()) : null;
+    var feats = own(meta, 'features') ? txt(meta.features).split(',').map(function (x) { return x.trim(); }).filter(Boolean) : [];
     var known = FAMILIES['flightdeck-checklist'];
-    if (own(meta, 'format') && (!f || f.family !== 'flightdeck-checklist')) return refuse('malformed', 'The front matter says "format: ' + String(meta.format).slice(0, 60) + '", which isn\'t a checklist format. Remove the format line.');
-    if (f && !own(known.majors, f.major)) { var n = needsOf(known, f.major, feats, null); return refuse('newer', 'This checklist says it needs ' + (n ? 'Flightdeck ' + n : 'a newer Flightdeck') + ' (format: ' + meta.format + ').' + (n === '2.0' ? ' Nothing in it needs Flightdeck 2.0 that this copy can see; if nothing does, remove the format line.' : ''), { needs: n }); }
+    if (own(meta, 'format') && (!f || f.family !== 'flightdeck-checklist')) return refuse('malformed', 'The front matter says "format: ' + txt(meta.format).slice(0, 60) + '", which isn\'t a checklist format. Remove the format line.');
+    if (f && !own(known.majors, f.major)) { var n = needsOf(known, f.major, feats, null); return refuse('newer', 'This checklist says it needs ' + (n ? 'Flightdeck ' + n : 'a newer Flightdeck') + ' (format: ' + txt(meta.format).slice(0, 60) + ').' + (n === '2.0' ? ' Nothing in it needs Flightdeck 2.0 that this copy can see; if nothing does, remove the format line.' : ''), { needs: n }); }
     var unknown = feats.filter(function (x) { return known.majors[f ? f.major : 1].indexOf(x) < 0; });
     if (unknown.length) { var n2 = needsOf(known, null, unknown, null); return refuse('newer', 'This checklist says it uses ' + unknown.slice(0, 5).join(', ') + ', which ' + (n2 ? 'needs Flightdeck ' + n2 : 'this copy doesn\'t understand') + '. Remove the features line if nothing in it does.', { needs: n2 }); }
     return refuse('malformed', 'This says it needs Flightdeck 2.0, but nothing in it does. Remove the format line.');
@@ -131,7 +133,7 @@ PF.envelope = (function () {
 
   /* The family a JSON file in the team folder belongs to, by its path; '' for paths with no JSON family. */
   function familyOfPath(p) {
-    p = String(p || '');
+    p = typeof p === 'string' ? p : '';
     if (/^people\.json$/.test(p)) return 'flightdeck-people';
     if (/^(publications|staged)\/[^/]+\/[^/]+\/publication\.json$/.test(p)) return 'preflight-publication';
     if (/^runs\/[^/]+\/[^/]+\/(run|run\.conflict-[^/]+|run-[^/]+|replaced-[^/]+|candidate-[^/]+)\.json$/.test(p)) return 'preflight-run';
@@ -154,8 +156,8 @@ PF.envelope = (function () {
     return '';
   }
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
-  function refusal(path, family, v) { return { path: String(path), family: family || '', kind: v.kind || 'malformed', why: v.why || '', needs: v.needs || '' }; }
+  function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
   return { FAMILIES: FAMILIES, FROZEN: FROZEN, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
-    judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
+    txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();

@@ -322,7 +322,7 @@ PF.repo = (function () {
     var notes = [];
     entry.notes.forEach(function (t) {
       if (t == null) return;
-      t.split('\n').forEach(function (line) { var n = line.trim() && json(line); if (n && typeof n.text === 'string' && typeof n.id === 'string') notes.push(cleanNote(n, base)); });
+      t.split('\n').forEach(function (line) { var n = noteOf(line.trim() && json(line), base); if (n) notes.push(n); });
     });
     run._notes = notes.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
     if (cacheIn) intern(run, cacheIn);
@@ -504,6 +504,8 @@ PF.repo = (function () {
     });
   }
 
+  /* One line of a notes file as a note, or null when it isn't one (no text or id). */
+  function noteOf(n, base) { return n && typeof n === 'object' && typeof n.text === 'string' && typeof n.id === 'string' ? cleanNote(n, base) : null; }
   /* Notes come from files anyone can edit: keep only the shape the app understands, and only attachments inside this run's files/ folder. */
   function cleanNote(n, base) {
     var files = Array.isArray(n.files) ? n.files.filter(function (f) { return PF.attach.pathOk(f, base); }) : [];
@@ -824,7 +826,8 @@ PF.repo = (function () {
       var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
       skipped = Math.max(0, files.length - MAX_TYPES);
       return Promise.all(files.slice(0, MAX_TYPES).map(function (i) {
-        return fs.read('step-types/' + i.name).then(function (f) { var o = f && json(f.text); return { file: i.name, def: o, errors: o === undefined ? ['isn\'t valid JSON'] : PF.types.checkCustom(o) }; }, function (e) { return { file: i.name, def: null, errors: [why(e)] }; });
+        /* Each file on its own: one that can't be checked (whatever it holds) is listed with why, and the rest still load. */
+        return fs.read('step-types/' + i.name).then(function (f) { var o = f && json(f.text), errs; try { errs = o === undefined ? ['isn\'t valid JSON'] : PF.types.checkCustom(o); } catch (e) { errs = ['couldn\'t be read as a step type']; } return { file: i.name, def: o, errors: errs }; }, function (e) { return { file: i.name, def: null, errors: [why(e)] }; });
       }));
     }).then(function (list) {
       var types = {}, errors = [], refused = [];

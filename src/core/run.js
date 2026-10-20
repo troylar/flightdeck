@@ -872,7 +872,7 @@ PF.run = (function () {
   var ARCHIVE_SHOWN = { log: 1, answer: 1 };
   function cleanArchive(x) {
     if (!x || typeof x !== 'object' || Array.isArray(x)) return { ok: false, kind: 'malformed', why: 'isn\'t an archived record' };
-    if (!ARCHIVE_SHOWN[x.kind] && x.kind !== 'migration') return { ok: false, kind: 'newer', why: 'is an archived record this copy doesn\'t know ("' + String(x.kind).slice(0, 40) + '"). ' + PF.envelope.needsText(''), needs: '' };
+    if (!ARCHIVE_SHOWN[x.kind] && x.kind !== 'migration') return { ok: false, kind: 'newer', why: 'is an archived record this copy doesn\'t know ("' + PF.envelope.txt(x.kind).slice(0, 40) + '"). ' + PF.envelope.needsText(''), needs: '' };
     var env = PF.envelope.judge('flightdeck-run-archive', x);
     if (!env.ok) return env;
     return { ok: true, rec: x, shown: !!ARCHIVE_SHOWN[x.kind] };

@@ -398,6 +398,8 @@ def read_text(path):
 FAMILIES = {
     "preflight-publication": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
+    "flightdeck-plan": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["status"]},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -438,6 +440,10 @@ def judge(family, o):
                 return {"ok": False, "kind": "malformed", "needs": ""}
             return {"ok": False, "kind": "newer", "needs": _needs(None, None, None, o)}
         major = int(m.group(2))
+    elif fam.get("kinds"):
+        if o.get("kind") not in fam["kinds"]:
+            return {"ok": False, "kind": "malformed", "needs": ""}
+        major = 1
     elif fam["unmarked"]:
         major = 1
     else:
@@ -454,6 +460,19 @@ def judge(family, o):
     if unknown:
         return {"ok": False, "kind": "newer", "needs": _needs(fam, None, unknown, o)}
     return {"ok": True, "major": major}
+
+
+def plan_family(o):
+    """Which of the two a file in proposals/ is (PF.plans.familyOf): its format's family, else its kind."""
+    f = o.get("format")
+    m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})$", f) if isinstance(f, str) else None
+    if m and m.group(1) in ("flightdeck-plan", "flightdeck-plan-status"):
+        return m.group(1)
+    if o.get("kind") == "status":
+        return "flightdeck-plan-status"
+    if o.get("kind") == "plan":
+        return "flightdeck-plan"
+    return ""
 
 
 def newer_why(info, needs):
@@ -548,7 +567,7 @@ def team_files(root):
 
 def main():
     root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
-    out = {"folder": root, "publications": {}, "plans": [], "conflicts": []}
+    out = {"folder": root, "publications": {}, "plans": [], "conflicts": [], "refused": []}
     pubs_dir = os.path.join(root, "publications")
     for proc in sorted(os.listdir(pubs_dir)) if os.path.isdir(pubs_dir) else []:
         pdir = os.path.join(pubs_dir, proc)
@@ -583,10 +602,21 @@ def main():
             obj = None
         if not isinstance(obj, dict):
             continue
-        if obj.get("kind") == "plan" and isinstance(obj.get("id"), str):
+        # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
+        # a feature this copy doesn't know) is refused and named, never a plan or a decision; one it can't read is left out.
+        fam = plan_family(obj)
+        if not fam:
+            continue
+        v = judge(fam, obj)
+        if not v["ok"]:
+            if v["kind"] == "newer":
+                what = "plan decision" if fam == "flightdeck-plan-status" else "plan"
+                out["refused"].append({"file": "proposals/" + name, "why": "is a " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")})
+            continue
+        if fam == "flightdeck-plan" and isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
             plain = {k: v for k, v in obj.items() if not k.startswith("_")}
             plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
-        elif obj.get("kind") == "status":
+        elif fam == "flightdeck-plan-status":
             decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same

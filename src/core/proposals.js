@@ -45,7 +45,7 @@ PF.proposals = (function () {
     if (!o || typeof o !== 'object' || Array.isArray(o)) return no('can\'t be read as a proposal (it isn\'t JSON yet; it may still be arriving)');
     if (o.kind !== 'draft-proposal') return no('isn\'t in the proposal format');
     if (o.pv !== 1) return no(typeof o.pv === 'number' && o.pv > 1 ? 'was written by a newer Flightdeck' : 'isn\'t in the proposal format');
-    if (o.features != null && !PF.envelope.judge('flightdeck-proposal', o).ok) return no('was written by a newer Flightdeck (it uses ' + String(o.features).slice(0, 80) + ')');
+    if (o.features != null && !PF.envelope.judge('flightdeck-proposal', o).ok) return no('was written by a newer Flightdeck (it uses ' + PF.envelope.txt(o.features).slice(0, 80) + ')');
     if (typeof o.id !== 'string' || !ID.test(o.id) || name !== o.id + '.json') return no('has a file name that doesn\'t match its ID');
     if (typeof o.process !== 'string' || o.process !== folderProcess) return no('says process ' + str(o.process, 60) + ', but it\'s in proposed/' + folderProcess);
     if (typeof o.session !== 'string' || !SESSION.test(o.session)) return no('has no session in the format');

@@ -17,6 +17,8 @@ const j = (o) => JSON.stringify(o, null, 2) + '\n';
 /* FNV-1a over UTF-16 code units, as PF.util.hash: the fingerprints publication.json and run.json carry. */
 function hash(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
 const sha = (s) => require('crypto').createHash('sha256').update(s, 'utf8').digest('hex');
+/* SHA-256 of a file's exact bytes: a screenshot's are the PNG bytes on disk, never the data: URL the tree keeps them as. */
+const shaBytes = (dataUrl) => require('crypto').createHash('sha256').update(Buffer.from(dataUrl.split(',')[1], 'base64')).digest('hex');
 
 /* A checklist in 2.0 syntax: typed run details, a phase note and screenshot, a gate screenshot, a pinned child and skill. */
 const MAP2 = [
@@ -43,12 +45,15 @@ const TYPE2 = { format: 'flightdeck-step-type/2', features: ['typed-evidence'], 
 const TYPES2 = { confirm: { id: 'confirm', label: 'Confirm', icon: 'check', hint: 'Check that something is true.', fields: { where: { label: 'Where to check', kind: 'text' }, looks: { label: 'True when', kind: 'text' } }, record: [], version: 2 },
   'team.count': { id: 'team.count', label: 'Count rows', icon: 'doc', hint: 'Counts the rows in a restored copy.', fields: { system: { label: 'System', kind: 'text' } }, record: [{ name: 'rows', label: 'Rows', kind: 'number', min: '0' }, { name: 'matches', label: 'Matches the source', kind: 'yes-no' }], version: 3 } };
 const TYPES2_TEXT = JSON.stringify(TYPES2, null, 2);
+/* v1 as every release's baseline folder publishes it (test/fixtures/folders/<tag>/publications/backup/v1-ab9ysnqh/). */
+const V1DIR = path.join(__dirname, '..', 'test', 'fixtures', 'folders', 'v1.18.0', 'publications', 'backup', 'v1-ab9ysnqh');
+const V1 = { map: fs.readFileSync(path.join(V1DIR, 'map.md'), 'utf8'), types: fs.readFileSync(path.join(V1DIR, 'types.json'), 'utf8'), info: JSON.parse(fs.readFileSync(path.join(V1DIR, 'publication.json'), 'utf8')) };
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
 /* The fingerprint publish records for a screenshot: FNV-1a over its bytes, as repo.bytesHash takes it. */
 const PNG_HASH = hash(Buffer.from(PNG.split(',')[1], 'base64').toString('latin1'));
 
 /* The frozen payload: everything a version freezes, each by SHA-256 of its exact bytes (pins as canonical JSON). */
-const PAYLOAD = { map: sha(MAP2), types: sha(TYPES2_TEXT), images: { 'images/scratch.png': sha(PNG), 'images/counts.png': sha(PNG) }, extensions: {},
+const PAYLOAD = { map: sha(MAP2), types: sha(TYPES2_TEXT), images: { 'images/scratch.png': shaBytes(PNG), 'images/counts.png': shaBytes(PNG) }, extensions: {},
   pins: { children: { verify: { process: 'verify', version: 4, folder: 'v4-cccc4444', mapHash: 'aaaa0001', typesHash: 'aaaa0002' } }, skills: { report: { name: 'release-notes', version: '1.2.0' } } } };
 function publication(folder, version, extra) {
   return Object.assign({ format: 'preflight-publication/2', features: ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills'], app: APP,
@@ -83,7 +88,12 @@ function folder() {
   f['runs/backup/run-c/history-w-twozero.jsonl'] = JSON.stringify({ kind: 'migration', av: 1, path: 'details.due', at: AT, from: '10/31/2026', source: 'plan', verdict: 'ambiguous', result: null, resolved: { by: 'person-avery', at: AT, value: '2026-10-31' } }) + '\n';
   f['runs/backup/run-t/run.json'] = j(run3('run-t', { features: ['typed-details', 'typed-evidence', 'staged', 'test-run'], title: 'Backup check (test)', test: true, stage: { folder: STAGE }, folder: STAGE, version: 3 }));
   /* Explicit 2.0 run on a /1 version (R2-4): run/3 on v1, chosen by a person because a child pin needs it. */
-  f['runs/backup/run-e/run.json'] = j(run3('run-e', { features: ['pinned-children'], title: 'Backup check (continued)', folder: PUB1, version: 1, details: { ticket: 'ABC-202' }, migrations: [] }));
+  /* Its checklist, step types and hashes are v1's own (the baseline folder's v1-ab9ysnqh), with no payload: a /1 version has none. */
+  /* v1's checklist has no linked step, so this run pins nothing and lists no feature; it's run/3 only because a person chose it. */
+  const e = run3('run-e', { features: [], title: 'Backup check (continued)', folder: PUB1, version: 1, snapshot: V1.map, types: JSON.parse(V1.types), mapHash: V1.info.mapHash, typesHash: V1.info.typesHash,
+    details: { ticket: 'ABC-202' }, roles: { lead: 'person-avery', checker: 'person-blake' }, migrations: [], steps: { read: { s: 'done', by: 'person-avery', at: AT } } });
+  delete e.payload; delete e.pins;
+  f['runs/backup/run-e/run.json'] = j(e);
   f['runs/backup/run-a/notes-w-twozero.jsonl'] = JSON.stringify({ id: 'c-9', at: AT, by: 'person-avery', session: 'w-twozero', step: '', text: 'Say which server in the phase note.', files: [], kind: 'correction', cv: 2, version: 1, folder: PUB1, target: { phase: 'prep' }, change: { op: 'wording', to: 'Use the scratch server, never production.' } }) + '\n';
   f['proposals/plan-backup-pinned.json'] = j({ format: 'flightdeck-plan/2', app: APP, id: 'plan-backup-pinned', process: 'backup', pin: { folder: PUB1, version: 1, mapHash: 'c2780532', typesHash: 'c4143e9d' }, title: 'Backup check November', details: { ticket: 'ABC-203' }, roles: { lead: 'person-avery' }, by: 'person-avery', created: AT });
   f['proposals/plan-backup-pinned.status-w-twozero.json'] = j({ format: 'flightdeck-plan-status/2', app: APP, proposal: 'plan-backup-pinned', proposalHash: 'aaaa0003', status: 'retargeted', to: { folder: PUB2, version: 2 }, by: 'person-avery', at: AT });
@@ -93,7 +103,7 @@ function folder() {
   f['skill-registrations/release-notes/sk-aaaa1111.1.w-twozero.json'] = j({ format: 'flightdeck-skill/2', app: APP, id: 'sk-aaaa1111', rev: 1, seen: null, name: 'release-notes', version: '1.2.0', location: 'https://example.com/skills/release-notes',
     implements: { process: 'backup', folder: PUB2, mapHash: hash(MAP2), typesHash: hash(TYPES2_TEXT) }, description: 'Writes the release notes.', by: 'person-avery', updated: AT });
   const st = 'staged/backup/' + STAGE + '/';
-  f[st + 'map.md'] = MAP2; f[st + 'types.json'] = TYPES2_TEXT;
+  f[st + 'map.md'] = MAP2; f[st + 'types.json'] = TYPES2_TEXT; f[st + 'images/scratch.png'] = PNG; f[st + 'images/counts.png'] = PNG;
   f[st + 'publication.json'] = j(publication(STAGE, null, { features: ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged'], version: undefined, stage: { proposed: 3 }, stagedBy: 'person-avery', stagedAt: AT }));
   f['staged/backup/decisions/' + STAGE + '.w-twozero.1.json'] = j({ format: 'flightdeck-stage-decision/1', app: APP, process: 'backup', stage: STAGE, status: 'retired', reason: 'Replaced by a new stage', by: 'person-avery', at: AT, rev: 1, seen: null });
   f['extensions/acme/extension.json'] = j({ format: 'flightdeck-extension/1', app: APP, namespace: 'acme', version: '1.0.0', title: 'Acme checks', description: 'Ticket keys and row limits.', by: 'person-avery', updated: AT });
@@ -117,7 +127,7 @@ function probes() {
   const both = (p, base, major) => { put('major', p, Object.assign({}, base, major)); put('feature', p, Object.assign({}, base, { features: X, app: '9.1.0' })); };
   const pub = JSON.parse(j(publication(PUB1, 1))); delete pub.payload;
   both('publications/backup/v3-yyyy3333/publication.json', Object.assign(pub, { folder: 'v3-yyyy3333', version: 3 }), { format: 'preflight-publication/9', features: [], app: '9.0.0' });
-  ['major', 'feature'].forEach(k => { out[k]['publications/backup/v3-yyyy3333/map.md'] = MAP2; out[k]['publications/backup/v3-yyyy3333/types.json'] = TYPES2_TEXT; });
+  ['major', 'feature'].forEach(k => { const b = 'publications/backup/v3-yyyy3333/'; out[k][b + 'map.md'] = MAP2; out[k][b + 'types.json'] = TYPES2_TEXT; out[k][b + 'images/scratch.png'] = PNG; out[k][b + 'images/counts.png'] = PNG; });
   out.feature['publications/backup/v3-yyyy3333/publication.json'] = j(Object.assign(JSON.parse(out.feature['publications/backup/v3-yyyy3333/publication.json']), { format: 'preflight-publication/1' }));
   const r = run3('run-p'); delete r.payload;
   put('major', 'runs/backup/run-p/run.json', Object.assign({}, r, { format: 'preflight-run/9', features: [], app: '9.0.0' }));
