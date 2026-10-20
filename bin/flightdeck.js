@@ -1165,7 +1165,8 @@ async function reportData(eng, adapter, req, write) {
     const c = X.clean(text, rm ? rm[1] : null, name && X.parseName(name) ? name : null);
     if (!c.ok) return err(EXIT.error, 'invalid', (c.kind === 'newer' ? 'This report ' + c.why : 'This isn\'t a report Flightdeck can use: ' + c.errors.join('; ') + '.') + (req.cmd === 'write' ? ' Nothing was written.' : ''));
     const rep = c.report, file = X.DIR + '/' + rep.process + '/' + X.fileName({ run: rep.run, step: rep.step, producer: rep.producer.name, id: rep.id });
-    const bytes = Buffer.from(text, 'utf8'), sha = filled.length ? PF.sha256.hex(new Uint8Array(bytes)) : snap.sha256;
+    /* The hash is always of the bytes written (a byte-order mark in the input isn't), so it's the one the app logs. */
+    const bytes = Buffer.from(text, 'utf8'), sha = PF.sha256.hex(new Uint8Array(bytes));
     if (!adapter) return done(A.reportOut(file, sha, 'valid', rep, withPre(null)));
 
     /* Against the folder: the run, read alone (its folder, its version, people.json), as run --json reads it. */

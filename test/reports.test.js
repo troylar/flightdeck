@@ -292,6 +292,20 @@ rule('An acceptance logged in the run but never recorded is recoverable only fro
   assert.strictEqual(X.unrecorded(r, [g], {}).length, 0);
 });
 
+rule('Recovery finds the report by the step that still holds the logged answer, when one id is used on two steps', () => {
+  const { r, map } = makeRun();
+  const ga = groupOf(report()), smoke = report({ step: 'smoke', evidence: { evidence: 'https://ci.example.com/smoke' } }), gb = X.group('backup-check', [entry(smoke, 'run1.smoke.ci-check.abcd1234.json')]).list[0];
+  const e = X.eligible(gb, r, map, { recording: true });
+  assert.ok(e.ok, e.why);
+  R.done(r, map, 'smoke', 'person-avery', LATER, e.values, { exact: true });
+  r.log.push({ at: LATER, by: 'person-avery', what: X.logLine(gb, gb.sha256, 'Smoke') });
+  [[ga, gb], [gb, ga]].forEach(gs => {
+    const u = X.unrecorded(r, gs, {});
+    assert.strictEqual(u.length, 1);
+    assert.deepStrictEqual([u[0].g.step, u[0].recordable], ['smoke', true], 'whatever order the groups come in');
+  });
+});
+
 /* ---------- command line and Home ---------- */
 rule('Checking a report against its run: errors for another version or step, warnings for what a person can\'t accept or won\'t use', () => {
   const { r, map } = makeRun();

@@ -11578,10 +11578,13 @@ PF.reports = (function () {
     (r && r.log || []).forEach(function (l) {
       var p = l && parseLog(l.what);
       if (!p) return;
-      var g = (groups || []).filter(function (x) { return x.producer === p.producer && x.id === p.id; })[0];
+      /* The log names the tool and id, not the step: the report is the one whose step still holds the answer logged with it
+         (one id may be used on several steps). */
+      var g = (groups || []).filter(function (x) {
+        var a = x.producer === p.producer && x.id === p.id && own(r.steps, x.step) ? r.steps[x.step] : null;
+        return !!a && a.s === 'done' && a.at === l.at && a.by === l.by;
+      })[0];
       if (!g || seen[g.key + p.sha256]) return;
-      var a = own(r.steps, g.step) ? r.steps[g.step] : null;
-      if (!a || a.s !== 'done' || a.at !== l.at || a.by !== l.by) return;
       var hit = cur ? cur[g.key] : null;
       if (hit && hit.d.status === 'accepted' && hit.d.sha256 === p.sha256 && hit.d.answer.at === l.at) return;
       if (hit && hit.d.rev && hit.d.at > l.at) return;

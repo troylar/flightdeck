@@ -2378,6 +2378,14 @@ rule('REPORT: write puts one file in reports/<process>/ once and reads it back; 
   assert.ok(r.code === 0 && /^[a-z0-9]{12}$/.test(r.json.data.report.id) && !isNaN(Date.parse(r.json.data.report.created)), r.out);
   const text = fs.readFileSync(path.join(dir, r.json.data.report.file), 'utf8');
   assert.strictEqual(r.json.data.report.sha256, require('crypto').createHash('sha256').update(text).digest('hex'));
+  // A byte-order mark isn't written, and the SHA-256 printed (check and write) is always of the bytes in the file.
+  const bom = Object.assign({}, REPORT, { id: 'bomb0m00aa' }), bomFile = repFile(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(bom))]));
+  const ck = repAgree(readCli('report', 'check', bomFile, '--json'));
+  const wb = repAgree(readCli('report', 'write', dir, bomFile, '--json'));
+  const onDisk = fs.readFileSync(path.join(dir, wb.json.data.report.file));
+  assert.strictEqual(onDisk[0], 0x7b, 'no byte-order mark written');
+  assert.strictEqual(wb.json.data.report.sha256, require('crypto').createHash('sha256').update(onDisk).digest('hex'), 'write prints the hash of the file');
+  assert.strictEqual(ck.json.data.report.sha256, wb.json.data.report.sha256, 'check prints the same one');
   // The app's own reader reads what it wrote.
   const PF = require('./harness').load(), c = PF.reports.clean(text, 'release', r.json.data.report.file.split('/').pop());
   assert.ok(c.ok, c.why);
