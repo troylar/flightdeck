@@ -5878,16 +5878,16 @@ rule('App (2.0): anyone viewing a run can suggest a change to a phase\'s note or
   app.click('open-run', key); await app.tick(20);
   assert.ok(/<div class="note g-note">[\s\S]*?Check the change board first\.[\s\S]*?data-act="nc-open" data-kind="gate" data-id="ready"/.test(app.html()), 'the note, with a way to suggest a change');
   app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
-  assert.ok(/<textarea id="nc-to"[^>]*>Check the change board first\.<\/textarea>/.test(app.html()) && app.focused() === 'nc-to', 'filled in with the note, with focus');
-  app.click('nc-save'); await app.tick(40);
+  assert.ok(/<textarea id="nc-to-gate-ready"[^>]*>Check the change board first\.<\/textarea>/.test(app.html()) && app.focused() === 'nc-to-gate-ready', 'filled in with the note, with focus');
+  app.click('nc-save', 'ready', { kind: 'gate' }); await app.tick(40);
   assert.ok(/No wording changed\./.test(app.html()), 'an unchanged note is refused, by name');
-  app.input('nc-to', 'Check the change board and the freeze calendar first.'); app.input('nc-why', 'Freezes block deploys'); app.click('nc-save'); await app.tick(60);
+  app.input('nc-to-gate-ready', 'Check the change board and the freeze calendar first.'); app.input('nc-why-gate-ready', 'Freezes block deploys'); app.click('nc-save', 'ready', { kind: 'gate' }); await app.tick(60);
   const notes = newNotes(app, key).filter(n => n.kind === 'correction');
   assert.strictEqual(notes.length, 1);
   const n = notes[0];
   assert.deepStrictEqual([n.cv, n.step, n.target, n.change, n.why, n.version, n.folder], [2, '', { gate: 'ready' }, { op: 'wording', to: 'Check the change board and the freeze calendar first.' }, 'Freezes block deploys', run.version, run.folder]);
   assert.ok(/Correction to the note of the gate "Ready to deploy"/.test(n.text), n.text);
-  assert.ok(!/id="nc-to"/.test(app.html()), 'closed'); assert.ok(/Correction saved on this computer\./.test(app.html() + app.live()), 'said');
+  assert.ok(!/id="nc-to-gate-ready"/.test(app.html()), 'closed'); assert.ok(/Correction saved on this computer\./.test(app.html() + app.live()), 'said');
 });
 
 rule('App (2.0): the publish panel names the 2.0 features a draft uses and what that means for teammates on 1.21 or earlier; a draft that uses none says nothing', async () => {
@@ -5905,6 +5905,35 @@ rule('App (2.0): the publish panel names the 2.0 features a draft uses and what 
   const h = app.html();
   assert.ok(/<p class="small pub-needs"[^>]*><b>Needs Flightdeck 2\.0:<\/b> a note on a phase\./.test(h), h.slice(h.indexOf('change-note'), h.indexOf('change-note') + 1500));
   assert.ok(/Teammates on Flightdeck 1\.21 or earlier see this version but can(&#39;|')t run it/.test(h));
+});
+
+rule('App (2.0): what is typed in a note correction is kept per run and per phase or gate: opening another one, or leaving the run, never loses it', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const md = app.fs.files['maps/drafts/release.md'].t
+    .replace(/(## Gate: Ready to deploy[^\n]*\n  approves:[^\n]*\n)/, '$1  > Check the change board first.\n')
+    .replace(/(## Gate: Deployed[^\n]*\n  approves:[^\n]*\n)/, '$1  > Watch the error rate.\n');
+  await app.fs.write('maps/drafts/release.md', md);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Gate notes'); app.click('publish', 'release'); await app.tick(100);
+  const before = releaseRuns(app);
+  app.click('start', 'release'); await app.tick();
+  app.submitForm('start-form'); await app.tick(120);
+  const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t), key = 'release/' + run.id;
+  app.click('open-run', key); await app.tick(20);
+  app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
+  app.input('nc-to-gate-ready', 'Check the change board and the freeze calendar.'); app.input('nc-why-gate-ready', 'Freezes block deploys'); await app.tick();
+  app.click('nc-open', 'deployed', { kind: 'gate' }); await app.tick();
+  const h = app.html();
+  assert.ok(/<textarea id="nc-to-gate-deployed"[^>]*>Watch the error rate\.<\/textarea>/.test(h), 'Deployed\'s own composer');
+  assert.ok(/<textarea id="nc-to-gate-ready"[^>]*>Check the change board and the freeze calendar\.<\/textarea>/.test(h) && /<textarea id="nc-why-gate-ready"[^>]*>Freezes block deploys<\/textarea>/.test(h), 'Ready\'s typing is still there');
+  app.click('home'); await app.tick(); app.click('open-run', key); await app.tick(20);
+  assert.ok(/<textarea id="nc-to-gate-ready"[^>]*>Check the change board and the freeze calendar\.<\/textarea>/.test(app.html()), 'and after leaving the run and coming back');
+  app.click('nc-cancel', 'ready', { kind: 'gate' }); await app.tick();
+  assert.ok(!/id="nc-to-gate-ready"/.test(app.html()) && /id="nc-to-gate-deployed"/.test(app.html()), 'Cancel closes only its own');
+  app.click('nc-save', 'deployed', { kind: 'gate' }); await app.tick(40);
+  assert.ok(/No wording changed\./.test(app.html()), 'an unchanged note is refused');
 });
 
 run();

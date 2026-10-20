@@ -124,15 +124,16 @@
   /* Suggest a change to a phase's note or a gate's (2.0): a correction the team decides on, like a step's. */
   function noteCorr(ctx, kind, id, note) {
     var s = ctx.state, r = ctx.run && ctx.run(); if (!s.me || !r) return '';
-    var f = s.noteCorr && s.noteCorr.key === runKey(r) && s.noteCorr.kind === kind && s.noteCorr.id === id ? s.noteCorr : null;
-    if (!f) return '<div class="row"><button class="mini" data-act="nc-open" data-kind="' + kind + '" data-id="' + esc(id) + '">' + I('edit') + 'Suggest a change to this note</button></div>';
-    var err = s.fieldErr && s.fieldErr.id === 'nc' ? s.fieldErr : null, bad = function (k) { return err && err.field === k ? ' aria-invalid="true" aria-describedby="ferr-nc"' : ''; };
-    var fe = function (k) { return err && err.field === k ? '<p class="ferr" id="ferr-nc" role="alert">' + esc(err.msg) + '</p>' : ''; };
-    return '<div class="corr-form nc-form" role="group" aria-label="Suggest a change to the ' + kind + '\'s note">' +
-      '<label class="small" for="nc-to">What the note should say</label><textarea id="nc-to" rows="3" maxlength="2000"' + bad('nc-to') + '>' + esc(f.to) + '</textarea>' + fe('nc-to') +
-      '<label class="small" for="nc-why">Why (optional)</label><textarea id="nc-why" rows="2" maxlength="2000"' + bad('nc-why') + '>' + esc(f.why || '') + '</textarea>' + fe('nc-why') +
+    /* Each phase's and gate's composer is its own draft, kept for this folder and run until Save or Cancel. */
+    var f = (s.noteCorrs || {})[ctx.fsKey + '\n' + runKey(r) + '|nc:' + kind + ':' + id] || null, act = ' data-kind="' + kind + '" data-id="' + esc(id) + '"';
+    if (!f) return '<div class="row"><button class="mini" data-act="nc-open"' + act + '>' + I('edit') + 'Suggest a change to this note</button></div>';
+    var sfx = '-' + kind + '-' + id, eid = 'ferr-nc' + sfx, err = s.fieldErr && s.fieldErr.id === 'nc' + sfx ? s.fieldErr : null, bad = function (k) { return err && err.field === k ? ' aria-invalid="true" aria-describedby="' + esc(eid) + '"' : ''; };
+    var fe = function (k) { return err && err.field === k ? '<p class="ferr" id="' + esc(eid) + '" role="alert">' + esc(err.msg) + '</p>' : ''; };
+    return '<div class="corr-form nc-form" role="group" aria-label="Suggest a change to the ' + kind + '\'s note" data-draft-kept>' +
+      '<label class="small" for="nc-to' + esc(sfx) + '">What the note should say</label><textarea id="nc-to' + esc(sfx) + '" rows="3" maxlength="2000"' + bad('to') + '>' + esc(f.to) + '</textarea>' + fe('to') +
+      '<label class="small" for="nc-why' + esc(sfx) + '">Why (optional)</label><textarea id="nc-why' + esc(sfx) + '" rows="2" maxlength="2000"' + bad('why') + '>' + esc(f.why || '') + '</textarea>' + fe('why') +
       '<p class="small">The team decides on it like any correction. Copies older than Flightdeck 2.0 show it as a described problem.</p>' +
-      '<div class="row"><button class="btn" data-act="nc-save"' + (f.sending ? ' disabled' : '') + '>Save correction</button><button class="mini" data-act="nc-cancel">Cancel</button></div></div>';
+      '<div class="row"><button class="btn" data-act="nc-save"' + act + (f.sending ? ' disabled' : '') + '>Save correction</button><button class="mini" data-act="nc-cancel"' + act + '>Cancel</button></div></div>';
   }
 
   /* The approval a gate recorded, as one sentence: who, when, and the exact details it was for. */
