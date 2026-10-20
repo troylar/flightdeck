@@ -4942,7 +4942,10 @@
   }
   /* The decision file, written once; a retry after a lost answer finds the same bytes and succeeds (repo.decideReport). */
   function writeAccept(it) {
-    var dfs = state.fs, g = gen, ins = acceptsOf(it.fk);
+    var dfs = state.fs, g = gen, ins = acceptsOf(it.fk), rec = it.rec;
+    /* Every way an acceptance's decision is written (after the save, after a read, Record the decision) passes this hold. */
+    var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
+    if (held) { it.tried = true; it.err = held; say(held, 'warn'); render(); return Promise.resolve(false); }
     it.writing = true; it.tried = true; it.err = '';
     return queued(function () { return repo.decideReport(dfs, it.rec, WRITER); }).then(function () {
       it.writing = false; if (ins[it.k] === it) delete ins[it.k];

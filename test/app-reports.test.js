@@ -165,6 +165,14 @@ rule('App: a decision that couldn\'t be written is offered again, and writing it
   assert.deepStrictEqual(decisions(app), []);
   await openStep(app, 'jenkins');
   assert.ok(/data-act="rep-record"/.test(app.html()), 'Record the decision');
+  // A decision on it that can't be read arrives first: the retry is held too, and says why.
+  const j = app.run().json, h = app.PF.reports.decisionHash({ process: 'release', run: j.id, step: 'jenkins', producer: 'ci-check', id: 'abcd1234' }), bad = 'report-decisions/release/' + j.id + '.' + h + '.w9.4.json';
+  await app.fs.write(bad, '{"format": "flightdeck-report-decision/1", "status": "decl');
+  app.click('refresh'); await app.tick(120); await openStep(app, 'jenkins');
+  assert.ok(!/data-act="rep-record"/.test(app.html()), 'no Record while held');
+  app.click('rep-record', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), [], 'nothing written while held');
+  await app.fs.remove(bad); app.click('refresh'); await app.tick(120); await openStep(app, 'jenkins');
   app.click('rep-record', x.key); await app.tick(120);
   assert.strictEqual(decisions(app).length, 1);
   app.PF.repo.decideReport = orig;

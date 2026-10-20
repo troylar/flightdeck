@@ -69,7 +69,7 @@
     /* An acceptance whose decision isn't in the folder yet: this window's own (still saving, or its write failed), or one
        the run records from a window that closed first. */
     var mine = (b.pending || []).filter(function (p) { return p.key === g.key; })[0], un = (b.unrecorded || []).filter(function (u) { return u.g.key === g.key; })[0];
-    if (mine && mine.err) h += '<div class="notice bad" role="status"><span>The step is checked, but the decision on this report couldn\'t be saved: ' + esc(mine.err) + '</span>' + (st.me ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>';
+    if (mine && mine.err) h += '<div class="notice bad" role="status"><span>The step is checked, but the decision on this report couldn\'t be saved: ' + esc(mine.err) + '</span>' + (st.me && !(b.held && b.held(g)) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>';
     else if (mine) h += '<p class="small" role="status">Saving the decision once the step is saved…</p>';
     else if (un) h += un.recordable ? '<div class="notice warn"><span>Accepted in the run, but the decision isn\'t in the team folder yet.</span>' + (ctx.recording(r) && !(b.held && b.held(g)) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>'
       : un.why === 'changed' ? '<div class="notice warn"><span>Accepted in the run, but the step\'s evidence was changed since, so the decision can\'t be recorded from this report.</span></div>'
