@@ -29,6 +29,7 @@ const CHECKLIST = [
   '---', 'process: backup', 'title: Backup check', 'category: Operations', 'owner: person-avery', 'context: ticket', 'roles: lead, checker', '---', '',
   '## Prepare {#prep}',
   '- [!] {confirm} Read the restore runbook @lead {#read}',
+  '  ![The runbook\'s first page](images/restore.png)',
   '- [ ] {team.restore} Restore last night\'s backup ^ticket @checker {#restore}',
   '  system: billing',
   '- [ ] {confirm} Record where the copy is @checker {#where}',
@@ -44,6 +45,8 @@ const STEP_TYPE = {
   record: [{ name: 'copy', label: 'Restored copy', kind: 'text' }]
 };
 const S1 = 'w-avery', S2 = 'w-blake';
+/* A screenshot the checklist references (a PNG's first bytes): publish copies it into the version and records its hash. */
+const PNG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82];
 
 /* The scenario, as one release's own code writes it. Each block runs only where the matrix says the release has the writer.
    Returns the folder's files (path → text). */
@@ -53,6 +56,7 @@ async function generate(PF, version) {
   const loaded = () => repo.loadAll(m);
   const ok = (res, what) => { if (!res || res.blockers || res.conflict) throw new Error(version + ': ' + what + ' failed: ' + JSON.stringify(res && (res.blockers || res))); return res; };
 
+  await m.write('images/restore.png', new Blob([new Uint8Array(PNG)], { type: 'image/png' }));
   ok(await repo.saveStepType(m, STEP_TYPE, null, {}), 'saving the step type');
   ok(await repo.saveDraft(m, 'backup.md', CHECKLIST, null, { expectText: null }), 'saving the draft');
   const customTypes = { 'team.restore': PF.types.customType(STEP_TYPE) };
@@ -121,7 +125,7 @@ async function generate(PF, version) {
   if (has('saved-history')) {
     const TL = PF.timeline;
     const line = TL.histLine({ kind: 'draft-edit', id: 'h-1', process: 'backup', writer: S1, seq: 1, by: 'person-avery', at: t(19), from: null, to: PF.util.hash(CHECKLIST), before: '', after: CHECKLIST, source: 'editor' });
-    await repo.appendHistory(m, 'history/drafts/backup', S1, [line], {});
+    await repo.appendHistory(m, 'history/drafts/backup', S1, [JSON.stringify(line)], {});
   }
 
   if (has('proposals')) {
@@ -159,4 +163,4 @@ if (require.main === module) {
     if (!write) { console.log(bad.length ? 'Differ from what the release writes: ' + bad.join(', ') + '. Run node tools/old-folders.js --write' : 'Every folder matches what its release writes'); process.exitCode = bad.length ? 1 : 0; }
   })().catch(e => { console.error(e); process.exit(1); });
 }
-module.exports = { DIR, AT, SEED, CHECKLIST, STEP_TYPE, PEOPLE, generate, all, main };
+module.exports = { DIR, AT, SEED, PNG, CHECKLIST, STEP_TYPE, PEOPLE, generate, all, main };

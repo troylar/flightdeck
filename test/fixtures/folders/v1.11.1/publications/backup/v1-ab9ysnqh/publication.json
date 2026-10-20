@@ -7,7 +7,9 @@
   "publishedBy": "person-avery",
   "publishedAt": "2026-03-02T09:01:00.000Z",
   "changes": "First version",
-  "mapHash": "44cc03bc",
+  "mapHash": "c2780532",
   "typesHash": "c4143e9d",
-  "images": {}
+  "images": {
+    "images/restore.png": "9823f2a8"
+  }
 }

@@ -250,7 +250,8 @@ function folderHandle(name, files) {
   function file(p, n) {
     return {
       kind: 'file', name: n,
-      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => Promise.resolve(files[p]) }),
+      // slice() as a File has it: the newer-copy check reads only the head of flightdeck.html.
+      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => Promise.resolve(files[p]), slice: (a, b) => new Blob([files[p]]).slice(a, b) }),
       createWritable(o) {
         let buf = o && o.keepExistingData ? files[p] : '';
         return Promise.resolve({ seek: () => Promise.resolve(), write: (d) => Promise.resolve(typeof d === 'string' ? d : d.text()).then(t => { buf += t; }), close: () => { files[p] = buf; return Promise.resolve(); } });

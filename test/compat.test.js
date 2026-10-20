@@ -9,6 +9,7 @@ const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 const { rule, run } = require('./harness');
 const H = require('./compat-harness');
+const AH = require('./app-harness');
 const { ROWS, expects } = require('./compat-matrix');
 const INV = require('./compat-readers');
 const G = require('../tools/old-folders');
@@ -97,7 +98,7 @@ TAGS.forEach((t) => rule(t.tag + ': its baseline folder holds only files from wr
   Object.keys(files).forEach((p) => {
     const f = INV.familyOf(p);
     if (files[p] === G.SEED[p]) return;
-    if (f.writer === 'hand') { if (!(p in G.SEED)) wrong.push(p + ' (hand-written, not in the scenario\'s seed)'); return; }
+    if (f.writer === 'hand') { if (!(p in G.SEED) && p !== 'images/restore.png') wrong.push(p + ' (hand-written, not in the scenario\'s seed)'); return; }
     if (f.writer === 'none' || !expects(f.writer, t.version)) wrong.push(p + ' (' + f.writer + ' isn\'t in ' + t.tag + ')');
   });
   // people.json is a seed, rewritten only by a release with the people writer (1.15 on).
@@ -107,49 +108,88 @@ TAGS.forEach((t) => rule(t.tag + ': its baseline folder holds only files from wr
 
 /* ---------- The reader inventory ---------- */
 
-rule('Reader inventory: every path in every baseline folder, this version\'s folder, the example folder and the probes is in exactly one family', async () => {
-  const paths = new Set(Object.keys(INV.PROBES).concat(Object.keys(await mainFiles())));
+rule('Reader inventory: every path in every baseline folder, this version\'s folder, the example folder and the specimens is in exactly one family', async () => {
+  const paths = new Set(Object.keys(INV.UNREAD).concat(Object.keys(await mainFiles())));
   TAGS.forEach(t => Object.keys(fixture(t.tag)).forEach(p => paths.add(p)));
-  const ex = path.join(__dirname, '..', 'example-folder');
-  Object.keys(H.readTree(ex)).forEach(p => paths.add(p));
+  Object.keys(H.readTree(path.join(__dirname, '..', 'example-folder'))).forEach(p => paths.add(p));
+  const PF = H.loadMain(), m = H.memFolder(PF, await mainFiles());
+  await INV.prepare(PF, m, MAIN, await mainFiles());
+  Object.keys(m.files).forEach(p => paths.add(p));
   const errs = [];
   paths.forEach(p => { try { INV.familyOf(p); } catch (e) { errs.push(e.message); } });
   assert.deepStrictEqual(errs, []);
 });
 
-/* What loadAll touches: the folders it lists and the files it reads, on a folder with one file of every family. */
-async function touched(PF) {
-  const m = H.memFolder(PF, Object.assign({}, await mainFiles(), INV.PROBES)), seen = { list: new Set(), read: new Set() };
-  ['list', 'read', 'blob'].forEach(k => { const o = m[k].bind(m); m[k] = p => { (k === 'list' ? seen.list : seen.read).add(p); return o(p); }; });
-  await PF.repo.loadAll(m, { deep: true });
-  return seen;
+/* A folder as one release wrote it, with a specimen of every family: the scenario's files, prepare()'s, and the unread ones. */
+async function specimens(PF, version, files) {
+  const m = H.memFolder(PF, Object.assign({}, files, INV.UNREAD));
+  await INV.prepare(PF, m, version, files);
+  return m;
 }
-function checkReaders(seen, version) {
+/* Records what a folder is asked for while on() is true. */
+function record(m) {
+  const seen = { list: new Set(), read: new Set(), stat: new Set() }, on = { v: false };
+  ['list', 'read', 'blob', 'stat'].forEach(k => { if (!m[k]) return; const o = m[k].bind(m); m[k] = p => { if (on.v) seen[k === 'blob' ? 'read' : k].add(p); return o(p); }; });
+  return { seen, on };
+}
+const DAMAGE = (p, t) => /\.png$/.test(p) ? 'data:image/png;base64,AAAA' : /\.md$/.test(p) ? 'damaged\n' : '{"damaged":true}\n';
+const inRange = (r, v) => at(v, r.from) && (!r.until || cmp(v, r.until) <= 0);
+const fnOf = (PF, via) => { const [mod, k] = via.split('.'); return PF[mod] && typeof PF[mod][k] === 'function' ? PF[mod][k] : null; };
+
+/* Each reader, called on a valid specimen: the call reads it, and the output shows it; damaged, the output no longer does. */
+async function probeReaders(load, version, files) {
   const wrong = [];
-  seen.list.forEach(d => { if (!INV.dirKnown(d)) wrong.push('lists ' + d + '/, which no family in test/compat-readers.js lives in'); });
-  const read = new Set();
-  seen.read.forEach(p => { try { read.add(INV.familyOf(p).id); } catch (e) { wrong.push('reads ' + e.message); } });
-  INV.FAMILIES.forEach(f => {
-    const want = !!f.loadAll && at(version, f.loadAll);
-    if (want !== read.has(f.id)) wrong.push(f.id + (read.has(f.id) ? ' is read by loadAll' : ' isn\'t read by loadAll') + ', but the inventory says ' + (f.loadAll ? 'from ' + f.loadAll : 'never'));
-  });
+  for (const f of INV.FAMILIES) for (const r of f.readers.filter(x => x.via !== 'app')) {
+    const name = f.id + ' via ' + r.via + ' (from ' + r.from + ')';
+    if (!inRange(r, version)) {
+      if (r.via === 'loadAll') {
+        const PF = load(), m = await specimens(PF, version, files), rec = record(m), spec = typeof r.spec === 'function' ? r.spec(m.files ? H.filesOf(m) : files) : r.spec;
+        rec.on.v = true; await r.call(PF, m); rec.on.v = false;
+        if (spec && rec.seen.read.has(spec)) wrong.push(name + ': read before its range');
+      } else if (fnOf(load(), r.via)) wrong.push(name + ': ' + r.via + ' exists before its range');
+      continue;
+    }
+    const run = async (damage) => {
+      const PF = load(), m = await specimens(PF, version, files), all = H.filesOf(m), spec = typeof r.spec === 'function' ? r.spec(all) : r.spec;
+      if (!spec || !(spec in all)) return { missing: spec || '(no specimen)' };
+      if (damage) { if (r.listOnly) await m.remove(spec); else m.files[spec] = { t: DAMAGE(spec, all[spec]), m: Date.now() }; }
+      if (!fnOf(PF, r.via === 'loadAll' ? 'repo.loadAll' : r.via)) return { nofn: true };
+      const ctx = r.before ? await r.before(PF, m) : null, rec = record(m);
+      rec.on.v = true; let out; try { out = await r.call(PF, m, ctx); } finally { rec.on.v = false; }
+      let found; try { found = !!r.found(out, all); } catch (e) { found = false; }
+      const dir = spec.slice(0, spec.lastIndexOf('/'));
+      return { spec, found, read: r.listOnly ? rec.seen.list.has(dir) : rec.seen.read.has(spec) };
+    };
+    const ok = await run(false);
+    if (ok.missing) { wrong.push(name + ': no specimen ' + ok.missing); continue; }
+    if (ok.nofn) { wrong.push(name + ': ' + r.via + ' doesn\'t exist'); continue; }
+    if (!ok.read) wrong.push(name + ': the call never ' + (r.listOnly ? 'lists the folder of ' : 'reads ') + ok.spec);
+    if (!ok.found) wrong.push(name + ': its output doesn\'t show ' + ok.spec);
+    const bad = await run(true);
+    if (bad.found) wrong.push(name + ': its output doesn\'t change when ' + ok.spec + ' is damaged');
+  }
   return wrong;
 }
-eachTag('Reader inventory: loadAll reads exactly the families the inventory names for it, and lists no folder outside them', async (PF, t) => {
-  assert.deepStrictEqual(checkReaders(await touched(PF), t.version), []);
+/* What loadAll touches on a folder with a specimen of every family: only known folders and families with a loadAll reader. */
+async function loadAllTouches(PF, version, files) {
+  const m = await specimens(PF, version, files), rec = record(m), wrong = [];
+  rec.on.v = true; await PF.repo.loadAll(m, { deep: true }); rec.on.v = false;
+  rec.seen.list.forEach(d => { if (!INV.dirKnown(d)) wrong.push('lists ' + d + '/, which no family in test/compat-readers.js lives in'); });
+  rec.seen.read.forEach(p => {
+    let f; try { f = INV.familyOf(p); } catch (e) { wrong.push('reads ' + e.message); return; }
+    if (!f.readers.some(r => r.via === 'loadAll' && inRange(r, version))) wrong.push('loadAll reads ' + p + ' (' + f.id + '), which has no loadAll reader in the inventory at ' + version);
+  });
+  rec.seen.stat.forEach(p => { try { INV.familyOf(p); } catch (e) { wrong.push('stats ' + e.message); } });
+  return wrong;
+}
+eachTag('Reader inventory: every reader the inventory names reads a valid specimen and shows it, and none is claimed outside its range', async (PF, t) => {
+  assert.deepStrictEqual(await probeReaders(() => H.loadCopy(t.tag), t.version, fixture(t.tag)), []);
+  assert.deepStrictEqual(await loadAllTouches(H.loadCopy(t.tag), t.version, fixture(t.tag)), []);
 });
-rule('Reader inventory: this version\'s loadAll reads exactly the families the inventory names for it', async () => {
-  assert.deepStrictEqual(checkReaders(await touched(H.loadMain()), MAIN), []);
-});
-rule('Reader inventory: every reader outside loadAll is in exactly the releases the inventory says', () => {
-  const wrong = [];
-  const check = (PF, v, name) => INV.FAMILIES.forEach(f => f.onDemand.forEach(([fn, from, until]) => {
-    const [mod, k] = fn.split('.'), has = !!PF[mod] && typeof PF[mod][k] === 'function', want = at(v, from) && (!until || cmp(v, until) <= 0);
-    if (has !== want) wrong.push(name + ' ' + (has ? 'has ' : 'lacks ') + fn + ' (' + f.id + ')');
-  }));
-  TAGS.forEach(t => { const PF = H.loadCopy(t.tag); if (PF) check(PF, t.version, t.tag); });
-  check(H.loadMain(), MAIN, 'this version');
-  assert.deepStrictEqual(wrong, []);
+rule('Reader inventory: this version\'s readers read a valid specimen of each family and show it', async () => {
+  const files = await mainFiles();
+  assert.deepStrictEqual(await probeReaders(() => H.loadMain(), MAIN, files), []);
+  assert.deepStrictEqual(await loadAllTouches(H.loadMain(), MAIN, files), []);
 });
 
 /* ---------- This version reads every older folder ---------- */
@@ -244,7 +284,7 @@ eachTag('a preflight-publication/2 version is unusable: never the latest, and no
   const files = fixture(t.tag), pubDir = Object.keys(files).find(p => /publication\.json$/.test(p)).replace('publication.json', '');
   const info = JSON.parse(files[pubDir + 'publication.json']);
   const v2 = pubDir.replace(/v1-[a-z0-9]+\/$/, 'v2-zzzz2222/');
-  files[v2 + 'map.md'] = files[pubDir + 'map.md']; files[v2 + 'types.json'] = files[pubDir + 'types.json'];
+  files[v2 + 'map.md'] = files[pubDir + 'map.md']; Object.keys(files).filter(p => p.indexOf(pubDir + 'images/') === 0).forEach(p => { files[v2 + p.slice(pubDir.length)] = files[p]; }); files[v2 + 'types.json'] = files[pubDir + 'types.json'];
   files[v2 + 'publication.json'] = JSON.stringify(Object.assign({}, info, { format: 'preflight-publication/2', features: ['typed-details'], app: '2.0.0', version: 2, folder: 'v2-zzzz2222' }), null, 2);
   const proc = (await OLD.repo.loadAll(H.memFolder(OLD, files))).processes[0];
   if (below(t.version)) { assert.strictEqual(proc.index.latest.info.version, 2, 'below the floor, a /2 version is run as if it were /1'); return; }
@@ -371,7 +411,7 @@ eachTag('READ/1: its command names a run/3 newer (exit 4) and a plan/2 malformed
   const b = H.bundles.get(t.tag), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-read-'));
   fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'dist'));
   fs.writeFileSync(path.join(root, 'bin', 'flightdeck.js'), b.files['flightdeck.js']); fs.writeFileSync(path.join(root, 'dist', 'flightdeck.html'), b.files['flightdeck.html']);
-  const put = (dir, files) => Object.keys(files).forEach(p => { const f = path.join(dir, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, files[p]); });
+  const put = (dir, files) => H.writeTree(dir, files);
   const read = (dir, ...a) => { const r = cp.spawnSync(process.execPath, [path.join(root, 'bin', 'flightdeck.js'), ...a, dir, '--json'], { encoding: 'utf8' }); return { code: r.status, json: JSON.parse(r.stdout || r.stderr) }; };
   try {
     const plain = path.join(root, 'plain'); put(plain, fixture(t.tag));
@@ -434,6 +474,134 @@ eachTag('In its app, keeping a conflict copy that is preflight-run/3 is refused 
   app.click('use-copy', name); await app.tick(120);
   same(filesUnder(app, dir), before, 'nothing kept, replaced or removed');
   assert.ok(/newer copy of Flightdeck|can.t be read/.test(app.live() + app.html()), 'and it says why');
+});
+
+/* A step on the recorded run that a plain click answers (no evidence form, no child run). */
+function plainStep(app, j) {
+  const map = app.PF.map.parse(j.snapshot);
+  return (app.html().match(/data-act="toggle" data-id="[\w-]+"/g) || []).map(x => /data-id="([\w-]+)"/.exec(x)[1])
+    .find(x => !(j.steps[x] && j.steps[x].s === 'done') && app.PF.map.findStep(map, x).step.type !== 'run.process' && app.PF.run.evidenceFor(j, app.PF.map.findStep(map, x).step).list.every(d => !d.required));
+}
+const rowClass = (html, id) => { const i = html.indexOf('id="step-' + id + '"'); return i < 0 ? null : html.slice(html.lastIndexOf('<li', i), i); };
+
+eachTag('In its app, a refused change is kept only in that window: on screen, never on disk or in browser storage, and leaving says nothing; moved to another folder, it goes to browser storage, and back here it can be discarded but not restored', async (OLD, t) => {
+  const other = AH.folderHandle('Other', { 'people.json': '[]' });
+  const app = H.bootCopy(t.tag, { picker: other, indexedDB: AH.memoryIDB() }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  let r = app.run(); app.click('open-run', r.key); await app.tick(); app.click('pickup'); await app.tick(40); r = app.run();
+  const id = plainStep(app, r.json), done = new RegExp('"' + id + '"\\s*:\\s*\\{\\s*"s"\\s*:\\s*"done"');
+  app.fs.files[r.path] = { t: asRun3(app.fs.files[r.path].t), m: Date.now() }; app.fs.persist();
+  const folder = JSON.stringify(Object.keys(app.fs.files).sort().map(p => [p, app.fs.files[p].t]));
+  app.click('toggle', id); await app.tick(80);
+  same(JSON.stringify(Object.keys(app.fs.files).sort().map(p => [p, app.fs.files[p].t])), folder, 'nothing on disk');
+  const kept = () => Object.keys(app.store).filter(k => k !== 'preflight:examples' && done.test(app.store[k])).concat(Object.keys(app.session).filter(k => done.test(app.session[k])));
+  same(kept(), [], 'nothing in browser storage');
+  assert.ok(!done.test(app.store['preflight:examples']), 'nor in the examples folder this browser keeps');
+  assert.strictEqual(app.leaveWarns(), false, 'closing the tab doesn\'t warn');
+  assert.ok(/data-a="done"/.test(rowClass(app.html(), id)), 'on screen, answered');
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/data-a="done"/.test(rowClass(app.html(), id)), 'and still on screen after Refresh: a read never replaces an unsaved change');
+  // Switching this window to another folder keeps its unsaved runs in browser storage, under the folder they belong to.
+  app.click('connect'); await app.tick(200);
+  const keys = kept();
+  assert.ok(keys.length === 1 && /^preflight:unsaved:/.test(keys[0]), JSON.stringify(keys));
+  // Back in the first folder (a new window on the same browser): the copy is listed but there's no Restore, and nothing is written.
+  const b = H.bootCopy(t.tag, { localStore: Object.assign({}, app.store) }); await b.tick(80); b.choose('person-casey'); await b.tick();
+  b.click('open-run', r.key); await b.tick(40);
+  const snap = () => { const o = {}; Object.keys(b.fs.files).sort().forEach(p => { o[p] = b.fs.files[p].t; }); return o; };
+  const page = b.html(), before = snap();
+  assert.ok(!/data-act="restore-local"/.test(page), 'no Restore it here');
+  if (below(t.version)) assert.ok(!/A copy kept in this browser/.test(page), 'below the floor the run isn\'t listed, so neither is the copy');
+  else assert.ok(/newer copy of Flightdeck/.test(page) && /A copy kept in this browser/.test(page) && /data-act="discard-local"/.test(page), 'listed with Discard only');
+  // Known: the action has no button here, but called anyway (1.11.1 on) it keeps "the version it replaces" first, which is the
+  // name-only view of the run/3: a replaced-*.json in preflight-run/2 with no steps and no checklist. run.json is never touched.
+  b.click('restore-local'); await b.tick(120);
+  const after = snap(), changed = Object.keys(after).filter(p => after[p] !== before[p]);
+  if (below(t.version)) { same(changed, [], 'below the floor: nothing'); return; }
+  assert.strictEqual(changed.length, 1, JSON.stringify(changed));
+  const rec = JSON.parse(after[changed[0]]);
+  assert.ok(/\/replaced-[^/]+\.json$/.test(changed[0]) && rec.format === 'preflight-run/2' && !Object.keys(rec.steps).length && rec.snapshot === '', 'a name-only record');
+  assert.strictEqual(after[r.path], before[r.path], 'run.json untouched');
+  assert.ok(/newer copy of Flightdeck/.test(b.live()), 'and it says why');
+});
+
+eachTag('In its builder, a draft with 2.0 lines opens, and a builder edit saves only that change: every line it doesn\'t understand is kept as written', async (OLD, t) => {
+  const app = H.bootCopy(t.tag); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const p = 'maps/drafts/release.md', lines = app.fs.files[p].t.split('\n');
+  const ci = lines.findIndex(l => /^context:/.test(l)); lines[ci] += ', amount:number';
+  const ph = lines.findIndex(l => /^## /.test(l) && !/Gate/i.test(l));
+  lines.splice(ph + 1, 0, '  > A phase note from 2.0', '  ![Phase map](images/phase.png)');
+  const st = lines.findIndex((l, i) => i > ph + 2 && /^- \[/.test(l));
+  lines.splice(st, 0, '- [ ] {acme:change.request} An extension step {#ext}');
+  const md = lines.join('\n'), NEW = [lines[ci], '  > A phase note from 2.0', '  ![Phase map](images/phase.png)', '- [ ] {acme:change.request} An extension step {#ext}'];
+  app.fs.files[p] = { t: md, m: Date.now() };
+  app.click('refresh'); await app.tick(80); app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  assert.ok(/class="ob" id="ob"/.test(app.html()), 'the builder opens it');
+  const ids = (app.html().match(/data-ob-step="([\w-]+)"/g) || []).map(x => x.slice(14, -1)), id = ids.find(x => x !== 'ext');
+  app.click('ob-move', id, { dir: 'down' }); await app.tick(); app.click('save-draft'); await app.tick(80);
+  const saved = app.fs.files[p].t.split('\n');
+  NEW.forEach(l => assert.ok(saved.indexOf(l) >= 0, 'kept: ' + l));
+  const gone = md.split('\n').filter(l => saved.indexOf(l) < 0), added = saved.filter(l => md.split('\n').indexOf(l) < 0);
+  same([gone, added], [[], []], 'a move changes no line, only their order');
+  assert.notStrictEqual(saved.join('\n'), md, 'set-up: the move was saved');
+}, (t) => expects('builder', t.version));
+
+eachTag('In its step-type editor, a step type with a format envelope (with or without a 2.0 kind) is listed as broken, doesn\'t open, and is never saved over', async (OLD, t) => {
+  for (const kind of ['number', null]) {
+    const app = H.bootCopy(t.tag); await app.tick(60); app.choose('person-casey'); await app.tick();
+    const f = 'step-types/change.request.json', def = JSON.parse(app.fs.files[f].t);
+    const env = Object.assign({ format: 'flightdeck-step-type/2', features: kind ? ['typed-evidence'] : [], app: '2.0.0' }, def);
+    if (kind) env.record = def.record.concat([{ name: 'rows', label: 'Rows', kind }]);
+    const text = JSON.stringify(env, null, 2); app.fs.files[f] = { t: text, m: Date.now() };
+    app.click('refresh'); await app.tick(80); app.click('nav', 'types'); await app.tick();
+    assert.ok(/unknown field\(s\): format, features, app/.test(app.html()), (kind || 'envelope only') + ': listed with what it can\'t read');
+    app.click('edit-type', 'change.request'); await app.tick(40);
+    assert.ok(!/id="tf-label"/.test(app.html()) && /Fix the file/.test(app.live()), 'the editor doesn\'t open it');
+    app.click('new-type'); await app.tick(); app.set('tf-id', 'change.request'); app.set('tf-label', 'Mine'); app.submit('type-form'); await app.tick(120);
+    assert.strictEqual(app.fs.files[f].t, text, 'a new type with its ID is refused, never saved over it');
+  }
+}, (t) => expects('type-editor', t.version));
+
+eachTag('In its Settings, people.json in a format envelope keeps the envelope and every unknown field when the owner adds a person and marks one inactive (no people editor before 1.15)', async (OLD, t) => {
+  const people = [{ id: 'person-avery', name: 'Avery Lee', initials: 'AL', email: 'avery@example.com', folderRole: 'owner', future: { x: 1 } }, { id: 'person-blake', name: 'Blake Ortiz', initials: 'BO', email: 'blake@example.com' }];
+  const text = JSON.stringify({ format: 'flightdeck-people/1', app: '2.0.0', note: 'kept', people }, null, 2), files = { 'people.json': text };
+  const app = H.bootCopy(t.tag, { picker: AH.folderHandle('Team', files), indexedDB: AH.memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200); app.choose('person-avery'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  if (!expects('people', t.version)) { assert.ok(!/people-add-form/.test(app.html())); assert.strictEqual(files['people.json'], text); return; }
+  app.input('pa-name', 'Casey Nguyen'); await app.tick(); app.submit('people-add-form'); await app.tick(200);
+  app.click('people-active', 'person-blake', { on: '' }); await app.tick(200);
+  const o = JSON.parse(files['people.json']);
+  same([o.format, o.app, o.note, o.people.length, o.people[0].future, !!o.people[1].inactive], ['flightdeck-people/1', '2.0.0', 'kept', 3, { x: 1 }, true]);
+});
+
+eachTag('In its app, an archived migration record in a run\'s history is read back as a raw object, never shown, and its file is never changed by recording', async (OLD, t) => {
+  const app = H.bootCopy(t.tag); await app.tick(60); app.choose('person-casey'); await app.tick();
+  let r = app.run(); const hp = r.path.replace('run.json', 'history-w-twozero.jsonl');
+  const mig = { kind: 'migration', av: 1, at: 'details.due', from: '03/04/2026', source: 'plan', verdict: 'ambiguous', result: null, resolved: { by: 'person-avery', at: '2026-10-18T10:00:00.000Z', value: '2026-04-03' } };
+  const ans = { kind: 'answer', step: 'merge', s: 'done', by: 'person-avery', at: '2026-10-16T08:00:00.000Z' };
+  const text = JSON.stringify(mig) + '\n' + JSON.stringify(ans) + '\n'; app.fs.files[hp] = { t: text, m: Date.now() };
+  app.click('refresh'); await app.tick(80); app.click('open-run', r.key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('load-history'); await app.tick(60);
+  assert.ok(!/03\/04\/2026|2026-04-03/.test(app.html()), 'not shown');
+  r = app.run(); const id = plainStep(app, r.json);
+  app.click('toggle', id); await app.tick(80);
+  assert.strictEqual(JSON.parse(app.fs.files[r.path].t).steps[id].s, 'done', 'set-up: recorded');
+  assert.strictEqual(app.fs.files[hp].t, text, 'its file is untouched');
+  const back = await OLD.repo.loadHistory(app.fs, { process: r.json.process, id: r.json.id });
+  same(back.map(x => x.kind).sort(), ['answer', 'migration'], 'read back as it is, with no check of its kind or version');
+  // Its "at" is a path, not a time: 1.17 on sorts it first, as a time it can't read; earlier releases leave it where it sorts as text.
+  same(back.map(x => x.kind), at(t.version, '1.17.0') ? ['migration', 'answer'] : ['answer', 'migration']);
+});
+
+eachTag('In its app, a newer flightdeck.html in the team folder is announced from the head of the file', async (OLD, t) => {
+  const files = { 'people.json': JSON.stringify(G.PEOPLE), 'flightdeck.html': '<!doctype html><meta name="flightdeck-version" content="9.9.9">' };
+  const app = H.bootCopy(t.tag, { picker: AH.folderHandle('Team', files), indexedDB: AH.memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200); app.click('refresh'); await app.tick(100);
+  assert.ok(/Flightdeck 9\.9\.9 is in the team folder/.test(app.top()));
+  files['flightdeck.html'] = '<!doctype html><meta name="flightdeck-version" content="1.0.0">';
+  app.click('refresh'); await app.tick(100);
+  assert.ok(!/is in the team folder/.test(app.top()), 'an older one isn\'t');
 });
 
 run();

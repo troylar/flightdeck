@@ -187,10 +187,10 @@ rule('Each older release\'s checker reads its own folder and this version\'s, an
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
   const H = require('./compat-harness'), G = require('../tools/old-folders');
   const main = await G.main(), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-old-check-'));
-  const put = (dir, files) => Object.keys(files).forEach(p => { const f = path.join(dir, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, files[p]); });
+  const put = (dir, files) => H.writeTree(dir, files);
   const withV2 = (files) => {
     const f = Object.assign({}, files), v1 = Object.keys(f).find(p => /publication\.json$/.test(p)).replace('publication.json', ''), v2 = v1.replace(/v1-[a-z0-9]+\/$/, 'v2-zzzz2222/');
-    f[v2 + 'map.md'] = f[v1 + 'map.md']; f[v2 + 'types.json'] = f[v1 + 'types.json'];
+    f[v2 + 'map.md'] = f[v1 + 'map.md']; Object.keys(f).filter(p => p.indexOf(v1 + 'images/') === 0).forEach(p => { f[v2 + p.slice(v1.length)] = f[p]; }); f[v2 + 'types.json'] = f[v1 + 'types.json'];
     f[v2 + 'publication.json'] = JSON.stringify(Object.assign(JSON.parse(f[v1 + 'publication.json']), { format: 'preflight-publication/2', features: ['typed-details'], version: 2, folder: 'v2-zzzz2222' }));
     return f;
   };

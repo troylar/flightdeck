@@ -1,47 +1,111 @@
 // Every path family in a team folder, from the 2.0 plan's reader table (docs/design.md section 28), with who writes it and
-// which reader each release uses for it. test/compat.test.js checks it against every release's own code: each path any
-// release writes, lists or reads must belong to exactly one family, and each family's readers must be what the code does.
-//   loadAll: the first release whose repo.loadAll reads files of this family (null: loadAll never reads them).
-//   onDemand: readers outside loadAll, each [function, first release that has it], or [function, from, until].
+// which reader each release uses for it. Nothing here is taken on trust: test/compat.test.js runs each reader in every
+// release whose range includes it, on a valid specimen of the family that the scenario's writers (or prepare() below) put in
+// the folder, records the paths the call actually reads, and requires the specimen to be read and to show in the reader's
+// output; then it damages the specimen and requires the output to change. Outside a reader's range, a loadAll reader must
+// not read the specimen and a named function must not exist. Each path any release writes, lists or reads must belong to
+// exactly one family.
+//   readers: [{ via: 'loadAll' or a function like 'repo.loadHistory', from, until?, spec: the specimen path (from the folder's
+//     files, or a function of them), before(PF, fs): set-up not recorded, call(PF, fs, ctx): the reader, found(out): whether
+//     the specimen shows in its output, listOnly: the reader lists the specimen's folder and never reads the file }]
 //   writer: the capability (test/compat-matrix.js) that writes it, 'hand' for files people and AI assistants write, or
 //     'none' for families no release here writes yet.
-//   plan: set when the plan's reader table doesn't list the family.
+//   note: what isn't probed here, said plainly.
 'use strict';
+const path = require('path'), fsN = require('fs');
+
+const runOf = (d, id) => (d.runs || []).find(r => r.id === id);
+const loadAll = (PF, fs) => PF.repo.loadAll(fs, { deep: true });
+const L = (from, found, spec, extra) => Object.assign({ via: 'loadAll', from, spec, call: loadAll, found }, extra || {});
+const pubFolder = (files) => Object.keys(files).find(p => /^publications\/backup\/[^/]+\/publication\.json$/.test(p)).split('/')[2];
+
+/* The scenario's folders hold the families their writers make; these add a valid specimen of the rest. */
+const LEGACY = JSON.stringify({ format: 'preflight-run/1', name: 'Old backup check', started: '2025-01-06T09:00:00.000Z', ended: '2025-01-06T10:00:00.000Z' }, null, 2);
+const FIX_DECISION = JSON.stringify({ kind: 'fix-decision', process: 'backup', suggestion: 'f-1', status: 'accepted', reason: '', by: 'person-avery', at: '2026-03-02T09:15:00.000Z', rev: 1, seen: null, latestVersion: 1 }, null, 2);
+const ARCHIVE = JSON.stringify({ id: 'arch-1', kind: 'answer', step: 'read', s: 'done', by: 'person-avery', at: '2026-03-02T09:03:00.000Z' }) + '\n';
+const INSTALLED = JSON.stringify({ format: 'flightdeck-installed/1', version: '1.18.0', files: {} }, null, 2);
+const AGENTS = '# Team instructions\n\nSpecimen for the reader inventory.\n';
+const PLAN = { kind: 'plan', id: 'plan-backup-april', process: 'backup', version: 1, title: 'Backup check April', details: { ticket: 'ABC-102' }, roles: { lead: 'person-avery', checker: 'person-casey' }, note: 'Casey checks this time.', by: 'AI assistant', created: '2026-03-02T09:13:00.000Z' };
+const CONN_AT = Date.parse('2026-03-02T10:00:00.000Z');
+async function prepare(PF, fs, version, files) {
+  const put = (p, t) => fs.write(p, t);
+  await put('jira/workflows.json', fsN.readFileSync(path.join(__dirname, '..', 'example-folder', 'jira', 'workflows.json'), 'utf8'));
+  await put('runs/legacy-check.json', LEGACY);
+  const run = files['runs/backup/run-a/run.json'], copy = JSON.parse(run); copy.title = 'Backup check March (their copy)';
+  await put('runs/backup/run-a/run.conflict-w-blake-1.json', JSON.stringify(copy, null, 2));
+  await put('runs/backup/run-a/history-w-avery.jsonl', ARCHIVE);
+  if (!Object.keys(files).some(p => /^suggestions\//.test(p))) await put('suggestions/backup/f-1.w-avery.json', FIX_DECISION);
+  // Before savePlan (1.11.0), plans were written by hand or by an AI assistant; the decision on one by the release itself.
+  if (!files['proposals/plan-backup-april.json']) {
+    await put('proposals/plan-backup-april.json', JSON.stringify(PLAN, null, 2) + '\n');
+    const plan = (await PF.repo.loadAll(fs)).plans.find(p => p.id === PLAN.id);
+    await PF.repo.recordPlanStatus(fs, plan, 'w-avery', 'declined', null, 'person-avery');
+  }
+  await put('.flightdeck/installed.json', INSTALLED);
+  await put('AGENTS.md', AGENTS);
+  await put('.flightdeck/write-test-w-avery.tmp', 'x');
+  await put('.flightdeck/updates/AGENTS.md', AGENTS + 'An update to merge.\n');
+  if (PF.connection && PF.repo.sendProbe) await PF.repo.sendProbe(fs, { id: 'k3m9p2q8', n: 1, by: 'person-avery', writer: 'w-avery', device: 'Laptop', at: new Date(CONN_AT).toISOString(), app: version }, CONN_AT);
+}
 
 const FAMILIES = [
-  { id: 'people', re: /^people\.json$/, writer: 'people', loadAll: '1.10.0', onDemand: [] },
-  { id: 'drafts', re: /^maps\/drafts\/[^/]+\.md$/, writer: 'drafts', loadAll: '1.10.0', onDemand: [] },
-  { id: 'publication', re: /^publications\/[^/]+\/[^/]+\/(publication\.json|map\.md|types\.json)$/, writer: 'publish', loadAll: '1.10.0', onDemand: [] },
-  { id: 'publication-images', re: /^publications\/[^/]+\/[^/]+\/images\/.+$/, writer: 'publish', loadAll: null, onDemand: [['repo.publish', '1.10.0']] },
-  { id: 'run', re: /^runs\/[^/]+\/[^/]+\/run\.json$/, writer: 'runs', loadAll: '1.10.0', onDemand: [['repo.loadRun', '1.10.0']] },
-  { id: 'run-copies', re: /^runs\/[^/]+\/[^/]+\/(run\.conflict-[^/]+|run-[^/]+|replaced-[^/]+|candidate-[^/]+)\.json$/, writer: 'runs', loadAll: null, onDemand: [['repo.readCopy', '1.10.0']] },
-  { id: 'notes', re: /^runs\/[^/]+\/[^/]+\/notes-[^/]+\.jsonl$/, writer: 'notes', loadAll: '1.10.0', onDemand: [] },
-  { id: 'run-archives', re: /^runs\/[^/]+\/[^/]+\/history-[^/]+\.jsonl$/, writer: 'runs', loadAll: null, onDemand: [['repo.loadHistory', '1.10.0']] },
-  { id: 'attachments', re: /^runs\/[^/]+\/[^/]+\/files\/[^/]+$/, writer: 'notes', loadAll: null, onDemand: [['repo.saveAttachment', '1.10.0']] },
-  { id: 'legacy-runs', re: /^runs\/[^/]+\.json$/, writer: 'none', loadAll: '1.10.0', onDemand: [] },
-  { id: 'plan-statuses', re: /^proposals\/[^/]+\.status-[^/]+\.json$/, writer: 'plan-status', loadAll: '1.10.0', onDemand: [] },
-  { id: 'plans', re: /^proposals\/(?![^/]*\.status-)[^/]+\.json$/, writer: 'plans', loadAll: '1.10.0', onDemand: [] },
-  { id: 'validations', re: /^validations\/[^/]+\.json$/, writer: 'sign-offs', loadAll: '1.10.0', onDemand: [] },
-  { id: 'skills', re: /^skills\/[^/]+\.json$/, writer: 'hand', loadAll: '1.10.0', onDemand: [] },
-  { id: 'step-types', re: /^step-types\/[^/]+\.json$/, writer: 'step-types', loadAll: '1.10.0', onDemand: [] },
-  { id: 'jira', re: /^jira\/workflows\.json$/, writer: 'hand', loadAll: '1.10.0', onDemand: [] },
-  { id: 'corrections', re: /^corrections\/[^/]+\/[^/]+\.json$/, writer: 'corrections', loadAll: '1.13.0', onDemand: [] },
-  { id: 'suggestions', re: /^suggestions\/[^/]+\/[^/]+\.json$/, writer: 'fixes', loadAll: '1.11.0', onDemand: [] },
-  { id: 'followups', re: /^followups\/[^/]+\/[^/]+\.json$/, writer: 'followups', loadAll: '1.16.0', onDemand: [] },
-  { id: 'proposed', re: /^proposed\/[^/]+\/[^/]+\.json$/, writer: 'proposals', loadAll: '1.19.0', onDemand: [] },
-  { id: 'presence', re: /^presence\/[^/]+\.json$/, writer: 'proposals', loadAll: '1.19.0', onDemand: [] },
-  { id: 'connection', re: /^connection\/[^/]+\.json$/, writer: 'connection', loadAll: null, onDemand: [['repo.loadConnection', '1.15.0']] },
-  { id: 'editor-history', re: /^history\/(drafts|step-types)\/[^/]+\/[^/]+\.jsonl$/, writer: 'saved-history', loadAll: null, onDemand: [['repo.loadEditHistory', '1.16.0']] },
-  { id: 'installed', re: /^\.flightdeck\/installed\.json$/, writer: 'none', loadAll: null, onDemand: [['repo.scan', '1.15.0']] },
-  { id: 'contract', re: /^(AGENTS\.md|\.flightdeck\/skills\/.+)$/, writer: 'hand', loadAll: null, onDemand: [['repo.scan', '1.15.0']] },
-  { id: 'write-test', re: /^\.flightdeck\/write-test-[^/]+\.tmp$/, writer: 'people', loadAll: null, onDemand: [['repo.scan', '1.15.0']], plan: 'not in the plan\'s reader table (setup\'s write test, removed right away)' },
-  { id: 'images', re: /^images\/.+$/, writer: 'hand', loadAll: null, onDemand: [['repo.publish', '1.10.0']], plan: 'not in the plan\'s reader table (draft screenshots, read when publishing)' },
-  { id: 'app-copy', re: /^(flightdeck|preflight)\.html$/, writer: 'hand', loadAll: null, onDemand: [], plan: 'not in the plan\'s reader table (the newer-copy check in app.js reads its head)' },
-  { id: 'staged', re: /^staged\/.+$/, writer: 'none', loadAll: null, onDemand: [] },
-  { id: 'extensions', re: /^extensions\/.+$/, writer: 'none', loadAll: null, onDemand: [] },
-  { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'none', loadAll: null, onDemand: [] },
-  { id: 'reports', re: /^(reports|report-decisions)\/.+$/, writer: 'none', loadAll: null, onDemand: [] }
+  { id: 'people', re: /^people\.json$/, writer: 'people', readers: [L('1.10.0', d => d.people.some(p => p.id === 'person-blake'), 'people.json')] },
+  { id: 'drafts', re: /^maps\/drafts\/[^/]+\.md$/, writer: 'drafts', readers: [L('1.10.0', d => d.drafts.some(x => /process: backup/.test(x.md || x.text || '')), 'maps/drafts/backup.md')] },
+  { id: 'publication', re: /^publications\/[^/]+\/[^/]+\/(publication\.json|map\.md|types\.json)$/, writer: 'publish',
+    readers: [L('1.10.0', d => !!(d.processes[0] && d.processes[0].index.latest), f => 'publications/backup/' + pubFolder(f) + '/publication.json')] },
+  { id: 'publication-images', re: /^publications\/[^/]+\/[^/]+\/images\/.+$/, writer: 'publish',
+    readers: [L('1.10.0', d => !!(d.processes[0] && d.processes[0].index.latest && d.processes[0].index.latest.info.images['images/restore.png']), f => 'publications/backup/' + pubFolder(f) + '/images/restore.png')] },
+  { id: 'run', re: /^runs\/[^/]+\/[^/]+\/run\.json$/, writer: 'runs', readers: [L('1.10.0', d => !!runOf(d, 'run-a') && !runOf(d, 'run-a')._unrunnable, 'runs/backup/run-a/run.json')] },
+  { id: 'run-copies', re: /^runs\/[^/]+\/[^/]+\/(run\.conflict-[^/]+|run-[^/]+|replaced-[^/]+|candidate-[^/]+)\.json$/, writer: 'runs',
+    readers: [{ via: 'repo.readCopy', from: '1.10.0', spec: 'runs/backup/run-a/run.conflict-w-blake-1.json', before: async (PF, fs) => runOf(await loadAll(PF, fs), 'run-a'),
+      call: (PF, fs, run) => PF.repo.readCopy(fs, run, 'run.conflict-w-blake-1.json'), found: c => !!c && c.title === 'Backup check March (their copy)' }] },
+  { id: 'notes', re: /^runs\/[^/]+\/[^/]+\/notes-[^/]+\.jsonl$/, writer: 'notes', readers: [L('1.10.0', d => runOf(d, 'run-a')._notes.some(n => n.id === 'n-1'), 'runs/backup/run-a/notes-w-blake.jsonl')] },
+  { id: 'run-archives', re: /^runs\/[^/]+\/[^/]+\/history-[^/]+\.jsonl$/, writer: 'runs',
+    readers: [{ via: 'repo.loadHistory', from: '1.10.0', spec: 'runs/backup/run-a/history-w-avery.jsonl', before: async (PF, fs) => runOf(await loadAll(PF, fs), 'run-a'),
+      call: (PF, fs, run) => PF.repo.loadHistory(fs, run), found: h => h.some(x => x.id === 'arch-1' && x.step === 'read') }] },
+  { id: 'attachments', re: /^runs\/[^/]+\/[^/]+\/files\/[^/]+$/, writer: 'notes', readers: [], note: 'read by each release\'s screens (thumbnails and the viewer) and, from 1.17, the evidence collector; not probed here' },
+  { id: 'legacy-runs', re: /^runs\/[^/]+\.json$/, writer: 'none', readers: [L('1.10.0', d => (d.legacy || []).some(x => x.name === 'Old backup check'), 'runs/legacy-check.json')] },
+  { id: 'plan-statuses', re: /^proposals\/[^/]+\.status-[^/]+\.json$/, writer: 'plan-status',
+    readers: [L('1.10.0', d => d.plans.some(p => p._status && p._status.status === 'declined'), 'proposals/plan-backup-april.status-w-avery.json')] },
+  { id: 'plans', note: 'before savePlan (1.11.0) plans were written by hand or by an AI assistant', re: /^proposals\/(?![^/]*\.status-)[^/]+\.json$/, writer: 'plans', readers: [L('1.10.0', d => d.plans.some(p => p.id === 'plan-backup-april'), 'proposals/plan-backup-april.json')] },
+  { id: 'validations', re: /^validations\/[^/]+\.json$/, writer: 'sign-offs', readers: [L('1.10.0', d => d.validations.some(v => v.by === 'person-avery'), 'validations/backup.v1.w-avery.json')] },
+  { id: 'skills', re: /^skills\/[^/]+\.json$/, writer: 'hand', readers: [L('1.10.0', d => d.skills.some(s => s.skill && s.skill.name === 'backup-report' && s.skill.implements === 1 && !(s.errors || []).length), 'skills/backup-report.json')] },
+  { id: 'step-types', re: /^step-types\/[^/]+\.json$/, writer: 'step-types', readers: [L('1.10.0', d => !!d.stepTypes.types['team.restore'], 'step-types/team.restore.json')] },
+  { id: 'jira', re: /^jira\/workflows\.json$/, writer: 'hand', readers: [L('1.10.0', d => !!(d.jira && d.jira.workflows && Object.keys(d.jira.workflows).length && Object.keys(d.jira.workflows).every(k => !d.jira.workflows[k].invalid)), 'jira/workflows.json')] },
+  { id: 'corrections', re: /^corrections\/[^/]+\/[^/]+\.json$/, writer: 'corrections',
+    readers: [L('1.13.0', d => d.corrDecisions.some(x => x.kind === 'correction-decision'), f => Object.keys(f).find(p => /^corrections\//.test(p)))] },
+  { id: 'suggestions', re: /^suggestions\/[^/]+\/[^/]+\.json$/, writer: 'fixes',
+    readers: [L('1.11.0', d => (d.corrDecisions || d.fixDecisions || []).some(x => x.suggestion === 'f-1'), 'suggestions/backup/f-1.w-avery.json')] },
+  { id: 'followups', re: /^followups\/[^/]+\/[^/]+\.json$/, writer: 'followups',
+    readers: [L('1.16.0', d => d.fuDecisions.some(x => x.status === 'ticket'), f => Object.keys(f).find(p => /^followups\//.test(p)))] },
+  { id: 'proposed', re: /^proposed\/[^/]+\/[^/]+\.json$/, writer: 'proposals',
+    readers: [L('1.19.0', d => { const b = d.proposed.procs.backup; return !!b && !b.bad.length && JSON.stringify(b.all).indexOf('p-mh4k2a-x7w1k3m9p2') >= 0; }, 'proposed/backup/p-mh4k2a-x7w1k3m9p2.json')] },
+  { id: 'presence', re: /^presence\/[^/]+\.json$/, writer: 'proposals', readers: [L('1.19.0', d => (d.presence || []).some(p => p.writer === 'w-avery' && !!p.rec), 'presence/w-avery.json')] },
+  { id: 'connection', re: /^connection\/[^/]+\.json$/, writer: 'connection',
+    readers: [{ via: 'repo.loadConnection', from: '1.15.0', spec: f => Object.keys(f).find(p => /^connection\/probe-/.test(p)), call: (PF, fs) => PF.repo.loadConnection(fs, CONN_AT + 1000), found: c => c.probes.some(p => p.id === 'k3m9p2q8') }] },
+  { id: 'editor-history', re: /^history\/(drafts|step-types)\/[^/]+\/[^/]+\.jsonl$/, writer: 'saved-history',
+    readers: [{ via: 'repo.loadEditHistory', from: '1.16.0', spec: 'history/drafts/backup/w-avery.jsonl', call: (PF, fs) => PF.repo.loadEditHistory(fs, 'history/drafts/backup', null), found: h => !h.bad && h.items.some(x => x.entry && x.entry.id === 'h-1') }] },
+  { id: 'installed', re: /^\.flightdeck\/installed\.json$/, writer: 'none',
+    readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/installed.json', call: (PF, fs) => PF.repo.scan(fs), found: s => !!s.installed && s.installed.format === 'flightdeck-installed/1' }], note: 'written by flightdeck install (the command), not the app' },
+  { id: 'contract', re: /^(AGENTS\.md|\.flightdeck\/skills\/.+)$/, writer: 'hand',
+    readers: [{ via: 'repo.scan', from: '1.15.0', spec: 'AGENTS.md', call: (PF, fs) => PF.repo.scan(fs), found: s => s.contractTexts && s.contractTexts['AGENTS.md'] === AGENTS }] },
+  { id: 'install-updates', re: /^\.flightdeck\/updates\/.+$/, writer: 'none', plan: 'not in the plan\'s reader table',
+    readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/updates/AGENTS.md', listOnly: true, call: (PF, fs) => PF.repo.scan(fs), found: s => (s.updates || []).indexOf('.flightdeck/updates/AGENTS.md') >= 0 }], note: 'written by flightdeck install when a team changed a default file' },
+  { id: 'write-test', re: /^\.flightdeck\/write-test-[^/]+\.tmp$/, writer: 'people', plan: 'not in the plan\'s reader table',
+    readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/write-test-w-avery.tmp', listOnly: true, call: (PF, fs) => PF.repo.scan(fs), found: s => s.list.some(f => f.p === '.flightdeck/write-test-w-avery.tmp') }], note: 'setup\'s write test, removed right away; Folder health lists a leftover' },
+  { id: 'images', re: /^images\/.+$/, writer: 'hand', plan: 'not in the plan\'s reader table',
+    readers: [{ via: 'repo.publish', from: '1.10.0', spec: 'images/restore.png', before: async (PF, fs) => (await loadAll(PF, fs)).processes[0].index.all.map(p => p.info),
+      call: (PF, fs, existing) => PF.repo.publish(fs, require('../tools/old-folders').CHECKLIST, publishOpts(PF, existing)), found: (res, all) => !res.blockers && JSON.parse(res.files['publication.json']).images['images/restore.png'] === JSON.parse(all['publications/backup/' + pubFolder(all) + '/publication.json']).images['images/restore.png'] }] },
+  { id: 'app-copy', re: /^(flightdeck|preflight)\.html$/, writer: 'hand', plan: 'not in the plan\'s reader table', readers: [{ via: 'app', from: '1.10.0' }], note: 'read by each release\'s app.js (the newer-copy check reads the head of the file, in a real folder only); test/compat.test.js checks it in each release\'s own page' },
+  { id: 'staged', re: /^staged\/.+$/, writer: 'none', readers: [] },
+  { id: 'extensions', re: /^extensions\/.+$/, writer: 'none', readers: [] },
+  { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'none', readers: [] },
+  { id: 'reports', re: /^(reports|report-decisions)\/.+$/, writer: 'none', readers: [] }
 ];
+function publishOpts(PF, existing) {
+  const G = require('../tools/old-folders');
+  return { people: G.PEOPLE, customTypes: { 'team.restore': PF.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Again', existing, now: '2026-03-02T12:00:00.000Z' };
+}
 
 /* The family a path belongs to; throws when it fits none or more than one. */
 function familyOf(p) {
@@ -49,21 +113,18 @@ function familyOf(p) {
   if (hits.length !== 1) throw new Error(p + (hits.length ? ' fits more than one family: ' + hits.map(f => f.id).join(', ') : ' fits no family in test/compat-readers.js'));
   return hits[0];
 }
-/* The top-level folder a family lives in ('' for files at the top). */
-function topOf(f) { const m = /^\^\(?([a-z.-]+)\\\//i.exec(f.re.source.replace(/\\\./g, '.')); return m ? m[1] : ''; }
 /* A folder a release lists must be one a family lives in. */
-function dirKnown(dir) { return dir === '' || FAMILIES.some(f => topOf(f) === dir.split('/')[0] || f.re.test(dir + '/x.json') || f.re.test(dir + '/x/y.json')); }
+function dirKnown(dir) {
+  if (dir === '') return true;
+  const names = ['x.json', 'x.md', 'x.jsonl', 'notes-x.jsonl', 'publication.json', 'run.json', 'x.png'], subs = ['', 'x/', 'x/y/'];
+  return FAMILIES.some(f => subs.some(sub => names.some(n => f.re.test(dir + '/' + sub + n))));
+}
 
-/* One file of every family (path → text), for the probes: each is read or ignored as that release does. */
-const PROBES = {
-  'runs/backup/run-a/run.conflict-w-blake-1.json': '{}', 'runs/backup/run-a/run-LAPTOP.json': '{}', 'runs/backup/run-a/replaced-w-avery-1.json': '{}',
-  'runs/backup/run-a/history-w-avery.jsonl': '{"kind":"log","at":"2026-03-02T09:00:00.000Z","by":"person-avery","what":"Archived"}\n',
-  'runs/backup/run-a/files/1-abcdef-w-blake.txt': 'attached', 'runs/old.json': '{"format":"preflight-run/1"}',
-  'suggestions/backup/f-9.w-avery.json': '{}', 'connection/probe-w-avery-1.json': '{}', '.flightdeck/installed.json': '{"format":"flightdeck-installed/1"}',
-  'AGENTS.md': 'Instructions', '.flightdeck/skills/flightdeck-status/SKILL.md': 'A skill', '.flightdeck/write-test-w-avery.tmp': 'x',
+/* One file of every family that has no reader here, for the "never read" checks. */
+const UNREAD = {
+  'runs/backup/run-a/files/1-abcdef-w-blake.txt': 'attached', 'flightdeck.html': '<!doctype html>',
   'staged/backup/stage-aaaa1111/publication.json': '{}', 'extensions/acme/extension.json': '{}', 'skill-registrations/backup-report/a.1.w-avery.json': '{}',
-  'reports/r-1.json': '{}', 'report-decisions/r-1.w-avery.1.json': '{}', 'images/restore.png': 'x', 'flightdeck.html': '<!doctype html>',
-  'history/step-types/team.restore/w-avery.jsonl': '{}\n', 'jira/workflows.json': '{"workflows":{}}', 'publications/backup/v1-ab9ysnqh/images/restore.png': 'x'
+  'reports/r-1.json': '{}', 'report-decisions/r-1.w-avery.1.json': '{}'
 };
 
-module.exports = { FAMILIES, familyOf, dirKnown, PROBES };
+module.exports = { FAMILIES, familyOf, dirKnown, prepare, UNREAD };

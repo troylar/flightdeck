@@ -44,6 +44,8 @@ const ROWS = [
   { id: 'plan-status', what: 'Plan decisions (repo.recordPlanStatus)', from: '1.10.0', has: repoHas('recordPlanStatus'), writes: ['proposals/<plan>.status-<writer>.json'] },
   { id: 'plans', what: 'Plans (repo.savePlan)', from: '1.11.0', has: repoHas('savePlan'), writes: ['proposals/plan-*.json'] },
   { id: 'fixes', what: 'Suggested fixes (PF.fixes, repo.decideFix)', from: '1.11.0', until: '1.12.0', plan: 'not listed', has: (PF) => !!PF.fixes && fn(PF.repo, 'decideFix'), writes: ['notes kind "fix"', 'suggestions/<process>/<id>.<writer>.json'] },
+  { id: 'builder', what: 'The outline builder (PF.outline, the editor\'s builder view)', from: '1.11.0', has: (PF, page) => !!PF.outline && page.indexOf('ob-move') >= 0, writes: ['maps/drafts/<process>.md'] },
+  { id: 'type-editor', what: 'The step-type editor (edit-type, repo.saveStepType)', from: '1.10.0', has: (PF, page) => fn(PF.repo, 'saveStepType') && page.indexOf("'edit-type'") >= 0, writes: ['step-types/<id>.json'] },
   { id: 'undo', what: 'Undo and Redo in the editor (PF.timeline, in memory)', from: '1.12.0', has: (PF) => !!PF.timeline, writes: [] },
   { id: 'saved-history', what: 'Saved editor history (repo.appendHistory)', from: '1.16.0', plan: '1.12.0 (the plan counts timeline.js; it wrote no files before 1.16.0)', has: repoHas('appendHistory'), writes: ['history/drafts/<process>/<writer>.jsonl', 'history/step-types/<id>/<writer>.jsonl'] },
   { id: 'corrections', what: 'Corrections (PF.corrections, repo.decideCorrection)', from: '1.13.0', has: (PF) => !!PF.corrections && fn(PF.repo, 'decideCorrection'), writes: ['notes kind "correction"', 'corrections/<process>/<group>.<writer>.json'] },

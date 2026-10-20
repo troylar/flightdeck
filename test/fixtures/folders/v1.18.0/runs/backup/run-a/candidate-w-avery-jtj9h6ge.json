@@ -4,10 +4,10 @@
   "process": "backup",
   "version": 1,
   "folder": "v1-ab9ysnqh",
-  "mapHash": "44cc03bc",
+  "mapHash": "c2780532",
   "title": "Backup check March",
   "category": "Operations",
-  "snapshot": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n",
+  "snapshot": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook's first page](images/restore.png)\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n",
   "types": {
     "confirm": {
       "id": "confirm",
@@ -89,7 +89,7 @@
   "marksFrom": "start",
   "pauses": [],
   "paused": null,
-  "savedAt": "2026-03-02T09:00:13.000Z",
+  "savedAt": "2026-03-02T09:00:15.000Z",
   "lineage": [
     "w-avery.tzie2sgm",
     "w-avery.jtj9h6ge"

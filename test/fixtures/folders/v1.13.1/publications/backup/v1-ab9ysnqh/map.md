@@ -9,6 +9,7 @@ roles: lead, checker
 
 ## Prepare {#prep}
 - [!] {confirm} Read the restore runbook @lead {#read}
+  ![The runbook's first page](images/restore.png)
 - [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}
   system: billing
 - [ ] {confirm} Record where the copy is @checker {#where}

@@ -68,20 +68,26 @@ function memFolder(PF, files) {
 /* A MemoryFS's files as path → text, sorted. */
 function filesOf(m) { const out = {}; Object.keys(m.files).sort().forEach(p => { out[p] = m.files[p].t; }); return out; }
 
-/* A folder on disk (test/fixtures/folders/<tag>/) as path → text, and back. */
+/* A folder on disk (test/fixtures/folders/<tag>/) as path → text, and back. A MemoryFS keeps a binary file as a data: URL;
+   on disk it's the real bytes, so other readers (a release's own command, its checker) see what a team folder holds. */
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 function readTree(dir) {
   const out = {};
   (function walk(d) {
     fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1)).forEach(e => {
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p); else out[path.relative(dir, p).split(path.sep).join('/')] = fs.readFileSync(p, 'utf8');
+      const p = path.join(d, e.name), rel = path.relative(dir, p).split(path.sep).join('/'), mime = MIME[(/\.(\w+)$/.exec(e.name) || [])[1]];
+      if (e.isDirectory()) walk(p); else out[rel] = mime ? 'data:' + mime + ';base64,' + fs.readFileSync(p).toString('base64') : fs.readFileSync(p, 'utf8');
     });
   })(dir);
   return out;
 }
 function writeTree(dir, files) {
   fs.rmSync(dir, { recursive: true, force: true });
-  Object.keys(files).forEach(p => { const f = path.join(dir, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, files[p]); });
+  Object.keys(files).forEach(p => {
+    const f = path.join(dir, ...p.split('/')), data = /^data:[\w/+.-]+;base64,/.exec(files[p]);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, data ? Buffer.from(files[p].slice(data[0].length), 'base64') : files[p]);
+  });
 }
 
 module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded };
