@@ -11141,6 +11141,8 @@ PF.reports = (function () {
   var DKEYS = ['format', 'features', 'app', 'process', 'run', 'step', 'producer', 'report', 'sha256', 'status', 'reason', 'inputs', 'answer', 'by', 'at', 'rev', 'seen'];
   var VERDICTS = ['pass', 'fail', 'blocked'], STATUS = ['accepted', 'declined', 'open'], MAX_REV = 1000000;
   var CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+  /* flightdeck report: its commands, the statuses check and write print, their error kinds, and what applies says. */
+  var CLI = { commands: ['targets', 'check', 'write'], statuses: ['valid', 'written', 'already', 'would-write', 'held'], errors: ['usage', 'invalid', 'id-taken', 'failed', 'not-found'], applies: ['yes', 'no', 'unknown'] };
   var LOG = /^Accepted report ([a-z0-9][a-z0-9-]{0,29})\/([a-z0-9]{8,16}) sha256:([0-9a-f]{64}) \(says pass\) for "/;
 
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); }
@@ -11617,7 +11619,7 @@ PF.reports = (function () {
     return n;
   }
 
-  return { FORMAT: FORMAT, DFORMAT: DFORMAT, DIR: DIR, DDIR: DDIR, LIMITS: LIMITS, KEYS: KEYS, DKEYS: DKEYS, VERDICTS: VERDICTS, STATUS: STATUS, MAX_REV: MAX_REV, FILE: FILE, DFILE: DFILE,
+  return { CLI: CLI, FORMAT: FORMAT, DFORMAT: DFORMAT, DIR: DIR, DDIR: DDIR, LIMITS: LIMITS, KEYS: KEYS, DKEYS: DKEYS, VERDICTS: VERDICTS, STATUS: STATUS, MAX_REV: MAX_REV, FILE: FILE, DFILE: DFILE,
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
@@ -11680,7 +11682,13 @@ PF.appjson = (function () {
     followups: { followUps: [FOLLOWUP] },
     /* flightdeck plan request (1.20): what it did, and the plan as written, as already in the folder, or as it would be written. */
     request: { request: { id: 'string', file: 'string', status: 'string', plan: opt({ id: 'string', process: 'string', version: 'number', title: 'string', details: map('string'),
-      roles: map('string'), when: opt('string'), note: 'string', by: 'string', created: 'string' }), leftEmpty: ['string'], run: opt('string') } }
+      roles: map('string'), when: opt('string'), note: 'string', by: 'string', created: 'string' }), leftEmpty: ['string'], run: opt('string') } },
+    /* flightdeck report check | write (2.0, flightdeck-read/2): the report as read, where it goes, and what it would mean. */
+    report: { report: { file: 'string', sha256: opt('string'), status: 'string', run: 'string', step: 'string', id: 'string', verdict: 'string', producer: { name: 'string', version: 'string' },
+      created: 'string', applies: opt('string'), warnings: ['string'] } },
+    /* flightdeck report targets (2.0, flightdeck-read/2): running runs and the steps a report can be written for. */
+    targets: { runs: [{ key: 'string', title: 'string', folder: 'string', version: 'number', recorder: opt(PERSON), details: map('string'),
+      steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', state: 'string', binds: ['string'], evidence: [EVIDENCE], accepts: 'boolean', why: opt('string') }] }] }
   };
   /* ---- contract 2 (Flightdeck 2.0): the same commands; 2.0 versions and run/3 runs are data, and values are typed ----
      A detail or evidence value: its kind, the stored text, the value (a string for numbers, a boolean for yes/no, null when
@@ -11734,7 +11742,7 @@ PF.appjson = (function () {
     return (problems || []).map(function (p) { return { path: String(p.path), kind: p.kind, why: String(p.why || '') }; })
       .sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0; });
   }
-  function contractOf(n) { return +n === 2 ? CONTRACT2 : CONTRACT; }
+  function contractOf(n) { return +n === 2 || n === CONTRACT2 ? CONTRACT2 : CONTRACT; }
   function envelope(app, readAt, problems, data, c) {
     var list = problemList(problems);
     return { contract: contractOf(c), app: String(app || ''), readAt: String(readAt || ''), complete: list.length === 0, problems: list, note: NOTE, data: data || {} };
@@ -11997,7 +12005,26 @@ PF.appjson = (function () {
     return { request: { id: s(id), file: s(file), status: s(status), plan: plain, leftEmpty: (leftEmpty || []).map(s), run: runKey || null } };
   }
 
-  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
+  /* What report check and write print. rep: PF.reports.clean's report; t: PF.reports.target's result, or null without a folder. */
+  function reportOut(file, sha, status, rep, t) {
+    return { report: { file: s(file), sha256: sha || null, status: s(status), run: s(rep.process) + '/' + s(rep.run), step: s(rep.step), id: s(rep.id), verdict: s(rep.verdict),
+      producer: { name: s(rep.producer.name), version: s(rep.producer.version) }, created: s(rep.created), applies: t && t.applies ? s(t.applies) : null, warnings: t ? t.warnings.map(s) : [] } };
+  }
+  /* What report targets prints: each running run with its steps, the evidence each records (R.evidenceFor, the run's own),
+     and whether a person could accept a report on it (PF.reports.eligible's rules that don't depend on the report). */
+  function targets(runList, nameOf) {
+    return { runs: (runList || []).map(function (r) {
+      var mp = R.mapOf(r), steps = [];
+      mp.phases.forEach(function (ph) { ph.steps.forEach(function (st) {
+        var a = r.steps && Object.prototype.hasOwnProperty.call(r.steps, st.id) ? r.steps[st.id] : null;
+        var why = st.type === 'run.process' ? 'Checked by its linked run, never by a report.' : String(R.fieldsOf(r, st).sets || '').trim() ? 'Sets run details; a person checks it.' : !PF.reports.parseName(r.id + '.' + st.id + '.x.aaaaaaaa.json') ? 'Its step ID can\'t be part of a report\'s file name.' : null;
+        steps.push({ id: s(st.id), phase: s(ph.id), text: s(st.text), type: s(st.type), state: s(a && a.s || 'open'), binds: (st.binds || []).map(s), evidence: evidence(R.evidenceFor(r, st).list), accepts: !why, why: why });
+      }); });
+      return { key: r.process + '/' + r.id, title: s(r.title), folder: s(r.folder), version: +r.version || 0, recorder: r.recorder && r.recorder.person ? nameOf(r.recorder.person) : null, details: strMap(r.details || {}), steps: steps };
+    }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };
+  }
+
+  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
     v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();
 

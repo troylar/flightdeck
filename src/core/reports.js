@@ -24,6 +24,8 @@ PF.reports = (function () {
   var DKEYS = ['format', 'features', 'app', 'process', 'run', 'step', 'producer', 'report', 'sha256', 'status', 'reason', 'inputs', 'answer', 'by', 'at', 'rev', 'seen'];
   var VERDICTS = ['pass', 'fail', 'blocked'], STATUS = ['accepted', 'declined', 'open'], MAX_REV = 1000000;
   var CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+  /* flightdeck report: its commands, the statuses check and write print, their error kinds, and what applies says. */
+  var CLI = { commands: ['targets', 'check', 'write'], statuses: ['valid', 'written', 'already', 'would-write', 'held'], errors: ['usage', 'invalid', 'id-taken', 'failed', 'not-found'], applies: ['yes', 'no', 'unknown'] };
   var LOG = /^Accepted report ([a-z0-9][a-z0-9-]{0,29})\/([a-z0-9]{8,16}) sha256:([0-9a-f]{64}) \(says pass\) for "/;
 
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); }
@@ -500,7 +502,7 @@ PF.reports = (function () {
     return n;
   }
 
-  return { FORMAT: FORMAT, DFORMAT: DFORMAT, DIR: DIR, DDIR: DDIR, LIMITS: LIMITS, KEYS: KEYS, DKEYS: DKEYS, VERDICTS: VERDICTS, STATUS: STATUS, MAX_REV: MAX_REV, FILE: FILE, DFILE: DFILE,
+  return { CLI: CLI, FORMAT: FORMAT, DFORMAT: DFORMAT, DIR: DIR, DDIR: DDIR, LIMITS: LIMITS, KEYS: KEYS, DKEYS: DKEYS, VERDICTS: VERDICTS, STATUS: STATUS, MAX_REV: MAX_REV, FILE: FILE, DFILE: DFILE,
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,

@@ -2289,4 +2289,123 @@ rule('SKILL: skill register refuses, and writes nothing, beside a skill file or 
   assert.ok(again.code === 0 && again.json.registered.rev === 2, 'once resolved, the next revision: ' + again.out + again.err);
 });
 
+/* ---------- REPORT: flightdeck report targets | check | write (2.0, flightdeck-read/2) ---------- */
+const REPORT = { format: 'flightdeck-report/1', run: 'release/run1', publication: { folder: 'v1-aaaa1111' }, step: 'tests', verdict: 'pass', evidence: { run: '1432' },
+  inputs: [{ name: 'commit', value: 'aaa111', source: 'detail:commit' }], producer: { name: 'ci-check', version: '1.4.0' }, created: '2026-10-20T09:00:00Z', id: 'k3m9p2q8x7' };
+const repFile = (body) => { const f = path.join(tmp(), 'report.json'); fs.writeFileSync(f, typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body)); return f; };
+/* READ's promise under flightdeck-read/2, and the documented shape. */
+function repAgree(r, name) {
+  assert.ok(r.json, 'JSON on stdout: ' + r.out + r.err);
+  assert.strictEqual(r.json.contract, 'flightdeck-read/2');
+  if (r.json.error) { assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.error), [], 'error object'); assert.ok(r.code === 1 || r.code === 5, 'exit ' + r.code); return r; }
+  assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.envelope), [], 'envelope');
+  assert.strictEqual(r.json.complete, r.json.problems.length === 0);
+  assert.strictEqual(r.code === 4, !r.json.complete, 'exit 4 exactly when not complete (exit ' + r.code + ')');
+  shape(r, name || 'report');
+  return r;
+}
+const reportsIn = (dir) => fs.existsSync(path.join(dir, 'reports', 'release')) ? fs.readdirSync(path.join(dir, 'reports', 'release')).sort() : [];
+
+rule('REPORT: targets lists running runs and the steps a report can be written for, under flightdeck-read/2', async () => {
+  const dir = await readFolder(), r = repAgree(readCli('report', 'targets', dir, '--json'), 'targets');
+  assert.strictEqual(r.code, 0, r.out);
+  assert.deepStrictEqual(r.json.data.runs.map(x => x.key), ['release/run1'], 'running runs only');
+  const steps = r.json.data.runs[0].steps, by = (id) => steps.filter(x => x.id === id)[0];
+  assert.deepStrictEqual(by('tests').evidence.map(e => [e.name, e.required]), [['run', true], ['runLink', false]]);
+  assert.deepStrictEqual(by('tests').binds, ['commit']);
+  assert.ok(by('tests').accepts && by('tests').why === null);
+  assert.ok(!by('notes').accepts && /linked run/.test(by('notes').why));
+  assert.ok(!by('merge').accepts && /Sets run details/.test(by('merge').why));
+  assert.strictEqual(repAgree(readCli('report', 'targets', dir, '--run', 'release/nope', '--json')).code, 5);
+  assert.strictEqual(repAgree(readCli('report', 'targets', dir, '--process', 'release', '--run', 'release/run1', '--json'), 'targets').json.data.runs.length, 1);
+  assert.strictEqual(readCli('report', 'targets', dir, '--json', '--strict').code, 1, 'an unknown flag is refused');
+});
+
+rule('REPORT: check reads a report alone, every reason at once; refuses a newer format, a private key, text that isn\'t UTF-8 and more than 64 KB', async () => {
+  let r = repAgree(readCli('report', 'check', repFile(REPORT), '--json'));
+  assert.strictEqual(r.code, 0, r.out);
+  assert.deepStrictEqual([r.json.data.report.status, r.json.data.report.file, r.json.data.report.applies], ['valid', 'reports/release/run1.tests.ci-check.k3m9p2q8x7.json', null]);
+  assert.strictEqual(r.json.data.report.sha256, require('crypto').createHash('sha256').update(JSON.stringify(REPORT)).digest('hex'), 'the SHA-256 of the exact bytes');
+  r = repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { verdict: 'pass', blockers: ['x'], links: [{ label: 'a', url: 'mailto:a@example.com' }], extra: 1 })), '--json'));
+  assert.strictEqual(r.code, 1);
+  ['"extra"', 'pass but lists blockers', 'web link'].forEach(x => assert.ok(r.json.error.why.indexOf(x) >= 0, x + ' in ' + r.json.error.why));
+  assert.ok(/newer Flightdeck/.test(repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { format: 'flightdeck-report/2' })), '--json')).json.error.why));
+  assert.ok(/private key/.test(repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { summary: '-----BEGIN RSA PRIVATE KEY-----' })), '--json')).json.error.why));
+  assert.ok(/UTF-8/.test(repAgree(readCli('report', 'check', repFile(Buffer.from([0x7b, 0xff, 0x7d])), '--json')).json.error.why));
+  assert.ok(/64 KB/.test(repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { summary: 'x'.repeat(70000) })), '--json')).json.error.why));
+  const noId = Object.assign({}, REPORT); delete noId.id; delete noId.created;
+  r = repAgree(readCli('report', 'check', repFile(noId), '--json'));
+  assert.ok(r.code === 0 && /report write fills them in/.test(r.json.data.report.warnings[0]), r.out);
+  const words = readCli('report', 'check', repFile(REPORT));
+  assert.ok(words.code === 0 && /^Valid reports\/release\//.test(words.out), words.out);
+});
+
+rule('REPORT: check --folder checks the run, its version and step; warns about evidence it won\'t use and inputs the step isn\'t tied to', async () => {
+  const dir = await readFolder();
+  let r = repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { evidence: { run: '1', build: 'x' }, inputs: [{ name: 't', value: 'ABC-200', source: 'detail:ticket' }] })), '--folder', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(r.json.data.report.applies, 'yes');
+  assert.ok(r.json.data.report.warnings.some(w => /build isn't something step tests records/.test(w)) && r.json.data.report.warnings.some(w => /isn't tied to ticket/.test(w)), JSON.stringify(r.json.data.report.warnings));
+  r = repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { inputs: [{ name: 'c', value: 'zzz', source: 'detail:commit' }] })), '--folder', dir, '--json'));
+  assert.ok(r.code === 0 && r.json.data.report.applies === 'no', 'a report that doesn\'t apply is not a failure');
+  assert.strictEqual(repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { publication: { folder: 'v9-zzzz9999' } })), '--folder', dir, '--json')).code, 1);
+  assert.strictEqual(repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { step: 'nope' })), '--folder', dir, '--json')).code, 1);
+  assert.strictEqual(repAgree(readCli('report', 'check', repFile(Object.assign({}, REPORT, { run: 'release/nope' })), '--folder', dir, '--json')).code, 5);
+  assert.deepStrictEqual(reportsIn(dir), [], 'check never writes');
+});
+
+rule('REPORT: write puts one file in reports/<process>/ once and reads it back; a retry is a no-op, another report under that name is refused', async () => {
+  const dir = await readFolder(), before = EV.tree(dir);
+  let r = repAgree(readCli('report', 'write', dir, repFile(REPORT), '--json'));
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(r.json.data.report.status, 'written');
+  assert.deepStrictEqual(reportsIn(dir), ['run1.tests.ci-check.k3m9p2q8x7.json'], 'one file, no temporary file left');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'reports', 'release', 'run1.tests.ci-check.k3m9p2q8x7.json'), 'utf8'), JSON.stringify(REPORT), 'exactly the bytes given');
+  const after = EV.tree(dir);
+  assert.deepStrictEqual(Object.keys(after).filter(p => !(p in before) || before[p] !== after[p]), ['reports/', 'reports/release/', 'reports/release/run1.tests.ci-check.k3m9p2q8x7.json'], 'nothing else changes');
+  r = repAgree(readCli('report', 'write', dir, repFile(REPORT), '--json'));
+  assert.deepStrictEqual([r.code, r.json.data.report.status], [0, 'already']);
+  assert.deepStrictEqual(EV.tree(dir), after);
+  r = repAgree(readCli('report', 'write', dir, repFile(Object.assign({}, REPORT, { summary: 'other' })), '--json'));
+  assert.deepStrictEqual([r.code, r.json.error && r.json.error.kind], [1, 'id-taken']);
+  assert.deepStrictEqual(EV.tree(dir), after, 'nothing written');
+  // id and created filled in when left out; --dry-run writes nothing.
+  const noId = Object.assign({}, REPORT); delete noId.id; delete noId.created;
+  r = repAgree(readCli('report', 'write', dir, repFile(noId), '--json', '--dry-run'));
+  assert.deepStrictEqual([r.code, r.json.data.report.status], [0, 'would-write']);
+  assert.deepStrictEqual(EV.tree(dir), after);
+  r = repAgree(readCli('report', 'write', dir, repFile(noId), '--json'));
+  assert.ok(r.code === 0 && /^[a-z0-9]{12}$/.test(r.json.data.report.id) && !isNaN(Date.parse(r.json.data.report.created)), r.out);
+  const text = fs.readFileSync(path.join(dir, r.json.data.report.file), 'utf8');
+  assert.strictEqual(r.json.data.report.sha256, require('crypto').createHash('sha256').update(text).digest('hex'));
+  // The app's own reader reads what it wrote.
+  const PF = require('./harness').load(), c = PF.reports.clean(text, 'release', r.json.data.report.file.split('/').pop());
+  assert.ok(c.ok, c.why);
+});
+
+rule('REPORT: write refuses what can\'t be for the run, honors --strict and --unmatched-ok, and never writes through a link', async () => {
+  const dir = await readFolder(), before = EV.tree(dir);
+  assert.strictEqual(repAgree(readCli('report', 'write', dir, repFile(Object.assign({}, REPORT, { run: 'release/nope' })), '--json')).code, 5);
+  assert.strictEqual(repAgree(readCli('report', 'write', dir, repFile(Object.assign({}, REPORT, { step: 'nope' })), '--json')).code, 1);
+  assert.strictEqual(repAgree(readCli('report', 'write', dir, repFile(Object.assign({}, REPORT, { evidence: { run: '1', build: 'x' } })), '--json', '--strict')).code, 1);
+  assert.deepStrictEqual(EV.tree(dir), before, 'nothing written');
+  const r = repAgree(readCli('report', 'write', dir, repFile(Object.assign({}, REPORT, { run: 'release/later' })), '--json', '--unmatched-ok'));
+  assert.ok(r.code === 0 && r.json.data.report.status === 'written' && r.json.data.report.applies === 'unknown' && /isn't in the team folder yet/.test(r.json.data.report.warnings[0]), r.out);
+  const linked = await readFolder(), outside = tmp();
+  fs.symlinkSync(outside, path.join(linked, 'reports'));
+  const l = readCli('report', 'write', linked, repFile(REPORT), '--json');
+  assert.ok(l.code !== 0 && fs.readdirSync(outside).length === 0, l.out);
+});
+
+rule('REPORT: READ/1 is unchanged by reports in the folder: no report data, no new problems', async () => {
+  const dir = await readFolder(), before = ['runs', 'run'].map(c => readCli(c, dir, ...(c === 'run' ? ['release/run1'] : []), '--json').json);
+  fs.mkdirSync(path.join(dir, 'reports', 'release'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'reports', 'release', 'run1.tests.ci-check.k3m9p2q8x7.json'), JSON.stringify(REPORT));
+  fs.writeFileSync(path.join(dir, 'reports', 'release', 'run1.tests.ci-check.bbbbbbbb.json'), '{');
+  fs.mkdirSync(path.join(dir, 'report-decisions', 'release'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'report-decisions', 'release', 'run1.00000000.w.1.json'), '{');
+  const after = ['runs', 'run'].map(c => readCli(c, dir, ...(c === 'run' ? ['release/run1'] : []), '--json').json);
+  after.forEach((j, i) => { assert.strictEqual(j.contract, 'flightdeck-read/1'); delete j.readAt; delete before[i].readAt; assert.deepStrictEqual(j, before[i]); });
+});
+
 run();
