@@ -16,10 +16,17 @@ PF.repo = (function () {
     });
   }
 
+  /* Drafts over 1 MB of UTF-8 (U.DRAFT_BYTES) are listed as too big, never loaded: the same limit every draft save checks, so
+     Flightdeck never saves a draft it would refuse to read. Measured on the bytes read, also where a folder can't say first. */
+  function tooBigWhy(bytes) { return 'is ' + (Math.ceil(bytes / 1048576 * 100) / 100) + ' MB, over the 1 MB Flightdeck reads for a draft'; }
   function loadDrafts(fs) {
     return fs.list('maps/drafts').then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.md$/i.test(i.name); }).map(function (i) {
-        return fs.read('maps/drafts/' + i.name).then(function (f) { return f ? { file: i.name, md: f.text, mtime: f.mtime } : null; }, function (e) { return { unread: 'maps/drafts/' + i.name, file: i.name, why: why(e) }; });
+        var path = 'maps/drafts/' + i.name;
+        return fs.read(path, { maxBytes: U.DRAFT_BYTES }).then(function (f) {
+          if (f && U.utf8Bytes(f.text) > U.DRAFT_BYTES) return { unread: path, file: i.name, why: tooBigWhy(U.utf8Bytes(f.text)) };
+          return f ? { file: i.name, md: f.text, mtime: f.mtime } : null;
+        }, function (e) { return { unread: path, file: i.name, why: e && e.skipped && e.size ? tooBigWhy(e.size) : why(e) }; });
       }));
     }).then(function (x) {
       var out = x.filter(function (d) { return d && !d.unread; });
@@ -538,7 +545,7 @@ PF.repo = (function () {
 
   /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
      A folder that can't be listed, or where every part fails, is an unreadable folder. */
-  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups'];
+  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence'];
   /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
      Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
      folder itself. */
@@ -596,19 +603,25 @@ PF.repo = (function () {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
     cache.clockFn = opts.clock || elapsed;
     var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
-    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, []];
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
+    var top = {};
+    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && i.kind === 'dir') top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       loadSkills(fs),
       loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }, malformed),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
       loadCorrectionDecisions(fs, cache, sched),
-      loadFollowUpDecisions(fs, cache, sched, !!opts.explain)
+      loadFollowUpDecisions(fs, cache, sched, !!opts.explain),
+      /* Proposals and presence, only where those folders are (an ordinary folder costs nothing more), and never for other
+         apps' reads (flightdeck-read/1 doesn't report them). */
+      !opts.readOnly && top[PF.proposals.DIR] ? loadProposed(fs, cache, deep) : Promise.resolve({ procs: {} }),
+      !opts.readOnly && top[PF.proposals.PRESENCE] ? loadPresence(fs) : Promise.resolve([])
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
-      if (errs.length === PARTS.length) throw errs[0];
+      /* The folder is unreadable when every part it always has failed (proposed changes and presence are optional). */
+      if (PARTS.slice(0, -2).every(function (k) { return k in failed; })) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
       r[9] = r[9].map(function (v) { var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; if (v.as === 'backup') o.as = 'backup'; return o; });
@@ -639,7 +652,7 @@ PF.repo = (function () {
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
-        unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString() };
+        unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13] };
       if (opts.explain) { out.malformed = malformed; out.nofile = r[3].nofile || []; }
       /* Every run, as objects: fresh ones as read, cached ones built new. Built on first use, since the app applies reads instead. */
       var runs = null;
@@ -1037,11 +1050,14 @@ PF.repo = (function () {
   /* Save a text file only if it's still exactly what the editor started from (expect: that text's fingerprint, or null for
      "doesn't exist yet"). If someone (a person or an AI assistant) changed it meanwhile, nothing is written and their version comes
      back, so two editors over a shared folder never silently overwrite each other. */
+  /* opts.expectText: when given, the file must be exactly that text (null: not there), compared right before the write, not
+     only its fingerprint (two different drafts can share an FNV fingerprint). */
   function saveChecked(fs, path, text, expect, opts) {
+    var exact = opts && opts.expectText !== undefined;
     var go = function () {
       return fs.read(path).then(function (f) {
         var now = f ? U.hash(f.text) : null;
-        if (now !== expect) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
+        if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
         /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
            report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
         return fs.write(path, text).then(function () { return fs.read(path); }).then(function (back) {
@@ -1052,8 +1068,13 @@ PF.repo = (function () {
     };
     return opts && opts.lock ? opts.lock('preflight:file:' + path, go) : go();
   }
+  /* Every draft save names the exact text it expects (opts.expectText; null when the draft doesn't exist yet), and nothing
+     over the size limit is ever written: the refusal (tooBig) says how big it is and what to cut. */
   function saveDraft(fs, file, md, expect, opts) {
     if (!/^[a-z0-9][a-z0-9-]{0,59}\.md$/.test(file)) return Promise.reject(new Error('A checklist file is named <process>.md, in lowercase letters, numbers and dashes.'));
+    if (!opts || opts.expectText === undefined || (opts.expectText !== null && typeof opts.expectText !== 'string') || (opts.expectText === null) !== (expect == null)) return Promise.reject(new Error('A draft save needs the exact text it expects to find.'));
+    var big = U.draftTooBig(md);
+    if (big) { var e = new Error(big.why); e.tooBig = true; e.bytes = big.bytes; return Promise.reject(e); }
     return saveChecked(fs, 'maps/drafts/' + file, md, expect, opts);
   }
   /* A correction applied to a draft (docs/design.md section 19). o.base is the draft as it was compared (o.expect its
@@ -1067,7 +1088,7 @@ PF.repo = (function () {
     var ok = rv.text && rv.text !== o.base && (rv.state === 'clean' || (o.confirmed && rv.state === 'changed'));
     if (!ok) return Promise.reject(new Error(rv.state === 'already' ? 'The draft already has this correction.' : rv.reason || 'This correction can\'t be applied to the draft as it is.'));
     if (o.text != null && o.text !== rv.text) return Promise.reject(new Error('The draft changed since the comparison was shown. Look again.'));
-    return saveDraft(fs, file, rv.text, o.expect == null ? null : o.expect, opts).then(function (res) { res.text = rv.text; res.file = file; res.added = rv.added || ''; return res; });
+    return saveDraft(fs, file, rv.text, o.expect == null ? null : o.expect, Object.assign({}, opts, { expectText: o.expect == null ? null : o.base })).then(function (res) { res.text = rv.text; res.file = file; res.added = rv.added || ''; return res; });
   }
   function saveStepType(fs, def, expect, opts) {
     var errs = PF.types.checkCustom(def);
@@ -1155,6 +1176,144 @@ PF.repo = (function () {
         TL.refs(items);
         return { items: items, bad: bad, skipped: skipped, files: names, unknown: unknown };
       });
+    });
+  }
+
+
+  /* ---------- Proposals and presence (docs/design.md section 27): proposed/<process>/ and presence/ ----------
+     Older copies' loaders never list these folders. A proposal is written once by the command line; attempts and decisions
+     once by the window that makes them; each presence file by its own window. */
+  var REC_MAX = 65536, PRES_MAX = 65536;
+  /* Every process folder in proposed/: its proposals' metadata (the newest 200; texts are read again only when Review or
+     Apply needs them), each checked (hashes, name, process: line, sizes on the bytes read); those that don't check out yet in
+     bad (retried next time: a half-synced file fails its hashes); and every attempt and decision with the SHA-256 of its
+     bytes. A proposal, being written once, is read once (cache.prop); records are small and read once too, unless deep. */
+  function loadProposed(fs, cache, deep) {
+    var PP = PF.proposals, pc = cache.prop = cache.prop || {}, rc = cache.recs = cache.recs || {}, seen = {};
+    return fs.list(PP.DIR).then(function (procs) {
+      var dirs = procs.filter(function (p) { return p.kind === 'dir' && PP.PROC.test(p.name); });
+      return limited(dirs, 4, function (p) {
+        var dir = PP.DIR + '/' + p.name;
+        return fs.list(dir).then(function (items) {
+          var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
+          var props = names.filter(function (n) { var x = PP.parseName(n); return x && x.kind === 'proposal'; });
+          var ids = {}; props.forEach(function (n) { ids[n.slice(0, -5)] = true; });
+          var recNames = names.filter(function (n) { var x = PP.parseName(n); if (x) return x.kind !== 'proposal'; var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(n); return !!(m && ids[m[1]]); });
+          var bad = [];
+          var gotProps = limited(props, 8, function (n) {
+            var path = dir + '/' + n; seen[path] = true;
+            if (pc[path] && !deep) return pc[path];
+            return fs.read(path, { maxBytes: PP.FILE_MAX }).then(function (f) {
+              if (!f) return null;
+              var bytes = f.size != null ? f.size : U.utf8Bytes(f.text), res = PP.check(json(f.text), n, p.name, bytes);
+              if (!res.ok) { delete pc[path]; bad.push({ name: n, path: path, why: res.why }); return null; }
+              pc[path] = res.meta; return res.meta;
+            }, function (e) { delete pc[path]; bad.push({ name: n, path: path, why: e && e.skipped ? 'is over 4 MB, more than a proposal can be' : why(e) }); return null; });
+          });
+          var gotRecs = limited(recNames, 8, function (n) {
+            var path = dir + '/' + n; seen[path] = true;
+            if (rc[path] && !deep) return rc[path];
+            return readRecord(fs, path, n).then(function (r) { if (r.rec) rc[path] = r; else delete rc[path]; return r; });
+          });
+          return Promise.all([gotProps, gotRecs]).then(function (r) {
+            var list = r[0].filter(Boolean).sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1; });
+            /* all: every proposal's metadata, so one that depends on an older one is judged against it (only metadata is kept). */
+            return { process: p.name, shown: list.slice(0, PP.LIST_MAX), all: list, older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
+          });
+        });
+      });
+    }).then(function (list) {
+      [pc, rc].forEach(function (m) { Object.keys(m).forEach(function (k) { if (!seen[k]) delete m[k]; }); });
+      var procs = {}; list.forEach(function (x) { if (x.all.length || x.bad.length) procs[x.process] = x; });
+      return { procs: procs };
+    });
+  }
+  /* One process's proposals and every record about them, read now (records never from memory; a proposal, written once,
+     may come from the cache), for the acceptance transaction and decisions: { metas, bad, records: { <id>: [...] } }. */
+  function loadProposalSet(fs, proc) {
+    var PP = PF.proposals, c = cacheOf(fs), sub = { prop: Object.assign({}, c.prop || {}), recs: {} };
+    return loadProposed({ list: function (p) { return p === PP.DIR ? Promise.resolve([{ name: proc, kind: 'dir' }]) : fs.list(p); }, read: function (p, o) { return fs.read(p, o); } }, sub, false).then(function (got) {
+      var x = got.procs[proc] || { all: [], bad: [], records: [] }, recs = {};
+      x.all.forEach(function (m) { recs[m.id] = []; });
+      x.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m) (recs[m[1]] = recs[m[1]] || []).push(r); });
+      return { metas: x.all, bad: x.bad, records: recs };
+    });
+  }
+  function readRecord(fs, path, name) {
+    return fs.read(path, { maxBytes: REC_MAX }).then(function (f) {
+      if (!f) return { name: name, sha: null, rec: null, gone: true };
+      return { name: name, sha: PF.sha256.hex(f.text), rec: PF.proposals.cleanRecord(json(f.text), name) };
+    }, function () { return { name: name, sha: null, rec: null }; });
+  }
+  /* One proposal read whole and checked again, for Review and Apply: { ok, proposal, meta } or { ok: false, why }. */
+  function readProposal(fs, proc, id) {
+    var PP = PF.proposals, n = id + '.json';
+    return fs.read(PP.DIR + '/' + proc + '/' + n, { maxBytes: PP.FILE_MAX }).then(function (f) {
+      if (!f) return { ok: false, why: 'isn\'t in the folder any more' };
+      var o = json(f.text), res = PP.check(o, n, proc, f.size != null ? f.size : U.utf8Bytes(f.text));
+      return res.ok ? { ok: true, proposal: o, meta: res.meta } : res;
+    });
+  }
+  /* A proposal's attempts and decisions, read now (never from memory): [{ name, sha, rec }], rec null when a file can't be
+     read or isn't in the format (it can't be reviewed past). Other files named for the proposal count as records too. */
+  function listRecords(fs, proc, id) {
+    var dir = PF.proposals.DIR + '/' + proc;
+    return fs.list(dir).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && i.name.indexOf(id + '.') === 0 && i.name !== id + '.json' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).sort();
+      return limited(names, 8, function (n) { return readRecord(fs, dir + '/' + n, n); }).then(function (l) { return l.filter(function (r) { return !r.gone; }); });
+    });
+  }
+  /* An attempt or a decision: created once (never over a file that's there) and read back. Within a window, the app
+     makes every record of one process in turn (acceptProposal's queue and Web Lock), so a name is never taken twice. */
+  function writeRecord(fs, proc, name, rec) {
+    var path = PF.proposals.DIR + '/' + proc + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
+    return fs.read(path).then(function (f) {
+      if (f) throw new Error('A file with that name is already in the folder.');
+      return fs.write(path, text);
+    }).then(function () { return fs.read(path); }).then(function (back) {
+      if (!back || back.text !== text) throw new Error('it didn\'t read back as written');
+      return name;
+    });
+  }
+  /* presence/: every file, each checked against its name (rec null: malformed). */
+  function loadPresence(fs) {
+    var PP = PF.proposals;
+    return fs.list(PP.PRESENCE).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).slice(0, 500);
+      return limited(names, 8, function (n) {
+        return fs.read(PP.PRESENCE + '/' + n, { maxBytes: PRES_MAX }).then(function (f) {
+          return f ? { name: n, writer: n.slice(0, -5), rec: PP.cleanPresence(json(f.text), n), mtime: f.mtime } : null;
+        }, function () { return { name: n, writer: n.slice(0, -5), rec: null }; });
+      }).then(function (l) { return l.filter(Boolean); });
+    });
+  }
+  function writePresence(fs, rec) { return fs.write(PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(rec.writer), JSON.stringify(rec) + '\n'); }
+  function removePresence(fs, writer) { return fs.remove(PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(writer)).then(null, function () {}); }
+  /* Any window writing presence may delete files in presence/ over 24 hours old, at most 20 a pass (the second documented
+     exception to one writer per file, beside connection/). Each is looked at again first, and deleted only if its size and
+     time didn't change meanwhile; a live window whose file is deleted writes it again at its next beat. */
+  function cleanPresence(fs, now) {
+    var PP = PF.proposals, gone = 0;
+    if (!fs.stat) return Promise.resolve(0);
+    return fs.list(PP.PRESENCE).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).slice(0, 500);
+      return names.reduce(function (p, n) {
+        return p.then(function () {
+          if (gone >= PP.CLEAN_MAX) return;
+          var path = PP.PRESENCE + '/' + n;
+          return fs.stat(path).then(function (st1) {
+            if (!st1) return;
+            return fs.read(path, { maxBytes: PRES_MAX }).then(function (f) {
+              var rec = f && PP.cleanPresence(json(f.text), n), t = rec ? Date.parse(rec.at) : st1.mtime;
+              if (!(now - t > PP.CLEAN_MS)) return;
+              return fs.stat(path).then(function (st2) {
+                if (!st2 || st2.size !== st1.size || st2.mtime !== st1.mtime) return;
+                gone++; return fs.remove(path).then(null, function () {});
+              });
+            }, function () {});
+          }, function () {});
+        });
+      }, Promise.resolve()).then(function () { return gone; });
     });
   }
 
@@ -1939,5 +2098,6 @@ PF.repo = (function () {
     });
   }
 
-  return { readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { loadProposed: loadProposed, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
+    readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

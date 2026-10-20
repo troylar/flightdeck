@@ -91,4 +91,29 @@ rule('The shapes for other apps are built into the core block, and docs/apps.md 
   assert.ok(doc.includes('People-directory email fields are omitted.'));
 });
 
+rule('docs/apps.md documents flightdeck-draft/1: every field of draft read and draft save, every error kind and exit code', () => {
+  const PF = require('./harness').load(), D = PF.proposals.CLI, doc = fs.readFileSync(path.join(ROOT, 'docs', 'apps.md'), 'utf8');
+  assert.ok(doc.includes('flightdeck-draft/1'));
+  ['flightdeck draft read ', 'flightdeck draft save ', 'flightdeck draft propose '].forEach(c => assert.ok(doc.includes(c), c));
+  const missing = D.read.concat(D.save, D.errors, D.outcomes, D.why, D.links).filter(k => !doc.includes('`' + k + '`'));
+  assert.strictEqual(missing.length, 0, 'not in docs/apps.md: ' + missing.join(', '));
+  ['--expect', '--from', '--base', '--session', '--label', '--by', '--note', '--after-earlier', '--or-latest'].forEach(f => assert.ok(doc.includes(f), f));
+});
+
+rule('1.19.0 has its own release entry, and its text promises only what slice 1 does', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.19.0')[0];
+  assert.ok(r && rel[0] === r, '1.19.0 is the newest release');
+  const text = JSON.stringify(r);
+  assert.ok(!/within seconds|appears in the editor|One Undo takes it back|never silently/i.test(text), 'nothing slice 2 or 3 promises');
+  assert.ok(/proposal/i.test(text) && /draft read, save and propose/.test(text));
+});
+
+rule('Only the display uses the newest-200 list of proposals: judging, Apply, decisions and the command line use every proposal', () => {
+  const src = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const files = ['src/ui/app.js', 'src/storage/repo.js', 'bin/flightdeck.js', 'src/ui/views/process.js', 'src/ui/views/manage.js', 'src/ui/views/home.js'];
+  const uses = files.map(f => [f, (src(f).match(/\.shown\b/g) || []).length]).filter(x => x[1]);
+  assert.deepStrictEqual(uses, [['src/ui/app.js', 1]], 'the capped list (shown) is read in one place, the display filter in processes()');
+  files.forEach(f => assert.ok(!/(pr|pr2|x|procs\.\w+|procs\[\w+\])\.proposals\b/.test(src(f)), f + ' reads a capped list under its old name'));
+});
+
 run();

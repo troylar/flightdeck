@@ -2,7 +2,7 @@
 
 Flightdeck is a checklist tool for people: a monthly backup check, a quarterly access review, onboarding a new hire, closing the month, a release. Other apps can work beside a run the way a teammate would: look at it, then let the people decide. Since 1.18 an app can **read** checklists, runs, what's waiting and on whom, and follow-ups as JSON, through the `flightdeck` command. It works offline, on the team folder itself. There's no server and nothing to sign in to.
 
-Reading is the only thing an app can do so far. Asking for a run and reporting work a tool did are planned for later 1.18 slices; until then a person starts every run and checks every step.
+Reading is the only thing an app can do with runs so far. Asking for a run and reporting work a tool did are planned for later slices; until then a person starts every run and checks every step. Since 1.19, AI assistants can also read and save **drafts** of checklists with `flightdeck draft` (contract `flightdeck-draft/1`, at the end of this page). Those commands change the team folder; the reading commands never do.
 
 ## What reading promises
 
@@ -177,3 +177,67 @@ The examples are ordinary team processes. None of them is special to Flightdeck.
 5. **Check follow-ups.** `flightdeck followups "$TEAM" --status open --json` lists what's still open after each run, with its owner.
 
 Treat a partial result (exit 4) as partial: show what was read and say what wasn't. A tool that can't see the team folder hands this JSON to a person or an assistant who can.
+
+## Writing drafts (for AI assistants)
+
+Contract `flightdeck-draft/1` (1.19). These commands **change the team folder**, unlike the reading commands above. They never write a draft that's open in a Flightdeck editor this computer can see: the change becomes a **proposal** that a person reviews and applies on the process page.
+
+```
+flightdeck draft read    <team folder> <process> [--session <id>] [--or-latest] --json
+flightdeck draft save    <team folder> <process> --expect <rev|none> --from <file|-> [--base <file>] [--session <id>] [--label <name>] [--by <person id>] [--note "<text>"] [--after-earlier] --json
+flightdeck draft propose <same as save>
+```
+
+**How to use them.** Read with `flightdeck draft read --json` and keep the text you read (`continueFrom.text`) in a file. Change it. Save with `flightdeck draft save --expect <continueFrom.rev> --from <your new text> --base <the file with the text you read> --session <session>`. If someone has the draft open, or it changed since you read it, your change is saved as a proposal; say so in your report. Pass the same `--session` to every command of one task, so your own pending proposals are found.
+
+### draft read
+
+Prints `{ contract, app, process, session, draft, openIn, mine, continueFrom, checks, copies, readAt, complete, problems }`:
+
+| Field | Means |
+|---|---|
+| `contract` | `flightdeck-draft/1` |
+| `app` | The Flightdeck version that answered |
+| `process` | The process asked for |
+| `session` | `--session`, or a new `s-<12 letters and digits>`. It links your proposals together; it's never a file's writer. |
+| `draft` | `exists` (whether `maps/drafts/<process>.md` exists), its `path`, `rev` (the SHA-256 of its exact text, lowercase hex) and its `text` (null when it's over 1 MB, which is named in `problems`) |
+| `openIn` | Editors this computer can see right now with the draft open: `{ by, device, seenAgo }` (`by` a people.json ID, `device` the computer and browser, `seenAgo` milliseconds since its last sign of life) |
+| `mine` | This session's proposals for the process: `{ id, rev, status, text }`. `status` is `pending`, `replaced`, `invalid`, or what happened to it (`applied`, `applied-twice`, `declined`, `reopened`, `tried`, `maybe`, `decided-twice`, `unknown`) |
+| `continueFrom` | The text to change next: `{ rev, kind, ref, text }`. Your newest pending proposal (`kind` `proposal`, `ref` its ID), else the draft (`draft`), else with `--or-latest` and no draft the latest published version (`version`, `ref` its folder), else nothing (`none`, empty text) |
+| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks show them (without the team's people and step types) |
+| `copies` | Other files in `maps/drafts/` whose `process:` says this process (OneDrive copies, for example) |
+| `readAt` | When it read the folder |
+| `complete`, `problems` | As for the reading commands: a proposal that can't be read yet (`malformed`), a file too big or that couldn't be read. `complete` is `false` and the exit code is 4 when `problems` has anything. |
+
+Exit codes: `0` complete, `4` partial, `1` usage or error, `5` the process has no draft, no published version and no proposal.
+
+### draft save and draft propose
+
+`save` writes the draft directly only when **nobody has it open** (no editor this computer can see; a presence file it can't read, or a `presence/` it can't list, counts as open) **and** the draft is exactly the text you started from (compared byte for byte right before the write). Otherwise, and always with `propose`, it writes a proposal.
+
+- **Checked first, nothing written if any fails (exit 1, `usage`):** the process ID; `--expect` (a SHA-256 or `none`); `--from` (a file, or `-` for standard input) holding at most 1 MB (1,048,576 bytes) of valid UTF-8 whose `process:` line says the process; `--base` the same way; `--label` (letters, numbers and dashes, up to 40); `--by` (an ID in `people.json`); `--note` (up to 200 characters).
+- **Which text you started from (`--expect`):** this session's own pending proposal with that `rev` (see replacing, below); else the draft if its `rev` matches; else one of this session's proposals; else a published version's `map.md`; else `--base`, whose SHA-256 must match. `none` starts a new draft. None of these: exit 1, `missing-base` ("Pass the text you read with --base, or read the draft again.").
+- **Replacing or following your own proposal:** when `--expect` is the `rev` of your session's own pending proposal P1 (as `continueFrom` gives it), the new proposal **replaces** P1 by default (`replaces: P1`) and starts from P1's own base, so it goes straight from the draft P1 started from. With `--after-earlier` it **follows** P1 instead (`after: P1`, starting from P1's text): it becomes applicable once P1 is applied. `link` in the output says which: `replaces`, `after` or null.
+- **A proposal** is one new file, `proposed/<process>/<operation>.json`, created exclusively (never over another file), flushed and read back. It holds the full new text, the exact text it started from and the SHA-256 of both, so it's never lost, even if the draft changes meanwhile. Over 4 MB as a file: exit 1, `too-big`, nothing written.
+- **A direct save** writes `maps/drafts/<process>.md` (through a temporary file and one rename) and one line of saved history in a new file of its own, `history/drafts/<process>/agent-<operation>.jsonl` (`source` `agent`; History says "Changed by your AI assistant"). If that line can't be written, the save still stands and `history` says why.
+
+Prints `{ contract, app, process, session, operation, outcome, why, link, rev, file, ids, checks, warnings, history }`:
+
+| Field | Means |
+|---|---|
+| `operation` | This command's own ID, `p-<time>-<10 random>`: the proposal's ID and file name, or the history file's |
+| `outcome` | `written` (the draft) or `proposed` |
+| `why` | For a proposal: `open` (someone has the draft open), `changed` (the draft isn't what you started from) or `asked` (`draft propose`); null when written |
+| `link` | `replaces`, `after` or null |
+| `rev` | The SHA-256 of the text you sent |
+| `file` | What it wrote: `maps/drafts/<process>.md` or `proposed/<process>/<operation>.json` |
+| `ids` | Step and phase IDs your change `added`, `removed` and `renamed` (each `{ from, to }`) |
+| `checks` | `blockers` and `suggestions` for your text |
+| `warnings` | Things a person should know, in words (removed IDs, for example) |
+| `history` | For a direct save: `{ written }`, with `why` when it couldn't be written; null for a proposal |
+
+Exit codes: `0` written or proposed; `1` usage, `missing-base`, `too-big` or `failed` (the folder couldn't be changed, a link was refused); the error object is `{ contract, app, error: { kind, why }, problems }`. Codes say what this computer's copy of the folder showed when the command ran.
+
+**What it may write:** only `maps/drafts/<process>.md` (a direct save), `proposed/<process>/<operation>.json`, `history/drafts/<process>/agent-<operation>.jsonl`, and, when a direct save continued from your own pending proposal, one decision `proposed/<process>/<that proposal>.<operation>.<rev>.json` with `status` `replaced`, so it isn't offered again, never through a link and never outside the folder. It never writes or deletes anything in `presence/`, and never changes a proposal, attempt or decision once written.
+
+**Known limits.** Who has a draft open is what this computer's copy of the folder shows: another computer's editor may arrive late (seconds to minutes over OneDrive), and a tab in the background may stop saying it's there. A shared folder has no atomic compare-and-swap, so a hand edit, an older copy of Flightdeck or a direct file write that lands between the final compare and the write can still be replaced, exactly as in 1.18. A proposal is never lost. Flightdeck 1.19 doesn't merge: a proposal applies only when it starts from the draft exactly as it is.

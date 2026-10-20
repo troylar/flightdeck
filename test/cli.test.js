@@ -1483,4 +1483,271 @@ rule('READ: a link beside the process a command reads, on disk, isn\'t its probl
   assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'publications/other-process' && p.kind === 'link'), r.out);
 });
 
+/* ---------- 1.19 slice 1: flightdeck draft read | save | propose (contract flightdeck-draft/1) ---------- */
+const DPP = SRC.proposals, dsha = t => require('crypto').createHash('sha256').update(t, 'utf8').digest('hex');
+const DRAFT_MD = fs.readFileSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts', 'release.md'), 'utf8');
+const DPEOPLE = fs.readFileSync(path.join(__dirname, '..', 'example-folder', 'people.json'), 'utf8');
+function draftFolder(withDraft) {
+  const dir = fs.realpathSync(tmp());
+  fs.writeFileSync(path.join(dir, 'people.json'), DPEOPLE);
+  if (withDraft !== false) { fs.mkdirSync(path.join(dir, 'maps', 'drafts'), { recursive: true }); fs.writeFileSync(path.join(dir, 'maps', 'drafts', 'release.md'), DRAFT_MD); }
+  return dir;
+}
+function draftCli(...a) {
+  const r = cp().spawnSync(process.execPath, [BIN, 'draft', ...a], { encoding: 'utf8', maxBuffer: 64 * 1048576 });
+  let json = null; try { json = JSON.parse(r.stdout); } catch (e) { /* the caller says what it expected */ }
+  return { code: r.status, json, out: r.stdout + r.stderr };
+}
+const inFile = (dir, text, name) => { const f = path.join(tmp(), name || 'in.md'); fs.writeFileSync(f, text); return f; };
+const edited = (t, title) => t.replace('title: Production release', 'title: ' + title);
+const presence = (dir, rec, name) => { fs.mkdirSync(path.join(dir, 'presence'), { recursive: true }); fs.writeFileSync(path.join(dir, 'presence', name || rec.writer + '.json'), typeof rec === 'string' ? rec : JSON.stringify(rec)); };
+const live = (at, drafts) => DPP.presence({ writer: 'w8d2k4', by: 'person-casey', device: 'Windows · Edge', since: at, at, beat: 3, drafts: drafts || ['release'], main: [] });
+const proposedFiles = dir => { try { return fs.readdirSync(path.join(dir, 'proposed', 'release')).sort(); } catch (e) { return []; } };
+const failsWith = (r, kind) => { assert.ok(r.json && r.json.error && r.json.error.kind === kind && r.json.contract === 'flightdeck-draft/1' && typeof r.json.app === 'string', r.out); assert.strictEqual(r.code, 1, r.out); };
+
+rule('draft read --json: the draft, its exact rev and text, who has it open, and the text to continue from', () => {
+  const dir = draftFolder();
+  const r = draftCli('read', dir, 'release', '--json');
+  assert.strictEqual(r.code, 0, r.out);
+  const j = r.json;
+  assert.strictEqual(j.contract, 'flightdeck-draft/1');
+  assert.ok(/^s-[a-z0-9]{12}$/.test(j.session), 'a new session when none is given: ' + j.session);
+  assert.deepStrictEqual([j.draft.exists, j.draft.path, j.draft.rev, j.draft.text], [true, 'maps/drafts/release.md', dsha(DRAFT_MD), DRAFT_MD]);
+  assert.deepStrictEqual(j.openIn, []); assert.deepStrictEqual(j.mine, []);
+  assert.deepStrictEqual([j.continueFrom.kind, j.continueFrom.rev, j.continueFrom.text], ['draft', dsha(DRAFT_MD), DRAFT_MD]);
+  assert.ok(Array.isArray(j.checks.blockers) && Array.isArray(j.copies) && j.readAt && j.complete === true && Array.isArray(j.problems));
+  presence(dir, live(new Date().toISOString()));
+  const o = draftCli('read', dir, 'release', '--session', 's-k3m9p2q8x7w1', '--json').json;
+  assert.strictEqual(o.session, 's-k3m9p2q8x7w1');
+  assert.strictEqual(o.openIn.length, 1);
+  assert.deepStrictEqual([o.openIn[0].by, o.openIn[0].device], ['person-casey', 'Windows · Edge']);
+  assert.ok(o.openIn[0].seenAgo >= 0);
+  // Nothing at all: exit 5.
+  const none = draftCli('read', dir, 'nothing-here', '--json');
+  assert.strictEqual(none.code, 5, none.out); assert.strictEqual(none.json.error.kind, 'not-found');
+  // Usage problems exit 1 with the failure shape.
+  failsWith(draftCli('read', dir, 'Bad Name', '--json'), 'usage');
+});
+
+rule('draft read --or-latest with no draft continues from the published version; a proposal-only process is found too', async () => {
+  const dir = await readFolder(f => { delete f['maps/drafts/release.md']; });
+  const j = draftCli('read', dir, 'release', '--or-latest', '--json').json;
+  assert.strictEqual(j.draft.exists, false);
+  assert.strictEqual(j.continueFrom.kind, 'version');
+  assert.ok(/^v1-/.test(j.continueFrom.ref) && j.continueFrom.text.indexOf('process: release') >= 0);
+  assert.strictEqual(draftCli('read', dir, 'release', '--json').json.continueFrom.kind, 'none', 'without --or-latest: start from nothing');
+});
+
+rule('draft save writes the draft directly when nobody has it open and it is exactly what was read, and adds its own history line', () => {
+  const dir = draftFolder(), text = edited(DRAFT_MD, 'Direct');
+  const r = draftCli('save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, text), '--by', 'person-avery', '--note', 'Retitled', '--json');
+  assert.strictEqual(r.code, 0, r.out);
+  const j = r.json;
+  assert.deepStrictEqual([j.outcome, j.why, j.link, j.rev, j.file], ['written', null, null, dsha(text), 'maps/drafts/release.md']);
+  assert.ok(/^p-[a-z0-9]+-[a-z0-9]{10}$/.test(j.operation));
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'maps', 'drafts', 'release.md'), 'utf8'), text);
+  const hist = path.join(dir, 'history', 'drafts', 'release', 'agent-' + j.operation + '.jsonl'), lines = fs.readFileSync(hist, 'utf8').trim().split('\n');
+  assert.strictEqual(lines.length, 1);
+  const e = SRC.timeline.cleanEntry(JSON.parse(lines[0]), path.basename(hist));
+  assert.ok(e, 'the line is one the app reads');
+  assert.deepStrictEqual([e.source, e.seq, e.from, e.to, e.seen, e.writer], ['agent', 1, SRC.util.hash(DRAFT_MD), SRC.util.hash(text), null, j.operation]);
+  assert.ok(j.history.written === true);
+  assert.ok(!fs.existsSync(path.join(dir, 'presence')), 'an assistant never writes presence/');
+  assert.deepStrictEqual(proposedFiles(dir), [], 'no proposal');
+});
+
+rule('draft save writes a proposal when the draft is open in an editor this computer can see: fresh, a clock ahead, malformed, or presence that can\'t be listed', () => {
+  const now = Date.now(), cases = [
+    ['fresh', d => presence(d, live(new Date(now - 5000).toISOString()))],
+    ['ahead by 9 minutes', d => presence(d, live(new Date(now + 9 * 60000).toISOString()))],
+    ['malformed', d => presence(d, '{"kind":"presence"', 'w1.json')],
+    ['presence/ can\'t be listed', d => fs.writeFileSync(path.join(d, 'presence'), 'not a folder')]
+  ];
+  cases.forEach(([what, setUp]) => {
+    const dir = draftFolder(); setUp(dir);
+    const text = edited(DRAFT_MD, 'Proposed');
+    const r = draftCli('save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, text), '--json');
+    assert.strictEqual(r.code, 0, what + ': ' + r.out);
+    assert.deepStrictEqual([r.json.outcome, r.json.why], ['proposed', 'open'], what);
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'maps', 'drafts', 'release.md'), 'utf8'), DRAFT_MD, what + ': the draft is untouched');
+    const files = proposedFiles(dir);
+    assert.deepStrictEqual(files, [r.json.operation + '.json'], what);
+    const p = JSON.parse(fs.readFileSync(path.join(dir, 'proposed', 'release', files[0]), 'utf8'));
+    assert.ok(DPP.check(p, files[0], 'release', 100).ok, what + ': a valid proposal');
+    assert.deepStrictEqual([p.base.kind, p.base.rev, p.base.text, p.rev], ['draft', dsha(DRAFT_MD), DRAFT_MD, dsha(text)]);
+  });
+  // Stale presence (over 60 s old) lets it write directly.
+  const dir = draftFolder(); presence(dir, live(new Date(now - 120000).toISOString()));
+  assert.strictEqual(draftCli('save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, edited(DRAFT_MD, 'X')), '--json').json.outcome, 'written');
+  // A presence for another process doesn't count.
+  const d2 = draftFolder(); presence(d2, live(new Date(now).toISOString(), ['incident']));
+  assert.strictEqual(draftCli('save', d2, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(d2, edited(DRAFT_MD, 'Y')), '--json').json.outcome, 'written');
+  // propose always proposes.
+  const d3 = draftFolder();
+  const pr = draftCli('propose', d3, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(d3, edited(DRAFT_MD, 'Z')), '--json');
+  assert.deepStrictEqual([pr.json.outcome, pr.json.why], ['proposed', 'asked']);
+});
+
+rule('draft save over a draft that changed since it was read: a proposal with the base it read (--base), or missing-base without one', () => {
+  const dir = draftFolder(), mine = edited(DRAFT_MD, 'Mine'), theirs = edited(DRAFT_MD, 'Theirs');
+  fs.writeFileSync(path.join(dir, 'maps', 'drafts', 'release.md'), theirs);
+  const miss = draftCli('save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, mine), '--json');
+  failsWith(miss, 'missing-base');
+  assert.ok(/--base/.test(miss.json.error.why));
+  assert.deepStrictEqual(proposedFiles(dir), []);
+  const wrongBase = draftCli('save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, mine), '--base', inFile(dir, 'not it', 'b.md'), '--json');
+  failsWith(wrongBase, 'missing-base');
+  const r = draftCli('save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, mine), '--base', inFile(dir, DRAFT_MD, 'base.md'), '--json');
+  assert.deepStrictEqual([r.code, r.json.outcome, r.json.why], [0, 'proposed', 'changed']);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'maps', 'drafts', 'release.md'), 'utf8'), theirs, 'theirs is kept');
+  const p = JSON.parse(fs.readFileSync(path.join(dir, 'proposed', 'release', r.json.operation + '.json'), 'utf8'));
+  assert.deepStrictEqual([p.base.rev, p.base.text], [dsha(DRAFT_MD), DRAFT_MD]);
+  // --expect none: a new draft, from nothing.
+  const fresh = draftFolder(false), md = DRAFT_MD.replace('process: release', 'process: onboard');
+  const n = draftCli('save', fresh, 'onboard', '--expect', 'none', '--from', inFile(fresh, md), '--json');
+  assert.deepStrictEqual([n.code, n.json.outcome], [0, 'written'], n.out);
+  assert.strictEqual(fs.readFileSync(path.join(fresh, 'maps', 'drafts', 'onboard.md'), 'utf8'), md);
+});
+
+rule('Replace by default, depend with --after-earlier: continuing from this session\'s own pending proposal', () => {
+  const dir = draftFolder(), S = 's-k3m9p2q8x7w1', B = edited(DRAFT_MD, 'B'), C = edited(DRAFT_MD, 'C'), D = edited(DRAFT_MD, 'D');
+  presence(dir, live(new Date().toISOString()));
+  const p1 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(dir, B), '--json').json;
+  assert.strictEqual(p1.link, null);
+  const read = draftCli('read', dir, 'release', '--session', S, '--json').json;
+  assert.deepStrictEqual(read.mine.map(m => [m.id, m.status]), [[p1.operation, 'pending']]);
+  assert.deepStrictEqual([read.continueFrom.kind, read.continueFrom.ref, read.continueFrom.rev, read.continueFrom.text], ['proposal', p1.operation, dsha(B), B]);
+  const p2 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(B), '--from', inFile(dir, C), '--json').json;
+  assert.strictEqual(p2.link, 'replaces');
+  const f2 = JSON.parse(fs.readFileSync(path.join(dir, 'proposed', 'release', p2.operation + '.json'), 'utf8'));
+  assert.deepStrictEqual([f2.replaces, f2.after, f2.base.kind, f2.base.rev, f2.base.text], [p1.operation, null, 'draft', dsha(DRAFT_MD), DRAFT_MD], 'P1\'s own base: a fast-forward from the draft');
+  const p3 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(C), '--from', inFile(dir, D), '--after-earlier', '--json').json;
+  assert.strictEqual(p3.link, 'after');
+  const f3 = JSON.parse(fs.readFileSync(path.join(dir, 'proposed', 'release', p3.operation + '.json'), 'utf8'));
+  assert.deepStrictEqual([f3.after, f3.replaces, f3.base.kind, f3.base.ref, f3.base.text], [p2.operation, null, 'proposal', p2.operation, C]);
+  // P1 is no longer pending (replaced): continuing from it links nothing.
+  const p4 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(B), '--from', inFile(dir, D), '--json').json;
+  assert.strictEqual(p4.link, null);
+  // Another session's proposal is never continued.
+  const other = draftCli('read', dir, 'release', '--session', 's-other0000000', '--json').json;
+  assert.deepStrictEqual([other.mine, other.continueFrom.kind], [[], 'draft']);
+});
+
+rule('The input is checked before anything is written: size in UTF-8 bytes, valid UTF-8, its process: line, --by, --label and --note', () => {
+  const dir = draftFolder(), head = '---\nprocess: release\ntitle: T\n---\n', pad = n => head + 'x'.repeat(n - Buffer.byteLength(head) - 3) + '€';
+  const at = pad(1048576), over = pad(1048577);
+  assert.strictEqual(Buffer.byteLength(at), 1048576);
+  const okR = draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, at), '--json');
+  assert.strictEqual(okR.code, 0, okR.out.slice(0, 300));
+  failsWith(draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, over), '--json'), 'usage');
+  const bad = path.join(tmp(), 'bad.md'); fs.writeFileSync(bad, Buffer.concat([Buffer.from(head), Buffer.from([0xff, 0xfe])]));
+  failsWith(draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', bad, '--json'), 'usage');
+  failsWith(draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, DRAFT_MD.replace('process: release', 'process: incident')), '--json'), 'usage');
+  failsWith(draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, DRAFT_MD), '--by', 'person-nobody', '--json'), 'usage');
+  failsWith(draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, DRAFT_MD), '--label', 'Not OK!', '--json'), 'usage');
+  failsWith(draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, DRAFT_MD), '--note', 'x'.repeat(201), '--json'), 'usage');
+  failsWith(draftCli('propose', dir, 'release', '--expect', 'nothex', '--from', inFile(dir, DRAFT_MD), '--json'), 'usage');
+  assert.deepStrictEqual(proposedFiles(dir).length, 1, 'only the one that passed');
+});
+
+rule('A proposal over 4 MB once serialized is refused before anything is written', () => {
+  const dir = draftFolder(), head = '---\nprocess: release\ntitle: T\n---\n';
+  // Control characters take six bytes each in JSON: under 1 MB as text, over 4 MB as a file with its base.
+  const text = head + '\u0001'.repeat(700000);
+  assert.ok(Buffer.byteLength(text) < 1048576);
+  const r = draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, text), '--json');
+  failsWith(r, 'too-big');
+  assert.deepStrictEqual(proposedFiles(dir), []);
+});
+
+rule('The command never writes through a link or outside the folder', () => {
+  const dir = draftFolder(), outside = fs.realpathSync(tmp());
+  fs.symlinkSync(outside, path.join(dir, 'proposed'));
+  const r = draftCli('propose', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, edited(DRAFT_MD, 'L')), '--json');
+  failsWith(r, 'failed');
+  assert.ok(/link/.test(r.json.error.why));
+  assert.deepStrictEqual(fs.readdirSync(outside), [], 'nothing outside');
+  const d2 = draftFolder(), out2 = fs.realpathSync(tmp());
+  fs.mkdirSync(path.join(d2, 'history'));
+  fs.symlinkSync(out2, path.join(d2, 'history', 'drafts'));
+  const w = draftCli('save', d2, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(d2, edited(DRAFT_MD, 'H')), '--json');
+  assert.ok(w.code === 0 && w.json.outcome === 'written' && w.json.history.written === false && /link/.test(w.json.history.why), w.out);
+  assert.deepStrictEqual(fs.readdirSync(out2), [], 'no history line outside');
+});
+
+rule('A write that lands before the command\'s final compare turns its save into a proposal; one that lands after it is replaced, the documented limit', async () => {
+  const dir = draftFolder(), draftPath = path.join(dir, 'maps', 'drafts', 'release.md');
+  FD._hooks.beforeCompare = () => { fs.writeFileSync(draftPath, edited(DRAFT_MD, 'Hand edit')); };
+  let r;
+  try { r = await FD.main(['draft', 'save', dir, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(dir, edited(DRAFT_MD, 'Mine')), '--base', inFile(dir, DRAFT_MD, 'b.md'), '--json']); }
+  finally { delete FD._hooks.beforeCompare; }
+  let j = JSON.parse(r.out);
+  assert.deepStrictEqual([j.outcome, j.why], ['proposed', 'changed']);
+  assert.ok(/Hand edit/.test(fs.readFileSync(draftPath, 'utf8')), 'the hand edit is kept');
+  assert.ok(fs.existsSync(path.join(dir, 'proposed', 'release', j.operation + '.json')), 'the change is in a proposal, not lost');
+  const d2 = draftFolder(), p2 = path.join(d2, 'maps', 'drafts', 'release.md');
+  FD._hooks.afterCompare = () => { fs.writeFileSync(p2, edited(DRAFT_MD, 'Late hand edit')); };
+  try { r = await FD.main(['draft', 'save', d2, 'release', '--expect', dsha(DRAFT_MD), '--from', inFile(d2, edited(DRAFT_MD, 'Mine')), '--json']); }
+  finally { delete FD._hooks.afterCompare; }
+  j = JSON.parse(r.out);
+  assert.strictEqual(j.outcome, 'written');
+  assert.ok(/title: Mine/.test(fs.readFileSync(p2, 'utf8')), 'the late hand edit was replaced: the known limit, unchanged from 1.18');
+});
+
+rule('Two overlapping invocations of one session write separate files and never share a history file; a session copied to two computers does too', async () => {
+  const dir = draftFolder(), S = 's-k3m9p2q8x7w1';
+  presence(dir, live(new Date().toISOString()));
+  const run2 = (t) => FD.main(['draft', 'save', dir, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(dir, edited(DRAFT_MD, t)), '--json']);
+  const [a, b] = await Promise.all([run2('One'), run2('Two')]);
+  const ja = JSON.parse(a.out), jb = JSON.parse(b.out);
+  assert.notStrictEqual(ja.operation, jb.operation);
+  assert.deepStrictEqual(proposedFiles(dir), [ja.operation + '.json', jb.operation + '.json'].sort());
+  // Two direct saves from the same base: the first writes, the second finds the draft changed and proposes.
+  const d2 = draftFolder();
+  const w1 = JSON.parse((await FD.main(['draft', 'save', d2, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(d2, edited(DRAFT_MD, 'One')), '--json'])).out);
+  const w2 = JSON.parse((await FD.main(['draft', 'save', d2, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(d2, edited(DRAFT_MD, 'Two')), '--base', inFile(d2, DRAFT_MD, 'b.md'), '--json'])).out);
+  assert.deepStrictEqual([w1.outcome, w2.outcome, w2.why], ['written', 'proposed', 'changed']);
+  const hist = fs.readdirSync(path.join(d2, 'history', 'drafts', 'release'));
+  assert.deepStrictEqual(hist, ['agent-' + w1.operation + '.jsonl'], 'one file per invocation that wrote');
+  // The same session on two computers (two copies of the folder), each continuing from P1: two replacements, both kept.
+  const c1 = draftFolder(); presence(c1, live(new Date().toISOString()));
+  const p1 = JSON.parse((await FD.main(['draft', 'save', c1, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(c1, edited(DRAFT_MD, 'P1')), '--json'])).out);
+  const c2 = fs.realpathSync(tmp()); fs.cpSync(c1, c2, { recursive: true });
+  const ra = JSON.parse((await FD.main(['draft', 'save', c1, 'release', '--session', S, '--expect', dsha(edited(DRAFT_MD, 'P1')), '--from', inFile(c1, edited(DRAFT_MD, 'On one')), '--json'])).out);
+  const rb = JSON.parse((await FD.main(['draft', 'save', c2, 'release', '--session', S, '--expect', dsha(edited(DRAFT_MD, 'P1')), '--from', inFile(c2, edited(DRAFT_MD, 'On two')), '--json'])).out);
+  assert.notStrictEqual(ra.operation, rb.operation);
+  fs.copyFileSync(path.join(c2, 'proposed', 'release', rb.operation + '.json'), path.join(c1, 'proposed', 'release', rb.operation + '.json'));
+  const mine = JSON.parse((await FD.main(['draft', 'read', c1, 'release', '--session', S, '--json'])).out).mine;
+  assert.deepStrictEqual(mine.map(m => m.id).sort(), [p1.operation, ra.operation, rb.operation].sort());
+  assert.strictEqual(mine.filter(m => m.id === p1.operation)[0].status, 'replaced');
+});
+
+rule('Review 1: a direct save that continues from this session\'s pending proposal records that it replaced it', () => {
+  const dir = draftFolder(), S = 's-k3m9p2q8x7w1', B = edited(DRAFT_MD, 'B'), C = edited(DRAFT_MD, 'C');
+  presence(dir, live(new Date().toISOString()));
+  const p1 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(dir, B), '--json').json;
+  assert.strictEqual(p1.outcome, 'proposed');
+  fs.rmSync(path.join(dir, 'presence'), { recursive: true });
+  const w = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(B), '--from', inFile(dir, C), '--json').json;
+  assert.deepStrictEqual([w.outcome, w.link], ['written', 'replaces']);
+  const r = draftCli('read', dir, 'release', '--session', S, '--json').json;
+  assert.deepStrictEqual([r.continueFrom.kind, r.continueFrom.text], ['draft', C], 'continues from the draft it wrote, not from P1');
+  assert.strictEqual(r.mine.filter(m => m.id === p1.operation)[0].status, 'replaced');
+});
+
+rule('Review 2: an older pending proposal of this session past the newest 200 is still found, continued from and replaced', () => {
+  const dir = draftFolder(), S = 's-k3m9p2q8x7w1', B = edited(DRAFT_MD, 'B'), C = edited(DRAFT_MD, 'C');
+  presence(dir, live(new Date().toISOString()));
+  const p1 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(dir, B), '--json').json;
+  // 200 newer proposals from another session.
+  for (let i = 0; i < 200; i++) {
+    const p = DPP.make({ id: 'p-' + (2000000000000 + i).toString(36) + '-bbbbbbbbbb', process: 'release', session: 's-other0000000', label: '', by: '', at: new Date(Date.now() + 86400000 + i * 1000).toISOString(), app: 't', base: { kind: 'draft', ref: null, text: DRAFT_MD }, text: edited(DRAFT_MD, 'X' + i), replaces: null, after: null, note: '' });
+    fs.writeFileSync(path.join(dir, 'proposed', 'release', p.id + '.json'), JSON.stringify(p));
+  }
+  const r = draftCli('read', dir, 'release', '--session', S, '--json').json;
+  assert.deepStrictEqual([r.continueFrom.kind, r.continueFrom.ref], ['proposal', p1.operation]);
+  const p2 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(B), '--from', inFile(dir, C), '--json');
+  assert.deepStrictEqual([p2.code, p2.json.link], [0, 'replaces'], p2.out.slice(0, 300));
+});
+
 run();

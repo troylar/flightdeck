@@ -163,6 +163,30 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 **What not to do:** don't edit their old runs or sign-offs to show the new owner. History stays as it happened.
 
+## A draft says it's being edited, but nobody is
+
+**What you see:** "Being edited by …" on a process page or in the editor, for someone who closed Flightdeck.
+
+**What it means:** each window that holds a draft editor says so every 10 seconds in its own file in `presence/`. A window that crashed or lost its connection stops, and its notice goes away within a minute. Another computer's notice can arrive late, or stay a little longer, while OneDrive syncs.
+
+**What to do:** wait a minute and choose Refresh. You can always choose **Edit anyway**: every save is checked against the draft you opened. Files in `presence/` older than 24 hours are cleaned up by Flightdeck on its own; you can also delete them by hand.
+
+## A proposal was decided twice
+
+**What you see:** "Decided twice" next to a proposal on the process page.
+
+**What it means:** two people decided on the same proposal at the same time (on two computers, or before one decision synced), for example one declined and one reopened it. Flightdeck doesn't pick one, and never applies it on its own.
+
+**What to do:** open **Review**, look at what happened, and decide again: Apply, Decline or Reopen. The new decision counts.
+
+## A proposal can't be read
+
+**What you see:** "1 proposal can't be read yet" on a process page, or "Can't tell what happened" on a proposal.
+
+**What it means:** a proposal or one of its records is still arriving (a half-synced file fails its own check), or it isn't in the format. Flightdeck tries again on every refresh and never applies a proposal whose records it can't read.
+
+**What to do:** wait for OneDrive and choose Refresh. If it stays, ask whoever made it (an AI assistant run through `flightdeck draft`) to save the change again; the file in `proposed/<process>/` can then be deleted by a person.
+
 ## A newer Flightdeck wrote files
 
 **What you see:** "Update Flightdeck to run it" on a version, a run that opens read-only, or "Flightdeck X is in the team folder" in the top bar.

@@ -18,6 +18,7 @@
   }
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
+    if (!shown && p.proposedOnly) return '';
     if (!shown) return '<section class="panel"><p class="small">This process has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
@@ -29,7 +30,7 @@
       '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
-      (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + 'Edit</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
+      (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
     /* Edits made and not saved stay in the editor; say so here, where the saved version is showing. */
     var ed = st.editor && st.editor.pid === p.id ? st.editor : null;
     if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span><button class="mini" data-act="ptab" data-id="edit">Continue editing</button></div>';
@@ -64,10 +65,10 @@
     var status = saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved changes' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
     var count = nb || nt, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
-    var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id;
+    var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
     var h = '<div class="fpe" id="fpe"><header class="fpe-head" role="region" aria-labelledby="ed-h"><div class="fpe-id">' +
       '<button type="button" class="btn fpe-done" data-act="ed-done">' + I('back') + 'Done</button>' +
-      '<div class="fpe-title"><h1 id="ed-h" tabindex="-1">' + esc(p.title) + ' <span class="cat">Draft</span></h1><span class="small fpe-file">maps/drafts/' + esc(file) + '</span></div></div>' +
+      '<div class="fpe-title"><h1 id="ed-h" tabindex="-1">' + esc(p.title) + ' <span class="cat">Draft</span></h1><span class="small fpe-file">maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '</span></div></div>' +
       '<div class="fpe-tools"><div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
       /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
       V.undoBar('draft', ed && ed.tl) +
@@ -81,6 +82,11 @@
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span><b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
       '<details open class="fpe-theirs"><summary class="small">Their version</summary><pre class="source">' + esc(ed.conflict.theirs || '(the draft was deleted)') + '</pre></details>';
+    /* Who else has it open, which window is the main editor, and a proposal waiting: no live role here; messages are
+       announced once, through #live. */
+    al += V.editingNote(ctx, p) + V.mainNote(ctx, p);
+    var waiting = ((p.proposed || {}).list || []).filter(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'already' || x.fit === 'review'; })[0];
+    if (waiting) al += '<div class="notice"><span>' + (dirty ? 'Your AI assistant proposed changes while you have unsaved ones. They\'ll wait for you to review them.' : 'Your AI assistant proposed changes.') + '</span><button type="button" class="btn" data-act="prop-review" data-id="' + esc(waiting.id) + '">Review</button></div>';
     h += '<div class="fpe-alerts">' + al + '</div>';
     /* The inspector: a tablist of Selected (builder only), Checks and Preview. */
     var sl = sel && sel.kind === 'step' ? o.steps.filter(function (x) { return x.key === sel.key; })[0] : null, sp = sel && sel.kind !== 'step' ? o.phases.filter(function (x) { return x.key === sel.key; })[0] : null;

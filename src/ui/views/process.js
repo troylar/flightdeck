@@ -262,6 +262,8 @@
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     if (p.sharedDrafts) h += '<div class="notice bad" role="alert"><span><b>' + p.sharedDrafts.length + ' drafts say process: ' + esc(p.id) + '</b> (' + p.sharedDrafts.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(', ') + '). This page shows ' + esc(p.draft.file) + '. Settle which one is right before you publish.</span><button class="mini" data-act="recovery" data-id="onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type">What to do</button></div>';
+    if (p.proposedOnly) h += '<div class="notice"><span><b>Proposed, not drafted yet.</b> Your AI assistant proposed this checklist. Review it below; applying it creates the draft.</span></div>';
+    h += editingNote(ctx, p);
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
     p.broken.forEach(function (b) { h += '<div class="notice warn"><span>' + esc(b.folder) + ': ' + esc(b.why) + '</span></div>'; });
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
@@ -278,6 +280,7 @@
       }
       h += '</section>';
     }
+    h += proposalsPanel(ctx, p);
     h += V.checklistPanel(ctx, p);
     h += '</div><aside class="stack">';
     h += fixesPanel(ctx, p) + readyPanel(ctx, p, pub) + skillsPanel(ctx, p);
@@ -295,6 +298,99 @@
     }).join('') + '</ul>' + (runs.length > 5 ? '<button class="link" data-act="nav" data-id="runs">All ' + runs.length + ' runs</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section></aside></div>';
     return h;
   }
+
+  /* ---------- proposals from AI assistants and who's editing (docs/design.md section 27) ---------- */
+  var FIT_WORDS = {
+    ready: 'Ready to apply: it starts from the draft as it is now.', older: 'This started from an older draft.', already: 'Already in the draft.',
+    waiting: 'Waiting for an earlier proposal.', review: 'The proposal it follows was declined or replaced. Review it.', replaced: 'Replaced by a newer proposal.',
+    invalid: 'Can\'t be used: it links to another session\'s proposal, or to itself.', applied: 'Applied.', 'applied-twice': 'Applied twice.', declined: 'Declined.',
+    unknown: 'Can\'t tell what happened: a record about it can\'t be read yet.'
+  };
+  var REC_WORDS = { maybe: 'May already be applied.', tried: 'Tried before, not applied.', reopened: 'Reopened.', 'decided-twice': 'Decided twice.' };
+  function propWords(x) {
+    var w = FIT_WORDS[x.fit] || '', r = REC_WORDS[x.rec && x.rec.state];
+    return r && x.fit !== 'applied' && x.fit !== 'applied-twice' && x.fit !== 'declined' && x.fit !== 'unknown' ? r + ' ' + w : w;
+  }
+  /* Apply straight from the list only for a fast-forward with no record at all; anything tried before goes through Review. */
+  function listApply(x) { return x.fit === 'ready' && x.rec && x.rec.state === 'pending'; }
+  function canDecide(x) { return x.fit !== 'invalid' && x.fit !== 'replaced' && x.fit !== 'applied' && x.fit !== 'applied-twice' && x.fit !== 'declined' && x.fit !== 'unknown'; }
+  function proposalsPanel(ctx, p) {
+    var pr = p.proposed;
+    if (!pr || (!pr.list.length && !pr.bad.length)) return '';
+    var h = '<section class="panel" aria-labelledby="pp-h"><h2 id="pp-h" tabindex="-1">Proposed changes · ' + pr.list.length + '</h2>' +
+      '<p class="small">From your AI assistant, when the draft was open in an editor or had changed since it was read. Review one, then apply or decline it.</p>';
+    if (pr.list.length) h += '<ul class="rlist props">' + pr.list.map(function (x) {
+      var m = x.meta;
+      return '<li class="prop"><div><b>' + esc(m.note || 'A change to the draft') + '</b><div class="small">' + esc(m.by ? nameOf(ctx, m.by) + '’s AI assistant' : 'Your AI assistant') + ' · ' + esc(U.when(m.at)) + '</div>' +
+        '<div class="small prop-st">' + esc(propWords(x)) + '</div></div><div class="row">' +
+        '<button class="mini" data-act="prop-review" data-id="' + esc(x.id) + '">Review</button>' +
+        (listApply(x) ? '<button class="btn go" data-act="prop-apply" data-id="' + esc(x.id) + '">Apply</button>' : '') +
+        (canDecide(x) ? '<button class="mini" data-act="prop-decline" data-id="' + esc(x.id) + '">Decline</button>' : '') +
+        (x.fit === 'declined' ? '<button class="mini" data-act="prop-reopen" data-id="' + esc(x.id) + '">Reopen</button>' : '') + '</div></li>';
+    }).join('') + '</ul>';
+    if (pr.older) h += '<p class="small">… and ' + pr.older + ' older proposal' + (pr.older === 1 ? '' : 's') + '.</p>';
+    if (pr.bad.length) h += '<p class="small">' + pr.bad.length + ' proposal' + (pr.bad.length === 1 ? ' can\'t' : 's can\'t') + ' be read yet (' + esc(pr.bad.slice(0, 3).map(function (b) { return b.name + ' ' + b.why; }).join('; ')) + '). Flightdeck tries again on the next refresh.</p>';
+    return h + '</section>';
+  }
+  /* Who else has this draft open, as far as this computer can see right now: a courtesy, not a lock. */
+  function editingNote(ctx, p) {
+    var eds = p.editing || [];
+    if (!eds.length) return '';
+    var secs = function (ms) { var s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + ' second' + (s === 1 ? '' : 's') : Math.round(s / 60) + ' minute' + (Math.round(s / 60) === 1 ? '' : 's'); };
+    return '<div class="notice edit-by"><span>' + eds.map(function (e) { return '<b>Being edited by ' + esc(nameOf(ctx, e.by)) + (e.device ? ' on ' + esc(e.device) : '') + '</b> (seen ' + secs(e.ago) + ' ago).'; }).join(' ') +
+      ' Flightdeck shows the editors this computer can see right now.</span></div>';
+  }
+  /* The editor's line about which window is the main editor for this draft (the one that will apply proposals live). */
+  function mainNote(ctx, p) {
+    var m = p.main;
+    if (!m && !(p.editing || []).length) return '';
+    var btn = '<button type="button" class="mini" data-act="main-editor">Make this the main editor</button>';
+    if (m && m.me) return '<div class="notice"><span>This is the main editor for this draft.</span></div>';
+    if (m && m.ambiguous && m.claimRev) return '<div class="notice warn"><span>Two editors claimed this draft at once. Choose Make this the main editor to settle it.</span>' + btn + '</div>';
+    if (m && m.by && m.lost) return '<div class="notice"><span>' + esc(nameOf(ctx, m.by)) + ' made their editor the main one for this draft. You can still edit and save.</span>' + btn + '</div>';
+    return '<div class="notice"><span>More than one editor has this draft open.</span>' + btn + '</div>';
+  }
+  /* Review: what the change does to the draft, its checks, ID changes, what happened before (attempts and decisions), and
+     only the actions that fit. ov: { item, proposal (read whole, on demand), draftText, records, err, busy }. */
+  function proposalReview(ctx, ov) {
+    var x = ov.item, m = x ? x.meta : null;
+    var box = function (inner) { return '<div class="overlay" data-act="close-overlay"><div class="ca-box" role="dialog" aria-modal="true" aria-labelledby="pr-t">' + inner + '</div></div>'; };
+    var bar = '<div class="ca-bar"><h2 id="pr-t" tabindex="-1">Review your AI assistant’s change</h2><button type="button" class="mini" id="pr-close" data-act="close-overlay">Close</button></div>';
+    if (!x) return box(bar + '<p>This proposal isn\'t in the folder any more.</p>');
+    var h = bar + '<p><b>' + esc(m.note || 'A change to the draft') + '</b></p><p class="small">' + esc(m.by ? nameOf(ctx, m.by) + '’s AI assistant' : 'Your AI assistant') + (m.label ? ' (' + esc(m.label) + ')' : '') + ' · ' + esc(U.when(m.at)) + '</p>';
+    h += '<p class="prop-st">' + esc(propWords(x)) + '</p>';
+    if (ov.err) h += '<div class="notice bad" id="pr-err"><span>' + esc(ov.err) + '</span></div>';
+    if (!ov.proposal) return box(h + '<p class="small" role="status">' + (ov.loadErr ? esc(ov.loadErr) : 'Reading it…') + '</p>');
+    var maybe = x.rec && (x.rec.state === 'maybe' || (x.rec.open && x.rec.open.length));
+    if (maybe) h += '<div class="notice warn"><span>Flightdeck started applying this but couldn\'t record what happened. Compare it with the draft below, then mark it as applied or apply it again.</span></div>';
+    var recs = ov.records || [];
+    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary><ul class="small">' + recs.map(function (r) {
+      if (!r.rec) return '<li><code>' + esc(r.name) + '</code> can\'t be read yet. It may still be arriving.</li>';
+      var who = esc(nameOf(ctx, r.rec.by)) + ' · ' + esc(U.when(r.rec.at));
+      return '<li>' + (r.rec.kind === 'attempt' ? 'Started applying it' + (r.rec.how === 'live' ? ' in an editor' : '') : esc(DEC_WORDS[r.rec.status] || r.rec.status)) + ' · ' + who + '</li>';
+    }).join('') + '</ul></details>';
+    var draftText = ov.draftText == null ? '' : ov.draftText, d = PF.proposals.diff(draftText, ov.proposal.text);
+    h += '<h3 class="small">' + (ov.draftText == null ? 'Compared with nothing (there\'s no draft yet)' : 'Compared with the draft as it is now') + '</h3>';
+    h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
+    var ids = PF.proposals.ids(draftText, ov.proposal.text);
+    if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(ids.removed.slice(0, 20).join(', ')) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(ids.renamed.slice(0, 20).map(function (r) { return r.from + ' → ' + r.to; }).join(', ')) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
+    var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }) });
+    h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c);
+    var blocked = recs.some(function (r) { return !r.rec; }), acts = '';
+    if (x.fit === 'ready' && !blocked && x.rec.state !== 'applied' && x.rec.state !== 'applied-twice') acts += '<button type="button" class="btn go" data-act="prop-apply" data-id="' + esc(x.id) + '"' + (ov.busy ? ' disabled' : '') + '>' + (recs.length ? 'Apply again' : 'Apply') + '</button>';
+    if (maybe && !blocked) acts += '<button type="button" class="btn" data-act="prop-mark-applied" data-id="' + esc(x.id) + '">Mark as applied</button>';
+    else if (x.fit === 'already' && !blocked && x.rec.state !== 'applied') acts += '<button type="button" class="btn" data-act="prop-mark-applied" data-id="' + esc(x.id) + '">Mark as applied</button>';
+    if (canDecide(x)) acts += '<button type="button" class="mini" data-act="prop-decline" data-id="' + esc(x.id) + '">Decline</button>';
+    if (x.fit === 'declined') acts += '<button type="button" class="mini" data-act="prop-reopen" data-id="' + esc(x.id) + '">Reopen</button>';
+    h += '<div class="row ca-acts" id="pr-acts">' + acts + '<button type="button" class="mini" data-act="close-overlay">Close</button></div>';
+    return box(h);
+  }
+  var DEC_WORDS = { applied: 'Applied', declined: 'Declined', reopened: 'Reopened', withdrawn: 'Taken back before it was saved', 'not-saved': 'Not saved: someone else changed the draft', cancelled: 'Stopped: the draft changed while it was being applied' };
+  function capDiff(rows) {
+    if (!rows.some(function (r) { return r.op === '+' || r.op === '-'; })) return '<p class="small">No differences.</p>';
+    return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : r.op === '…' ? '<span class="small">  … ' + esc(r.text) + '</span>\n' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
+  }
+
   function diffHtml(rows) {
     var changed = rows.some(function (r) { return r.op !== ' '; });
     if (!changed) return '<p class="small">No differences.</p>';
@@ -362,5 +458,5 @@
     return h;
   }
 
-  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice;
+  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();

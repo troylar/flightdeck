@@ -124,11 +124,14 @@ function safeWrite(dir, parts, text, expect) {
     const now = lstatOrNull(tmp);
     if (!now || now.isSymbolicLink() || now.ino !== mine.ino || now.dev !== mine.dev) fail('refusing to write through a link: ' + home);
     if (!fs.readFileSync(tmp).equals(data)) throw new Error('the written file didn\'t read back the same');
+    const hooks = safeWrite.hooks || {};
+    if (hooks.beforeCompare) hooks.beforeCompare(target);
     if (expect !== undefined) {
       const st = lstatOrNull(target);
       if (st && (st.isSymbolicLink() || !st.isFile())) fail('refusing to write through a link: ' + target);
       if ((st ? fs.readFileSync(target, 'utf8') : null) !== expect) throw new Changed(parts.join('/'));
     }
+    if (hooks.afterCompare) hooks.afterCompare(target);
     fs.renameSync(tmp, target);
     moved = true;
   } catch (e) {
@@ -851,6 +854,200 @@ async function readMain(argv) {
 }
 function failureJson(eng, kind, why) { return eng ? eng.PF.appjson.failure(eng.version, kind, why, []) : { contract: 'flightdeck-read/1', app: versionOf(app()) || '', error: { kind, why }, problems: [] }; }
 
+/* ---------- Writing drafts for AI assistants: flightdeck draft read | save | propose (contract flightdeck-draft/1) ----------
+   These commands change the team folder, and only ever write maps/drafts/<process>.md (a direct save), one new
+   proposed/<process>/<operation>.json and one new history/drafts/<process>/agent-<operation>.jsonl, all through folders()
+   (never through a link, never outside the folder). A draft open in an editor this computer can see is never written: the
+   change becomes a proposal a person applies in Flightdeck. docs/apps.md, docs/design.md section 27. */
+const DRAFT_CONTRACT = 'flightdeck-draft/1';
+/* Test hooks around the final compare of a direct save (test/cli.test.js injects a write there). */
+const _hooks = {};
+function draftJson(eng, o) { return Object.assign({ contract: DRAFT_CONTRACT, app: eng ? eng.version : versionOf(app()) || '' }, o); }
+function draftFail(eng, kind, why, code, problems) { return { out: JSON.stringify(draftJson(eng, { error: { kind, why }, problems: problems || [] }), null, 2), code: code || EXIT.error }; }
+/* A text an assistant hands over: at most the draft limit in UTF-8 bytes (the app's own constant), decoded strictly. */
+function inputText(PF, file, what) {
+  let buf;
+  try { buf = file === '-' ? fs.readFileSync(0) : fs.readFileSync(expand(file)); } catch (e) { return { why: 'couldn\'t read ' + what + ' (' + e.message + ').' }; }
+  if (buf.length > PF.util.DRAFT_BYTES) return { why: what + ' is ' + buf.length + ' bytes; a draft is at most ' + PF.util.DRAFT_BYTES + ' bytes (1 MB) of UTF-8.' };
+  try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(buf) }; } catch (e) { return { why: what + ' isn\'t valid UTF-8 text.' }; }
+}
+/* Who has the draft open, as this computer's copy of the folder shows now. A record that can't be read, or a presence/ that
+   can't be listed, counts as open: the safe outcome is a proposal. */
+function presenceNow(PF, dir, proc, now) {
+  const PP = PF.proposals, at = path.join(dir, PP.PRESENCE), out = { open: false, openIn: [] };
+  let st;
+  try { st = fs.lstatSync(at); } catch (e) { if (e.code === 'ENOENT') return out; out.open = true; return out; }
+  if (st.isSymbolicLink() || !st.isDirectory()) { out.open = true; return out; }
+  let names;
+  try { names = fs.readdirSync(at, { withFileTypes: true }); } catch (e) { out.open = true; return out; }
+  names.forEach((e) => {
+    if (!/\.json$/i.test(e.name)) return;
+    if (!e.isFile()) { out.open = true; return; }
+    let rec = null;
+    try { const t = fs.readFileSync(path.join(at, e.name)); if (t.length <= 65536) rec = PP.cleanPresence(JSON.parse(t.toString('utf8')), e.name); } catch (err) { rec = null; }
+    if (!rec) { out.open = true; return; }
+    if (rec.drafts.indexOf(proc) < 0 || !PP.freshCli(rec, now)) return;
+    out.open = true;
+    out.openIn.push({ by: rec.by, device: rec.device, seenAgo: Math.max(0, now - Date.parse(rec.at)) });
+  });
+  return out;
+}
+/* Everything a draft command looks at, read-only: the draft (and other drafts that say the same process), this process's
+   proposals with their records (this session's read whole), its published versions, and people.json. */
+async function draftState(eng, dir, proc, session) {
+  const PF = eng.PF, PP = PF.proposals, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(ra), rfs = L.fs, sha = PP.sha;
+  const dpath = 'maps/drafts/' + proc + '.md', draft = { exists: false, path: dpath, rev: null, text: null };
+  try {
+    const f = await rfs.read(dpath, { maxBytes: PF.util.DRAFT_BYTES });
+    if (f) Object.assign(draft, { exists: true, rev: sha(f.text), text: f.text });
+  } catch (e) { draft.exists = true; }
+  const copies = [];
+  try {
+    for (const i of await rfs.list('maps/drafts')) {
+      if (i.kind !== 'file' || !/\.md$/i.test(i.name) || i.name === proc + '.md') continue;
+      let said = '';
+      try { const f = await rfs.read('maps/drafts/' + i.name, { maxBytes: PF.util.DRAFT_BYTES }); said = f ? PP.textProcess(f.text) : ''; } catch (e) { said = ''; }
+      if (said === proc) copies.push(i.name);
+    }
+  } catch (e) { /* named in the ledger */ }
+  const got = await PF.repo.loadProposed(rfs, {}, true), pr = got.procs[proc] || { all: [], bad: [], records: [] };
+  pr.bad.forEach((b) => L.note(b.path, 'malformed', b.why));
+  const recs = {}; pr.all.forEach((m) => { recs[m.id] = []; });
+  pr.records.forEach((r) => { const m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m && recs[m[1]]) recs[m[1]].push(r); });
+  const judged = PP.judge(pr.all, recs, { exists: draft.exists && draft.text != null, rev: draft.rev });
+  const mine = [];
+  for (const x of judged.filter((y) => y.meta.session === session)) {
+    const full = await PF.repo.readProposal(rfs, proc, x.id);
+    if (!full.ok) continue;
+    const status = x.fit === 'replaced' || x.fit === 'invalid' ? x.fit : x.rec.state;
+    mine.push({ id: x.id, rev: x.meta.rev, status, text: full.proposal.text, at: x.meta.at, base: full.proposal.base, pending: status === 'pending' });
+  }
+  const versions = [];
+  try {
+    for (const v of await rfs.list('publications/' + proc)) {
+      if (v.kind !== 'dir' || !PF.publish.versionOf(v.name)) continue;
+      const f = await rfs.read('publications/' + proc + '/' + v.name + '/map.md');
+      if (f) versions.push({ folder: v.name, version: PF.publish.versionOf(v.name), rev: sha(f.text), text: f.text });
+    }
+  } catch (e) { /* named in the ledger */ }
+  versions.sort((a, b) => b.version - a.version);
+  let people = null;
+  try { const f = await rfs.read('people.json'); people = f ? PF.people.clean(JSON.parse(f.text)) : null; } catch (e) { people = null; }
+  return { draft, copies, mine, versions, people, judged, problems: L.problems(), presence: presenceNow(PF, dir, proc, Date.now()) };
+}
+/* Write a new file once: created exclusively (never over a file that's there, never through a link), flushed, read back. */
+function writeNew(dir, parts, text) {
+  const home = folders(dir, parts.slice(0, -1), true), target = path.join(home, parts[parts.length - 1]), data = Buffer.from(text, 'utf8');
+  let fd = null;
+  try {
+    fd = fs.openSync(target, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0));
+    for (let off = 0; off < data.length;) { const n = fs.writeSync(fd, data, off, data.length - off); if (!(n > 0)) throw new Error('the disk accepted no more bytes'); off += n; }
+    fs.fsyncSync(fd); fs.closeSync(fd); fd = null;
+  } catch (e) {
+    if (fd !== null) try { fs.closeSync(fd); } catch (err) { /* already failing */ }
+    if (e instanceof Refused) throw e;
+    fail('couldn\'t write ' + target + ': ' + e.message);
+  }
+  folders(dir, parts.slice(0, -1), false);
+  if (!fs.readFileSync(target).equals(data)) fail(target + ' didn\'t read back as written');
+  return parts.join('/');
+}
+async function draftMain(argv) {
+  const VAL = ['--session', '--expect', '--from', '--base', '--label', '--by', '--note'], val = {};
+  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  const sub = args[1], usage = (why) => draftFail(null, 'usage', why);
+  for (const f of VAL) {
+    const i = argv.indexOf(f);
+    if (i < 0) continue;
+    if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && argv[i + 1] !== '-')) return usage('say what goes after ' + f + '.');
+    val[f] = argv[i + 1];
+  }
+  if (['read', 'save', 'propose'].indexOf(sub) < 0) return usage('say read, save or propose, for example: flightdeck draft read <team folder> <process> --json');
+  if (!argv.includes('--json')) return usage('flightdeck draft prints JSON. Add --json.');
+  const proc = args[3];
+  if (!proc || !PROC_ID.test(proc)) return usage('a process ID is lowercase letters, numbers and dashes, for example: flightdeck draft ' + sub + ' <team folder> release --json');
+  if (val['--session'] != null && !/^[a-z0-9][a-z0-9-]{0,59}$/.test(val['--session'])) return usage('--session is lowercase letters, numbers and dashes, like the one draft read gave.');
+  let eng, dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'draft ' + sub); } catch (e) { return draftFail(eng, 'failed', e.message); }
+  const PF = eng.PF, PP = PF.proposals, U = PF.util, M = PF.map, now = Date.now();
+  const session = val['--session'] || 's-' + U.randomId(12);
+  const checksOf = (t) => { const c = M.check(M.parse(t), { people: [], types: {}, workflows: {}, processes: [] }); return { blockers: c.blockers, suggestions: c.suggestions }; };
+  try {
+    if (sub === 'read') {
+      const s = await draftState(eng, dir, proc, session);
+      if (!s.draft.exists && !s.versions.length && !s.judged.length) return draftFail(eng, 'not-found', 'There\'s no draft, published version or proposal for "' + proc + '" in this folder.', EXIT.notFound, s.problems);
+      const pending = s.mine.filter((m) => m.pending).sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+      const latest = argv.includes('--or-latest') && !s.draft.exists ? s.versions[0] : null;
+      const cf = pending ? { rev: pending.rev, kind: 'proposal', ref: pending.id, text: pending.text }
+        : s.draft.exists && s.draft.text != null ? { rev: s.draft.rev, kind: 'draft', ref: s.draft.path, text: s.draft.text }
+          : latest ? { rev: latest.rev, kind: 'version', ref: latest.folder, text: latest.text } : { rev: PP.sha(''), kind: 'none', ref: null, text: '' };
+      const out = draftJson(eng, { process: proc, session, draft: s.draft, openIn: s.presence.openIn, mine: s.mine.map((m) => ({ id: m.id, rev: m.rev, status: m.status, text: m.text })),
+        continueFrom: cf, checks: checksOf(cf.text), copies: s.copies, readAt: new Date(now).toISOString(), complete: s.problems.length === 0, problems: s.problems });
+      return { out: JSON.stringify(out, null, 2), code: out.complete ? 0 : EXIT.partial };
+    }
+    /* save and propose: the input and every flag are checked before anything is read or written. */
+    if (!val['--expect'] || !(val['--expect'] === 'none' || PP.SHA.test(val['--expect']))) return usage('--expect is the rev you read (a SHA-256 from draft read), or none for a new draft.');
+    if (!val['--from']) return usage('say where the new text is: --from <file>, or --from - to read it from standard input.');
+    if (val['--label'] != null && !/^[A-Za-z0-9-]{1,40}$/.test(val['--label'])) return usage('--label is letters, numbers and dashes, up to 40.');
+    if (val['--note'] != null && val['--note'].length > 200) return usage('--note is at most 200 characters.');
+    const input = inputText(PF, val['--from'], 'the new text');
+    if (input.why) return usage(input.why);
+    const text = input.text;
+    if (PP.textProcess(text) !== proc) return usage('the new text\'s process: line must say ' + proc + '.');
+    let baseText = null;
+    if (val['--base'] != null) { const b = inputText(PF, val['--base'], 'the --base text'); if (b.why) return usage(b.why); baseText = b.text; }
+    const s = await draftState(eng, dir, proc, session);
+    if (val['--by'] != null && !(s.people || []).some((p) => p.id === val['--by'])) return usage('--by names a person in people.json, like person-avery.');
+    const base = PP.baseFor({ expect: val['--expect'], draft: s.draft, mine: s.mine, versions: s.versions, baseText, afterEarlier: argv.includes('--after-earlier') });
+    if (base.missing) return draftFail(eng, 'missing-base', 'The text you started from isn\'t the draft, one of this session\'s proposals or a published version any more. Pass the text you read with --base, or read the draft again.');
+    const operation = PP.newId(now, U.randomId(10)), at = new Date(now).toISOString();
+    const result = { process: proc, session, operation, outcome: null, why: null, link: base.link, rev: PP.sha(text), file: null, ids: PP.ids(base.text, text), checks: checksOf(text), warnings: [], history: null };
+    if (result.ids.removed.length) result.warnings.push('This removes step or phase IDs: ' + result.ids.removed.join(', ') + '. Runs and skills that name them will need a look.');
+    let why = sub === 'propose' ? 'asked' : s.presence.open ? 'open' : null;
+    const draftNow = s.draft.exists ? s.draft.text : null, expectText = base.kind === 'none' || base.kind === 'version' ? null : base.text;
+    if (!why && draftNow !== expectText) why = 'changed';
+    if (!why) {
+      try {
+        if (_hooks.beforeCompare || _hooks.afterCompare) safeWrite.hooks = _hooks;
+        safeWrite(dir, ['maps', 'drafts', proc + '.md'], text, expectText);
+        Object.assign(result, { outcome: 'written', file: 'maps/drafts/' + proc + '.md' });
+      } catch (e) { if (!(e instanceof Changed)) throw e; why = 'changed'; }
+      finally { delete safeWrite.hooks; }
+      if (result.outcome === 'written') {
+        try {
+          const hdir = 'history/drafts/' + proc, before = expectText == null ? null : U.hash(expectText);
+          let seen = null;
+          if (before) { const h = await PF.repo.loadEditHistory(readAdapter(dir, { maxBytes: READ_MAX }), hdir, before); const e = h.items.filter((x) => x.entry && x.entry.to === before)[0]; seen = e ? e.entry.id : null; }
+          const line = PF.timeline.histLine({ kind: 'draft-edit', id: operation, process: proc, writer: operation, seq: 1, by: val['--by'] || '', at, from: before, to: U.hash(text), seen,
+            before: expectText == null ? '' : expectText, after: text, source: 'agent', units: [val['--note'] || 'Changed by your AI assistant'], items: [] });
+          writeNew(dir, ['history', 'drafts', proc, 'agent-' + operation + '.jsonl'], JSON.stringify(line) + '\n');
+          result.history = { written: true };
+        } catch (e) { result.history = { written: false, why: e.message }; }
+        /* It continued from this session's own pending proposal: that one is replaced by what was just written, so a
+           decision says so (written once, named for this operation) and nothing offers it again. */
+        if (base.replaces) {
+          try {
+            const set = await PF.repo.loadProposalSet(readAdapter(dir, { maxBytes: READ_MAX }), proc), st = PP.recState(set.records[base.replaces] || []);
+            const old = s.mine.filter((m) => m.id === base.replaces)[0];
+            const d = PP.decision({ proposal: base.replaces, proposalRev: old ? old.rev : null, writer: operation, decisionRev: st.nextRev, seen: st.seen, status: 'replaced', settles: st.open, result: { rev: PP.sha(text) }, by: val['--by'] || '', at });
+            writeNew(dir, [PP.DIR, proc, d.name], JSON.stringify(d.rec, null, 2) + '\n');
+          } catch (e) { result.warnings.push('Your earlier proposal ' + base.replaces + ' couldn\'t be marked as replaced (' + e.message + '). Decline it on the process page.'); }
+        }
+        return { out: JSON.stringify(draftJson(eng, result), null, 2), code: 0 };
+      }
+    }
+    /* A proposal: write-once, holding its own base text, its SHA-256s and its link, measured before it's written. */
+    const rec = PP.make({ id: operation, process: proc, session, label: val['--label'] || '', by: val['--by'] || '', at, app: eng.version || '', base: { kind: base.kind, ref: base.ref, text: base.text }, text, replaces: base.replaces, after: base.after, note: val['--note'] || '' });
+    const json = JSON.stringify(rec, null, 2) + '\n';
+    if (Buffer.byteLength(json) > PP.FILE_MAX) return draftFail(eng, 'too-big', 'This proposal would be ' + size(Buffer.byteLength(json)) + ' as a file, over the 4 MB a proposal can be. Nothing was written.');
+    result.file = writeNew(dir, [PP.DIR, proc, operation + '.json'], json);
+    Object.assign(result, { outcome: 'proposed', why });
+    return { out: JSON.stringify(draftJson(eng, result), null, 2), code: 0 };
+  } catch (e) {
+    return draftFail(eng, 'failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be changed: ' + (e && e.message || String(e)));
+  }
+}
+
 const HELP = `flightdeck: team process checklists, in one HTML file
 
   flightdeck open                     open the app (it starts on built-in examples)
@@ -877,6 +1074,15 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       what's waiting in a run and on whom (with --person, that person's next step)
   flightdeck followups <team folder> [--process <id>] [--status open|all] --json
                                       every follow-up and what became of it
+  flightdeck draft read <team folder> <process> [--session <id>] [--or-latest] --json
+                                      for AI assistants: the draft's exact text and rev, who has it open,
+                                      this session's proposals and the text to continue from
+  flightdeck draft save <team folder> <process> --expect <rev|none> --from <file|-> [--base <file>]
+                    [--session <id>] [--label <name>] [--by <person id>] [--note "<text>"] [--after-earlier] --json
+                                      write the draft, only when nobody has it open and it's exactly what you
+                                      read; otherwise write a proposal a person applies in Flightdeck
+  flightdeck draft propose <same as save>
+                                      always write a proposal
   flightdeck path                     print where the app file is
   flightdeck version                  print this version
 
@@ -889,6 +1095,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
 The JSON commands only read: they never change a file in the team folder. Exit code 0: complete; 4: partial (the data
 is printed, and "problems" names every file or folder that couldn't be read); 1: no data; 5: no such process, version or
 run. People-directory email fields are omitted. See docs/apps.md in the Flightdeck repository.
+
+flightdeck draft changes the team folder (contract flightdeck-draft/1). Exit code 0: written or proposed (read: complete);
+4: read, partial; 1: usage, missing-base, too-big or failed; 5: read, no such process.
 
 export never changes the team folder and never writes a pack into it. It prints the pack's SHA-256: keep it somewhere
 separate. Exit code 0: a complete pack; 4: a partial pack (made, with what changed or is missing listed); 1: no pack.
@@ -903,6 +1112,7 @@ function main(argv) {
   /* Reading for other apps has flags of its own (--version takes a number there), so it's parsed apart. */
   const first = argv.filter((a) => !a.startsWith('--'))[0];
   if (READS.indexOf(first) >= 0 && !argv.includes('--help')) return readMain(argv);
+  if (first === 'draft' && !argv.includes('--help')) return draftMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */
@@ -1020,4 +1230,4 @@ if (require.main === module) {
     if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
   } catch (e) { failed(e); }
 }
-module.exports = { main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, EXIT };
+module.exports = { _hooks, main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, EXIT };

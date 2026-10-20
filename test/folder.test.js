@@ -843,7 +843,7 @@ rule('Older copies never list followups/: deciding a follow-up leaves run.json a
   const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
   await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'wont', { reason: 'Not needed' }, NOW, null), 'blake-laptop');
   // A copy from before 1.16 is this copy without the follow-up decision loader.
-  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace(/loadFollowUpDecisions\(fs, cache, sched[^)]*\)\n    \]\.map\(/, 'Promise.resolve([])\n    ].map(') : src).repo;
+  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace(/loadFollowUpDecisions\(fs, cache, sched[^)]*\),\n/, 'Promise.resolve([]),\n') : src).repo;
   const calls = faulty(fs);
   const d = await OLD.loadAll(fs, { deep: true });
   await OLD.loadRun(fs, 'release', 'run1');
@@ -1497,6 +1497,374 @@ rule('The problem ledger records a blob\'s later failures (arrayBuffer, text, a 
   await assert.rejects((await L.fs.blob('y.png')).text(), /EIO/);
   await assert.rejects((await L.fs.blob('z.png')).slice(0, 1).arrayBuffer(), /EIO/);
   same(L.problems().map(p => [p.path, p.kind]), [['a/gone', 'vanished'], ['x.png', 'unreadable'], ['y.png', 'unreadable'], ['z.png', 'unreadable']]);
+});
+
+/* ---------- 1.19 slice 1: proposals, the soft lock and exact-text saves (docs/design.md section 27) ---------- */
+const U = PF.util, PP = PF.proposals;
+const RELEASE = example('maps/drafts/release.md');
+const sha = t => PF.sha256.hex(t);
+/* A proposal as the command line writes it: base and text, with their SHA-256s. */
+function proposal(o) {
+  return PP.make(Object.assign({ id: 'p-mh4k2a-x7w1k3m9p2', process: 'release', session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: NOW, app: '1.19.0',
+    base: { kind: 'draft', ref: 'maps/drafts/release.md', text: RELEASE }, text: RELEASE.replace('title: Production release', 'title: Production release (proposed)'), replaces: null, after: null, note: '' }, o || {}));
+}
+function proposalFolder(extra) {
+  const fs = new PF.fs.MemoryFS('test:' + Math.random(), null);
+  const files = { 'people.json': people, 'maps/drafts/release.md': RELEASE };
+  fs.reset(Object.assign(files, extra || {}));
+  return fs;
+}
+const put = (fs, p, o) => fs.write('proposed/' + p.process + '/' + p.id + '.json', JSON.stringify(p, null, 2) + '\n');
+/* Text of exactly n UTF-8 bytes ending with one character of w bytes (1 to 4), so the limit falls inside or just past it. */
+function bytesOf(n, w) { const ch = { 1: 'a', 2: 'é', 3: '€', 4: '\u{1F600}' }[w]; return 'a'.repeat(n - w) + ch; }
+
+rule('Drafts are limited to exactly 1 MB of UTF-8: 1,048,576 bytes is fine, one more is refused, whatever the characters at the edge', () => {
+  assert.strictEqual(U.DRAFT_BYTES, 1048576);
+  [1, 2, 3, 4].forEach(w => {
+    const ok = bytesOf(U.DRAFT_BYTES, w), over = bytesOf(U.DRAFT_BYTES + 1, w);
+    assert.strictEqual(U.utf8Bytes(ok), U.DRAFT_BYTES, w + '-byte edge');
+    assert.strictEqual(U.draftTooBig(ok), null, w + '-byte character ending exactly at the limit');
+    const big = U.draftTooBig(over);
+    assert.ok(big && big.bytes === U.DRAFT_BYTES + 1, w + '-byte character one byte over');
+  });
+  // A 4-byte character straddling the boundary: the text is under a million JavaScript characters but over the limit in bytes.
+  const straddle = 'a'.repeat(U.DRAFT_BYTES - 3) + '\u{1F600}';
+  assert.ok(straddle.length < U.DRAFT_BYTES && U.draftTooBig(straddle), 'counted in bytes, not characters');
+  const msg = U.draftTooBig('x'.repeat(1.2 * 1048576)).why;
+  assert.strictEqual(msg, 'Not saved: this draft is 1.2 MB, and Flightdeck saves drafts up to 1 MB. Shorten it by about 0.2 MB (long notes or pasted logs are the usual cause), then save. Your text is still here.');
+  assert.strictEqual(U.draftSize('x'.repeat(Math.floor(0.95 * 1048576))), '0.95 of 1 MB', 'the header shows the size from 90%');
+  assert.strictEqual(U.draftSize('x'.repeat(Math.floor(0.89 * 1048576))), '', 'and not below');
+});
+
+rule('A draft over the limit is never written, and one over the limit in the folder is listed as too big, not loaded', async () => {
+  const fs = proposalFolder(), path = 'maps/drafts/release.md';
+  const over = '---\nprocess: release\n---\n' + 'x'.repeat(U.DRAFT_BYTES);
+  await assert.rejects(() => repo.saveDraft(fs, 'release.md', over, U.hash(RELEASE), { expectText: RELEASE }), e => e.tooBig && /Not saved: this draft is/.test(e.message));
+  assert.strictEqual(fs.files[path].t, RELEASE, 'nothing written');
+  await assert.rejects(() => repo.saveDraft(fs, 'new.md', over, null, { expectText: null }), e => e.tooBig);
+  assert.ok(!fs.files['maps/drafts/new.md']);
+  // Reading counts the bytes actually read: 3-byte characters, under the limit in characters, over it in bytes.
+  fs.files[path] = { t: '---\nprocess: release\n---\n' + '€'.repeat(400000), m: 1 };
+  await assert.rejects(() => fs.read(path, { maxBytes: U.DRAFT_BYTES }), e => e.skipped);
+  const d = await repo.loadAll(fs);
+  assert.ok(!d.drafts.some(x => x.file === 'release.md'), 'not loaded');
+  const u = d.unreadable.filter(x => x.draft === 'release.md')[0];
+  assert.ok(u && /1\.1[0-9]? MB, over the 1 MB Flightdeck reads/.test(u.why), JSON.stringify(u));
+});
+
+rule('A draft save compares the exact text it expects: an FNV collision is refused, not written over', async () => {
+  // These two lines share an FNV-1a fingerprint, and so do any two texts that start with them and go on the same way.
+  const a = 'title: Release 6uzx\n' + RELEASE, b = 'title: Release d2ad\n' + RELEASE, path = 'maps/drafts/release.md';
+  assert.strictEqual(U.hash(a), U.hash(b), 'set-up: a collision');
+  const fs = proposalFolder({ [path]: b });
+  const res = await repo.saveDraft(fs, 'release.md', 'mine', U.hash(a), { expectText: a });
+  assert.ok(res.conflict && !res.afterWrite && res.theirs === b, 'refused before writing');
+  assert.strictEqual(fs.files[path].t, b);
+  const ok = await repo.saveDraft(fs, 'release.md', 'mine', U.hash(b), { expectText: b });
+  assert.ok(ok.ok && fs.files[path].t === 'mine');
+  // Every draft save names the text it expects; a caller that doesn't is refused, so none can fall back on the fingerprint.
+  await assert.rejects(() => repo.saveDraft(fs, 'release.md', 'x', U.hash('mine')), /exact text/);
+  // null: the file must not exist yet.
+  const none = await repo.saveDraft(fs, 'release.md', 'again', null, { expectText: null });
+  assert.ok(none.conflict && fs.files[path].t === 'mine');
+});
+
+rule('A proposal is valid only when its name, process, front matter, hashes and sizes all check out', () => {
+  const p = proposal(), name = p.id + '.json', bytes = t => U.utf8Bytes(t);
+  const ok = PP.check(JSON.parse(JSON.stringify(p)), name, 'release', bytes(JSON.stringify(p)));
+  assert.ok(ok.ok, ok.why);
+  assert.strictEqual(ok.meta.text, undefined, 'metadata only: no texts kept');
+  assert.strictEqual(ok.meta.base.text, undefined);
+  same([ok.meta.rev, ok.meta.base.rev, ok.meta.base.kind], [sha(p.text), sha(RELEASE), 'draft']);
+  const bad = (o, n, proc, b, why) => { const r = PP.check(o, n || name, proc || 'release', b == null ? 100 : b); assert.ok(!r.ok && why.test(r.why), r.why); };
+  bad(Object.assign({}, p, { text: p.text + 'x' }), null, null, null, /doesn't match its hash|hash/);
+  bad(Object.assign({}, p, { base: Object.assign({}, p.base, { text: 'other' }) }), null, null, null, /hash/);
+  bad(p, 'p-other-aaaaaaaaaa.json', null, null, /name/);
+  bad(p, null, 'incident', null, /process/);
+  bad(proposal({ text: RELEASE.replace('process: release', 'process: incident') }), null, null, null, /process/);
+  bad(Object.assign({}, p, { pv: 2 }), null, null, null, /newer|format/);
+  bad(Object.assign({}, p, { kind: 'plan' }), null, null, null, /format|kind/);
+  bad(null, null, null, null, /read|JSON|format/);
+  // Over 4 MB by the bytes read, though under 4 million characters.
+  bad(p, null, null, PP.FILE_MAX + 1, /4 MB/);
+  const wide = proposal({ text: '---\nprocess: release\n---\n' + '€'.repeat(360000) });
+  assert.ok(wide.text.length < U.DRAFT_BYTES && U.utf8Bytes(wide.text) > U.DRAFT_BYTES);
+  bad(wide, wide.id + '.json', null, null, /1 MB/);
+});
+
+rule('Proposals are listed per process with metadata only; a half-written one is listed as not ready and read again next time', async () => {
+  const p = proposal(), fs = proposalFolder();
+  await put(fs, p);
+  const half = JSON.stringify(proposal({ id: 'p-mh4k2b-aaaaaaaaaa' })).slice(0, 300);
+  await fs.write('proposed/release/p-mh4k2b-aaaaaaaaaa.json', half);
+  // A process with a proposal and no draft is listed too.
+  const q = proposal({ id: 'p-mh4k2c-bbbbbbbbbb', process: 'onboard', base: { kind: 'none', ref: null, text: '' }, text: '---\nprocess: onboard\ntitle: Onboarding\n---\n' });
+  await put(fs, q);
+  let d = await repo.loadAll(fs);
+  const rel = d.proposed.procs.release, on = d.proposed.procs.onboard;
+  same(rel.all.map(x => x.id), [p.id]);
+  assert.strictEqual(rel.all[0].text, undefined, 'no text in memory');
+  same(rel.bad.map(x => x.name), ['p-mh4k2b-aaaaaaaaaa.json']);
+  same(on.all.map(x => [x.id, x.base.kind]), [[q.id, 'none']]);
+  // The full text is read on demand, verified again.
+  const full = await repo.readProposal(fs, 'release', p.id);
+  assert.ok(full.ok && full.proposal.text === p.text);
+  // The rest arrives: next time it's valid.
+  await put(fs, proposal({ id: 'p-mh4k2b-aaaaaaaaaa' }));
+  d = await repo.loadAll(fs);
+  same(d.proposed.procs.release.all.map(x => x.id).sort(), [p.id, 'p-mh4k2b-aaaaaaaaaa'].sort());
+  same(d.proposed.procs.release.bad, []);
+});
+
+rule('At most the newest 200 proposals per process are listed, with how many older ones there are', async () => {
+  const fs = proposalFolder();
+  for (let i = 0; i < 205; i++) await put(fs, proposal({ id: 'p-' + (1000000 + i).toString(36) + '-aaaaaaaaaa', at: new Date(Date.parse(NOW) + i * 1000).toISOString() }));
+  const d = await repo.loadAll(fs), rel = d.proposed.procs.release;
+  assert.strictEqual(rel.shown.length, 200);
+  assert.strictEqual(rel.older, 5);
+  assert.ok(rel.shown.every(x => x.id !== 'p-' + (1000000).toString(36) + '-aaaaaaaaaa'), 'the oldest are left out');
+});
+
+rule('Attempts and decisions are created once, read back, and refused over a file that is already there', async () => {
+  const fs = proposalFolder(), p = proposal();
+  await put(fs, p);
+  const at = PP.attempt({ proposal: p.id, proposalRev: p.rev, writer: 'w8d2k4', n: 1, how: 'apply', from: sha(RELEASE), by: 'person-casey', at: NOW });
+  assert.strictEqual(at.name, p.id + '.attempt.w8d2k4.1.json');
+  await repo.writeRecord(fs, 'release', at.name, at.rec);
+  await assert.rejects(() => repo.writeRecord(fs, 'release', at.name, at.rec), /already/);
+  const dec = PP.decision({ proposal: p.id, proposalRev: p.rev, writer: 'w8d2k4', decisionRev: 1, seen: null, status: 'applied', attempt: 'w8d2k4.1', result: { rev: sha(p.text) }, by: 'person-casey', at: NOW });
+  assert.strictEqual(dec.name, p.id + '.w8d2k4.1.json');
+  await repo.writeRecord(fs, 'release', dec.name, dec.rec);
+  const recs = await repo.listRecords(fs, 'release', p.id);
+  same(recs.map(r => r.name).sort(), [at.name, dec.name].sort());
+  assert.ok(recs.every(r => r.rec && /^[0-9a-f]{64}$/.test(r.sha)), 'each with the SHA-256 of its bytes');
+  assert.strictEqual(PP.recState(recs).state, 'applied');
+  // A record a read can't use (half-synced) is kept as unreadable, never dropped.
+  await fs.write('proposed/release/' + p.id + '.zz9.1.json', '{"kind":"proposal-deci');
+  const again = await repo.listRecords(fs, 'release', p.id);
+  assert.ok(again.some(r => r.name === p.id + '.zz9.1.json' && r.rec === null));
+  assert.strictEqual(PP.recState(again).state, 'unknown');
+});
+
+rule('A proposal\'s state comes from its attempts and decisions together, by decisionRev, never by clocks', () => {
+  const pid = 'p-mh4k2a-x7w1k3m9p2', rev = 'a'.repeat(64);
+  const A = (w, n) => { const x = PP.attempt({ proposal: pid, proposalRev: rev, writer: w, n, how: 'apply', from: 'b'.repeat(64), by: 'person-casey', at: NOW }); return { name: x.name, sha: sha(JSON.stringify(x.rec)), rec: PP.cleanRecord(JSON.parse(JSON.stringify(x.rec)), x.name) }; };
+  const D = (w, r, status, extra) => { const x = PP.decision(Object.assign({ proposal: pid, proposalRev: rev, writer: w, decisionRev: r, seen: null, status, by: 'person-casey', at: NOW }, extra || {})); return { name: x.name, sha: sha(JSON.stringify(x.rec)), rec: PP.cleanRecord(JSON.parse(JSON.stringify(x.rec)), x.name) }; };
+  const st = l => PP.recState(l).state;
+  assert.strictEqual(st([]), 'pending');
+  assert.strictEqual(st([A('w1', 1), D('w1', 1, 'applied', { attempt: 'w1.1', result: { rev } })]), 'applied');
+  ['withdrawn', 'not-saved', 'cancelled'].forEach(s => assert.strictEqual(st([A('w1', 1), D('w1', 1, s, { attempt: 'w1.1' })]), 'tried', s));
+  assert.strictEqual(st([A('w1', 1), D('w1', 1, 'applied', { attempt: 'w1.1', result: { rev } }), A('w2', 1), D('w2', 1, 'applied', { attempt: 'w2.1', result: { rev } })]), 'applied-twice');
+  assert.strictEqual(st([A('w1', 1)]), 'maybe', 'an attempt without an outcome: may already be applied');
+  assert.strictEqual(st([{ name: pid + '.attempt.w1.1.json', sha: 'c'.repeat(64), rec: null }]), 'unknown', 'an attempt that can\'t be read');
+  assert.strictEqual(st([D('w1', 1, 'declined')]), 'declined');
+  assert.strictEqual(st([D('w1', 1, 'declined'), D('w2', 2, 'reopened', { seen: pid + '.w1.1.json' })]), 'reopened');
+  assert.strictEqual(st([D('w1', 2, 'declined'), D('w2', 2, 'reopened')]), 'decided-twice', 'two decisions with the same decisionRev');
+  // The next decision is one more than the highest, and names it.
+  const s = PP.recState([D('w1', 1, 'declined'), D('w2', 2, 'reopened', { seen: pid + '.w1.1.json' })]);
+  same([s.nextRev, s.seen], [3, pid + '.w2.2.json']);
+  // A decision whose clock says earlier still counts by its decisionRev.
+  assert.strictEqual(st([D('w1', 2, 'declined', { at: '2020-01-01T00:00:00.000Z' }), D('w2', 1, 'reopened', { at: '2030-01-01T00:00:00.000Z' })]), 'declined');
+  // Only pending, with no record at all, may ever be applied without a person.
+  assert.strictEqual(PP.recState([]).auto, true);
+  assert.strictEqual(PP.recState([D('w1', 1, 'declined'), D('w2', 2, 'reopened')]).auto, false, 'Reopen makes it reviewable, never automatic');
+});
+
+rule('Replacement and dependency: a replacement stands in for P1 with P1\'s base; a dependent waits for P1, in any order of arrival', () => {
+  const base = RELEASE, b = RELEASE.replace('Production release', 'B'), c = RELEASE.replace('Production release', 'C');
+  const p1 = proposal({ id: 'p-a1-aaaaaaaaaa', text: b });
+  const rep = proposal({ id: 'p-a2-bbbbbbbbbb', text: c, replaces: p1.id });
+  const dep = proposal({ id: 'p-a3-cccccccccc', base: { kind: 'proposal', ref: p1.id, text: b }, text: c, after: p1.id });
+  const meta = p => PP.check(JSON.parse(JSON.stringify(p)), p.id + '.json', 'release', 10).meta;
+  const draft = t => ({ exists: true, rev: sha(t) });
+  const fit = (metas, recs, dr) => { const o = {}; PP.judge(metas, recs || {}, dr).forEach(x => { o[x.id] = x.fit; }); return o; };
+  // Replacement arriving after P1, and before it: P1 is replaced either way; the replacement goes A -> C directly.
+  same(fit([meta(p1), meta(rep)], {}, draft(base)), { [p1.id]: 'replaced', [rep.id]: 'ready' });
+  same(fit([meta(rep)], {}, draft(base)), { [rep.id]: 'ready' }, 'a replacement on its own is judged on its own');
+  // Dependent before P1 arrives: waiting for an earlier proposal.
+  same(fit([meta(dep)], {}, draft(base)), { [dep.id]: 'waiting' });
+  same(fit([meta(p1), meta(dep)], {}, draft(base)), { [p1.id]: 'ready', [dep.id]: 'waiting' });
+  // P1 applied: the draft is B, so the dependent is a fast-forward.
+  const applied = { [p1.id]: [{ name: p1.id + '.attempt.w1.1.json', sha: 'x', rec: { kind: 'attempt', proposal: p1.id, attempt: 'w1.1', writer: 'w1', n: 1 } }, { name: p1.id + '.w1.1.json', sha: 'y', rec: { kind: 'decision', proposal: p1.id, writer: 'w1', decisionRev: 1, status: 'applied', attempt: 'w1.1' } }] };
+  same(fit([meta(p1), meta(dep)], applied, draft(b)), { [p1.id]: 'applied', [dep.id]: 'ready' });
+  // P1 declined, or replaced: the dependent waits for Review.
+  const declined = { [p1.id]: [{ name: p1.id + '.w1.1.json', sha: 'y', rec: { kind: 'decision', proposal: p1.id, writer: 'w1', decisionRev: 1, status: 'declined' } }] };
+  same(fit([meta(p1), meta(dep)], declined, draft(base)), { [p1.id]: 'declined', [dep.id]: 'review' });
+  same(fit([meta(p1), meta(rep), meta(dep)], {}, draft(base)), { [p1.id]: 'replaced', [rep.id]: 'ready', [dep.id]: 'review' });
+  // Not a fast-forward: the draft moved on.
+  same(fit([meta(p1)], {}, draft(c)), { [p1.id]: 'older' });
+  // Already the draft's text: never applied again.
+  same(fit([meta(p1)], {}, draft(b)), { [p1.id]: 'already' });
+  // No draft: a proposal from nothing or from a version is a fast-forward.
+  const fresh = proposal({ id: 'p-a4-dddddddddd', base: { kind: 'none', ref: null, text: '' } });
+  same(fit([meta(fresh)], {}, { exists: false, rev: null }), { [fresh.id]: 'ready' });
+  // A cycle, or a link to another session, makes a proposal invalid.
+  const x = proposal({ id: 'p-b1-aaaaaaaaaa', replaces: 'p-b2-aaaaaaaaaa' }), y = proposal({ id: 'p-b2-aaaaaaaaaa', replaces: 'p-b1-aaaaaaaaaa' });
+  same(fit([meta(x), meta(y)], {}, draft(base)), { [x.id]: 'invalid', [y.id]: 'invalid' });
+  const other = proposal({ id: 'p-b3-aaaaaaaaaa', session: 's-other0000000', replaces: p1.id });
+  same(fit([meta(p1), meta(other)], {}, draft(base)), { [p1.id]: 'ready', [other.id]: 'invalid' });
+});
+
+rule('The reviewed set: exactly the records a person saw, by name and SHA-256; anything added, changed or gone differs', () => {
+  const r = [{ name: 'a.json', sha: '1', rec: {} }, { name: 'b.json', sha: '2', rec: {} }];
+  const seen = PP.reviewed(r);
+  assert.ok(PP.sameSet(seen, PP.reviewed(r.slice().reverse())), 'order doesn\'t matter');
+  assert.ok(!PP.sameSet(seen, PP.reviewed(r.concat([{ name: 'c.json', sha: '3', rec: {} }]))), 'added');
+  assert.ok(!PP.sameSet(seen, PP.reviewed([r[0], { name: 'b.json', sha: '9', rec: {} }])), 'changed: same name, other bytes');
+  assert.ok(!PP.sameSet(seen, PP.reviewed([r[0]])), 'gone');
+  assert.ok(!PP.reviewed([{ name: 'x.json', sha: '1', rec: null }]), 'an unreadable record can\'t be in a reviewed set');
+});
+
+rule('Presence is fresh by its beat in elapsed time; on first sight by its clock; malformed counts as fresh', () => {
+  const rec = PP.presence({ writer: 'w1', by: 'person-avery', device: 'Windows · Edge', since: NOW, at: NOW, beat: 1, drafts: ['release'], main: [] });
+  const now = Date.parse(NOW);
+  // First sight: within 60 s on this computer's clock.
+  let f = PP.freshApp(rec, null, 1000, now + 30000);
+  assert.ok(f.fresh, 'first sight, 30 s old');
+  assert.ok(!PP.freshApp(rec, null, 1000, now + 61000).fresh, 'first sight, 61 s old');
+  // Then by its beat: unchanged for 60 s of elapsed time is stale, whatever the clock says.
+  f = PP.freshApp(rec, f.memo, 1000 + 59000, now - 3600000);
+  assert.ok(f.fresh, 'same beat, 59 s of elapsed time');
+  const stale = PP.freshApp(rec, f.memo, 1000 + 61000, now);
+  assert.ok(!stale.fresh, 'same beat, 61 s of elapsed time');
+  const beat = PP.freshApp(Object.assign({}, rec, { beat: 2 }), stale.memo, 1000 + 62000, now - 86400000);
+  assert.ok(beat.fresh, 'a new beat is fresh again, even with a clock far off');
+  // The command line looks once: at within 60 s, or ahead of this clock by up to 10 minutes.
+  assert.ok(PP.freshCli(rec, now + 59000));
+  assert.ok(!PP.freshCli(rec, now + 61000));
+  assert.ok(PP.freshCli(rec, now - 9 * 60000), 'another computer\'s clock ahead by 9 minutes');
+  assert.ok(!PP.freshCli(rec, now - 11 * 60000), 'more than 10 minutes ahead');
+  assert.ok(PP.freshCli(null, now), 'a malformed record counts as fresh: the safe outcome is a proposal');
+  assert.strictEqual(PP.cleanPresence({ kind: 'presence', pv: 1, writer: 'w1' }, 'w2.json'), null, 'a record that disagrees with its file name is malformed');
+});
+
+rule('The main editor: the highest claimRev among fresh editors wins; equal claims, or no claim and two editors, are ambiguous', () => {
+  const ed = (w, main) => PP.presence({ writer: w, by: 'person-' + w, device: 'D', since: NOW, at: NOW, beat: 1, drafts: ['release'], main: main || [] });
+  const c = (rev, seen) => [{ process: 'release', claimRev: rev, seen: seen || null }];
+  same(PP.mainOf('release', [ed('a')]), { writer: 'a', ambiguous: false, claimRev: 0 }, 'one editor, no claim');
+  assert.ok(PP.mainOf('release', [ed('a'), ed('b')]).ambiguous, 'two editors, no claim');
+  same(PP.mainOf('release', [ed('a', c(2)), ed('b', c(3)), ed('c')]).writer, 'b', 'three windows: the highest claim wins');
+  assert.ok(PP.mainOf('release', [ed('a', c(3)), ed('b', c(3))]).ambiguous, 'two claims with the same claimRev');
+  // A claim ends with its presence: only fresh presences are passed in, so b's claim is gone and a's decides.
+  same(PP.mainOf('release', [ed('a', c(2)), ed('c')]).writer, 'a');
+  // Make this the main editor: one more than the highest claim seen, naming it.
+  same(JSON.parse(JSON.stringify(PP.claim('release', [ed('a', c(2)), ed('b', c(3))]))), { process: 'release', claimRev: 4, seen: { writer: 'b', claimRev: 3 } });
+  same(JSON.parse(JSON.stringify(PP.claim('release', []))), { process: 'release', claimRev: 1, seen: null });
+  // Other processes' claims don't count.
+  same(PP.mainOf('release', [ed('a', [{ process: 'incident', claimRev: 9, seen: null }]), ed('b', c(1))]).writer, 'b');
+});
+
+rule('Presence files: each window writes its own; cleanup deletes only files over 24 hours old whose size and time didn\'t change, at most 20', async () => {
+  const fs = proposalFolder(), now = Date.parse(NOW), old = new Date(now - 25 * 3600000).toISOString();
+  await repo.writePresence(fs, PP.presence({ writer: 'live', by: 'person-avery', device: 'D', since: NOW, at: NOW, beat: 3, drafts: ['release'], main: [] }));
+  for (let i = 0; i < 25; i++) await repo.writePresence(fs, PP.presence({ writer: 'old' + i, by: 'person-avery', device: 'D', since: old, at: old, beat: 1, drafts: [], main: [] }));
+  const listed = await repo.loadPresence(fs);
+  assert.strictEqual(listed.length, 26);
+  assert.ok(listed.every(x => x.rec), 'all readable');
+  // A window renews old3 while cleanup is deciding: its file changes between the first look and the delete, so it stays.
+  const stat = fs.stat.bind(fs); let n = 0;
+  fs.stat = p => { if (p === 'presence/old3.json' && ++n === 2) { fs.files[p] = { t: JSON.stringify(PP.presence({ writer: 'old3', by: 'person-avery', device: 'D', since: old, at: NOW, beat: 2, drafts: ['release'], main: [] })), m: now + 5 }; } return stat(p); };
+  const gone = await repo.cleanPresence(fs, now);
+  assert.ok(gone <= 20, 'at most 20 a pass: ' + gone);
+  assert.ok(fs.files['presence/live.json'], 'a live file stays');
+  assert.ok(fs.files['presence/old3.json'], 'renewed during cleanup: kept');
+  const left = Object.keys(fs.files).filter(p => /^presence\/old/.test(p)).length;
+  assert.strictEqual(left, 25 - gone);
+  await repo.removePresence(fs, 'live');
+  assert.ok(!fs.files['presence/live.json']);
+  // Loading lists presence/ only when it's in the folder: an ordinary folder costs nothing extra.
+  const plain = proposalFolder(); let lists = [];
+  const list = plain.list.bind(plain); plain.list = p => { lists.push(p); return list(p); };
+  await repo.loadAll(plain);
+  assert.ok(lists.indexOf('presence') < 0 && lists.indexOf('proposed') < 0, lists.join());
+});
+
+rule('An older copy (1.18) loads a folder with proposed/ and presence/ exactly as without them; its Folder health lists them only under the generic checks', async () => {
+  const fsMod = require('fs'), path = require('path');
+  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? fsMod.readFileSync(path.join(__dirname, 'fixtures', 'repo-1.18.js'), 'utf8') : src);
+  const mk = extra => { const fs = new OLD.fs.MemoryFS('old:' + Math.random(), null); fs.reset(Object.assign({ 'people.json': people, 'maps/drafts/release.md': RELEASE }, extra || {})); return fs; };
+  const p = proposal(), at = PP.attempt({ proposal: p.id, proposalRev: p.rev, writer: 'w8d2k4', n: 1, how: 'apply', from: sha(RELEASE), by: 'person-casey', at: NOW });
+  const extra = {
+    ['proposed/release/' + p.id + '.json']: JSON.stringify(p), ['proposed/release/' + at.name]: JSON.stringify(at.rec),
+    'proposed/onboard/p-mh4k2c-bbbbbbbbbb.json': JSON.stringify(proposal({ id: 'p-mh4k2c-bbbbbbbbbb', process: 'onboard', base: { kind: 'none', ref: null, text: '' }, text: '---\nprocess: onboard\n---\n' })),
+    'presence/w8d2k4.json': JSON.stringify(PP.presence({ writer: 'w8d2k4', by: 'person-casey', device: 'D', since: NOW, at: NOW, beat: 1, drafts: ['release'], main: [] }))
+  };
+  const plain = await OLD.repo.loadAll(mk()), withNew = await OLD.repo.loadAll(mk(extra));
+  const shape = d => JSON.parse(JSON.stringify({ drafts: d.drafts.map(x => x.md), processes: d.processes, plans: d.plans, unreadable: d.unreadable, failed: d.failed, people: d.people }));
+  same(shape(withNew), shape(plain), 'the ordinary loaders never list the new folders');
+  // Folder health in the older copy: every file is listed and checked by its generic rules; the new folders add no issue.
+  const now = Date.parse(NOW);
+  const report = async fs => { const scan = await OLD.repo.scan(fs); return OLD.health.check({ data: await OLD.repo.loadAll(fs), scan, me: 'person-casey', app: '1.18.0' }, now); };
+  const a = await report(mk()), b = await report(mk(extra));
+  same(b.issues.map(i => i.id).sort(), a.issues.map(i => i.id).sort(), 'no new issues');
+  // A leftover temporary file in presence/ is reported like any other (the generic check applies there too).
+  const tmpFs = mk(Object.assign({}, extra, { 'presence/.w8d2k4.json.tmp': 'x' }));
+  tmpFs.files['presence/.w8d2k4.json.tmp'].m = now - 3 * 3600000;
+  const c = await report(tmpFs);
+  assert.ok(c.issues.some(i => i.id === 'tmp' && i.paths.indexOf('presence/.w8d2k4.json.tmp') >= 0), JSON.stringify(c.issues.map(i => i.id)));
+});
+
+rule('A correction that would take the draft over 1 MB is refused before anything is written', async () => {
+  const fs = folder(), r = await started(fs), C = PF.corrections;
+  const n = C.build({ id: 'c1', at: NOW, by: 'person-blake', session: 'blake-laptop', map: R.mapOf(r), step: 'pods', op: 'wording', to: 'New pods stay up for 20 minutes with no restarts, checked twice by the on-call engineer', version: 1, folder: r.folder });
+  await repo.addNote(fs, r, 'blake-laptop', n);
+  const g = C.status(C.groups(C.collect((await repo.loadAll(fs)).runs, 'release')), [])[0];
+  const base0 = fs.files['maps/drafts/release.md'].t + '\n<!-- ', tail = ' -->\n';
+  const base = base0 + 'x'.repeat(U.DRAFT_BYTES - U.utf8Bytes(base0) - U.utf8Bytes(tail)) + tail;
+  assert.strictEqual(U.utf8Bytes(base), U.DRAFT_BYTES, 'set-up: a draft exactly at the limit');
+  await fs.write('maps/drafts/release.md', base);
+  assert.ok(U.utf8Bytes(C.review(g, base).text) > U.DRAFT_BYTES, 'set-up: the correction makes it longer');
+  await assert.rejects(() => repo.applyCorrection(fs, { process: 'release', file: 'release.md', base, expect: U.hash(base), group: g }), e => e.tooBig);
+  assert.strictEqual(fs.files['maps/drafts/release.md'].t, base);
+});
+
+/* ---------- 1.19 slice 1, review 1: a proposal's state from all its records and relatives ---------- */
+const recOf = (x) => ({ name: x.name, sha: sha(JSON.stringify(x.rec)), rec: PP.cleanRecord(JSON.parse(JSON.stringify(x.rec)), x.name) });
+const ATT = (pid, w, n) => recOf(PP.attempt({ proposal: pid, proposalRev: 'a'.repeat(64), writer: w, n, how: 'apply', from: null, by: 'person-casey', at: NOW }));
+const DEC = (pid, w, r, status, extra) => recOf(PP.decision(Object.assign({ proposal: pid, proposalRev: 'a'.repeat(64), writer: w, decisionRev: r, seen: null, status, by: 'person-casey', at: NOW }, extra || {})));
+
+rule('Review 1: a decision settles the interrupted attempts it names, so Decline shows Declined and Apply again leaves nothing open', () => {
+  const pid = 'p-mh4k2a-x7w1k3m9p2', open = ATT(pid, 'w1', 1);
+  assert.strictEqual(PP.recState([open]).state, 'maybe');
+  same(PP.recState([open]).open, ['w1.1']);
+  const declined = DEC(pid, 'w2', 1, 'declined', { settles: ['w1.1'] });
+  assert.strictEqual(PP.recState([open, declined]).state, 'declined', 'the interrupted attempt is settled by the decline');
+  // Apply again: its own attempt, and an outcome that settles the earlier one too.
+  const again = [open, ATT(pid, 'w2', 1), DEC(pid, 'w2', 1, 'applied', { attempt: 'w2.1', settles: ['w1.1', 'w2.1'], result: { rev: 'b'.repeat(64) } })];
+  const st = PP.recState(again);
+  same([st.state, st.open], ['applied', []]);
+  // Marking the original as applied afterwards isn't a second application: the later decision settled it.
+  assert.strictEqual(PP.recState(again.concat([DEC(pid, 'w3', 2, 'applied', { attempt: 'w1.1', settles: ['w1.1'], result: { rev: 'b'.repeat(64) } })])).state, 'applied');
+  // Two windows that never saw each other's application are still Applied twice.
+  assert.strictEqual(PP.recState([ATT(pid, 'w1', 1), DEC(pid, 'w1', 1, 'applied', { attempt: 'w1.1', settles: ['w1.1'] }), ATT(pid, 'w2', 1), DEC(pid, 'w2', 1, 'applied', { attempt: 'w2.1', settles: ['w2.1'] })]).state, 'applied-twice');
+});
+
+rule('Review 1: another window\'s cancelled attempt at a higher decisionRev never hides an application that succeeded', () => {
+  const pid = 'p-mh4k2a-x7w1k3m9p2';
+  const recs = [ATT(pid, 'w1', 1), ATT(pid, 'w2', 1), DEC(pid, 'w1', 1, 'applied', { attempt: 'w1.1', settles: ['w1.1'], result: { rev: 'b'.repeat(64) } }), DEC(pid, 'w2', 2, 'cancelled', { attempt: 'w2.1', settles: ['w2.1'] })];
+  assert.strictEqual(PP.recState(recs).state, 'applied');
+  // Its dependent is a fast-forward once the draft is P1's text, whatever P1's records say.
+  const B = RELEASE.replace('Production release', 'B'), C = RELEASE.replace('Production release', 'C');
+  const p1 = proposal({ id: 'p-a1-aaaaaaaaaa', text: B }), dep = proposal({ id: 'p-a3-cccccccccc', base: { kind: 'proposal', ref: p1.id, text: B }, text: C, after: p1.id });
+  const meta = p => PP.check(JSON.parse(JSON.stringify(p)), p.id + '.json', 'release', 10).meta;
+  const fit = (r) => PP.judge([meta(p1), meta(dep)], { [p1.id]: r }, { exists: true, rev: sha(B) }).filter(x => x.id === dep.id)[0].fit;
+  assert.strictEqual(fit(recs.map(r => Object.assign({}, r, { name: r.name.replace(pid, p1.id), rec: Object.assign({}, r.rec, { proposal: p1.id }) }))), 'ready');
+  assert.strictEqual(fit([Object.assign(ATT(p1.id, 'w1', 1)), DEC(p1.id, 'w1', 1, 'cancelled', { attempt: 'w1.1', settles: ['w1.1'] })]), 'ready', 'P1 tried, yet the draft is its text: the dependent starts from the draft');
+});
+
+rule('Review 1: the 200-proposal list never drops a parent a listed proposal depends on', async () => {
+  const fs = proposalFolder(), B = RELEASE.replace('Production release', 'B');
+  const parent = proposal({ id: 'p-0-aaaaaaaaaa', text: B, at: '2026-01-01T00:00:00.000Z' });
+  await put(fs, parent);
+  for (let i = 0; i < 200; i++) await put(fs, proposal({ id: 'p-' + (1000000 + i).toString(36) + '-aaaaaaaaaa', at: new Date(Date.parse(NOW) + i * 1000).toISOString() }));
+  const dep = proposal({ id: 'p-zzzzzz-cccccccccc', base: { kind: 'proposal', ref: parent.id, text: B }, text: B + '\nmore\n', after: parent.id, at: '2026-12-01T00:00:00.000Z' });
+  await put(fs, dep);
+  const rel = (await repo.loadAll(fs)).proposed.procs.release;
+  assert.strictEqual(rel.shown.length, 200, 'still 200 listed');
+  assert.ok(rel.all.some(m => m.id === parent.id), 'every proposal\'s metadata is kept for judging');
+  const recs = {}; rel.all.forEach(m => { recs[m.id] = []; });
+  const x = PP.judge(rel.all, recs, { exists: true, rev: sha(B) }).filter(y => y.id === dep.id)[0];
+  assert.strictEqual(x.fit, 'ready');
 });
 
 run();

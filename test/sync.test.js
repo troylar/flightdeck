@@ -521,7 +521,7 @@ rule('Saved history: two computers editing one draft each append to their own fi
   await a.write(path, example('maps/drafts/release.md')); a.sync(); b.sync();
   /* One computer's save in the app: a checked save, then one line in its own history file. */
   const save = async (fs, writer, seq, seen, change) => {
-    const before = (await fs.read(path)).text, after = change(before), res = await repo.saveDraft(fs, 'release.md', after, H(before));
+    const before = (await fs.read(path)).text, after = change(before), res = await repo.saveDraft(fs, 'release.md', after, H(before), { expectText: before });
     if (!res.ok) return res;
     const id = writer + seq, rec = TL.histLine({ kind: 'draft-edit', id, process: 'release', writer, seq, by: 'person-' + writer, at: NOW, from: H(before), to: res.hash, seen, before, after, source: 'editor', units: [], items: [] });
     await repo.appendHistory(fs, dir, writer, [JSON.stringify(rec)], {});
@@ -539,7 +539,7 @@ rule('Saved history: two computers editing one draft each append to their own fi
   same(onA.items.map(x => x.gap ? 'gap' : x.entry.id), [c2, b1, c1], 'both writers\' saves, newest first, linked by fingerprints');
   same(onA, onB, 'the same on both computers');
   // A save refused because the other computer's change hadn't arrived writes no history line.
-  const stale = await repo.saveDraft(b, 'release.md', 'x', H('not what is there'));
+  const stale = await repo.saveDraft(b, 'release.md', 'x', H('not what is there'), { expectText: 'not what is there' });
   assert.ok(stale.conflict);
   assert.strictEqual(b.files[dir + '/blake.jsonl'].trim().split('\n').length, 1);
 });
@@ -578,6 +578,86 @@ rule('The open run on one computer shows the other\'s saved change on its next 5
   assert.strictEqual((await get(b)).details.commit, 'bbb222', 'the open run\'s reread reads run.json in full');
   const res = (await repo.loadAll(b, { clock })).reads['release/run1'];
   assert.ok(res.kind === 'fresh' ? res.run.details.commit === 'bbb222' : res.fileHash === (await get(b))._fileHash, 'and the routine refresh agrees with it');
+});
+
+/* ---------- 1.19 slice 1: proposals between two computers (docs/design.md section 27) ---------- */
+const PP = PF.proposals, SHA = t => PF.sha256.hex(t), DRAFT = 'maps/drafts/release.md';
+async function draftOnBoth() {
+  const two = await twoComputers();
+  await two.a.write(DRAFT, example('maps/drafts/release.md')); two.a.sync(); two.b.sync();
+  return two;
+}
+function proposalFrom(base, text, id) {
+  return PP.make({ id: id || 'p-mh4k2a-x7w1k3m9p2', process: 'release', session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: NOW, app: '1.19.0', base: { kind: 'draft', ref: DRAFT, text: base }, text, replaces: null, after: null, note: '' });
+}
+/* The acceptance transaction as one computer's window runs it, at the folder level: an attempt first, then the save with
+   the exact text it expects, then the outcome. */
+async function applyOn(fs, writer, p, expectText) {
+  const at = PP.attempt({ proposal: p.id, proposalRev: p.rev, writer, n: 1, how: 'apply', from: SHA(expectText), by: 'person-casey', at: NOW });
+  await repo.writeRecord(fs, 'release', at.name, at.rec);
+  const res = await repo.saveDraft(fs, 'release.md', p.text, PF.util.hash(expectText), { expectText });
+  const recs = await repo.listRecords(fs, 'release', p.id), st = PP.recState(recs);
+  const d = PP.decision({ proposal: p.id, proposalRev: p.rev, writer, decisionRev: st.nextRev, seen: st.seen, status: res.ok ? 'applied' : 'not-saved', attempt: writer + '.1', result: res.ok ? { rev: SHA(p.text) } : null, by: 'person-casey', at: NOW });
+  await repo.writeRecord(fs, 'release', d.name, d.rec);
+  return res;
+}
+
+rule('Known limit, pinned: a window on another computer that checked before the first attempt synced applies the proposal again; once synced, it shows Applied twice', async () => {
+  const { a, b } = await draftOnBoth(), A = example('maps/drafts/release.md'), B = A.replace('title: Production release', 'title: B');
+  const p = proposalFrom(A, B);
+  await a.write('proposed/release/' + p.id + '.json', JSON.stringify(p)); a.sync(); b.sync();
+  // Computer 1 applies A -> B, then the person takes it back and saves A.
+  assert.ok((await applyOn(a, 'w1', p, A)).ok);
+  assert.ok((await repo.saveDraft(a, 'release.md', A, PF.util.hash(B), { expectText: B })).ok);
+  // Computer 2 checked earlier and stalled; it resumes before computer 1's files arrive: it sees no attempt and a draft of A.
+  same((await repo.listRecords(b, 'release', p.id)).map(r => r.name), [], 'nothing from computer 1 yet');
+  assert.ok((await applyOn(b, 'w2', p, A)).ok, 'its save of B succeeds on its own copy');
+  a.sync(); b.sync(); a.sync();
+  assert.strictEqual(a.files[DRAFT], B, 'the change the person took back reappears: the documented limit');
+  const d = await repo.loadAll(a), recs = d.proposed.procs.release.records.filter(r => r.name.indexOf(p.id + '.') === 0);
+  assert.strictEqual(PP.recState(recs).state, 'applied-twice', 'and the proposal says so');
+});
+
+rule('A proposal written on one computer reaches the other and is listed there once it has synced whole', async () => {
+  const { a, b } = await draftOnBoth(), A = example('maps/drafts/release.md');
+  const p = proposalFrom(A, A.replace('title: Production release', 'title: From B'));
+  await b.write('proposed/release/' + p.id + '.json', JSON.stringify(p));
+  let d = await repo.loadAll(a);
+  assert.ok(!d.proposed || !d.proposed.procs.release, 'not there before sync');
+  b.sync(); a.sync();
+  d = await repo.loadAll(a);
+  same(d.proposed.procs.release.all.map(x => x.id), [p.id]);
+  const full = await repo.readProposal(a, 'release', p.id);
+  assert.strictEqual(full.proposal.text, p.text);
+});
+
+rule('Late presence: computer B writes the draft directly while A has unsaved work; A\'s save is refused and A\'s text is still A\'s', async () => {
+  const { a, b } = await draftOnBoth(), A = example('maps/drafts/release.md');
+  // A's window holds an editor, but its presence hasn't reached B.
+  await repo.writePresence(a, PP.presence({ writer: 'wa', by: 'person-casey', device: 'D', since: NOW, at: NOW, beat: 1, drafts: ['release'], main: [] }));
+  const seen = await repo.loadPresence(b);
+  assert.ok(!seen.some(x => x.rec && x.rec.drafts.indexOf('release') >= 0), 'B sees nobody editing');
+  const direct = A.replace('title: Production release', 'title: Direct');
+  assert.ok((await repo.saveDraft(b, 'release.md', direct, PF.util.hash(A), { expectText: A })).ok);
+  b.sync(); a.sync();
+  const mine = A.replace('title: Production release', 'title: Mine');
+  const res = await repo.saveDraft(a, 'release.md', mine, PF.util.hash(A), { expectText: A });
+  assert.ok(res.conflict && res.theirs === direct, 'refused, with theirs to compare');
+  assert.strictEqual(a.files[DRAFT], direct);
+  assert.ok(mine.indexOf('title: Mine') >= 0, 'A\'s text is the caller\'s to keep (the editor keeps it, with Keep mine / Take theirs)');
+});
+
+rule('Decisions from both computers with the same decisionRev show as Decided twice, and the proposal is never applied automatically', async () => {
+  const { a, b } = await draftOnBoth(), A = example('maps/drafts/release.md');
+  const p = proposalFrom(A, A.replace('title: Production release', 'title: P'));
+  await a.write('proposed/release/' + p.id + '.json', JSON.stringify(p)); a.sync(); b.sync();
+  const dec = (w, status) => PP.decision({ proposal: p.id, proposalRev: p.rev, writer: w, decisionRev: 1, seen: null, status, by: 'person-casey', at: NOW });
+  const da = dec('wa', 'declined'), db = dec('wb', 'reopened');
+  await repo.writeRecord(a, 'release', da.name, da.rec); await repo.writeRecord(b, 'release', db.name, db.rec);
+  a.sync(); b.sync(); a.sync();
+  const st = PP.recState(await repo.listRecords(b, 'release', p.id));
+  assert.strictEqual(st.state, 'decided-twice');
+  assert.strictEqual(st.auto, false);
 });
 
 run();

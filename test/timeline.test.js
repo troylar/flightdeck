@@ -289,4 +289,18 @@ rule('Saved history: a draft that went back and forth between two texts 10,000 t
   assert.ok(out[0].entry.id === 'e9999' && !out.some(x => x.gap), 'one chain, newest first');
 });
 
+rule('Saved history reads the sources agent and proposal and the proposal a save applied; an older reader says plain Saved', () => {
+  const line = o => JSON.parse(JSON.stringify(TL.histLine(Object.assign({ kind: 'draft-edit', id: 'h1', process: 'release', writer: 'p-mh4k2a-x7w1k3m9p2', seq: 1, by: 'person-avery', at: '2026-10-19T09:00:00.000Z', from: 'abcdef01', to: 'abcdef02', seen: null, before: 'a\n', after: 'b\n', units: [], items: [] }, o))));
+  const agent = TL.cleanEntry(line({ source: 'agent' }), 'agent-p-mh4k2a-x7w1k3m9p2.jsonl');
+  assert.strictEqual(agent.source, 'agent');
+  const prop = TL.cleanEntry(line({ source: 'proposal', proposal: 'p-mh4k2a-x7w1k3m9p2', writer: 'w8d2k4' }), 'w8d2k4.jsonl');
+  same([prop.source, prop.proposal], ['proposal', 'p-mh4k2a-x7w1k3m9p2']);
+  assert.strictEqual(TL.cleanEntry(Object.assign(line({ source: 'proposal' }), { proposal: '../x' }), 'w.jsonl').proposal, undefined, 'a proposal ID out of the format is dropped');
+  // An older copy's reader (1.18's SOURCES) gives '' for a source it doesn't know, which History shows as "Saved".
+  const fsMod = require('fs'), src = fsMod.readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'timeline.js'), 'utf8');
+  const OLD = load(false, (f, s2) => f === 'core/timeline.js' ? src.replace(/var SOURCES = \[[^\]]*\]/, "var SOURCES = ['editor', 'restore', 'reverse', 'keep-mine', 'new', 'correction']") : s2);
+  assert.strictEqual(OLD.timeline.cleanEntry(line({ source: 'agent' }), 'agent-x.jsonl').source, '');
+  assert.ok(TL.SOURCES.indexOf('agent') >= 0 && TL.SOURCES.indexOf('proposal') >= 0);
+});
+
 run();

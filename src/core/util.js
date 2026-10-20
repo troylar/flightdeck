@@ -173,6 +173,28 @@ PF.util = (function () {
     return out;
   }
 
-  return { drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
+  /* ---------- The draft size limit (docs/design.md section 27) ----------
+     One limit for every draft read and write, in UTF-8 bytes, so Flightdeck never saves a draft it would refuse to read. */
+  var DRAFT_BYTES = 1048576;
+  function utf8Bytes(s) {
+    var n = 0; s = String(s);
+    for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 && i + 1 < s.length && s.charCodeAt(i + 1) >= 0xdc00 && s.charCodeAt(i + 1) < 0xe000 ? (i++, 4) : 3; }
+    return n;
+  }
+  /* Megabytes for people: up (1.01, never "1.0" for a draft just over), or to the nearest when rounding down is fine. */
+  function mbUp(bytes, places) { var f = Math.pow(10, places); return String(Math.ceil(bytes / 1048576 * f) / f); }
+  /* null when text fits, else { bytes, limit, why }: what a refused save says, word for word. */
+  function draftTooBig(text) {
+    var b = utf8Bytes(text);
+    if (b <= DRAFT_BYTES) return null;
+    return { bytes: b, limit: DRAFT_BYTES, why: 'Not saved: this draft is ' + mbUp(b, 1) + ' MB, and Flightdeck saves drafts up to 1 MB. Shorten it by about ' + mbUp(b - DRAFT_BYTES, 1) + ' MB (long notes or pasted logs are the usual cause), then save. Your text is still here.' };
+  }
+  /* The size the editor's header shows from 90% of the limit ("0.95 of 1 MB"), else ''. */
+  function draftSize(text) {
+    var b = utf8Bytes(text);
+    return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
+  }
+
+  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();

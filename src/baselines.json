@@ -19,7 +19,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/good-checklists.md": {
@@ -37,7 +38,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/map-format.md": {
@@ -61,7 +63,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
@@ -78,6 +81,9 @@
         "1.16.1",
         "1.17.0",
         "1.18.0"
+      ],
+      "22ccef7b9bb13d524b6e960442ad451859e45f3e740952fa1db439bdf9eabe2b": [
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
@@ -102,6 +108,9 @@
       "500b6f21530375c36e82d812a2e4d072fd1aad3499f4696faaf9596d5b478443": [
         "1.17.0",
         "1.18.0"
+      ],
+      "922aada9dc64ba9098bf555f182ca1b814dda70fedd53bf238f532f495429a5f": [
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
@@ -118,6 +127,9 @@
         "1.16.1",
         "1.17.0",
         "1.18.0"
+      ],
+      "bcb5b3b5870f67eaabd96201186c08a58e4cd7d73aa9edcc0e70653beb61159a": [
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
@@ -135,7 +147,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-plan-run/SKILL.md": {
@@ -153,7 +166,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
@@ -173,7 +187,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
@@ -193,7 +208,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     ".flightdeck/skills/flightdeck-status/SKILL.md": {
@@ -213,7 +229,8 @@
         "1.16.0",
         "1.16.1",
         "1.17.0",
-        "1.18.0"
+        "1.18.0",
+        "1.19.0"
       ]
     },
     "AGENTS.md#flightdeck": {
@@ -244,6 +261,9 @@
       "9bad444863c2b2efc5ba3dabc18ec8a3f4c936beb9d45b1cd84282f84a3c6c78": [
         "1.17.0",
         "1.18.0"
+      ],
+      "7380a08b546b0627e3140d8e710d346b822c782fe46484c5a6122177ae53b779": [
+        "1.19.0"
       ]
     }
   }

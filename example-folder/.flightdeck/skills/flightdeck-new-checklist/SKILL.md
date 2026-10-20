@@ -33,11 +33,11 @@ If the folder has `step-types/` or `jira/workflows.json`, read them too: use the
    - A gate with `owner @role` and `approves:` where approval matters.
    - Explanations, links and gotchas in `>` notes. Reference screenshots only if they already exist in `images/`.
 4. **Check it yourself** against the format and guide before saving: unique IDs, known types, choice values from the allowed list, roles and `^details` declared in the front matter, no step over about 12 words, no filler openings, no secrets.
-5. **Save** to `maps/drafts/<process>.md`. Drafts have one writer at a time, so confirm with the person that nobody else is drafting this process, and check again that the file doesn't exist yet; if it does, stop and report instead of overwriting. Never write to `publications/` or `runs/`.
+5. **Save** with `flightdeck draft save <team folder> <process> --expect none --from <your file> --json`. It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist waits as a proposal that a person applies in Flightdeck (say so in your report). Without the command, check again that the file doesn't exist yet; if it does, stop and report instead of overwriting. Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `runs/`, `proposed/` or `presence/`.
 
 ## Report back
 
-- The path you wrote.
+- The path you wrote, or that it waits as a proposal on the process page.
 - A short outline: phases, number of steps, must-dos, gates.
 - Any `## Questions for the owner` still open. The checklist can't be published until they're answered and removed.
 - Next step for the person: open the process in Flightdeck, read the checks on its page, and publish.

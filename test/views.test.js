@@ -2168,4 +2168,110 @@ rule('The run\'s More menu offers Copy run key, with the key other apps use (pro
   assert.ok(/<button type="button" class="mini" data-act="copy-run-key" data-id="release\/run1">Copy run key<\/button>/.test(V.run(ctx)));
 });
 
+/* ---------- 1.19 slice 1: proposals and who's editing (docs/design.md section 27) ---------- */
+function proposalPage(extra) {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest, md = latest.md;
+  const p = Object.assign({ id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md }, draftChanged: false }, extra || {});
+  ctx.processes = () => [p]; ctx.data.validations = []; state.processId = 'release'; state.view = 'process';
+  return { ctx, state, p, md };
+}
+const item = (id, fit, st, more) => Object.assign({ id, fit, rec: { state: st || 'pending', auto: (st || 'pending') === 'pending' }, meta: { id, process: 'release', session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: NOW, note: 'Added the smoke-test step', base: { kind: 'draft' }, size: 1000 } }, more || {});
+
+rule('Process page: proposals are listed with what each is waiting for, and Review, Apply, Decline and Reopen where they apply', () => {
+  const { ctx, p } = proposalPage();
+  p.proposed = { list: [item('p-a1-aaaaaaaaaa', 'ready'), item('p-a2-bbbbbbbbbb', 'older'), item('p-a3-cccccccccc', 'already', 'maybe'), item('p-a4-dddddddddd', 'declined', 'declined'), item('p-a5-eeeeeeeeee', 'waiting'), item('p-a6-ffffffffff', 'applied-twice', 'applied-twice'), item('p-a7-gggggggggg', 'ready', 'decided-twice'), item('p-a8-hhhhhhhhhh', 'replaced')], bad: [{ name: 'p-zz-zzzzzzzzzz.json', why: 'doesn\'t match its hash yet' }], older: 40 };
+  const html = V.process(ctx);
+  assert.ok(/id="pp-h"[^>]*>Proposed changes · 8</.test(html), 'a panel with how many');
+  assert.ok(/Added the smoke-test step/.test(html), 'what the assistant said it did');
+  assert.ok(/data-act="prop-apply" data-id="p-a1-aaaaaaaaaa"/.test(html), 'a fast-forward with no records: Apply');
+  assert.ok(!/data-act="prop-apply" data-id="p-a2-bbbbbbbbbb"/.test(html) && /This started from an older draft\./.test(html), 'not a fast-forward: waits, with Review');
+  assert.ok(/May already be applied/.test(html) && !/data-act="prop-apply" data-id="p-a3-cccccccccc"/.test(html), 'tried before: Review first');
+  assert.ok(/data-act="prop-reopen" data-id="p-a4-dddddddddd"/.test(html) && !/data-act="prop-apply" data-id="p-a4/.test(html), 'declined: Reopen');
+  assert.ok(/Waiting for an earlier proposal/.test(html) && /Applied twice/.test(html) && /Decided twice/.test(html) && /Replaced by a newer proposal/.test(html));
+  assert.ok(/data-act="prop-review" data-id="p-a2-bbbbbbbbbb"/.test(html) && /data-act="prop-decline" data-id="p-a1-aaaaaaaaaa"/.test(html));
+  assert.ok(/1 proposal can.t be read yet/.test(html), 'one that can\'t be read yet is named');
+  assert.ok(/and 40 older proposals/.test(html));
+});
+
+rule('Process page: a process with only a proposal has a page that says so, and Processes lists it', () => {
+  const { ctx, state, p } = proposalPage({ latest: null, all: [], draft: null, title: 'onboard', id: 'onboard', proposedOnly: true });
+  state.processId = 'onboard';
+  p.proposed = { list: [item('p-a1-aaaaaaaaaa', 'ready')], bad: [], older: 0 };
+  const html = V.process(ctx);
+  assert.ok(/Proposed, not drafted yet/.test(html) && /data-act="prop-review"/.test(html), html.slice(0, 400));
+  state.view = 'processes';
+  assert.ok(/Proposed, not drafted yet/.test(V.processesPage(ctx)));
+});
+
+rule('Who is editing: the process page and the editor say who and on which computer, as far as this computer can see, and Edit becomes Edit anyway', () => {
+  const { ctx, state, p, md } = proposalPage();
+  p.editing = [{ writer: 'w2', by: 'person-avery', device: 'Windows · Edge', ago: 8000, main: false }];
+  let html = V.process(ctx);
+  assert.ok(/Being edited by Avery Lee on Windows · Edge<\/b> \(seen 8 seconds ago\)/.test(html), html.match(/Being edited[^<]*/));
+  assert.ok(/Flightdeck shows the editors this computer can see right now\./.test(html));
+  assert.ok(/data-act="ptab" data-id="edit"[^>]*>[\s\S]{0,3000}Edit anyway</.test(html), 'Edit anyway');
+  state.ptab = 'edit'; state.editor = { pid: 'release', base: md, baseHash: 'x', text: null };
+  html = V.process(ctx);
+  assert.ok(/Being edited by Avery Lee on Windows · Edge/.test(html), 'in the editor too');
+  assert.ok(/data-act="main-editor"[^>]*>Make this the main editor</.test(html));
+  p.main = { me: false, ambiguous: true, claimRev: 3 };
+  assert.ok(/Two editors claimed this draft at once\. Choose Make this the main editor to settle it\./.test(V.process(ctx)));
+  p.main = { me: false, ambiguous: false, by: 'person-avery', lost: true };
+  assert.ok(/Avery Lee made their editor the main one for this draft\. You can still edit and save\./.test(V.process(ctx)));
+  p.main = { me: true, ambiguous: false };
+  assert.ok(/This is the main editor for this draft\./.test(V.process(ctx)));
+});
+
+rule('Editor: a proposal that arrives says so with Review, and with unsaved changes says it waits for review; the size shows from 90%', () => {
+  const { ctx, state, p, md } = proposalPage();
+  state.ptab = 'edit'; state.builder = false;
+  state.editor = { pid: 'release', base: md, baseHash: 'x', text: null };
+  p.proposed = { list: [item('p-a1-aaaaaaaaaa', 'ready')], bad: [], older: 0 };
+  let html = V.process(ctx);
+  assert.ok(/Your AI assistant proposed changes\./.test(html) && /data-act="prop-review" data-id="p-a1-aaaaaaaaaa"/.test(html), 'with Review');
+  state.editor.text = md + '\nmine';
+  html = V.process(ctx);
+  assert.ok(/Your AI assistant proposed changes while you have unsaved ones\. They.ll wait for you to review them\./.test(html));
+  state.editor.text = md + '\n' + 'x'.repeat(Math.floor(0.95 * 1048576));
+  assert.ok(/0\.95 of 1 MB/.test(V.process(ctx)), 'the size in the header');
+  // The notice region is not a live region: messages are announced once, through #live.
+  assert.ok(!/class="fpe-alerts"[^>]*aria-live/.test(V.process(ctx)));
+});
+
+rule('Review: the change against the draft, its checks, what happened before, and the right actions; nothing from the file reaches the page unescaped', () => {
+  const { ctx, md } = proposalPage();
+  const evil = '<img src=x onerror=alert(1)>';
+  const text = md.replace('title: Production release', 'title: ' + evil);
+  const ov = { propReview: true, pid: 'release', id: 'p-a1-aaaaaaaaaa', item: item('p-a1-aaaaaaaaaa', 'ready', 'pending', { meta: Object.assign(item('x', 'ready').meta, { id: 'p-a1-aaaaaaaaaa', note: evil, label: evil }) }), proposal: { text, base: { kind: 'draft', text: md } }, draftText: md, records: [], reviewed: [] };
+  let html = V.proposalReview(ctx, ov);
+  assert.ok(!/<img/.test(html) && /&lt;img src=x onerror=alert\(1\)&gt;/.test(html), 'escaped');
+  assert.ok(/role="dialog"/.test(html) && /aria-modal="true"/.test(html) && /id="pr-t"/.test(html));
+  assert.ok(/class="add">\+ title: &lt;img/.test(html), 'the change, line by line');
+  assert.ok(/data-act="prop-apply"/.test(html) && /data-act="prop-decline"/.test(html));
+  // An interrupted attempt: compare, Mark as applied, Apply again.
+  ov.item = item('p-a1-aaaaaaaaaa', 'ready', 'maybe');
+  ov.records = [{ name: 'p-a1-aaaaaaaaaa.attempt.w8d2k4.1.json', sha: 'a'.repeat(64), rec: { kind: 'attempt', attempt: 'w8d2k4.1', how: 'apply', by: 'person-casey', at: NOW } }];
+  html = V.proposalReview(ctx, ov);
+  assert.ok(/Flightdeck started applying this but couldn.t record what happened\./.test(html) && /data-act="prop-mark-applied"/.test(html) && />Apply again</.test(html));
+  // Already in the draft: Mark as applied, never Apply.
+  ov.item = item('p-a1-aaaaaaaaaa', 'already', 'maybe'); ov.draftText = text;
+  html = V.proposalReview(ctx, ov);
+  assert.ok(/Already in the draft/.test(html) && /data-act="prop-mark-applied"/.test(html) && !/data-act="prop-apply"/.test(html));
+  // Not a fast-forward: says so, no Apply.
+  ov.item = item('p-a1-aaaaaaaaaa', 'older'); ov.draftText = md + '\nmore';
+  html = V.proposalReview(ctx, ov);
+  assert.ok(/This started from an older draft\./.test(html) && !/data-act="prop-apply"/.test(html));
+  // A record that can't be read: says which file, no Apply.
+  ov.item = item('p-a1-aaaaaaaaaa', 'unknown', 'unknown'); ov.draftText = md;
+  ov.records = [{ name: 'p-a1-aaaaaaaaaa.zz.1.json', sha: 'b'.repeat(64), rec: null }];
+  html = V.proposalReview(ctx, ov);
+  assert.ok(/p-a1-aaaaaaaaaa\.zz\.1\.json/.test(html) && /can.t be read/.test(html) && !/data-act="prop-apply"/.test(html));
+  // Thousands of changed lines: too many to show line by line.
+  ov.item = item('p-a1-aaaaaaaaaa', 'ready'); ov.records = [];
+  ov.proposal = { text: Array.from({ length: 5000 }, (x, i) => 'b' + i).join('\n'), base: { kind: 'draft', text: '' } };
+  ov.draftText = Array.from({ length: 5000 }, (x, i) => 'a' + i).join('\n');
+  assert.ok(/Too many changes to show line by line/.test(V.proposalReview(ctx, ov)));
+});
+
 run();
