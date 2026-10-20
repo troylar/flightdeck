@@ -145,6 +145,11 @@
     followUps: function () { return fuMemo || (fuMemo = PF.followups.list(data.runs, data.fuDecisions || [])); },
     /* Insights (views/insights.js) worked out once per redraw, like the follow-ups. */
     get insightsMemo() { return insMemo; },
+    /* Reports on a run (PF.reports): read for the run that's open, with where each stands. */
+    reports: function (r) { return reportsOf(r); },
+    reportCur: function () { return repCur(); },
+    /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
+    reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
       if (!fixMemo[pid]) { var proc = processes().filter(function (x) { return x.id === pid; })[0]; fixMemo[pid] = PF.corrections.forProcess(data.runs, pid, data.corrDecisions, proc); }
       return fixMemo[pid];
@@ -434,7 +439,7 @@
       if (newer !== state.newer) { state.newer = newer; renderTop(); }
     }, function () {});
   }
-  var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null);
+  var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null), repMemo = Object.create(null), repCurMemo = null;
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
@@ -515,7 +520,8 @@
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
-      (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); })]);
+      (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); }),
+      d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; })]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -599,19 +605,21 @@
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
       (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
+      (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
       navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
+      finishAccepts();
     }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     var drafts = {};
@@ -844,7 +852,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null;
+    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1216,7 +1224,7 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
-    procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null);
+    procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -1595,6 +1603,7 @@
         landed._fileHash = U.hash(wrote.text); landed._overflow = [];
         var landedText = JSON.stringify(landed);
         keepBaseline(r.id, function () { return JSON.parse(landedText); });
+        finishAccepts(key, landed, rev);
       }
       runOutcome(key, 'run'); bump('~' + r.id);
       render();
@@ -3327,7 +3336,7 @@
   }
   function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
   /* How a run's screen is shown starts over; input was already kept by leaveContext (setView calls it). */
-  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; }
+  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; state.repPick = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
@@ -4443,6 +4452,15 @@
     },
     'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? '.rw-menu > summary' : '.rw-tools > [data-act="run-details"]'; render(); },
     'run-fu': function (id) { state.fuOpen = !state.fuOpen; state.focus = '[data-act="run-fu"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
+    'run-reports': function (id) { state.repOpen = !state.repOpen; state.focus = '[data-act="run-reports"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
+    /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */
+    'rep-accept': function (id) { repOpenForm(id, 'accept'); },
+    'rep-decline': function (id) { repOpenForm(id, 'decline'); },
+    'rep-cancel': function (id) { state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'rep-accept-go': function (id) { acceptReport(id); },
+    'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
+    'rep-reopen': function (id) { decideOnReport(id, 'open'); },
+    'rep-record': function (id) { recordAccept(id); },
     help: function () { openOverlay({ html: function () { return V.help(ctx); } }); },
     /* A quick way between the checklist and the selected step, for keyboards and screen readers. */
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
@@ -4453,6 +4471,7 @@
       /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
       var base = baselines[r.id];
       if (base) { var back = base.make(); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = back; bump(r.id); }
+      dropAccepts(r.process + '/' + r.id);
       delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
     },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
@@ -4805,6 +4824,176 @@
       }
       return load(true);
     }, function (e) { settle(); if (gg !== gen) return; say('Couldn\'t save what became of it: ' + e.message, 'bad'); render(); });
+  }
+  /* ---------- reports from tools (PF.reports, docs/design.md section 26) ---------- */
+  /* Report contents are read only for the run that's open (repo.loadRunReports), again after each read of the folder, so a
+     file replaced under the same name is never shown from an old read. A run with no report names costs nothing. */
+  var repCache = Object.create(null);
+  function repLoad(r) {
+    var X = PF.reports, rep = data.reports;
+    if (!r || !rep || !state.fs) return null;
+    var key = r.process + '/' + r.id, names = rep.files.filter(function (f) { return f.process === r.process && f.run === r.id; }).map(function (f) { return f.name; });
+    var unsure = rep.files.length >= X.LIMITS.reports || !!(data.failed || {}).reports || rep.bad.some(function (b) { return b.path === X.DIR + '/' + r.process + '/'; });
+    if (!names.length && !unsure) return null;
+    var k = fsKey() + '\n' + key, e = repCache[k], sigN = names.join('/') + '@' + data.readAt;
+    if (e && (e.loading || e.sig === sigN)) return e;
+    var g = gen, ne = { sig: sigN, list: e ? e.list : [], badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: true };
+    repCache[k] = ne;
+    repo.loadRunReports(state.fs, r.process, r.id).then(function (res) {
+      if (g !== gen) return;
+      ne.list = res.list.map(function (g) { return { g: g, depth: g.order ? g.order.depth : 0, note: g.order ? g.order.note : '' }; }); ne.badNames = res.badNames; ne.failed = res.failed; ne.loading = false;
+      render();
+    }, function (err) { if (g !== gen) return; ne.failed = err && err.message || String(err); ne.loading = false; render(); });
+    return ne;
+  }
+  function repCur() { return repCurMemo || (repCurMemo = PF.reports.current(data.repDecisions || [])); }
+  function reportsOf(r) {
+    if (!r) return null;
+    var key = r.process + '/' + r.id;
+    if (repMemo[key]) return repMemo[key];
+    var e = repLoad(r), cur = repCur(), list = e ? e.list : [];
+    return (repMemo[key] = { list: list, badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: !!(e && e.loading), cur: cur,
+      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur), pending: pendingAccepts(key), readOnly: repReadOnly(r),
+      fillOpen: function (id) { return fillOpenOn(key, id); } });
+  }
+  function reportsWaiting() {
+    if (!state.me || !data.reports) return {};
+    var keys = Object.create(null);
+    data.runs.forEach(function (r) { if (r.state === 'running' && !r.ended && r.recorder.person === state.me) keys[r.process + '/' + r.id] = true; });
+    return PF.reports.undecided(data.reports.files, repCur(), keys);
+  }
+  /* Why the open run can't take an answer here, as mutateRun would say it, or ''. */
+  function repReadOnly(r) { return r._unrunnable ? r._unrunnable + ' This run is read-only here.' : runUnread(r) || (state.recovering ? 'Wait until the copy is kept, then try again.' : ''); }
+  function fillOpenOn(key, id) {
+    var d = draftOf(key, id, false);
+    return !!((state.pick && state.pick.kind === 'fields' && state.pick.id === id && state.runKey === key) || (d && (d.open || Object.keys(d.fields).length)));
+  }
+  function repItem(id) { var r = ctx.run(), b = reportsOf(r); return { r: r, b: b, it: b ? b.list.filter(function (x) { return x.g.key === id; })[0] : null }; }
+  function repOpenForm(id, mode) {
+    var o = repItem(id);
+    if (!o.it || !ctx.recording(o.r)) return;
+    var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
+    state.repPick = { key: id, mode: mode, reason: '' };
+    if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
+    state.focus = mode === 'decline' ? 'rep-reason' : 'rep-' + n + '-cf';
+    render();
+  }
+  /* Acceptances this window made whose decision isn't written yet, per folder (docs/design.md section 26): kept across a
+     failed save, Try again and a folder switch; dropped by Discard my change. */
+  function acceptsOf(fk) { var all = state.reportIntents || (state.reportIntents = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
+  function pendingAccepts(key) { var ins = acceptsOf(); return Object.keys(ins).filter(function (k) { return ins[k].runKey === key; }).map(function (k) { return { key: ins[k].gkey, err: ins[k].err }; }); }
+  function dropAccepts(key) { var ins = acceptsOf(); Object.keys(ins).forEach(function (k) { if (ins[k].runKey === key && !ins[k].writing) delete ins[k]; }); }
+  /* Accept: the bytes are read again and must be the ones shown, then the answer goes through answerStep like every answer. */
+  function acceptReport(id) {
+    var o = repItem(id);
+    if (!o.it || state.repSaving) return;
+    var X = PF.reports, g = o.it.g, key = o.r.process + '/' + o.r.id, gg = gen, fk = fsKey(), dfs = state.fs;
+    var copy = g.copies.filter(function (c) { return c.ok && c.sha256 === g.sha256; })[0];
+    if (!copy) return;
+    state.repSaving = id; render();
+    repo.rereadReport(dfs, g.process, copy.name).then(function (now) {
+      if (gg !== gen) return;
+      state.repSaving = null;
+      if (!now || !now.report || now.sha256 !== g.sha256) { delete repCache[fk + '\n' + key]; state.repPick = null; say('This report changed in the team folder since it was shown, so nothing was accepted. Look at it again, then decide.', 'warn'); render(); return; }
+      var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2);
+      var el = X.eligible(g, r2, map, { recording: ctx.recording(r2), readOnly: r2 ? repReadOnly(r2) : '', fillOpen: fillOpenOn(key, g.step) });
+      if (!el.ok) { say(el.why, 'warn'); render(); return; }
+      var cur = repCur()[g.key];
+      return answerStep(key, g.step, { how: 'report', report: { g: g, sha: g.sha256, values: el.values, schema: el.schema, inputs: el.applies.result === 'match' ? 'match' : 'unknown', cur: cur ? cur.d : null, fk: fk } });
+    }, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t read the report again: ' + (e && e.message || e), 'bad'); render(); });
+  }
+  function reportCheck(key, id, rp) {
+    var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
+    if (!x || !rp) return { why: '' };
+    if (fillOpenOn(key, id)) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
+    return { r: r, map: map, x: x, values: rp.values };
+  }
+  /* Inside the run's change: the decision is built first (so nothing changes if it can't be), then the answer with exactly the
+     report's evidence and the log line naming the SHA-256 of the bytes accepted. Returns the acceptance to finish. */
+  function acceptInto(r2, map2, id, me, now, rp) {
+    var X = PF.reports, x = M.findStep(map2, id);
+    var rec = X.decision(rp.g, rp.sha, 'accepted', me, now, rp.cur, { answer: { at: now, by: me, fp: X.fingerprint(rp.values, rp.schema) }, inputs: rp.inputs });
+    R.done(r2, map2, id, me, now, rp.values, { exact: true });
+    R.log(r2, me, now, X.logLine(rp.g, rp.sha, x.step.text));
+    rec.answer.fp = X.fingerprint(r2.steps[id].values || {}, rp.schema);
+    return { k: rp.g.key, gkey: rp.g.key, runKey: r2.process + '/' + r2.id, step: id, at: now, by: me, fp: rec.answer.fp, schema: rp.schema, rec: rec, fk: rp.fk, err: '', tried: false };
+  }
+  /* An acceptance's decision is written only once the team folder holds exactly its answer: after a save that carried it (first
+     try or Try again; key, landed, rev), or when a read finds it there (no key: this folder opened again). A save that carried
+     it but holds another answer means the step changed since, so nothing was accepted and no decision is written. */
+  function finishAccepts(key, landed, rev) {
+    var ins = acceptsOf();
+    Object.keys(ins).forEach(function (k) {
+      var it = ins[k];
+      if (it.writing || (key != null && it.runKey !== key)) return;
+      var r = key != null ? landed : ctx.findRun(it.runKey);
+      if (key == null && (!r || it.tried || state.unsaved[r.id] || (state.pendingSaves || {})[r.id])) return;
+      if (key != null && it.rev > rev) return;
+      if (PF.reports.landed(r, it)) { writeAccept(it); return; }
+      if (key != null) delete ins[k];
+    });
+  }
+  /* The decision file, written once; a retry after a lost answer finds the same bytes and succeeds (repo.decideReport). */
+  function writeAccept(it) {
+    var dfs = state.fs, g = gen, ins = acceptsOf(it.fk);
+    it.writing = true; it.tried = true; it.err = '';
+    return queued(function () { return repo.decideReport(dfs, it.rec, WRITER); }).then(function () {
+      it.writing = false; if (ins[it.k] === it) delete ins[it.k];
+      if (g !== gen) return true;
+      say('Report accepted. The step is checked with its evidence.', 'good');
+      load(true); return true;
+    }, function (e) {
+      it.writing = false; it.err = e && e.message || String(e);
+      if (g === gen) { say('The step is checked, but the decision on the report couldn\'t be saved: ' + it.err + ' Choose Record the decision to try again.', 'bad'); render(); }
+      return false;
+    });
+  }
+  /* Decline (with a reason) and Reopen write a decision file only; run.json never changes. */
+  function decideOnReport(id, status) {
+    var o = repItem(id);
+    if (!o.it || state.repSaving) return;
+    if (!ctx.recording(o.r)) { say('Only the recorder can decide on a report.', 'warn'); render(); return; }
+    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], reason = status === 'declined' ? val('rep-reason') : '', rec;
+    try { rec = X.decision(g, g.sha256, status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
+    catch (e) { if (e.field) { if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: e.field, msg: e.message }; state.focus = e.field; } else say(e.message, 'warn'); render(); return; }
+    var dfs = state.fs, gg = gen;
+    state.repSaving = id; render();
+    queued(function () { return repo.decideReport(dfs, rec, WRITER); }).then(function () {
+      if (gg !== gen) return;
+      state.repSaving = null; state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
+      say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
+      state.focus = 'ins-reps';
+      return load(true);
+    }, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t save the decision: ' + (e && e.message || e), 'bad'); render(); });
+  }
+  /* Record the decision: this window's acceptance whose write failed, or (recovery) one the run's log names, built only from
+     a copy with exactly the logged SHA-256, never from other bytes. */
+  function recordAccept(id) {
+    var o = repItem(id), r = o.r;
+    if (!r) return;
+    var X = PF.reports, key = r.process + '/' + r.id, ins = acceptsOf(), mine = ins[id];
+    if (mine && mine.runKey === key) {
+      if (mine.writing) return;
+      if (state.unsaved[r.id] || (state.pendingSaves || {})[r.id]) { say('The run isn\'t saved yet. The decision is recorded once the step is saved.', 'warn'); render(); return; }
+      if (!X.landed(r, mine)) { delete ins[id]; say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
+      writeAccept(mine); render(); return;
+    }
+    var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
+    if (!u || !u.recordable || !ctx.recording(r) || state.repSaving) return;
+    var g = u.g, copy = g.copies.filter(function (c) { return c.ok && c.sha256 === u.sha256; })[0], dfs = state.fs, gg = gen, fk = fsKey();
+    if (!copy) return;
+    state.repSaving = id; render();
+    repo.rereadReport(dfs, g.process, copy.name).then(function (now) {
+      if (gg !== gen) return;
+      state.repSaving = null;
+      if (!now || !now.report || now.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
+      var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
+      if (!a || a.s !== 'done' || a.at !== u.at || a.by !== u.by) { say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
+      var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
+      try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
+      catch (e) { say(e.message, 'warn'); render(); return; }
+      return queued(function () { return repo.decideReport(dfs, rec, WRITER); }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
+    }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
   function recover(getCopy, logPrefix, cleanup) {
@@ -5325,7 +5514,7 @@
      elsewhere) }. Resolves true only when the answer is saved in the team folder: a refused or failed save resolves false, and
      its own message (the conflict, or the unsaved change with Try again) says what happened. */
   function answerStep(key, id, o) {
-    var g = gen, here = state.view === 'run' && state.runKey === key, quiet = !!o.quiet || !here, c = answerCheck(key, id);
+    var g = gen, here = state.view === 'run' && state.runKey === key, quiet = !!o.quiet || !here, c = o.how === 'report' ? reportCheck(key, id, o.report) : answerCheck(key, id), intent = null;
     if (!c.r) {
       if (quiet || !c.why) return Promise.resolve(false);
       selectStep(id); state.refOpen = true;
@@ -5335,10 +5524,14 @@
     var was = here ? nextStepId(c.r, c.map) : null, applied = false;
     var saving = mutateRun(key, g, function (r2, map2, me, now) {
       if (o.how === 'differently') R.doneDifferently(r2, map2, id, o.happened, me, o.at || now, c.values);
+      else if (o.how === 'report') intent = acceptInto(r2, map2, id, me, now, o.report);
       else R.done(r2, map2, id, me, now, c.values);
       applied = true;
     }, quiet ? { only: id, background: true } : { only: id });
-    if (applied) { dropDraft(key, id, ['record']); if (!quiet && state.view === 'run' && state.runKey === key) afterAnswer(id, was); }
+    /* An accepted report leaves the step's own drafts (evidence typed, a note) as they are. */
+    if (intent) { intent.rev = edits(c.r.id); acceptsOf(o.report.fk)[intent.k] = intent; state.repPick = null; }
+    if (applied && o.how !== 'report') dropDraft(key, id, ['record']);
+    if (applied && !quiet && state.view === 'run' && state.runKey === key) afterAnswer(id, was);
     return saving.then(function (saved) { return applied && saved === true; });
   }
   /* After checking the step Next up pointed at, the next one in its phase is selected and its check gets focus, with one

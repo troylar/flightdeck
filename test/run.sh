@@ -16,6 +16,7 @@ node test/sync.test.js
 node test/views.test.js
 node test/checker.test.js
 node test/app.test.js
+node test/app-reports.test.js
 node test/propose-app.test.js
 node test/live-app.test.js
 node test/shots-app.test.js

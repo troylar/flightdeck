@@ -1445,6 +1445,18 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .md-corr li { display: flex; flex-wrap: wrap; gap: 4px 10px; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .ca-cols { grid-template-columns: minmax(0, 1fr); } .ca-box { padding: 14px 16px; } }
 .b-corr { background: var(--plan-soft); color: var(--plan); }
+.b-rep { background: var(--plan-soft); color: var(--plan); }
+.rep-card { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.rep-card:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.rep-h { margin: 0; font-size: 14px; }
+.rep-card summary .rep-h { display: inline; }
+.rep-fact h4 { margin: 0 0 2px; font-weight: 600; }
+.rep-fact p { margin: 0; }
+.rep-confirm { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.rep-confirm h4 { margin: 0; }
+.replist { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.replist li { display: flex; flex-direction: column; gap: 2px; }
+@media (max-width: 640px) { .rep-acts .btn, .rep-confirm .btn { min-height: 44px; } }
 /* A correction first published in this run's version: "Changed in vN", with why it's there on request. */
 .b-changed { background: var(--go-soft); color: var(--go); }
 .rw-prov { display: flex; flex-direction: column; gap: 6px; }

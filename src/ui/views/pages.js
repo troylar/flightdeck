@@ -56,12 +56,17 @@
     var r = ctx.run(); if (!r) return V.run(ctx);
     var map = R.mapOf(r), hl = R.headline(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
     var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
+    /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
+    var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
+    var reportOf = function (id) { return PF.reports.provenance(r, id, who); };
+    reportOf.lines = PF.reports.lines(reps, rb ? rb.cur : null, r, map, who);
     var body = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
       return '<div><h4><span>' + esc(p.title) + '</span><span class="pill ' + gst + '">' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + gst + '</span></h4>' + p.steps.map(function (s) {
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open';
         var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return esc(d.label) + ': ' + esc(R.shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }).join(' · ') : '';
-        return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + esc(s.text) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + '</span><span class="small">' + esc(a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
+        var from = a && a.s === 'done' ? reportOf(s.id) : '';
+        return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + esc(s.text) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + (from ? '<span class="small" style="display:block">' + esc(from[0].toUpperCase() + from.slice(1)) + '</span>' : '') + '</span><span class="small">' + esc(a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
       }).join('') + '</div>';
     }).join('');
     var fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
@@ -74,10 +79,15 @@
       var x = fuOf(f);
       return '<div class="rrow"><span class="ric open">→</span><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (x ? ' ' + V.fuPill(x) : '') + (x && x.decision && !x.tie && x.status !== 'open' ? '<span class="small" style="display:block">' + esc(fuStatusOf(f)) + '</span>' : '') + '</span><span class="small">' + esc(f.owner ? nameOf(ctx, f.owner) : '') + '</span></div>';
     }).join('') + '</div>';
+    var unread = reps.filter(function (g) { return g.unreadable.length; }).length;
+    if (reportOf.lines.length || (rb && (rb.loading || rb.failed))) body += '<div class="r-reps"><h4><span>Reports · ' + reportOf.lines.length + '</span></h4>' +
+      (rb.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
+      (rb.failed ? '<p class="small">The reports couldn\'t be read, so this receipt may be missing some.</p>' : unread ? '<p class="small">' + unread + ' report' + (unread === 1 ? ' couldn\'t' : 's couldn\'t') + ' be read; this receipt may be missing ' + (unread === 1 ? 'it' : 'them') + '.</p>' : '') +
+      reportOf.lines.map(function (l) { return '<div class="rrow"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join('') + '</div>';
     if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4><ul class="corrlist">' + cor.map(function (c) { return V.corrRow(ctx, c, idx[c.id], { step: true }); }).join('') + '</ul></div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · screenshot the card, or copy it into the Jira ticket</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? hl.text : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
-      '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden>' + esc(R.receipt(r, map, function (id) { return nameOf(ctx, id); }, new Date(ctx.now()).toISOString(), r._notes, statusOf, fuStatusOf)) + '</pre>';
+      '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden>' + esc(R.receipt(r, map, function (id) { return nameOf(ctx, id); }, new Date(ctx.now()).toISOString(), r._notes, statusOf, fuStatusOf, reportOf)) + '</pre>';
   }
 
   V.mission = mission; V.finish = finish; V.receipt = receipt;

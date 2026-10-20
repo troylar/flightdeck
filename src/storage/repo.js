@@ -1863,6 +1863,16 @@ PF.repo = (function () {
      instead), cap (bytes; the browser's), maxFile (one file's limit; 100 MB when there's a cap), maxRuns, now, tz, window
      (this window's unsaved or in-flight change to the runs), app, madeWith, format, plan (stop after the estimate),
      progress(o), cancelled(), pool (false: no shared pool). Resolves to the collection PF.evidence.generate turns into a pack. */
+  /* A run's report files and decision files by name (copies included): { reports, decisions, listing }. A folder that isn't
+     there lists as empty; one that can't be listed fails the export, as followups/ does. */
+  function evReportFiles(ro, proc, id) {
+    var X = PF.reports, mine = function (dir, re) {
+      return ro.list(dir + '/' + proc).then(function (items) { return items.filter(function (i) { var m = i.kind === 'file' ? re.exec(i.name) : null; return !!m && m[1] === id; }).map(function (i) { return i.name; }).sort(); });
+    };
+    return Promise.all([mine(X.DIR, X.FILE), mine(X.DDIR, X.DFILE)]).then(function (x) {
+      return { reports: x[0], decisions: x[1], listing: x[0].map(function (n) { return X.DIR + '/' + n; }).concat(x[1].map(function (n) { return X.DDIR + '/' + n; })) };
+    });
+  }
   function collectEvidence(fsIn, scope, opts) {
     opts = opts || {};
     var E = PF.evidence, S = PF.sha256, Z = PF.zip, C = PF.corrections, FU = PF.followups;
@@ -2100,7 +2110,7 @@ PF.repo = (function () {
     /* ---- one run: what goes in ---- */
     function planRun(key) {
       var k = key.split('/'), proc = k[0], id = k[1], base = 'runs/' + proc + '/' + id;
-      var p = { key: key, process: proc, id: id, base: base, files: [], excl: [], listing: [], fuListing: [], decListing: [] };
+      var p = { key: key, process: proc, id: id, base: base, files: [], excl: [], listing: [], fuListing: [], decListing: [], repListing: [] };
       function add(path, cls) { if (!p.files.some(function (f) { return f.path === path; })) p.files.push({ path: path, role: cls.role, label: cls.label, flag: cls.flag || '' }); }
       return listFiles(base).then(function (items) {
         p.listing = names(items, base);
@@ -2148,6 +2158,28 @@ PF.repo = (function () {
             return record(path, DEC_MAX).then(function (r) {
               var o = r.text == null ? undefined : json(r.text), d = o === undefined ? null : FU.cleanDecision(o, proc, n), loose = !d && o ? FU.cleanDecision(o, proc) : null;
               add(path, { role: 'followup', label: 'What became of a follow-up', flag: d ? '' : o === undefined ? 'couldn\'t be read; may relate to this run' : loose ? 'a copy of a decision under another name (OneDrive may have made it)' : 'isn\'t a decision this copy can read; may relate to this run' });
+            });
+          });
+        });
+      }).then(function () {
+        /* Reports from tools on this run (copies included) and the decisions on them, each packed as it is; a report is a
+           claim, not proof, and the manifest says which were accepted, by decision file and the hash accepted. */
+        return evReportFiles(ro, proc, id).then(function (got) {
+          p.repListing = got.listing;
+          return limited(got.reports, 8, function (n) {
+            var path = PF.reports.DIR + '/' + proc + '/' + n;
+            return record(path, PF.reports.LIMITS.bytes).then(function (r) {
+              var c = r.text == null ? null : PF.reports.clean(r.text, proc, n);
+              add(path, { role: 'report', label: 'A tool\'s report: a claim, not proof', flag: c && c.ok ? '' : r.over ? 'too big to be a report' : 'couldn\'t be read as a report; may relate to this run' });
+            });
+          }).then(function () {
+            return limited(got.decisions, 8, function (n) {
+              var path = PF.reports.DDIR + '/' + proc + '/' + n;
+              return record(path, DEC_MAX).then(function (r) {
+                var o = r.text == null ? undefined : json(r.text), c = o === undefined ? null : PF.reports.cleanDecision(o, proc, n), d = c && c.ok ? c.d : null;
+                add(path, d ? { role: 'report decision', label: d.status === 'accepted' ? 'A decision on a report: accepted ' + d.producer + '/' + d.report + ', sha256 ' + d.sha256 : d.status === 'declined' ? 'A decision on a report: declined' : 'A decision on a report: reopened' }
+                  : { role: 'report decision', label: 'A decision on a report', flag: 'couldn\'t be read; may relate to this run' });
+              });
             });
           });
         });
@@ -2231,6 +2263,8 @@ PF.repo = (function () {
           }).then(function (items) {
             var nowF = items.filter(function (i) { return i.kind === 'file' && i.name.indexOf(p.id + '.') === 0 && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).sort();
             if (nowF.join('/') !== p.fuListing.join('/')) note('followups/' + p.process, 'a follow-up decision was added or removed', p.key);
+            return evReportFiles(ro, p.process, p.id).then(function (got) { if (got.listing.join('/') !== p.repListing.join('/')) note(PF.reports.DIR + '/' + p.process, 'a report or a decision on one was added or removed', p.key); });
+          }).then(function () {
             return Promise.all(['corrections', 'suggestions'].map(function (dir) {
               return ro.list(dir + '/' + p.process).then(function (it) { return it.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return dir + '/' + p.process + '/' + i.name; }); });
             }));

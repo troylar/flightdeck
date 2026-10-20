@@ -12,7 +12,7 @@ function load(withViews, edit) {
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } }
   };
   vm.createContext(sandbox);
-  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/builder.js', 'ui/views/manage.js', 'ui/views/flight.js', 'ui/views/insights.js', 'ui/views/health.js', 'ui/views/setup.js', 'ui/views/evidence.js']) : FILES).forEach(f => { const src = fs.readFileSync(path.join(SRC, f), 'utf8'); vm.runInContext(edit ? edit(f, src) : src, sandbox, { filename: f }); });
+  (withViews ? FILES.concat(['ui/icons.js', 'ui/views/common.js', 'ui/views/home.js', 'ui/views/process.js', 'ui/views/run.js', 'ui/views/reports.js', 'ui/views/pages.js', 'ui/views/overlays.js', 'ui/views/builder.js', 'ui/views/manage.js', 'ui/views/flight.js', 'ui/views/insights.js', 'ui/views/health.js', 'ui/views/setup.js', 'ui/views/evidence.js']) : FILES).forEach(f => { const src = fs.readFileSync(path.join(SRC, f), 'utf8'); vm.runInContext(edit ? edit(f, src) : src, sandbox, { filename: f }); });
   // Checklists parsed once are shared by every run of a version: frozen in tests, so a rule that changed one would fail.
   if (sandbox.PF.run && sandbox.PF.run.mapMemo) sandbox.PF.run.mapMemo.freeze = true;
   return sandbox.PF;

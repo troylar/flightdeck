@@ -68,9 +68,11 @@
     /* Folder problems that need a person come first, with one way to see them all. */
     var hr = ctx.health ? ctx.health(false) : null, stops = hr ? hr.issues.filter(function (i) { return i.severity === 'stop'; }) : [];
     if (stops.length) add('health', 'The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.', 'health', '', 'Open Folder health');
+    var repWait = me && ctx.reportsWaiting ? ctx.reportsWaiting() : {};
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
-      var map = R.mapOf(r), hl = R.headline(r, map), nx = R.myNext(r, map, me);
+      var map = R.mapOf(r), hl = R.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
       if (r.recorder.person === me) add('run', esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
+      if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
       else if (nx) add('run', esc(r.title) + ': you\'re up', esc(nx.step.text) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */

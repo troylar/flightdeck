@@ -13,6 +13,7 @@ const CLEANERS = ['R.sanitize', 'R.cleanCopy', 'R.cleanArchive', 'R.isPlaceholde
 /* Raw consumers, by a piece of the line, with why they may read what they parse. */
 const RAW = [
   { file: 'bin/flightdeck.js', has: "o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input.buf));", why: 'skill register reads the name and process only to choose which files to load; PF.skills.registration checks the whole input before anything is written' },
+  { file: 'bin/flightdeck.js', has: 'try { o = JSON.parse(snap.text); }', why: 'report check and write read the input only to fill a missing id or created; PF.reports.clean then checks the whole report before anything is written' },
   { file: 'src/core/run.js', has: 'snapshot: JSON.parse(text)', why: 'a copy of a skill snapshot this function just checked and wrote out itself (at most 2 KB), not a file' },
   { file: 'src/storage/repo.js', has: "var o = json(text); if (!o || typeof o !== 'object') return '\\u0000' + text;", why: 'compares two saves of one run by their bytes, never reads a field for meaning' },
   { file: 'src/storage/repo.js', has: 'types: json(tj)', why: 'a copy of a run\'s types this window already sanitized (intern), not a file' },

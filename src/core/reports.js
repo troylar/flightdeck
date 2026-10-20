@@ -462,6 +462,27 @@ PF.reports = (function () {
     return !!a && a.s === 'done' && a.at === intent.at && a.by === intent.by && fingerprint(a.values || {}, intent.schema) === intent.fp;
   }
 
+  /* ---------- the receipt ---------- */
+  /* Where a done step's answer came from, from the run alone: the log line written with it names the report and its hash.
+     '' when the answer wasn't an accepted report. */
+  function provenance(r, stepId, nameOf) {
+    var a = r && r.steps && own(r.steps, stepId) ? r.steps[stepId] : null;
+    if (!a || a.s !== 'done') return '';
+    var hit = (r.log || []).filter(function (l) { return l && l.at === a.at && l.by === a.by && parseLog(l.what); })[0];
+    if (!hit) return '';
+    var p = parseLog(hit.what);
+    return 'accepted report ' + p.producer + '/' + p.id + ', sha256 ' + p.sha256.slice(0, 12) + '…, by ' + (nameOf ? nameOf(a.by) : a.by);
+  }
+  /* One line per report on a run, for the receipt: what it says, what a person decided, and whether its inputs match. */
+  function lines(groups, cur, r, map, nameOf) {
+    return (groups || []).map(function (g) {
+      var x = map ? M.findStep(map, g.step) : null, step = x ? x.step : null, rep = g.report;
+      var says = rep ? 'says ' + rep.verdict + (rep.blockers.length ? ' (' + rep.blockers.join('; ') + ')' : '') : 'can\'t be read';
+      var dec = decided(g, cur, r, step, nameOf).text, ap = rep && step ? appliesText(applies(rep, r, map, step)) : '';
+      return g.producer + '/' + g.id + ' on ' + (step ? step.text : g.step) + ': ' + says + ' · ' + dec + (ap ? ' · ' + ap : '');
+    });
+  }
+
   /* ---------- the command line: check a report against the folder ---------- */
   /* A valid report against its run: { errors (it can't be for this run), warnings, applies: 'yes' | 'no' | 'unknown' }. */
   function target(rep, r, map) {
@@ -506,5 +527,5 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, landed: landed, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();

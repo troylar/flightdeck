@@ -1023,7 +1023,9 @@ PF.run = (function () {
   function describe(o) { return Object.keys(o || {}).map(function (k) { return k + ' ' + (o[k] || '(not set)'); }).join(', '); }
 
   /* Plain text for a Jira comment. Leaves out notes' attachments and file paths. */
-  function receipt(r, map, nameOf, now, notes, statusOf, fuStatusOf) {
+  /* reportOf (optional): stepId → where a done step's answer came from ('' for none), with reportOf.lines: one line per
+     report on the run (PF.reports.lines). */
+  function receipt(r, map, nameOf, now, notes, statusOf, fuStatusOf, reportOf) {
     var h = headline(r, map), lines = [];
     lines.push('Flightdeck receipt: ' + r.title);
     lines.push('Process: ' + map.meta.title + ' (v' + r.version + ')');
@@ -1038,13 +1040,16 @@ PF.run = (function () {
       lines.push(p.title);
       p.steps.forEach(function (s) {
         var a = r.steps[s.id], word = !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
-        lines.push('  [' + word + '] ' + s.text + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
+        var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
+        lines.push('  [' + word + '] ' + s.text + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
         if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');
     });
     if ((r.pauses || []).length) { lines.push('Pauses'); r.pauses.forEach(function (p) { lines.push('  ' + U.hm(p.from) + '-' + U.hm(p.to) + ' ' + nameOf(p.by) + ': ' + p.reason); }); lines.push(''); }
+    var reps = reportOf && reportOf.lines ? reportOf.lines : [];
+    if (reps.length) { lines.push('Reports · ' + reps.length); reps.forEach(function (x) { lines.push('  - ' + x); }); lines.push(''); }
     /* Follow-ups, with what became of each when the caller knows the decisions (fuStatusOf). */
     var fus = r.followUps || [];
     if (fus.length) { lines.push('Follow-ups'); fus.forEach(function (f) { lines.push('  - ' + f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : '') + (fuStatusOf ? ' · ' + fuStatusOf(f) : '')); }); lines.push(''); }
