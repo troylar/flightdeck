@@ -20,6 +20,28 @@ import sys
 import time
 
 
+REQ_ID = re.compile(r"^req-([a-z0-9][a-z0-9-]{0,29})-[0-9a-f]{24}$")
+REQ_BY = re.compile(r"^([a-z0-9][a-z0-9-]{0,29}) [A-Za-z0-9_.+-]{1,40} \(a tool\)$")
+
+
+def request_tool(plan):
+    """The tool a request says wrote it (its id and by agree), or None: the app's PF.requests.claim."""
+    m = REQ_ID.match(plan.get("id")) if isinstance(plan.get("id"), str) else None
+    b = REQ_BY.match(plan.get("by")) if m and isinstance(plan.get("by"), str) else None
+    return b.group(1) if b and b.group(1) == m.group(1) else None
+
+
+def same_plan(a, b):
+    """Two copies of one plan say the same thing: PF.requests.same in the app."""
+    x = {k: v for k, v in a.items() if k != "created"}
+    y = {k: v for k, v in b.items() if k != "created"}
+    ta, tb = request_tool(a), request_tool(b)
+    if ta and ta == tb:
+        x.pop("by", None)
+        y.pop("by", None)
+    return json.dumps(x, sort_keys=True) == json.dumps(y, sort_keys=True)
+
+
 def fnv(units):
     h = 0x811C9DC5
     for u in units:
@@ -483,20 +505,31 @@ def main():
             continue
         if obj.get("kind") == "plan" and isinstance(obj.get("id"), str):
             plain = {k: v for k, v in obj.items() if not k.startswith("_")}
-            plans[obj["id"]] = (name, text_hash(js_json(plain)))
+            plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
         elif obj.get("kind") == "status":
             decisions.setdefault(obj.get("proposal"), []).append(obj)
-    for pid, (name, h) in sorted(plans.items()):
+    for pid, copies in sorted(plans.items()):
+        # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same
+        # thing (apart from when each was written, and which version of the same tool wrote a request) are one plan; copies
+        # that differ can't be started until a person deletes one. The file under the plan's own name comes first.
+        copies.sort(key=lambda c: (c[0] != pid + ".json", c[0]))
+        name = copies[0][0]
         mine = decisions.get(pid, [])
-        matching = [d for d in mine if d.get("proposalHash") == h]
+        if not all(same_plan(c[2], copies[0][2]) for c in copies):
+            status, why = "ambiguous", "different copies of this plan are in the folder (" + ", ".join(c[0] for c in copies) + "); Flightdeck starts neither until a person deletes one"
+            out["plans"].append({"file": name, "id": pid, "status": status, "why": why})
+            continue
+        hashes = {c[1] for c in copies}
+        matching = [d for d in mine if d.get("proposalHash") in hashes]
+        started = {d.get("run") for d in matching if d.get("status") == "accepted"}
         if not mine:
             status, why = "pending", ""
-        elif matching and len({d.get("status") for d in matching}) == 1:
+        elif matching and len({d.get("status") for d in matching}) == 1 and len(started) <= 1:
             status, why = "decided", matching[0].get("status", "")
         elif not matching:
             status, why = "ambiguous", "the plan changed after it was decided; Flightdeck shows it as pending again"
         else:
-            status, why = "ambiguous", "decisions on the same plan disagree; Flightdeck shows it as undecided"
+            status, why = "ambiguous", "decisions on the same plan disagree (or it was started twice); Flightdeck shows it as undecided"
         out["plans"].append({"file": name, "id": pid, "status": status, "why": why})
 
     runs_dir = os.path.join(root, "runs")

@@ -2327,4 +2327,36 @@ rule('Draft builder: a step\'s Screenshots section shows thumbnails with their c
   assert.ok(/No screenshots yet\./.test(html) && !/class="ob-shots"/.test(html), 'a step without any');
 });
 
+rule('Requests: a requested plan names its tool as a claim on Runs, on Home and before starting; copies are said, and differing copies can\'t be started', () => {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest;
+  ctx.processes = () => [{ id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: null }];
+  const id = 'req-ci-check-' + 'a'.repeat(24), base = { kind: 'plan', id, process: 'release', version: 1, title: 'Backup <b>check</b>', details: {}, roles: {}, note: 'Requested by ci-check.', by: 'ci-check 1.4.0 (a tool)', created: NOW, _file: id + '.json', _hash: 'h1', _copies: 1, _copiesDiffer: false };
+  ctx.data.plans = [base];
+  const runs = V.runs(ctx), home = V.home(ctx);
+  assert.ok(/requested by ci-check, by its own account/.test(runs), 'Runs: ' + runs);
+  assert.ok(/ci-check requested/.test(home) && /by its own account/.test(home), 'Home');
+  assert.ok(!/<b>check<\/b>/.test(runs + home), 'escaped');
+  state.view = 'start'; state.processId = 'release'; state.planId = id;
+  let html = V.start(ctx);
+  assert.ok(/Requested by ci-check 1\.4\.0, by its own account\. Flightdeck can(&#39;|')t confirm which tool or person wrote this file\. Nothing starts until you start it\./.test(html), html);
+  assert.ok(/id="start-submit"(?![^>]*disabled)/.test(html), 'a person can start it');
+  // A tool name that tries to look like markup is escaped wherever it shows.
+  ctx.data.plans = [Object.assign({}, base, { by: 'ci-check 1.4.0<img src=x> (a tool)' })];
+  assert.ok(!/<img/.test(V.runs(ctx) + V.home(ctx) + V.start(ctx)));
+  // A plan whose by only looks like a tool's, without a request's name, is shown as any plan.
+  ctx.data.plans = [Object.assign({}, base, { id: 'plan-release-x' })];
+  state.planId = 'plan-release-x';
+  assert.ok(!/by its own account/.test(V.start(ctx) + V.runs(ctx)) && /planned by ci-check 1\.4\.0 \(a tool\)/.test(V.runs(ctx)));
+  // Two identical copies: once, with a line; two different ones: both, flagged, and Start is off.
+  ctx.data.plans = [Object.assign({}, base, { _copies: 2 })]; state.planId = id;
+  assert.ok(/This request arrived twice/.test(V.runs(ctx)) && /This request arrived twice/.test(V.start(ctx)));
+  ctx.data.plans = [Object.assign({}, base, { _copies: 2, _copiesDiffer: true, _files: [id + '.json', id + '-LAPTOP.json'] }), Object.assign({}, base, { title: 'Other', _hash: 'h2', _copies: 2, _copiesDiffer: true, _file: id + '-LAPTOP.json', _files: [id + '.json', id + '-LAPTOP.json'] })];
+  const flagged = V.runs(ctx);
+  assert.strictEqual((flagged.match(/Two different copies of this request are in the folder/g) || []).length, 2);
+  assert.strictEqual((flagged.match(new RegExp('id="card-' + id + '"', 'g')) || []).length, 1, 'element ids stay unique');
+  html = V.start(ctx);
+  assert.ok(/id="start-submit"[^>]*disabled/.test(html) && /-LAPTOP\.json/.test(html) && /delete the wrong one/.test(html), html);
+});
+
 run();

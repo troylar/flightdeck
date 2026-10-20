@@ -1750,4 +1750,363 @@ rule('Review 2: an older pending proposal of this session past the newest 200 is
   assert.deepStrictEqual([p2.code, p2.json.link], [0, 'replaces'], p2.out.slice(0, 300));
 });
 
+/* ---------- REQUEST: flightdeck plan request (1.20) ---------- */
+/* A request file outside the team folder, then plan request with it. */
+function reqFile(body) { const f = path.join(tmp(), 'request.json'); fs.writeFileSync(f, typeof body === 'string' ? body : JSON.stringify(body)); return f; }
+function request(dir, body, key, ...more) { return readCli('plan', 'request', dir, reqFile(body), '--key', key, '--json', ...more); }
+const MONTHLY = { process: 'release', title: 'Release · November', details: { ticket: 'ABC-300' }, roles: { qa: 'person-morgan' }, note: 'Monthly, on the first.', producer: { name: 'ci-check', version: '1.4.0' } };
+const reqId = (tool, key) => 'req-' + tool + '-' + require('crypto').createHash('sha256').update(JSON.stringify([tool, key])).digest('hex').slice(0, 24);
+const proposalsIn = (dir) => fs.existsSync(path.join(dir, 'proposals')) ? fs.readdirSync(path.join(dir, 'proposals')).sort() : [];
+/* A second version of the release checklist, published after the first. */
+function publishV2(dir) {
+  const v1 = path.join(dir, 'publications', 'release', rfBuilt.folder), v2 = path.join(dir, 'publications', 'release', 'v2-bbbbbbbb');
+  fs.mkdirSync(v2);
+  fs.readdirSync(v1).forEach(n => { const t = fs.readFileSync(path.join(v1, n), 'utf8'); fs.writeFileSync(path.join(v2, n), n === 'publication.json' ? JSON.stringify(Object.assign(JSON.parse(t), { version: 2, folder: 'v2-bbbbbbbb' })) : t); });
+}
+/* The envelope's promise holds for plan request too, and its data is in the documented shape. */
+function reqAgree(r) { agree(r); if (!r.json.error) shape(r, 'request'); return r; }
+
+rule('REQUEST: plan request writes one planned run in proposals/, named from the tool and the key, with only the fields plans already have', async () => {
+  const dir = await readFolder(), before = proposalsIn(dir), r = reqAgree(request(dir, MONTHLY, '2026-11'));
+  assert.strictEqual(r.code, 0, r.out + r.err);
+  const id = reqId('ci-check', '2026-11'), d = r.json.data.request;
+  assert.strictEqual(d.status, 'requested'); assert.strictEqual(d.id, id); assert.strictEqual(d.file, 'proposals/' + id + '.json');
+  assert.deepStrictEqual(proposalsIn(dir), before.concat(id + '.json').sort(), 'one new file, and no temporary file left');
+  const text = fs.readFileSync(path.join(dir, 'proposals', id + '.json'), 'utf8'), plan = JSON.parse(text);
+  assert.deepStrictEqual(Object.keys(plan), ['kind', 'id', 'process', 'version', 'title', 'details', 'roles', 'note', 'by', 'created'], 'no new plan field');
+  assert.strictEqual(plan.kind, 'plan'); assert.strictEqual(plan.id, id); assert.strictEqual(plan.version, 1); assert.strictEqual(plan.title, 'Release · November');
+  assert.deepStrictEqual(plan.details, { ticket: 'ABC-300' }); assert.deepStrictEqual(plan.roles, { qa: 'person-morgan' });
+  assert.strictEqual(plan.note, 'Requested by ci-check. Monthly, on the first.'); assert.strictEqual(plan.by, 'ci-check 1.4.0 (a tool)');
+  assert.ok(!isNaN(Date.parse(plan.created)));
+  assert.strictEqual(text, JSON.stringify(plan, null, 2) + '\n', 'written as the app writes a plan');
+  assert.deepStrictEqual(d.plan, Object.assign({ when: null }, JSON.parse(JSON.stringify(Object.assign({}, plan, { kind: undefined })))), 'the plan it wrote');
+  assert.deepStrictEqual(d.leftEmpty, []); assert.strictEqual(d.run, null);
+  const runs = agree(readCli('runs', dir, '--status', 'planned', '--json')).json.data.planned, mine = runs.filter(x => x.id === id)[0];
+  assert.ok(mine && mine.status === 'pending' && mine.version === 1, JSON.stringify(runs));
+  assert.deepStrictEqual(mine.requestedBy, { name: 'ci-check', version: '1.4.0' }, 'the requester, as a claim');
+  assert.strictEqual(mine.copies, 1); assert.strictEqual(mine.copiesDiffer, false);
+  assert.strictEqual(runs.filter(x => x.id === 'plan-release-2026-10-24')[0].requestedBy, null, 'a plan a person made names no requester');
+  // Without --json it says the same in words.
+  const words = readCli('plan', 'request', dir, reqFile(MONTHLY), '--key', '2026-12');
+  assert.ok(words.code === 0 && /Requested "Release · November"/.test(words.out) && /A person starts it in Flightdeck/.test(words.out), words.out + words.err);
+});
+
+rule('REQUEST: a retry is a no-op: exit 0, the folder byte for byte as it was, the original time and pinned version kept after a newer version is published', async () => {
+  const dir = await readFolder(), first = reqAgree(request(dir, Object.assign({ when: '2026-11-01T09:00:00Z' }, MONTHLY), '2026-11'));
+  assert.strictEqual(first.code, 0, first.out);
+  const before = EV.tree(dir), plan = first.json.data.request.plan;
+  // The same intent again: the same body, its keys in another order, a newer tool version, the same moment written another
+  // way, and without the title (a default Flightdeck chose is never compared).
+  const same = [Object.assign({ when: '2026-11-01T09:00:00Z' }, MONTHLY),
+    JSON.parse(JSON.stringify({ producer: MONTHLY.producer, note: MONTHLY.note, roles: MONTHLY.roles, details: MONTHLY.details, title: MONTHLY.title, process: 'release', when: '2026-11-01T09:00:00Z' })),
+    Object.assign({ when: '2026-11-01T09:00:00Z' }, MONTHLY, { producer: { name: 'ci-check', version: '1.5.0' } }),
+    Object.assign({}, MONTHLY, { when: '2026-11-01T10:00:00+01:00' })];
+  const noTitle = Object.assign({ when: '2026-11-01T09:00:00Z' }, MONTHLY); delete noTitle.title; same.push(noTitle);
+  for (const body of same) {
+    const again = reqAgree(request(dir, body, '2026-11'));
+    assert.strictEqual(again.code, 0, again.out); assert.strictEqual(again.json.data.request.status, 'already');
+    assert.deepStrictEqual(again.json.data.request.plan, plan, 'the plan already in the folder, unchanged');
+    assert.deepStrictEqual(EV.tree(dir), before, 'the folder is byte for byte as it was, folder times included');
+  }
+  publishV2(dir);
+  const before2 = EV.tree(dir), after = reqAgree(request(dir, Object.assign({ when: '2026-11-01T09:00:00Z' }, MONTHLY), '2026-11'));
+  assert.ok(after.code === 0 && after.json.data.request.status === 'already', after.out);
+  assert.strictEqual(after.json.data.request.plan.version, 1, 'still pinned to the version it was requested on');
+  assert.strictEqual(after.json.data.request.plan.created, plan.created, 'the original time');
+  assert.deepStrictEqual(EV.tree(dir), before2);
+  // A new key does get the newer version.
+  assert.strictEqual(reqAgree(request(dir, MONTHLY, '2026-12')).json.data.request.plan.version, 2);
+});
+
+rule('REQUEST: a different intent under the same key is refused clearly, naming what differs, and nothing changes', async () => {
+  const dir = await readFolder(), base = Object.assign({ when: '2026-11-01T09:00:00Z' }, MONTHLY);
+  assert.strictEqual(request(dir, base, 'k1').code, 0);
+  const before = EV.tree(dir);
+  const without = (k) => { const b = Object.assign({}, base); delete b[k]; return b; };
+  const variants = { title: Object.assign({}, base, { title: 'Another title' }), details: Object.assign({}, base, { details: { ticket: 'ABC-301' } }), roles: Object.assign({}, base, { roles: { qa: 'person-blake' } }),
+    when: Object.assign({}, base, { when: '2026-11-02T09:00:00Z' }), note: Object.assign({}, base, { note: 'Another note' }), version: Object.assign({}, base, { version: 2 }), process: Object.assign({}, base, { process: 'check-in' }),
+    // Leaving out a field that has no default asks for something else: no details, no roles, no time, no note.
+    'details ': without('details'), 'roles ': without('roles'), 'when ': without('when'), 'note ': without('note') };
+  for (const k of Object.keys(variants)) {
+    const r = reqAgree(request(dir, variants[k], 'k1'));
+    assert.strictEqual(r.code, 1, k + ': ' + r.out);
+    assert.strictEqual(r.json.error.kind, 'key-taken', k);
+    assert.ok(/already in the folder with other details/.test(r.json.error.why) && r.json.error.why.includes(k.trim()), k + ': ' + r.json.error.why);
+    assert.ok(r.json.error.why.includes('proposals/' + reqId('ci-check', 'k1') + '.json'), 'names the file');
+    assert.deepStrictEqual(EV.tree(dir), before, k + ': nothing changed');
+  }
+  // Another tool's file under the name this request would use is never taken as this request.
+  const id = reqId('ci-check', 'k2'), other = JSON.parse(fs.readFileSync(path.join(dir, 'proposals', reqId('ci-check', 'k1') + '.json'), 'utf8'));
+  fs.writeFileSync(path.join(dir, 'proposals', id + '.json'), JSON.stringify(Object.assign(other, { id, by: 'someone-else 1.0 (a tool)' })));
+  const r = reqAgree(request(dir, base, 'k2'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'key-taken', r.out);
+});
+
+rule('REQUEST: names never collide: the hash covers the tool and the key together, so (a-b, c) and (a, b-c) differ', async () => {
+  const RQ = SRC.requests;
+  assert.strictEqual(RQ.idFor('ci-check', '2026-11'), reqId('ci-check', '2026-11'), 'SHA-256 of the encoded pair, as documented');
+  assert.notStrictEqual(RQ.idFor('a-b', 'c'), RQ.idFor('a', 'b-c'));
+  assert.notStrictEqual(RQ.idFor('a', 'b.c'), RQ.idFor('a', 'b-c'));
+  assert.ok(/^req-a-[0-9a-f]{24}$/.test(RQ.idFor('a', 'b-c')));
+  const dir = await readFolder(), body = (name) => Object.assign({}, MONTHLY, { producer: { name, version: '1' } });
+  assert.strictEqual(request(dir, body('a-b'), 'c').code, 0);
+  assert.strictEqual(request(dir, body('a'), 'b-c').code, 0);
+  assert.deepStrictEqual(proposalsIn(dir).filter(n => /^req-/.test(n)).sort(), [RQ.idFor('a', 'b-c') + '.json', RQ.idFor('a-b', 'c') + '.json'].sort());
+  // A file whose name looks like a OneDrive copy of another request, but which is a different request, isn't its copy.
+  const tool2 = 'a-' + RQ.idFor('a', 'k').slice(6) + '-x';
+  assert.ok(RQ.TOOL.test(tool2), 'a legal tool name');
+  assert.strictEqual(request(dir, body(tool2), 'k').code, 0);
+  const r = reqAgree(request(dir, body('a'), 'k'));
+  assert.ok(r.code === 0 && r.json.data.request.status === 'requested', r.out);
+});
+
+rule('REQUEST: simultaneous requests with one key write one file; the other says already requested, or refuses other details', async () => {
+  const run2 = (dir, a, b) => Promise.all([a, b].map(body => new Promise(res => {
+    const c = cp().spawn(process.execPath, [BIN, 'plan', 'request', dir, reqFile(body), '--key', 'same', '--json']);
+    let out = ''; c.stdout.on('data', d => { out += d; }); c.on('close', code => { let json = null; try { json = JSON.parse(out); } catch (e) { json = { out }; } res({ code, json }); });
+  })));
+  for (let i = 0; i < 3; i++) {
+    const dir = await readFolder(), rs = await run2(dir, MONTHLY, MONTHLY);
+    assert.deepStrictEqual(rs.map(r => r.code), [0, 0], JSON.stringify(rs));
+    assert.deepStrictEqual(rs.map(r => r.json.data.request.status).sort(), ['already', 'requested']);
+    assert.deepStrictEqual(proposalsIn(dir).filter(n => /^req-|\.tmp$/.test(n)), [reqId('ci-check', 'same') + '.json'], 'one file, no temporary file');
+    const dir2 = await readFolder(), rs2 = await run2(dir2, MONTHLY, Object.assign({}, MONTHLY, { title: 'Other' }));
+    assert.deepStrictEqual(rs2.map(r => r.code).sort(), [0, 1], JSON.stringify(rs2));
+    assert.strictEqual(rs2.filter(r => r.code === 1)[0].json.error.kind, 'key-taken');
+    assert.strictEqual(proposalsIn(dir2).filter(n => /^req-|\.tmp$/.test(n)).length, 1);
+  }
+  // Exactly between the check and the write: the file another request wrote meanwhile is never replaced.
+  const dir = fs.realpathSync(await readFolder()), name = reqId('ci-check', 'race') + '.json', theirs = path.join(dir, 'proposals', name);
+  const eng = FD.loadEngine();
+  for (const [body, code, status] of [[MONTHLY, 0, 'already'], [Object.assign({}, MONTHLY, { title: 'Mine' }), 1, null]]) {
+    if (fs.existsSync(theirs)) fs.unlinkSync(theirs);
+    const write = (n, text) => FD.writeRequest(dir, n, text, { beforeLink: () => fs.writeFileSync(theirs, JSON.stringify(Object.assign(JSON.parse(text), { title: MONTHLY.title, created: '2026-01-01T00:00:00.000Z' }), null, 2) + '\n') });
+    const r = await FD.requestData(eng, FD.readAdapter(dir, { maxBytes: 16 * 1048576 }), { key: 'race', text: JSON.stringify(body) }, write);
+    assert.strictEqual(r.code, code, JSON.stringify(r.json));
+    if (status) assert.strictEqual(r.json.data.request.status, status);
+    assert.ok(/"created": "2026-01-01T00:00:00.000Z"/.test(fs.readFileSync(theirs, 'utf8')), 'theirs is kept');
+    assert.deepStrictEqual(proposalsIn(dir).filter(n => /\.tmp$/.test(n)), []);
+  }
+});
+
+rule('REQUEST: OneDrive copies of a request count: the same request is already requested, a different one is refused, a copy alone is enough', async () => {
+  const dir = await readFolder(), id = reqId('ci-check', 'od');
+  assert.strictEqual(request(dir, MONTHLY, 'od').code, 0);
+  const canon = path.join(dir, 'proposals', id + '.json'), text = fs.readFileSync(canon, 'utf8');
+  // Another computer wrote the same request while OneDrive was paused: same content, its own time.
+  fs.writeFileSync(path.join(dir, 'proposals', id + '-LAPTOP.json'), text.replace(/"created": "[^"]*"/, '"created": "2026-01-01T00:00:00.000Z"'));
+  let before = EV.tree(dir), r = reqAgree(request(dir, MONTHLY, 'od'));
+  assert.ok(r.code === 0 && r.json.data.request.status === 'already', r.out);
+  assert.deepStrictEqual(EV.tree(dir), before);
+  // The file under its own name gone: the copy still holds the request, so nothing is written.
+  fs.unlinkSync(canon);
+  before = EV.tree(dir); r = reqAgree(request(dir, MONTHLY, 'od'));
+  assert.ok(r.code === 0 && r.json.data.request.status === 'already' && r.json.data.request.file === 'proposals/' + id + '-LAPTOP.json', r.out);
+  assert.deepStrictEqual(EV.tree(dir), before, 'no second file');
+  // A copy with other details: refused, naming the copy.
+  fs.writeFileSync(canon, text);
+  fs.writeFileSync(path.join(dir, 'proposals', id + ' (1).json'), text.replace('Release · November', 'Something else'));
+  before = EV.tree(dir); r = reqAgree(request(dir, MONTHLY, 'od'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'key-taken' && r.json.error.why.includes(id + ' (1).json'), r.out);
+  assert.deepStrictEqual(EV.tree(dir), before);
+  // A copy that can't be read: nothing is written, and it's named (partial, exit 4).
+  fs.unlinkSync(path.join(dir, 'proposals', id + ' (1).json')); fs.writeFileSync(path.join(dir, 'proposals', id + '-DESKTOP.json'), '{"kind": "pl');
+  before = EV.tree(dir); r = reqAgree(request(dir, MONTHLY, 'od'));
+  assert.ok(r.code === 4 && r.json.data.request.status === 'held' && r.json.data.request.plan === null && r.json.problems.some(p => p.path === 'proposals/' + id + '-DESKTOP.json' && p.kind === 'malformed'), r.out);
+  assert.deepStrictEqual(EV.tree(dir), before);
+  // A plan decision beside it is never taken for a copy, and a request already started says which run.
+  fs.unlinkSync(path.join(dir, 'proposals', id + '-DESKTOP.json'));
+  fs.writeFileSync(path.join(dir, 'proposals', id + '.status-w1.json'), JSON.stringify({ kind: 'status', proposal: id, proposalHash: SRC.util.hash(JSON.stringify(JSON.parse(text))), status: 'accepted', run: 'run9', by: 'person-casey', at: RF.NOW }));
+  r = reqAgree(request(dir, MONTHLY, 'od'));
+  assert.ok(r.code === 0 && r.json.data.request.status === 'already' && r.json.data.request.run === 'release/run9', r.out);
+});
+
+rule('REQUEST: an invalid process, version or detail is refused the READ way, naming every reason, and nothing is written', async () => {
+  const dir = await readFolder(f => { const p = JSON.parse(f['people.json']); p.push({ id: 'person-river', name: 'River Stone', initials: 'RS', email: 'river@example.com', inactive: true }); f['people.json'] = JSON.stringify(p); });
+  const before = EV.tree(dir), err = (body, key) => reqAgree(request(dir, body, key || 'bad'));
+  const nf = [err(Object.assign({}, MONTHLY, { process: 'nope' })), err(Object.assign({}, MONTHLY, { version: 9 }))];
+  nf.forEach(r => assert.ok(r.code === 5 && r.json.error.kind === 'not-found', r.out));
+  const bad = err(Object.assign({}, MONTHLY, { details: { ticketz: 'x', ticket: 'y'.repeat(121) }, roles: { boss: 'person-casey' }, extra: 1 }));
+  assert.ok(bad.code === 1 && bad.json.error.kind === 'invalid', bad.out);
+  ['ticketz', 'ticket', 'boss', 'extra'].forEach(w => assert.ok(bad.json.error.why.includes(w), w + ': ' + bad.json.error.why));
+  for (const [body, word] of [[Object.assign({}, MONTHLY, { version: '1' }), 'version'], [Object.assign({}, MONTHLY, { version: 1.5 }), 'version'], [Object.assign({}, MONTHLY, { when: 'next week' }), 'when'],
+    [Object.assign({}, MONTHLY, { producer: { name: 'CI Check', version: '1' } }), 'producer'], [Object.assign({}, MONTHLY, { producer: { name: '../up', version: '1' } }), 'producer'],
+    [Object.assign({}, MONTHLY, { producer: { name: 'ci-check' } }), 'producer'], [Object.assign({}, MONTHLY, { producer: { name: 'ci-check', version: '1', url: 'x' } }), 'url'],
+    ['{"__proto__": {"x": 1}, "process": "release", "producer": {"name": "a", "version": "1"}}', '__proto__'],
+    [Object.assign({}, MONTHLY, { details: JSON.parse('{"__proto__": "x"}') }), '__proto__'], [Object.assign({}, MONTHLY, { roles: { qa: 'person morgan' } }), 'qa'],
+    ['[]', 'object'], ['{"process": "rel', 'JSON'], [Object.assign({}, MONTHLY, { title: 'a\u0000b' }), 'title'], [Object.assign({}, MONTHLY, { title: 'x'.repeat(101) }), 'title'],
+    [Object.assign({}, MONTHLY, { note: 'line\nbreak' }), 'note'], [Object.assign({}, MONTHLY, { details: { ticket: 7 } }), 'ticket']]) {
+    const r = err(body);
+    assert.ok(r.code === 1 && r.json.error.kind === 'invalid' && r.json.error.why.includes(word), word + ': ' + r.out);
+  }
+  assert.deepStrictEqual(EV.tree(dir), before, 'nothing written by any refusal');
+  // A version this copy can't use (a newer format) is refused by name; nothing is ever planned on it.
+  fs.mkdirSync(path.join(dir, 'publications', 'release', 'v3-cccccccc'));
+  fs.writeFileSync(path.join(dir, 'publications', 'release', 'v3-cccccccc', 'publication.json'), JSON.stringify({ format: 'preflight-publication/9', version: 3, folder: 'v3-cccccccc' }));
+  const nv = err(Object.assign({}, MONTHLY, { version: 3 }));
+  assert.ok(nv.code !== 0 && !proposalsIn(dir).some(n => /^req-/.test(n)), nv.out);
+  fs.rmSync(path.join(dir, 'publications', 'release', 'v3-cccccccc'), { recursive: true });
+  const after = EV.tree(dir);
+  // Usage: a bad or missing key, a missing file, input over 16 KB (from a file or stdin).
+  for (const a of [['--key', 'Bad Key'], ['--key', 'x'.repeat(65)], ['--key', '../x'], ['--key', 'a/b'], ['--key'], []]) {
+    const r = readCli('plan', 'request', dir, reqFile(MONTHLY), ...a, '--json');
+    assert.ok(r.code === 1 && r.json.error.kind === 'usage', a.join(' ') + ': ' + r.out);
+  }
+  assert.strictEqual(readCli('plan', 'request', dir, path.join(tmp(), 'missing.json'), '--key', 'k', '--json').code, 1);
+  const big = JSON.stringify(Object.assign({}, MONTHLY, { note: 'x'.repeat(17000) }));
+  assert.strictEqual(readCli('plan', 'request', dir, reqFile(big), '--key', 'k', '--json').json.error.kind, 'invalid');
+  const piped = cp().spawnSync(process.execPath, [BIN, 'plan', 'request', dir, '-', '--key', 'k', '--json'], { input: big + ' '.repeat(1e6), encoding: 'utf8' });
+  assert.ok(piped.status === 1 && /16 KB/.test(piped.stdout), piped.stdout);
+  assert.deepStrictEqual(EV.tree(dir), after, 'nothing written by any refusal');
+  // stdin works for a normal request. A person who isn't active (or isn't in people.json) stays as asked, and is named as left
+  // for the person who starts it: the start form leaves that role empty.
+  const asked = Object.assign({}, MONTHLY, { roles: { qa: 'person-river', backend: 'person-nobody', 'release-lead': 'person-casey' } });
+  const ok = cp().spawnSync(process.execPath, [BIN, 'plan', 'request', dir, '-', '--key', 'stdin', '--json'], { input: JSON.stringify(asked), encoding: 'utf8' });
+  const j = JSON.parse(ok.stdout);
+  assert.strictEqual(ok.status, 0, ok.stdout);
+  assert.deepStrictEqual(j.data.request.plan.roles, asked.roles);
+  assert.deepStrictEqual(j.data.request.leftEmpty, ['backend', 'qa']);
+  // And a retry of it is a no-op, even once that person is active again.
+  const ppl = JSON.parse(fs.readFileSync(path.join(dir, 'people.json'), 'utf8')); ppl.forEach(p => { if (p.id === 'person-river') delete p.inactive; }); fs.writeFileSync(path.join(dir, 'people.json'), JSON.stringify(ppl));
+  const again = cp().spawnSync(process.execPath, [BIN, 'plan', 'request', dir, '-', '--key', 'stdin', '--json'], { input: JSON.stringify(asked), encoding: 'utf8' });
+  assert.ok(again.status === 0 && JSON.parse(again.stdout).data.request.status === 'already', again.stdout);
+});
+
+rule('REQUEST: --dry-run only reads: every mutating call throws and none is called, and the folder tree is identical', async () => {
+  const dir = await readFolder(), before = EV.tree(dir);
+  const r = reqAgree(request(dir, MONTHLY, 'dry', '--dry-run'));
+  assert.ok(r.code === 0 && r.json.data.request.status === 'would-request' && r.json.data.request.plan.version === 1, r.out);
+  assert.deepStrictEqual(EV.tree(dir), before, 'nothing written, no folder made, no folder time changed');
+  // Without a proposals folder, a dry run doesn't make one.
+  const bare = await readFolder(f => { Object.keys(f).filter(p => p.indexOf('proposals/') === 0).forEach(p => { delete f[p]; }); }), before2 = EV.tree(bare);
+  assert.strictEqual(reqAgree(request(bare, MONTHLY, 'dry', '--dry-run')).code, 0);
+  assert.deepStrictEqual(EV.tree(bare), before2);
+  const eng = { PF: SRC, version: 'test' }, B = strictFolder(rfBuilt.files);
+  const x = await FD.requestData(eng, B, { key: 'dry', text: JSON.stringify(MONTHLY), dryRun: true });
+  assert.strictEqual(x.code, 0, JSON.stringify(x.json));
+  assert.deepStrictEqual(B.mutations, []);
+  // Without a writer, requestData never writes, even when it isn't asked for a dry run.
+  const y = await FD.requestData(eng, strictFolder(rfBuilt.files), { key: 'dry', text: JSON.stringify(MONTHLY) });
+  assert.ok(y.code === 0 && y.json.data.request.status === 'would-request', JSON.stringify(y.json));
+});
+
+rule('REQUEST: writes only in proposals/, never through a link, and holds back when what it depends on can\'t be read', async () => {
+  const outside = tmp(), dir = await readFolder(f => { delete f['proposals/plan-release-2026-10-24.json']; }, d => { fs.rmSync(path.join(d, 'proposals'), { recursive: true, force: true }); fs.symlinkSync(outside, path.join(d, 'proposals')); });
+  let r = reqAgree(request(dir, MONTHLY, 'link'));
+  assert.ok(r.code !== 0 && r.json.problems.some(p => p.kind === 'link'), r.out);
+  assert.deepStrictEqual(fs.readdirSync(outside), [], 'nothing written through the link');
+  // A link where the request's own file would be is never written through or read.
+  const dirL = await readFolder(), target = path.join(outside, 'x.json');
+  fs.writeFileSync(target, 'keep');
+  fs.symlinkSync(target, path.join(dirL, 'proposals', reqId('ci-check', 'lnk') + '.json'));
+  r = reqAgree(request(dirL, MONTHLY, 'lnk'));
+  assert.ok(r.code !== 0 && fs.readFileSync(target, 'utf8') === 'keep', r.out);
+  // No proposals folder yet: it's made.
+  const dir2 = await readFolder(f => { delete f['proposals/plan-release-2026-10-24.json']; });
+  assert.strictEqual(request(dir2, MONTHLY, 'new').code, 0);
+  // A version of the process that can't be read: which version is latest isn't known, so nothing is written (exit 4).
+  const dir3 = await readFolder(null, d => { fs.mkdirSync(path.join(d, 'publications', 'release', 'v2-dddddddd')); fs.writeFileSync(path.join(d, 'publications', 'release', 'v2-dddddddd', 'publication.json'), '{"version": 2,'); });
+  r = reqAgree(request(dir3, MONTHLY, 'held'));
+  assert.ok(r.code === 4 && r.json.data.request.status === 'held' && r.json.data.request.plan === null && r.json.problems.some(p => p.path.indexOf('publications/release/v2-dddddddd') === 0), r.out);
+  assert.ok(!proposalsIn(dir3).some(n => /^req-/.test(n)));
+  // Problems outside what it depends on (another plan, another run) never hold it back.
+  const dir4 = await readFolder(f => { f['proposals/plan-broken.json'] = '{'; f['runs/release/zz/notes.jsonl'] = ''; });
+  r = reqAgree(request(dir4, MONTHLY, 'clean'));
+  assert.ok(r.code === 0 && r.json.complete, r.out);
+});
+
+rule('REQUEST: the canonical intent keeps what the caller supplied apart from what Flightdeck chooses', () => {
+  const RQ = SRC.requests;
+  const c = RQ.clean({ process: 'release', producer: { name: 'ci-check', version: '1.4.0' }, details: { ticket: 'ABC-1' } }, 'k');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(c.errors)), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(RQ.canonical(c.intent))), { process: 'release', producer: 'ci-check', version: null, title: null, details: { ticket: 'ABC-1' }, roles: {}, when: null, note: null },
+    'version and title are Flightdeck\'s to choose when left out; the rest is empty when left out');
+  // The supplied fields are only what the caller sent.
+  assert.deepStrictEqual(Object.keys(c.intent.supplied), ['details']);
+});
+
+rule('REQUEST review: without hard links, a write cut short leaves no partial request, and a retry never removes an incomplete one', async () => {
+  const dir = fs.realpathSync(await readFolder()), id = reqId('ci-check', 'nolink'), target = path.join(dir, 'proposals', id + '.json');
+  const eng = FD.loadEngine(), adapter = () => FD.readAdapter(dir, { maxBytes: 16 * 1048576 });
+  // No hard links on this disk, and the disk fills up halfway through the final name.
+  let targetFd = null, cut = 0;
+  const orig = { linkSync: fs.linkSync, openSync: fs.openSync, writeSync: fs.writeSync };
+  fs.linkSync = () => { throw Object.assign(new Error('EPERM: operation not permitted, link'), { code: 'EPERM' }); };
+  fs.openSync = function (p, ...rest) { const fd = orig.openSync.call(this, p, ...rest); if (p === target) targetFd = fd; return fd; };
+  fs.writeSync = function (fd, buf, off, len, ...rest) {
+    if (fd !== targetFd) return orig.writeSync.call(this, fd, buf, off, len, ...rest);
+    if (cut++ === 0) return orig.writeSync.call(this, fd, buf, off, Math.min(len, 40), ...rest);
+    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+  };
+  let r;
+  try { r = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(MONTHLY) }, (n, t) => FD.writeRequest(dir, n, t)); }
+  finally { Object.assign(fs, orig); }
+  assert.ok(cut === 2, 'the final name was written, cut short and then refused');
+  assert.ok(r.code === 1 && r.json.error.kind === 'failed', JSON.stringify(r.json));
+  assert.ok(!fs.existsSync(target), 'no partial request left under its name');
+  assert.deepStrictEqual(proposalsIn(dir).filter(n => /\.tmp$/.test(n)), [], 'no temporary file left');
+  // An incomplete file under the request's name, even one that is exactly the start of what it would write, is never
+  // removed by a retry: another request may still be writing it. Nothing is written; the result says how to recover.
+  const whole = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(MONTHLY), dryRun: true });
+  const full = SRC.requests.text(Object.assign({ kind: 'plan' }, whole.json.data.request.plan));
+  fs.writeFileSync(target, full.slice(0, 90));
+  const again = reqAgree(request(dir, MONTHLY, 'nolink'));
+  assert.ok(again.code === 4 && again.json.data.request.status === 'held' && fs.readFileSync(target, 'utf8') === full.slice(0, 90), again.out);
+  const why = again.json.problems.filter(p => p.path === 'proposals/' + id + '.json')[0];
+  assert.ok(why && why.kind === 'malformed' && /only if no other request is still being written/.test(why.why), JSON.stringify(again.json.problems));
+  // The exact interleaving: B reads A's incomplete file, then A finishes it on the same file. B never removes A's file.
+  let removed = 0;
+  const b = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(Object.assign({}, MONTHLY, { title: 'B wants another title' })) },
+    (n, t) => { fs.writeFileSync(target, full); return FD.writeRequest(dir, n, t); }, () => { fs.writeFileSync(target, full); removed++; });
+  assert.strictEqual(removed, 0, 'never removes a file it didn\'t create');
+  assert.ok(b.code === 4 && b.json.data.request.status === 'held', JSON.stringify(b.json));
+  fs.writeFileSync(target, full);
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), full, 'A\'s request stands');
+  // A partial file that isn't the start of this request is never removed: nothing is written.
+  const id2 = reqId('ci-check', 'other'), t2 = path.join(dir, 'proposals', id2 + '.json');
+  fs.writeFileSync(t2, '{\n  "kind": "plan",\n  "id": "someone-else');
+  const held = reqAgree(request(dir, MONTHLY, 'other'));
+  assert.ok(held.code === 4 && fs.readFileSync(t2, 'utf8') === '{\n  "kind": "plan",\n  "id": "someone-else', held.out);
+});
+
+rule('REQUEST review: a plan decision not in the format is named, as READ names it (exit 4)', async () => {
+  const dir = await readFolder(), id = reqId('ci-check', 'dec');
+  assert.strictEqual(request(dir, MONTHLY, 'dec').code, 0);
+  fs.writeFileSync(path.join(dir, 'proposals', id + '.status-w1.json'), JSON.stringify({ kind: 'status', proposal: id, proposalHash: 7, status: 'accepted', run: 'run9', by: 'person-casey', at: RF.NOW }));
+  const r = reqAgree(request(dir, MONTHLY, 'dec'));
+  assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'proposals/' + id + '.status-w1.json' && p.kind === 'malformed') && r.json.data.request.status === 'already' && r.json.data.request.run === null, r.out);
+  const read = agree(readCli('runs', dir, '--json'));
+  assert.ok(read.code === 4 && read.json.problems.some(p => p.path === 'proposals/' + id + '.status-w1.json' && p.kind === 'malformed'), 'READ says the same');
+});
+
+rule('REQUEST review: a retry still names the roles left for the person who starts it', async () => {
+  const dir = await readFolder(), body = Object.assign({}, MONTHLY, { roles: { qa: 'person-nobody' } });
+  const first = reqAgree(request(dir, body, 'left'));
+  assert.deepStrictEqual(first.json.data.request.leftEmpty, ['qa']);
+  const again = reqAgree(request(dir, body, 'left'));
+  assert.ok(again.json.data.request.status === 'already', again.out);
+  assert.deepStrictEqual(again.json.data.request.leftEmpty, ['qa']);
+});
+
+rule('REQUEST review: plan request and READ name the same problems in this request\'s plan and decision files, and a bad one stops the write', async () => {
+  const id = reqId('ci-check', 'par'), st = id + '.status-w1.json', cp1 = id + '-LAPTOP.json';
+  const bad = [[st, '{}'], [st, 'null'], [st, '[]'], [st, '7'], [st, '{"kind": "other"}'], [st, '{'], [st, ''],
+    [st, JSON.stringify({ kind: 'status', proposal: id, status: 'maybe', by: 'person-casey', at: RF.NOW })],
+    [st, JSON.stringify({ kind: 'status', proposal: id, proposalHash: 7, status: 'accepted', run: 'run9', by: 'person-casey', at: RF.NOW })],
+    [st, JSON.stringify({ kind: 'status', status: 'accepted' })],
+    [cp1, '{}'], [cp1, 'null'], [cp1, '{"kind": "status"}'], [cp1, JSON.stringify({ kind: 'plan', id, process: 'release', title: 5 })]];
+  const pk = (list, name) => JSON.stringify(list.filter(p => p.path === 'proposals/' + name).map(p => p.kind));
+  for (const [name, text] of bad) {
+    const dir = await readFolder();
+    fs.writeFileSync(path.join(dir, 'proposals', name), text);
+    const before = EV.tree(dir), r = reqAgree(request(dir, MONTHLY, 'par')), read = agree(readCli('runs', dir, '--json'));
+    const label = name + ' ' + JSON.stringify(text);
+    assert.ok(r.code === 4 && r.json.data.request.status === 'held', label + ': ' + r.out);
+    assert.deepStrictEqual(EV.tree(dir), before, label + ': nothing written');
+    assert.ok(read.code === 4, label + ': READ is partial too');
+    assert.strictEqual(pk(r.json.problems, name), pk(read.json.problems, name), label + ': the same problem as READ');
+    assert.notStrictEqual(pk(r.json.problems, name), '[]', label);
+  }
+});
+
 run();

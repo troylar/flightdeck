@@ -52,6 +52,34 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What not to do:** don't publish while two copies of a draft exist: you may publish the wrong one. Don't leave the copy "for later"; it confuses AI assistants too.
 
+## A planned run arrived twice
+
+**What you see:** under **Runs**, a planned run says "This request arrived twice" (or "This plan arrived twice"), or two planned runs say "Two different copies of this request are in the folder", and **Start the run** is off. In `proposals/` there are two files with the same start, like `req-backup-script-….json` and `req-backup-script-…-LAPTOP.json`.
+
+**What it means:** the plan was written on two computers while OneDrive wasn't syncing, usually because another app asked for the run (`flightdeck plan request`) on each, and OneDrive kept both files. When they say the same thing, Flightdeck shows the request once and you can start it as usual. When they differ, it won't start either one until one is gone.
+
+**What to do:**
+
+1. Open both files in a text editor (or ask your AI assistant to compare them) and agree which one is right.
+2. Delete the other copy. Keep the file without the computer's name when they're the same.
+3. Back in Flightdeck, choose **Refresh**, then review and start the request.
+
+**What not to do:** don't start the request in an older copy of Flightdeck while two files exist: older copies show each file as its own planned run, so it can be started twice. If it was started twice already, Runs shows the plan's decisions as disagreeing; keep one run and cancel the other.
+
+## A request file is incomplete
+
+**What you see:** `flightdeck plan request` exits with 4 (`held`) and names a file in `proposals/`, like `proposals/req-backup-script-….json`, saying it isn't complete JSON. Nothing was written.
+
+**What it means:** the file is still arriving through OneDrive, another request is still writing it, or a request was cut short (a crash, a full disk). Flightdeck never removes it on its own, because it can't tell those apart.
+
+**What to do:**
+
+1. Wait a minute and run the request again. A file that was still arriving or being written is complete by then, and the request is either already there or refused with the details that differ.
+2. If it's still incomplete, check that no other computer or script is asking for the same request right now.
+3. Only then delete that one file, and run the request again.
+
+**What not to do:** don't delete the file while another request might still be writing it, and don't edit it by hand to finish it.
+
 ## Flightdeck lost access to the folder
 
 **What you see:** the top bar says **The team folder needs your OK again** with **Reconnect**, or Flightdeck opens on the examples instead of your folder.

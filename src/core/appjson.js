@@ -1,4 +1,5 @@
-/* Shapes for other apps (docs/apps.md): what `flightdeck processes | process | runs | run | next | followups --json` print,
+/* Shapes for other apps (docs/apps.md): what `flightdeck processes | process | runs | run | next | followups --json` and
+   `flightdeck plan request` print,
    built only from the app's own rules (R.nextUp, R.myNext, R.headline, R.totals, R.evidenceFor, PF.followups.list), so an
    app reads exactly what a person sees. Pure: no files. One versioned envelope (flightdeck-read/1); adding a field keeps
    the version, removing one or changing what it means is a new version. People are an ID and a name: people-directory
@@ -38,7 +39,8 @@ PF.appjson = (function () {
         steps: [{ id: 'string', text: 'string', type: 'string', must: 'boolean', planned: 'boolean', roles: ['string'], binds: ['string'], sets: ['string'], fields: map('string'), track: opt('string'), timing: TIMING, evidence: [EVIDENCE] }],
         gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], timing: TIMING } }] },
     runs: { runs: [SUMMARY], planned: [{ id: 'string', process: 'string', title: 'string', version: opt('number'), when: opt('string'), by: 'string', created: opt('string'), note: 'string',
-      details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: opt('boolean') }] },
+      details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: opt('boolean'),
+      copies: 'number', copiesDiffer: 'boolean', requestedBy: opt({ name: 'string', version: 'string' }) }] },
     run: { run: opt(extend(SUMMARY, { roles: [ROLE],
       steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', must: 'boolean', roles: ['string'], state: 'string', by: opt(PERSON), at: opt('string'), reason: opt('string'),
         values: map('string'), differently: opt({ note: 'string', by: opt(PERSON), at: opt('string') }), marks: ['string'], child: opt({ process: 'string', id: 'string' }), evidence: [EVIDENCE] }],
@@ -49,7 +51,10 @@ PF.appjson = (function () {
         gate: opt({ id: 'string', title: 'string', status: 'string', owner: opt('string') }),
         tracks: [{ id: 'string', title: 'string', left: 'number', step: opt({ id: 'string', text: 'string' }), people: [PERSON] }] }),
       mine: opt({ phase: { index: 'number', id: 'string', title: 'string' }, step: { id: 'string', text: 'string' } }) },
-    followups: { followUps: [FOLLOWUP] }
+    followups: { followUps: [FOLLOWUP] },
+    /* flightdeck plan request (1.20): what it did, and the plan as written, as already in the folder, or as it would be written. */
+    request: { request: { id: 'string', file: 'string', status: 'string', plan: opt({ id: 'string', process: 'string', version: 'number', title: 'string', details: map('string'),
+      roles: map('string'), when: opt('string'), note: 'string', by: 'string', created: 'string' }), leftEmpty: ['string'], run: opt('string') } }
   };
   function extend(a, b) { var o = {}; Object.keys(a).forEach(function (k) { o[k] = a[k]; }); Object.keys(b).forEach(function (k) { o[k] = b[k]; }); return o; }
 
@@ -180,7 +185,9 @@ PF.appjson = (function () {
     var v = typeof p.version === 'number' ? p.version : /^\d+$/.test(s(p.version)) ? +p.version : null;
     var out = { id: s(p.id), process: s(p.process), title: s(p.title || p.process), version: v, when: orNull(p.when), by: s(p.by), created: orNull(p.created), note: s(p.note),
       details: strMap(p.details && typeof p.details === 'object' ? p.details : {}), roles: strMap(p.roles && typeof p.roles === 'object' ? p.roles : {}), status: status,
-      run: st && st.status === 'accepted' && st.run ? p.process + '/' + st.run : null, startsOn: null, versionMissing: false };
+      run: st && st.status === 'accepted' && st.run ? p.process + '/' + st.run : null, startsOn: null, versionMissing: false,
+      /* OneDrive copies: how many files hold this plan, and whether they differ (then each is listed and none can be started). */
+      copies: typeof p._copies === 'number' ? p._copies : 1, copiesDiffer: !!p._copiesDiffer, requestedBy: PF.requests.claim(p) };
     var proc = (procs || []).filter(function (x) { return x.process === p.process; })[0], pick = proc && proc.index ? P.forPlan(proc.index, p.version, null) : { pub: null, missing: false };
     out.startsOn = pick.pub ? { version: pick.pub.info.version, folder: s(pick.pub.info.folder) } : null;
     out.versionMissing = !!pick.missing || (p.version != null && !pick.pub);
@@ -189,7 +196,7 @@ PF.appjson = (function () {
   }
   function runs(runList, plans, nameOf, procs, unsure) {
     return { runs: (runList || []).map(function (r) { return summary(r, nameOf); }).sort(byCreated),
-      planned: (plans || []).map(function (p) { return plan(p, procs, unsure); }).sort(function (a, b) { return a.id < b.id ? -1 : 1; }) };
+      planned: (plans || []).map(function (p) { return { p: p, o: plan(p, procs, unsure) }; }).sort(function (a, b) { return a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : s(a.p._file) < s(b.p._file) ? -1 : 1; }).map(function (x) { return x.o; }) };
   }
   function followUp(x, nameOf) {
     var d = x.decision;
@@ -238,6 +245,15 @@ PF.appjson = (function () {
       mine: my ? { phase: { index: my.phaseIndex, id: s(mph.id), title: s(mph.title) }, step: { id: s(my.step.id), text: s(my.step.text) } } : null };
   }
 
+  /* What plan request prints: status requested (written now), already (in the folder; nothing written), would-request
+     (--dry-run), held (nothing written: problems says what couldn't be read). p: the plan file's fields, or null. */
+  function request(id, file, status, p, leftEmpty, runKey) {
+    var plain = p ? { id: s(p.id), process: s(p.process), version: typeof p.version === 'number' ? p.version : /^\d+$/.test(s(p.version)) ? +p.version : 0, title: s(p.title),
+      details: strMap(p.details && typeof p.details === 'object' ? p.details : {}), roles: strMap(p.roles && typeof p.roles === 'object' ? p.roles : {}), when: orNull(p.when),
+      note: s(p.note), by: s(p.by), created: s(p.created) } : null;
+    return { request: { id: s(id), file: s(file), status: s(status), plan: plain, leftEmpty: (leftEmpty || []).map(s), run: runKey || null } };
+  }
+
   return { CONTRACT: CONTRACT, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
-    pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary };
+    pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();
