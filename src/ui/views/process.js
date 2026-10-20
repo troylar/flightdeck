@@ -409,7 +409,7 @@
     var title = p.latest && p.latest.map ? p.latest.map.meta.title : p.title, to = plan._retarget ? plan._retarget.to : plan.pin;
     var h = '<div class="runhead"><div><div class="eyebrow">' + esc(title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1>Start a run</h1></div></div>';
     h += '<div class="notice bad" role="alert"><span>This plan starts on ' + esc(title) + ' v' + esc(to.version) + ' (' + esc(to.folder) + '), which can\'t be used here: ' + esc(pick.ask) + '. It won\'t start on another version by itself.</span>' +
-      '<span class="row">' + (p.latest ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(p.latest.info.folder) + '">Start on v' + p.latest.info.version + ' instead</button>' : '') +
+      '<span class="row">' + (p.latest ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(p.latest.info.folder) + '">Start on v' + esc(p.latest.info.version) + ' instead</button>' : '') +
       '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button><button class="mini" type="button" data-act="home">Back</button></span></div>';
     return h;
   }
@@ -437,8 +437,8 @@
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
-      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + pub.info.version + '. v' + latest.info.version + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
-        (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + latest.info.version + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + latest.info.version + '</button>') + '</span></div>';
+      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
+        (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
     } else if (plan && pick.missing) {
       /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */

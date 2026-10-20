@@ -2409,4 +2409,88 @@ rule('Flight plan: a phase\'s note and screenshots and a gate\'s note get a mark
   state.x = 1;
 });
 
+
+/* ---------- 2.0 pins and skills: every value from a file is escaped (review round 5) ---------- */
+const HOSTILE = '<img src=x onerror=alert(1)>"><svg onload=1>javascript:alert(\'x\')';
+const HOSTILE1 = '<img/src=x/onerror=alert(1)>"><svg/onload=1>';
+/* No markup from a value: none of its img or svg elements (the app's own icons are svg), and no tag with an onerror or onload attribute once its quoted attribute
+   values (escaped, so they can't end early) are set aside. */
+function inert(html, what) {
+  assert.ok(!/<(img|svg)[\s/]+(src=x|onload)/i.test(html), what + ': a value\'s img or svg element got through: ' + (html.match(/.{0,80}<(img|svg)[\s/]+(src=x|onload).{0,80}/i) || [''])[0]);
+  (html.match(/<[a-z][^>]*>/gi) || []).forEach((tag) => {
+    const bare = tag.replace(/"[^"]*"/g, '""');
+    assert.ok(!/\son(error|load)\b/i.test(bare) && !/'/.test(bare), what + ': an attribute broke out: ' + tag);
+  });
+  assert.ok(!/href="javascript:/i.test(html), what + ': a javascript: link');
+}
+rule('Pins and skills screens escape every value from a file: a pin mismatch, Start it as a Flightdeck 2.0 run, Continued in run, Link it, can\'t be matched, a plan that asks or switches', () => {
+  // A run/3 parent pinned to a check-in version, whose linked child run says a hostile folder, title and version.
+  const pin = { process: 'check-in', version: 1, folder: 'v1-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' };
+  const { ctx, state, r } = setup();
+  const pub = ctx.data.processes[0].index.latest;
+  const three = JSON.parse(JSON.stringify(R.create(pub, { title: HOSTILE, details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, explicit: true, app: '2.0.0', pins: { notes: pin } })));
+  three._notes = []; three._conflicts = [];
+  const kid = { process: 'check-in', id: 'k1', title: HOSTILE, folder: HOSTILE, version: HOSTILE, format: 'preflight-run/2', state: 'running', created: NOW, steps: {}, gates: {}, details: {}, log: [], parent: { process: 'release', id: three.id, step: 'notes', inputs: {} } };
+  three.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: {}, folder: HOSTILE } };
+  const pubOf = { latest: pub, all: [pub], clashes: [], broken: [] };
+  ctx.run = () => three; ctx.data.runs = [three, kid]; ctx.findRun = (k) => k === 'check-in/k1' ? kid : null; ctx.procOf = () => pubOf;
+  state.unfold = { notes: true }; state.sel = 'notes';
+  let html = V.run(ctx);
+  assert.ok(/That check-in run is on /.test(html), 'set-up: the pin mismatch is shown, with the child\'s folder: ' + (html.match(/Child run:[^]{0,300}/) || [''])[0]);
+  inert(html, 'pin mismatch');
+  // A run/2 parent whose child is a 2.0 run: "Start it as a Flightdeck 2.0 run", from the child's own title and version.
+  const two = JSON.parse(JSON.stringify(r)); two.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: { changed: 'x' } } };
+  const kid3 = Object.assign({}, kid, { format: 'preflight-run/3' });
+  ctx.run = () => two; ctx.data.runs = [two]; ctx.findRun = (k) => k === 'check-in/k1' ? kid3 : null; ctx.procOf = null; ctx.latestPub = () => null;
+  html = V.run(ctx);
+  assert.ok(/Start it as a Flightdeck 2\.0 run/.test(html), 'set-up: the offer is shown');
+  inert(html, 'Start it as a Flightdeck 2.0 run');
+  // Continued in run, with a hostile run key that a found run makes into a button.
+  two.steps.notes = { s: 'blocked', by: 'person-casey', at: NOW, reason: 'Continued in run ' + HOSTILE1 };
+  ctx.findRun = () => kid;
+  html = V.run(ctx);
+  assert.ok(/made with Flightdeck 2\.0/.test(html), 'set-up: continued');
+  inert(html, 'Continued in run');
+  // An orphan child offered with Link it: its title, process and ID.
+  const inputs = R.childDetails(two, PF.map.findStep(R.mapOf(two), 'notes').step, Object.keys(two.details));
+  const orphan = Object.assign({}, kid, { id: HOSTILE1, title: HOSTILE, parent: { process: 'release', id: two.id, step: 'notes', inputs } });
+  two.steps.notes = { s: 'open' };
+  ctx.data.runs = [two, orphan]; ctx.findRun = () => null; ctx.latestPub = () => pub;
+  html = V.run(ctx);
+  assert.ok(/data-act="link-child"/.test(html), 'set-up: Link it is offered');
+  inert(html, 'Link it');
+  // Skills: a registration that can't be matched, with hostile fields everywhere, in the list and on its page.
+  const sk = { name: HOSTILE, version: HOSTILE, location: 'javascript:alert(1)', description: HOSTILE, process: HOSTILE, implements: HOSTILE, steps: [HOSTILE1], group: [HOSTILE], tags: [HOSTILE], updated: HOSTILE, file: HOSTILE };
+  const status = { s: 'unmatched', text: 'Can\'t be matched: ' + HOSTILE + ' (skill-registrations/' + HOSTILE + '/)' };
+  const latest = Object.assign({}, pub, { info: Object.assign({}, pub.info, { version: HOSTILE, folder: HOSTILE }) });
+  const proc = { id: 'release', title: HOSTILE, category: HOSTILE, group: [], tags: [], latest, all: [latest], clashes: [], broken: [], draft: null, skills: [{ skill: sk, errors: [HOSTILE], status }], staleSkills: 0 };
+  ctx.processes = () => [proc];
+  ctx.orphanSkills = () => [{ skill: Object.assign({}, sk, { file: 'orphan-' + HOSTILE }), errors: [HOSTILE], status }];
+  ctx.data.runs = []; state.view = 'skills';
+  html = V.skillsPage(ctx);
+  assert.ok(/can&#39;t be matched|can't be matched/.test(html), 'set-up: listed as can\'t be matched');
+  inert(html, 'skills list');
+  inert(V.home(ctx), 'home');
+  state.view = 'skill'; state.skillFile = HOSTILE;
+  html = V.skill(ctx);
+  assert.ok(/Can&#39;t be matched/.test(html), 'set-up: the skill page');
+  inert(html, 'skill page');
+  state.skillFile = 'orphan-' + HOSTILE;
+  inert(V.skill(ctx), 'unmatched skill page');
+  // A plan/2 whose pinned version can't be used asks; one whose version is older offers the switch.
+  const plan = { format: 'flightdeck-plan/2', id: HOSTILE1, process: 'release', version: 1, title: HOSTILE, details: { ticket: HOSTILE }, roles: {}, by: HOSTILE, _hash: 'h1', pin: { process: 'release', version: HOSTILE, folder: 'v9-zzzzzzzz' } };
+  ctx.data.plans = [plan]; ctx.suggestRole = () => null;
+  state.view = 'start'; state.processId = 'release'; state.planId = HOSTILE1;
+  proc.title = 'Release';
+  html = V.start(ctx);
+  assert.ok(/won&#39;t start on another version by itself|won't start on another version by itself/.test(html), 'set-up: the plan asks: ' + html.slice(0, 600));
+  inert(html, 'plan asks');
+  plan.pin = { process: 'release', version: 1, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash };
+  const newer = Object.assign({}, pub, { info: Object.assign({}, pub.info, { version: 2, folder: 'v2-' + 'zzzzzzzz' }) });
+  proc.latest = newer; proc.all = [newer, pub]; newer.info.version = HOSTILE;
+  html = V.start(ctx);
+  assert.ok(/data-act="plan-retarget"[^>]*>Start on v&lt;img/.test(html), 'set-up: the switch is offered: ' + (html.match(/plan-retarget[^]{0,200}/) || [''])[0]);
+  inert(html, 'plan switch');
+});
+
 run();
