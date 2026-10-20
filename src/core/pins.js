@@ -105,6 +105,31 @@ PF.pins = (function () {
   /* Why a run/2 parent can't start or adopt this child, in the plan's words. */
   function legacyWhy(childPub, r) { return (childPub.map.meta.title || childPub.info.process) + ' v' + childPub.info.version + ' needs a run made with Flightdeck 2.0. Start a new run of this checklist on v' + r.version + ' to use it.'; }
 
+  /* The one verdict on whether a child run stands for a step pinned to pin: '' or why not. It's judged against the verified
+     publication of the folder the child ran on (procOf(process): that process as the app lists it), never the run's own say:
+     the same folder, that folder's publication matching the pin (PF.pins.find: present, the only one with its number, usable,
+     the fingerprints pinned), and the child's own record of what it ran matching that publication: its checklist (mapHash,
+     and the snapshot's hash), its step types (typesHash where it records one, as every run/3 does, and its frozen types).
+     Anything missing or that can't be checked is no match. linkChild, childVerdict, settleChild, the step and startChild all
+     ask this. */
+  function childMatch(pin, c, procOf) {
+    if (!pin) return '';
+    var tail = ', but this step is pinned to ' + pin.process + ' v' + pin.version + ' (' + pin.folder + '), so it can\'t stand for this step.';
+    var said = function (what) { return 'That ' + pin.process + ' run ' + what + tail; };
+    if (!isObj(c)) return said('isn\'t visible here');
+    if (c.process !== pin.process) return said('is a run of another checklist');
+    if (typeof c.folder !== 'string' || !c.folder) return said('doesn\'t say its version');
+    if (c.folder !== pin.folder) return said('is on ' + c.folder);
+    var got = typeof procOf === 'function' ? find(procOf(pin.process), pin) : { why: 'the versions in this folder aren\'t known here' };
+    if (!got.pub) return said('can\'t be checked against ' + pin.folder + ': ' + lower(got.why));
+    var info = got.pub.info, t;
+    if (c.mapHash !== info.mapHash || (typeof c.snapshot === 'string' && PF.util.hash(c.snapshot) !== info.mapHash)) return said('doesn\'t match the checklist of ' + pin.folder);
+    if (c.typesHash == null && c.types == null) return said('doesn\'t say which step types it ran');
+    if (c.typesHash != null && c.typesHash !== info.typesHash) return said('ran other step types than ' + pin.folder);
+    if (c.types != null) { try { t = PF.publish.canonical(c.types) === PF.publish.canonical(got.pub.types); } catch (e) { t = false; } if (!t) return said('ran other step types than ' + pin.folder); }
+    return '';
+  }
+
   /* The version a plan/2 starts on: its pin, or the one a person retargeted it to (a plan/2 status, retargeted). Never the
      latest by itself: { pub, older, retargeted } or { pub: null, ask: why }. */
   function forPlan(proc, plan, retarget) {
@@ -116,5 +141,5 @@ PF.pins = (function () {
     return { pub: got.pub, older: !!latest && latest.info.folder !== got.pub.info.folder, retargeted: !!retarget };
   }
 
-  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
+  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, childMatch: childMatch, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
 })();

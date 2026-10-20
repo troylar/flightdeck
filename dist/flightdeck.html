@@ -4523,6 +4523,31 @@ PF.pins = (function () {
   /* Why a run/2 parent can't start or adopt this child, in the plan's words. */
   function legacyWhy(childPub, r) { return (childPub.map.meta.title || childPub.info.process) + ' v' + childPub.info.version + ' needs a run made with Flightdeck 2.0. Start a new run of this checklist on v' + r.version + ' to use it.'; }
 
+  /* The one verdict on whether a child run stands for a step pinned to pin: '' or why not. It's judged against the verified
+     publication of the folder the child ran on (procOf(process): that process as the app lists it), never the run's own say:
+     the same folder, that folder's publication matching the pin (PF.pins.find: present, the only one with its number, usable,
+     the fingerprints pinned), and the child's own record of what it ran matching that publication: its checklist (mapHash,
+     and the snapshot's hash), its step types (typesHash where it records one, as every run/3 does, and its frozen types).
+     Anything missing or that can't be checked is no match. linkChild, childVerdict, settleChild, the step and startChild all
+     ask this. */
+  function childMatch(pin, c, procOf) {
+    if (!pin) return '';
+    var tail = ', but this step is pinned to ' + pin.process + ' v' + pin.version + ' (' + pin.folder + '), so it can\'t stand for this step.';
+    var said = function (what) { return 'That ' + pin.process + ' run ' + what + tail; };
+    if (!isObj(c)) return said('isn\'t visible here');
+    if (c.process !== pin.process) return said('is a run of another checklist');
+    if (typeof c.folder !== 'string' || !c.folder) return said('doesn\'t say its version');
+    if (c.folder !== pin.folder) return said('is on ' + c.folder);
+    var got = typeof procOf === 'function' ? find(procOf(pin.process), pin) : { why: 'the versions in this folder aren\'t known here' };
+    if (!got.pub) return said('can\'t be checked against ' + pin.folder + ': ' + lower(got.why));
+    var info = got.pub.info, t;
+    if (c.mapHash !== info.mapHash || (typeof c.snapshot === 'string' && PF.util.hash(c.snapshot) !== info.mapHash)) return said('doesn\'t match the checklist of ' + pin.folder);
+    if (c.typesHash == null && c.types == null) return said('doesn\'t say which step types it ran');
+    if (c.typesHash != null && c.typesHash !== info.typesHash) return said('ran other step types than ' + pin.folder);
+    if (c.types != null) { try { t = PF.publish.canonical(c.types) === PF.publish.canonical(got.pub.types); } catch (e) { t = false; } if (!t) return said('ran other step types than ' + pin.folder); }
+    return '';
+  }
+
   /* The version a plan/2 starts on: its pin, or the one a person retargeted it to (a plan/2 status, retargeted). Never the
      latest by itself: { pub, older, retargeted } or { pub: null, ask: why }. */
   function forPlan(proc, plan, retarget) {
@@ -4534,7 +4559,7 @@ PF.pins = (function () {
     return { pub: got.pub, older: !!latest && latest.info.folder !== got.pub.info.folder, retargeted: !!retarget };
   }
 
-  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
+  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, childMatch: childMatch, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
 })();
 
 /* Runs: one execution of one published map. Pure functions over a plain run object (saved as run.json). */
@@ -5161,19 +5186,23 @@ PF.run = (function () {
   }
 
   /* ---------- Nested processes: a run.process step starts a linked child run ---------- */
-  function linkChild(r, map, stepId, child, who, now) {
+  /* opts (run/3): { run: the child run itself, procOf, findRun }, so the pin is judged by PF.pins.childMatch. */
+  function linkChild(r, map, stepId, child, who, now, opts) {
     /* Linking records a run that already exists, so it's allowed while paused; starting one (in the app) isn't. */
     var x = M.findStep(map, stepId);
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
     if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
-    var pinNow = childPin(r, stepId), offPin = !!pinNow && a.child && a.child.folder !== pinNow.folder;
+    var o = opts || {}, pinNow = childPin(r, stepId);
+    /* A link whose run is here and fails the pin doesn't hold the step: a new run on the pin replaces it. One not visible yet
+       (still syncing) still holds it. */
+    var had = pinNow && a.child && typeof o.findRun === 'function' ? o.findRun(a.child.process + '/' + a.child.id) : null, offPin = !!had && !!PF.pins.childMatch(pinNow, had, o.procOf);
     if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin) throw new Error('This step already started a run.');
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
-    if (r.format === FORMAT3) { var pm = pinMismatch(childPin(r, stepId) || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), child); if (pm) throw new Error(pm); }
+    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), o.run, o.procOf); if (pm) throw new Error(pm); }
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
@@ -5226,10 +5255,10 @@ PF.run = (function () {
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
   /* What the linked child means for its step: done only if it completed with the same values it was started with; blocked
      (and marked failed, so a new child can replace it) if it ended any other way or its carried values were changed. */
-  function childVerdict(r, step, a, child) {
+  function childVerdict(r, step, a, child, procOf) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
     if (r.format !== FORMAT3 && isTwo(child)) return null;
-    if (r.format === FORMAT3 && pinMismatch(childPin(r, step.id), child)) return null;
+    if (r.format === FORMAT3 && PF.pins.childMatch(childPin(r, step.id), child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
@@ -5238,13 +5267,13 @@ PF.run = (function () {
     return { s: 'done' };
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
-  function settleChild(r, map, id, child, who, now) {
+  function settleChild(r, map, id, child, who, now, procOf) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
-    if (r.format === FORMAT3) { var pm = pinMismatch(childPin(r, id), child); if (pm) throw new Error(pm); }
+    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(childPin(r, id), child, procOf); if (pm) throw new Error(pm); }
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
-    var v = childVerdict(r, x.step, a, child);
+    var v = childVerdict(r, x.step, a, child, procOf);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
     if (v.s === 'done') done(r, map, id, who, now, { _child: child.id });
     else if (a.s === 'blocked') { a.child.failed = true; addLog(r, who, now, v.reason + '; a new run can replace it'); }
@@ -5259,17 +5288,8 @@ PF.run = (function () {
 
   /* The pin a run/3's {run.process} step follows, or null. */
   function childPin(r, stepId) { return r && r.format === FORMAT3 && r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId) ? r.pins.children[stepId] : null; }
-  /* Why a child run (or a link that says its version: folder, mapHash, typesHash) can't stand for a step pinned to pin, or ''.
-     The child's own version decides, never what the parent's link says; typesHash is compared when the child records it (a
-     run/3 always does; a run/2 child on a /1 version doesn't, and its folder and checklist fingerprint name the version). */
-  function pinMismatch(pin, c) {
-    if (!pin) return '';
-    var same = !!c && c.folder === pin.folder && c.mapHash === pin.mapHash && (c.typesHash == null || c.typesHash === pin.typesHash);
-    if (same) return '';
-    var was = !c || !c.folder ? 'doesn\'t say its version' : c.folder !== pin.folder ? 'is on ' + c.folder : 'doesn\'t match the files of ' + pin.folder;
-    return 'That ' + pin.process + ' run ' + was + ', but this step is pinned to ' + pin.process + ' v' + pin.version + ' (' + pin.folder + '), so it can\'t stand for this step.';
-  }
-  function childPinProblem(r, stepId, c) { return pinMismatch(childPin(r, stepId), c); }
+  /* The one child-pin verdict (PF.pins.childMatch) for a run/3's step: '' or why the child can't stand for it. */
+  function childPinProblem(r, stepId, c, procOf) { return r && r.format === FORMAT3 ? PF.pins.childMatch(childPin(r, stepId), c, procOf) : ''; }
   /* A child run made with Flightdeck 2.0 (run/3), or one this copy reads by name only: a run/2 parent never follows it. */
   function isTwo(child) { return !!child && (child.format === FORMAT3 || (!!child._unrunnable && child._needs != null)); }
   var LEGACY_CHILD = 'That run was made with Flightdeck 2.0, which an older Flightdeck recording this run would read by name only. Start it as a Flightdeck 2.0 run instead.';
@@ -14381,12 +14401,12 @@ PF.vk = (function () {
     var offer = function (why) { return '<div class="childbox">' + I('nest') + '<span>' + esc(why) + '</span>' + (canStart || (a && a.s === 'blocked') ? '<button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '') + '</div>'; };
     /* A child run that names this step as its parent but isn't the linked one (its link didn't land): offer to link it,
        unless the linked child is still current. */
-    var orphan = (ctx.data.runs || []).filter(function (x) { return x.parent && x.parent.process === r.process && x.parent.id === r.id && x.parent.step === s.id && !(child && child.process === x.process && child.id === x.id) && !(x.ended && (R.childVerdict(r, s, { child: { process: x.process, id: x.id, inputs: x.parent.inputs || {} } }, x) || {}).s !== 'done') && R.childCurrent(r, s, { child: { process: x.process, inputs: x.parent.inputs || {} } }); })
-      .filter(function (x) { return two ? !R.childPinProblem(r, s.id, x) : x.format !== R.FORMAT3; })
+    var orphan = (ctx.data.runs || []).filter(function (x) { return x.parent && x.parent.process === r.process && x.parent.id === r.id && x.parent.step === s.id && !(child && child.process === x.process && child.id === x.id) && !(x.ended && (R.childVerdict(r, s, { child: { process: x.process, id: x.id, inputs: x.parent.inputs || {} } }, x, procOf) || {}).s !== 'done') && R.childCurrent(r, s, { child: { process: x.process, inputs: x.parent.inputs || {} } }); })
+      .filter(function (x) { return two ? !R.childPinProblem(r, s.id, x, procOf) : x.format !== R.FORMAT3; })
       .sort(function (p1, p2) { return p1.created < p2.created ? 1 : -1; })[0];
     if (orphan && canStart && !(child && R.childCurrent(r, s, a) && !child.failed)) return '<div class="childbox">' + I('nest') + '<span>"' + esc(orphan.title) + '" was started for this step but isn\'t linked.</span><button class="btn" data-act="link-child" data-id="' + esc(s.id) + '" data-child="' + esc(orphan.process + '/' + orphan.id) + '">Link it</button></div>';
     if (child) {
-      var off = two && cr ? R.childPinProblem(r, s.id, cr) : '';
+      var off = two && cr ? R.childPinProblem(r, s.id, cr, procOf) : '';
       var state = cr ? (cr.ended ? cr.ended.outcome : R.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
       if (!two && cr && cr.format === R.FORMAT3 && !fresh) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
       var again = !fresh && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<span class="small">' + esc(target.why) + '</span><button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
@@ -19022,7 +19042,7 @@ PF.examples = (function () {
     if (!x || !ctx.recording(parent)) return;
     var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = parent.steps[stepId], rkey = state.runKey + ':' + stepId;
     /* One start at a time per step: a second click while the first is saving, or a step that already has a current child, does nothing. */
-    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed) || parent.paused) return;
+    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childPinProblem(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return;
     /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */
     if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return; }
     var cp = R.childProblem(parent, x.step, pub.map.meta.context);
@@ -19038,14 +19058,15 @@ PF.examples = (function () {
     catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
-    try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, link, state.me, new Date().toISOString()); }
+    var lopts = { run: child, procOf: ctx.procOf, findRun: ctx.findRun };
+    try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, link, state.me, new Date().toISOString(), lopts); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart();
     state.startingChild[rkey] = true;
     var done = function () { endBusy(); delete state.startingChild[rkey]; };
     queued(function () { child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
       if (sg !== gen) { done(); return; }
-      return mutateRun(key, sg, function (r, m, me, now) { R.linkChild(r, m, stepId, link, me, now); }).then(function (ok) {
+      return mutateRun(key, sg, function (r, m, me, now) { R.linkChild(r, m, stepId, link, me, now, lopts); }).then(function (ok) {
         done();
         if (sg !== gen) return;
         if (ok === false) { say('"' + child.title + '" was started but isn\'t linked to this step yet. Use Link it on the step.', 'warn'); render(); return load(true); }
@@ -19092,10 +19113,10 @@ PF.examples = (function () {
     data.runs.forEach(function (r) {
       if (!ctx.recording(r) || r.paused || state.unsaved[r.id]) return;
       Object.keys(r.steps).forEach(function (sid) {
-        var a = r.steps[sid], c = a && a.child && ctx.findRun(a.child.process + '/' + a.child.id), x = M.findStep(R.mapOf(r), sid), v = x && R.childVerdict(r, x.step, a, c);
+        var a = r.steps[sid], c = a && a.child && ctx.findRun(a.child.process + '/' + a.child.id), x = M.findStep(R.mapOf(r), sid), v = x && R.childVerdict(r, x.step, a, c, ctx.procOf);
         /* Settled once: a failed child stays failed (unblocking the step won't re-block it); a new child replaces it. */
         if (!v || a.child.failed || !R.childCurrent(r, x.step, a) || a.s === 'done' || a.s === 'na') return;
-        mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) { R.settleChild(rr, m, sid, c, me, now); }, { background: true });
+        mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) { R.settleChild(rr, m, sid, c, me, now, ctx.procOf); }, { background: true });
       });
     });
   }
@@ -21208,7 +21229,7 @@ PF.examples = (function () {
     'link-child': function (id, b) {
       var c = ctx.findRun(b.dataset.child);
       if (!c || !c.parent) return;
-      mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder, mapHash: c.mapHash, typesHash: c.typesHash, format: c.format }, me, now); });
+      mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder, format: c.format }, me, now, { run: c, procOf: ctx.procOf, findRun: ctx.findRun }); });
     },
     timeline: function (id) { state.timeline = !state.timeline; state.overlayFocus = null; state.focus = '[data-act="timeline"]' + (id ? '[data-id="' + cssEsc(id) + '"]' : ''); render(); },
     'start-step': function (id) { mutate(function (r, map, me, now) { R.start(r, map, id, me, now); }); },

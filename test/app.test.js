@@ -6103,6 +6103,28 @@ rule('Pins: a run/3 never adopts or settles from a child run on another version 
   assert.notStrictEqual(JSON.parse(app.fs.files[runPath].t).steps.notes.s, 'done', 'never checked by a run on another version');
 });
 
+rule('Pins: a step whose linked run fails its pin shows "Start a new … run", and clicking it starts one child, on the pinned folder', async () => {
+  const { app, n, v1, v2folder } = await pinnedRelease();
+  const runPath = 'runs/release/' + n.id + '/run.json';
+  app.click('start-child', 'notes'); await app.tick(120);
+  const k = JSON.parse(app.fs.files['runs/check-in/' + JSON.parse(app.fs.files[runPath].t).steps.notes.child.id + '/run.json'].t);
+  const o = app.PF.run.create(v1, { id: 'wrongver2', title: 'Check in on v1', details: k.details, roles: k.roles, by: 'person-casey', session: 'w-other', now: new Date().toISOString(), parent: k.parent });
+  await app.PF.repo.saveRun(app.fs, o, 'w-other');
+  // A hand-edited link to the wrong version, with the inputs still current.
+  const hand = JSON.parse(app.fs.files[runPath].t); hand.steps.notes = { s: 'open', child: { process: 'check-in', id: 'wrongver2', inputs: k.parent.inputs, folder: v2folder } }; await app.fs.write(runPath, JSON.stringify(hand, null, 2));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-run', 'release/' + n.id); await app.tick(40);
+  app.click('select', 'notes'); await app.tick();
+  assert.ok(/data-act="start-child" data-id="notes">Start a new /.test(app.html()), 'the button is shown');
+  const kids = () => app.files('runs/check-in/').filter(p => /\/run\.json$/.test(p)), before = kids();
+  app.click('start-child', 'notes'); await app.tick(160);
+  const made = kids().filter(p => before.indexOf(p) < 0);
+  assert.strictEqual(made.length, 1, 'one new child: ' + before.length + ' -> ' + kids().length);
+  const c = JSON.parse(app.fs.files[made[0]].t), link = JSON.parse(app.fs.files[runPath].t).steps.notes.child;
+  assert.strictEqual(c.folder, v2folder, 'on the pinned folder');
+  assert.ok(link && link.id === c.id && link.folder === v2folder, 'and linked: ' + JSON.stringify(link));
+});
+
 rule('Pins: a plan switch waiting behind another write is dropped, and says so, if the folder or the person changes first; it never lands in another folder', async () => {
   for (const change of ['folder', 'person']) {
     const app = boot(); await app.tick(60);

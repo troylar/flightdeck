@@ -132,7 +132,8 @@ rule('A run/3 without version: pins the latest child when it starts; a later chi
   const later = childProc(['A', 'B']); procs = { verify: proc(kids.concat([later[1]])) };
   const step = M.findStep(R.mapOf(r), 'verify').step, t = PF.pins.childTarget(r, step, (id) => procs[id] || null);
   assert.strictEqual(t.pub.info.folder, kids[0].info.folder, 'still v1, though v2 is published');
-  R.linkChild(r, R.mapOf(r), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: t.pub.info.folder, mapHash: t.pub.info.mapHash, typesHash: t.pub.info.typesHash, format: 'preflight-run/2' }, 'person-avery', AT);
+  const kid1 = R.create(t.pub, { id: 'kid1', by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' } });
+  R.linkChild(r, R.mapOf(r), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: t.pub.info.folder, format: 'preflight-run/2' }, 'person-avery', AT, { run: kid1, procOf: (id) => procs[id] || null });
   assert.strictEqual(r.steps.verify.child.folder, kids[0].info.folder);
   const back = R.sanitize(plain(r));
   assert.ok(!back._unrunnable, back._unrunnable); assert.strictEqual(back.steps.verify.child.folder, kids[0].info.folder);
@@ -486,36 +487,67 @@ rule('Evidence checks a run/3\'s payload against its version by the shared canon
 
 /* ---------- Review fixes (pins, part 2) ---------- */
 rule('A run/3 pinned to a child version never adopts or settles from a run on another version: linking an orphan, a hand-edited link and settlement all refuse; the pinned one settles', () => {
-  const kids = childProc(['A', 'B']), parent = linked(kids, ['  version: 1']), procs = { verify: proc(kids) };
-  const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, (id) => procs[id] || null) });
+  const kids = childProc(['A', 'B']), parent = linked(kids, ['  version: 1']), procs = { verify: proc(kids) }, procOf = (id) => procs[id] || null;
+  const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, procOf) });
   const map = R.mapOf(r), step = M.findStep(map, 'verify').step, inputs = { ticket: 'ABC-1' };
   assert.strictEqual(r.pins.children.verify.folder, kids[0].info.folder, 'set-up: pinned to v1');
   const kid = (pub, id) => Object.assign(R.create(pub, { id, by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' }, parent: { process: 'backup', id: r.id, step: 'verify', inputs, folder: r.folder } }), { ended: { outcome: 'Completed', by: 'a', at: AT } });
   const v2 = kid(kids[1], 'kid2'), v1 = kid(kids[0], 'kid1');
   const linkOf = (c) => ({ process: c.process, id: c.id, inputs, folder: c.folder, mapHash: c.mapHash, typesHash: c.typesHash });
+  const opts = (c) => ({ run: c, procOf, findRun: () => null });
   // Adoption (Link it on an orphan): a run on v2 can't stand for a step pinned to v1.
-  assert.throws(() => R.linkChild(r, map, 'verify', linkOf(v2), 'person-avery', AT), /pinned to Check in code v1|pinned to verify v1/);
+  assert.throws(() => R.linkChild(r, map, 'verify', linkOf(v2), 'person-avery', AT, opts(v2)), /pinned to verify v1/);
   assert.ok(!r.steps.verify || !r.steps.verify.child, 'nothing linked');
-  // A link that doesn't say its fingerprints can't be checked, so it isn't adopted either.
-  assert.throws(() => R.linkChild(r, map, 'verify', { process: 'verify', id: 'kid1', inputs, folder: v1.folder }, 'person-avery', AT), /pinned/);
+  // Without the child run and the folder's versions, nothing can be checked, so nothing is adopted.
+  assert.throws(() => R.linkChild(r, map, 'verify', linkOf(v1), 'person-avery', AT), /pinned/);
   // A hand-edited link to the v2 run: never settles the step, either way.
   const hand = plain(r); hand.steps.verify = { s: 'open', child: { process: 'verify', id: 'kid2', inputs, folder: kids[1].info.folder } };
-  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, v2), null, 'no verdict from another version');
-  assert.throws(() => R.settleChild(hand, map, 'verify', v2, 'person-avery', AT), /pinned/);
+  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, v2, procOf), null, 'no verdict from another version');
+  assert.throws(() => R.settleChild(hand, map, 'verify', v2, 'person-avery', AT, procOf), /pinned/);
   assert.strictEqual(hand.steps.verify.s, 'open');
   const failed = Object.assign(plain(v2), { ended: { outcome: 'Cancelled', by: 'a', at: AT } });
-  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, failed), null, 'nor blocks it');
+  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, failed, procOf), null, 'nor blocks it');
   // Even with child.folder edited to say v1, the child's own version decides.
   hand.steps.verify.child.folder = kids[0].info.folder;
-  assert.throws(() => R.settleChild(hand, map, 'verify', v2, 'person-avery', AT), /pinned/);
-  // The run on the pinned version links and settles.
-  R.linkChild(r, map, 'verify', linkOf(v1), 'person-avery', AT);
-  assert.strictEqual(R.settleChild(r, map, 'verify', v1, 'person-avery', AT), 'done');
+  assert.throws(() => R.settleChild(hand, map, 'verify', v2, 'person-avery', AT, procOf), /pinned/);
+  // The run on the pinned version links and settles; without the folder's versions, it doesn't.
+  R.linkChild(r, map, 'verify', linkOf(v1), 'person-avery', AT, opts(v1));
+  assert.strictEqual(R.childVerdict(r, step, r.steps.verify, v1), null, 'unverifiable: no match');
+  assert.throws(() => R.settleChild(plain(r), map, 'verify', v1, 'person-avery', AT), /pinned/);
+  assert.strictEqual(R.settleChild(r, map, 'verify', v1, 'person-avery', AT, procOf), 'done');
   // A child whose version files changed since the pin (same folder, other fingerprints) doesn't settle either.
-  const r2 = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, (id) => procs[id] || null) });
+  const r2 = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, procOf) });
   r2.steps.verify = { s: 'open', child: { process: 'verify', id: 'kid1', inputs, folder: kids[0].info.folder } };
   const edited = Object.assign(plain(v1), { mapHash: 'ffffffff' });
-  assert.throws(() => R.settleChild(r2, map, 'verify', edited, 'person-avery', AT), /pinned/);
+  assert.throws(() => R.settleChild(r2, map, 'verify', edited, 'person-avery', AT, procOf), /pinned/);
+});
+
+rule('One child-pin verdict judges a run/2 child by its verified publication: same folder and checklist but other step types never match, and a missing or unverifiable version never matches', () => {
+  const kids = childProc(['A']), parent = linked(kids, ['  version: 1']), good = kids[0];
+  /* Another publication with the same folder name and checklist, but different step types: a run/2 child of it records no
+     typesHash, only its frozen types. */
+  const types = JSON.parse(JSON.stringify(good.types)); types.confirm = Object.assign({}, types.confirm || {}, { label: 'Changed' });
+  const twin = Object.assign({}, good, { types, info: Object.assign({}, good.info, { typesHash: 'ffffffff' }) });
+  const procs = { verify: proc(kids) }, procOf = (id) => procs[id] || null;
+  const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, procOf) });
+  const map = R.mapOf(r), step = M.findStep(map, 'verify').step, pin = r.pins.children.verify, inputs = { ticket: 'ABC-1' };
+  const kid = (pub, id) => Object.assign(plain(R.create(pub, { id, by: 'a', session: 'w', now: AT, details: inputs, parent: { process: 'backup', id: r.id, step: 'verify', inputs, folder: r.folder } })), { ended: { outcome: 'Completed', by: 'a', at: AT } });
+  const odd = kid(twin, 'twin1'), ok = kid(good, 'good1');
+  assert.ok(!('typesHash' in odd) && odd.folder === pin.folder && odd.mapHash === pin.mapHash, 'set-up: a run/2 child with the same folder and checklist');
+  assert.strictEqual(PF.pins.childMatch(pin, ok, procOf), '');
+  assert.ok(/step types/.test(PF.pins.childMatch(pin, odd, procOf)), PF.pins.childMatch(pin, odd, procOf));
+  assert.throws(() => R.linkChild(plain(r), map, 'verify', { process: 'verify', id: 'twin1', inputs, folder: odd.folder, mapHash: odd.mapHash }, 'a', AT, { run: odd, procOf }), /step types/);
+  const hand = plain(r); hand.steps.verify = { s: 'open', child: { process: 'verify', id: 'twin1', inputs, folder: pin.folder } };
+  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, odd, procOf), null);
+  assert.throws(() => R.settleChild(hand, map, 'verify', odd, 'a', AT, procOf), /pinned/);
+  // Missing or unverifiable: never a match.
+  const noTypes = plain(ok); delete noTypes.types;
+  assert.ok(PF.pins.childMatch(pin, noTypes, procOf), 'a run/2 child without its types can\'t be checked');
+  assert.ok(PF.pins.childMatch(pin, ok, () => null), 'its checklist isn\'t published here');
+  assert.ok(PF.pins.childMatch(pin, ok, null), 'no versions to check against');
+  assert.ok(PF.pins.childMatch(pin, null, procOf), 'no child run');
+  const gone = proc([childProc(['A'])[0]]);
+  assert.ok(PF.pins.childMatch(pin, ok, () => gone), 'another folder with that number');
 });
 
 rule('Rechecking a {run.skill} step keeps the registration it observed in the step\'s history, through sanitize and the archive', () => {

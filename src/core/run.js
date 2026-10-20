@@ -622,19 +622,23 @@ PF.run = (function () {
   }
 
   /* ---------- Nested processes: a run.process step starts a linked child run ---------- */
-  function linkChild(r, map, stepId, child, who, now) {
+  /* opts (run/3): { run: the child run itself, procOf, findRun }, so the pin is judged by PF.pins.childMatch. */
+  function linkChild(r, map, stepId, child, who, now, opts) {
     /* Linking records a run that already exists, so it's allowed while paused; starting one (in the app) isn't. */
     var x = M.findStep(map, stepId);
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
     if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
-    var pinNow = childPin(r, stepId), offPin = !!pinNow && a.child && a.child.folder !== pinNow.folder;
+    var o = opts || {}, pinNow = childPin(r, stepId);
+    /* A link whose run is here and fails the pin doesn't hold the step: a new run on the pin replaces it. One not visible yet
+       (still syncing) still holds it. */
+    var had = pinNow && a.child && typeof o.findRun === 'function' ? o.findRun(a.child.process + '/' + a.child.id) : null, offPin = !!had && !!PF.pins.childMatch(pinNow, had, o.procOf);
     if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin) throw new Error('This step already started a run.');
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
-    if (r.format === FORMAT3) { var pm = pinMismatch(childPin(r, stepId) || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), child); if (pm) throw new Error(pm); }
+    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), o.run, o.procOf); if (pm) throw new Error(pm); }
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
@@ -687,10 +691,10 @@ PF.run = (function () {
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
   /* What the linked child means for its step: done only if it completed with the same values it was started with; blocked
      (and marked failed, so a new child can replace it) if it ended any other way or its carried values were changed. */
-  function childVerdict(r, step, a, child) {
+  function childVerdict(r, step, a, child, procOf) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
     if (r.format !== FORMAT3 && isTwo(child)) return null;
-    if (r.format === FORMAT3 && pinMismatch(childPin(r, step.id), child)) return null;
+    if (r.format === FORMAT3 && PF.pins.childMatch(childPin(r, step.id), child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
@@ -699,13 +703,13 @@ PF.run = (function () {
     return { s: 'done' };
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
-  function settleChild(r, map, id, child, who, now) {
+  function settleChild(r, map, id, child, who, now, procOf) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
-    if (r.format === FORMAT3) { var pm = pinMismatch(childPin(r, id), child); if (pm) throw new Error(pm); }
+    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(childPin(r, id), child, procOf); if (pm) throw new Error(pm); }
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
-    var v = childVerdict(r, x.step, a, child);
+    var v = childVerdict(r, x.step, a, child, procOf);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
     if (v.s === 'done') done(r, map, id, who, now, { _child: child.id });
     else if (a.s === 'blocked') { a.child.failed = true; addLog(r, who, now, v.reason + '; a new run can replace it'); }
@@ -720,17 +724,8 @@ PF.run = (function () {
 
   /* The pin a run/3's {run.process} step follows, or null. */
   function childPin(r, stepId) { return r && r.format === FORMAT3 && r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId) ? r.pins.children[stepId] : null; }
-  /* Why a child run (or a link that says its version: folder, mapHash, typesHash) can't stand for a step pinned to pin, or ''.
-     The child's own version decides, never what the parent's link says; typesHash is compared when the child records it (a
-     run/3 always does; a run/2 child on a /1 version doesn't, and its folder and checklist fingerprint name the version). */
-  function pinMismatch(pin, c) {
-    if (!pin) return '';
-    var same = !!c && c.folder === pin.folder && c.mapHash === pin.mapHash && (c.typesHash == null || c.typesHash === pin.typesHash);
-    if (same) return '';
-    var was = !c || !c.folder ? 'doesn\'t say its version' : c.folder !== pin.folder ? 'is on ' + c.folder : 'doesn\'t match the files of ' + pin.folder;
-    return 'That ' + pin.process + ' run ' + was + ', but this step is pinned to ' + pin.process + ' v' + pin.version + ' (' + pin.folder + '), so it can\'t stand for this step.';
-  }
-  function childPinProblem(r, stepId, c) { return pinMismatch(childPin(r, stepId), c); }
+  /* The one child-pin verdict (PF.pins.childMatch) for a run/3's step: '' or why the child can't stand for it. */
+  function childPinProblem(r, stepId, c, procOf) { return r && r.format === FORMAT3 ? PF.pins.childMatch(childPin(r, stepId), c, procOf) : ''; }
   /* A child run made with Flightdeck 2.0 (run/3), or one this copy reads by name only: a run/2 parent never follows it. */
   function isTwo(child) { return !!child && (child.format === FORMAT3 || (!!child._unrunnable && child._needs != null)); }
   var LEGACY_CHILD = 'That run was made with Flightdeck 2.0, which an older Flightdeck recording this run would read by name only. Start it as a Flightdeck 2.0 run instead.';
