@@ -2882,8 +2882,14 @@ rule('Applying a phase or gate wording correction edits that note in the draft t
 });
 
 rule('A phase or gate note correction goes through Apply like a step\'s: reviewed with the note before and after, undone, and found in the version that has it', () => {
-  const g = (n) => ({ id: 'gx', process: 'backup', target: C.cleanNote(JSON.parse(JSON.stringify(n))).target, change: n.change, members: [n], first: n, status: 'applied' });
+  /* A group as the app has it: collected from a run on the version NOTED_MD, which gives the note as that version had it. */
+  const g = (n) => {
+    const note = Object.assign({ id: n.id, by: n.by, at: n.at, text: n.text, files: [], kind: 'correction', step: n.step }, C.cleanNote(JSON.parse(JSON.stringify(n))));
+    const r = { process: 'backup', id: 'run1', title: 'R', folder: 'v1-ab9ysnqh', version: 1, snapshot: NOTED_MD, _notes: [note], steps: {}, gates: {}, types: {} };
+    return Object.assign(C.groups(C.collect([r], 'backup'))[0], { status: 'applied' });
+  };
   const a = g(noteCorr({ gate: 'restored', op: 'wording', to: 'Counts match.' }));
+  assert.strictEqual(a.from, 'The restored copy opens.', 'the note as the run\'s version had it');
   const rv = C.review(a, NOTED_MD);
   same([rv.state, rv.now.text, rv.result.text, /gate "Restored"/.test(rv.now.where)], ['clean', 'The restored copy opens.', 'Counts match.', true]);
   const back = PF.outline.apply(rv.text, C.inverse(NOTED_MD, rv.ops)[0]).text;
@@ -2892,6 +2898,10 @@ rule('A phase or gate note correction goes through Apply like a step\'s: reviewe
   assert.ok(C.satisfied(a, rv.text) && !C.satisfied(a, NOTED_MD));
   const o = C.outcome(a, rv.text); assert.strictEqual(o.step, ''); assert.notStrictEqual(o.sig, C.outcome(a, NOTED_MD).sig);
   same(C.review(a, NOTED_MD.replace('{#restored}', '{#other}')).state, 'gone');
+  /* The draft's note changed since the run's version: a person edits or confirms, as for a changed step. */
+  const newer = C.review(a, NOTED_MD.replace('The restored copy opens.', 'The restored copy opens. Preserve the database.'));
+  same([newer.state, newer.reason], ['changed', 'This note changed in the draft since the run\'s version.']);
+  same(C.review(Object.assign({}, a, { sig: '' }), NOTED_MD).state, 'changed', 'no baseline from the run: never applied unseen');
   const brief = C.brief({ id: 'backup', title: 'Backup check' }, [Object.assign({}, a, { status: 'open', runs: 1, members: [Object.assign({ runTitle: 'R', version: 1 }, a.first)] })], { map: M.parse(NOTED_MD) });
   assert.ok(/the note of the gate restored \{#restored\}/.test(brief), brief);
 });

@@ -186,7 +186,9 @@ PF.corrections = (function () {
         if (n.kind === 'correction') {
           if (n.replaces) gone[n.by + '|' + n.replaces] = true;
           /* One this copy can't fully read shows its own plain summary as the problem. */
-          out.push(Object.assign(base, { version: n.version || +r.version || 0, folder: n.folder || r.folder, target: n.target, change: n.change, from: n.from, sig: n.base, why: n.newer ? n.text || n.why || '' : n.why || '', happened: n.happened || '', newer: !!n.newer }));
+          /* A note correction records no baseline: the note as the run's version had it comes from the run's own copy. */
+          var nb = noteBase(n, mapOf);
+          out.push(Object.assign(base, { version: n.version || +r.version || 0, folder: n.folder || r.folder, target: n.target, change: n.change, from: nb ? nb.from : n.from, sig: nb ? nb.sig : n.base, why: n.newer ? n.text || n.why || '' : n.why || '', happened: n.happened || '', newer: !!n.newer }));
           return;
         }
         var t = n.kind === 'fix' && n.target ? n.target : { phase: '', step: n.step || null };
@@ -200,6 +202,16 @@ PF.corrections = (function () {
     return out.filter(function (c) { return !gone[c.by + '|' + c.id]; }).sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1; });
   }
 
+  /* The note a correction on a phase's note or a gate's is about, as the run's version had it: { from, sig } (sig as
+     outcome() takes it), with both empty when the run's copy can't say; null for any other correction. */
+  function noteBase(n, mapOf) {
+    if (n.newer || !n.target || !n.change || !onNote(n)) return null;
+    var map = null; try { map = mapOf(); } catch (e) { map = null; }
+    var t = n.target, ph = map && map.phases ? map.phases.filter(function (p) { return t.gate ? p.gate && !p.gate.implicit && p.gate.id === t.gate : p.id === t.phase; }) : [];
+    if (ph.length !== 1) return { from: '', sig: '' };
+    var note = (t.gate ? ph[0].gate.note : ph[0].note) || '';
+    return { from: note.slice(0, LIMITS.from), sig: U.hash('note|' + norm(note)) };
+  }
   /* Corrections that propose the same change to the same step as it was (the same signature) are one group: the same fix
      suggested in several runs. Its ID comes from that content, so every computer names it the same. */
   function groupKey(c) {
@@ -387,7 +399,7 @@ PF.corrections = (function () {
   function draftPhase(o, id) { return id ? o.phases.filter(function (p) { return p.id === id && p.key === p.id; })[0] || null : null; }
   /* A correction on a phase's note or a gate's (2.0) has no step. */
   /* What a group is about, in words, when its step's text isn't at hand. */
-  function targetName(g) { var t = g.target; return g.from || t.step || (t.gate ? 'Note of the gate ' + t.gate : 'Phase ' + t.phase); }
+  function targetName(g) { var t = g.target; return (onNote(g) ? '' : g.from) || t.step || (t.gate ? 'Note of the gate ' + t.gate : 'Phase ' + t.phase); }
   function onNote(g) { return !g.target.step && (!!g.target.gate || (g.change.op !== 'describe' && g.change.op !== 'add' && !g.legacy && !!g.target.phase)); }
   /* The phase or gate a note correction is about in the draft: { ph, it, note, title, kind } or null (gone, or two share its ID). */
   function draftNote(o, t) {
@@ -550,7 +562,11 @@ PF.corrections = (function () {
     if (t.gone) return Object.assign(out, { state: 'gone', reason: t.gone });
     var res = run(text, t.ops);
     if (res.error) return Object.assign(out, { state: 'manual', reason: res.error });
-    return Object.assign(out, { ops: t.ops, text: res.text, added: '', result: noteView(draftNote(PF.outline.parse(res.text), g.target)), removed: false });
+    Object.assign(out, { ops: t.ops, text: res.text, added: '', result: noteView(draftNote(PF.outline.parse(res.text), g.target)), removed: false });
+    /* The note as the run's version had it is the group's signature: a note changed since then (or one whose run copy can't
+       say) needs a person's edit, as a changed step does, so newer wording is never replaced unseen. */
+    if (!g.sig || U.hash('note|' + norm(dn.note)) !== g.sig) { out.state = 'changed'; out.reason = g.sig ? 'This note changed in the draft since the run\'s version.' : 'What this note said in the run\'s version can\'t be read, so check the draft\'s note before changing it.'; }
+    return out;
   }
   /* Operations that undo a group's operations on the text they were made on: wording and roles back as they were, a moved
      step back to its place, an added step deleted. A removed step can't be put back this way (null): the editor's Undo can. */

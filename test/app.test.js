@@ -5936,4 +5936,39 @@ rule('App (2.0): what is typed in a note correction is kept per run and per phas
   assert.ok(/No wording changed\./.test(app.html()), 'an unchanged note is refused');
 });
 
+
+rule('App (2.0): a note correction whose note changed in the draft since the run\'s version needs a person\'s edit: its review shows the run\'s note, says it changed, and Apply never drops the newer wording', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const path = 'maps/drafts/release.md', md = app.fs.files[path].t;
+  await app.fs.write(path, md.replace(/(## Gate: Ready to deploy[^\n]*\n  approves:[^\n]*\n)/, '$1  > Check the change board first.\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Gate note'); app.click('publish', 'release'); await app.tick(100);
+  const before = releaseRuns(app);
+  app.click('start', 'release'); await app.tick();
+  app.submitForm('start-form'); await app.tick(120);
+  const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t), key = 'release/' + run.id;
+  app.click('open-run', key); await app.tick(20);
+  app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
+  app.input('nc-to-gate-ready', 'Check the freeze calendar first.'); app.input('nc-why-gate-ready', 'Freezes block deploys'); app.click('nc-save', 'ready', { kind: 'gate' }); await app.tick(60);
+  // Meanwhile the draft's note gains an instruction the run's version never had.
+  const draft = app.fs.files[path].t, newer = 'Check the change board first, and preserve the database.';
+  assert.ok(/  > Check the change board first\.\n/.test(draft), 'set-up: the draft has the published note');
+  await app.fs.write(path, draft.replace('  > Check the change board first.\n', '  > ' + newer + '\n'));
+  app.choose('person-morgan'); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  app.click('open-process', 'release'); await app.tick(20);
+  const ids = []; const re = /data-act="corr-review" data-id="([\w-]+)"/g; let m; while ((m = re.exec(app.html()))) if (ids.indexOf(m[1]) < 0) ids.push(m[1]);
+  let id = null;
+  for (const x of ids) { app.click('corr-review', x); await app.tick(); if (/freeze calendar/.test(app.overlay())) { id = x; break; } app.click('close-overlay'); await app.tick(); }
+  assert.ok(id, 'the note correction is listed for review');
+  const ov = app.overlay();
+  assert.ok(/This note changed in the draft since the run/.test(ov), 'it says the note changed: ' + ov.slice(0, 2000));
+  assert.ok(!/Not recorded\./.test(ov) && /<p class="ca-text">Check the change board first\.<\/p>/.test(ov), 'the run\'s note, as its version had it');
+  assert.ok(!/data-act="corr-apply"/.test(ov) && /Edit proposed result/.test(ov), 'no direct Apply');
+  app.click('corr-apply', id); await app.tick(80);
+  assert.ok(app.fs.files[path].t.indexOf(newer) >= 0, 'a direct Apply never drops the newer instruction');
+});
+
 run();
