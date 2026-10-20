@@ -154,6 +154,24 @@ rule('Run archives go through R.cleanArchive: a migration record is kept and nev
   assert.strictEqual(f.refused.length, 1, 'an answer line with a feature this copy doesn\'t know is refused too');
 });
 
+rule('One malformed archive line is refused on its own: a kind or id that is not text (or names an Object method) never hides the valid records around it', async () => {
+  const NEW = H.loadMain(), files = fixture('v1.18.0'), dir = 'runs/backup/run-a/';
+  const good = { kind: 'answer', id: 'h-good', at: '2026-10-01T00:00:00.000Z', step: 's1', value: 'ok' };
+  files[dir + 'history-w-bad.jsonl'] = [
+    JSON.stringify({ kind: { toString: null }, id: 'h-1' }),
+    JSON.stringify({ kind: 'answer', id: { toString: null } }),
+    JSON.stringify({ kind: 'toString', id: 'h-2' }),
+    JSON.stringify({ kind: 'constructor', id: 'h-3' }),
+    JSON.stringify({ kind: 'log', id: 'constructor', at: '2026-10-01T00:00:01.000Z', what: 'kept' }),
+    JSON.stringify(good)
+  ].join('\n');
+  const h = await NEW.repo.loadHistory(H.memFolder(NEW, files), { process: 'backup', id: 'run-a' });
+  assert.ok(h.some(x => x.id === 'h-good'), 'the valid answer is kept');
+  assert.ok(h.some(x => x.id === 'constructor'), 'an id that names an Object method is an ordinary id');
+  assert.ok(!h.some(x => x.id === 'h-2' || x.id === 'h-3' || x.id === 'h-1'), 'unknown or non-text kinds are not shown');
+  assert.strictEqual(h.refused.filter(r => r.path === dir + 'history-w-bad.jsonl').length, 4, JSON.stringify(h.refused));
+});
+
 /* ---------- Probes: an unknown major and an unknown feature, for every family, through every real reader ---------- */
 
 const PROBE_SETS = ['major', 'feature'];

@@ -982,9 +982,10 @@ PF.repo = (function () {
          An entry whose time is missing or can't be read is kept (it shows "time unknown"), never dropped; it sorts first. */
       files.forEach(function (f, fi) { if (f) f.text.split('\n').forEach(function (line) {
         var x = line.trim() && json(line);
-        if (!x || typeof x !== 'object' || Array.isArray(x) || (x.id && seen[x.id])) return;
+        if (!x || typeof x !== 'object' || Array.isArray(x)) return;
         var v = R.cleanArchive(x);
         if (!v.ok) { refused.push({ path: dir + '/' + names[fi], kind: v.kind, why: v.why, needs: v.needs || '' }); return; }
+        if (x.id && Object.prototype.hasOwnProperty.call(seen, x.id)) return;
         if (x.id) seen[x.id] = 1; out.push(x);
       }); });
       var key = function (x) { return typeof x.at === 'string' && !isNaN(Date.parse(x.at)) ? x.at : ''; };

@@ -872,10 +872,13 @@ PF.run = (function () {
   var ARCHIVE_SHOWN = { log: 1, answer: 1 };
   function cleanArchive(x) {
     if (!x || typeof x !== 'object' || Array.isArray(x)) return { ok: false, kind: 'malformed', why: 'isn\'t an archived record' };
-    if (!ARCHIVE_SHOWN[x.kind] && x.kind !== 'migration') return { ok: false, kind: 'newer', why: 'is an archived record this copy doesn\'t know ("' + PF.envelope.txt(x.kind).slice(0, 40) + '"). ' + PF.envelope.needsText(''), needs: '' };
+    /* Kind and id are read as text before any lookup: one line holding an object there is refused alone, never read further. */
+    if (typeof x.kind !== 'string' || (x.id != null && typeof x.id !== 'string')) return { ok: false, kind: 'malformed', why: 'isn\'t an archived record' };
+    var shown = Object.prototype.hasOwnProperty.call(ARCHIVE_SHOWN, x.kind);
+    if (!shown && x.kind !== 'migration') return { ok: false, kind: 'newer', why: 'is an archived record this copy doesn\'t know ("' + PF.envelope.txt(x.kind).slice(0, 40) + '"). ' + PF.envelope.needsText(''), needs: '' };
     var env = PF.envelope.judge('flightdeck-run-archive', x);
     if (!env.ok) return env;
-    return { ok: true, rec: x, shown: !!ARCHIVE_SHOWN[x.kind] };
+    return { ok: true, rec: x, shown: shown };
   }
   /* The times in a run file that sanitize can't read, from the file as parsed (docs/design.md section 23). Sanitize keeps
      1.16's shapes, so every copy reads and writes the same file: it drops a pause, the pause under way, a log entry or an
