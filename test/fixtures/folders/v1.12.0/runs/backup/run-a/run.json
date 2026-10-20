@@ -1,0 +1,98 @@
+{
+  "format": "preflight-run/2",
+  "id": "run-a",
+  "process": "backup",
+  "version": 1,
+  "folder": "v1-ab9ysnqh",
+  "mapHash": "c2780532",
+  "title": "Backup check March",
+  "category": "Operations",
+  "snapshot": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook's first page](images/restore.png)\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n",
+  "types": {
+    "confirm": {
+      "id": "confirm",
+      "label": "Confirm",
+      "icon": "check",
+      "hint": "Check that something is true.",
+      "fields": {
+        "where": {
+          "label": "Where to check",
+          "kind": "text"
+        },
+        "looks": {
+          "label": "True when",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "team.restore": {
+      "id": "team.restore",
+      "label": "Restore a backup",
+      "icon": "doc",
+      "hint": "Restores a backup into a scratch copy.",
+      "fields": {
+        "system": {
+          "label": "System",
+          "kind": "text",
+          "required": true
+        }
+      },
+      "version": 2,
+      "custom": true,
+      "record": [
+        {
+          "name": "copy",
+          "label": "Restored copy",
+          "kind": "text"
+        }
+      ]
+    }
+  },
+  "details": {
+    "ticket": "ABC-101"
+  },
+  "roles": {
+    "lead": "person-avery",
+    "checker": "person-blake"
+  },
+  "recorder": {
+    "person": "person-avery",
+    "session": "w-avery"
+  },
+  "state": "running",
+  "created": "2026-03-02T09:02:00.000Z",
+  "createdBy": "person-avery",
+  "steps": {
+    "read": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-03-02T09:03:00.000Z"
+    }
+  },
+  "gates": {},
+  "fields": {},
+  "followUps": [],
+  "log": [
+    {
+      "at": "2026-03-02T09:02:00.000Z",
+      "by": "person-avery",
+      "what": "Started the run"
+    }
+  ],
+  "ended": null,
+  "rev": 2,
+  "tz": "",
+  "shotsFrozen": true,
+  "jira": {},
+  "marksFrom": "start",
+  "pauses": [],
+  "paused": null,
+  "savedAt": "2026-03-02T09:00:13.000Z",
+  "lineage": [
+    "w-avery.tzie2sgm",
+    "w-avery.jtj9h6ge"
+  ],
+  "savedBy": "w-avery"
+}

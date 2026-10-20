@@ -5,3 +5,5 @@ __pycache__/
 node_modules/
 # Review notes from development: kept locally, never committed
 docs/.*.md
+# Older releases extracted by tools/old-bundles.js (rebuilt from git tags)
+.old-bundles/

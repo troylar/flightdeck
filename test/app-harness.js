@@ -29,7 +29,7 @@ function locks() {
 
 function boot(opts) {
   opts = opts || {};
-  /* opts.html: another build of the app (an older release, for the old-bundle tests); this build by default. */
+  /* opts.html: another build of the app (an older release, for the cross-version tests); this build by default. */
   const html = opts.html || fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
   const intervals = [];
@@ -120,7 +120,7 @@ function boot(opts) {
     performance: opts.performance
   });
   vm.runInContext(script('pf-core'), ctx);
-  /* Builds before 1.17 kept storage inside pf-app (the old-bundle tests run those). */
+  /* Builds before 1.17 kept storage inside pf-app (the cross-version tests run those). */
   if (/<script id="pf-storage">/.test(html)) vm.runInContext(script('pf-storage'), ctx);
   // Checklists parsed once are shared by every run of a version: frozen here, so a rule that changed one would fail a test.
   if (ctx.PF.run.mapMemo) ctx.PF.run.mapMemo.freeze = true;
@@ -250,7 +250,8 @@ function folderHandle(name, files) {
   function file(p, n) {
     return {
       kind: 'file', name: n,
-      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => Promise.resolve(files[p]) }),
+      // slice() as a File has it: the newer-copy check reads only the head of flightdeck.html.
+      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => Promise.resolve(files[p]), slice: (a, b) => new Blob([files[p]]).slice(a, b) }),
       createWritable(o) {
         let buf = o && o.keepExistingData ? files[p] : '';
         return Promise.resolve({ seek: () => Promise.resolve(), write: (d) => Promise.resolve(typeof d === 'string' ? d : d.text()).then(t => { buf += t; }), close: () => { files[p] = buf; return Promise.resolve(); } });
