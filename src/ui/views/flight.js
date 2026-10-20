@@ -54,7 +54,7 @@
      built from this version that covers it, and its roles. */
   function stepLine(s, go, types, auto) {
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
-    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (by.length ? '<span class="badge b-skill">' + I('spark') + esc(by.join(', ')) + '</span>' : '') +
+    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.map(function (n) { return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') +
       (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '');
     return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + esc(s.text) +
       '<span class="sr">. Show it in the checklist</span></button>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
