@@ -5863,4 +5863,31 @@ rule('Requests: an identical OneDrive copy shows the request once, arrived twice
   assert.strictEqual(releaseRuns(app).length, before.length + 1, 'once one is deleted, it starts');
 });
 
+rule('App (2.0): anyone viewing a run can suggest a change to a phase\'s note or a gate\'s; it is written as a cv 2 correction naming that phase or gate', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const md = app.fs.files['maps/drafts/release.md'].t;
+  await app.fs.write('maps/drafts/release.md', md.replace(/(## Gate: Ready to deploy[^\n]*\n  approves:[^\n]*\n)/, '$1  > Check the change board first.\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Gate note'); app.click('publish', 'release'); await app.tick(100);
+  const before = releaseRuns(app);
+  app.click('start', 'release'); await app.tick();
+  app.submitForm('start-form'); await app.tick(120);
+  const made = releaseRuns(app).filter(p => before.indexOf(p) < 0)[0], run = JSON.parse(app.fs.files[made].t), key = 'release/' + run.id;
+  app.click('open-run', key); await app.tick(20);
+  assert.ok(/<div class="note g-note">[\s\S]*?Check the change board first\.[\s\S]*?data-act="nc-open" data-kind="gate" data-id="ready"/.test(app.html()), 'the note, with a way to suggest a change');
+  app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
+  assert.ok(/<textarea id="nc-to"[^>]*>Check the change board first\.<\/textarea>/.test(app.html()) && app.focused() === 'nc-to', 'filled in with the note, with focus');
+  app.click('nc-save'); await app.tick(40);
+  assert.ok(/No wording changed\./.test(app.html()), 'an unchanged note is refused, by name');
+  app.input('nc-to', 'Check the change board and the freeze calendar first.'); app.input('nc-why', 'Freezes block deploys'); app.click('nc-save'); await app.tick(60);
+  const notes = newNotes(app, key).filter(n => n.kind === 'correction');
+  assert.strictEqual(notes.length, 1);
+  const n = notes[0];
+  assert.deepStrictEqual([n.cv, n.step, n.target, n.change, n.why, n.version, n.folder], [2, '', { gate: 'ready' }, { op: 'wording', to: 'Check the change board and the freeze calendar first.' }, 'Freezes block deploys', run.version, run.folder]);
+  assert.ok(/Correction to the note of the gate "Ready to deploy"/.test(n.text), n.text);
+  assert.ok(!/id="nc-to"/.test(app.html()), 'closed'); assert.ok(/Correction saved on this computer\./.test(app.html() + app.live()), 'said');
+});
+
 run();

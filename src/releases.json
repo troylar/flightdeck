@@ -13,6 +13,13 @@
         "where": "The checklist editor and the run screen"
       },
       {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Suggest a change to a phase's note or a gate's",
+        "now": "Anyone viewing a run can suggest new wording for a phase's note or a gate's. It is decided and applied to the draft like a step's correction. Teammates on Flightdeck 1.21 or earlier see it as a described problem.",
+        "before": "Corrections could only be about a step."
+      },
+      {
         "kind": "improved",
         "area": "Runs",
         "title": "Gate notes now show in runs",

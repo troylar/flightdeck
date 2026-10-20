@@ -9,6 +9,7 @@ Notes and screenshots on phases and gates.
 ### New
 
 - **Notes and screenshots on phases and gates** (Checklists). A phase can have a note and screenshots right under its heading, and a gate can have screenshots under its note. Runs show them in the phase header and the gate's panel. *Where:* The checklist editor and the run screen
+- **Suggest a change to a phase's note or a gate's** (Corrections). Anyone viewing a run can suggest new wording for a phase's note or a gate's. It is decided and applied to the draft like a step's correction. Teammates on Flightdeck 1.21 or earlier see it as a described problem.
 
 ### Improved
 

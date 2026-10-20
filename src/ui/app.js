@@ -3188,7 +3188,7 @@
   }
   function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
   /* How a run's screen is shown starts over; input was already kept by leaveContext (setView calls it). */
-  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; }
+  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; state.noteCorr = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
@@ -3989,6 +3989,15 @@
     'corr-scope': function (id) { var f = state.corrForm; if (!f) return; f.scope = id === 'fix' ? 'fix' : 'just'; state.fieldErr = null; state.focus = '[data-act="corr-scope"][data-id="' + f.scope + '"]'; render(); },
     'corr-cancel': function () { var f = state.corrForm; if (f) dropCorrDraft(f); state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
     'corr-save': function () { saveCorrection(false); },
+    /* A correction to a phase's note or a gate's (2.0). */
+    'nc-open': function (id, b) {
+      var r = ctx.run(); if (!r || !state.me) return;
+      var kind = b && b.dataset.kind === 'gate' ? 'gate' : 'phase';
+      var ph = R.mapOf(r).phases.filter(function (p) { return kind === 'gate' ? p.gate && p.gate.id === id : p.id === id; })[0]; if (!ph) return;
+      state.noteCorr = { key: state.runKey, kind: kind, id: id, to: (kind === 'gate' ? ph.gate.note : ph.note) || '', why: '' }; state.fieldErr = null; state.focus = 'nc-to'; state.focusEnd = true; render();
+    },
+    'nc-cancel': function () { var f = state.noteCorr; state.noteCorr = null; state.fieldErr = null; if (f) state.focus = '[data-act="nc-open"][data-kind="' + f.kind + '"][data-id="' + cssEsc(f.id) + '"]'; render(); },
+    'nc-save': function () { saveNoteCorrection(); },
     'corr-done': function () { saveCorrection(true); },
     /* Deciding on a group of corrections: anyone; declining needs a reason; withdrawing is for whoever suggested it. */
     'corr-applied': function (id) { decideCorr(id, 'applied', '', 'Marked as applied to the draft.'); },
@@ -4222,6 +4231,23 @@
       return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () { render(); });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
+  function saveNoteCorrection() {
+    var r = ctx.run(), f = state.noteCorr; if (!r || !f || !state.me || f.key !== state.runKey || f.sending) return;
+    var g = function (id) { var el = document.getElementById(id); return el ? el.value : null; };
+    if (g('nc-to') != null) f.to = g('nc-to'); if (g('nc-why') != null) f.why = g('nc-why');
+    var o = { id: U.randomId(10), at: new Date().toISOString(), by: state.me, session: WRITER, map: R.mapOf(r), op: 'wording', to: f.to, why: f.why, version: +r.version || 0, folder: r.folder, files: [] }, note;
+    o[f.kind] = f.id;
+    try { note = PF.corrections.build(o); }
+    catch (e) { state.fieldErr = { id: 'nc', msg: e.message, field: e.field === 'corr-why' ? 'nc-why' : 'nc-to' }; state.focus = state.fieldErr.field; render(); return; }
+    state.fieldErr = null; f.sending = true;
+    var nfs = state.fs, ng = gen, endBusy = busyStart(); say('Saving…', ''); state.msg.quiet = true; render();
+    queued(function () { return repo.addNote(nfs, r, WRITER, note); }).then(function () {
+      endBusy(); f.sending = false; if (ng !== gen) return;
+      if (state.noteCorr === f) state.noteCorr = null;
+      say('Correction saved on this computer.', 'good'); state.msg.quiet = true;
+      return (state.runKey === f.key ? refreshRun() : null);
+    }).then(function () { render(); }, function (e) { endBusy(); f.sending = false; if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
+  }
   /* The composer's boxes are read into its state as they change, so a redraw (or the live redline) never loses them. */
   function readCorrForm(f) {
     var g = function (id) { var el = document.getElementById(id); return el ? el.value : null; };
@@ -4436,6 +4462,7 @@
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
+    if (/^nc-(to|why)$/.test(e.target.id || '') && state.noteCorr) { state.noteCorr[e.target.id.slice(3)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'nc') state.fieldErr = null; }
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */
     if (e.target.id === 'draft-editor') {

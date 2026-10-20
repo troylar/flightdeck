@@ -119,7 +119,20 @@
   function phaseNote(ctx, p) {
     var shots = p.shots || [];
     if (!p.note && !shots.length) return '';
-    return '<div class="ph-note">' + (p.note ? '<div class="note">' + U.mdBlock(p.note) + '</div>' : '') + shotsHtml(ctx, 'zoom-phase', p.id, shots) + '</div>';
+    return '<div class="ph-note">' + (p.note ? '<div class="note">' + U.mdBlock(p.note) + '</div>' + noteCorr(ctx, 'phase', p.id, p.note) : '') + shotsHtml(ctx, 'zoom-phase', p.id, shots) + '</div>';
+  }
+  /* Suggest a change to a phase's note or a gate's (2.0): a correction the team decides on, like a step's. */
+  function noteCorr(ctx, kind, id, note) {
+    var s = ctx.state, r = ctx.run && ctx.run(); if (!s.me || !r) return '';
+    var f = s.noteCorr && s.noteCorr.key === runKey(r) && s.noteCorr.kind === kind && s.noteCorr.id === id ? s.noteCorr : null;
+    if (!f) return '<div class="row"><button class="mini" data-act="nc-open" data-kind="' + kind + '" data-id="' + esc(id) + '">' + I('edit') + 'Suggest a change to this note</button></div>';
+    var err = s.fieldErr && s.fieldErr.id === 'nc' ? s.fieldErr : null, bad = function (k) { return err && err.field === k ? ' aria-invalid="true" aria-describedby="ferr-nc"' : ''; };
+    var fe = function (k) { return err && err.field === k ? '<p class="ferr" id="ferr-nc" role="alert">' + esc(err.msg) + '</p>' : ''; };
+    return '<div class="corr-form nc-form" role="group" aria-label="Suggest a change to the ' + kind + '\'s note">' +
+      '<label class="small" for="nc-to">What the note should say</label><textarea id="nc-to" rows="3" maxlength="2000"' + bad('nc-to') + '>' + esc(f.to) + '</textarea>' + fe('nc-to') +
+      '<label class="small" for="nc-why">Why (optional)</label><textarea id="nc-why" rows="2" maxlength="2000"' + bad('nc-why') + '>' + esc(f.why || '') + '</textarea>' + fe('nc-why') +
+      '<p class="small">The team decides on it like any correction. Copies older than Flightdeck 2.0 show it as a described problem.</p>' +
+      '<div class="row"><button class="btn" data-act="nc-save"' + (f.sending ? ' disabled' : '') + '>Save correction</button><button class="mini" data-act="nc-cancel">Cancel</button></div></div>';
   }
 
   /* The approval a gate recorded, as one sentence: who, when, and the exact details it was for. */
@@ -138,7 +151,7 @@
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';
     if (rec2 && rec2.by && (st === 'passed' || st === 'waived' || st === 'failed' || st === 'review')) h += '<div class="small g-rec">' + gateReceipt(ctx, rec2, st) + '</div>';
     /* The gate's note, for every version (every copy since 1.10 publishes it), and its screenshots (2.0), above Pass the gate. */
-    if (g.note) h += '<div class="note g-note">' + U.mdBlock(g.note) + '</div>';
+    if (g.note) h += '<div class="note g-note">' + U.mdBlock(g.note) + '</div>' + (g.implicit ? '' : noteCorr(ctx, 'gate', g.id, g.note));
     h += shotsHtml(ctx, 'zoom-gate', g.id, g.shots || []);
     h += '</div><div class="row">';
     if (rec && r.state === 'running' && !r.paused) {

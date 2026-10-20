@@ -407,21 +407,24 @@ PF.outline = (function () {
       x.shots = want;
     }, at);
   }
-  /* A phase's note (2.0): its "  > " lines right under the heading, replaced by the new text, one line each; '' removes them. */
-  function phaseNote(text, key, note) {
+  /* A phase's note (2.0), or a gate's: its "  > " lines right under the heading, replaced by the new text, one line each;
+     '' removes them. A gate's first note line goes after its approves line. */
+  function noteOf(text, key, note, kind) {
     var g = guard(text); if (g.error) return { error: g.error };
-    var o = g.o, p = phaseBy(o, key); if (!p) return { error: ERR.gone };
+    var o = g.o, ph = phaseBy(o, key), p = kind === 'gate' ? ph && ph.gate : ph; if (!p) return { error: ERR.gone };
     if (p.odd) return { error: ERR.odd };
     var want = String(note == null ? '' : note).replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+$/, ''); });
     while (want.length && !want[want.length - 1].trim()) want.pop();
     while (want.length && !want[0].trim()) want.shift();
-    if (want.join('\n').length > 2000) return { error: 'Keep a phase note to 2,000 characters.' };
-    var lines = o.lines.slice(), at = p.noteLines.length ? p.noteLines[0] : p.line + 1, cr = crOf(o, p.line);
+    if (want.join('\n').length > 2000) return { error: 'Keep a ' + (kind === 'gate' ? 'gate' : 'phase') + ' note to 2,000 characters.' };
+    var first = kind === 'gate' && p.approvesLine === p.line + 1 ? p.approvesLine + 1 : p.line + 1;
+    var lines = o.lines.slice(), at = p.noteLines.length ? p.noteLines[0] : first, cr = crOf(o, p.line);
     if (p.noteLines.some(function (l, k) { return k && l !== p.noteLines[k - 1] + 1; })) return { error: ERR.odd };
     lines.splice.apply(lines, [at, p.noteLines.length].concat(want.map(function (l) { return '  > ' + l + cr; })));
-    var res = done(o, text, lines, function (A) { A.phases[p.index].note = want.join('\n'); }, at);
-    return res;
+    return done(o, text, lines, function (A) { if (kind === 'gate') A.phases[ph.index].gate.note = want.join('\n'); else A.phases[ph.index].note = want.join('\n'); }, at);
   }
+  function phaseNote(text, key, note) { return noteOf(text, key, note, 'phase'); }
+  function gateNote(text, key, note) { return noteOf(text, key, note, 'gate'); }
 
   function addStep(text, to, step) {
     var g = guard(text); if (g.error) return { error: g.error };
@@ -812,6 +815,7 @@ PF.outline = (function () {
       case 'moveShot': return editShots(text, shotKey(op), { move: op.shot, dir: op.dir }, shotKind(op));
       case 'removeShot': return editShots(text, shotKey(op), { remove: op.shot }, shotKind(op));
       case 'phaseNote': return phaseNote(text, op.phase, op.note);
+      case 'gateNote': return gateNote(text, op.phase, op.note);
     }
     return { error: 'Nothing to do.' };
   }
@@ -820,7 +824,7 @@ PF.outline = (function () {
   function shotKind(op) { return op.step != null ? 'step' : op.gate != null ? 'gate' : 'phase'; }
   function shotKey(op) { return op.step != null ? op.step : op.gate != null ? op.gate : op.phase; }
 
-  return { MODES: MODES, phaseNote: phaseNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
+  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
 })();

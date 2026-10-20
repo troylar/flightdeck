@@ -112,7 +112,7 @@
     var me = ctx.state.me, C = PF.corrections;
     var list = ctx.acks ? ctx.acks() : me ? [].concat.apply([], ctx.processes().map(function (p) { return C.acks(V.corrGroups(ctx, p.id), me, null); })) : [];
     if (!list.length) return '';
-    var stepName = function (g) { return '"' + (g.from || g.target.step || g.target.phase) + '"'; };
+    var stepName = function (g) { return '"' + C.targetName(g) + '"'; };
     return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2><ul class="todos">' + list.map(function (a) {
       var gs = a.groups || [a.group], title;
       /* Plain text, escaped once where it's used. */
