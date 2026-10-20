@@ -393,6 +393,55 @@ rule('In a folder: plan/2 and its retarget are read and grouped (the switch is n
   assert.deepStrictEqual(bad.map(b => b.kind), ['newer', 'newer', 'newer']);
 });
 
+/* ---------- Signatures ---------- */
+rule('PF.signature: a step\'s signature includes its resolved pin (child or skill), and the process signature hashes the pins as canonical JSON; correction identity is unchanged', () => {
+  const kids = childProc(['Check in code', 'Check in code']), cp = { verify: proc(kids) };
+  const md = (n) => PARENT(['  version: ' + n]).replace('  skill: release-notes', '  skill: release-notes\n  skillVersion: 1.2.0');
+  const a = publish(md(1), { childProcs: cp }), b = publish(md(2), { childProcs: cp });
+  const pinsOf = (v) => v.info.payload.pins, sa = PF.signature.steps(a.map, a.types, a.info.images, pinsOf(a)), sb = PF.signature.steps(b.map, b.types, b.info.images, pinsOf(b));
+  assert.notStrictEqual(sa.verify.sig, sb.verify.sig, 'pinned to another version: the step changed');
+  assert.strictEqual(sa.read.sig, sb.read.sig, 'other steps didn\'t');
+  assert.notStrictEqual(PF.signature.process(a), PF.signature.process(b));
+  const swapped = JSON.parse(JSON.stringify(a)); const c = swapped.info.payload.pins.children.verify; swapped.info.payload.pins.children.verify = { typesHash: c.typesHash, mapHash: c.mapHash, folder: c.folder, version: c.version, process: c.process };
+  assert.strictEqual(PF.signature.process(swapped), PF.signature.process(a), 'key order never matters');
+  const s2 = publish(md(1).replace('skillVersion: 1.2.0', 'skillVersion: 1.3.0'), { childProcs: cp });
+  assert.notStrictEqual(PF.signature.steps(s2.map, s2.types, s2.info.images, pinsOf(s2)).report.sig, sa.report.sig, 'a skill pinned to another version: the step changed');
+  const ch = PF.skills.changes(a, b, ['verify']);
+  assert.ok(ch.some(x => x.id === 'verify' && x.change === 'changed'), JSON.stringify(ch));
+  const other = JSON.parse(JSON.stringify(pinsOf(a))); other.children.verify.folder = kids[0].info.folder.replace(/-.*/, '-zzzzzzzz'); other.children.verify.mapHash = '00000000';
+  assert.notStrictEqual(PF.signature.steps(a.map, a.types, a.info.images, other).verify.sig, sa.verify.sig, 'the same line resolved to another folder: the step changed');
+  assert.strictEqual(PF.corrections.stepSig(a.map, 'verify'), PF.corrections.stepSig(M.parse(a.md || md(1)), 'verify'), 'correction identity is the map\'s alone, never its pins');
+});
+
+rule('PF.signature: a {run.process} step without carry: depends on the run details it shares (implicit carry); with carry: only on what it names', () => {
+  const kids = childProc(['Check in code']), cp = { verify: proc(kids) };
+  const a = publish(PARENT(), { childProcs: cp }), b = publish(PARENT().replace('context: ticket, rows', 'context: ticket, rows, env'), { childProcs: cp });
+  const sa = PF.signature.steps(a.map, a.types), sb = PF.signature.steps(b.map, b.types);
+  assert.notStrictEqual(sa.verify.sig, sb.verify.sig, 'implicit carry: a new run detail may be passed on');
+  assert.strictEqual(sa.read.sig, sb.read.sig);
+  const ca = publish(PARENT(['  carry: ticket']), { childProcs: cp }), cb = publish(PARENT(['  carry: ticket']).replace('context: ticket, rows', 'context: ticket, rows, env'), { childProcs: cp });
+  assert.strictEqual(PF.signature.steps(ca.map, ca.types).verify.sig, PF.signature.steps(cb.map, cb.types).verify.sig, 'explicit carry: only what it names');
+});
+
+/* ---------- Evidence ---------- */
+rule('Evidence checks a run/3\'s payload against its version by the shared canonical hash, and the pins it started with against the version\'s own', () => {
+  const kids = childProc(['Check in code']), v = publish(PARENT(['  version: 1']), { childProcs: { verify: proc(kids) } });
+  const r = JSON.parse(JSON.stringify(R.create(v, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', pins: PF.pins.atStart(v.map, v.info.payload.pins, () => proc(kids)) })));
+  const files = v.files, check = (raw, id) => PF.evidence.checks(raw, files, null).find(c => c.id === id);
+  let c = check(r, 'payload');
+  assert.ok(c && c.ok === true, JSON.stringify(c));
+  const swapped = JSON.parse(JSON.stringify(r)); const pl = swapped.payload; swapped.payload = { pins: pl.pins, extensions: pl.extensions, images: pl.images, types: pl.types, map: pl.map };
+  assert.strictEqual(check(swapped, 'payload').ok, true, 'key order never matters');
+  const edited = JSON.parse(JSON.stringify(r)); edited.payload.pins.children.verify.version = 9;
+  assert.strictEqual(check(edited, 'payload').ok, false);
+  const moved = JSON.parse(JSON.stringify(r)); moved.pins.children.verify.folder = 'v1-zzzzzzzz';
+  c = check(moved, 'pins');
+  assert.ok(c && c.ok === false && /verify/.test(c.detail), JSON.stringify(c));
+  assert.strictEqual(check(r, 'pins').ok, true);
+  const two = JSON.parse(JSON.stringify(PF.evidence.checks(JSON.parse(JSON.stringify(R.create(kids[0], { by: 'a', session: 'w', now: AT }))), kids[0].files, null)));
+  assert.ok(!two.some(x => x.id === 'payload' || x.id === 'pins'), 'a run/2 on a /1 version has neither');
+});
+
 rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; every later feature stays refused', () => {
   const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills'];
   ['flightdeck-checklist', 'preflight-publication'].forEach(f => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[2]), want, f));

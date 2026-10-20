@@ -181,13 +181,14 @@ PF.skills = (function () {
 
   /* A step as a skill must follow it (PF.signature): its content, where it sits, its phase's note and screenshots, and the
      gates around it. */
-  function stepsOf(map, types, images) { return PF.signature.steps(map, types, images); }
+  function stepsOf(map, types, images, pins) { return PF.signature.steps(map, types, images, pins); }
+  function pinsOf(pub) { return pub.info && pub.info.payload && pub.info.payload.pins || null; }
   function orderOf(map, ids) { return M.steps(map).map(function (x) { return x.step.id; }).filter(function (id) { return !ids || ids.indexOf(id) >= 0; }); }
   /* How the steps a skill covers changed between two maps: [{ id, change: changed|removed|added, from, to }]. */
   /* Maps or publications (whose frozen step types count: a type gaining required evidence changes what the skill must do). */
   function changes(from, to, ids) {
     var fromMap = from.map || from, toMap = to.map || to;
-    var a = stepsOf(fromMap, from.types, from.info && from.info.images), b = stepsOf(toMap, to.types, to.info && to.info.images), out = [];
+    var a = stepsOf(fromMap, from.types, from.info && from.info.images, pinsOf(from)), b = stepsOf(toMap, to.types, to.info && to.info.images, pinsOf(to)), out = [];
     var watch = ids || Object.keys(a).concat(Object.keys(b).filter(function (k) { return !a[k]; }));
     watch.forEach(function (id) {
       if (a[id] && !b[id]) out.push({ id: id, change: 'removed', from: a[id].step, to: null });

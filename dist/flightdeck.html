@@ -7340,13 +7340,22 @@ PF.signature = (function () {
   function shots(list, images) { return (list || []).map(function (sh) { return [sh.caption, sh.src, own(images, sh.src) ? images[sh.src] : null]; }); }
   function gate(g, images) { g = g || {}; return [g.title, g.owner, g.approves, g.implicit, g.note, g.binds, g.fields, shots(g.shots, images)]; }
 
-  function steps(map, types, images) {
-    var o = Object.create(null);
+  /* pins: the version's resolved pins (payload.pins): a linked step follows the exact child it pins, a skill step the skill
+     version it pins. A {run.process} step without carry: passes on every run detail its child shares, so it depends on the
+     run details too (implicit carry); with carry: only on what it names, which its fields already say. */
+  function pinOf(pins, kind, id) { var p = pins && pins[kind] && own(pins[kind], id) ? pins[kind][id] : null; return p ? PF.publish.canonical(p) : null; }
+  function steps(map, types, images, pins) {
+    var o = Object.create(null), context = (map.meta && map.meta.context || []).slice();
     map.phases.forEach(function (p, pi) {
       var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
       var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
       p.steps.forEach(function (s) {
-        o[s.id] = { step: s, phase: p, sig: JSON.stringify([s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)]) };
+        var parts = [s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)];
+        /* Added only where they apply, so every other step's signature is exactly what it was. */
+        var pin = s.type === 'run.process' ? pinOf(pins, 'children', s.id) : s.type === 'run.skill' ? pinOf(pins, 'skills', s.id) : null;
+        if (pin) parts.push(['pin', pin]);
+        if (s.type === 'run.process' && !String((s.fields || {}).carry || '').trim()) parts.push(['carry', context]);
+        o[s.id] = { step: s, phase: p, sig: JSON.stringify(parts) };
       });
     });
     return o;
@@ -7359,14 +7368,14 @@ PF.signature = (function () {
     return { context: (meta.context || []).slice(), roles: (meta.roles || []).slice(), runs: meta.runs || '',
       extensions: pay && pay.extensions || {}, pins: pay && pay.pins || { children: {}, skills: {} } };
   }
-  function process(pub) { return PF.util.hash(JSON.stringify(inputs(pub))); }
+  function process(pub) { var x = inputs(pub); return PF.util.hash(JSON.stringify([x.context, x.roles, x.runs, PF.publish.canonical(x.extensions), PF.publish.canonical(x.pins)])); }
   /* What changed in the inputs apart from the run details (which skills.changes reports on their own), in words. */
   function inputChanges(a, b) {
     var x = inputs(a), y = inputs(b), out = [], list = function (l) { return l.join(', ') || 'none'; };
     if (x.roles.join(',') !== y.roles.join(',')) out.push('Roles: now ' + list(y.roles) + ' (was ' + list(x.roles) + ')');
     if (x.runs !== y.runs) out.push('Runs: ' + (y.runs || 'not set') + ' (was ' + (x.runs || 'not set') + ')');
-    if (JSON.stringify(x.extensions) !== JSON.stringify(y.extensions)) out.push('Its extensions changed');
-    if (JSON.stringify(x.pins) !== JSON.stringify(y.pins)) out.push('The versions it pins changed');
+    if (PF.publish.canonical(x.extensions) !== PF.publish.canonical(y.extensions)) out.push('Its extensions changed');
+    if (PF.publish.canonical(x.pins) !== PF.publish.canonical(y.pins)) out.push('The versions it pins changed');
     return out;
   }
   return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges };
@@ -7555,13 +7564,14 @@ PF.skills = (function () {
 
   /* A step as a skill must follow it (PF.signature): its content, where it sits, its phase's note and screenshots, and the
      gates around it. */
-  function stepsOf(map, types, images) { return PF.signature.steps(map, types, images); }
+  function stepsOf(map, types, images, pins) { return PF.signature.steps(map, types, images, pins); }
+  function pinsOf(pub) { return pub.info && pub.info.payload && pub.info.payload.pins || null; }
   function orderOf(map, ids) { return M.steps(map).map(function (x) { return x.step.id; }).filter(function (id) { return !ids || ids.indexOf(id) >= 0; }); }
   /* How the steps a skill covers changed between two maps: [{ id, change: changed|removed|added, from, to }]. */
   /* Maps or publications (whose frozen step types count: a type gaining required evidence changes what the skill must do). */
   function changes(from, to, ids) {
     var fromMap = from.map || from, toMap = to.map || to;
-    var a = stepsOf(fromMap, from.types, from.info && from.info.images), b = stepsOf(toMap, to.types, to.info && to.info.images), out = [];
+    var a = stepsOf(fromMap, from.types, from.info && from.info.images, pinsOf(from)), b = stepsOf(toMap, to.types, to.info && to.info.images, pinsOf(to)), out = [];
     var watch = ids || Object.keys(a).concat(Object.keys(b).filter(function (k) { return !a[k]; }));
     watch.forEach(function (id) {
       if (a[id] && !b[id]) out.push({ id: id, change: 'removed', from: a[id].step, to: null });
@@ -9631,6 +9641,18 @@ PF.evidence = (function () {
       });
       if (shot) add('publication', 'The version is complete and checks out', false, shot);
       else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable || v.needsBytes ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
+    }
+    /* A run/3 keeps its version's payload (pins included) and the pins it started with: both checked by the one canonical
+       hash every reader uses (PF.publish.payloadHash), never by key order. */
+    var vi = info == null ? undefined : json(info);
+    if (raw.format === PF.run.FORMAT3 && raw.payload) {
+      if (!vi || typeof vi !== 'object' || !vi.payload) add('payload', 'The run\'s copy of the version\'s payload matches it, pins included', null, 'The version\'s payload couldn\'t be read, so this can\'t be checked.');
+      else { var sp = PF.publish.payloadHash(raw.payload) === PF.publish.payloadHash(vi.payload); add('payload', 'The run\'s copy of the version\'s payload matches it, pins included', sp, sp ? 'Compared as data.' : 'They differ.'); }
+    }
+    if (raw.format === PF.run.FORMAT3 && vi && vi.payload && vi.payload.pins && vi.payload.pins.children && Object.keys(vi.payload.pins.children).length) {
+      var fixed = vi.payload.pins.children, mine = raw.pins && raw.pins.children && typeof raw.pins.children === 'object' ? raw.pins.children : {};
+      var off = Object.keys(fixed).filter(function (k) { return !Object.prototype.hasOwnProperty.call(mine, k) || canonical(mine[k]) !== canonical(fixed[k]); });
+      add('pins', 'The linked runs the version pins are the ones the run started with', !off.length, off.length ? 'Pinned differently: ' + off.join(', ') + '.' : 'Every pin the version sets is the run\'s.');
     }
     return out;
   }

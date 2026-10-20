@@ -9,13 +9,22 @@ PF.signature = (function () {
   function shots(list, images) { return (list || []).map(function (sh) { return [sh.caption, sh.src, own(images, sh.src) ? images[sh.src] : null]; }); }
   function gate(g, images) { g = g || {}; return [g.title, g.owner, g.approves, g.implicit, g.note, g.binds, g.fields, shots(g.shots, images)]; }
 
-  function steps(map, types, images) {
-    var o = Object.create(null);
+  /* pins: the version's resolved pins (payload.pins): a linked step follows the exact child it pins, a skill step the skill
+     version it pins. A {run.process} step without carry: passes on every run detail its child shares, so it depends on the
+     run details too (implicit carry); with carry: only on what it names, which its fields already say. */
+  function pinOf(pins, kind, id) { var p = pins && pins[kind] && own(pins[kind], id) ? pins[kind][id] : null; return p ? PF.publish.canonical(p) : null; }
+  function steps(map, types, images, pins) {
+    var o = Object.create(null), context = (map.meta && map.meta.context || []).slice();
     map.phases.forEach(function (p, pi) {
       var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
       var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
       p.steps.forEach(function (s) {
-        o[s.id] = { step: s, phase: p, sig: JSON.stringify([s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)]) };
+        var parts = [s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)];
+        /* Added only where they apply, so every other step's signature is exactly what it was. */
+        var pin = s.type === 'run.process' ? pinOf(pins, 'children', s.id) : s.type === 'run.skill' ? pinOf(pins, 'skills', s.id) : null;
+        if (pin) parts.push(['pin', pin]);
+        if (s.type === 'run.process' && !String((s.fields || {}).carry || '').trim()) parts.push(['carry', context]);
+        o[s.id] = { step: s, phase: p, sig: JSON.stringify(parts) };
       });
     });
     return o;
@@ -28,14 +37,14 @@ PF.signature = (function () {
     return { context: (meta.context || []).slice(), roles: (meta.roles || []).slice(), runs: meta.runs || '',
       extensions: pay && pay.extensions || {}, pins: pay && pay.pins || { children: {}, skills: {} } };
   }
-  function process(pub) { return PF.util.hash(JSON.stringify(inputs(pub))); }
+  function process(pub) { var x = inputs(pub); return PF.util.hash(JSON.stringify([x.context, x.roles, x.runs, PF.publish.canonical(x.extensions), PF.publish.canonical(x.pins)])); }
   /* What changed in the inputs apart from the run details (which skills.changes reports on their own), in words. */
   function inputChanges(a, b) {
     var x = inputs(a), y = inputs(b), out = [], list = function (l) { return l.join(', ') || 'none'; };
     if (x.roles.join(',') !== y.roles.join(',')) out.push('Roles: now ' + list(y.roles) + ' (was ' + list(x.roles) + ')');
     if (x.runs !== y.runs) out.push('Runs: ' + (y.runs || 'not set') + ' (was ' + (x.runs || 'not set') + ')');
-    if (JSON.stringify(x.extensions) !== JSON.stringify(y.extensions)) out.push('Its extensions changed');
-    if (JSON.stringify(x.pins) !== JSON.stringify(y.pins)) out.push('The versions it pins changed');
+    if (PF.publish.canonical(x.extensions) !== PF.publish.canonical(y.extensions)) out.push('Its extensions changed');
+    if (PF.publish.canonical(x.pins) !== PF.publish.canonical(y.pins)) out.push('The versions it pins changed');
     return out;
   }
   return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges };
