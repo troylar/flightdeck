@@ -2025,7 +2025,7 @@ rule('REQUEST: the canonical intent keeps what the caller supplied apart from wh
   assert.deepStrictEqual(Object.keys(c.intent.supplied), ['details']);
 });
 
-rule('REQUEST review: without hard links, a write cut short leaves no partial request, and a retry cleans up a partial one of its own', async () => {
+rule('REQUEST review: without hard links, a write cut short leaves no partial request, and a retry never removes an incomplete one', async () => {
   const dir = fs.realpathSync(await readFolder()), id = reqId('ci-check', 'nolink'), target = path.join(dir, 'proposals', id + '.json');
   const eng = FD.loadEngine(), adapter = () => FD.readAdapter(dir, { maxBytes: 16 * 1048576 });
   // No hard links on this disk, and the disk fills up halfway through the final name.
@@ -2045,12 +2045,23 @@ rule('REQUEST review: without hard links, a write cut short leaves no partial re
   assert.ok(r.code === 1 && r.json.error.kind === 'failed', JSON.stringify(r.json));
   assert.ok(!fs.existsSync(target), 'no partial request left under its name');
   assert.deepStrictEqual(proposalsIn(dir).filter(n => /\.tmp$/.test(n)), [], 'no temporary file left');
-  // A partial request of its own left by a crash (the start of what it writes) is recognized and replaced on the retry.
+  // An incomplete file under the request's name, even one that is exactly the start of what it would write, is never
+  // removed by a retry: another request may still be writing it. Nothing is written; the result says how to recover.
   const whole = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(MONTHLY), dryRun: true });
-  fs.writeFileSync(target, SRC.requests.text(whole.json.data.request.plan ? Object.assign({ kind: 'plan' }, whole.json.data.request.plan) : {}).slice(0, 90));
+  const full = SRC.requests.text(Object.assign({ kind: 'plan' }, whole.json.data.request.plan));
+  fs.writeFileSync(target, full.slice(0, 90));
   const again = reqAgree(request(dir, MONTHLY, 'nolink'));
-  assert.ok(again.code === 0 && again.json.data.request.status === 'requested', again.out);
-  assert.ok(JSON.parse(fs.readFileSync(target, 'utf8')).id === id);
+  assert.ok(again.code === 4 && again.json.data.request.status === 'held' && fs.readFileSync(target, 'utf8') === full.slice(0, 90), again.out);
+  const why = again.json.problems.filter(p => p.path === 'proposals/' + id + '.json')[0];
+  assert.ok(why && why.kind === 'malformed' && /only if no other request is still being written/.test(why.why), JSON.stringify(again.json.problems));
+  // The exact interleaving: B reads A's incomplete file, then A finishes it on the same file. B never removes A's file.
+  let removed = 0;
+  const b = await FD.requestData(eng, adapter(), { key: 'nolink', text: JSON.stringify(Object.assign({}, MONTHLY, { title: 'B wants another title' })) },
+    (n, t) => { fs.writeFileSync(target, full); return FD.writeRequest(dir, n, t); }, () => { fs.writeFileSync(target, full); removed++; });
+  assert.strictEqual(removed, 0, 'never removes a file it didn\'t create');
+  assert.ok(b.code === 4 && b.json.data.request.status === 'held', JSON.stringify(b.json));
+  fs.writeFileSync(target, full);
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), full, 'A\'s request stands');
   // A partial file that isn't the start of this request is never removed: nothing is written.
   const id2 = reqId('ci-check', 'other'), t2 = path.join(dir, 'proposals', id2 + '.json');
   fs.writeFileSync(t2, '{\n  "kind": "plan",\n  "id": "someone-else');

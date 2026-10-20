@@ -172,14 +172,7 @@ PF.requests = (function () {
     return plan;
   }
   function text(plan) { return JSON.stringify(plan, null, 2) + '\n'; }
-  /* Whether a file that isn't complete JSON is the start of exactly the text this request would write, apart from its own
-     time (`created` is the last field): a write of this request cut short, never anyone else's file. */
-  function isOwnPartial(part, whole) {
-    var at = whole.indexOf('"created": "');
-    if (typeof part !== 'string' || at < 0 || !part.length || part.length >= whole.length + 8) return false;
-    if (part.length <= at) return whole.slice(0, part.length) === part;
-    return part.slice(0, at) === whole.slice(0, at) && /^"created": "[0-9T:.Z+-]{0,40}("\n?}?\n?)?$/.test(part.slice(at)) && part !== whole;
-  }
+
 
   /* Who a plan says asked for it, when it's a request: { name, version } from its id and by, or null. A claim: anyone who can
      write to the folder can write this. */
@@ -204,5 +197,5 @@ PF.requests = (function () {
   }
 
   return { KEY: KEY, TOOL: TOOL, LIMITS: LIMITS, CLI: CLI, idFor: idFor, isCopyName: isCopyName, clean: clean, canonical: canonical, differs: differs, check: check,
-    leftEmpty: leftEmpty, build: build, text: text, isOwnPartial: isOwnPartial, claim: claim, same: same };
+    leftEmpty: leftEmpty, build: build, text: text, claim: claim, same: same };
 })();

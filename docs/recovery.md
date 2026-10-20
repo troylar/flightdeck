@@ -66,6 +66,20 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What not to do:** don't start the request in an older copy of Flightdeck while two files exist: older copies show each file as its own planned run, so it can be started twice. If it was started twice already, Runs shows the plan's decisions as disagreeing; keep one run and cancel the other.
 
+## A request file is incomplete
+
+**What you see:** `flightdeck plan request` exits with 4 (`held`) and names a file in `proposals/`, like `proposals/req-backup-script-….json`, saying it isn't complete JSON. Nothing was written.
+
+**What it means:** the file is still arriving through OneDrive, another request is still writing it, or a request was cut short (a crash, a full disk). Flightdeck never removes it on its own, because it can't tell those apart.
+
+**What to do:**
+
+1. Wait a minute and run the request again. A file that was still arriving or being written is complete by then, and the request is either already there or refused with the details that differ.
+2. If it's still incomplete, check that no other computer or script is asking for the same request right now.
+3. Only then delete that one file, and run the request again.
+
+**What not to do:** don't delete the file while another request might still be writing it, and don't edit it by hand to finish it.
+
 ## Flightdeck lost access to the folder
 
 **What you see:** the top bar says **The team folder needs your OK again** with **Reconnect**, or Flightdeck opens on the examples instead of your folder.
