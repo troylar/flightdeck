@@ -402,6 +402,14 @@ def unrunnable(md, types):
     return ""
 
 
+def read_bytes(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
 def read_text(path):
     try:
         with open(path, "rb") as f:
@@ -554,7 +562,8 @@ def check_publication(folder, name):
         p = info["payload"]
         if sorted((info.get("images") or {}).keys()) != sorted(p["images"].keys()):
             return "unusable", "Its screenshots don't match its payload. Edited by hand.", info
-        if sha(files["map.md"].encode("utf-8")) != p["map"] or sha(files["types.json"].encode("utf-8")) != p["types"]:
+        # The payload is over the exact bytes on disk, before any byte-order mark is dropped.
+        if sha(read_bytes(os.path.join(folder, "map.md"))) != p["map"] or sha(read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
             return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
     m = re.match(r"^v(\d+)-[a-z0-9]+$", name)
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):

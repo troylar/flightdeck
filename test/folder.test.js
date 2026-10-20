@@ -2002,4 +2002,22 @@ rule('A /2 version whose screenshot bytes don\'t match its payload is not comple
   assert.ok(!pub.ok && /counts\.png/.test(pub.why), pub.why);
 });
 
+rule('A /2 version is checked by the SHA-256 of its exact bytes: a byte-order mark or CRLF line ends a folder\'s reader hides still make it fail', async () => {
+  const fs = await phaseFolder();
+  const res = await repo.publish(fs, PHASE_MD, { people: JSON.parse(people), ...EX, by: 'a', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  const base = 'publications/x/' + res.folder + '/';
+  /* A real folder's reader (the browser's File.text(), the command's) drops a byte-order mark, so the text read is unchanged. */
+  const read = fs.read.bind(fs);
+  fs.read = (p, o) => read(p, o).then(f => f && Object.assign({}, f, { text: f.text.replace(/^﻿/, '') }));
+  const ok = (await repo.loadAll(fs)).processes[0].pubs.find(x => x.folder === res.folder);
+  assert.ok(ok.ok, 'set-up: as written it is usable: ' + ok.why);
+  for (const n of ['map.md', 'types.json']) {
+    const was = fs.files[base + n].t;
+    fs.files[base + n].t = '﻿' + was;
+    const v = (await repo.loadAll(fs, { deep: true })).processes[0].pubs.find(x => x.folder === res.folder);
+    assert.ok(!v.ok && /payload|match/.test(v.why), n + ' with a byte-order mark: ' + v.why);
+    fs.files[base + n] = { t: was, m: Date.now() + 2000 };
+  }
+});
+
 run();

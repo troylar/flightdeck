@@ -342,11 +342,16 @@ rule('The checker reads a 2.0 version with phase notes and phase and gate screen
     const pinned = await copy(4, i => { i.payload.pins.children.verify = { process: 'verify', version: 4, folder: 'v4-cccc4444', mapHash: 'aaaa0001', typesHash: 'aaaa0002' }; });
     const later = await copy(5, i => { i.features = ['phase-notes', 'typed-details']; });
     const unlisted = await copy(6, i => { delete i.images['images/x/counts.png']; delete i.payload.images['images/x/counts.png']; });
+    /* A byte-order mark the checker's text reading drops: the exact bytes no longer match the payload. */
+    const bom = await copy(7, () => {});
+    const bomPath = path.join(root, 'publications', 'x', bom, 'map.md');
+    fs.writeFileSync(bomPath, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), fs.readFileSync(bomPath)]));
     const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
     const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' })).publications.x;
     const mine = f => out.versions.find(x => x.folder === f), theirs = f => pubs.find(x => x.folder === f);
     assert.ok(theirs(v.folder).ok, theirs(v.folder).why);
     assert.strictEqual(mine(v.folder).status, 'complete', mine(v.folder).why);
+    assert.strictEqual(mine(bom).status, 'damaged', 'a byte-order mark: ' + mine(bom).why);
     for (const f of [mapOff, shotOff]) { assert.ok(!theirs(f).ok && !theirs(f).unusable, f); assert.strictEqual(mine(f).status, 'damaged', f + ': ' + mine(f).why); }
     for (const f of [pinned, later, unlisted]) { assert.ok(!theirs(f).ok && theirs(f).unusable, f); assert.strictEqual(mine(f).status, 'unusable', f); assert.strictEqual(mine(f).why, theirs(f).why, f + ': same words'); }
     assert.strictEqual(out.current, v.folder);

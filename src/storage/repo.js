@@ -109,6 +109,15 @@ PF.repo = (function () {
   function checkImages(fs, base, res) {
     var imgs = res.ok && res.info.images ? Object.keys(res.info.images) : [];
     var strong = res.ok && res.info.format === P.FORMAT2 && res.info.payload ? res.info.payload.images : null;
+    /* A /2 version's checklist and step types by the SHA-256 of their exact bytes: a reader's text drops a byte-order mark. */
+    var exact = strong ? [['map.md', res.info.payload.map], ['types.json', res.info.payload.types]].reduce(function (p, x) {
+      return p.then(function (r) {
+        if (!r.ok) return r;
+        return fs.blob(base + x[0]).then(function (b) { return b ? bytesOf(b) : null; }).then(function (b) {
+          return b && PF.sha256.create().update(b).digest() === x[1] ? r : { ok: false, why: b ? x[0] + ' doesn\'t match the version\'s payload byte for byte. Still syncing, or edited by hand.' : 'Still syncing: some files haven\'t arrived.', info: r.info, folder: r.folder, process: r.process };
+        });
+      });
+    }, Promise.resolve(res)) : Promise.resolve(res);
     return imgs.reduce(function (p, src) {
       return p.then(function (r) {
         if (!r.ok) return r;
@@ -117,7 +126,7 @@ PF.repo = (function () {
           return good ? r : { ok: false, why: b ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
         });
       });
-    }, Promise.resolve(res));
+    }, exact);
   }
 
   /* Every run folder's result, by key ("process/id"), as the app accepts it (docs/design.md section 25):
@@ -390,7 +399,8 @@ PF.repo = (function () {
         return Promise.all([fs.read(dir + 'map.md'), fs.read(dir + 'types.json')]).then(function (r) {
           var v = P.verify(run.folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': f.text });
           if (!v.ok) return v.unusable ? (c.bad[dir] = v.why) : '';
-          return approve(info);
+          /* Its screenshots, and a /2 version's exact bytes, as a refresh checks them: not matching yet is still syncing. */
+          return checkImages(fs, dir, v).then(function (x) { return x.ok ? approve(info) : ''; });
         }, function () { return ''; });
       }, function () { return ''; });
     });
