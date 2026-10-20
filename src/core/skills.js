@@ -88,11 +88,14 @@ PF.skills = (function () {
      per skill: the current revision of each (the highest rev); two different files at that rev are Needs review. A tombstone
      stands for its registration and goes; one whose registration hasn't arrived, or a legacy file beside a registration with
      the same name, can't be matched (unmatched: true), never current. */
+  var REG_DIR = /^skill-registrations\/([^/]+)\//;
   function merge(legacy, regs) {
-    var byName = Object.create(null), order = [], out = [];
+    var byName = Object.create(null), order = [], out = [], refused = Object.create(null);
+    /* A revision this copy can't read (newer, malformed, unreadable, misnamed) may be the newest: the skill it's filed under
+       can't be matched until a person resolves it, and no lower revision stands in for it. */
     (regs || []).forEach(function (x) {
-      var m = REG_PATH.exec(x.file || ''), n = x.skill ? x.skill.name : m ? m[1] : '';
-      if (!x.skill) { out.push(x); return; }
+      var d = REG_DIR.exec(x.file || ''), n = x.skill ? x.skill.name : d ? d[1] : '';
+      if (!x.skill) { if (n) (refused[n] = refused[n] || []).push(x); else out.push(x); return; }
       if (!byName[n]) { byName[n] = []; order.push(n); }
       byName[n].push(x);
     });
@@ -102,8 +105,10 @@ PF.skills = (function () {
       var shas = at.map(function (x) { return x.skill.sha; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
       var cur = at.sort(function (a, b) { return a.file < b.file ? -1 : 1; })[0], e = { skill: cur.skill, errors: [], file: cur.file, revisions: all.length };
       if (shas.length > 1) { e.errors.push('Needs review: two registrations of ' + n + ' at revision ' + top + ' (' + at.map(function (x) { return x.file; }).join(', ') + '). Keep one, then register it again.'); e.unmatched = true; e.review = true; }
+      if (refused[n]) { e.errors.push('A revision of ' + n + ' can\'t be read here: ' + refusedWhy(refused[n]) + ' Resolve it first; until then no revision is current.'); e.unmatched = true; e.refused = true; e.refusedWhy = refusedWhy(refused[n]); delete refused[n]; }
       current[n] = e; out.push(e);
     });
+    Object.keys(refused).forEach(function (n) { refused[n].forEach(function (x) { out.push(Object.assign({}, x, { unmatched: true, refused: true, refusedWhy: refusedWhy([x]), name: n })); }); });
     (legacy || []).forEach(function (x) {
       if (x.tombstone) {
         if (x.name && current[x.name]) return;
@@ -122,6 +127,7 @@ PF.skills = (function () {
     });
     return out;
   }
+  function refusedWhy(list) { return list.map(function (x) { return (x.errors || []).join('; ') || (x.file + ': can\'t be read'); }).join('; ') + (/[.!?]$/.test((list[list.length - 1].errors || []).join('')) ? '' : '.'); }
   /* A new revision for flightdeck skill register, the only writer of skill-registrations/ (pure: the command reads and writes).
      input: what an AI assistant hands over ({ name, version, location, implements: { process, folder }, steps?, description?,
      group?, tags?, by? }); proc: that process's versions as listed; current: the skill's current entry from merge, or null.
@@ -149,6 +155,7 @@ PF.skills = (function () {
       if (unknown.length) return { why: imp.process + ' v' + pub.info.version + ' has no step ' + unknown.join(', ') + '. Nothing was written.' };
       steps = input.steps.slice();
     }
+    if (current && current.refused) return { why: 'A revision of ' + input.name + ' can\'t be read here: ' + current.refusedWhy + ' Resolve it first (update Flightdeck, or remove that file), then register again. Nothing was written.' };
     if (current && current.review) return { why: 'Two registrations for ' + input.name + ' are at the same revision. Keep one (delete the other file), then register again. Nothing was written.' };
     var prev = current && current.skill && current.skill.regId ? current.skill : null;
     var id = prev ? prev.regId : 'sk-' + o.rand.slice(0, 8), rev = prev ? prev.rev + 1 : 1;

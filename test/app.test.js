@@ -6059,4 +6059,75 @@ rule('Pins: a run/2 parent whose child is now a 2.0 version refuses to start it,
   assert.ok(/continued in run release\//.test(app.html()), 'says why');
 });
 
+/* A run/3 (continued from the example release) whose notes step is pinned to check-in's 2.0 version. */
+async function pinnedRelease() {
+  const app = await recordingRelease();
+  app.click('reopen', '0'); await app.tick(40);
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'f00d123'); app.click('save-edit'); await app.tick(40);
+  app.click('clear', 'notes'); await app.tick(40);
+  const d = await app.PF.repo.loadAll(app.fs), ci = d.processes.find(p => p.process === 'check-in'), v1 = ci.index.latest, md = v1.md.replace(/\n## ([^\n]+)\n/, '\n## $1\n  > Use the scratch server.\n');
+  const res = await app.PF.repo.publish(app.fs, md, { people: d.people, customTypes: d.stepTypes.types, workflows: {}, by: 'person-avery', changes: '2.0', existing: ci.index.all.map(p => p.info), now: new Date().toISOString(), app: '2.0.0' });
+  assert.ok(res && !res.blockers, JSON.stringify(res && res.blockers));
+  app.click('refresh'); await app.tick(80);
+  const runsBefore = releaseRuns(app);
+  app.click('select', 'notes'); await app.tick();
+  app.click('continue-two', 'notes'); await app.tick(400);
+  const made = releaseRuns(app).filter(p => runsBefore.indexOf(p) < 0), n = JSON.parse(app.fs.files[made[0]].t);
+  assert.strictEqual(n.pins.children.notes.folder, res.folder, 'set-up: pinned to v2');
+  return { app, n, v1, v2folder: res.folder };
+}
+rule('Pins: a run/3 never adopts or settles from a child run on another version than its pin: no Link it for it, Link it refuses, and a hand-edited link never checks the step', async () => {
+  const { app, n, v1, v2folder } = await pinnedRelease();
+  const runPath = 'runs/release/' + n.id + '/run.json';
+  app.click('start-child', 'notes'); await app.tick(120);
+  const linked = JSON.parse(app.fs.files[runPath].t).steps.notes.child;
+  assert.ok(linked && linked.folder === v2folder, 'set-up: started on the pin');
+  const k = JSON.parse(app.fs.files['runs/check-in/' + linked.id + '/run.json'].t);
+  // A run of check-in v1 that names the same step as its parent: an orphan on the wrong version, newer than the right one.
+  const o = app.PF.run.create(v1, { id: 'wrongver1', title: 'Check in on v1', details: k.details, roles: k.roles, by: 'person-casey', session: 'w-other', now: new Date(Date.now() + 60000).toISOString(), parent: k.parent });
+  await app.PF.repo.saveRun(app.fs, o, 'w-other');
+  // The link that didn't land: the step has no child yet.
+  const unl = JSON.parse(app.fs.files[runPath].t); delete unl.steps.notes; await app.fs.write(runPath, JSON.stringify(unl, null, 2));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-run', 'release/' + n.id); await app.tick(40);
+  app.click('select', 'notes'); await app.tick();
+  const h = app.html();
+  assert.ok(!/data-act="link-child" data-id="notes" data-child="check-in\/wrongver1"/.test(h), 'never offered: ' + (h.match(/data-act="link-child"[^>]*>/) || [''])[0]);
+  assert.ok(new RegExp('data-act="link-child" data-id="notes" data-child="check-in/' + k.id + '"').test(h), 'the pinned one is offered');
+  app.click('link-child', 'notes', { child: 'check-in/wrongver1' }); await app.tick(80);
+  assert.ok(!(JSON.parse(app.fs.files[runPath].t).steps.notes || {}).child, 'Link it refuses another version');
+  // A hand-edited link to it, ended Completed: the step is never checked from it.
+  const hand = JSON.parse(app.fs.files[runPath].t); hand.steps.notes = { s: 'open', child: { process: 'check-in', id: 'wrongver1', inputs: k.parent.inputs, folder: v2folder } }; await app.fs.write(runPath, JSON.stringify(hand, null, 2));
+  const done = JSON.parse(app.fs.files['runs/check-in/wrongver1/run.json'].t); done.state = 'completed'; done.ended = { outcome: 'Completed', by: 'person-casey', at: new Date().toISOString() }; await app.fs.write('runs/check-in/wrongver1/run.json', JSON.stringify(done, null, 2));
+  app.click('refresh'); await app.tick(200);
+  assert.notStrictEqual(JSON.parse(app.fs.files[runPath].t).steps.notes.s, 'done', 'never checked by a run on another version');
+});
+
+rule('Pins: a plan switch waiting behind another write is dropped, and says so, if the folder or the person changes first; it never lands in another folder', async () => {
+  for (const change of ['folder', 'person']) {
+    const app = boot(); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    await exactPlan(app);
+    const oldFs = app.fs, v2 = pubFolder(app, 2);
+    // An earlier write holds the queue: a publish.
+    app.click('open-process', 'check-in'); await app.tick();
+    const orig = app.PF.repo.publish, g = gate(); let first = true;
+    app.PF.repo.publish = function () { const a = arguments; if (!first) return orig.apply(this, a); first = false; return g.p.then(() => orig.apply(this, a)); };
+    app.set('change-note', 'A change'); app.click('publish', 'check-in'); await app.tick();
+    app.click('review-plan', 'plan-release-exact'); await app.tick();
+    const calls = [], rec = app.PF.repo.recordPlanStatus;
+    app.PF.repo.recordPlanStatus = function (fs, plan, w, status) { calls.push(status); return rec.apply(this, arguments); };
+    app.click('plan-retarget', 'plan-release-exact', { folder: v2 }); await app.tick();
+    if (change === 'folder') { app.click('reset-examples'); await app.tick(60); app.choose('person-blake'); await app.tick(); }
+    else { app.choose('person-blake'); await app.tick(); }
+    g.open(); await app.tick(120);
+    app.PF.repo.publish = orig; app.PF.repo.recordPlanStatus = rec;
+    if (change === 'folder') assert.ok(app.fs !== oldFs, 'set-up: another folder');
+    assert.deepStrictEqual(calls.filter(s => s === 'retargeted'), [], change + ': nothing recorded');
+    assert.ok(!Object.keys(app.fs.files).some(p => /^proposals\/plan-release-exact\.status-/.test(p)), change + ': nothing in this folder');
+    assert.ok(!Object.keys(oldFs.files).some(p => /^proposals\/plan-release-exact\.status-/.test(p)), change + ': nor in the first');
+    assert.ok(/wasn(&#39;|')t switched/.test(app.html()), change + ': it says so');
+  }
+});
+
 run();

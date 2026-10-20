@@ -246,7 +246,8 @@ PF.run = (function () {
   function answer(r, id, rec) {
     if (rec.s === 'blocked' || rec.s === 'recheck' || rec.s === 'na') mark(r, id, rec.s);
     var prev = r.steps[id] || {}, history = (prev.history || []).slice();
-    if (prev.s && prev.s !== 'open') history.push({ s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values });
+    /* A run/3 skill step's earlier answer keeps the registration it observed (skill), so a re-check never loses it. */
+    if (prev.s && prev.s !== 'open') history.push(prev.skill ? { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values, skill: prev.skill } : { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values });
     /* Anything leaving run.json for the archive leaves its mark behind, so readiness never depends on how much history is kept. */
     if (prev.s === 'blocked' || prev.s === 'recheck' || prev.s === 'na') mark(r, id, prev.s);
     if (prev.differently) mark(r, id, 'differently');
@@ -628,9 +629,12 @@ PF.run = (function () {
     if (r.state !== 'running') throw new Error('This run has ended.');
     if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
-    if (a.child && childCurrent(r, x.step, a) && !a.child.failed) throw new Error('This step already started a run.');
+    var pinNow = childPin(r, stepId), offPin = !!pinNow && a.child && a.child.folder !== pinNow.folder;
+    if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin) throw new Error('This step already started a run.');
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
+    /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
+    if (r.format === FORMAT3) { var pm = pinMismatch(childPin(r, stepId) || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), child); if (pm) throw new Error(pm); }
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
@@ -686,6 +690,7 @@ PF.run = (function () {
   function childVerdict(r, step, a, child) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
     if (r.format !== FORMAT3 && isTwo(child)) return null;
+    if (r.format === FORMAT3 && pinMismatch(childPin(r, step.id), child)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
@@ -698,6 +703,7 @@ PF.run = (function () {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
+    if (r.format === FORMAT3) { var pm = pinMismatch(childPin(r, id), child); if (pm) throw new Error(pm); }
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
     var v = childVerdict(r, x.step, a, child);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
@@ -712,6 +718,19 @@ PF.run = (function () {
     return child.ended.outcome === 'Completed' ? 'done' : 'blocked';
   }
 
+  /* The pin a run/3's {run.process} step follows, or null. */
+  function childPin(r, stepId) { return r && r.format === FORMAT3 && r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId) ? r.pins.children[stepId] : null; }
+  /* Why a child run (or a link that says its version: folder, mapHash, typesHash) can't stand for a step pinned to pin, or ''.
+     The child's own version decides, never what the parent's link says; typesHash is compared when the child records it (a
+     run/3 always does; a run/2 child on a /1 version doesn't, and its folder and checklist fingerprint name the version). */
+  function pinMismatch(pin, c) {
+    if (!pin) return '';
+    var same = !!c && c.folder === pin.folder && c.mapHash === pin.mapHash && (c.typesHash == null || c.typesHash === pin.typesHash);
+    if (same) return '';
+    var was = !c || !c.folder ? 'doesn\'t say its version' : c.folder !== pin.folder ? 'is on ' + c.folder : 'doesn\'t match the files of ' + pin.folder;
+    return 'That ' + pin.process + ' run ' + was + ', but this step is pinned to ' + pin.process + ' v' + pin.version + ' (' + pin.folder + '), so it can\'t stand for this step.';
+  }
+  function childPinProblem(r, stepId, c) { return pinMismatch(childPin(r, stepId), c); }
   /* A child run made with Flightdeck 2.0 (run/3), or one this copy reads by name only: a run/2 parent never follows it. */
   function isTwo(child) { return !!child && (child.format === FORMAT3 || (!!child._unrunnable && child._needs != null)); }
   var LEGACY_CHILD = 'That run was made with Flightdeck 2.0, which an older Flightdeck recording this run would read by name only. Start it as a Flightdeck 2.0 run instead.';
@@ -908,7 +927,7 @@ PF.run = (function () {
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
   KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations';
-  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.child3 = KNOWN.child + ' folder'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder'; KNOWN.parent3 = KNOWN.parent + ' folder';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -976,7 +995,7 @@ PF.run = (function () {
       look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill != null && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
-      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, 'history', w + '\'s history'); if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
+      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill != null && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
@@ -1228,7 +1247,7 @@ PF.run = (function () {
       if (a.values) c.values = values(a.values);
       if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && typeof a.child.folder === 'string' && PF.publish.versionOf(a.child.folder)) c.child.folder = a.child.folder; }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
-      if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined }; });
+      if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
       r.steps[k] = c;
     });
     Object.keys(o.gates).forEach(function (k) {
@@ -1262,7 +1281,7 @@ PF.run = (function () {
   return {
     FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

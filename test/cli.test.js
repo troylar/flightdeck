@@ -2218,4 +2218,37 @@ rule('SKILL: skill register refuses what can\'t be matched exactly, and writes n
   const u = readCli('skill', 'register', dir, '--json'); assert.ok(u.code === 1 && /--from/.test(u.json.error.why));
 });
 
+rule('SKILL: skill register refuses, and writes nothing, beside a skill file or a registration this copy can\'t read: a newer, malformed or unreadable skills/<name>.json, or a newer, malformed or unreadable revision', async () => {
+  const dir = await readFolder(), folder = rfBuilt.folder, input = (name) => ({ name, version: '1.0.0', location: 'here', implements: { process: 'release', folder } });
+  fs.mkdirSync(path.join(dir, 'skills'), { recursive: true });
+  const refuse = (name, re) => {
+    const before = EV.tree(dir), r = readCli('skill', 'register', dir, '--from', regFile(input(name)), '--json');
+    assert.ok(r.code !== 0 && r.json && r.json.error && re.test(r.json.error.why), name + ': ' + r.out + r.err);
+    assert.ok(/Nothing was written/.test(r.json.error.why), r.json.error.why);
+    assert.deepStrictEqual(EV.tree(dir), before, name + ': nothing written');
+  };
+  const newerText = JSON.stringify({ format: 'flightdeck-skill/3', name: 'newer', version: '9.0.0', location: 'x', implements: { process: 'release', folder } });
+  fs.writeFileSync(path.join(dir, 'skills', 'newer.json'), newerText);
+  refuse('newer', /skills\/newer\.json.*newer Flightdeck/);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'skills', 'newer.json'), 'utf8'), newerText, 'the newer file is untouched');
+  fs.writeFileSync(path.join(dir, 'skills', 'broken.json'), '{ not json');
+  refuse('broken', /skills\/broken\.json/);
+  fs.writeFileSync(path.join(dir, 'skills', 'odd.json'), JSON.stringify({ name: 'odd', version: '1.0.0' }));
+  refuse('odd', /skills\/odd\.json/);
+  // A registration whose next revision this copy can't read: never registered past it.
+  const ok = readCli('skill', 'register', dir, '--from', regFile(input('later')), '--json');
+  assert.strictEqual(ok.code, 0, ok.out + ok.err);
+  const p1 = path.join(dir, ...ok.json.registered.path.split('/')), o1 = JSON.parse(fs.readFileSync(p1, 'utf8'));
+  const p2 = path.join(path.dirname(p1), o1.id + '.2.cli-eeeeeeee.json');
+  fs.writeFileSync(p2, JSON.stringify(Object.assign({}, o1, { format: 'flightdeck-skill/3', rev: 2, seen: 1 })));
+  refuse('later', /can't be read here.*newer Flightdeck/);
+  fs.writeFileSync(p2, '{ not json');
+  refuse('later', /can't be read here.*isn't valid JSON/);
+  fs.writeFileSync(p2, JSON.stringify(Object.assign({}, o1, { rev: 2, seen: 1, implements: 'release@1' })));
+  refuse('later', /can't be read here.*implements/);
+  fs.rmSync(p2);
+  const again = readCli('skill', 'register', dir, '--from', regFile(input('later')), '--json');
+  assert.ok(again.code === 0 && again.json.registered.rev === 2, 'once resolved, the next revision: ' + again.out + again.err);
+});
+
 run();

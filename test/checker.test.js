@@ -387,6 +387,36 @@ rule('The checker reads a 2.0 version with pins and a plan/2 like the app', asyn
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker matches skill registrations like the app: one with any revision this copy can\'t read (newer, malformed, unreadable) can\'t be matched, never an older revision', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-skreg-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const v = await repo.publish(d, '---\nprocess: verify\ntitle: Verify\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n', { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const loaded = await repo.loadAll(d, { deep: true }), pr = loaded.processes.find(p => p.process === 'verify'), proc = { latest: pr.index.latest, all: pr.index.all, clashes: pr.index.clashes, broken: [] };
+    const write = async (name, rand, extra) => {
+      const g = PF.skills.registration({ name, version: '1.0.0', location: 'here', implements: { process: 'verify', folder: v.folder } }, proc, null, { app: '2.0.0', now: NOW, by: 'person-avery', window: 'w-one', rand });
+      assert.ok(g.rec, g.why); await d.write(g.path, JSON.stringify(g.rec, null, 2) + '\n');
+      if (extra) await d.write(g.path.replace('.1.w-one.json', '.2.w-two.json'), extra(g.rec));
+      return g;
+    };
+    await write('fine', 'aaaa1111');
+    await write('newer', 'bbbb2222', (o) => JSON.stringify(Object.assign({}, o, { format: 'flightdeck-skill/3', rev: 2, seen: 1 })));
+    await write('broken', 'cccc3333', () => '{ not json');
+    await write('odd', 'dddd4444', (o) => JSON.stringify(Object.assign({}, o, { rev: 2, seen: 1, implements: 'verify@1' })));
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const appSays = (n) => { const l = app.skills.filter(x => (x.skill && x.skill.name === n) || (x.file || '').indexOf('skill-registrations/' + n + '/') === 0); return l.length && l.every(x => x.unmatched) ? 'unmatched' : 'current'; };
+    const pySays = (n) => { const x = (out.skills || []).find(s => s.name === n); return x ? x.status : 'absent'; };
+    ['fine', 'newer', 'broken', 'odd'].forEach(n => assert.strictEqual(pySays(n), appSays(n), n + ': ' + JSON.stringify(out.skills)));
+    assert.deepStrictEqual(['fine', 'newer', 'broken', 'odd'].map(pySays), ['current', 'unmatched', 'unmatched', 'unmatched']);
+    assert.ok(/newer Flightdeck/.test(out.skills.find(s => s.name === 'newer').why), out.skills.find(s => s.name === 'newer').why);
+    assert.strictEqual(out.skills.find(s => s.name === 'fine').rev, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 rule('The checker refuses a version whose step screenshot its record (and a /2 version\'s payload) doesn\'t list, like the app, /1 and /2', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

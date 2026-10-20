@@ -434,6 +434,7 @@ FAMILIES = {
     "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -657,6 +658,79 @@ def check_publication(folder, name):
     return "complete", "", info
 
 
+REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([^/]+)\.json$")
+
+
+def check_registration(rel, data):
+    """PF.skills.checkV2, for matching: {"name", "id", "rev", "sha"} or {"why"}."""
+    try:
+        o = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return {"why": "isn't valid JSON"}
+    if not isinstance(o, dict):
+        return {"why": "must be a JSON object"}
+    v = judge("flightdeck-skill", o)
+    if not v["ok"]:
+        if v["kind"] == "newer":
+            return {"why": "made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")}
+        return {"why": "isn't a skill registration this copy reads"}
+    if v["major"] != 2:
+        return {"why": "isn't a Flightdeck 2.0 registration (format flightdeck-skill/2). Register skills with flightdeck skill register."}
+    m, imp = REG_PATH.match(rel), o.get("implements")
+    errors = []
+    if not m:
+        errors.append("its file name isn't skill-registrations/<name>/<id>.<rev>.<window>.json")
+    elif m.group(1) != o.get("name") or m.group(2) != o.get("id") or int(m.group(3)) != o.get("rev"):
+        errors.append("its file name doesn't say its name, id and revision")
+    if not isinstance(o.get("id"), str) or not re.match(r"^sk-[a-z0-9]{8}$", o["id"]):
+        errors.append('"id" must be sk- and 8 letters or numbers')
+    rev = o.get("rev")
+    if not isinstance(rev, (int, float)) or isinstance(rev, bool) or rev < 1 or int(rev) != rev:
+        errors.append('"rev" must be a revision number from 1')
+    pin = None
+    if isinstance(imp, dict) and not set(imp) - {"process", "folder", "mapHash", "typesHash"} and isinstance(imp.get("folder"), str):
+        n = re.match(r"^v(\d+)-", imp["folder"])
+        pin = dict(imp, version=int(n.group(1))) if n else None
+    if not pin or not child_pin_ok(pin):
+        errors.append('"implements" must name the exact version: { process, folder, mapHash, typesHash }')
+    if errors:
+        return {"why": "; ".join(errors)}
+    return {"name": o["name"], "id": o["id"], "rev": int(rev), "sha": sha(data)}
+
+
+def skill_registrations(root):
+    """Which registration is current for each skill, as the app matches them (PF.skills.merge): the highest revision, unless
+    two files differ at it, or any revision filed under the skill can't be read here (newer, malformed, unreadable). Then it
+    can't be matched, and no lower revision stands in."""
+    out, rdir = [], os.path.join(root, "skill-registrations")
+    for name in sorted(os.listdir(rdir)) if os.path.isdir(rdir) else []:
+        ndir = os.path.join(rdir, name)
+        if not os.path.isdir(ndir):
+            continue
+        good, bad = [], []
+        for f in sorted(os.listdir(ndir)):
+            if not f.lower().endswith(".json") or not os.path.isfile(os.path.join(ndir, f)):
+                continue
+            rel = "skill-registrations/" + name + "/" + f
+            data = read_bytes(os.path.join(ndir, f))
+            got = check_registration(rel, data) if data is not None else {"why": "couldn't be read"}
+            if "why" in got:
+                bad.append(rel + ": " + got["why"])
+            else:
+                good.append(dict(got, file=rel))
+        top = max((g["rev"] for g in good), default=None)
+        at = sorted((g for g in good if g["rev"] == top), key=lambda g: g["file"])
+        e = {"name": name, "status": "current", "rev": top, "file": at[0]["file"] if at else None, "why": ""}
+        if bad:
+            e.update(status="unmatched", why="A revision of " + name + " can't be read here: " + "; ".join(bad) + " Resolve it first; until then no revision is current.")
+        elif len({g["sha"] for g in at}) > 1:
+            e.update(status="unmatched", why="Needs review: two registrations of " + name + " at revision " + str(top) + ".")
+        elif not at:
+            continue
+        out.append(e)
+    return out
+
+
 def team_files(root):
     """Basic checks of step-types/ and jira/workflows.json. Flightdeck's process page shows its full verdict."""
     problems, types = [], []
@@ -796,6 +870,7 @@ def main():
                     out.setdefault("receipts", []).append({"run": proc + "/" + rid, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
 
     out["teamFiles"] = team_files(root)
+    out["skills"] = skill_registrations(root)
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
 

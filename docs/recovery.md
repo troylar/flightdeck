@@ -263,6 +263,7 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 - "Two registrations for release-notes; keep one (skills/release-notes.json and skill-registrations/release-notes/…)."
 - "Needs review: two registrations of release-notes at revision 3 (…). Keep one, then register it again."
+- "A revision of release-notes can't be read here: … Resolve it first; until then no revision is current."
 - "release-notes moved to skill-registrations/release-notes/, and its registration is still arriving. Can't be matched yet."
 - "Can't be matched: built from release v4 (v4-abcd1234), which isn't in this folder." (or: another folder has that number, two folders do, its files don't match what was pinned, or it can't be used here).
 
@@ -271,6 +272,7 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 **What to do:**
 
 - **Two registrations:** a skill registered with `flightdeck skill register` replaces its old `skills/<name>.json` with a pointer. If the old file came back (a OneDrive copy, a restore), delete it, or register the skill again, which turns it back into a pointer.
+- **A revision can't be read here:** a revision made with a newer Flightdeck, or a damaged or misnamed file, is in `skill-registrations/<name>/`. If it says a newer Flightdeck, update Flightdeck; otherwise delete or fix that file. `flightdeck skill register` refuses until then, so it never registers past it.
 - **Needs review:** two computers registered the skill at the same time. Compare the two files in `skill-registrations/<name>/`, delete the wrong one, then register again so the current revision is clear.
 - **Still arriving:** wait for OneDrive to finish syncing `skill-registrations/`. If it never arrives, register the skill again.
 - **The version isn't there:** if the version folder is still syncing, wait. If it was deleted or replaced, rebuild or check the skill against a version in the folder and register it again with that version's folder.

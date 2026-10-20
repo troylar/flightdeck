@@ -1634,7 +1634,7 @@
     var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
-    var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, pin: target.first ? target.pin : null };
+    var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, link, state.me, new Date().toISOString()); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart();
@@ -3728,8 +3728,16 @@
       if (!plan || !pub || !state.me) return;
       if (state.planRetargeting) { say('Still switching this plan.', 'warn'); render(); return; }
       state.planRetargeting = true;
-      queued(function () { return repo.recordPlanStatus(state.fs, plan, WRITER, 'retargeted', null, state.me, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); }).then(function () {
-        state.planRetargeting = false; if (g !== gen) return; state.planDiff = false; state.focus = 'start-submit';
+      /* The folder and the person are the ones this was asked in: if either changed while it waited its turn, nothing is
+         written, here or anywhere else. */
+      var rfs = state.fs, rkey = fsKey(), who = state.me;
+      queued(function () {
+        if (state.fs !== rfs || fsKey() !== rkey || state.me !== who) return { dropped: true };
+        return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION);
+      }).then(function (res) {
+        state.planRetargeting = false;
+        if (res && res.dropped) { say('The plan wasn\'t switched: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
+        if (g !== gen) return; state.planDiff = false; state.focus = 'start-submit';
         return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
@@ -3797,7 +3805,7 @@
     'link-child': function (id, b) {
       var c = ctx.findRun(b.dataset.child);
       if (!c || !c.parent) return;
-      mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder }, me, now); });
+      mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder, mapHash: c.mapHash, typesHash: c.typesHash, format: c.format }, me, now); });
     },
     timeline: function (id) { state.timeline = !state.timeline; state.overlayFocus = null; state.focus = '[data-act="timeline"]' + (id ? '[data-id="' + cssEsc(id) + '"]' : ''); render(); },
     'start-step': function (id) { mutate(function (r, map, me, now) { R.start(r, map, id, me, now); }); },

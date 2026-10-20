@@ -132,7 +132,7 @@ rule('A run/3 without version: pins the latest child when it starts; a later chi
   const later = childProc(['A', 'B']); procs = { verify: proc(kids.concat([later[1]])) };
   const step = M.findStep(R.mapOf(r), 'verify').step, t = PF.pins.childTarget(r, step, (id) => procs[id] || null);
   assert.strictEqual(t.pub.info.folder, kids[0].info.folder, 'still v1, though v2 is published');
-  R.linkChild(r, R.mapOf(r), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: t.pub.info.folder, format: 'preflight-run/2' }, 'person-avery', AT);
+  R.linkChild(r, R.mapOf(r), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: t.pub.info.folder, mapHash: t.pub.info.mapHash, typesHash: t.pub.info.typesHash, format: 'preflight-run/2' }, 'person-avery', AT);
   assert.strictEqual(r.steps.verify.child.folder, kids[0].info.folder);
   const back = R.sanitize(plain(r));
   assert.ok(!back._unrunnable, back._unrunnable); assert.strictEqual(back.steps.verify.child.folder, kids[0].info.folder);
@@ -444,6 +444,101 @@ rule('Evidence checks a run/3\'s payload against its version by the shared canon
   assert.strictEqual(check(r, 'pins').ok, true);
   const two = JSON.parse(JSON.stringify(PF.evidence.checks(JSON.parse(JSON.stringify(R.create(kids[0], { by: 'a', session: 'w', now: AT }))), kids[0].files, null)));
   assert.ok(!two.some(x => x.id === 'payload' || x.id === 'pins'), 'a run/2 on a /1 version has neither');
+});
+
+/* ---------- Review fixes (pins, part 2) ---------- */
+rule('A run/3 pinned to a child version never adopts or settles from a run on another version: linking an orphan, a hand-edited link and settlement all refuse; the pinned one settles', () => {
+  const kids = childProc(['A', 'B']), parent = linked(kids, ['  version: 1']), procs = { verify: proc(kids) };
+  const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, (id) => procs[id] || null) });
+  const map = R.mapOf(r), step = M.findStep(map, 'verify').step, inputs = { ticket: 'ABC-1' };
+  assert.strictEqual(r.pins.children.verify.folder, kids[0].info.folder, 'set-up: pinned to v1');
+  const kid = (pub, id) => Object.assign(R.create(pub, { id, by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' }, parent: { process: 'backup', id: r.id, step: 'verify', inputs, folder: r.folder } }), { ended: { outcome: 'Completed', by: 'a', at: AT } });
+  const v2 = kid(kids[1], 'kid2'), v1 = kid(kids[0], 'kid1');
+  const linkOf = (c) => ({ process: c.process, id: c.id, inputs, folder: c.folder, mapHash: c.mapHash, typesHash: c.typesHash });
+  // Adoption (Link it on an orphan): a run on v2 can't stand for a step pinned to v1.
+  assert.throws(() => R.linkChild(r, map, 'verify', linkOf(v2), 'person-avery', AT), /pinned to Check in code v1|pinned to verify v1/);
+  assert.ok(!r.steps.verify || !r.steps.verify.child, 'nothing linked');
+  // A link that doesn't say its fingerprints can't be checked, so it isn't adopted either.
+  assert.throws(() => R.linkChild(r, map, 'verify', { process: 'verify', id: 'kid1', inputs, folder: v1.folder }, 'person-avery', AT), /pinned/);
+  // A hand-edited link to the v2 run: never settles the step, either way.
+  const hand = plain(r); hand.steps.verify = { s: 'open', child: { process: 'verify', id: 'kid2', inputs, folder: kids[1].info.folder } };
+  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, v2), null, 'no verdict from another version');
+  assert.throws(() => R.settleChild(hand, map, 'verify', v2, 'person-avery', AT), /pinned/);
+  assert.strictEqual(hand.steps.verify.s, 'open');
+  const failed = Object.assign(plain(v2), { ended: { outcome: 'Cancelled', by: 'a', at: AT } });
+  assert.strictEqual(R.childVerdict(hand, step, hand.steps.verify, failed), null, 'nor blocks it');
+  // Even with child.folder edited to say v1, the child's own version decides.
+  hand.steps.verify.child.folder = kids[0].info.folder;
+  assert.throws(() => R.settleChild(hand, map, 'verify', v2, 'person-avery', AT), /pinned/);
+  // The run on the pinned version links and settles.
+  R.linkChild(r, map, 'verify', linkOf(v1), 'person-avery', AT);
+  assert.strictEqual(R.settleChild(r, map, 'verify', v1, 'person-avery', AT), 'done');
+  // A child whose version files changed since the pin (same folder, other fingerprints) doesn't settle either.
+  const r2 = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, (id) => procs[id] || null) });
+  r2.steps.verify = { s: 'open', child: { process: 'verify', id: 'kid1', inputs, folder: kids[0].info.folder } };
+  const edited = Object.assign(plain(v1), { mapHash: 'ffffffff' });
+  assert.throws(() => R.settleChild(r2, map, 'verify', edited, 'person-avery', AT), /pinned/);
+});
+
+rule('Rechecking a {run.skill} step keeps the registration it observed in the step\'s history, through sanitize and the archive', () => {
+  const kids = childProc(['A']), md = PARENT(['  version: 1']).replace('Write the report {#report}', 'Write the report for ^ticket {#report}');
+  const parent = publish(md, { childProcs: { verify: proc(kids) } });
+  const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: {} }), map = R.mapOf(r);
+  assert.deepStrictEqual(plain(M.findStep(map, 'report').step.binds), ['ticket'], 'set-up: the step binds ticket');
+  const regAt = (rev) => ({ id: 'sk-aaaa1111', rev, sha: rev.toString(16).repeat(64), name: 'release-notes', version: '1.' + rev + '.0', location: 'https://example.com/x', implements: { process: 'backup', folder: parent.info.folder, mapHash: parent.info.mapHash, typesHash: parent.info.typesHash } });
+  R.done(r, map, 'read', 'person-avery', AT); R.na(r, map, 'verify', 'person-avery', AT);
+  r.gates[map.phases[0].gate.id] = { s: 'passed', by: 'a', at: AT, approved: {} };
+  R.done(r, map, 'report', 'person-avery', AT, { _skill: PF.skills.observed(regAt(1)) });
+  R.setDetail(r, map, 'ticket', 'ABC-2', 'person-avery', AT);
+  assert.strictEqual(r.steps.report.s, 'recheck');
+  R.done(r, map, 'report', 'person-avery', AT, { _skill: PF.skills.observed(regAt(2)) });
+  assert.strictEqual(r.steps.report.skill.rev, 2);
+  const one = (r.steps.report.history || []).filter(h => h.skill && h.skill.rev === 1);
+  assert.strictEqual(one.length, 1, 'revision 1 is in the history: ' + JSON.stringify(r.steps.report.history));
+  assert.deepStrictEqual([one[0].skill.sha, one[0].skill.snapshot.version], ['1'.repeat(64), '1.1.0']);
+  const back = R.sanitize(plain(r));
+  assert.ok(!back._unrunnable, back._unrunnable);
+  assert.deepStrictEqual(plain(back.steps.report.history), plain(r.steps.report.history), 'sanitize keeps it');
+  assert.deepStrictEqual(plain(R.unexplained(plain(r))), [], 'read back exactly');
+  // Enough rechecks push revision 1 out of run.json, into the archive, kept whole.
+  for (let rev = 3; rev <= 9; rev++) { R.setDetail(r, map, 'ticket', 'T-' + rev, 'person-avery', AT); R.done(r, map, 'report', 'person-avery', AT, { _skill: PF.skills.observed(regAt(rev)) }); }
+  const arch = (r._overflow || []).filter(x => x.kind === 'answer' && x.step === 'report' && x.skill && x.skill.rev === 1);
+  assert.strictEqual(arch.length, 1, 'archived with its skill: ' + JSON.stringify(r._overflow));
+  assert.ok(R.cleanArchive(plain(arch[0])).ok);
+  assert.strictEqual(arch[0].skill.sha, '1'.repeat(64));
+  // A history entry with a skill this copy can't read is refused, never kept half.
+  const odd = plain(r); odd.steps.report.history[0].skill = { id: 'nope' };
+  assert.ok(R.sanitize(odd)._unrunnable, 'refused');
+  // A run/2's history is unchanged: no skill there.
+  const r2 = R.create(publish(PARENT().replace('Write the report {#report}', 'Write the report for ^ticket {#report}')), { by: 'a', session: 'w', now: AT, details: { ticket: 'A' } }), m2 = R.mapOf(r2);
+  R.done(r2, m2, 'read', 'a', AT); R.na(r2, m2, 'verify', 'a', AT); r2.gates[m2.phases[0].gate.id] = { s: 'passed', by: 'a', at: AT, approved: {} };
+  R.done(r2, m2, 'report', 'a', AT, { _skill: PF.skills.observed(regAt(1)) }); R.setDetail(r2, m2, 'ticket', 'B', 'a', AT);
+  assert.ok(!(r2.steps.report.history || []).some(h => 'skill' in h));
+});
+
+rule('A registration with any revision this copy can\'t read (newer, malformed or unreadable) can\'t be matched until it\'s resolved; a lower revision is never current past it', () => {
+  const cv = (x) => SK.checkV2(JSON.parse(x.text), x.file, x.sha), one = reg();
+  const named = (list, n) => list.filter(x => (x.skill && x.skill.name === n) || (x.file || '').indexOf('skill-registrations/' + n + '/') === 0);
+  const held = (list, n, re) => {
+    const l = named(list, n);
+    assert.ok(l.length >= 1, JSON.stringify(plain(list)));
+    assert.ok(l.every(x => x.unmatched), 'every entry for ' + n + ' can\'t be matched: ' + JSON.stringify(plain(l)));
+    assert.ok(l.some(x => re.test(x.errors.join(' '))), JSON.stringify(plain(l)));
+  };
+  const newer = reg({ rev: 2, seen: 1, format: 'flightdeck-skill/3' });
+  held(SK.merge([], [cv(one), cv(newer)]), 'release-notes', /newer Flightdeck/);
+  const bad = reg({ rev: 2, seen: 1, implements: 'backup@2' });
+  held(SK.merge([], [cv(one), cv(bad)]), 'release-notes', /implements/);
+  const unreadable = { skill: null, errors: ['skill-registrations/release-notes/sk-aaaa1111.2.w-other.json: isn\'t valid JSON'], file: 'skill-registrations/release-notes/sk-aaaa1111.2.w-other.json' };
+  held(SK.merge([], [cv(one), unreadable]), 'release-notes', /isn't valid JSON/);
+  const odd = { skill: null, errors: ['skill-registrations/release-notes/notes.json: its file name isn\'t right'], file: 'skill-registrations/release-notes/notes.json' };
+  held(SK.merge([], [cv(one), odd]), 'release-notes', /file name/);
+  // With a tombstone too: still not matched.
+  const tomb = Object.assign(SK.check({ name: 'release-notes', implements: 'moved', movedTo: 'skill-registrations/release-notes/', id: 'sk-aaaa1111' }, 'release-notes.json'), { file: 'release-notes.json' });
+  held(SK.merge([tomb], [cv(one), cv(newer)]), 'release-notes', /newer Flightdeck/);
+  // Another skill's registrations are unaffected.
+  const other = reg({ name: 'other-skill', id: 'sk-bbbb2222' }), list = SK.merge([], [cv(one), cv(newer), cv(other)]);
+  assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
 rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; every later feature stays refused', () => {
