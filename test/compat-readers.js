@@ -130,7 +130,7 @@ function dirKnown(dir) {
 /* One file of every family that has no reader here, for the "never read" checks. */
 const UNREAD = {
   'runs/backup/run-a/files/1-abcdef-w-blake.txt': 'attached', 'flightdeck.html': '<!doctype html>',
-  'staged/backup/stage-aaaa1111/publication.json': '{}', 'extensions/acme/extension.json': '{}', 'skill-registrations/backup-report/a.1.w-avery.json': '{}',
+  'staged/backup/stage-aaaa1111/publication.json': '{}', 'extensions/acme/extension.json': '{}', 'skill-registrations/other-skill/a.1.w-avery.json': '{}',
   'reports/r-1.json': '{}', 'report-decisions/r-1.w-avery.1.json': '{}'
 };
 
