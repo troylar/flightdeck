@@ -166,20 +166,18 @@ PF.evidence = (function () {
     else add('mapHash', 'The checklist fingerprint the run recorded matches map.md', raw.mapHash === U.hash(map), 'Recorded ' + String(raw.mapHash || 'none') + ', map.md gives ' + U.hash(map) + '.');
     if (info == null || map == null || types == null) add('publication', 'The version is complete and checks out', null, 'Some of its files aren\'t in the folder.');
     else {
-      var v = PF.publish.verify(raw.folder, pub), shot = '', unsure = '';
+      /* A /2 version by the SHA-256 of the exact bytes of its checklist and step types, as snapshotted for the pack. */
+      var exact = {};
+      if (images) ['map.md', 'types.json'].forEach(function (n) { var x = images['\u0000' + n]; if (x && x.sha256) exact[n] = x.sha256; });
+      var v = PF.publish.verify(raw.folder, pub, exact), shot = '', unsure = '';
       /* Its screenshots too, by the bytes in the pack: the version is checked as the app checks it. */
       if (v.ok && images) Object.keys(v.info.images && typeof v.info.images === 'object' ? v.info.images : {}).forEach(function (src) {
         if (shot) return;
         var why = imageProblem(v.info, src, images[src] || null);
         if (why) shot = why; else if (why === null && !unsure) unsure = src;
       });
-      /* A /2 version's payload is over the exact bytes of its checklist and step types, as the app checks it. */
-      if (!shot && v.ok && images && v.info.format === PF.publish.FORMAT2 && v.info.payload) [['map.md', 'map'], ['types.json', 'types']].forEach(function (x) {
-        var got = images['\u0000' + x[0]];
-        if (!shot && got && got.sha256 !== v.info.payload[x[1]]) shot = x[0] + ' doesn\'t match the version\'s payload byte for byte.';
-      });
       if (shot) add('publication', 'The version is complete and checks out', false, shot);
-      else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
+      else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable || v.needsBytes ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
     }
     return out;
   }

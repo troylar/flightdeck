@@ -256,7 +256,9 @@ function build(md, extra) {
   [['images/scratch.png', PNG], ['images/counts.png', PNG2]].forEach(([src, b]) => { if (md.indexOf(src) >= 0) { images[src] = PF.util.hash(b.toString('latin1')); imageBytes[src] = new Uint8Array(b); } });
   return P.build(md, Object.assign({ by: 'person-avery', changes: 'Notes on the phase', now: '2026-10-20T09:00:00.000Z', existing: [], rand: 'abcd1234', app: '2.0.0', images, imageBytes }, extra || {}));
 }
-const pubOf = (b) => { const v = P.verify(b.folder, b.files); assert.ok(v.ok, v.why); return v; };
+/* The exact bytes of a built version's checklist and step types, as a folder holds them (UTF-8). */
+const exactOf = (files) => P.exactOf({ 'map.md': new Uint8Array(Buffer.from(files['map.md'], 'utf8')), 'types.json': new Uint8Array(Buffer.from(files['types.json'], 'utf8')) });
+const pubOf = (b) => { const v = P.verify(b.folder, b.files, exactOf(b.files)); assert.ok(v.ok, v.why); return v; };
 
 rule('map.js reads phase notes and screenshots under a phase heading (before its first step or track) and screenshots under a gate; PF.map.features names them', () => {
   const m = M.parse(DRAFT2);
@@ -305,16 +307,44 @@ rule('A /1 version has an implied payload from its own fingerprints, with no ext
 rule('verify checks a /2 version by its payload: a changed map or types, a missing or odd payload, or a pin or extension this copy can\'t check never verifies', () => {
   const b = build(DRAFT2), files = Object.assign({}, b.files), info = JSON.parse(files['publication.json']);
   const withInfo = (f) => Object.assign({}, files, { 'publication.json': JSON.stringify(f(JSON.parse(JSON.stringify(info)))) });
-  assert.ok(!P.verify(b.folder, withInfo(i => { i.payload.map = 'a'.repeat(64); return i; })).ok, 'map payload');
-  assert.ok(!P.verify(b.folder, withInfo(i => { i.payload.types = 'b'.repeat(64); return i; })).ok, 'types payload');
-  const none = P.verify(b.folder, withInfo(i => { delete i.payload; return i; }));
+  assert.ok(!P.verify(b.folder, withInfo(i => { i.payload.map = 'a'.repeat(64); return i; }), exactOf(files)).ok, 'map payload');
+  assert.ok(!P.verify(b.folder, withInfo(i => { i.payload.types = 'b'.repeat(64); return i; }), exactOf(files)).ok, 'types payload');
+  const none = P.verify(b.folder, withInfo(i => { delete i.payload; return i; }), exactOf(files));
   assert.ok(!none.ok && none.unusable, 'no payload: ' + none.why);
-  const pin = P.verify(b.folder, withInfo(i => { i.payload.pins.children.x = { process: 'p' }; return i; }));
+  const pin = P.verify(b.folder, withInfo(i => { i.payload.pins.children.x = { process: 'p' }; return i; }), exactOf(files));
   assert.ok(!pin.ok && pin.unusable, 'a pin without its feature: ' + pin.why);
-  const ext = P.verify(b.folder, withInfo(i => { i.payload.extensions['a.json'] = 'c'.repeat(64); return i; }));
+  const ext = P.verify(b.folder, withInfo(i => { i.payload.extensions['a.json'] = 'c'.repeat(64); return i; }), exactOf(files));
   assert.ok(!ext.ok && ext.unusable);
-  const img = P.verify(b.folder, withInfo(i => { delete i.payload.images['images/counts.png']; return i; }));
+  const img = P.verify(b.folder, withInfo(i => { delete i.payload.images['images/counts.png']; return i; }), exactOf(files));
   assert.ok(!img.ok, 'a screenshot recorded without its payload entry');
+});
+
+rule('A /2 version verifies only from the SHA-256 of its exact bytes, through P.exactOf: never from decoded text, so a byte-order mark a reader drops can\'t pass', () => {
+  const b = build(DRAFT2), raw = { 'map.md': new Uint8Array(Buffer.from(b.files['map.md'], 'utf8')), 'types.json': new Uint8Array(Buffer.from(b.files['types.json'], 'utf8')) };
+  const none = P.verify(b.folder, b.files);
+  assert.ok(!none.ok && !none.unusable && none.needsBytes, 'no exact bytes: ' + none.why);
+  assert.ok(P.verify(b.folder, b.files, P.exactOf(raw)).ok, 'the exact bytes as published');
+  const bom = Object.assign({}, raw, { 'map.md': new Uint8Array(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(raw['map.md'])])) });
+  const v = P.verify(b.folder, b.files, P.exactOf(bom));
+  assert.ok(!v.ok && /byte for byte/.test(v.why), 'a byte-order mark the text doesn\'t show: ' + v.why);
+  assert.throws(() => P.exactOf({ 'map.md': b.files['map.md'], 'types.json': b.files['types.json'] }), /bytes/, 'exactOf takes bytes, never text');
+  const one = build(DRAFT1);
+  assert.ok(P.verify(one.folder, one.files).ok, 'a /1 version is still checked by its fingerprints over text, as 1.x checks it');
+});
+
+rule('Every place that verifies a version hands P.verify the exact bytes of a /2 version (no reader checks /2 from text)', () => {
+  const root = path.join(__dirname, '..'), files = ['src/storage/repo.js', 'src/core/evidence.js', 'bin/flightdeck.js'].concat(fs.readdirSync(path.join(root, 'src/ui')).filter(n => /\.js$/.test(n)).map(n => 'src/ui/' + n));
+  let calls = 0;
+  files.forEach((rel) => {
+    const lines = fs.readFileSync(path.join(root, rel), 'utf8').split('\n');
+    lines.forEach((l, i) => {
+      if (!/\b(?:P|PF\.publish)\.verify\(/.test(l)) return;
+      calls++;
+      if (/missingVersion/.test(l)) return;
+      assert.ok(/\.verify\([^;]*exact/i.test(l), rel + ':' + (i + 1) + ' verifies a version without its exact bytes: ' + l.trim());
+    });
+  });
+  assert.ok(calls >= 4, 'found the call sites');
 });
 
 rule('R.create writes preflight-run/3 on a /2 version (features, app, typesHash, payload) and preflight-run/2 on a /1 version, unchanged', () => {
@@ -353,7 +383,7 @@ rule('Every screenshot a checklist shows (a step\'s, a phase\'s or a gate\'s) mu
   const b = build(DRAFT2), info = JSON.parse(b.files['publication.json']);
   const drop = (i, src) => { delete i.images[src]; if (i.payload) delete i.payload.images[src]; return i; };
   for (const src of ['images/scratch.png', 'images/counts.png']) {
-    const v = P.verify(b.folder, Object.assign({}, b.files, { 'publication.json': JSON.stringify(drop(JSON.parse(JSON.stringify(info)), src)) }));
+    const v = P.verify(b.folder, Object.assign({}, b.files, { 'publication.json': JSON.stringify(drop(JSON.parse(JSON.stringify(info)), src)) }), exactOf(b.files));
     assert.ok(!v.ok && v.unusable && /isn't in its publication record/.test(v.why), src + ': ' + v.why);
   }
   const one = build(DRAFT1.replace('- [!] {confirm} Read the restore runbook @lead {#read}\n', '- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook](images/scratch.png)\n'));

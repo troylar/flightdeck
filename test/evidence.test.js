@@ -191,6 +191,21 @@ rule('"Published in v2" comes with v2\'s checklist, types and record; without th
   assert.ok(html.includes('Can&#39;t be confirmed from this pack'));
 });
 
+rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
+  const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
+  assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');
+  let { res } = await pack(new BytesFS(fx.files), { run: 'release/run1' });
+  const claim = res.col.runs[0].claims.filter(c => c.group === fx.groupId)[0];
+  assert.ok(claim && claim.text === 'Published in v2' && claim.verified, 'as published: ' + JSON.stringify(res.col.runs[0].claims));
+  const files = Object.assign({}, fx.files, { [v2 + 'map.md']: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fx.files[v2 + 'map.md']]) });
+  const good = await repo.loadAll(new BytesFS(fx.files), { deep: true }), bad = await repo.loadAll(new BytesFS(files), { deep: true });
+  assert.ok(good.processes[0].index.all.some(v => v.info.folder === fx.v2), 'the app reads v2 as published');
+  assert.ok(!bad.processes[0].index.all.some(v => v.info.folder === fx.v2), 'the app refuses v2 with a byte-order mark');
+  ({ res } = await pack(new BytesFS(files), { run: 'release/run1' }));
+  const c2 = res.col.runs[0].claims.filter(c => c.group === fx.groupId)[0];
+  assert.ok(c2 && !(c2.text === 'Published in v2' && c2.verified), 'with a byte-order mark: ' + JSON.stringify(c2));
+});
+
 rule('A run\'s frozen step types that differ from the version\'s types.json are flagged first, in red', async () => {
   const f = await folder(), p = fixture.base + 'run.json';
   const o = JSON.parse(f.files.get(p).toString('utf8')); o.types.confirm = Object.assign({}, o.types.confirm, { label: 'Changed by hand' });

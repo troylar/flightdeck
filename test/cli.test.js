@@ -853,7 +853,7 @@ function addVersion2(f, b, n, rand) {
   const two = Object.assign({ format: 'preflight-publication/2', features: ['phase-notes'], app: '2.0.0' }, info, { format: 'preflight-publication/2', version: n, folder: 'v' + n + '-' + rand, mapHash: SRC.util.hash(md),
     payload: { map: sha256(md), types: sha256(types), images, extensions: {}, pins: { children: {}, skills: {} } } });
   f[dst + 'map.md'] = md; f[dst + 'types.json'] = types; f[dst + 'publication.json'] = JSON.stringify(two, null, 2);
-  assert.ok(SRC.publish.verify('v' + n + '-' + rand, { 'map.md': md, 'types.json': types, 'publication.json': f[dst + 'publication.json'] }).ok, 'set-up: this copy reads the 2.0 version');
+  assert.ok(SRC.publish.verify('v' + n + '-' + rand, { 'map.md': md, 'types.json': types, 'publication.json': f[dst + 'publication.json'] }, require('./harness').exactOf(SRC, { 'map.md': md, 'types.json': types })).ok, 'set-up: this copy reads the 2.0 version');
   return { info: two, md, types: JSON.parse(types) };
 }
 function addRun3(f, b) {

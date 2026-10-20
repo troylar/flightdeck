@@ -118,18 +118,37 @@ PF.publish = (function () {
     if (Object.keys(p.extensions).length) return false;
     return Object.keys(p.pins).every(function (k) { return (k === 'children' || k === 'skills') && isObj(p.pins[k]) && !Object.keys(p.pins[k]).length; });
   }
-  /* Why a readable /2 version's files don't match its payload, or null. */
-  function payloadProblem(info, files) {
+  /* The SHA-256 of a version's checklist and step types from their exact bytes ({ 'map.md': bytes, 'types.json': bytes }),
+     for verify. The one way a /2 version's files are hashed: it takes bytes only, because a reader's text can drop a
+     byte-order mark or a bad byte the payload covers. A file not given is left out (still syncing). */
+  function exactOf(raw) {
+    var out = {};
+    ['map.md', 'types.json'].forEach(function (n) {
+      var b = raw ? raw[n] : null;
+      if (b == null) return;
+      if (Object.prototype.toString.call(b) !== '[object Uint8Array]') throw new Error('exactOf takes the exact bytes of ' + n + ', never its text.');
+      out[n] = sha(b);
+    });
+    return out;
+  }
+  /* Why a readable /2 version's files don't match its payload, or null. exact: from exactOf; without it the version can't
+     be checked yet (needsBytes), never from its text. */
+  function payloadProblem(info, exact) {
     var p = info.payload, have = Object.keys(isObj(info.images) ? info.images : {}).sort(), want = Object.keys(p.images).sort();
     if (have.join('\n') !== want.join('\n')) return { why: 'Its screenshots don\'t match its payload. Edited by hand.', unusable: true };
-    if (sha(files['map.md']) !== p.map || sha(files['types.json']) !== p.types) return { why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', unusable: false };
+    var e = isObj(exact) ? exact : {};
+    if (!HEX64.test(e['map.md'] || '') || !HEX64.test(e['types.json'] || '')) return { why: 'Still syncing: the exact bytes of its checklist and step types haven\'t been read.', unusable: false, needsBytes: true };
+    var off = e['map.md'] !== p.map ? 'map.md' : e['types.json'] !== p.types ? 'types.json' : '';
+    if (off) return { why: off + ' doesn\'t match the version\'s payload byte for byte. Still syncing, or edited by hand.', unusable: false };
     return null;
   }
   function appNeeds(app) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof app === 'string' ? app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
 
   /* A publication is usable only when all three files arrived and match, and this copy understands what they say. Anything
      else is "still syncing", damaged or unusable here, and never listed as a version to run. */
-  function verify(folder, files) {
+  /* exact: for a /2 version, the SHA-256 of its checklist's and step types' exact bytes (exactOf), which its payload is
+     checked against; a /1 version is checked by its fingerprints over text, as every 1.x copy checks it. */
+  function verify(folder, files, exact) {
     var info = null;
     try { info = files['publication.json'] ? JSON.parse(files['publication.json']) : null; } catch (e) { return { ok: false, why: 'publication.json is unreadable.' }; }
     if (!info) return { ok: false, why: 'Still syncing: publication.json hasn\'t arrived.' };
@@ -140,7 +159,7 @@ PF.publish = (function () {
     if (env) return { ok: false, why: newerWhy(info, env.needs), info: info, unusable: true, newer: true, needs: env.needs || '' };
     if (files['map.md'] == null || files['types.json'] == null) return { ok: false, why: 'Still syncing: some files haven\'t arrived.', info: info };
     if (U.hash(files['map.md']) !== info.mapHash || U.hash(files['types.json']) !== info.typesHash) return { ok: false, why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', info: info };
-    if (info.format === FORMAT2) { var pp = payloadProblem(info, files); if (pp) return { ok: false, why: pp.why, info: info, unusable: pp.unusable }; }
+    if (info.format === FORMAT2) { var pp = payloadProblem(info, exact); if (pp) return { ok: false, why: pp.why, info: info, unusable: pp.unusable, needsBytes: !!pp.needsBytes }; }
     if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
     var types; try { types = JSON.parse(files['types.json']); } catch (e) { return { ok: false, why: 'types.json is unreadable.', info: info }; }
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
@@ -212,5 +231,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

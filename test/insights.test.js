@@ -3,7 +3,7 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
-const { load, rule, run } = require('./harness');
+const { exactOf, load, rule, run } = require('./harness');
 const PF = load(), R = PF.run, P = PF.publish, I = PF.insights, F = PF.followups;
 const NOW = '2026-10-17T21:00:00.000Z', T0 = Date.parse(NOW), NOW_MS = T0 + 40 * 86400000;
 const at = m => new Date(T0 + m * 60000).toISOString();
@@ -12,7 +12,7 @@ const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a))
 const MD = ['---', 'process: x', 'title: X', 'context: commit', '---',
   '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '- [ ] {confirm} Two {#two}', '## Gate: Ready {#ready}', '  approves: ^commit',
   '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', '## Gate: Shipped {#shipped}'].join('\n');
-const pubOf = (md, rand) => { const b = P.build(md || MD, { people: [], by: 'a', changes: 'x', existing: [], now: NOW, rand: rand || 'aaaa1111' }); assert.ok(!b.blockers, String(b.blockers)); return P.verify(b.folder, b.files); };
+const pubOf = (md, rand) => { const b = P.build(md || MD, { people: [], by: 'a', changes: 'x', existing: [], now: NOW, rand: rand || 'aaaa1111' }); assert.ok(!b.blockers, String(b.blockers)); return P.verify(b.folder, b.files, exactOf(PF, b.files)); };
 const PUB = pubOf();
 const FOLDER = PUB.info.folder;
 let n = 0;

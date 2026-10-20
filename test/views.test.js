@@ -1,7 +1,7 @@
 // The screens, rendered without a browser: what a run file or a failed save can make them show.
 'use strict';
 const assert = require('assert');
-const { completeRun, loadViews, example, exampleSetup, rule, run, sampleDone } = require('./harness');
+const { completeRun, exactOf, loadViews, example, exampleSetup, rule, run, sampleDone } = require('./harness');
 const PF = loadViews(), R = PF.run, P = PF.publish, V = PF.views;
 const EX = exampleSetup(PF);
 const NOW = '2026-10-17T21:00:00.000Z';
@@ -9,7 +9,7 @@ const people = JSON.parse(example('people.json'));
 
 function setup(mutateRun, stateExtra) {
   const b = P.build(example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'view0001' });
-  const pub = P.verify(b.folder, b.files);
+  const pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
   let r = R.create(pub, { title: 'Release', details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id: 'run1' });
   if (mutateRun) r = mutateRun(r) || r;
   r._notes = r._notes || []; r._conflicts = r._conflicts || [];
@@ -28,7 +28,7 @@ function setup(mutateRun, stateExtra) {
 
 rule('Run screen: a Jira transition asks for its required fields with hints, filled in from the run where the workflow says', () => {
   const b = P.build(example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'view0002' });
-  const r = R.create(P.verify(b.folder, b.files), { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production' }, roles: { 'release-lead': 'person-casey', qa: 'person-blake', backend: 'person-avery' }, by: 'person-casey', session: 'me', now: NOW, workflows: EX.workflows });
+  const r = R.create(P.verify(b.folder, b.files, exactOf(PF, b.files)), { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production' }, roles: { 'release-lead': 'person-casey', qa: 'person-blake', backend: 'person-avery' }, by: 'person-casey', session: 'me', now: NOW, workflows: EX.workflows });
   const { ctx, state } = setup(); ctx.run = () => r; ctx.data.runs = [r];
   state.unfold = { verify: true }; state.pick = { kind: 'fields', id: 'close' };
   const html = V.run(ctx);
@@ -246,7 +246,7 @@ rule('Plans: a plan made for an older version starts on it, with the differences
   const { ctx, state } = setup();
   const b2 = P.build(example('maps/drafts/release.md').replace('## ', '## Added in v2 {#added}\n- [ ] {confirm} A new step {#new-one}\n\n## Gate: New gate {#g-new}\n\n## '), { people, ...EX, by: 'person-avery', changes: 'Second', existing: [{ version: 1 }], now: NOW, rand: 'view0002' });
   assert.ok(!b2.blockers, JSON.stringify(b2.blockers));
-  const v1 = ctx.data.processes[0].index.latest, v2 = P.verify(b2.folder, b2.files);
+  const v1 = ctx.data.processes[0].index.latest, v2 = P.verify(b2.folder, b2.files, exactOf(PF, b2.files));
   const proc = { id: 'release', title: 'Production release', category: 'Releases', latest: v2, all: [v2, v1], clashes: [], broken: [], skills: [], draft: null };
   ctx.processes = () => [proc]; ctx.suggestRole = () => null;
   ctx.data.plans = [{ id: 'plan-1', process: 'release', version: 1, title: 'Planned', details: { ticket: 'ABC-9' }, roles: {}, by: 'person-blake', _hash: 'h1' }];
@@ -753,7 +753,7 @@ rule('How runs go: every number that left out a run it should have counted, or h
   const { ctx, state } = flightSetup();
   const md = ['---', 'process: x', 'title: X', '---', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '## Gate: Ready {#g1}',
     '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', '## Gate: Ready {#g2}'].join('\n');
-  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'gen00001' }), pub = P.verify(b.folder, b.files);
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'gen00001' }), pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
   const base = Date.parse(NOW) - 86400000, t = m => new Date(base + m * 60000).toISOString();
   const mk = (id, how) => {
     const r = R.create(pub, { title: id, details: {}, roles: {}, by: 'person-casey', session: 'me', now: t(0), id }), m = R.mapOf(r);
@@ -878,7 +878,7 @@ rule('Flight plan: times and turbulence come only from runs of the version shown
 
 rule('Flight plan: two phases with the same title show their own typical times', () => {
   const md = ['---', 'process: rv', 'title: RV', 'owner: person-avery', '---', '', '## Review · READ-DO {#r1}', '- [ ] {confirm} A {#a}', '', '## Review · READ-DO {#r2}', '- [ ] {confirm} B {#b}'].join('\n');
-  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'rv000001' }), pub = P.verify(b.folder, b.files);
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'rv000001' }), pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
   const t0 = Date.parse(NOW), at = m => new Date(t0 + m * 60000).toISOString();
   const r = R.create(pub, { title: 'R', details: {}, roles: {}, by: 'person-casey', session: 'me', now: NOW, id: 'rv1' }), map = R.mapOf(r);
   R.done(r, map, 'a', 'person-casey', at(1)); R.pass(r, map, 0, 'person-casey', at(5));
@@ -1069,7 +1069,7 @@ const withShot = () => {
   const md = example('maps/drafts/release.md').replace('{#approved}\n', '{#approved}\n  ![CAB page](images/release/cab.png)\n');
   /* A version lists every screenshot it shows, as publishing records it. */
   const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'view0009', images: { 'images/release/cab.png': PF.util.hash('cab') }, imageBytes: { 'images/release/cab.png': new Uint8Array([99, 97, 98]) } });
-  return R.create(P.verify(b.folder, b.files), { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'other', now: NOW, id: 'run1' });
+  return R.create(P.verify(b.folder, b.files, exactOf(PF, b.files)), { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'other', now: NOW, id: 'run1' });
 };
 
 rule('Run screen: anyone who has said who they are can correct a step; Suggest a fix is gone; only the recorder sees Done differently', () => {
@@ -1298,7 +1298,7 @@ function landedSetup(o) {
   if (!o.unpublished) {
     const list = C.forPublish(text, C.forProcess([r1], 'release', ctx.data.corrDecisions, p)).list;
     const b = P.build(text, { people, ...EX, by: 'person-avery', changes: 'Board wording', existing: [{ version: 1 }], now: NOW, rand: 'view0102', corrections: list });
-    v2 = Object.assign(P.verify(b.folder, b.files), { folder: b.folder });
+    v2 = Object.assign(P.verify(b.folder, b.files, exactOf(PF, b.files)), { folder: b.folder });
     p.latest = v2; p.all = [v2, v1]; p.draft = { file: 'release.md', md: text }; p.draftChanged = false;
     r2 = R.create(v2, { title: 'Release 2', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r2' }); r2._notes = []; r2._conflicts = [];
     ctx.data.runs = [r1, r2];
@@ -1339,7 +1339,7 @@ rule('Published in vN: the pill on the process page and the run\'s record, and "
   assert.ok(/data-disc="prov:[^"]+" open>/.test(insOf(V.run(ctx))), 'stays open across redraws');
   // A v3 that lists it again isn't where it changed.
   const b = P.build(r2.snapshot, { people, ...EX, by: 'person-avery', changes: 'Again', existing: [{ version: 1 }, { version: 2 }], now: NOW, rand: 'view0103', corrections: [{ id: g.id }] });
-  const v3 = Object.assign(P.verify(b.folder, b.files), { folder: b.folder }), r3 = R.create(v3, { title: 'Release 3', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r3' }); r3._notes = []; r3._conflicts = [];
+  const v3 = Object.assign(P.verify(b.folder, b.files, exactOf(PF, b.files)), { folder: b.folder }), r3 = R.create(v3, { title: 'Release 3', details: {}, by: 'person-casey', session: 'me', now: NOW, id: 'r3' }); r3._notes = []; r3._conflicts = [];
   ctx.processes()[0].all.unshift(v3); ctx.processes()[0].latest = v3; ctx.data.runs.push(r3); ctx.run = () => r3;
   assert.ok(!/Changed in v/.test(V.run(ctx)), 'only the first version that has it');
 });
@@ -1363,7 +1363,7 @@ rule('Process page: an item applied before 1.16 offers "It\'s in vN" for the ver
   const { ctx, state, p, v2 } = landedSetup();
   // As if v2 had been published by an older copy: it makes the change but doesn't list it.
   const b = P.build(v2.md, { people, ...EX, by: 'person-avery', changes: 'Board wording', existing: [{ version: 1 }], now: NOW, rand: 'view0104' });
-  const plain = Object.assign(P.verify(b.folder, b.files), { folder: b.folder });
+  const plain = Object.assign(P.verify(b.folder, b.files, exactOf(PF, b.files)), { folder: b.folder });
   p.all = [plain, p.all[1]]; p.latest = plain;
   state.view = 'process'; state.processId = 'release'; state.me = 'person-blake'; state.fixFilter = 'all';
   const html = V.process(ctx);
@@ -2367,7 +2367,7 @@ function notedRun(md) {
   const images = {}, imageBytes = {};
   ['images/b/scratch.png', 'images/b/counts.png'].forEach((src, k) => { if (md.indexOf(src) >= 0) { images[src] = PF.util.hash(String.fromCharCode(k + 1)); imageBytes[src] = new Uint8Array([k + 1]); } });
   const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'note0001', app: '2.0.0', images, imageBytes });
-  const pub = P.verify(b.folder, b.files); assert.ok(pub.ok, pub.why);
+  const pub = P.verify(b.folder, b.files, exactOf(PF, b.files)); assert.ok(pub.ok, pub.why);
   const { ctx, state } = setup(), r = R.create(pub, { title: 'Backup', roles: { lead: 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id: 'run9' });
   r._notes = []; r._conflicts = []; ctx.run = () => r; ctx.data.runs = [r];
   ctx.img = (src, cap) => '<img data-src="' + src + '" alt="' + PF.util.esc(cap) + '">';

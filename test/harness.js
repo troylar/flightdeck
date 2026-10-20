@@ -62,4 +62,12 @@ function completeRun(PF, r, now) {
   r.ended = { outcome: 'Completed', at: now };
   return r;
 }
-module.exports = { FILES, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };
+/* The exact bytes' SHA-256 of a version's checklist and step types held as text in a test (UTF-8, as a folder holds them),
+   for PF.publish.verify, which checks a /2 version only by them. */
+function exactOf(PF, files) {
+  const raw = {};
+  ['map.md', 'types.json'].forEach(n => { if (files[n] != null) raw[n] = new Uint8Array(Buffer.from(files[n], 'utf8')); });
+  return PF.publish.exactOf(raw);
+}
+
+module.exports = { FILES, exactOf, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };
