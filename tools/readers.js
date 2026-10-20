@@ -9,7 +9,7 @@ const ROOT = path.join(__dirname, '..');
 /* The checked readers: a value that reaches one of these first is judged before it's read. */
 const CLEANERS = ['R.sanitize', 'R.cleanCopy', 'R.cleanArchive', 'R.isPlaceholder', 'R.repairs', 'R.unexplained', 'PF.run.sanitize', 'PF.people.clean', 'PF.people.verdict', 'P.verify',
   'PF.publish.verify', 'cleanDecision', 'F.verdict', 'PF.followups.verdict', 'PF.corrections.verdict', 'PP.check', 'PP.cleanRecord', 'PF.proposals.cleanRecord', 'PP.cleanPresence', 'CN.clean',
-  'TL.cleanEntry', 'PF.types.checkCustom', 'PF.skills.check', 'PF.skills.checkV2', 'PF.skills.registration', 'PF.jira.check', 'PF.contract.cleanInstalled', 'PF.plans.clean', 'PF.skills.cleanValidation', 'cleanNote', 'E.notesFile', 'P.newerOf', 'U.drift', 'fuDrift', 'ok', 'noteOf'];
+  'TL.cleanEntry', 'PF.types.checkCustom', 'PF.skills.check', 'PF.skills.checkV2', 'PF.skills.registration', 'PF.jira.check', 'PF.contract.cleanInstalled', 'PF.plans.clean', 'PF.skills.cleanValidation', 'cleanNote', 'E.notesFile', 'P.newerOf', 'U.drift', 'fuDrift', 'ok', 'noteOf', 'cleanValue', 'X.clean'];
 /* Raw consumers, by a piece of the line, with why they may read what they parse. */
 const RAW = [
   { file: 'bin/flightdeck.js', has: "o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input.buf));", why: 'skill register reads the name and process only to choose which files to load; PF.skills.registration checks the whole input before anything is written' },

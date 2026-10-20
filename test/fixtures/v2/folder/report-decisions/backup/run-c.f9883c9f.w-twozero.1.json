@@ -1,0 +1,16 @@
+{
+  "format": "flightdeck-report-decision/1",
+  "app": "2.0.0",
+  "process": "backup",
+  "run": "run-c",
+  "step": "count",
+  "producer": "row-counter",
+  "report": "k3m9p2q8",
+  "sha256": "b29d0256c2f8ac1c4150fdc8d864850cf6c4ea0f3310b9a02fe7876e73aabbf3",
+  "status": "declined",
+  "reason": "Counted the wrong database.",
+  "by": "person-avery",
+  "at": "2026-10-20T09:00:00.000Z",
+  "rev": 1,
+  "seen": null
+}

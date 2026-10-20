@@ -27,6 +27,7 @@ const INSTALLED = JSON.stringify({ format: 'flightdeck-installed/1', version: '1
 const AGENTS = '# Team instructions\n\nSpecimen for the reader inventory.\n';
 const PLAN = { kind: 'plan', id: 'plan-backup-april', process: 'backup', version: 1, title: 'Backup check April', details: { ticket: 'ABC-102' }, roles: { lead: 'person-avery', checker: 'person-casey' }, note: 'Casey checks this time.', by: 'AI assistant', created: '2026-03-02T09:13:00.000Z' };
 const CONN_AT = Date.parse('2026-03-02T10:00:00.000Z');
+const REPORT_PATH = 'reports/backup/run-a.read.spec-tool.spec0001.json';
 async function prepare(PF, fs, version, files) {
   const put = (p, t) => fs.write(p, t);
   await put('jira/workflows.json', fsN.readFileSync(path.join(__dirname, '..', 'example-folder', 'jira', 'workflows.json'), 'utf8'));
@@ -50,6 +51,13 @@ async function prepare(PF, fs, version, files) {
     const f = pubFolder(files), info = JSON.parse(files['publications/backup/' + f + '/publication.json']);
     await put('skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json', JSON.stringify({ format: 'flightdeck-skill/2', app: version, id: 'sk-bbbb2222', rev: 1, seen: null, name: 'restore-report', version: '1.0.0', location: 'https://example.com/skills/restore-report',
       implements: { process: 'backup', folder: f, mapHash: info.mapHash, typesHash: info.typesHash }, by: 'person-avery', updated: '2026-03-02T09:20:00.000Z' }, null, 2) + '\n');
+  }
+  // From 2.0: a report from another app on run-a, and the recorder's decision on it.
+  if (PF.reports && PF.repo.decideReport) {
+    const text = JSON.stringify({ format: 'flightdeck-report/1', run: 'backup/run-a', publication: { folder: pubFolder(files) }, step: 'read', verdict: 'pass', producer: { name: 'spec-tool', version: '1.0.0' }, created: '2026-03-02T09:21:00.000Z', id: 'spec0001' }, null, 2) + '\n';
+    await put(REPORT_PATH, text);
+    const g = (await PF.repo.loadRunReports(fs, 'backup', 'run-a')).list.find(x => x.id === 'spec0001');
+    await PF.repo.decideReport(fs, PF.reports.decision(g, g.sha256, 'declined', 'person-avery', '2026-03-02T09:22:00.000Z', null, { reason: 'Specimen' }), 'w-avery');
   }
   if (PF.connection && PF.repo.sendProbe) await PF.repo.sendProbe(fs, { id: 'k3m9p2q8', n: 1, by: 'person-avery', writer: 'w-avery', device: 'Laptop', at: new Date(CONN_AT).toISOString(), app: version }, CONN_AT);
 }
@@ -107,7 +115,11 @@ const FAMILIES = [
   { id: 'extensions', re: /^extensions\/.+$/, writer: 'none', readers: [] },
   { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'hand', note: 'written only by flightdeck skill register (the command, 2.0), never by the app',
     readers: [L('2.0.0', d => d.skills.some(s => s.skill && s.skill.regId === 'sk-bbbb2222' && !(s.errors || []).length), 'skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json')] },
-  { id: 'reports', re: /^(reports|report-decisions)\/.+$/, writer: 'none', readers: [] }
+  { id: 'reports', re: /^reports\/.+$/, writer: 'hand', note: 'written by other apps (flightdeck report write, 2.0), never by the app; loadAll lists their names, and a run\'s are read when it opens',
+    readers: [L('2.0.0', d => d.reports.files.some(f => f.id === 'spec0001'), REPORT_PATH, { listOnly: true }),
+      { via: 'repo.loadRunReports', from: '2.0.0', spec: REPORT_PATH, call: (PF, fs) => PF.repo.loadRunReports(fs, 'backup', 'run-a'), found: o => o.list.some(g => g.id === 'spec0001' && !!g.report) }] },
+  { id: 'report-decisions', re: /^report-decisions\/.+$/, writer: 'reports',
+    readers: [L('2.0.0', d => d.repDecisions.some(x => x.report === 'spec0001'), (files) => Object.keys(files).find(p => /^report-decisions\/backup\/run-a\./.test(p)))] }
 ];
 function publishOpts(PF, existing) {
   const G = require('../tools/old-folders');

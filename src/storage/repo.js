@@ -565,7 +565,9 @@ PF.repo = (function () {
 
   /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
      A folder that can't be listed, or where every part fails, is an unreadable folder. */
-  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence'];
+  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence', 'reports', 'report decisions'];
+  /* Parts a folder may not have: they don't count toward "every part failed". */
+  var OPTIONAL_PARTS = 4;
   /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
      Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
      folder itself. */
@@ -623,7 +625,7 @@ PF.repo = (function () {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
     cache.clockFn = opts.clock || elapsed;
     var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
-    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, []];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, [], { files: [], folders: [], bad: [] }, []];
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
@@ -639,10 +641,14 @@ PF.repo = (function () {
       /* Proposals and presence, only where those folders are (an ordinary folder costs nothing more), and never for other
          apps' reads (flightdeck-read/1 doesn't report them). */
       !opts.readOnly && top[PF.proposals.DIR] ? loadProposed(fs, cache, deep) : Promise.resolve({ procs: {} }),
-      !opts.readOnly && top[PF.proposals.PRESENCE] ? loadPresence(fs) : Promise.resolve([])
+      !opts.readOnly && top[PF.proposals.PRESENCE] ? loadPresence(fs) : Promise.resolve([]),
+      /* Reports: names only (contents are read for the open run), and decisions on them; only where those folders are, and
+         never for flightdeck-read/1 (which doesn't report them). */
+      !opts.readOnly && top[PF.reports.DIR] ? loadReportNames(fs) : Promise.resolve({ files: [], folders: [], bad: [] }),
+      !opts.readOnly && top[PF.reports.DDIR] ? loadReportDecisions(fs, cache, sched) : Promise.resolve([])
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       /* The folder is unreadable when every part it always has failed (proposed changes and presence are optional). */
-      if (PARTS.slice(0, -2).every(function (k) { return k in failed; })) throw errs[0];
+      if (PARTS.slice(0, -OPTIONAL_PARTS).every(function (k) { return k in failed; })) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
       /* Sign-offs through their one checked reader: plain strings and numbers only, and a newer Flightdeck's refused and named. */
       var refused = (r[6].refused || []).slice();
@@ -650,6 +656,7 @@ PF.repo = (function () {
       r[10].concat(r[11]).forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, u.dir === 'followups' ? 'flightdeck-followup-decision' : u.dir === 'suggestions' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', u)); });
       r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
+      r[15].forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, 'flightdeck-report-decision', u)); });
       /* skills/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part that failed. */
       if (r[5] && r[5].unlisted && !('skills' in failed)) failed.skills = r[5].unlisted;
       var plans = groupPlans(r[6].plans, r[6].statuses);
@@ -662,6 +669,7 @@ PF.repo = (function () {
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
+        reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }),
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
            wherever the record would have appeared, never filtered into "nothing there" (docs/design.md section 28). */
         refused: refused.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; }) };
@@ -836,6 +844,119 @@ PF.repo = (function () {
       if (!back || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
       return path;
     }).then(release, function (e) { release(); throw e; });
+  }
+  /* ---------- Reports from other apps (docs/design.md section 26) ---------- */
+  var PROC_DIR = /^[a-z0-9][a-z0-9-]{0,59}$/;
+  /* A file's exact bytes, at most max: { bytes } or null (gone). A file over max is refused from its size before any of it is
+     read, and again from what was read (a file that grew). */
+  function readBytes(fs, path, max) {
+    return fs.blob(path, { maxBytes: max }).then(function (b) {
+      if (!b) return null;
+      if (typeof b.size === 'number' && b.size > max) { var e = new Error(path + ' is over the ' + Math.round(max / 1024) + ' KB a report can be'); e.skipped = true; throw e; }
+      return b.arrayBuffer().then(function (buf) {
+        var u8 = new Uint8Array(buf);
+        if (u8.length > max) { var e2 = new Error(path + ' is over the ' + Math.round(max / 1024) + ' KB a report can be'); e2.skipped = true; throw e2; }
+        return { bytes: u8 };
+      });
+    });
+  }
+  /* One report file as Flightdeck reads it: { name, path, sha256, report (or null), why, kind }. A file that can't be read is
+     named (unreadable or too big), never taken as absent; one gone between listing and reading is null. */
+  function readReport(fs, proc, name) {
+    var X = PF.reports, path = X.DIR + '/' + proc + '/' + name;
+    return readBytes(fs, path, X.LIMITS.bytes).then(function (got) {
+      if (!got) return null;
+      var snap = X.snapshot(got.bytes), out = { name: name, path: path, sha256: snap.sha256, report: null, why: '', kind: '' };
+      if (snap.text === null) { out.why = snap.why; out.kind = 'malformed'; return out; }
+      var c = X.clean(snap.text, proc, name);
+      if (c.ok) out.report = c.report; else { out.why = c.why; out.kind = c.kind; out.needs = c.needs || ''; out.errors = c.errors; }
+      return out;
+    }, function (e) { return { name: name, path: path, sha256: '', report: null, why: why(e), kind: errKind(e) }; });
+  }
+  /* The names in reports/: { files: [{ process, name, path }], folders: the process folders listed, bad: [{ path, why }] }.
+     Contents are read only for the run that's open (loadRunReports), so a folder with thousands of reports costs one list per
+     process here. */
+  function loadReportNames(fs) {
+    var X = PF.reports, out = { files: [], folders: [], bad: [] };
+    return fs.list(X.DIR).then(function (procs) {
+      return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && PROC_DIR.test(p.name); }).map(function (p) {
+        return fs.list(X.DIR + '/' + p.name).then(function (items) {
+          out.folders.push(p.name);
+          items.forEach(function (i) {
+            if (i.kind !== 'file' || !/\.json$/i.test(i.name)) return;
+            var nm = X.parseName(i.name), path = X.DIR + '/' + p.name + '/' + i.name;
+            if (!nm) { out.bad.push({ path: path, why: 'isn\'t named <run>.<step>.<tool>.<id>.json' }); return; }
+            if (out.files.length < X.LIMITS.reports) out.files.push({ process: p.name, name: i.name, path: path, run: nm.run, step: nm.step, producer: nm.producer, id: nm.id });
+          });
+        }, function (e) { out.bad.push({ path: X.DIR + '/' + p.name + '/', why: why(e), kind: errKind(e) }); });
+      }));
+    }).then(function () { out.files.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; }); return out; });
+  }
+  /* The reports of one run, read and grouped: { list (PF.reports.group's, in order), badNames, failed: why the folder couldn't
+     be listed, or '' }. */
+  function loadRunReports(fs, proc, run) {
+    var X = PF.reports;
+    if (!PROC_DIR.test(proc) || !/^[a-z0-9-]{1,40}$/.test(run)) return Promise.resolve({ list: [], badNames: [], failed: '' });
+    fs = bounded(fs, 'open');
+    return fs.list(X.DIR + '/' + proc).then(function (items) {
+      var mine = items.filter(function (i) { if (i.kind !== 'file') return false; var nm = X.parseName(i.name); return !!nm && nm.run === run; });
+      return limited(mine, 8, function (i) { return readReport(fs, proc, i.name); }).then(function (entries) {
+        var g = X.group(proc, entries.filter(Boolean));
+        return { list: g.list, badNames: g.badNames, failed: '' };
+      });
+    }, function (e) { return { list: [], badNames: [], failed: why(e), kind: errKind(e) }; });
+  }
+  /* Decisions on reports: report-decisions/<process>/<run>.<hash>.<window>.<rev>.json, read like follow-up decisions
+     (decisionTexts). A file that can't be read is named in the list as unread, never dropped. */
+  function loadReportDecisions(fs, cache, sched) {
+    var X = PF.reports, scope = { folders: [], tops: {} };
+    return fs.list(X.DDIR).then(function (procs) {
+      var ok = procs.filter(function (p) { return p.kind === 'dir' && PROC_DIR.test(p.name); });
+      scope.tops[X.DDIR] = ok.map(function (p) { return p.name; });
+      return Promise.all(ok.map(function (p) {
+        return fs.list(X.DDIR + '/' + p.name).then(function (items) { scope.folders.push(X.DDIR + '/' + p.name); return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name, path: X.DDIR + '/' + p.name + '/' + i.name }; }); });
+      }));
+    }).then(function (nested) {
+      return decisionTexts(fs, cache || {}, sched, scope, [].concat.apply([], nested), 'rep').then(function (got) {
+        return got.map(function (g) {
+          var x = g.x, unread = { _unread: true, dir: X.DDIR, process: x.process, _file: x.name };
+          if (g.failed) { unread.kind = 'unreadable'; unread.why = 'couldn\'t be read'; return unread; }
+          if (!g.f) return null;
+          var raw = json(g.f.text), c = raw === undefined ? { ok: false, kind: 'malformed', why: 'isn\'t complete JSON' } : X.cleanDecision(raw, x.process, x.name);
+          if (!c.ok) { forgetText(cache, x.path); unread.kind = c.kind; unread.why = c.kind === 'newer' ? 'This decision was made with a newer Flightdeck. ' + PF.envelope.needsText(c.needs) : 'This file couldn\'t be read, or isn\'t a decision on a report this copy can read.'; unread.needs = c.needs || ''; return unread; }
+          return c.d;
+        });
+      });
+    }).then(function (list) { return list.filter(Boolean); });
+  }
+  /* A decision on a report, written once, as decideFollowUp writes one: claimed in this window, the name must be absent,
+     and it must read back exactly. A file of that name already holding exactly these bytes is the same decision (a retry
+     after a save whose answer was lost), so it succeeds. */
+  function decideReport(fs, rec, writer) {
+    var X = PF.reports;
+    if (!rec || rec.format !== X.DFORMAT || typeof writer !== 'string' || !/^[\w-]{1,40}$/.test(writer)) return Promise.reject(new Error('That report can\'t be decided here.'));
+    var clean = X.cleanDecision(JSON.parse(JSON.stringify(rec)), rec.process, X.decisionName(rec, writer));
+    if (!clean.ok) return Promise.reject(new Error('That report can\'t be decided here.'));
+    var name = X.decisionName(rec, writer), path = X.DDIR + '/' + rec.process + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
+    if (U.utf8Bytes(text) > X.LIMITS.decisionBytes) return Promise.reject(new Error('That decision is too big to record.'));
+    var claims = fs._repClaims || (fs._repClaims = {});
+    if (claims[path]) return Promise.reject(new Error('A decision with that name is already being saved. Look again, then decide.'));
+    claims[path] = true;
+    function release(v) { delete claims[path]; return v; }
+    return fs.read(path, { maxBytes: X.LIMITS.decisionBytes }).then(function (f) {
+      if (f && f.text === text) return 'same';
+      if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
+      return fs.write(path, text);
+    }).then(function () { return fs.read(path, { maxBytes: X.LIMITS.decisionBytes }); }).then(function (f) {
+      var back = f ? X.cleanDecision(json(f.text), rec.process, name) : null;
+      if (!back || !back.ok || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
+      return path;
+    }).then(release, function (e) { release(); throw e; });
+  }
+  /* A report as it is on disk now, for accepting: the entry readReport gives, or null when it's gone. */
+  function rereadReport(fs, proc, name) {
+    if (!PROC_DIR.test(proc) || !PF.reports.parseName(name)) return Promise.resolve(null);
+    return readReport(bounded(fs, 'open'), proc, name);
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
@@ -1533,6 +1654,19 @@ PF.repo = (function () {
           else if (f.p === 'people.json' && !Array.isArray(o) && !(o && Array.isArray(o.people))) unreadable.push({ path: f.p, why: 'isn\'t a list of people' });
         }, function (e) { if (e && e.cancelled) throw e; unreadable.push({ path: f.p, why: why(e) }); });
       })).then(function () {
+        /* Reports, each read as bytes (at most 64 KB), so a report that can't be read, a newer one, or copies that differ
+           are named here, never only when someone opens its run. */
+        var reps = files.filter(function (f) { var m = /^reports\/([^/]+)\/([^/]+)$/.exec(f.p); return m && PROC_DIR.test(m[1]) && PF.reports.parseName(m[2]); });
+        return Promise.all(reps.map(function (f) { var m = /^reports\/([^/]+)\/([^/]+)$/.exec(f.p); return go(function () { if (!alive()) throw stop(); return readReport(fs, m[1], m[2]); }).then(function (e) { return e ? { proc: m[1], e: e } : null; }); }));
+      }).then(function (got) {
+        var byProc = {}, reports = { checked: 0, problems: [], differ: [] };
+        (got || []).filter(Boolean).forEach(function (x) { reports.checked++; (byProc[x.proc] = byProc[x.proc] || []).push(x.e); });
+        Object.keys(byProc).sort().forEach(function (proc) {
+          PF.reports.group(proc, byProc[proc]).list.forEach(function (g) {
+            g.unreadable.forEach(function (u) { reports.problems.push({ path: u.path, kind: u.kind, why: u.why, needs: (byProc[proc].filter(function (e) { return e.path === u.path; })[0] || {}).needs || '' }); });
+            if (g.differ) reports.differ.push({ key: g.key, paths: g.copies.map(function (c) { return c.path; }) });
+          });
+        });
         var bytes = 0, longest = 0, pubs = {}, areas = {};
         files.forEach(function (f) {
           bytes += f.s || 0; if (f.p.length > longest) longest = f.p.length;
@@ -1542,7 +1676,7 @@ PF.repo = (function () {
           if (m && f.m != null && (pubs[m[1]] == null || f.m > pubs[m[1]])) pubs[m[1]] = f.m;
         });
         return { at: new Date().toISOString(), ms: Date.now() - started, files: files.length, bytes: bytes, longest: longest, areas: areas, pubs: pubs, list: files, unreadable: unreadable, truncated: truncated,
-          contractTexts: texts, placeholders: placeholders.sort(), installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
+          contractTexts: texts, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
           updates: files.filter(function (f) { return /^\.flightdeck\/updates\//.test(f.p) && !/\/README\.md$/i.test(f.p) && !/\/replaced\//.test(f.p) && !/\.base$/.test(f.p); }).map(function (f) { return f.p; }) };
       });
     });
@@ -2327,5 +2461,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

@@ -1,0 +1,45 @@
+{
+  "format": "flightdeck-report/1",
+  "app": "2.0.0",
+  "run": "backup/run-c",
+  "publication": {
+    "folder": "v2-zzzz2222",
+    "version": 2
+  },
+  "step": "count",
+  "verdict": "pass",
+  "evidence": {
+    "rows": "1234.5",
+    "matches": "yes"
+  },
+  "links": [
+    {
+      "label": "Row count job",
+      "url": "https://ci.example.com/jobs/1432"
+    }
+  ],
+  "inputs": [
+    {
+      "name": "Rows expected",
+      "value": "1234.5",
+      "source": "detail:rows"
+    },
+    {
+      "name": "Database",
+      "value": "scratch",
+      "source": "external"
+    },
+    {
+      "name": "Read token",
+      "source": "external",
+      "secret": true
+    }
+  ],
+  "producer": {
+    "name": "row-counter",
+    "version": "1.4.0"
+  },
+  "created": "2026-10-20T09:00:00.000Z",
+  "id": "k3m9p2q8",
+  "summary": "Counted the restored rows."
+}

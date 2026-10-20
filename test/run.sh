@@ -6,6 +6,7 @@ node test/rules.test.js
 node test/envelope.test.js
 node test/pins.test.js
 node test/typed.test.js
+node test/reports.test.js
 node test/insights.test.js
 node test/outline.test.js
 node test/timeline.test.js

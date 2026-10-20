@@ -44,8 +44,8 @@ PF.envelope = (function () {
     'flightdeck-installed': { files: '.flightdeck/installed.json', majors: { 1: [] }, rewrite: true },
     'flightdeck-stage-decision': { files: 'staged/<p>/decisions/*.json', majors: {}, rewrite: false, future: { 1: '2.0' } },
     'flightdeck-extension': { files: 'extensions/<ns>/**', majors: {}, rewrite: false, future: { 1: '2.0' } },
-    'flightdeck-report': { files: 'reports/<p>/*.json', majors: {}, rewrite: false, future: { 1: '2.0' } },
-    'flightdeck-report-decision': { files: 'report-decisions/<p>/*.json', majors: {}, rewrite: false, future: { 1: '2.0' } }
+    'flightdeck-report': { files: 'reports/<p>/*.json', majors: { 1: [] }, rewrite: false },
+    'flightdeck-report-decision': { files: 'report-decisions/<p>/*.json', majors: { 1: [] }, rewrite: false }
   };
   /* The 2.0 must-understand features, frozen by name (the 2.0 plan). No copy before 2.0 knows any of them. */
   var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions'];

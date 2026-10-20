@@ -11,7 +11,7 @@ PF.health = (function () {
   var HELP = { conflicts: 'a-run-has-conflict-copies', copies: 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', access: 'flightdeck-lost-access-to-the-folder',
     syncing: 'onedrive-isnt-syncing', backup: 'restoring-from-a-backup', left: 'someone-left-the-team', newer: 'a-newer-flightdeck-wrote-files',
     older: 'teammates-on-an-older-flightdeck', placeholder: 'a-replaced-file-with-no-steps',
-    unreadable: 'a-file-cant-be-read', gone: 'a-runs-file-is-gone', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name' };
+    unreadable: 'a-file-cant-be-read', gone: 'a-runs-file-is-gone', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name', reports: 'a-report-cant-be-accepted' };
   var ORDER = { stop: 0, warn: 1, info: 2 };
 
   function semverOf(v) { var m = typeof v === 'string' ? /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/.exec(v) : null; return m ? [+m[1], +m[2], +m[3]] : null; }
@@ -44,7 +44,7 @@ PF.health = (function () {
   }
   /* Where OneDrive copies matter: files with one writer that people or assistants edit by name. Run folders have their own
      conflict handling, and attachments are named uniquely. */
-  function copyArea(path) { return !/^runs\//.test(path) && !/^publications\//.test(path) && !/^connection\//.test(path) && !/^images\//.test(path); }
+  function copyArea(path) { return !/^runs\//.test(path) && !/^publications\//.test(path) && !/^connection\//.test(path) && !/^images\//.test(path) && !/^reports\//.test(path) && !/^report-decisions\//.test(path); }
 
   /* Drafts that say the same process: line: only one can be shown, so the rest must be reported, never silently hidden. */
   function sharedDrafts(drafts) {
@@ -201,7 +201,7 @@ PF.health = (function () {
 
     /* ---- newer copies: what a newer Flightdeck wrote, by family and the version each needs ---- */
     var ro = runs.filter(function (r) { return r._unrunnable; }), inst = scan && scan.installed && typeof scan.installed === 'object' && !scan.installed.newer ? scan.installed : null;
-    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = d.refused || [];
+    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = (d.refused || []).concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind === 'newer'; }).map(function (x) { return { path: x.path, family: 'flightdeck-report', kind: 'newer', why: x.why, needs: x.needs || '' }; }) : []);
     var newerInst = inst && typeof inst.version === 'string' && snap.app && snap.app !== 'dev' && semver(inst.version, snap.app) > 0 ? inst.version : null;
     if (ro.length || newerPubs.length || snap.newer || newerInst || instNewer || refused.length) {
       var parts = [], needs = function (n) { return n ? 'Flightdeck ' + n : 'a newer Flightdeck'; };
@@ -213,11 +213,28 @@ PF.health = (function () {
       var made = ro.filter(function (r) { return r._needs != null; }), tests = made.filter(function (r) { return r._test; });
       if (made.length) parts.push(plural(made.length, 'run') + ' made with ' + needs(made[0]._needs) + (tests.length ? ' (' + plural(tests.length, 'test run') + ')' : '') + ' show' + (made.length === 1 ? 's' : '') + ' by name only');
       if (ro.length > made.length) parts.push(plural(ro.length - made.length, 'run') + ' open' + (ro.length - made.length === 1 ? 's' : '') + ' read-only here');
-      var NAMES = { 'flightdeck-plan': ['plan', 'plans'], 'flightdeck-plan-status': ['plan decision', 'plan decisions'], 'flightdeck-validation': ['sign-off', 'sign-offs'], 'flightdeck-step-type': ['step type', 'step types'], 'flightdeck-skill': ['skill registration', 'skill registrations'], 'flightdeck-followup-decision': ['follow-up decision', 'follow-up decisions'], 'flightdeck-correction-decision': ['correction decision', 'correction decisions'], 'flightdeck-fix-decision': ['decision', 'decisions'] };
+      var NAMES = { 'flightdeck-plan': ['plan', 'plans'], 'flightdeck-plan-status': ['plan decision', 'plan decisions'], 'flightdeck-validation': ['sign-off', 'sign-offs'], 'flightdeck-step-type': ['step type', 'step types'], 'flightdeck-skill': ['skill registration', 'skill registrations'], 'flightdeck-followup-decision': ['follow-up decision', 'follow-up decisions'], 'flightdeck-correction-decision': ['correction decision', 'correction decisions'], 'flightdeck-fix-decision': ['decision', 'decisions'], 'flightdeck-report': ['report', 'reports'], 'flightdeck-report-decision': ['decision on a report', 'decisions on reports'] };
       var byFam = {}; refused.forEach(function (x) { var k = x.family + '|' + (x.needs || ''); (byFam[k] = byFam[k] || []).push(x); });
       Object.keys(byFam).sort().forEach(function (k) { var x = byFam[k], n = NAMES[x[0].family] || ['file', 'files']; parts.push(x.length + ' ' + (x.length === 1 ? n[0] : n[1]) + ' need' + (x.length === 1 ? 's ' : ' ') + needs(x[0].needs)); });
       add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy shows them and leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; }), refused.map(function (x) { return x.path; }), instNewer ? ['.flightdeck/installed.json'] : []), action: help(HELP.newer), help: HELP.newer });
     } else ok('newer', 'Nothing here was written by a newer Flightdeck.');
+    /* ---- reports from other apps: ones that can't be read, copies that differ, ones for a run that isn't here ---- */
+    var rep = d.reports || { files: [], bad: [] }, runKeys = Object.create(null);
+    runs.forEach(function (r) { runKeys[r.process + '/' + r.id] = true; });
+    Object.keys(d.reads || {}).forEach(function (k) { runKeys[k] = true; });
+    var repBad = (rep.bad || []).map(function (b) { return { path: b.path, why: b.why }; })
+      .concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind !== 'newer'; }) : [])
+      .concat((d.repUnread || []).filter(function (u) { return u.kind !== 'newer'; }).map(function (u) { return { path: u.dir + '/' + u.process + '/' + u._file, why: u.why || 'couldn\'t be read' }; }));
+    var repDiffer = scan && scan.reports ? scan.reports.differ : [];
+    var named = Object.create(null); repBad.concat(refused).forEach(function (x) { named[x.path] = true; });
+    var orphans = (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
+    if (repBad.length || repDiffer.length || orphans.length) {
+      var rparts = [];
+      if (repBad.length) rparts.push(repBad[0].path + ' ' + repBad[0].why + (repBad.length > 1 ? ' (and ' + plural(repBad.length - 1, 'other file') + ')' : ''));
+      if (repDiffer.length) rparts.push(plural(repDiffer.length, 'report') + ' ha' + (repDiffer.length === 1 ? 's' : 've') + ' copies that differ, so neither can be accepted until the wrong one is deleted');
+      if (orphans.length) rparts.push(plural(orphans.length, 'report') + ' name' + (orphans.length === 1 ? 's' : '') + ' a run that isn\'t in the folder (' + orphans[0].process + '/' + orphans[0].run + ')');
+      add({ id: 'reports', severity: 'warn', area: 'Runs', title: 'Some reports from other apps can\'t be used', detail: rparts.join('; ') + '. Nothing is checked from them.', paths: repBad.map(function (x) { return x.path; }).concat([].concat.apply([], repDiffer.map(function (x) { return x.paths; })), orphans.map(function (f) { return f.path; })), action: help(HELP.reports), help: HELP.reports });
+    } else if ((rep.files || []).length) ok('reports', 'Every report from another app can be read and names a run here.');
     /* An older copy's Restore beside a run it could only list by name leaves a placeholder (no steps, no answers): beside a run
        this copy lists by name only, or a run/3 it reads in full. */
     var ph = scan && scan.placeholders ? scan.placeholders.filter(function (p) { var m = /^runs\/([^/]+)\/([^/]+)\//.exec(p); return m && runs.some(function (r) { return r.process === m[1] && r.id === m[2] && (r._needs != null || r.format === PF.run.FORMAT3); }); }) : [];
