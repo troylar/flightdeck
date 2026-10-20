@@ -358,6 +358,35 @@ rule('The checker reads a 2.0 version with phase notes and phase and gate screen
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+/* Slice 2 part 2: a version with pins (version: on a linked step, skillVersion: on a skill step) is complete for both, and a
+   plan/2 with its decisions is read like the app reads it (a switch to another version is not a decision). */
+rule('The checker reads a 2.0 version with pins and a plan/2 like the app', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-pins-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const kid = await repo.publish(d, '---\nprocess: verify\ntitle: Verify\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n', { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!kid.blockers, String(kid.blockers));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {run.process} Verify it {#v}\n  process: verify\n  version: 1\n- [ ] {run.skill} Notes {#n}\n  skill: release-notes\n  skillVersion: 1.2.0\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(root, 'publications', 'x', v.folder, 'publication.json'), 'utf8')).payload.pins.children), ['v'], 'set-up: pinned');
+    const plan = PF.plans.make({ info: JSON.parse(v.files['publication.json']) }, { id: 'plan-x-a', process: 'x', title: 'X', details: {}, roles: {}, by: 'person-avery', created: NOW }, false, '2.0.0');
+    await d.write('proposals/plan-x-a.json', JSON.stringify(plan, null, 2));
+    const loaded = await repo.loadAll(d, { deep: true }), p0 = loaded.plans.find(p => p.id === 'plan-x-a');
+    await repo.recordPlanStatus(d, p0, 'w1', 'retargeted', null, 'person-casey', { folder: v.folder, version: 1 }, '2.0.0');
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const theirs = app.processes.find(p => p.process === 'x').pubs.find(x => x.folder === v.folder), mine = out.publications.x.versions.find(x => x.folder === v.folder);
+    assert.ok(theirs.ok, theirs.why); assert.strictEqual(mine.status, 'complete', mine.why);
+    const ap = app.plans.find(p => p.id === 'plan-x-a');
+    assert.ok(ap && !ap._status && ap._retarget, 'the app reads the plan/2 and its switch');
+    assert.deepStrictEqual(out.plans.filter(p => p.id === 'plan-x-a').map(p => p.status), ['pending']);
+    assert.deepStrictEqual((out.refused || []).filter(r => /^proposals\//.test(r.file)), []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 rule('The checker refuses a version whose step screenshot its record (and a /2 version\'s payload) doesn\'t list, like the app, /1 and /2', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

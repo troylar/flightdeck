@@ -2168,4 +2168,54 @@ rule('REQUEST review: plan request and READ name the same problems in this reque
   }
 });
 
+/* ---------- SKILL: flightdeck skill register (2.0) ---------- */
+function regFile(body) { const f = path.join(tmp(), 'skill.json'); fs.writeFileSync(f, typeof body === 'string' ? body : JSON.stringify(body)); return f; }
+const regsIn = (dir, name) => { const d = path.join(dir, 'skill-registrations', name); return fs.existsSync(d) ? fs.readdirSync(d).sort() : []; };
+rule('SKILL: skill register writes one revision for the exact version, reads it back, and replaces the legacy file with a tombstone; again is the next revision of the same skill', async () => {
+  const dir = await readFolder(), folder = rfBuilt.folder, input = { name: 'release-notes', version: '1.2.0', location: 'https://example.com/skills/release-notes', implements: { process: 'release', folder } };
+  fs.mkdirSync(path.join(dir, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'skills', 'release-notes.json'), JSON.stringify({ name: 'release-notes', version: '1.1.0', location: 'x', implements: 'release@1' }));
+  let r = readCli('skill', 'register', dir, '--from', regFile(input), '--json');
+  assert.strictEqual(r.code, 0, r.out + r.err);
+  assert.strictEqual(r.json.contract, 'flightdeck-skill/1');
+  const reg = r.json.registered, files = regsIn(dir, 'release-notes');
+  assert.strictEqual(files.length, 1); assert.strictEqual(reg.path, 'skill-registrations/release-notes/' + files[0]);
+  assert.ok(/^sk-[a-z0-9]{8}\.1\.cli-[0-9a-f]{8}\.json$/.test(files[0]), files[0]);
+  const text = fs.readFileSync(path.join(dir, ...reg.path.split('/')), 'utf8'), o = JSON.parse(text);
+  assert.deepStrictEqual(Object.keys(o), ['format', 'app', 'id', 'rev', 'seen', 'name', 'version', 'location', 'implements', 'by', 'updated'], 'the frozen skill/2 order');
+  assert.strictEqual(o.format, 'flightdeck-skill/2'); assert.strictEqual(o.rev, 1); assert.strictEqual(o.seen, null);
+  assert.deepStrictEqual(Object.keys(o.implements), ['process', 'folder', 'mapHash', 'typesHash']); assert.strictEqual(o.implements.folder, folder);
+  assert.strictEqual(reg.sha, require('crypto').createHash('sha256').update(text).digest('hex'));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'skills', 'release-notes.json'), 'utf8')), { name: 'release-notes', implements: 'moved', movedTo: 'skill-registrations/release-notes/', id: o.id });
+  assert.strictEqual(r.json.tombstone, 'skills/release-notes.json');
+  r = readCli('skill', 'register', dir, '--from', regFile(Object.assign({}, input, { version: '1.3.0' })), '--json');
+  assert.strictEqual(r.code, 0, r.out + r.err);
+  assert.strictEqual(r.json.registered.rev, 2); assert.strictEqual(r.json.registered.id, o.id); assert.strictEqual(r.json.tombstone, null);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, ...r.json.registered.path.split('/')), 'utf8')).seen, 1);
+  assert.strictEqual(regsIn(dir, 'release-notes').length, 2);
+  const words = readCli('skill', 'register', dir, '--from', regFile(Object.assign({}, input, { version: '1.4.0' })));
+  assert.ok(words.code === 0 && /Registered release-notes 1\.4\.0 \(revision 3\)/.test(words.out), words.out + words.err);
+});
+
+rule('SKILL: skill register refuses what can\'t be matched exactly, and writes nothing: a missing folder, another folder with the same number, a step the version lacks, two registrations at one revision, odd input', async () => {
+  const dir = await readFolder(), folder = rfBuilt.folder, input = { name: 'deploy', version: '1.0.0', location: 'here', implements: { process: 'release', folder } };
+  const no = (body, re) => { const r = readCli('skill', 'register', dir, '--from', regFile(body), '--json'); assert.ok(r.code === 1 && r.json && r.json.error && re.test(r.json.error.why), r.out + r.err); assert.ok(!/current/.test(r.json.error.why)); };
+  no(Object.assign({}, input, { implements: { process: 'release', folder: 'v1-zzzzzzzz' } }), /^Can't be matched: release v1-zzzzzzzz .*different version/);
+  no(Object.assign({}, input, { implements: { process: 'release', folder: 'v7-zzzzzzzz' } }), /^Can't be matched: release v7-zzzzzzzz isn't in this folder/);
+  no(Object.assign({}, input, { implements: { process: 'nope', folder: 'v1-zzzzzzzz' } }), /^Can't be matched: nope v1-zzzzzzzz isn't published in this folder/);
+  no(Object.assign({}, input, { implements: 'release@1' }), /exact version/);
+  no(Object.assign({}, input, { steps: ['no-such-step'] }), /has no step no-such-step/);
+  no(Object.assign({}, input, { name: '../x' }), /"name"/);
+  no(Object.assign({}, input, { extra: 1 }), /doesn't take: extra/);
+  no('not json', /isn't JSON/);
+  assert.deepStrictEqual(regsIn(dir, 'deploy'), []);
+  const ok = readCli('skill', 'register', dir, '--from', regFile(input), '--json');
+  assert.strictEqual(ok.code, 0, ok.out + ok.err);
+  const p = path.join(dir, ...ok.json.registered.path.split('/')), twin = p.replace(/\.cli-[0-9a-f]{8}\.json$/, '.cli-ffffffff.json');
+  fs.writeFileSync(twin, fs.readFileSync(p, 'utf8').replace('"1.0.0"', '"1.0.1"'));
+  no(input, /Two registrations for deploy are at the same revision/);
+  assert.strictEqual(regsIn(dir, 'deploy').length, 2);
+  const u = readCli('skill', 'register', dir, '--json'); assert.ok(u.code === 1 && /--from/.test(u.json.error.why));
+});
+
 run();

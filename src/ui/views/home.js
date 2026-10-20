@@ -11,7 +11,7 @@
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
       '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
   }
-  var SKILL_PILL = { current: ['passed', 'current'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'] };
+  var SKILL_PILL = { current: ['passed', 'current'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'], unmatched: ['failed', 'can\'t be matched'] };
   function allTags(ctx) {
     var all = [];
     ctx.processes().forEach(function (p) { (p.tags || []).forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); }); p.skills.forEach(function (x) { (x.skill.tags || []).forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); }); }); });

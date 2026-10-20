@@ -113,6 +113,7 @@ def js_json(v):
 PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
+PINS = {"run.process": {"version": {"kind": "pin"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
 COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
@@ -254,7 +255,7 @@ def parse_map(md):
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
                 rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"type": typ, "text": rest, "fields": {}, "shots": []}
+                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": []}
                 steps.append(step)
             i += 1
             continue
@@ -320,6 +321,9 @@ def field_errors(type_def, fields):
         d = own.get(f) if isinstance(own, dict) and f in own else None
         if not isinstance(d, (dict, list)):
             d = COMMON.get(f)
+        # The 2.0 pins (PF.types.pinDef): version: on a built-in {run.process}, skillVersion: on a built-in {run.skill}.
+        if d is None and isinstance(type_def, dict) and not type_def.get("custom"):
+            d = PINS.get(type_def.get("id") if isinstance(type_def.get("id"), str) else "", {}).get(f)
         if not isinstance(d, dict):
             if d is None:
                 errors.append("has a field \"%s\" that {%s} doesn't use." % (f, tid))
@@ -334,6 +338,10 @@ def field_errors(type_def, fields):
             errors.append("\"%s\" should be a time like 15:00." % f)
         if kind == "duration" and f == "after" and not js_duration(v):
             errors.append("\"after\" should be a duration like 2h or 30m.")
+        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip()):
+            errors.append("\"version\" should be a version number, like 4.")
+        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip()):
+            errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "list" and len(js_list(v)) < 2:
             errors.append("\"%s\" needs at least two choices, separated by commas." % f)
         if kind == "require":
@@ -422,10 +430,10 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["plan"]},
-    "flightdeck-plan-status": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -518,8 +526,57 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+HASH8 = re.compile(r"^[0-9a-f]{8}$")
+PIN_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$", re.I)
+
+
+def child_pin_ok(p):
+    """PF.pins.childOk: { process, version, folder, mapHash, typesHash }, the folder numbered as the version."""
+    if not isinstance(p, dict) or set(p) - {"process", "version", "folder", "mapHash", "typesHash"}:
+        return False
+    v, f = p.get("version"), p.get("folder")
+    m = re.match(r"^v(\d+)-[a-z0-9]+$", f) if isinstance(f, str) else None
+    return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}$", p["process"])) and isinstance(v, (int, float)) and not isinstance(v, bool)
+            and v >= 1 and int(v) == v and bool(m) and int(m.group(1)) == v and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
+            and isinstance(p.get("typesHash"), str) and bool(HASH8.match(p["typesHash"])))
+
+
+def skill_pin_ok(p):
+    if not isinstance(p, dict) or set(p) - {"name", "version"}:
+        return False
+    n, v = p.get("name"), p.get("version")
+    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(r"^\S{1,40}$", v))
+
+
+def pins_ok(pins):
+    """PF.pins.shapeOk: { children: { <step>: pin }, skills: { <step>: { name, version } } }."""
+    if not isinstance(pins, dict) or set(pins) - {"children", "skills"}:
+        return False
+    c, k = pins.get("children", {}), pins.get("skills", {})
+    if not isinstance(c, dict) or not isinstance(k, dict):
+        return False
+    return all(PIN_STEP.match(s) and child_pin_ok(p) for s, p in c.items()) and all(PIN_STEP.match(s) and skill_pin_ok(p) for s, p in k.items())
+
+
+def pins_problem(info, parsed):
+    """PF.publish's pinsProblem: a /2 version's pins must be exactly what its version: and skillVersion: lines say."""
+    pins = info["payload"]["pins"]
+    want, have = {"children": {}, "skills": {}}, {"children": {}, "skills": {}}
+    for st in parsed["steps"]:
+        f = st["fields"]
+        if st["type"] == "run.process" and "version" in f:
+            want["children"][st["id"]] = {"process": f.get("process"), "version": int(f["version"]) if re.match(r"^\d+$", f["version"].strip()) else f["version"]}
+        if st["type"] == "run.skill" and "skillVersion" in f:
+            want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(), "version": f["skillVersion"].strip()}
+    for k, p in pins.get("children", {}).items():
+        have["children"][k] = {"process": p.get("process"), "version": p.get("version")}
+    for k, p in pins.get("skills", {}).items():
+        have["skills"][k] = p
+    return "" if have == want else "Its pins don't match its checklist. Edited by hand."
+
+
 def payload_ok(info):
-    """Whether a /2 version's payload is one this copy checks (PF.publish: no pins or extensions yet)."""
+    """Whether a /2 version's payload is one this copy checks (PF.publish: no extensions yet)."""
     p = info.get("payload")
     if not isinstance(p, dict) or set(p.keys()) - {"map", "types", "images", "extensions", "pins"}:
         return False
@@ -529,7 +586,7 @@ def payload_ok(info):
         return False
     if not all(isinstance(v, str) and HEX64.match(v) for v in p["images"].values()) or p["extensions"]:
         return False
-    return all(k in ("children", "skills") and isinstance(v, dict) and not v for k, v in p["pins"].items())
+    return pins_ok(p["pins"])
 
 
 def payload_needs(info):
@@ -581,6 +638,10 @@ def check_publication(folder, name):
         why = NEWER + " A step type in it can't be read."
     if why:
         return "unusable", why, info
+    if two:
+        bad = pins_problem(info, parse_map(files["map.md"]))
+        if bad:
+            return "unusable", bad, info
     listed = info.get("images") if isinstance(info.get("images"), dict) else {}
     unlisted = [src for src in shot_sources(parse_map(files["map.md"])) if src not in listed]
     if unlisted:
@@ -684,7 +745,8 @@ def main():
         if fam == "flightdeck-plan" and isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
             plain = {k: v for k, v in obj.items() if not k.startswith("_")}
             plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
-        elif fam == "flightdeck-plan-status":
+        elif fam == "flightdeck-plan-status" and obj.get("status") != "retargeted":
+            # A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision.
             decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same

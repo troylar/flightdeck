@@ -311,6 +311,88 @@ rule('skills.status matches a registration by its exact folder and fingerprints:
 });
 
 /* ---------- Envelope ---------- */
+/* ---------- Plans ---------- */
+const PL = () => PF.plans;
+const planFields = { id: 'plan-verify-a1', process: 'verify', title: 'Check', details: { ticket: 'T-1' }, roles: {}, by: 'person-avery', created: AT };
+rule('A plan for a 2.0 version, or an exact pin to any version, is a plan/2 (format, no kind) pinned to the folder; a 1.x version keeps the number plan', () => {
+  const [one] = childProc(['Check in code']), two = publish(PARENT(['  version: 1']), { childProcs: { verify: proc([one]) } });
+  const p2 = PL().make(two, Object.assign({}, planFields, { process: 'backup' }), false, '2.0.0');
+  assert.deepStrictEqual(Object.keys(p2), ['format', 'app', 'id', 'process', 'pin', 'title', 'details', 'roles', 'by', 'created'], 'the frozen sample\'s order');
+  assert.strictEqual(p2.format, 'flightdeck-plan/2'); assert.ok(!('kind' in p2) && !('version' in p2));
+  assert.deepStrictEqual(plain(p2.pin), { folder: two.info.folder, version: two.info.version, mapHash: two.info.mapHash, typesHash: two.info.typesHash });
+  const n = PL().make(one, planFields, false, '2.0.0');
+  assert.strictEqual(n.kind, 'plan'); assert.strictEqual(n.version, 1); assert.ok(!('format' in n) && !('pin' in n));
+  const x = PL().make(one, planFields, true, '2.0.0');
+  assert.strictEqual(x.format, 'flightdeck-plan/2', 'an exact pin to a /1 version is plan/2 too'); assert.strictEqual(x.pin.folder, one.info.folder);
+  const sample = JSON.parse(require('../tools/v2-samples.js').tree('folder')['proposals/plan-backup-pinned.json']);
+  assert.deepStrictEqual(Object.keys(p2), Object.keys(sample), 'the writer\'s output equals the frozen shape');
+});
+
+rule('PF.plans.clean reads plan/2 and its decisions (retargeted to an exact folder); reading for other apps (contract 1) names them newer, as before', () => {
+  const [one] = childProc(['Check in code']), p2 = PL().make(one, planFields, true, '2.0.0');
+  assert.deepStrictEqual(plain(PL().clean(p2, 'plan-verify-a1.json')), { ok: true, kind: 'plan', why: '' });
+  const v1 = PL().clean(p2, 'plan-verify-a1.json', true);
+  assert.strictEqual(v1.ok, false); assert.strictEqual(v1.kind, 'newer'); assert.strictEqual(v1.needs, '2.0');
+  const bad = (o, re) => { const v = PL().clean(o, 'x.json'); assert.ok(v.ok && re.test(v.why), JSON.stringify(v)); };
+  bad(Object.assign({}, p2, { pin: Object.assign({}, p2.pin, { version: 9 }) }), /isn't a version folder/);
+  bad(Object.assign({}, p2, { pin: { folder: p2.pin.folder, version: p2.pin.version } }), /without its fingerprints/);
+  bad(Object.assign({}, p2, { version: 1 }), /names a version two ways/);
+  const plan = Object.assign({}, p2, { _hash: 'aaaa0001' });
+  const st = PL().decision(plan, 'retargeted', null, 'person-avery', AT, { folder: 'v2-zzzz2222', version: 2 }, '2.0.0');
+  const sample = JSON.parse(require('../tools/v2-samples.js').tree('folder')['proposals/plan-backup-pinned.status-w-twozero.json']);
+  assert.deepStrictEqual(Object.keys(st), Object.keys(sample), 'the frozen decision shape');
+  assert.deepStrictEqual(plain(PL().clean(st, 'p.status-w.json')), { ok: true, kind: 'status', why: '' });
+  assert.strictEqual(PL().clean(st, 'p.status-w.json', true).kind, 'newer');
+  const acc = PL().decision(plan, 'accepted', 'r1', 'person-avery', AT, null, '2.0.0');
+  assert.strictEqual(acc.format, 'flightdeck-plan-status/2'); assert.strictEqual(acc.run, 'r1'); assert.ok(!('to' in acc));
+  assert.ok(/isn't accepted or declined/.test(PL().clean({ kind: 'status', proposal: 'p', status: 'retargeted', to: { folder: 'v2-zzzz2222', version: 2 } }, 'x').why), 'a 1.x decision never retargets');
+  assert.ok(/isn't a version folder/.test(PL().clean(Object.assign({}, st, { to: { folder: 'v2-zzzz2222', version: 3 } }), 'x').why));
+  const old = PL().decision(Object.assign({ kind: 'plan', id: 'p', process: 'x', version: 1 }, { _hash: 'h' }), 'declined', null, 'b', AT, null, '2.0.0');
+  assert.deepStrictEqual(Object.keys(old), ['kind', 'proposal', 'proposalHash', 'status', 'run', 'by', 'at'], 'a number plan\'s decision is today\'s');
+});
+
+rule('A plan/2 starts only on its pin or a version a person switched it to: a missing folder, another folder with that number, a clash or two switches that disagree ask, never the latest; a number plan keeps falling back', () => {
+  const kids = childProc(['Check in code', 'Check in code']), [k1, k2] = kids, p2 = PL().make(k1, planFields, true, '2.0.0');
+  let x = PL().pick(proc(kids), p2, null);
+  assert.strictEqual(x.pub.info.folder, k1.info.folder); assert.ok(x.older && x.exact);
+  x = PL().pick(proc([k2]), p2, 'whatever');
+  assert.strictEqual(x.pub, null); assert.ok(/isn't in this folder/.test(x.ask), x.ask);
+  const other = childProc(['Check in code'])[0];
+  x = PL().pick(proc([other, k2]), p2, null);
+  assert.strictEqual(x.pub, null); assert.ok(/is a different version/.test(x.ask), x.ask);
+  x = PL().pick(proc([k1, other, k2]), p2, null);
+  assert.strictEqual(x.pub, null); assert.ok(/a person has to choose one/.test(x.ask), x.ask);
+  const moved = Object.assign({}, p2, { _retarget: { status: 'retargeted', to: { folder: k2.info.folder, version: 2 } } });
+  x = PL().pick(proc([k2]), moved, null);
+  assert.strictEqual(x.pub.info.folder, k2.info.folder); assert.ok(x.chosen && !x.older);
+  x = PL().pick(proc([k2]), Object.assign({}, p2, { _retargetClash: [k1.info.folder, k2.info.folder] }), null);
+  assert.strictEqual(x.pub, null); assert.ok(/two people switched it/.test(x.ask));
+  const num = PL().make(k1, planFields, false, '2.0.0');
+  x = PL().pick(proc([k2]), num, null);
+  assert.strictEqual(x.pub.info.folder, k2.info.folder, 'a number plan whose version is gone starts on the latest, as every copy does'); assert.ok(x.missing && !x.exact);
+});
+
+rule('In a folder: plan/2 and its retarget are read and grouped (the switch is not a decision); READ (contract 1) names them newer; recordPlanStatus writes plan-status/2 for a plan/2', async () => {
+  const kids = childProc(['Check in code', 'Check in code']), [k1, k2] = kids, p2 = PL().make(k1, planFields, true, '2.0.0');
+  const m = new PF.fs.MemoryFS('pins:' + Math.random(), null);
+  m.reset({ 'proposals/plan-verify-a1.json': JSON.stringify(p2, null, 2) });
+  let got = await PF.repo.readPlans(m, null);
+  let g = PF.repo.groupPlans(got.plans, got.statuses);
+  assert.strictEqual(g.length, 1); assert.strictEqual(g[0]._retarget, null);
+  await PF.repo.recordPlanStatus(m, g[0], 'w1', 'retargeted', null, 'person-avery', { folder: k2.info.folder, version: 2 }, '2.0.0');
+  const written = JSON.parse(m.files['proposals/plan-verify-a1.status-w1.json'].t);
+  assert.strictEqual(written.format, 'flightdeck-plan-status/2'); assert.deepStrictEqual(written.to, { folder: k2.info.folder, version: 2 });
+  got = await PF.repo.readPlans(m, null); g = PF.repo.groupPlans(got.plans, got.statuses);
+  assert.strictEqual(g[0]._retarget.to.folder, k2.info.folder); assert.strictEqual(g[0]._status, null, 'a switch isn\'t a decision'); assert.ok(!g[0]._conflicting);
+  assert.strictEqual(PL().pick(proc(kids), g[0], null).pub.info.folder, k2.info.folder);
+  await PF.repo.recordPlanStatus(m, g[0], 'w2', 'retargeted', null, 'person-casey', { folder: k1.info.folder, version: 1 }, '2.0.0');
+  got = await PF.repo.readPlans(m, null); g = PF.repo.groupPlans(got.plans, got.statuses);
+  assert.ok(g[0]._retargetClash && !g[0]._retarget); assert.strictEqual(PL().pick(proc(kids), g[0], null).pub, null);
+  const bad = []; got = await PF.repo.readPlans(m, bad);
+  assert.strictEqual(got.plans.length + got.statuses.length, 0);
+  assert.deepStrictEqual(bad.map(b => b.kind), ['newer', 'newer', 'newer']);
+});
+
 rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; every later feature stays refused', () => {
   const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills'];
   ['flightdeck-checklist', 'preflight-publication'].forEach(f => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[2]), want, f));

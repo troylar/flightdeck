@@ -48,7 +48,7 @@ PF.run = (function () {
       Object.keys(own2).forEach(function (k) { kids[k] = JSON.parse(JSON.stringify(own2[k])); });
       if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
     }
-    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); }
+    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && typeof o.parent.folder === 'string' && o.parent.folder) r.parent.folder = o.parent.folder; }
     addLog(r, o.by, o.now, 'Started the run');
     return r;
   }
@@ -364,6 +364,8 @@ PF.run = (function () {
   function clear(r, map, id, who, now) {
     var x = guardStep(r, map, id), prev = r.steps[id];
     if (!prev || prev.s === 'open') return x;
+    /* A run/2 step continued in a 2.0 run stays blocked here: reopening it would start the child this run can't follow. */
+    if (r.format !== FORMAT3 && prev.s === 'blocked' && /^Continued in run /.test(prev.reason || '')) throw new Error('This step ' + prev.reason.charAt(0).toLowerCase() + prev.reason.slice(1) + ', made with Flightdeck 2.0. Open that run, or start it as a Flightdeck 2.0 run again.');
     answer(r, id, { s: 'open' });
     if (prev.s === 'blocked') addLog(r, who, now, 'Unblocked "' + x.step.text + '"');
     return x;

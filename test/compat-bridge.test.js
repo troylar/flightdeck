@@ -23,6 +23,9 @@ const fixture = (tag) => H.readTree(path.join(G.DIR, tag));
 const V2 = S.tree('folder');
 const NEW_TOPS = ['staged/', 'extensions/', 'skill-registrations/', 'reports/', 'report-decisions/'];
 const RUN3 = ['run-c', 'run-t', 'run-e'];
+/* What this version reads since slice 2 part 2 (pins): exact skill registrations, plan/2 and its decisions, and the explicit
+   2.0 run on a /1 version (run-e). Everything else in the samples stays refused by name. */
+const MAIN_TOPS = NEW_TOPS.filter(x => x !== 'skill-registrations/'), MAIN_RUN3 = ['run-c', 'run-t'];
 const snap = (m) => JSON.stringify(Object.keys(m.files).sort().map(p => [p, m.files[p].t]));
 function eachTag(name, fn, filter) {
   TAGS.filter(filter || (() => true)).forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': ' + name, async () => {
@@ -87,27 +90,31 @@ eachTag('starting a run is refused on the /2 version, and a plan for it can\'t f
 
 /* ---------- The bridge: this version reading the same folders ---------- */
 
-TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses each 2.0 file by name, with the Flightdeck it needs, and writes nothing', async () => {
+TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses each 2.0 file it doesn\'t build by name, with the Flightdeck it needs, reads the pins it builds, and writes nothing', async () => {
   const NEW = H.loadMain(), m = H.memFolder(NEW, Object.assign(fixture(t.tag), V2)), w = watch(m);
   w.on.v = true; const d = await NEW.repo.loadAll(m, { deep: true }); w.on.v = false;
-  assert.deepStrictEqual(w.seen.filter(p => NEW_TOPS.some(x => (p + '/').indexOf(x) === 0)), [], 'new folders never listed by ordinary loaders');
+  assert.deepStrictEqual(w.seen.filter(p => MAIN_TOPS.some(x => (p + '/').indexOf(x) === 0)), [], 'new folders never listed by ordinary loaders');
   const proc = d.processes.find(p => p.process === 'backup'), v2 = proc.pubs.find(x => x.folder === S.PUB2);
   assert.strictEqual(v2.why, 'v2 needs Flightdeck 2.0. This copy shows it but won\'t run it. Open the team folder\'s own flightdeck.html.');
   assert.strictEqual(proc.index.latest.info.version, 1);
   const runs = Object.fromEntries(d.runs.map(r => [r.id, r]));
   assert.strictEqual(runs['run-c']._unrunnable, 'Made with Flightdeck 2.0. This copy shows its name only and won\'t change it.');
-  assert.strictEqual(runs['run-e']._unrunnable, 'Made with Flightdeck 2.0. This copy shows its name only and won\'t change it.', 'an explicit 2.0 run on a /1 version too');
+  assert.ok(!runs['run-e']._unrunnable && runs['run-e'].format === 'preflight-run/3', 'the explicit 2.0 run on a /1 version is read in full: ' + runs['run-e']._unrunnable);
   assert.ok(/^Test run · needs Flightdeck 2\.0\./.test(runs['run-t']._unrunnable) && runs['run-t']._test);
-  RUN3.forEach(id => assert.ok(!Object.keys(runs[id].steps).length && !Object.keys(runs[id].details).length, id + ': nothing it might misread'));
+  MAIN_RUN3.forEach(id => assert.ok(!Object.keys(runs[id].steps).length && !Object.keys(runs[id].details).length, id + ': nothing it might misread'));
   const refused = Object.fromEntries(d.refused.map(r => [r.path, r]));
-  ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'validations/backup.' + S.STAGE + '.w-twozero.json', 'step-types/team.count.json', 'skills/release-notes.json']
+  ['validations/backup.' + S.STAGE + '.w-twozero.json', 'step-types/team.count.json']
     .forEach(p => assert.ok(refused[p] && refused[p].kind === 'newer' && refused[p].needs === '2.0', p + ': ' + JSON.stringify(refused[p])));
-  assert.ok(!d.plans.some(p => p.id === 'plan-backup-pinned') && !d.validations.some(v => /stage/.test(v._file)));
+  ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skills/release-notes.json'].forEach(p => assert.ok(!refused[p], p + ' is read here'));
+  const pinned = d.plans.find(p => p.id === 'plan-backup-pinned');
+  assert.ok(pinned && pinned.format === 'flightdeck-plan/2' && !d.validations.some(v => /stage/.test(v._file)));
+  assert.strictEqual(NEW.plans.pick({ latest: proc.index.latest, all: proc.index.all, clashes: proc.index.clashes, broken: proc.pubs.filter(x => !x.ok) }, pinned, null).pub.info.folder, 'v1-ab9ysnqh', 'a plan/2 starts on its pin');
   assert.strictEqual(d.stepTypes.errors.find(e => e.file === 'team.count.json').errors[0], 'This step type needs Flightdeck 2.0. This copy shows it but can\'t use or change it.');
-  assert.ok(/Registered in skill-registrations\/ for Flightdeck 2\.0/.test(d.skills.find(s => s.file === 'release-notes.json').errors[0]));
+  const notes = d.skills.filter(s => (s.skill && s.skill.name === 'release-notes') || s.file === 'release-notes.json');
+  assert.ok(notes.length === 1 && notes[0].skill.regId === 'sk-aaaa1111', 'the tombstone and its registration are one skill: ' + JSON.stringify(notes.map(s => s.file)));
   ['typed', 'min-only', 'feature-only', 'min-plus-body'].forEach(n => assert.ok(NEW.map.check(NEW.map.parse(V2['maps/drafts/' + n + '.md']), { people: G.PEOPLE, types: {} }).blockers.some(b => /Flightdeck 2\.0|newer Flightdeck|needs/.test(b)) || n === 'typed', n));
   const before = snap(m);
-  for (const id of RUN3) await assert.rejects(() => NEW.repo.saveRun(m, runs[id], 'w-avery'), e => e.unrunnable);
+  for (const id of MAIN_RUN3) await assert.rejects(() => NEW.repo.saveRun(m, runs[id], 'w-avery'), e => e.unrunnable);
   await assert.rejects(() => NEW.repo.saveStepType(m, JSON.parse(V2['step-types/team.count.json']), NEW.util.hash(V2['step-types/team.count.json']), {}), /needs Flightdeck 2\.0/);
   assert.strictEqual(snap(m), before, 'nothing written');
 }));
@@ -119,8 +126,9 @@ rule('Folder health names what a newer Flightdeck wrote, by family and the versi
   const rep = NEW.health.check({ data: d, scan, me: 'person-avery', app: '1.21.0', connection: conn }, now);
   const newer = rep.issues.find(i => i.id === 'newer');
   assert.ok(newer, JSON.stringify(rep.issues.map(i => i.id)));
-  ['v2 of backup needs Flightdeck 2.0', '3 runs made with Flightdeck 2.0 (1 test run) show by name only', '1 plan needs Flightdeck 2.0', '1 plan decision needs Flightdeck 2.0', '1 sign-off needs Flightdeck 2.0', '1 step type needs Flightdeck 2.0', '1 skill registration needs Flightdeck 2.0']
+  ['v2 of backup needs Flightdeck 2.0', '2 runs made with Flightdeck 2.0 (1 test run) show by name only', '1 sign-off needs Flightdeck 2.0', '1 step type needs Flightdeck 2.0']
     .forEach(x => assert.ok(newer.detail.indexOf(x) >= 0, x + ' in: ' + newer.detail));
+  ['plan needs', 'plan decision needs', 'skill registration needs'].forEach(x => assert.ok(newer.detail.indexOf(x) < 0, x + ' isn\'t refused here: ' + newer.detail));
   d.refused.forEach(r => assert.ok(newer.paths.indexOf(r.path) >= 0, r.path));
   const ph = rep.issues.find(i => i.id === 'placeholder');
   assert.ok(ph && ph.paths.length === 1 && /replaced-w-old-/.test(ph.paths[0]) && /holds no answers/.test(ph.detail), JSON.stringify(ph));

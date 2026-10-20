@@ -381,7 +381,8 @@
     current: ['passed', 'In step', ''],
     unaffected: ['open', 'Note the new version', 'Copy the brief for your AI assistant to note it.'],
     update: ['failed', 'Needs an update', 'Give your AI assistant the update brief: it has the exact before and after.'],
-    missing: ['failed', 'Check it', '']
+    missing: ['failed', 'Check it', ''],
+    unmatched: ['failed', 'Can\'t be matched', 'Register it again with flightdeck skill register, from the version it was built from.']
   };
   function skillPage(ctx) {
     var st = ctx.state, hit = null, proc = null;

@@ -122,6 +122,48 @@ PF.skills = (function () {
     });
     return out;
   }
+  /* A new revision for flightdeck skill register, the only writer of skill-registrations/ (pure: the command reads and writes).
+     input: what an AI assistant hands over ({ name, version, location, implements: { process, folder }, steps?, description?,
+     group?, tags?, by? }); proc: that process's versions as listed; current: the skill's current entry from merge, or null.
+     Returns { rec, path } in the frozen skill/2 shape, or { why } (and never matches anything by number or to the latest). */
+  var NAME = /^[a-z0-9][a-z0-9._-]{0,79}$/i;
+  function registration(input, proc, current, o) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return { why: 'The registration must be a JSON object.' };
+    var known = ['name', 'version', 'location', 'implements', 'steps', 'description', 'group', 'tags', 'by'];
+    var odd = Object.keys(input).filter(function (k) { return known.indexOf(k) < 0; });
+    if (odd.length) return { why: 'The registration has fields this command doesn\'t take: ' + odd.join(', ') + '.' };
+    if (typeof input.name !== 'string' || !NAME.test(input.name) || input.name === '.' || input.name === '..') return { why: '"name" is the skill\'s name: letters, numbers, dots, dashes or underscores, at most 80.' };
+    if (typeof input.version !== 'string' || !/^\S{1,40}$/.test(input.version)) return { why: '"version" is the skill\'s own version, like 1.2.0.' };
+    if (typeof input.location !== 'string' || !input.location.trim() || input.location.length > 500) return { why: '"location" is the skill\'s source path or link.' };
+    var imp = input.implements;
+    if (!imp || typeof imp !== 'object' || Array.isArray(imp) || typeof imp.process !== 'string' || typeof imp.folder !== 'string' || Object.keys(imp).some(function (k) { return k !== 'process' && k !== 'folder'; })) return { why: '"implements" names the exact version it was built from: { "process": "release", "folder": "v4-abcd1234" }.' };
+    var got = PF.pins.find(proc, { process: imp.process, folder: imp.folder });
+    if (!got.pub) {
+      var w = !proc ? 'isn\'t published in this folder' : got.why.indexOf(imp.folder + ' ') === 0 ? got.why.slice(imp.folder.length + 1) : 'can\'t be used: ' + got.why;
+      return { why: 'Can\'t be matched: ' + imp.process + ' ' + imp.folder + ' ' + w + '. Nothing was written.' };
+    }
+    var pub = got.pub, steps = null;
+    if (input.steps != null) {
+      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole process.' };
+      var have = stepsOf(pub.map), unknown = input.steps.filter(function (id) { return !have[id]; });
+      if (unknown.length) return { why: imp.process + ' v' + pub.info.version + ' has no step ' + unknown.join(', ') + '. Nothing was written.' };
+      steps = input.steps.slice();
+    }
+    if (current && current.review) return { why: 'Two registrations for ' + input.name + ' are at the same revision. Keep one (delete the other file), then register again. Nothing was written.' };
+    var prev = current && current.skill && current.skill.regId ? current.skill : null;
+    var id = prev ? prev.regId : 'sk-' + o.rand.slice(0, 8), rev = prev ? prev.rev + 1 : 1;
+    var rec = { format: 'flightdeck-skill/2', app: String(o.app || ''), id: id, rev: rev, seen: prev ? prev.rev : null, name: input.name, version: input.version, location: input.location.trim(),
+      implements: { process: imp.process, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash } };
+    if (steps) rec.steps = steps;
+    if (typeof input.description === 'string' && input.description.trim()) rec.description = input.description.trim().slice(0, 300);
+    if (input.group != null) rec.group = input.group;
+    if (input.tags != null) rec.tags = input.tags;
+    rec.by = typeof input.by === 'string' && input.by.trim() ? input.by.trim().slice(0, 80) : String(o.by || '');
+    rec.updated = o.now;
+    return { rec: rec, path: 'skill-registrations/' + input.name + '/' + id + '.' + rev + '.' + o.window + '.json', pub: pub };
+  }
+  /* The legacy file a registration replaces: a tombstone every copy refuses to match (implements: "moved"). */
+  function tombstone(rec) { return { name: rec.name, implements: 'moved', movedTo: 'skill-registrations/' + rec.name + '/', id: rec.id }; }
   /* A registration as a step records it when it's checked: { id, rev, sha, snapshot }, the snapshot cleaned and at most 2 KB. */
   function observed(reg) {
     if (!reg) return null;
@@ -318,11 +360,22 @@ PF.skills = (function () {
     });
     return out.join('\n');
   }
+  /* How to register a skill built from pub: a 2.0 version (or an exact registration) through flightdeck skill register, the only
+     writer of skill-registrations/; a 1.x version as skills/<name>.json, which every copy reads. */
+  function registerLine(pub, ids, name) {
+    var meta = pub.map.meta;
+    if (pub.info.format === PF.publish.FORMAT2 || name) {
+      var input = { name: name || '<name>', version: '<its version>', location: '<its source path or link>', implements: { process: meta.process, folder: pub.info.folder } };
+      if (ids) input.steps = ids;
+      return 'Store the skill wherever the team keeps it, then register it with the command (never write `skill-registrations/` by hand): save this as a file, filled in, and run `flightdeck skill register <team folder> --from <that file> --json`. It records the exact version (' + meta.process + ' v' + pub.info.version + ', ' + pub.info.folder + ').\n\n```json\n' + JSON.stringify(input, null, 2) + '\n```';
+    }
+    return 'Store the skill wherever the team keeps it, then register it in the team folder as `skills/<name>.json` with `"implements": "' + meta.process + '@' + pub.info.version + '"`' + (ids ? ', `"steps": ' + JSON.stringify(ids) : '') + ', its own `"version"` and its `"location"` (the skill\'s source path or link: a repo, a shared folder or a local path).';
+  }
   function createBrief(pub, ids, ready, signs) {
     var meta = pub.map.meta;
     return ['# Create a skill from ' + meta.title + ' v' + pub.info.version, '',
       'Build a skill that does ' + (ids ? 'these steps' : 'this whole process') + ' of the team\'s process "' + meta.process + '", exactly as the published checklist says.',
-      'Store the skill wherever the team keeps it, then register it in the team folder as `skills/<name>.json` with `"implements": "' + meta.process + '@' + pub.info.version + '"`' + (ids ? ', `"steps": ' + JSON.stringify(ids) : '') + ', its own `"version"` and its `"location"` (the skill\'s source path or link: a repo, a shared folder or a local path).', '',
+      registerLine(pub, ids, null), '',
       '## Run details it receives', '', meta.context.length ? meta.context.map(function (c) { return '- ' + c; }).join('\n') : 'None.', '',
       '## The process, in order', '', structure(pub.map, ids, pub.types), '',
       evidenceBlock(ready, signs), '',
@@ -332,7 +385,8 @@ PF.skills = (function () {
   function updateBrief(skill, st, ready, signs) {
     return ['# Update the skill ' + skill.name + (skill.version ? ' (' + skill.version + ')' : ''), '',
       'Source: ' + (skill.location || 'not recorded'), '',
-      'It was built from ' + st.base.map.meta.title + ' v' + skill.implements + '. The process is now v' + st.latest.info.version + '. Change the skill so it follows v' + st.latest.info.version + ', then bump its version and set `"implements": "' + skill.process + '@' + st.latest.info.version + '"` in `skills/' + (skill.file || skill.name + '.json') + '`.', '',
+      'It was built from ' + st.base.map.meta.title + ' v' + skill.implements + '. The process is now v' + st.latest.info.version + '. Change the skill so it follows v' + st.latest.info.version + ', then bump its version and ' +
+        (skill.exact || st.latest.info.format === PF.publish.FORMAT2 ? 'register it again.\n\n' + registerLine(st.latest, skill.steps, skill.name) : 'set `"implements": "' + skill.process + '@' + st.latest.info.version + '"` in `skills/' + (skill.file || skill.name + '.json') + '`.'), '',
       '## What changed in ' + (skill.steps ? 'its steps' : 'the process'), '',
       st.changes.map(function (c) {
         if (c.change === 'removed') return '- **' + c.id + '** was removed. It was:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '  ');
@@ -356,5 +410,5 @@ PF.skills = (function () {
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
-  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

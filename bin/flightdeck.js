@@ -1098,6 +1098,59 @@ async function requestMain(argv) {
    proposed/<process>/<operation>.json and one new history/drafts/<process>/agent-<operation>.jsonl, all through folders()
    (never through a link, never outside the folder). A draft open in an editor this computer can see is never written: the
    change becomes a proposal a person applies in Flightdeck. docs/apps.md, docs/design.md section 27. */
+/* ---------- Registering a skill: flightdeck skill register <team folder> --from <file | -> [--json] (contract flightdeck-skill/1)
+   The only writer of skill-registrations/ (2.0): a new revision file for the exact version a skill was built from, created
+   once and read back; then the skill's legacy skills/<name>.json, if any, becomes a tombstone every older copy refuses to
+   match. A version that can't be matched exactly (missing, another folder with the same number, a clash, damaged) is
+   refused and nothing is written. docs/apps.md. */
+const SKILL_CONTRACT = 'flightdeck-skill/1';
+async function skillMain(argv) {
+  const asJson = argv.includes('--json'), fi = argv.indexOf('--from'), from = fi >= 0 ? argv[fi + 1] : null;
+  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && argv[i - 1] === '--from'));
+  let eng = null;
+  const out = (o, code) => {
+    const json = Object.assign({ contract: SKILL_CONTRACT, app: eng ? eng.version : versionOf(app()) || '' }, o);
+    return { out: asJson ? JSON.stringify(json, null, 2) : o.error ? 'flightdeck: ' + o.error.why : 'Registered ' + o.registered.name + ' ' + o.registered.version + ' (revision ' + o.registered.rev + ') at ' + o.registered.path + (o.tombstone ? '\nReplaced ' + o.tombstone + ' with a pointer to it.' : ''), code };
+  };
+  const refuse = (kind, why) => out({ error: { kind, why } }, EXIT.error);
+  if (args[1] !== 'register') return refuse('usage', 'say what to do: flightdeck skill register <team folder> --from <registration.json | -> --json');
+  if (!args[2] || args[3]) return refuse('usage', 'say the team folder: flightdeck skill register <team folder> --from <registration.json | -> --json');
+  if (fi < 0 || !from || (from.startsWith('--') && from !== '-')) return refuse('usage', 'say which file with --from, or --from - for standard input.');
+  const unknown = argv.filter((a) => a.startsWith('--') && ['--json', '--from'].indexOf(a) < 0);
+  if (unknown.length) return refuse('usage', 'skill register doesn\'t take ' + unknown.join(', ') + '.');
+  try { eng = loadEngine(); } catch (e) { return refuse('failed', e.message); }
+  const PF = eng.PF;
+  let dir;
+  try { dir = folderArg(args[2], 'skill register'); } catch (e) { return refuse('failed', e.message); }
+  let input;
+  try { input = await readRequestInput(from, 65536); } catch (e) { return refuse('usage', 'couldn\'t read ' + (from === '-' ? 'standard input' : from) + ': ' + e.message); }
+  if (input.tooBig) return refuse('invalid', 'A registration is at most 64 KB; this one is more.');
+  let o;
+  try { o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input.buf)); } catch (e) { return refuse('invalid', 'The registration isn\'t JSON in UTF-8.'); }
+  const rfs = readAdapter(dir, { maxBytes: READ_MAX }), name = o && typeof o.name === 'string' ? o.name : '';
+  const proc = o && o.implements && typeof o.implements.process === 'string' ? await PF.repo.readProcess(rfs, o.implements.process) : null;
+  const regs = /^[a-z0-9][a-z0-9._-]{0,79}$/i.test(name) ? await PF.repo.loadRegistrations(rfs) : [];
+  const legacyText = /^[a-z0-9][a-z0-9._-]{0,79}$/i.test(name) ? (() => { try { return readInside(dir, ['skills', name + '.json']); } catch (e) { return null; } })() : null;
+  const current = PF.skills.merge([], regs.filter((x) => x.skill && x.skill.name === name)).filter((x) => x.skill && x.skill.name === name)[0] || null;
+  const got = PF.skills.registration(o, proc, current, { app: eng.version, now: new Date().toISOString(), by: 'flightdeck skill register', window: 'cli-' + crypto.randomBytes(4).toString('hex'), rand: crypto.randomBytes(8).toString('hex').replace(/[^a-z0-9]/g, '') });
+  if (got.why) return refuse('invalid', got.why);
+  const text = JSON.stringify(got.rec, null, 2) + '\n';
+  try { writeNew(dir, got.path.split('/'), text); } catch (e) { return refuse('failed', e.message); }
+  /* Read it back through the same reader the app uses: what's there must be this registration, exactly. */
+  const back = (await PF.repo.loadRegistrations(readAdapter(dir, { maxBytes: READ_MAX }))).filter((x) => x.file === got.path)[0];
+  const sha = crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
+  if (!back || !back.skill || back.skill.sha !== sha) return refuse('failed', got.path + ' didn\'t read back as written' + (back && back.errors.length ? ': ' + back.errors.join('; ') : '') + '.');
+  let tomb = null;
+  if (legacyText != null) {
+    let was = null;
+    try { was = PF.skills.check(JSON.parse(legacyText), name + '.json'); } catch (e) { was = null; }
+    if (!(was && was.tombstone && was.id === got.rec.id)) {
+      try { safeWrite(dir, ['skills', name + '.json'], JSON.stringify(PF.skills.tombstone(got.rec), null, 2) + '\n', legacyText); tomb = 'skills/' + name + '.json'; }
+      catch (e) { return out({ registered: { path: got.path, name: got.rec.name, version: got.rec.version, id: got.rec.id, rev: got.rec.rev, implements: got.rec.implements, sha }, tombstone: null, error: { kind: 'failed', why: 'Registered at ' + got.path + ', but skills/' + name + '.json changed or couldn\'t be replaced (' + e.message + '). Run the command again to replace it with a pointer.' } }, EXIT.error); }
+    }
+  }
+  return out({ registered: { path: got.path, name: got.rec.name, version: got.rec.version, id: got.rec.id, rev: got.rec.rev, implements: got.rec.implements, sha }, tombstone: tomb }, 0);
+}
 const DRAFT_CONTRACT = 'flightdeck-draft/1';
 /* Test hooks around the final compare of a direct save (test/cli.test.js injects a write there). */
 const _hooks = {};
@@ -1325,6 +1378,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       read; otherwise write a proposal a person applies in Flightdeck
   flightdeck draft propose <same as save>
                                       always write a proposal
+  flightdeck skill register <team folder> --from <file|-> [--json]
+                                      for AI assistants: register a skill against the exact version it was built
+                                      from (Flightdeck 2.0). The only writer of skill-registrations/
   flightdeck path                     print where the app file is
   flightdeck version                  print this version
 
@@ -1361,6 +1417,7 @@ function main(argv) {
   if (READS.indexOf(first) >= 0 && !argv.includes('--help')) return readMain(argv);
   if (first === 'draft' && !argv.includes('--help')) return draftMain(argv);
   if (first === 'plan' && !argv.includes('--help')) return requestMain(argv);
+  if (first === 'skill' && !argv.includes('--help')) return skillMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */

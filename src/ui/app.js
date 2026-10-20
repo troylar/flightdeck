@@ -117,6 +117,7 @@
     /* Unsaved edits to a draft that was removed from this folder, so they stay findable. */
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
     findRun: function (key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; },
+    procOf: function (id) { return processes().filter(function (x) { return x.id === id; })[0] || null; },
     latestPub: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.latest : null; },
     suggestRole: suggestRole,
     attachments: function (key, step) { return attachmentsFor(key, step); },
@@ -472,10 +473,12 @@
     orphanSkills = [];
     data.skills.forEach(function (x) {
       var e = x.skill && Object.prototype.hasOwnProperty.call(by, x.skill.process) ? by[x.skill.process] : null;
-      if (!e) { orphanSkills.push({ skill: x.skill || { name: x.file || '?', process: '', implements: 0, steps: null, group: [], tags: [], version: '', location: '' }, errors: x.errors, status: { s: 'missing', text: x.errors.length ? x.errors.join('; ') : 'It names the process "' + x.skill.process + '", which isn\'t in this folder.' } }); return; }
-      var st = x.errors.length ? { s: 'missing', text: x.errors.join('; ') } : PF.skills.status(x.skill, e.all, e.latest);
+      if (!e) { orphanSkills.push({ skill: x.skill || { name: x.name || x.file || '?', process: '', implements: 0, steps: null, group: [], tags: [], version: '', location: '' }, errors: x.errors, status: { s: x.unmatched ? 'unmatched' : 'missing', text: x.errors.length ? x.errors.join('; ') : 'It names the process "' + x.skill.process + '", which isn\'t in this folder.' } }); return; }
+      /* A 2.0 registration that can't be matched (Needs review, two registrations, or its exact version isn't usable here) is
+         never current. */
+      var st = x.unmatched ? { s: 'unmatched', text: 'Can\'t be matched: ' + x.errors.join('; ') } : x.errors.length ? { s: 'missing', text: x.errors.join('; ') } : PF.skills.status(x.skill, e.all, e.latest, e);
       e.skills.push({ skill: x.skill, errors: x.errors, status: st });
-      if (st.s === 'update' || st.s === 'missing') e.staleSkills++;
+      if (st.s === 'update' || st.s === 'missing' || st.s === 'unmatched') e.staleSkills++;
     });
     procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.category === b.category ? (a.title < b.title ? -1 : 1) : (a.category < b.category ? -1 : 1); });
     return procCache;
@@ -1614,10 +1617,11 @@
   function startChild(stepId) {
     var parent = ctx.run(), map = parent && R.mapOf(parent), x = map && M.findStep(map, stepId);
     if (!x || !ctx.recording(parent)) return;
-    var f = R.fieldsOf(parent, x.step), pub = ctx.latestPub(f.process), a0 = parent.steps[stepId], rkey = state.runKey + ':' + stepId;
+    var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = parent.steps[stepId], rkey = state.runKey + ':' + stepId;
     /* One start at a time per step: a second click while the first is saving, or a step that already has a current child, does nothing. */
     if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed) || parent.paused) return;
-    if (!pub) { say('"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return; }
+    /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */
+    if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return; }
     var cp = R.childProblem(parent, x.step, pub.map.meta.context);
     if (cp) { say(cp, 'warn'); render(); return; }
     var details = R.childDetails(parent, x.step, pub.map.meta.context), roles = {};
@@ -1627,21 +1631,56 @@
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
     var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs }, app: APP_VERSION }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
-    try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, { process: child.process, id: child.id, inputs: inputs }, state.me, new Date().toISOString()); }
+    var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, pin: target.first ? target.pin : null };
+    try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, link, state.me, new Date().toISOString()); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart();
     state.startingChild[rkey] = true;
     var done = function () { endBusy(); delete state.startingChild[rkey]; };
     queued(function () { child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
       if (sg !== gen) { done(); return; }
-      return mutateRun(key, sg, function (r, m, me, now) { R.linkChild(r, m, stepId, { process: child.process, id: child.id, inputs: inputs }, me, now); }).then(function (ok) {
+      return mutateRun(key, sg, function (r, m, me, now) { R.linkChild(r, m, stepId, link, me, now); }).then(function (ok) {
         done();
         if (sg !== gen) return;
         if (ok === false) { say('"' + child.title + '" was started but isn\'t linked to this step yet. Use Link it on the step.', 'warn'); render(); return load(true); }
         say('Started "' + child.title + '". This step is checked when it completes.', 'good'); return load(true);
+      });
+    }, function (err) { done(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
+  }
+  /* The children a run/3 on pub follows, pinned when it starts: the version's own pins, the rest at the latest usable now. */
+  function pinsAtStart(pub) {
+    if (pub.info.format !== PF.publish.FORMAT2) return null;
+    return PF.pins.atStart(pub.map, pub.info.payload && pub.info.payload.pins, ctx.procOf);
+  }
+  /* "Start it as a Flightdeck 2.0 run": a run/2 parent whose child needs Flightdeck 2.0 continues as a run/3 on the same /1
+     version, chosen by a person: details and roles copied, no answers, its children pinned now. The old step is then Blocked,
+     "Continued in run <key>", an answer every copy reads. */
+  function continueTwo(stepId) {
+    var old = ctx.run(), map = old && R.mapOf(old), x = map && M.findStep(map, stepId);
+    if (!x || !old || old.format === R.FORMAT3 || !state.me) return;
+    if (!ctx.recording(old)) { say('Only the recorder can start it as a Flightdeck 2.0 run.', 'warn'); render(); return; }
+    var p = ctx.procOf(old.process), pub = p && (p.all || []).filter(function (v) { return v.info.folder === old.folder; })[0];
+    if (!pub) { say('v' + old.version + ' of this checklist can\'t be used here, so it can\'t continue as a Flightdeck 2.0 run.', 'warn'); render(); return; }
+    if (state.continuing) return;
+    var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
+    var n; try { n = R.continuation(old, pub, { by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: PF.pins.atStart(pub.map, null, ctx.procOf) }); }
+    catch (err) { say(err.message, 'warn'); render(); return; }
+    try { R.continued(JSON.parse(JSON.stringify(old)), map, stepId, n, state.me, new Date().toISOString()); } catch (err) { say(err.message, 'warn'); render(); return; }
+    var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart();
+    state.continuing = true;
+    var done = function () { endBusy(); state.continuing = false; };
+    queued(function () { n.recorder.session = SESSION; return repo.saveRun(sfs, n, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
+      if (sg !== gen) { done(); return; }
+      return mutateRun(key, sg, function (r, m, me, now) { R.continued(r, m, stepId, n, me, now); }).then(function (ok) {
+        done(); if (sg !== gen) return;
+        return load(true).then(function () {
+          if (sg !== gen) return;
+          openRun(n.process + '/' + n.id);
+          say(ok === false ? 'Started "' + n.title + '" as a Flightdeck 2.0 run, but the old run\'s step isn\'t marked yet. Block it with "Continued in run ' + n.process + '/' + n.id + '".' : 'Started "' + n.title + '" as a Flightdeck 2.0 run. The old run\'s step says where it continued.', ok === false ? 'warn' : 'good'); render();
+        });
       });
     }, function (err) { done(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   }
@@ -3136,7 +3175,7 @@
       var now = new Date().toISOString();
       fn(r, map, state.me, now);
       /* Recovering a copy that is still running reopens the run: this window becomes its recorder, and that's logged. */
-      if (recoveringEnded && !r.ended && !(r.recorder.person === state.me && r.recorder.session === SESSION)) R.takeOver(r, state.me, SESSION, now);
+      if (recoveringEnded && !r.ended && !(r.recorder.person === state.me && r.recorder.session === SESSION)) R.takeOver(r, state.me, SESSION, now, R.legacyLinks(r, ctx.findRun));
     }
     catch (e) {
       if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + e.field : '[aria-invalid="true"]'; }
@@ -3681,7 +3720,20 @@
       state.planPick = { key: fsKey(), plan: id, hash: plan._hash, folder: p.latest.info.folder };
       state.planDiff = false; state.focus = 'start-submit'; say(null); render();
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    /* A plan/2 switched to another exact version by a person, in so many words: written down (plan-status/2, retargeted) so
+       every window starts it on that version, never on whatever is latest. */
+    'plan-retarget': function (id, b) {
+      var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && processes().filter(function (x) { return x.id === plan.process; })[0], g = gen;
+      var pub = p && (p.all || []).filter(function (x) { return x.info.folder === b.dataset.folder; })[0];
+      if (!plan || !pub || !state.me) return;
+      if (state.planRetargeting) { say('Still switching this plan.', 'warn'); render(); return; }
+      state.planRetargeting = true;
+      queued(function () { return repo.recordPlanStatus(state.fs, plan, WRITER, 'retargeted', null, state.me, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); }).then(function () {
+        state.planRetargeting = false; if (g !== gen) return; state.planDiff = false; state.focus = 'start-submit';
+        return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
+      }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
+    },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me, null, APP_VERSION).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -3740,11 +3792,12 @@
     pause: function () { var why = val('pick-input'); if (!why.trim()) { say('Say why the run is paused, so others know what it\'s waiting for.', 'warn'); render(); return; } state.pick = null; mutate(function (r, map, me, now) { R.pause(r, why, me, now); }); },
     resume: function () { mutate(function (r, map, me, now) { R.resume(r, me, now); }); },
     'start-child': function (id) { startChild(id); },
+    'continue-two': function (id) { continueTwo(id); },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {
       var c = ctx.findRun(b.dataset.child);
       if (!c || !c.parent) return;
-      mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs }, me, now); });
+      mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder }, me, now); });
     },
     timeline: function (id) { state.timeline = !state.timeline; state.overlayFocus = null; state.focus = '[data-act="timeline"]' + (id ? '[data-id="' + cssEsc(id) + '"]' : ''); render(); },
     'start-step': function (id) { mutate(function (r, map, me, now) { R.start(r, map, id, me, now); }); },
@@ -3783,10 +3836,10 @@
         else R.setRole(r, map, e.slice(5), v, me, now);
       });
     },
-    handoff: function () { var to = val('handoff-to'); if (!to) return; mutate(function (r, map, me, now) { R.handOff(r, to, me, now); }); },
+    handoff: function () { var to = val('handoff-to'); if (!to) return; mutate(function (r, map, me, now) { R.handOff(r, to, me, now, R.legacyLinks(r, ctx.findRun)); }); },
     /* Picking up or taking over starts from the newest copy in the folder, never from what this screen showed earlier. */
-    pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
-    takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
+    pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true }); }); },
+    takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
     end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { setView('receipt'); render(); window.scrollTo(0, 0); } }); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
@@ -4399,7 +4452,8 @@
     var plan = state.planId && data.plans.filter(function (x) { return x.id === state.planId; })[0];
     /* Start exactly what was reviewed: the same published version and, for a plan, the same plan content. Only a plan can start
        an older version (the one it was planned on), and only until the person switches to the latest. */
-    var pub = plan ? PF.publish.forPlan(p, plan.version, V.planChoice(ctx, plan)).pub : p.latest;
+    var pick = plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)) : null, pub = plan ? pick.pub : p.latest;
+    if (!pub) { say('This plan\'s version can\'t be used here: ' + pick.ask + '. It won\'t start on another version by itself.', 'warn'); render(); return; }
     if (e.target.dataset.folder !== pub.info.folder) { say(plan ? 'The version this plan starts on changed while you were filling this in. Check the form, then start again.' : 'A new version was published while you were filling this in. Check the form, then start again.', 'warn'); render(); return; }
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     /* Two different copies of the plan (OneDrive kept both): nothing starts until a person deletes one. */
@@ -4409,13 +4463,13 @@
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
-    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION }); }
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me;
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     queued(function () { r.recorder.session = SESSION; return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
-      return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who) : null;
+      return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION) : null;
     }).then(function () { endBusy(); if (sg !== gen) return; state.planId = null; state.planPick = null; state.planDiff = false; return load(true); }).then(function () { if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); render(); },
       function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });
@@ -4445,12 +4499,10 @@
     var whenText = val('plan-when').trim(), parsed = whenText ? U.localDateTime(whenText) : null, when = parsed && parsed.date;
     if (parsed && parsed.error) { state.fieldErr = { id: 'plan-when', msg: parsed.error === 'gap' ? 'That time doesn\'t exist on that day (clocks change); pick another.' : 'Enter a date and time, or leave it blank.' }; state.focus = 'plan-when'; render(); return; }
     state.fieldErr = null;
-    var plan = { kind: 'plan', id: 'plan-' + p.id + '-' + U.randomId(8), process: p.id, version: pub.info.version, title: (val('run-title').trim() || pub.map.meta.title || p.title).slice(0, 100), details: details, roles: roles };
-    if (when) plan.when = when.toISOString();
     var note = val('plan-note').trim();
-    if (note) plan.note = note.slice(0, 300);
-    if (planning.from) plan.from = planning.from;
-    plan.by = state.me; plan.created = new Date().toISOString();
+    /* A 2.0 version is planned as a plan/2 pinned to its exact folder; a 1.x version keeps the number plan every copy reads. */
+    var plan = PF.plans.make(pub, { id: 'plan-' + p.id + '-' + U.randomId(8), process: p.id, title: (val('run-title').trim() || pub.map.meta.title || p.title).slice(0, 100), details: details, roles: roles,
+      when: when ? when.toISOString() : null, note: note ? note.slice(0, 300) : null, from: planning.from || null, by: state.me, created: new Date().toISOString() }, false, APP_VERSION);
     /* One save of a plan form at a time: a second click while it saves would write the same plan twice. */
     if (planning.saving) { say('Still saving this plan.', 'warn'); render(); return; }
     planning.saving = true;
@@ -4802,6 +4854,11 @@
       });
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
+      /* A skill step in a run/3 records the registration as it is when the step is checked (pinned-skills). */
+      if (x.step.type === 'run.skill' && r.format === R.FORMAT3) {
+        var sname = R.fieldsOf(r, x.step).skill, reg = data.skills.filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
+        if (reg) values._skill = PF.skills.observed(reg.skill);
+      }
     }
     return { r: r, map: map, x: x, values: values };
   }

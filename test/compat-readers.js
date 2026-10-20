@@ -45,6 +45,12 @@ async function prepare(PF, fs, version, files) {
   await put('AGENTS.md', AGENTS);
   await put('.flightdeck/write-test-w-avery.tmp', 'x');
   await put('.flightdeck/updates/AGENTS.md', AGENTS + 'An update to merge.\n');
+  // From 2.0: an exact skill registration (skill-registrations/), written only by flightdeck skill register.
+  if (PF.skills && PF.skills.checkV2) {
+    const f = pubFolder(files), info = JSON.parse(files['publications/backup/' + f + '/publication.json']);
+    await put('skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json', JSON.stringify({ format: 'flightdeck-skill/2', app: version, id: 'sk-bbbb2222', rev: 1, seen: null, name: 'restore-report', version: '1.0.0', location: 'https://example.com/skills/restore-report',
+      implements: { process: 'backup', folder: f, mapHash: info.mapHash, typesHash: info.typesHash }, by: 'person-avery', updated: '2026-03-02T09:20:00.000Z' }, null, 2) + '\n');
+  }
   if (PF.connection && PF.repo.sendProbe) await PF.repo.sendProbe(fs, { id: 'k3m9p2q8', n: 1, by: 'person-avery', writer: 'w-avery', device: 'Laptop', at: new Date(CONN_AT).toISOString(), app: version }, CONN_AT);
 }
 
@@ -99,7 +105,8 @@ const FAMILIES = [
   { id: 'app-copy', re: /^(flightdeck|preflight)\.html$/, writer: 'hand', plan: 'not in the plan\'s reader table', readers: [{ via: 'app', from: '1.10.0' }], note: 'read by each release\'s app.js (the newer-copy check reads the head of the file, in a real folder only); test/compat.test.js checks it in each release\'s own page' },
   { id: 'staged', re: /^staged\/.+$/, writer: 'none', readers: [] },
   { id: 'extensions', re: /^extensions\/.+$/, writer: 'none', readers: [] },
-  { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'none', readers: [] },
+  { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'hand', note: 'written only by flightdeck skill register (the command, 2.0), never by the app',
+    readers: [L('2.0.0', d => d.skills.some(s => s.skill && s.skill.regId === 'sk-bbbb2222' && !(s.errors || []).length), 'skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json')] },
   { id: 'reports', re: /^(reports|report-decisions)\/.+$/, writer: 'none', readers: [] }
 ];
 function publishOpts(PF, existing) {

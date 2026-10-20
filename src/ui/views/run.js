@@ -93,22 +93,42 @@
     var d = R.childDetails(r, s, pub.map.meta.context), keys = Object.keys(d);
     return keys.length ? 'Passes on ' + keys.map(function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }).join(', ') : 'Passes on no details';
   }
+  /* A step that runs a skill: what was registered when it was checked (run/3), and a warning, never a block, when the team
+     folder registers another version than skillVersion: expects. */
+  function skillBox(ctx, r, s, a) {
+    var name = R.fieldsOf(r, s).skill, reg = (ctx.data.skills || []).filter(function (x) { return x.skill && x.skill.name === name && !x.unmatched; })[0];
+    var warn = R.skillWarning(r, s, reg ? reg.skill : null), seen = a && a.skill ? PF.skills.observedWords(a.skill) : '';
+    return (seen ? '<p class="small">' + esc(seen) + '.</p>' : '') + (warn ? '<div class="notice warn" role="status"><span>' + esc(warn) + '</span></div>' : '');
+  }
   function childBox(ctx, r, s, a, canStart) {
     var proc = R.fieldsOf(r, s).process, child = a && a.child, key = child && child.process + '/' + child.id, cr = child && ctx.findRun(key);
+    /* The version the child starts on: a run/3's pin, and only its pin; for a run/2, the latest, never a 2.0 version (it
+       offers a 2.0 run instead). */
+    var procOf = ctx.procOf || function (id) { var p = ctx.latestPub(id); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
+    var target = PF.pins.childTarget(r, s, procOf), two = r.format === R.FORMAT3;
+    var pinned = two && r.pins && r.pins.children && r.pins.children[s.id], fromPayload = pinned && r.payload && r.payload.pins && r.payload.pins.children && r.payload.pins.children[s.id];
+    var pinWords = pinned ? '<span class="small">' + esc(PF.pins.words(pinned, target.pub ? target.pub.map.meta.title : null, !!fromPayload)) + '</span>' : '';
+    var cont = a && a.s === 'blocked' && !two && /^Continued in run (\S+)$/.exec(a.reason || '');
+    if (cont) return '<div class="childbox">' + I('nest') + '<span>' + esc(a.reason) + ', made with Flightdeck 2.0.</span>' + (ctx.findRun(cont[1]) ? '<button class="mini" data-act="open-run" data-id="' + esc(cont[1]) + '">Open run</button>' : '') + '</div>';
+    var offer = function (why) { return '<div class="childbox">' + I('nest') + '<span>' + esc(why) + '</span>' + (canStart || (a && a.s === 'blocked') ? '<button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '') + '</div>'; };
     /* A child run that names this step as its parent but isn't the linked one (its link didn't land): offer to link it,
        unless the linked child is still current. */
     var orphan = (ctx.data.runs || []).filter(function (x) { return x.parent && x.parent.process === r.process && x.parent.id === r.id && x.parent.step === s.id && !(child && child.process === x.process && child.id === x.id) && !(x.ended && (R.childVerdict(r, s, { child: { process: x.process, id: x.id, inputs: x.parent.inputs || {} } }, x) || {}).s !== 'done') && R.childCurrent(r, s, { child: { process: x.process, inputs: x.parent.inputs || {} } }); })
+      .filter(function (x) { return two || x.format !== R.FORMAT3; })
       .sort(function (p1, p2) { return p1.created < p2.created ? 1 : -1; })[0];
     if (orphan && canStart && !(child && R.childCurrent(r, s, a) && !child.failed)) return '<div class="childbox">' + I('nest') + '<span>"' + esc(orphan.title) + '" was started for this step but isn\'t linked.</span><button class="btn" data-act="link-child" data-id="' + esc(s.id) + '" data-child="' + esc(orphan.process + '/' + orphan.id) + '">Link it</button></div>';
     if (child) {
       var state = cr ? (cr.ended ? cr.ended.outcome : R.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed;
-      var again = !fresh && canStart && ctx.latestPub(proc) ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(ctx.latestPub(proc).map.meta.title) + ' run</button>' : '';
+      if (!two && cr && cr.format === R.FORMAT3 && !fresh) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
+      var again = !fresh && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
       return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (fresh ? '' : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
     }
-    var pub = ctx.latestPub(proc);
+    var pub = target.pub;
     if (a && (a.s === 'done' || a.s === 'na')) return '';
-    if (!canStart) return '<div class="childbox">' + I('nest') + '<span>Starts a <b>' + esc(proc || '?') + '</b> run when this step is reached.</span></div>';
-    return '<div class="childbox">' + I('nest') + (pub ? '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(r, s, pub)) + '. This step is checked when it completes.</span>' : '<span class="small">"' + esc(proc || '?') + '" isn\'t published in this folder yet.</span>') + '</div>';
+    if (target.legacy) return offer(target.why);
+    if (!canStart) return '<div class="childbox">' + I('nest') + '<span>Starts a <b>' + esc(proc || '?') + '</b> run when this step is reached.</span>' + pinWords + '</div>';
+    if (target.why) return '<div class="childbox">' + I('nest') + '<span class="small">' + esc(target.why) + '</span></div>';
+    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(r, s, pub)) + '. This step is checked when it completes.</span>' + pinWords + '</div>';
   }
 
   /* A phase's note and screenshots (2.0) at the top of the phase, folded with its steps once it's done. Thumbnails load
@@ -483,6 +503,7 @@
       (s.me && !corrOpen ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
     how += fieldsBlock(ctx, r, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
     if (t.id === 'run.process') how += childBox(ctx, r, st, a, rec && work && !(a && (a.s === 'done' || a.s === 'na')));
+    if (t.id === 'run.skill') how += skillBox(ctx, r, st, a);
     /* Timing: elapsed, expected, a deadline copied from the tool, the schedule; Start and Set deadline while it's open. */
     var timing = timerOf(ctx, r, st, a, now) + (sched ? schedBadge(sched) : '') + (st.fields.expect ? '<span class="small">Usually ' + esc(st.fields.expect) + '</span>' : '') +
       (a && a.started && aState !== 'done' && aState !== 'na' ? '<span class="small">' + esc(nameOf(ctx, a.started.by)) + ' started ' + U.hm(a.started.at) + '</span>' : '') +
