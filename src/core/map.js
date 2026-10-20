@@ -84,6 +84,8 @@ PF.map = (function () {
       if ((m = /^\s{2,}>\s?(.*)$/.exec(line))) {
         if (!owner2) { err(i, 'A note must follow a phase heading, a step or a gate.'); continue; }
         owner2.note += (owner2.note ? '\n' : '') + m[1];
+        /* A phase's note line is 2.0 syntax even when it's empty: older copies refuse the line, not its text. */
+        if (owner2 === phase && !step && !gate) phase.noted = true;
         continue;
       }
       if (owner2 && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) {
@@ -228,7 +230,7 @@ PF.map = (function () {
   function features(map) {
     var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false };
     (map.phases || []).forEach(function (p) {
-      if (p.note) has['phase-notes'] = true;
+      if (p.note || p.noted) has['phase-notes'] = true;
       if (p.shots && p.shots.length) has['phase-shots'] = true;
       if (p.gate && p.gate.shots && p.gate.shots.length) has['gate-shots'] = true;
     });

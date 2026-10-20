@@ -86,4 +86,36 @@ TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': 
   assert.ok(!back._unrunnable && back.steps.where && back.steps.where.s === 'done', 'this version reads what ' + t.tag + ' recorded');
 }));
 
+/* Every way the new syntax can be written, alone and in pairs: what this version publishes as /1 must be a checklist every copy
+   from 1.11.1 publishes too (no old parser refuses a /1 version this version writes). */
+const VARIANTS = {
+  'empty phase note': ['## Prepare {#prep}\n', '## Prepare {#prep}\n  >\n'],
+  'blank phase note': ['## Prepare {#prep}\n', '## Prepare {#prep}\n  >   \n'],
+  'two empty phase note lines': ['## Prepare {#prep}\n', '## Prepare {#prep}\n  >\n  >\n'],
+  'phase note': ['## Prepare {#prep}\n', '## Prepare {#prep}\n  > Use the scratch server.\n'],
+  'phase screenshot': ['## Prepare {#prep}\n', '## Prepare {#prep}\n  ![Scratch](images/scratch.png)\n'],
+  'note on the second phase': ['## Close {#close}\n', '## Close {#close}\n  >\n'],
+  'gate screenshot': ['  > The restored copy opens and its row counts match.\n', '  > The restored copy opens and its row counts match.\n  ![Counts](images/counts.png)\n'],
+  'empty gate note line': ['  > The restored copy opens and its row counts match.\n', '  > The restored copy opens and its row counts match.\n  >\n']
+};
+function variants() {
+  const names = Object.keys(VARIANTS), out = [];
+  names.forEach((a, i) => { out.push([a]); names.slice(i + 1).forEach(b => out.push([a, b])); });
+  return out.map(ns => ({ name: ns.join(' + '), md: ns.reduce((md, n) => md.replace(VARIANTS[n][0], VARIANTS[n][1]), G.CHECKLIST) }));
+}
+const lineErrors = (PF, md) => { const map = PF.map.parse(md); return (map.errors || []).map(e => e.msg || e.message || String(e)).concat(PF.map.check(map, { people: G.PEOPLE, types: { 'team.restore': PF.types.customType(G.STEP_TYPE) } }).blockers); };
+TAGS.filter(t => t.supported).forEach((t) => rule(t.tag + ': every checklist this version would publish as /1, across the new syntax and its edge cases, is one it accepts too', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const NEW = H.loadMain(), bad = [];
+  variants().forEach(v => {
+    const mine = lineErrors(NEW, v.md);
+    if (mine.length) return;
+    const two = NEW.publish.features(NEW.map.parse(v.md)).length > 0;
+    if (two) return;
+    const theirs = lineErrors(OLD, v.md);
+    if (theirs.length) bad.push(v.name + ': ' + theirs[0]);
+  });
+  assert.deepStrictEqual(bad, [], 'published as /1 here, refused there');
+}));
+
 run();
