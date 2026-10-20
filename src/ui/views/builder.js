@@ -138,13 +138,19 @@
   }
   /* Steps with open corrections are marked, so whoever edits the draft sees them (B.fix: open groups per step ID). */
   function fixBadge(B, id) { var n = id && B && B.fix && B.fix[id]; return n ? '<span class="badge b-warn">' + n + ' open correction' + (n === 1 ? '' : 's') + '</span>' : ''; }
+  /* A step or phase a change from outside touched (your AI assistant's, or the folder's): a bar and words, until the person's
+     next save, Dismiss or Undo (slice 2). */
+  function incoming(ctx, kind, key) { var ed = ctx.state.editor, inc = ed && ed.incoming; return inc && inc.keys && inc.keys[kind + ':' + key] ? inc : null; }
+  function incWords(inc) { return inc ? '<span class="ob-inc-t">' + (inc.who === 'assistant' ? 'Changed by your AI assistant' : 'Changed in the team folder') + '</span>' : ''; }
   function isNew(ctx, kind, key, track) { var f = ctx.state.obFlash; return !!f && f.kind === kind && f.key === key && (track == null || +f.track === +track); }
   function stepRow(ctx, p, s, sel, B) {
     var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key;
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
       (s.roles.length ? '<span class="ob-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('') + fixBadge(B, s.id);
+    var inc = incoming(ctx, 'step', s.key);
+    if (inc) meta = incWords(inc) + meta;
     return slot(B, 'li', 'step', 'before:' + s.key, '') +
-      '<li class="ob-step' + (on ? ' sel' : '') + (s.odd ? ' odd' : '') + (isNew(ctx, 'step', s.key) ? ' ob-new' : '') + '" draggable="' + !s.odd + '" data-ob-step="' + esc(s.key) + '"><span class="ob-grip" aria-hidden="true"></span>' +
+      '<li class="ob-step' + (on ? ' sel' : '') + (s.odd ? ' odd' : '') + (isNew(ctx, 'step', s.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '" draggable="' + !s.odd + '" data-ob-step="' + esc(s.key) + '"><span class="ob-grip" aria-hidden="true"></span>' +
       '<button type="button" class="ob-pick" data-act="ob-sel" data-id="' + esc(s.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + (t ? I(t.icon, t.label) : I('check', 'Unknown type')) +
       '<span class="ob-row"><span class="ob-txt">' + esc(plain(s.text)) + '</span>' + (meta ? '<span class="ob-meta">' + meta + '</span>' : '') + '</span></button></li>';
   }
@@ -179,8 +185,9 @@
     var gt = ph.gate, gate = gt ? '<div class="fp-gate ob-gate' + (isNew(ctx, 'gate', ph.key) ? ' ob-new' : '') + '"><div class="ob-gate-copy"><span class="fp-gate-t">' + I('gate') + 'Gate: ' + esc(gt.title) + '</span>' + (gt.owner ? '<span class="small">owner @' + esc(gt.owner) + '</span>' : '') + (gt.approves ? '<span class="small">approves ' + esc(plain(gt.approves)) + '</span>' : '') + '</div>' +
       '<button type="button" class="mini" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-focus="ob-g-title" aria-label="Edit gate ' + esc(gt.title) + '">Edit gate</button></div>' :
       slot(B, 'div', 'gate', 'gate:' + ph.key, '') + '<div class="fp-gate implicit ob-gate"><div class="ob-gate-copy"><span class="small">Ends with a check that the phase is done.</span></div><button type="button" class="mini" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-focus="ob-g-title" aria-label="Add a gate to ' + esc(ph.title) + '">' + I('plus') + 'Add a gate</button></div>';
-    return '<li class="ob-phase' + (on ? ' sel' : '') + (isNew(ctx, 'phase', ph.key) ? ' ob-new' : '') + '"><div class="ob-ph-head"><div class="fp-eye">Phase ' + (ph.index + 1) + '</div>' +
-      '<h3 class="ob-ph-h"><button type="button" class="ob-ph-name" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-ob-phase="' + esc(ph.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + esc(title) + '</button></h3>' +
+    var inc = incoming(ctx, 'phase', ph.key);
+    return '<li class="ob-phase' + (on ? ' sel' : '') + (isNew(ctx, 'phase', ph.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '"><div class="ob-ph-head"><div class="fp-eye">Phase ' + (ph.index + 1) + '</div>' +
+      '<h3 class="ob-ph-h"><button type="button" class="ob-ph-name" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-ob-phase="' + esc(ph.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + esc(title) + '</button></h3>' + incWords(inc) +
       (ph.mode ? '<span class="cat">' + esc(ph.mode) + '</span>' : '<span class="cat">No mode</span>') + fixBadge(B, ph.id && 'phase:' + ph.id) + '</div><div class="ob-body">' + body + '</div>' + gate + '</li>';
   }
 

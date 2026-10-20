@@ -17,6 +17,7 @@
   --focus: #2E6BD3; --shadow: 0 1px 0 rgba(22,32,42,.05), 0 8px 24px rgba(22,32,42,.07);
   --chart-mark: #5A55A8; --chart-track: #E3E6EF; --chart-axis: #7D877F; --chart-mid: #16202A;
   --mark: #FCE38A; --on-mark: #16202A;
+  --incoming: #2E6BD3; --on-incoming: #1B4A99;
   --display: 'Barlow Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', sans-serif;
   --body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Cascadia Mono', Consolas, ui-monospace, Menlo, monospace;
@@ -29,14 +30,14 @@
   --go: #3CC08A; --go-soft: #163327; --stop: #F2776C; --stop-soft: #3A1F1D; --plan: #A9A5F2; --plan-soft: #25243F;
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
-  --mark: #6B5410; --on-mark: #FFF4CF; } }
+  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF; } }
 :root[data-theme="dark"] {
   --paper: #0E1418; --card: #162027; --ink: #E6ECEF; --muted: #98A6B0; --line: #29353F; --field: #6E7D88; --chip: #1E2A33;
   --amber: #F2B705; --on-amber: #1A1300; --stripe: #0E1418; --amber-soft: #3A3010;
   --go: #3CC08A; --go-soft: #163327; --stop: #F2776C; --stop-soft: #3A1F1D; --plan: #A9A5F2; --plan-soft: #25243F;
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
-  --mark: #6B5410; --on-mark: #FFF4CF; }
+  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
@@ -547,6 +548,11 @@ button.ob-chip[aria-pressed="true"] { background: var(--amber); color: var(--on-
 .ob-dest:focus-visible > span { outline: 2px solid var(--focus); outline-offset: 2px; }
 @keyframes ob-new { from { box-shadow: 0 0 0 4px var(--amber); } to { box-shadow: 0 0 0 0 transparent; } }
 .ob-new { animation: ob-new .65s ease-out; }
+/* A step or phase a change from outside touched (slice 2): a bar on the left and words, never only a color. */
+.ob-step.ob-inc { box-shadow: inset 4px 0 0 var(--incoming); }
+.ob-step.ob-inc.sel { box-shadow: inset 4px 0 0 var(--incoming), inset 7px 0 0 var(--amber); }
+.ob-phase.ob-inc > .ob-ph-head { box-shadow: inset 4px 0 0 var(--incoming); padding-left: 8px; }
+.ob-inc-t { display: inline-block; font-size: 12px; font-weight: 600; color: var(--on-incoming); overflow-wrap: anywhere; }
 /* The draft editor is a page of its own: a header, messages, then panes that each scroll on their own. */
 html.fpe-on .top { display: none; }
 html.fpe-on #app { padding: 0; max-width: none; }

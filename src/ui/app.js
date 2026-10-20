@@ -570,7 +570,12 @@
       loading = null;
       keepUnread(d);
       keepNewerDrafts(d, seq);
-      notePresence(d);
+      /* Presence, like drafts, is never put back by a read older than the newest one applied (the watcher's included). */
+      var presNewer = presSeq > seq;
+      if (presNewer) d.presence = data.presence; else if (!(d.failed || {}).presence) presSeq = seq;
+      notePresence(d, !presNewer && !(d.failed || {}).presence);
+      /* The folder's read replaced what the watcher had read of proposed/: it reads that process again on its next look. */
+      watch.names = null;
       d.runs = applyRunsRead(d, at);
       R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
@@ -1156,10 +1161,22 @@
       var want = el.defaultValue;
       if (el.tagName === 'SELECT') { want = el.options.length ? el.options[0].value : ''; for (var i = 0; i < el.options.length; i++) if (el.options[i].defaultSelected) want = el.options[i].value; }
       if (el.value === want) return;
-      var mine = document.activeElement === el, a = el.selectionStart, b = el.selectionEnd;
+      var mine = document.activeElement === el, a = el.selectionStart, b = el.selectionEnd, dir = el.selectionDirection, top = el.scrollTop, old = String(el.value);
       el.value = want;
-      if (mine && el.setSelectionRange && a != null) try { el.setSelectionRange(Math.min(a, want.length), Math.min(b, want.length)); } catch (e) { /* not a text field */ }
+      /* The caret and selection (and its direction) move with the text around them, through the one span that changed (a
+         change that arrived while someone was reading); the scroll stays. */
+      if (mine && el.setSelectionRange && a != null) try { el.setSelectionRange(mapAt(old, want, a), mapAt(old, want, b), dir || 'none'); } catch (e) { /* not a text field */ }
+      if (top != null && el.scrollTop !== top) el.scrollTop = top;
     });
+  }
+  /* Where a position in text a lands in text b, through the one span between their common start and end. */
+  function mapAt(a, b, at) {
+    var n = Math.min(a.length, b.length), i = 0, j = 0;
+    while (i < n && a.charCodeAt(i) === b.charCodeAt(i)) i++;
+    while (j < n - i && a.charCodeAt(a.length - 1 - j) === b.charCodeAt(b.length - 1 - j)) j++;
+    if (at <= i) return at;
+    if (at >= a.length - j) return Math.max(0, Math.min(b.length, at + b.length - a.length));
+    return b.length - j;
   }
   /* Removing a focused control during a redraw fires its blur and change events, whose handlers redraw too. A redraw asked
      for during one runs right after it instead, so it never edits the page under the redraw in progress. */
@@ -1220,6 +1237,8 @@
     var target = state.focus ? document.getElementById(state.focus) || app.querySelector(state.focus) || topEl.querySelector(state.focus) : focusKey ? app.querySelector(focusKey) || topEl.querySelector(focusKey) : null;
     /* The page someone was on went away (its skill was removed): focus goes to the way back, next to the message saying so. */
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
+    /* A row that had focus is gone (a change that arrived removed it) and no dialog is open: the editor's heading, never the page. */
+    if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
     state.focus = null;
     /* The caret goes back where it was: from the carried-over value, or for a bound control from the node it had before. */
     var caret = keep[target && target.id] || (ae && target && ae.id && ae.id === target.id && ae.selectionStart != null ? { s: ae.selectionStart, e: ae.selectionEnd } : null);
@@ -1665,12 +1684,24 @@
          an older read finishing late never undoes it. A later read is the folder as it is, whatever it holds. */
       /* Nor while this window's own save of it is still finishing (an Undo made meanwhile is newer than either), nor while
          text typed in the builder's form isn't applied yet (that's unsaved too). */
-      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || !p.draft || state.draftSaving[edKey(p.id)] || (data.readSeq || 0) <= (ed.after || 0)) return;
-      /* Undo steps were taken against the old text; one applied now would bring it back over the newer draft. They stay
-         listed in History, behind a barrier. */
-      var h = U.hash(p.draft.md); if (h !== ed.baseHash) { ed.base = p.draft.md; ed.baseHash = h; ed.text = null; ed.fresh = null; TL.barrier(tlOf(ed), 'The draft changed in the folder here. Earlier changes can\'t be undone.'); }
+      /* A read of this draft (a routine load, or the editor's watcher) counts by its own sequence. */
+      var readAt = p.draft && fileSeq[p.draft.file] != null ? fileSeq[p.draft.file] : data.readSeq || 0;
+      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || !p.draft || state.draftSaving[edKey(p.id)] || readAt <= (ed.after || 0)) return;
+      /* The newer draft is one change in the editor's timeline (slice 2): one Undo takes it back as an unsaved edit, and the
+         changes before it stay undoable. It's already in the folder, so a later save never lists it as the person's. */
+      var h = U.hash(p.draft.md); if (h === ed.baseHash || p.draft.md === ed.base) return;
+      var before = ed.base, after = p.draft.md, ch = PF.proposals.changes(before, after);
+      var mine = ((p.proposed || {}).list || []).some(function (x) { return x.meta && x.meta.rev === draftInfo(p).rev; });
+      var e = TL.record(tlOf(ed), before, after, { kind: 'incoming', label: mine ? 'change from your AI assistant' : 'change from the team folder', lines: true, items: ch.keys });
+      if (e) e.savedAs = h;
+      ed.base = after; ed.baseHash = h; ed.text = null; ed.fresh = null;
+      ed.incoming = { keys: keySet(ch.keys), who: mine ? 'assistant' : 'folder' };
+      if (state.view === 'process' && state.ptab === 'edit' && state.processId === p.id) {
+        say((mine ? 'Your AI assistant changed this draft (applied in another window): ' + PF.proposals.changeWords(ch) + '.' : 'This draft changed in the team folder.') + ' Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+      }
     });
   }
+  function keySet(keys) { var o = {}; keys.forEach(function (k) { o[k] = true; }); return o; }
   /* ---------- drafts as this window last read or saved them (docs/design.md section 27) ----------
      Each draft file carries the sequence of the read (or this window's own save) it came from. A folder read that finishes
      after a newer one, or after this window saved the draft, never puts back the older text it read. */
@@ -1705,6 +1736,8 @@
      While this window holds a draft editor for this folder (on screen, or with unsaved work kept in memory), it rewrites
      presence/<WRITER>.json every 10 s; it removes it when it holds none, and on pagehide. Other windows' presence is fresh by
      its beat in elapsed time (PF.proposals.freshApp). It decides nothing about saving: every save is checked anyway. */
+  /* The sequence (readsStarted) of the read whose presence/ listing data.presence holds. */
+  var presSeq = 0;
   var pres = { memo: {}, beat: 0, at: -Infinity, since: null, written: null, busy: false, cleanAt: -Infinity, fsKey: '' };
   state.claims = {};
   function heldDrafts() {
@@ -1750,10 +1783,11 @@
   setInterval(function () { if (!document.hidden) presenceBeat(false); }, 1000);
   window.addEventListener('pagehide', function () { if (pres.written && pres.fs) { pres.written = null; repo.removePresence(pres.fs, WRITER); } });
   /* What the last read found in presence/, remembered by elapsed time: a beat seen now is fresh for 60 s. */
-  function notePresence(d) {
+  /* listed: presence/ was really listed now (a part that failed keeps the last read, which isn't a new look). */
+  function notePresence(d, listed) {
     var mono = elapsed(), wall = Date.now(), memo = {};
     (d.presence || []).forEach(function (x) { if (!x.rec || x.writer === WRITER) return; memo[x.writer] = PF.proposals.freshApp(x.rec, pres.memo[x.writer], mono, wall).memo; });
-    pres.memo = memo; pres.listedAt = mono;
+    pres.memo = memo; if (listed) pres.listedAt = mono;
   }
   function freshOthers() {
     var mono = elapsed(), wall = Date.now();
@@ -1770,6 +1804,82 @@
       var m = PF.proposals.mainOf(pid, eds.concat([mine])), win = m.writer && eds.concat([mine]).filter(function (r) { return r.writer === m.writer; })[0];
       e.main = { me: m.writer === WRITER, ambiguous: m.ambiguous, claimRev: m.claimRev, by: win ? win.by : '', lost: !!m.writer && m.writer !== WRITER && m.claimRev > 0 };
     });
+  }
+
+  /* ---------- live while you watch (slice 2, docs/design.md section 27) ----------
+     While a draft editor is on screen, every 2 s of elapsed time: list proposed/<process>/, stat the draft, and read it when
+     its size or time changed or 10 s have passed (size and time are never proof, section 25); presence/ is listed again when
+     the last look is 10 s old. Skipped while the tab is hidden, the folder busy, an input method composing, or this draft
+     saving. Then the main editor applies a waiting fast-forward live; otherwise the proposal waits, said once through #live. */
+  var WATCH_MS = 2000, WATCH_FULL_MS = 10000, WATCH_PRES_MS = 10000;
+  var watch = { key: '', at: -Infinity, full: -Infinity, pres: -Infinity, names: null, stamp: null, busy: false };
+  function watchTick() {
+    var p = currentProcess();
+    if (!state.fs || document.hidden || isBusy() || composing || watch.busy || !p) return;
+    if (state.view !== 'process' || state.ptab !== 'edit' || state.draftSaving[edKey(p.id)]) return;
+    var now = elapsed(), key = fsKey() + '|' + p.id;
+    if (watch.key !== key) watch = { key: key, at: -Infinity, full: -Infinity, pres: -Infinity, names: null, stamp: null, busy: false };
+    if (now - watch.at < WATCH_MS) return;
+    var w = watch, sfs = state.fs, g = gen, pid = p.id, file = p.draft ? p.draft.file : pid + '.md', path = 'maps/drafts/' + file, seq = ++readsStarted, changed = false;
+    w.at = now; w.busy = true;
+    var wantPres = now - w.pres >= WATCH_PRES_MS;
+    Promise.all([
+      sfs.list(PF.proposals.DIR + '/' + pid).then(null, function () { return null; }),
+      sfs.stat ? sfs.stat(path).then(null, function () { return null; }) : Promise.resolve(null),
+      wantPres ? repo.loadPresence(sfs).then(null, function () { return null; }) : Promise.resolve(null)
+    ]).then(function (got) {
+      if (g !== gen || watch !== w) return;
+      if (got[2] && seq > presSeq) { presSeq = seq; data.presence = got[2]; notePresence({ presence: got[2] }, true); w.pres = now; changed = true; }
+      var jobs = [], names = got[0] ? got[0].map(function (i) { return i.name; }).sort().join('\n') : null;
+      if (names != null && names !== w.names) jobs.push(repo.loadProposedOne(sfs, pid).then(function (x) {
+        if (g !== gen || watch !== w) return;
+        w.names = names; data.proposed = data.proposed || { procs: {} };
+        if (x) data.proposed.procs[pid] = x; else delete data.proposed.procs[pid];
+        changed = true;
+      }, function () {}));
+      var st = got[1], stamp = st ? st.size + ':' + st.mtime : '-';
+      if (st && p.draft && (stamp !== w.stamp || now - w.full >= WATCH_FULL_MS)) jobs.push(sfs.read(path, { maxBytes: U.DRAFT_BYTES }).then(function (f) {
+        if (g !== gen || watch !== w) return;
+        w.stamp = stamp; w.full = now;
+        if (!f || U.utf8Bytes(f.text) > U.DRAFT_BYTES) return;
+        /* Only a read newer than any other read or save of this file is used (fileSeq), so it never puts back older text. */
+        if ((fileSeq[file] || 0) > seq) return;
+        fileSeq[file] = seq;
+        var old = (data.drafts || []).filter(function (x) { return x.file === file; })[0];
+        if (old && old.md === f.text) return;
+        data.drafts = (data.drafts || []).filter(function (x) { return x.file !== file; }).concat([{ file: file, md: f.text, mtime: f.mtime }]);
+        changed = true;
+      }, function () {}));
+      else if (!st && p.draft) w.stamp = stamp;
+      return Promise.all(jobs);
+    }).then(function () {
+      w.busy = false;
+      if (g !== gen || watch !== w) return;
+      if (changed) { procCache = null; render(); }
+      liveCheck();
+    }, function () { w.busy = false; });
+  }
+  setInterval(watchTick, 1000);
+  /* After a look: apply the oldest waiting fast-forward live when this window may (liveWhy), else say once that it waits. */
+  var whispered = {}, whisperAt = -Infinity;
+  function liveCheck() {
+    var p = currentProcess();
+    if (!p || !p.proposed || state.view !== 'process' || state.ptab !== 'edit') return;
+    var key = fsKey() + '|' + p.id;
+    if (state.propRun[key]) return;
+    var list = p.proposed.list || [], ready = list.filter(function (x) { return x.fit === 'ready' && x.rec && x.rec.auto; });
+    if (ready.length && !liveWhy(p.id)) { acceptProposal(p.id, ready[ready.length - 1].id, 'live', null); return; }
+    var waiting = list.filter(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'already' || x.fit === 'review'; })[0], ed = editorOf(p.id);
+    if (!waiting || whispered[key + '|' + waiting.id]) return;
+    if (whisper(dirty(ed) || state.obPending === p.id ? 'Your AI assistant proposed changes while you have unsaved ones. They\'ll wait for you to review them.' : 'Your AI assistant proposed changes. Review them from the notice in the editor.')) whispered[key + '|' + waiting.id] = true;
+  }
+  /* Said through #live only (the one announcement path), without a notice of its own, moving focus or switching tabs; at
+     most one every 5 s, so a burst of arrivals isn't a burst of speech. */
+  function whisper(text) {
+    var el = document.getElementById('live'), now = elapsed();
+    if (!el || now - whisperAt < 5000) return false;
+    whisperAt = now; el.textContent = text;
+    return true;
   }
 
   /* ---------- proposals: Review, Apply, Decline, Reopen (docs/design.md section 27) ---------- */
@@ -1796,17 +1906,37 @@
     replaced: 'A newer proposal replaces this one.', invalid: 'This proposal can\'t be used.', applied: 'This was already applied.', 'applied-twice': 'This was already applied.',
     declined: 'This was declined. Reopen it to apply it.', unknown: 'A record about this proposal can\'t be read yet. Try again once it has arrived.'
   };
+  /* Why this window can't apply a proposal live (slice 2) right now, or '': the draft's editor is on screen here, nothing is
+     unsaved (no unsaved text, builder text waiting, conflict or composition), nothing is saving, this window is the one
+     unambiguous main editor among the editors it can see, and it listed presence/ in the last 20 s. */
+  /* adopted: the change is already in the editor (so it differs from the draft and is saving); everything else still holds. */
+  function liveWhy(pid, adopted) {
+    var ed = editorOf(pid);
+    if (!ed || document.hidden || state.view !== 'process' || state.ptab !== 'edit' || state.processId !== pid) return 'not open';
+    if ((!adopted && dirty(ed)) || ed.conflict || state.obPending === pid || composing) return 'unsaved';
+    if (!adopted && state.draftSaving[edKey(pid)]) return 'saving';
+    var mine = ownPresence(), m = PF.proposals.mainOf(pid, freshOthers().concat(mine ? [mine] : []));
+    if (m.ambiguous || m.writer !== WRITER) return 'not main';
+    if (!(elapsed() - (pres.listedAt == null ? -Infinity : pres.listedAt) <= PF.proposals.LISTED_MS)) return 'not listed';
+    return '';
+  }
+  state.propRun = {};
   /* The one acceptance transaction for a folder and process (docs/design.md section 27): one at a time per key in this window,
      and inside a Web Lock across this browser's windows. It captures the editor first, rechecks everything when it runs,
-     records an attempt before anything changes, checks again right before saving that nothing changed and that the records
-     are exactly the expected set (the person's reviewed set plus this attempt), saves with the exact text it expects, and
-     only then records applied. Nothing is retried on its own. reviewed: the records a person saw in Review, or null. */
+     records an attempt before anything changes, checks again right before adopting that nothing changed and that the records
+     are exactly the expected set (the person's reviewed set plus this attempt), adopts the text into an open editor as one
+     Undo entry, checks again when the queued save starts (an Undo before then withdraws it), saves with the exact text it
+     expects, and only then records applied. Nothing is retried on its own. how: 'apply' (a person, on the process page or
+     in Review) or 'live' (the main editor, slice 2: only a proposal with no record at all, refusals unsaid). reviewed: the
+     records a person saw in Review, or null. */
   function acceptProposal(pid, id, how, reviewed) {
-    var sfs = state.fs, g = gen, fk = fsKey(), key = fk + '|' + pid, tok = edToken(pid), PP = PF.proposals;
-    var first = propBlocked(propOf(pid, id).p);
-    if (first) { say(first, 'warn'); render(); return Promise.resolve(false); }
+    var sfs = state.fs, g = gen, fk = fsKey(), key = fk + '|' + pid, tok = edToken(pid), PP = PF.proposals, isLive = how === 'live', sk = edKey(pid, fk);
+    var first = propBlocked(propOf(pid, id).p) || (isLive ? liveWhy(pid) : '');
+    if (first) { if (!isLive) { say(first, 'warn'); render(); } return Promise.resolve(false); }
     function live() { return g === gen; }
     function stop(msg, kind, act) { if (live() && msg) { say(msg, kind || 'warn', act); render(); } return false; }
+    /* A refusal before anything was written: said for a person's Apply, never for a live one (the proposal just waits). */
+    function refuse(why) { return stop(why === 'gone' || isLive ? '' : why); }
     /* How it stands, judged with every proposal of the process and all their records as read now (set), never from what
        the page last drew: a replacement or a relative that arrived since counts. */
     function judged(proposal, recs, set) {
@@ -1826,6 +1956,7 @@
       if (U.draftTooBig(r.proposal.text)) return U.draftTooBig(r.proposal.text).why;
       var p = propOf(pid, id).p, why = p ? propBlocked(p) : '';
       if (why) return why;
+      if (isLive && (why = liveWhy(pid))) return why;
       if (!sameToken(tok, edToken(pid))) return 'The draft changed while you were applying it. Look again.';
       return '';
     }
@@ -1835,7 +1966,7 @@
       /* Checked before waiting for the lock, so a refusal is said at once; checked again inside it. */
       return look().then(function (got) {
         var why = eligible(got[0], got[1], got[2]);
-        if (why) return stop(why === 'gone' ? '' : why);
+        if (why) return refuse(why);
         return LOCKS ? lock('preflight:accept:' + fk + '|' + pid, locked) : locked();
       });
     }
@@ -1843,47 +1974,90 @@
       if (!live()) return false;
       return look().then(function (got) {
         var r = got[0], recs = got[1], why = eligible(r, recs, got[2]), openBefore = PP.recState(recs).open;
-        if (why) return stop(why === 'gone' ? '' : why);
+        if (why) return refuse(why);
         var p = propOf(pid, id).p, file = p && p.draft ? p.draft.file : pid + '.md', expectText = p && p.draft ? p.draft.md : null, text = r.proposal.text;
         var at = PP.attempt({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, n: ++attemptN, how: how, from: expectText == null ? null : PP.sha(expectText), by: state.me || '', at: new Date().toISOString() });
-        var mineSha = PP.sha(JSON.stringify(at.rec, null, 2) + '\n'), expected = (reviewed || []).concat([{ name: at.name, sha: mineSha }]);
+        var mineSha = PP.sha(JSON.stringify(at.rec, null, 2) + '\n'), expected = (reviewed || []).concat([{ name: at.name, sha: mineSha }]), mine = WRITER + '.' + attemptNo(at), adopted = null;
         return repo.writeRecord(sfs, pid, at.name, at.rec).then(function () {
           /* Immediately before adopting: nothing changed here, and the records are exactly the expected set. */
           return Promise.all([repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]).then(function (now) {
-            if (!still(now[0], now[1])) return outcome('cancelled');
+            if (!stillEditor(tok) || !stillRecords(now[0], now[1])) return outcome('cancelled');
+            adopted = adopt();
             return queued(function () {
               return Promise.all([repo.listRecords(sfs, pid, id), repo.loadProposalSet(sfs, pid)]).then(function (again) {
-                if (!still(again[0], again[1])) return { cancelled: true };
+                /* When the save starts: an Undo of the adopted change since then withdraws it; anything else changed cancels it. */
+                if (adopted && undone()) return { withdrawn: true };
+                if (!stillEditor(adopted ? adopted.tok : tok) || !stillRecords(again[0], again[1])) return { cancelled: true };
+                /* Live: still allowed to apply live (shown, the main editor, presence/ looked at lately); otherwise the change
+                   stays in the editor, unsaved, for the person to save or undo. */
+                if (isLive && liveWhy(pid, true)) return { cancelled: true, kept: true };
                 return repo.saveDraft(sfs, file, text, expectText == null ? null : U.hash(expectText), { lock: LOCKS ? lock : null, expectText: expectText });
               });
             }).then(function (res) {
+              if (adopted) delete state.draftSaving[sk];
+              if (res.withdrawn) { if (adopted.ed.incoming) adopted.ed.incoming = null; return outcome('withdrawn', null, 'You took back your AI assistant\'s change. It\'s listed on the process page if you want it later.'); }
+              if (res.cancelled && res.kept) return outcome('cancelled', null, 'Your AI assistant\'s change is in the editor but wasn\'t saved: this window stopped applying changes live (hidden, or no longer the main editor). Save the draft to keep it, or Undo it.');
               if (res.cancelled) return outcome('cancelled');
-              if (!res.ok) return outcome('not-saved', null, 'Not saved: someone else changed this draft. Review the proposal again on the process page.');
+              if (!res.ok) {
+                /* Adopted, then refused: the proposal's text stays in the editor, unsaved, with today's conflict panel. */
+                var ce = editorOf(pid, fk);
+                if (adopted && ce === adopted.ed && res.conflict) { ce.conflict = res; ce.baseHash = expectText == null ? null : U.hash(expectText); }
+                /* Written, then replaced by another change before the read-back: it was saved, so it never says it wasn't. */
+                if (res.afterWrite) return outcome('overwritten', null, 'Your save was written, then replaced by another change. Compare them ' + (adopted ? 'below' : 'in the editor') + '. Your AI assistant\'s change is listed on the process page.');
+                return outcome('not-saved', null, isLive ? 'Not saved: someone else changed this draft.' : 'Not saved: someone else changed this draft. Review the proposal again on the process page.');
+              }
               if (live() && fsKey() === fk) {
                 savedDraft(file, text);
+                /* The adopted editor now starts from what was saved. Typing, or an Undo, since the save started stays, unsaved. */
                 var ed = editorOf(pid);
-                if (ed && !dirty(ed) && !ed.conflict && state.obPending !== pid) { ed.base = text; ed.baseHash = res.hash; ed.text = null; ed.after = readsStarted; if (ed.tl) TL.barrier(ed.tl, 'Your AI assistant\'s change was applied here. Earlier changes can\'t be undone.'); }
+                if (adopted && ed === adopted.ed) { ed.base = text; ed.baseHash = res.hash; ed.after = readsStarted; ed.conflict = null; if (ed.text === text) ed.text = null; if (adopted.entry) TL.saved([adopted.entry], res.hash); }
               }
               logSave(sfs, fk, { kind: 'draft-edit', id: pid, from: expectText == null ? null : U.hash(expectText), to: res.hash, before: expectText == null ? '' : expectText, after: text, source: 'proposal', proposal: id, units: ['Applied your AI assistant\'s change'], items: [] });
-              return outcome('applied', { rev: PP.sha(text) });
-            }, function (e) { return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the process page.'); });
+              var words = PP.changeWords(adopted ? adopted.ch : PP.changes(expectText == null ? '' : expectText, text)), here = adopted && state.view === 'process' && state.processId === pid;
+              return outcome('applied', { rev: PP.sha(text) }, isLive ? 'Your AI assistant changed this draft: ' + words + '. Undo available.' : 'Applied your AI assistant\'s change to the draft' + (here ? '. Undo available.' : '.'), here ? { act: 'tl-undo', id: 'draft', label: 'Undo' } : null);
+            }, function (e) {
+              if (adopted) delete state.draftSaving[sk];
+              return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the process page.');
+            });
           });
-          function still(list, set) {
+          /* The editor as captured (t): the same object, text, base, conflict and builder text, nothing blocking, the draft as it was. */
+          function stillEditor(t) {
             if (!live() || fsKey() !== fk) return false;
+            var p2 = propOf(pid, id).p;
+            if (!sameToken(t, edToken(pid)) || composing || state.obPending === pid || (p2 && p2.draft ? p2.draft.md : null) !== expectText) return false;
+            if (!adopted && p2 && propBlocked(p2)) return false;
+            if (isLive && !adopted && liveWhy(pid)) return false;
+            return true;
+          }
+          function stillRecords(list, set) {
             var x = judged(r.proposal, list.filter(function (y) { return y.name !== at.name; }), set);
             if (!x || x.fit !== 'ready') return false;
-            var p2 = propOf(pid, id).p;
-            if (!sameToken(tok, edToken(pid)) || (p2 && propBlocked(p2)) || (p2 && p2.draft ? p2.draft.md : null) !== expectText) return false;
-            return PP.sameSet(PP.reviewed(list) || [], expected) && !list.some(function (x) { return !x.rec; });
+            return PP.sameSet(PP.reviewed(list) || [], expected) && !list.some(function (y) { return !y.rec; });
           }
-          function outcome(status, result, msg) {
+          /* Adopt (an open editor in this folder, which has nothing unsaved): the proposal's text, as one Undo entry. Its save is
+             queued; until it starts, the editor shows it as saving and an Undo withdraws it. */
+          function adopt() {
+            var ed = fsKey() === fk ? editorOf(pid) : null;
+            if (!ed) return null;
+            var before = ed.text != null ? ed.text : ed.base, ch = PP.changes(before, text);
+            var e = TL.record(tlOf(ed), before, text, { kind: 'incoming', label: 'change from your AI assistant', lines: true, items: ch.keys, adopt: { proposal: id, attempt: mine } });
+            ed.text = text; ed.incoming = { keys: keySet(ch.keys), who: 'assistant' };
+            state.draftSaving[sk] = 'save';
+            render();
+            return { ed: ed, entry: e, tok: edToken(pid), ch: ch, before: before };
+          }
+          function undone() {
+            var ed = editorOf(pid, fk);
+            return ed === adopted.ed && !!adopted.entry && TL.peek(tlOf(ed)).undo !== adopted.entry && !dirty(ed) && state.obPending !== pid;
+          }
+          function outcome(status, result, msg, act) {
             return repo.listRecords(sfs, pid, id).then(function (list) {
               /* An application settles the attempts the person reviewed as open, too (Apply again); other outcomes only their own. */
-              var mine = WRITER + '.' + attemptNo(at), settles = status === 'applied' ? openBefore.concat([mine]) : [mine];
+              var settles = status === 'applied' ? openBefore.concat([mine]) : [mine];
               var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: mine, settles: settles, result: result, by: state.me || '', at: new Date().toISOString() });
               return repo.writeRecord(sfs, pid, d.name, d.rec);
             }).then(function () { return true; }, function () { return false; }).then(function (recorded) {
-              if (status === 'applied') { stop(recorded ? 'Applied your AI assistant\'s change to the draft.' : 'Applied your AI assistant\'s change to the draft, but recording that didn\'t save. The process page shows it as May already be applied.', recorded ? 'good' : 'warn'); if (live()) load(true); return true; }
+              if (status === 'applied') { stop(recorded ? msg : msg.replace(/(\. Undo available)?\.$/, '') + ', but recording that didn\'t save. The process page shows it as May already be applied.', recorded ? 'good' : 'warn', recorded ? act : null); if (live()) load(true); return true; }
               stop(msg || 'Your AI assistant\'s change wasn\'t applied because the draft changed while it was being applied. Review it on the process page.', 'warn');
               if (live()) load(true);
               return false;
@@ -1895,8 +2069,10 @@
       });
     }
     var prev = state.propTx[key] || Promise.resolve();
+    state.propRun[key] = (state.propRun[key] || 0) + 1;
     var p = prev.then(run, run);
-    state.propTx[key] = p.then(null, function () {});
+    var done = function () { state.propRun[key] = Math.max(0, (state.propRun[key] || 1) - 1); };
+    state.propTx[key] = p.then(done, done);
     return p;
   }
   function attemptNo(at) { return /\.(\d+)\.json$/.exec(at.name)[1]; }
@@ -2025,7 +2201,7 @@
         if (ed) { if (ed.text == null) ed.text = text; ed.baseHash = expectHash; ed.conflict = res; }
         else setEditor({ pid: p.id, fsKey: key, text: text, base: '', baseHash: expectHash, conflict: res });
         if (g !== gen) return;
-        if (here) state.ptab = 'edit'; else say('The draft of ' + p.title + ' wasn\'t saved: someone else changed it. Open it to compare.', 'warn');
+        if (here) state.ptab = 'edit'; else say(res.afterWrite ? 'Your save of the draft of ' + p.title + ' was written, then replaced by another change. Open it to compare.' : 'The draft of ' + p.title + ' wasn\'t saved: someone else changed it. Open it to compare.', 'warn');
         render();
         /* A draft that was missing and is back (a recovery that found a new file) needs the folder read to show it. */
         if (!p.draft) return load(true);
@@ -2034,7 +2210,7 @@
       /* Saved: the editor now starts from what was saved. Anything typed while it saved stays, as unsaved changes. */
       /* Undo steps survive a save: undoing one makes the draft unsaved again, and saving it is checked like any other. A
          restore replaced the text, so nothing before it can be undone. Parts saved are no longer new. */
-      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.fresh = null; }
+      if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.fresh = null; ed.incoming = null; }
       else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
       if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
       else TL.saved(carried, res.hash);
@@ -2386,6 +2562,8 @@
     /* Undo of an applied correction from the process page: the draft is now unsaved, so the editor shows it. */
     if (p && state.view === 'process' && state.ptab !== 'edit') state.ptab = 'edit';
     if (p) {
+      /* A change that arrived (your AI assistant's, or the folder's) is highlighted while it's there; Undo takes that away too. */
+      if (r.entry.kind === 'incoming') ed.incoming = redo ? { keys: keySet(r.entry.items), who: /AI assistant/.test(r.entry.label) ? 'assistant' : 'folder' } : null;
       ed.text = r.text; obClearErr(); state.planFormReset = !adding; state.obPlace = null; state.obAsk = null; state.obFlash = null;
       if (r.sel && 'obSel' in r.sel) {
         state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd;
@@ -2940,7 +3118,7 @@
       var b = state.recBack || { view: 'settings' };
       state.recBack = null; setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
     },
-    dismiss: function () { say(null); render(); announceRelease(); },
+    dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
     refresh: function () { load(true, true); },
     connect: function () { connect(); },
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; useFs(folderFs(rec)); } }); },

@@ -11,8 +11,9 @@ PF.proposals = (function () {
   var BEAT_MS = 10000, FRESH_MS = 60000, AHEAD_MS = 600000, CLEAN_MS = 86400000, CLEAN_MAX = 20, LISTED_MS = 20000;
   var ID = /^p-[a-z0-9]{1,12}-[a-z0-9]{10}$/, PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,59}$/, SESSION = /^[a-z0-9][a-z0-9-]{0,59}$/, SHA = /^[0-9a-f]{64}$/;
   var BASES = ['draft', 'proposal', 'version', 'none'], HOW = ['live', 'apply'];
-  /* What a decision can say: a person's (applied, declined, reopened) and an attempt's outcome (withdrawn, not-saved, cancelled). */
-  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled', 'replaced'];
+  /* What a decision can say: a person's (applied, declined, reopened) and an attempt's outcome (withdrawn, not-saved, cancelled,
+     overwritten: its save was written, then replaced by another change before the read-back). */
+  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled', 'replaced', 'overwritten'];
   /* A person's decisions (and the command line's replaced): the latest of these decides; an attempt's outcome never overrides them. */
   var DECIDING = { applied: 1, declined: 1, reopened: 1, replaced: 1 };
   /* The command line's contract, flightdeck-draft/1: every field and word docs/apps.md must document (test/build.test.js). */
@@ -211,6 +212,63 @@ PF.proposals = (function () {
     return { added: added, removed: removed, renamed: renamed };
   }
 
+  /* What a change did to the steps and phases, by their outline keys (the ID, or the position for one without): changed (its
+     lines differ), moved (the same lines in another phase or lane, or out of order with the rest), added, removed. keys:
+     what the editor highlights afterwards ('step:<key>', 'phase:<key>'). */
+  function changes(before, after) {
+    var A = PF.outline.parse(String(before)), B = PF.outline.parse(String(after));
+    function steps(o) { return o.steps.map(function (s) { return { key: s.key, id: s.key.charAt(0) !== '#', src: o.lines.slice(s.line, s.end).join('\n'), at: (s.phase ? s.phase.key : '') + '|' + s.track }; }); }
+    function phases(o) { return o.phases.map(function (p) { return { key: p.key, id: p.key.charAt(0) !== '#', src: [o.lines[p.line], p.gate ? o.lines.slice(p.gate.line, p.gate.end).join('\n') : ''].join('\n'), at: '' }; }); }
+    /* Parts with an ID are matched by it; a part without one (its key is only its position) by its exact lines and where it
+       is, so a step added above it doesn't make it look changed. Order: the parts matched in both, kept in the longest
+       common order; the rest of them moved. */
+    function diffOf(a, b) {
+      var byId = {}, free = {}, out = { changed: [], moved: [], added: [], removed: [] }, pairs = [];
+      a.forEach(function (x, i) { x.i = i; if (x.id) byId[x.key] = x; else (free[x.at + '\n' + x.src] = free[x.at + '\n' + x.src] || []).push(x); });
+      b.forEach(function (y) {
+        if (y.id) {
+          var x = byId[y.key]; if (!x) { out.added.push(y.key); return; }
+          delete byId[y.key]; pairs.push([x, y]);
+          if (x.src !== y.src) out.changed.push(y.key); else if (x.at !== y.at) out.moved.push(y.key);
+          return;
+        }
+        var f = free[y.at + '\n' + y.src];
+        if (f && f.length) pairs.push([f.shift(), y]); else out.added.push(y.key);
+      });
+      Object.keys(byId).forEach(function (k) { out.removed.push(k); });
+      Object.keys(free).forEach(function (k) { free[k].forEach(function (x) { out.removed.push(x.key); }); });
+      /* Out of order within its own phase and lane (moving a whole phase doesn't move its steps): not in the longest
+         increasing run of old positions there (patience sorting, n log n). */
+      var groups = {};
+      pairs.forEach(function (q) { if (q[0].at === q[1].at) (groups[q[1].at] = groups[q[1].at] || []).push(q); });
+      Object.keys(groups).forEach(function (g) {
+        var list = groups[g], seq = list.map(function (q) { return q[0].i; }), tails = [], prev = [];
+        seq.forEach(function (v, i) {
+          var lo = 0, hi = tails.length; while (lo < hi) { var m = (lo + hi) >> 1; if (seq[tails[m]] < v) lo = m + 1; else hi = m; }
+          prev[i] = lo ? tails[lo - 1] : -1; tails[lo] = i;
+        });
+        var keep = {}, k = tails.length ? tails[tails.length - 1] : -1; while (k >= 0) { keep[k] = true; k = prev[k]; }
+        list.forEach(function (q, i) { var key = q[1].key; if (!keep[i] && out.changed.indexOf(key) < 0 && out.moved.indexOf(key) < 0) out.moved.push(key); });
+      });
+      return out;
+    }
+    var s = diffOf(steps(A), steps(B)), p = diffOf(phases(A), phases(B));
+    function keys(d, kind) { return d.changed.concat(d.moved, d.added).map(function (k) { return kind + ':' + k; }); }
+    return { steps: s, phases: p, keys: keys(s, 'step').concat(keys(p, 'phase')) };
+  }
+  /* "2 steps changed, 1 moved, 1 added, 1 phase moved"; with no step or phase touched, "the details at the top changed". */
+  function changeWords(c) {
+    var out = [];
+    [['step', c.steps], ['phase', c.phases]].forEach(function (x) {
+      var d = x[1], first = true;
+      [['changed', d.changed.length], ['moved', (d.moved || []).length], ['added', d.added.length], ['removed', d.removed.length]].forEach(function (y) {
+        if (!y[1]) return;
+        out.push(first ? y[1] + ' ' + x[0] + (y[1] === 1 ? '' : 's') + ' ' + y[0] : y[1] + ' ' + y[0]); first = false;
+      });
+    });
+    return out.length ? out.join(', ') : 'the details at the top changed';
+  }
+
   /* ---------- the comparison Review shows: Myers, line by line, capped at 2,000 differences ---------- */
   var DIFF_MAX = 2000, CONTEXT = 3;
   function diff(a, b, cap) {
@@ -313,6 +371,6 @@ PF.proposals = (function () {
   return { DIR: DIR, PRESENCE: PRESENCE, FILE_MAX: FILE_MAX, TEXT_MAX: TEXT_MAX, LIST_MAX: LIST_MAX, BEAT_MS: BEAT_MS, FRESH_MS: FRESH_MS, AHEAD_MS: AHEAD_MS, CLEAN_MS: CLEAN_MS, CLEAN_MAX: CLEAN_MAX, LISTED_MS: LISTED_MS,
     ID: ID, PROC: PROC, WRITER: WRITER, SESSION: SESSION, SHA: SHA, STATUSES: STATUSES, CLI: CLI, DIFF_MAX: DIFF_MAX,
     sha: sha, newId: newId, textProcess: textProcess, make: make, check: check, parseName: parseName, attempt: attempt, decision: decision, cleanRecord: cleanRecord,
-    recState: recState, reviewed: reviewed, sameSet: sameSet, judge: judge, baseFor: baseFor, ids: ids, diff: diff,
+    recState: recState, reviewed: reviewed, sameSet: sameSet, judge: judge, baseFor: baseFor, ids: ids, diff: diff, changes: changes, changeWords: changeWords,
     presence: presence, presenceName: presenceName, cleanPresence: cleanPresence, freshCli: freshCli, freshApp: freshApp, mainOf: mainOf, claim: claim };
 })();

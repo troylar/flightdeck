@@ -289,6 +289,24 @@ rule('Saved history: a draft that went back and forth between two texts 10,000 t
   assert.ok(out[0].entry.id === 'e9999' && !out.some(x => x.gap), 'one chain, newest first');
 });
 
+rule('Timeline: a change that arrives from outside (your AI assistant\'s, or a newer draft) is one entry, never joined with typing, that one Undo takes back whole', () => {
+  const tl = TL.create(), a = '## Prep · READ-DO\n- [ ] {confirm} One {#one}\n- [ ] {confirm} Two {#two}\n';
+  const typed = typeInto(tl, a, a.indexOf('One') + 3, 'x', 1000);
+  const b = typed.replace('Two', 'Two, changed').replace('One', 'Uno');
+  const e = TL.record(tl, typed, b, { kind: 'incoming', label: 'change from your AI assistant', lines: true, items: ['step:one', 'step:two'], adopt: { proposal: 'p-a1-aaaaaaaaaa', attempt: 'w1.1' }, at: 1050 });
+  assert.ok(e && e.kind === 'incoming' && e.closed, 'its own entry, closed');
+  same(e.adopt, { proposal: 'p-a1-aaaaaaaaaa', attempt: 'w1.1' });
+  assert.strictEqual(tl.entries.length, 2);
+  const next = typeInto(tl, b, b.length - 1, 'y', 1100);
+  assert.strictEqual(tl.entries.length, 3, 'typing after it starts a new unit');
+  TL.undo(tl, next);
+  const u = TL.undo(tl, b);
+  assert.strictEqual(u.text, typed, 'one Undo takes the whole change back');
+  assert.strictEqual(TL.describe(u.entry), 'the change from your AI assistant');
+  assert.ok(!TL.peek(tl).locked, 'no barrier: what was typed before it can still be undone');
+  assert.strictEqual(TL.undo(tl, typed).text, a);
+});
+
 rule('Saved history reads the sources agent and proposal and the proposal a save applied; an older reader says plain Saved', () => {
   const line = o => JSON.parse(JSON.stringify(TL.histLine(Object.assign({ kind: 'draft-edit', id: 'h1', process: 'release', writer: 'p-mh4k2a-x7w1k3m9p2', seq: 1, by: 'person-avery', at: '2026-10-19T09:00:00.000Z', from: 'abcdef01', to: 'abcdef02', seen: null, before: 'a\n', after: 'b\n', units: [], items: [] }, o))));
   const agent = TL.cleanEntry(line({ source: 'agent' }), 'agent-p-mh4k2a-x7w1k3m9p2.jsonl');

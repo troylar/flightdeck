@@ -2239,6 +2239,27 @@ rule('Editor: a proposal that arrives says so with Review, and with unsaved chan
   assert.ok(!/class="fpe-alerts"[^>]*aria-live/.test(V.process(ctx)));
 });
 
+rule('Editor, slice 2: a change from your AI assistant is highlighted with words on its steps; the notices and messages there have no live role (#live announces them once)', () => {
+  const { ctx, state, p, md } = proposalPage();
+  state.ptab = 'edit'; state.builder = true;
+  state.editor = { pid: 'release', base: md, baseHash: 'x', text: null, incoming: { keys: { 'step:flags': true }, who: 'assistant' } };
+  p.proposed = { list: [item('p-a1-aaaaaaaaaa', 'older')], bad: [], older: 0 };
+  state.msg = { text: 'Your AI assistant changed this draft: 1 step changed. Undo available.', kind: 'good', act: 'tl-undo', id: 'draft', label: 'Undo' };
+  const html = V.process(ctx);
+  assert.ok(/class="ob-step[^"]*\bob-inc\b[^"]*"[^>]*data-ob-step="flags"/.test(html), 'the changed step is marked');
+  assert.ok(/<span class="ob-inc-t">Changed by your AI assistant<\/span>/.test(html), 'in words, not only a color');
+  assert.strictEqual((html.match(/ob-inc-t/g) || []).length, 1, 'only that step');
+  const alerts = html.slice(html.indexOf('class="fpe-alerts"'), html.indexOf('</div>', html.indexOf('Your AI assistant proposed changes')));
+  assert.ok(/Your AI assistant changed this draft: 1 step changed\. Undo available\./.test(alerts) && /data-act="tl-undo"/.test(alerts) && /data-act="dismiss"/.test(alerts));
+  assert.ok(!/role="(status|alert)"[^>]*><span>(Your AI assistant|This draft)/.test(alerts), 'no live role on these notices');
+  state.editor.incoming.who = 'folder';
+  assert.ok(/<span class="ob-inc-t">Changed in the team folder<\/span>/.test(V.process(ctx)));
+  // Phone width: the words wrap with the row (no fixed widths), and the tokens exist in both themes (page.html).
+  const page = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  assert.strictEqual((page.match(/--incoming:/g) || []).length, 3, 'light, and both dark blocks');
+  assert.strictEqual((page.match(/--on-incoming:/g) || []).length, 3);
+});
+
 rule('Review: the change against the draft, its checks, what happened before, and the right actions; nothing from the file reaches the page unescaped', () => {
   const { ctx, md } = proposalPage();
   const evil = '<img src=x onerror=alert(1)>';
