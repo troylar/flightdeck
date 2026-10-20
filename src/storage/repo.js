@@ -97,20 +97,24 @@ PF.repo = (function () {
     });
   }
 
-  function bytesHash(blob) {
-    return blob.arrayBuffer().then(function (buf) {
-      var b = new Uint8Array(buf), s = '';
-      for (var i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
-      return U.hash(s);
-    });
+  function bytesOf(blob) { return blob.arrayBuffer().then(function (buf) { return new Uint8Array(buf); }); }
+  function fnvBytes(b) {
+    var s = '';
+    for (var i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
+    return U.hash(s);
   }
+  function bytesHash(blob) { return bytesOf(blob).then(fnvBytes); }
+  /* Every screenshot a version records must be there and match: its fingerprint, and for a /2 version the SHA-256 of its
+     exact bytes in the payload too. */
   function checkImages(fs, base, res) {
     var imgs = res.ok && res.info.images ? Object.keys(res.info.images) : [];
+    var strong = res.ok && res.info.format === P.FORMAT2 && res.info.payload ? res.info.payload.images : null;
     return imgs.reduce(function (p, src) {
       return p.then(function (r) {
         if (!r.ok) return r;
-        return fs.blob(base + src).then(function (b) { return b ? bytesHash(b) : null; }).then(function (h) {
-          return h === res.info.images[src] ? r : { ok: false, why: h ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
+        return fs.blob(base + src).then(function (b) { return b ? bytesOf(b) : null; }).then(function (b) {
+          var good = !!b && fnvBytes(b) === res.info.images[src] && (!strong || PF.sha256.create().update(b).digest() === strong[src]);
+          return good ? r : { ok: false, why: b ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
         });
       });
     }, Promise.resolve(res));
@@ -1078,13 +1082,14 @@ PF.repo = (function () {
     var parsed = PF.map.parse(draftMd), process = parsed.meta.process, base = 'publications/' + process + '/' + built.folder + '/';
     /* Reference screenshots are copied into the publication with a fingerprint each, so replacing one in images/ later never changes
        an old version's instructions. A screenshot that isn't in the folder stops the publish rather than vanishing from it. */
-    var shots = [], blobs = {};
-    PF.map.steps(parsed).forEach(function (x) { x.step.shots.forEach(function (sh) { if (shots.indexOf(sh.src) < 0) shots.push(sh.src); }); });
+    var shots = PF.map.shotSources(parsed), blobs = {};
     var read = shots.reduce(function (p, src) { return p.then(function (missing) { return fs.blob(src).then(function (b) { if (!b) return missing.concat([src]); blobs[src] = b; return missing; }); }); }, Promise.resolve([]));
     return read.then(function (missing) {
       if (missing.length) return { blockers: missing.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; }) };
-      return shots.reduce(function (p, src) { return p.then(function (m) { return bytesHash(blobs[src]).then(function (h) { m[src] = h; return m; }); }); }, Promise.resolve({})).then(function (images) {
-        var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, rand: built.folder.replace(/^v\d+-/, '') })) : built;
+      var bytes = {};
+      return shots.reduce(function (p, src) { return p.then(function (m) { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; m[src] = fnvBytes(b); return m; }); }); }, Promise.resolve({})).then(function (images) {
+        var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, imageBytes: bytes, rand: built.folder.replace(/^v\d+-/, '') })) : built;
+        if (rebuilt.blockers) return rebuilt;
         return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
       });

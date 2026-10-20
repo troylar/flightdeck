@@ -2,7 +2,8 @@
 PF.publish = (function () {
   'use strict';
   var U = PF.util, M = PF.map, T = PF.types;
-  var FORMAT = 'preflight-publication/1';
+  var FORMAT = 'preflight-publication/1', FORMAT2 = 'preflight-publication/2';
+  var HEX64 = /^[0-9a-f]{64}$/;
   var NEWER = 'This version uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
 
   /* Each publish gets its own folder (v5-k3m9p2q8), so two people publishing at once never write the same files. */
@@ -25,13 +26,30 @@ PF.publish = (function () {
     var version = nextVersion(opts.existing), folder = folderName(version, opts.rand);
     var types = T.freeze(M.usedTypes(map), opts.customTypes);
     var typesJson = JSON.stringify(types, null, 2);
-    var info = {
-      format: FORMAT, process: map.meta.process, title: map.meta.title, version: version, folder: folder,
+    /* Lowest sufficient format (docs/design.md section 28): /1 unless the checklist uses a 2.0 feature, so every older copy
+       keeps running a version that needs nothing new. */
+    var feats = features(map), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
+    var images = opts.images || {}, bytes = opts.imageBytes || {};
+    if (feats.length) {
+      var missing = Object.keys(images).filter(function (src) { return !bytes[src]; });
+      if (missing.length) return { blockers: ['Screenshot ' + missing[0] + ' hasn\'t been read yet. Try publishing again.'] };
+    }
+    var info = env.format ? { format: env.format, features: env.features } : { format: FORMAT };
+    if (env.app) info.app = env.app;
+    var base = {
+      process: map.meta.process, title: map.meta.title, version: version, folder: folder,
       publishedBy: opts.by, publishedAt: opts.now, changes: changes.slice(0, 200),
       mapHash: U.hash(draftMd), typesHash: U.hash(typesJson)
     };
+    Object.keys(base).forEach(function (k) { info[k] = base[k]; });
     /* Reference screenshots copied into this version, each with a fingerprint, so a version is complete only when they've all arrived intact. */
-    info.images = opts.images || {};
+    info.images = images;
+    /* A /2 version also freezes its payload: SHA-256 over the exact bytes of every file it holds. */
+    if (feats.length) {
+      var imgBytes = {};
+      Object.keys(images).forEach(function (src) { imgBytes[src] = bytes[src]; });
+      info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes });
+    }
     /* The corrections this version includes, from PF.corrections.forPublish. Older copies ignore the field (verify reads only
        what it checks), so a version that has it runs everywhere a version without it does. */
     if (Array.isArray(opts.corrections) && opts.corrections.length) info.corrections = opts.corrections.slice(0, 500).map(function (c) {
@@ -63,6 +81,44 @@ PF.publish = (function () {
     return '';
   }
 
+  /* The 2.0 features a checklist uses (PF.map.features), which decide its version's format. */
+  function features(map) { return M.features(map); }
+
+  function sha(data) { return PF.sha256.create().update(data).digest(); }
+  /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes } }. Slots
+     for extensions and pins exist and stay empty until the slices that write them. */
+  function payload(files) {
+    var images = {}, src = (files && files.images) || {};
+    Object.keys(src).forEach(function (p) { images[p] = sha(src[p]); });
+    return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: {}, skills: {} } };
+  }
+  /* The payload of any readable version: a /2 version's own, or the one a /1 version implies from its fingerprints. */
+  function payloadOf(info) {
+    if (info && info.payload && typeof info.payload === 'object' && info.format === FORMAT2) return info.payload;
+    var images = {}, src = info && isObj(info.images) ? info.images : {};
+    Object.keys(src).forEach(function (k) { images[k] = src[k]; });
+    return { implied: true, map: info.mapHash, types: info.typesHash, images: images, extensions: {}, pins: {} };
+  }
+  function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  /* A /2 version whose payload this copy can't read or check (missing, odd, or with a pin or extension it doesn't have): a
+     later Flightdeck wrote it, so it's refused like a newer format, by name, never read for meaning. */
+  function payloadShapeOk(info) {
+    var p = info.payload;
+    if (!isObj(p) || !isObj(p.images) || !isObj(p.extensions) || !isObj(p.pins)) return false;
+    if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return false;
+    if (!HEX64.test(p.map) || !HEX64.test(p.types) || Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return false;
+    if (Object.keys(p.extensions).length) return false;
+    return Object.keys(p.pins).every(function (k) { return (k === 'children' || k === 'skills') && isObj(p.pins[k]) && !Object.keys(p.pins[k]).length; });
+  }
+  /* Why a readable /2 version's files don't match its payload, or null. */
+  function payloadProblem(info, files) {
+    var p = info.payload, have = Object.keys(isObj(info.images) ? info.images : {}).sort(), want = Object.keys(p.images).sort();
+    if (have.join('\n') !== want.join('\n')) return { why: 'Its screenshots don\'t match its payload. Edited by hand.', unusable: true };
+    if (sha(files['map.md']) !== p.map || sha(files['types.json']) !== p.types) return { why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', unusable: false };
+    return null;
+  }
+  function appNeeds(app) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof app === 'string' ? app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
+
   /* A publication is usable only when all three files arrived and match, and this copy understands what they say. Anything
      else is "still syncing", damaged or unusable here, and never listed as a version to run. */
   function verify(folder, files) {
@@ -76,6 +132,7 @@ PF.publish = (function () {
     if (env) return { ok: false, why: newerWhy(info, env.needs), info: info, unusable: true, newer: true, needs: env.needs || '' };
     if (files['map.md'] == null || files['types.json'] == null) return { ok: false, why: 'Still syncing: some files haven\'t arrived.', info: info };
     if (U.hash(files['map.md']) !== info.mapHash || U.hash(files['types.json']) !== info.typesHash) return { ok: false, why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', info: info };
+    if (info.format === FORMAT2) { var pp = payloadProblem(info, files); if (pp) return { ok: false, why: pp.why, info: info, unusable: pp.unusable }; }
     if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
     var types; try { types = JSON.parse(files['types.json']); } catch (e) { return { ok: false, why: 'types.json is unreadable.', info: info }; }
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
@@ -88,7 +145,8 @@ PF.publish = (function () {
   function envelopeOf(info) {
     if (info.format === FORMAT && info.features == null) return null;
     var env = PF.envelope.judge('preflight-publication', info);
-    return env.ok ? null : { needs: env.needs || '' };
+    if (!env.ok) return { needs: env.needs || '' };
+    return info.format === FORMAT2 && !payloadShapeOk(info) ? { needs: appNeeds(info.app) } : null;
   }
   /* Why a run's version can't be used because a newer Flightdeck wrote it, or '' (pubProblem, before anything else is read). */
   function newerOf(info) { var env = envelopeOf(info); return env ? newerWhy(info, env.needs) : ''; }
@@ -142,5 +200,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, NEWER: NEWER, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

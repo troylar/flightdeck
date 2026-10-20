@@ -842,6 +842,29 @@ const PROBLEMS = [
   ['a link the CLI won\'t follow', null, dir => { const o = tmp(); fs.writeFileSync(path.join(o, 'x.json'), '{"kind": "plan", "id": "plan-x", "process": "release"}'); fs.symlinkSync(path.join(o, 'x.json'), path.join(dir, 'proposals', 'plan-x.json')); }, [['runs']], 'proposals/plan-x.json', 'link'],
   ['a file too large to read', null, dir => { fs.writeFileSync(path.join(dir, 'runs', 'release', 'run1', 'notes-big.jsonl'), Buffer.alloc(17 * 1048576, 32)); }, [['runs'], ['run', 'release/run1']], 'runs/release/run1/notes-big.jsonl', 'skipped']
 ];
+/* A real 2.0 version (phase notes, preflight-publication/2 with its payload) and a real run/3 on it: contract 1 reads neither
+   (docs/apps.md: additive fields only), so both are named as newer, exactly as the bridge names them. */
+const sha256 = (t) => require('crypto').createHash('sha256').update(t).digest('hex');
+function addVersion2(f, b, n, rand) {
+  const src = 'publications/release/' + b.folder + '/', dst = 'publications/release/v' + n + '-' + rand + '/';
+  const md = f[src + 'map.md'].replace(/^(## [^\n]+\n)/m, '$1  > Read the release notes first.\n'), info = JSON.parse(f[src + 'publication.json']), types = f[src + 'types.json'];
+  assert.ok(md !== f[src + 'map.md'] && SRC.map.features(SRC.map.parse(md)).length, 'set-up: a phase note');
+  const images = {}; Object.keys(info.images || {}).forEach((k) => { f[dst + k] = f[src + k]; images[k] = sha256(f[src + k]); });
+  const two = Object.assign({ format: 'preflight-publication/2', features: ['phase-notes'], app: '2.0.0' }, info, { format: 'preflight-publication/2', version: n, folder: 'v' + n + '-' + rand, mapHash: SRC.util.hash(md),
+    payload: { map: sha256(md), types: sha256(types), images, extensions: {}, pins: { children: {}, skills: {} } } });
+  f[dst + 'map.md'] = md; f[dst + 'types.json'] = types; f[dst + 'publication.json'] = JSON.stringify(two, null, 2);
+  assert.ok(SRC.publish.verify('v' + n + '-' + rand, { 'map.md': md, 'types.json': types, 'publication.json': f[dst + 'publication.json'] }).ok, 'set-up: this copy reads the 2.0 version');
+  return { info: two, md, types: JSON.parse(types) };
+}
+function addRun3(f, b) {
+  const v = addVersion2(f, b, 7, 'eeee7777'), r = JSON.parse(f['runs/release/run1/run.json']);
+  const r3 = Object.assign({ format: 'preflight-run/3', features: ['phase-notes'], app: '2.0.0' }, r, { format: 'preflight-run/3', id: 'run7', version: 7, folder: 'v7-eeee7777', mapHash: v.info.mapHash, typesHash: v.info.typesHash, snapshot: v.md, payload: v.info.payload });
+  f['runs/release/run7/run.json'] = JSON.stringify(r3, null, 2);
+  const back = SRC.run.sanitize(JSON.parse(f['runs/release/run7/run.json']));
+  assert.ok(back && back.format === 'preflight-run/3' && !back._unrunnable, 'set-up: this copy reads the run/3 in full: ' + (back && back._unrunnable));
+}
+PROBLEMS.push(['a 2.0 version (preflight-publication/2), which contract 1 doesn\'t read', (f, b) => addVersion2(f, b, 6, 'ffff6666'), null, [['processes'], ['process', 'release']], 'publications/release/v6-ffff6666/', 'newer']);
+PROBLEMS.push(['a run/3 on a 2.0 version, which contract 1 doesn\'t read', addRun3, null, [['runs'], ['run', 'release/run7']], 'runs/release/run7/run.json', 'newer']);
 function addVersion(f, b, n, rand, edit, format) {
   const src = 'publications/release/' + b.folder + '/', dst = 'publications/release/v' + n + '-' + rand + '/';
   const md = edit ? edit(f[src + 'map.md']) : f[src + 'map.md'], info = JSON.parse(f[src + 'publication.json']);
@@ -849,6 +872,23 @@ function addVersion(f, b, n, rand, edit, format) {
   f[dst + 'map.md'] = md; f[dst + 'types.json'] = f[src + 'types.json']; f[dst + 'publication.json'] = JSON.stringify(info, null, 2);
 }
 const ALL = [['processes'], ['process', 'release'], ['runs'], ['run', 'release/run1'], ['next', 'release/run1'], ['followups']];
+
+rule('READ /1 in 2.0: a 2.0 version is never usable or the latest (processes and process keep the /1 version), and a gate\'s note is an additive field', async () => {
+  const dir = await readFolder((f, b) => {
+    addVersion(f, b, 5, 'gggg5555', md => md.replace(/(## Gate: [^\n]+\n)/, '$1  > Both lights green.\n'));
+    addVersion2(f, b, 6, 'ffff6666');
+  });
+  const r = agree(readCli('processes', dir, '--json')), p = r.json.data.processes[0];
+  assert.deepStrictEqual(p.latest, { version: 5, folder: 'v5-gggg5555' }, 'the /2 v6 is never the latest under contract 1');
+  assert.deepStrictEqual(p.versions.filter(v => v.version === 6).map(v => v.usable), [false]);
+  const x = agree(readCli('process', dir, 'release', '--json'));
+  assert.strictEqual(x.json.data.version.folder, 'v5-gggg5555');
+  const gates = x.json.data.phases.map(ph => ph.gate);
+  assert.ok(gates.some(g => g.note === 'Both lights green.'), JSON.stringify(gates));
+  assert.ok(gates.every(g => typeof g.note === 'string'));
+  const six = agree(readCli('process', dir, 'release', '--version', '6', '--json'));
+  assert.strictEqual(six.json.data.usable, false);
+});
 
 rule('READ: a clean folder reads complete, exit 0, with no problems, from every command', async () => {
   const dir = await readFolder();

@@ -27,8 +27,19 @@ rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen 
   E.FROZEN.forEach(f => assert.ok(E.FEATURE.test(f)));
 });
 
-rule('The bridge registers no 2.0 feature: each slice registers only the features it builds', () => {
-  Object.keys(E.FAMILIES).forEach(f => Object.keys(E.FAMILIES[f].majors).forEach(m => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[m]), [], f + '/' + m)));
+/* Slice 2, part 1: phase and gate notes and screenshots. Only these are registered; every other 2.0 feature stays refused (review #12). */
+const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'];
+rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know phase-notes, phase-shots and gate-shots, nothing else does', () => {
+  const want = { 'flightdeck-checklist': { 2: PART1 }, 'preflight-publication': { 2: PART1 }, 'preflight-run': { 3: PART1 } };
+  Object.keys(E.FAMILIES).forEach(f => Object.keys(E.FAMILIES[f].majors).forEach(m => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[m]), (want[f] || {})[m] || [], f + '/' + m)));
+  ['typed-details', 'typed-evidence', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions'].forEach(x => {
+    no('preflight-publication', { format: 'preflight-publication/2', features: [x] }, 'newer', '2.0');
+    no('preflight-run', { format: 'preflight-run/3', features: [x] }, 'newer', '2.0');
+  });
+  ok('preflight-publication', { format: 'preflight-publication/2', features: PART1 });
+  ok('preflight-run', { format: 'preflight-run/3', features: ['gate-shots'] });
+  no('preflight-publication', { format: 'preflight-publication/1', features: ['phase-notes'] }, 'newer', '2.0');
+  no('preflight-run', { format: 'preflight-run/2', features: ['phase-notes'] }, 'newer', '2.0');
 });
 
 rule('Legacy spellings are the envelope: every 1.x record reads as its family\'s major', () => {
@@ -57,8 +68,8 @@ rule('Legacy spellings are the envelope: every 1.x record reads as its family\'s
 });
 
 rule('An unknown major is refused as newer, naming the version the 2.0 contract gives it', () => {
-  no('preflight-publication', { format: 'preflight-publication/2' }, 'newer', '2.0');
-  no('preflight-run', { format: 'preflight-run/3' }, 'newer', '2.0');
+  no('preflight-publication', { format: 'preflight-publication/3' }, 'newer', '');
+  no('preflight-run', { format: 'preflight-run/4' }, 'newer', '');
   no('flightdeck-plan', { format: 'flightdeck-plan/2' }, 'newer', '2.0');
   no('flightdeck-plan-status', { format: 'flightdeck-plan-status/2' }, 'newer', '2.0');
   no('flightdeck-validation', { format: 'flightdeck-validation/2' }, 'newer', '2.0');
@@ -72,13 +83,14 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   no('flightdeck-proposal', { kind: 'draft-proposal', pv: 2 }, 'newer');
   no('flightdeck-people', { format: 'flightdeck-people/2', people: [] }, 'newer');
   no('flightdeck-installed', { format: 'flightdeck-installed/2' }, 'newer');
-  assert.strictEqual(E.judge('preflight-run', { format: 'preflight-run/3' }).why, 'was made with a newer Flightdeck (preflight-run/3). Needs Flightdeck 2.0.');
+  assert.strictEqual(E.judge('preflight-run', { format: 'preflight-run/3', features: ['typed-details'] }).why, 'uses typed-details, which this copy doesn\'t understand. Needs Flightdeck 2.0.');
+  assert.strictEqual(E.judge('flightdeck-plan', { format: 'flightdeck-plan/2' }).why, 'was made with a newer Flightdeck (flightdeck-plan/2). Needs Flightdeck 2.0.');
 });
 
 rule('The writer\'s own app version names the version needed (2.1 reading as 2.1), never a version older than 2.0', () => {
   no('preflight-run', { format: 'preflight-run/4', app: '2.1.3' }, 'newer', '2.1');
   no('preflight-run', { format: 'preflight-run/4', app: '1.9.0' }, 'newer', '');
-  no('preflight-run', { format: 'preflight-run/3', app: 'not a version' }, 'newer', '2.0');
+  no('flightdeck-plan', { format: 'flightdeck-plan/2', app: 'not a version' }, 'newer', '2.0');
 });
 
 rule('An unknown feature is refused even when the major is known', () => {
@@ -126,9 +138,13 @@ rule('A format from another family is malformed, never read as this one', () => 
   no('preflight-run', { format: 'acme-thing/1' }, 'newer');
 });
 
-rule('stamp: the bridge writes nothing new (no envelope for 1.x records, and refuses to stamp a feature)', () => {
+rule('stamp: lowest sufficient format: no envelope without a feature; a registered feature gives the 2.0 major, in the frozen order, with the app', () => {
   Object.keys(E.FAMILIES).forEach(f => assert.deepStrictEqual(plain(E.stamp(f, [])), {}));
-  assert.throws(() => E.stamp('preflight-publication', ['typed-details']));
+  assert.deepStrictEqual(plain(E.stamp('preflight-publication', ['gate-shots', 'phase-notes'], '2.0.0')), { format: 'preflight-publication/2', features: ['phase-notes', 'gate-shots'], app: '2.0.0' });
+  assert.deepStrictEqual(plain(E.stamp('preflight-run', ['phase-shots'], '2.0.0')), { format: 'preflight-run/3', features: ['phase-shots'], app: '2.0.0' });
+  assert.deepStrictEqual(plain(E.stamp('preflight-run', ['phase-shots'], 'dev')), { format: 'preflight-run/3', features: ['phase-shots'] }, 'an app that isn\'t a version is left out');
+  assert.throws(() => E.stamp('preflight-publication', ['typed-details'], '2.0.0'), /typed-details/);
+  assert.throws(() => E.stamp('flightdeck-plan', ['phase-notes'], '2.0.0'));
   assert.throws(() => E.stamp('nope', []));
 });
 
@@ -141,6 +157,14 @@ rule('Checklists: no front-matter-only minimums; a format: or features: line is 
   assert.ok(/doesn't understand/.test(E.markdown({ features: 'from-the-future' }).why));
   assert.ok(/isn't a checklist format/.test(E.markdown({ format: 'preflight-run/2' }).why));
   assert.ok(/a newer Flightdeck/.test(E.markdown({ format: 'flightdeck-checklist/9' }).why));
+});
+
+rule('Checklists: a format: line counts only beside a 2.0 construct the line names or implies; with a 1.x body it stays a blocker', () => {
+  const body2 = ['---', 'process: p', 'title: P', 'format: flightdeck-checklist/2', 'features: phase-notes', '---', '', '## One {#one}', '  > Read first.', '- [ ] {confirm} Look {#look}', ''].join('\n');
+  assert.deepStrictEqual(plain(PF.map.check(PF.map.parse(body2), { people: [], types: {} }).blockers), []);
+  assert.ok(E.markdown({ format: 'flightdeck-checklist/2' }, PF.map.parse(body2)).ok);
+  assert.ok(!E.markdown({ format: 'flightdeck-checklist/2', features: 'typed-details' }, PF.map.parse(body2)).ok, 'an unregistered feature is still refused');
+  assert.strictEqual(E.markdown({ format: 'flightdeck-checklist/2' }, PF.map.parse('## One {#one}\n- [ ] {confirm} Look {#look}\n')).why, 'This says it needs Flightdeck 2.0, but nothing in it does. Remove the format line.');
 });
 
 rule('The bridge\'s checklist check blocks each front-matter fixture that every older copy publishes', () => {
@@ -168,7 +192,9 @@ rule('Every 2.0 sample is refused by its family\'s verdict in this copy, and eve
   const t = S.tree('folder');
   Object.keys(t).filter(p => /\.json$/.test(p) && !/types\.json$|replaced-|presence\//.test(p) && !/^runs\/backup\/run-a\//.test(p)).forEach(p => {
     const fam = E.familyOfPath(p), o = JSON.parse(t[p]);
-    const v = fam === 'flightdeck-skill' && o.implements === 'moved' ? { ok: false } : E.judge(fam, o);
+    /* run-e (an explicit 2.0 run on a /1 version, slice 2 part 2) lists no feature: its run/3 major is known now, and R.sanitize
+       refuses it by name for the fields this copy doesn't know yet (migrations). */
+    const v = fam === 'flightdeck-skill' && o.implements === 'moved' ? { ok: false } : fam === 'preflight-run' && E.judge(fam, o).ok ? { ok: (PF.run.sanitize(o) || {})._needs == null } : E.judge(fam, o);
     assert.ok(!v.ok, p + ' (' + fam + ') must be refused');
   });
   ['major', 'feature'].forEach(k => Object.entries(S.tree('probes/' + k)).filter(([p]) => /\.json$/.test(p) && !/types\.json$/.test(p)).forEach(([p, text]) => {
@@ -216,6 +242,111 @@ rule('Every sample run\'s checklist, step types and hashes are its named publica
     if (!r.stage) assert.strictEqual(r.version, info.version, r.id + ': version');
     assert.deepStrictEqual(r.payload || null, info.payload || null, r.id + ': payload (a /1 version has none)');
   });
+});
+
+/* ---------- Slice 2, part 1: the real writers (lowest sufficient format, the frozen payload, run/3) ---------- */
+const P = PF.publish, R = PF.run, M = PF.map;
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUg==', 'base64'), PNG2 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAB', 'base64');
+const DRAFT1 = ['---', 'process: backup', 'title: Backup check', 'owner: person-avery', 'roles: lead', '---', '', '## Prepare {#prep}', '- [!] {confirm} Read the restore runbook @lead {#read}', '',
+  '## Gate: Restored {#restored}', '  > The restored copy opens.', '', '## Close {#close}', '- [ ] {confirm} File the report @lead {#file}', ''].join('\n');
+const DRAFT2 = DRAFT1.replace('## Prepare {#prep}\n', '## Prepare {#prep}\n  > Use the scratch server, never production.\n  ![The scratch server](images/scratch.png)\n')
+  .replace('  > The restored copy opens.\n', '  > The restored copy opens.\n  ![Row counts side by side](images/counts.png)\n');
+function build(md, extra) {
+  const images = {}, imageBytes = {};
+  [['images/scratch.png', PNG], ['images/counts.png', PNG2]].forEach(([src, b]) => { if (md.indexOf(src) >= 0) { images[src] = PF.util.hash(b.toString('latin1')); imageBytes[src] = new Uint8Array(b); } });
+  return P.build(md, Object.assign({ by: 'person-avery', changes: 'Notes on the phase', now: '2026-10-20T09:00:00.000Z', existing: [], rand: 'abcd1234', app: '2.0.0', images, imageBytes }, extra || {}));
+}
+const pubOf = (b) => { const v = P.verify(b.folder, b.files); assert.ok(v.ok, v.why); return v; };
+
+rule('map.js reads phase notes and screenshots under a phase heading (before its first step or track) and screenshots under a gate; PF.map.features names them', () => {
+  const m = M.parse(DRAFT2);
+  assert.deepStrictEqual(plain(m.errors), []);
+  assert.strictEqual(m.phases[0].note, 'Use the scratch server, never production.');
+  assert.deepStrictEqual(plain(m.phases[0].shots), [{ caption: 'The scratch server', src: 'images/scratch.png' }]);
+  assert.strictEqual(m.phases[0].gate.note, 'The restored copy opens.');
+  assert.deepStrictEqual(plain(m.phases[0].gate.shots), [{ caption: 'Row counts side by side', src: 'images/counts.png' }]);
+  assert.deepStrictEqual(plain(m.phases[1].gate.shots), [], 'an automatic gate has none');
+  assert.deepStrictEqual(plain(M.features(m)), ['phase-notes', 'phase-shots', 'gate-shots']);
+  assert.deepStrictEqual(plain(M.features(M.parse(DRAFT1))), [], 'a gate note is not new: every copy since 1.10 publishes it');
+  const lane = M.parse('## A {#a}\n### Track: T {#t}\n  > Not a phase note.\n- [ ] {confirm} X {#x}\n');
+  assert.ok(lane.errors.length, 'a note under a track heading is still an error');
+  const bad = M.parse('## A {#a}\n  ![x](../secret.png)\n- [ ] {confirm} X {#x}\n');
+  assert.ok(/under images\//.test(bad.errors[0].msg));
+});
+
+rule('build writes the lowest sufficient format: a checklist with no 2.0 feature is preflight-publication/1, byte for byte as before (gate notes included)', () => {
+  const b = build(DRAFT1), info = JSON.parse(b.files['publication.json']);
+  assert.deepStrictEqual(Object.keys(info), ['format', 'process', 'title', 'version', 'folder', 'publishedBy', 'publishedAt', 'changes', 'mapHash', 'typesHash', 'images']);
+  assert.strictEqual(info.format, 'preflight-publication/1');
+  assert.deepStrictEqual(plain(P.features(M.parse(DRAFT1))), []);
+  assert.ok(pubOf(b).ok);
+});
+
+rule('build writes preflight-publication/2 when a 2.0 feature is used: features, app and the frozen payload (SHA-256 over exact bytes), in the frozen sample\'s shape', () => {
+  const b = build(DRAFT2), info = JSON.parse(b.files['publication.json']), sample = JSON.parse(S.tree('folder')['publications/backup/' + S.PUB2 + '/publication.json']);
+  assert.deepStrictEqual(Object.keys(info), Object.keys(sample), 'the sample\'s fields, in its order');
+  assert.strictEqual(info.format, 'preflight-publication/2'); assert.strictEqual(info.app, '2.0.0');
+  assert.deepStrictEqual(info.features, ['phase-notes', 'phase-shots', 'gate-shots']);
+  assert.deepStrictEqual(Object.keys(info.payload), Object.keys(sample.payload));
+  assert.deepStrictEqual(info.payload.extensions, {}); assert.deepStrictEqual(info.payload.pins, { children: {}, skills: {} }, 'pins are slice 2 part 2: the slot is there, empty');
+  assert.strictEqual(info.payload.map, sha(Buffer.from(b.files['map.md'], 'utf8')));
+  assert.strictEqual(info.payload.types, sha(Buffer.from(b.files['types.json'], 'utf8')));
+  assert.deepStrictEqual(info.payload.images, { 'images/scratch.png': sha(PNG), 'images/counts.png': sha(PNG2) });
+  assert.deepStrictEqual(plain(P.payload({ 'map.md': b.files['map.md'], 'types.json': b.files['types.json'], images: { 'images/scratch.png': new Uint8Array(PNG), 'images/counts.png': new Uint8Array(PNG2) } })), info.payload);
+  const v = pubOf(b);
+  assert.deepStrictEqual(plain(P.payloadOf(v.info)), info.payload);
+});
+
+rule('A /1 version has an implied payload from its own fingerprints, with no extensions and no pins', () => {
+  const b = build(DRAFT1), info = JSON.parse(b.files['publication.json']);
+  assert.deepStrictEqual(plain(P.payloadOf(info)), { implied: true, map: info.mapHash, types: info.typesHash, images: {}, extensions: {}, pins: {} });
+});
+
+rule('verify checks a /2 version by its payload: a changed map or types, a missing or odd payload, or a pin or extension this copy can\'t check never verifies', () => {
+  const b = build(DRAFT2), files = Object.assign({}, b.files), info = JSON.parse(files['publication.json']);
+  const withInfo = (f) => Object.assign({}, files, { 'publication.json': JSON.stringify(f(JSON.parse(JSON.stringify(info)))) });
+  assert.ok(!P.verify(b.folder, withInfo(i => { i.payload.map = 'a'.repeat(64); return i; })).ok, 'map payload');
+  assert.ok(!P.verify(b.folder, withInfo(i => { i.payload.types = 'b'.repeat(64); return i; })).ok, 'types payload');
+  const none = P.verify(b.folder, withInfo(i => { delete i.payload; return i; }));
+  assert.ok(!none.ok && none.unusable, 'no payload: ' + none.why);
+  const pin = P.verify(b.folder, withInfo(i => { i.payload.pins.children.x = { process: 'p' }; return i; }));
+  assert.ok(!pin.ok && pin.unusable, 'a pin without its feature: ' + pin.why);
+  const ext = P.verify(b.folder, withInfo(i => { i.payload.extensions['a.json'] = 'c'.repeat(64); return i; }));
+  assert.ok(!ext.ok && ext.unusable);
+  const img = P.verify(b.folder, withInfo(i => { delete i.payload.images['images/counts.png']; return i; }));
+  assert.ok(!img.ok, 'a screenshot recorded without its payload entry');
+});
+
+rule('R.create writes preflight-run/3 on a /2 version (features, app, typesHash, payload) and preflight-run/2 on a /1 version, unchanged', () => {
+  const one = pubOf(build(DRAFT1)), two = pubOf(build(DRAFT2));
+  const r2 = R.create(one, { by: 'person-avery', session: 'w', now: '2026-10-20T09:00:00.000Z', app: '2.0.0' });
+  assert.strictEqual(r2.format, 'preflight-run/2');
+  ['features', 'app', 'typesHash', 'payload'].forEach(k => assert.ok(!(k in r2), 'run/2 has no ' + k));
+  const r3 = R.create(two, { by: 'person-avery', session: 'w', now: '2026-10-20T09:00:00.000Z', app: '2.0.0' });
+  assert.strictEqual(r3.format, 'preflight-run/3');
+  assert.deepStrictEqual(plain(r3.features), ['phase-notes', 'phase-shots', 'gate-shots']);
+  assert.strictEqual(r3.app, '2.0.0'); assert.strictEqual(r3.typesHash, two.info.typesHash);
+  assert.deepStrictEqual(plain(r3.payload), plain(two.info.payload));
+  const back = R.sanitize(JSON.parse(JSON.stringify(r3)));
+  assert.ok(!back._unrunnable, back._unrunnable);
+  assert.strictEqual(back.format, 'preflight-run/3');
+  assert.deepStrictEqual(plain(back.payload), plain(r3.payload));
+  const sample = JSON.parse(S.tree('folder')['runs/backup/run-c/run.json']), mine = Object.keys(plain(back)).filter(k => k in sample);
+  assert.deepStrictEqual(mine, Object.keys(sample).filter(k => k in back), 'run/3 fields in the frozen sample\'s order');
+  assert.deepStrictEqual(plain(R.unexplained(JSON.parse(JSON.stringify(back)))), [], 'reading it back changes nothing');
+});
+
+rule('run/3 is read in full only when everything in it is known: an unknown field, a 2.0 feature this copy doesn\'t have, or an odd payload lists it by name only', () => {
+  const two = pubOf(build(DRAFT2)), r3 = JSON.parse(JSON.stringify(R.create(two, { by: 'person-avery', session: 'w', now: '2026-10-20T09:00:00.000Z', app: '2.0.0' })));
+  const nameOnly = (o) => { const x = R.sanitize(o); assert.ok(x && x._unrunnable && !Object.keys(x.steps).length && x._needs != null, JSON.stringify(x && x._unrunnable)); };
+  nameOnly(Object.assign({}, r3, { migrations: [] }));
+  nameOnly(Object.assign({}, r3, { pins: { children: {} } }));
+  nameOnly(Object.assign({}, r3, { features: ['phase-notes', 'typed-details'] }));
+  nameOnly(Object.assign({}, r3, { payload: { map: 'x' } }));
+  nameOnly(Object.assign({}, r3, { payload: Object.assign({}, r3.payload, { pins: { children: { a: {} }, skills: {} } }) }));
+  const step = JSON.parse(JSON.stringify(r3)); step.steps = { read: { s: 'done', by: 'person-avery', at: '2026-10-20T09:00:00.000Z', skill: { id: 'x' } } };
+  const x = R.sanitize(step); assert.ok(x._unrunnable, 'a nested unknown field still opens read-only, as for run/2');
+  assert.throws(() => R.create(Object.assign({}, two, { info: Object.assign({}, two.info, { features: ['typed-details'] }) }), { by: 'a', session: 'w', now: '2026-10-20T09:00:00.000Z' }));
 });
 
 run();

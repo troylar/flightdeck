@@ -1960,4 +1960,46 @@ rule('A step type with a hostile envelope ({"format":{"toString":null}}) is refu
   assert.ok(!ds.failed.skills && ds.skills.some(x => x.file === 'odd.json' && x.errors.length));
 });
 
+/* ---------- 2.0 formats (slice 2 part 1): phase and gate screenshots, the frozen payload ---------- */
+const sha256 = (b) => require('crypto').createHash('sha256').update(b).digest('hex');
+const PHASE_MD = '---\nprocess: x\ntitle: X\n---\n## P · READ-DO {#p}\n  > Use the scratch server.\n  ![The scratch server](images/x/scratch.png)\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)\n\n## Gate: Ready {#ready}\n  > Counts match.\n  ![Counts](images/x/counts.png)\n';
+async function phaseFolder() {
+  const fs = folder();
+  await fs.write('images/x/job.png', new Blob(['picture one'], { type: 'image/png' }));
+  await fs.write('images/x/scratch.png', new Blob(['picture two'], { type: 'image/png' }));
+  await fs.write('images/x/counts.png', new Blob(['picture three'], { type: 'image/png' }));
+  return fs;
+}
+rule('Publishing copies phase and gate screenshots into the version and writes preflight-publication/2 with SHA-256 of their exact bytes', async () => {
+  const fs = await phaseFolder();
+  const res = await repo.publish(fs, PHASE_MD, { people: JSON.parse(people), ...EX, by: 'a', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  assert.ok(!res.blockers, String(res.blockers));
+  const base = 'publications/x/' + res.folder + '/', info = JSON.parse(fs.files[base + 'publication.json'].t);
+  assert.strictEqual(info.format, 'preflight-publication/2');
+  assert.deepStrictEqual(info.features, ['phase-notes', 'phase-shots', 'gate-shots']);
+  assert.deepStrictEqual(Object.keys(info.images).sort(), ['images/x/counts.png', 'images/x/job.png', 'images/x/scratch.png']);
+  assert.deepStrictEqual(info.payload.images, { 'images/x/scratch.png': sha256('picture two'), 'images/x/job.png': sha256('picture one'), 'images/x/counts.png': sha256('picture three') });
+  ['scratch', 'job', 'counts'].forEach(n => assert.ok(fs.files[base + 'images/x/' + n + '.png'], n + ' is copied'));
+  const d = await repo.loadAll(fs, { deep: true }), pub = d.processes.filter(p => p.process === 'x')[0].index.latest;
+  assert.ok(pub && pub.ok, 'the /2 version is usable here');
+  assert.strictEqual(pub.map.phases[0].shots[0].src, 'images/x/scratch.png');
+});
+rule('A missing phase or gate screenshot blocks publishing; a version with step screenshots only stays preflight-publication/1', async () => {
+  const fs = folder();
+  await fs.write('images/x/job.png', new Blob(['picture one'], { type: 'image/png' }));
+  const res = await repo.publish(fs, PHASE_MD, { people: JSON.parse(people), ...EX, by: 'a', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  assert.ok(res.blockers && res.blockers.some(b => /scratch\.png/.test(b)) && res.blockers.some(b => /counts\.png/.test(b)), String(res.blockers));
+  const one = await repo.publish(fs, '---\nprocess: x\ntitle: X\n---\n## P · READ-DO {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)', { people: JSON.parse(people), ...EX, by: 'a', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  const info = JSON.parse(fs.files['publications/x/' + one.folder + '/publication.json'].t);
+  assert.strictEqual(info.format, 'preflight-publication/1'); assert.ok(!('payload' in info) && !('app' in info));
+});
+rule('A /2 version whose screenshot bytes don\'t match its payload is not complete, even when the short fingerprint matches', async () => {
+  const fs = await phaseFolder();
+  const res = await repo.publish(fs, PHASE_MD, { people: JSON.parse(people), ...EX, by: 'a', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  const p = 'publications/x/' + res.folder + '/publication.json', info = JSON.parse(fs.files[p].t);
+  info.payload.images['images/x/counts.png'] = 'f'.repeat(64); fs.files[p].t = JSON.stringify(info, null, 2);
+  const d = await repo.loadAll(fs, { deep: true }), pub = d.processes.filter(x => x.process === 'x')[0].pubs[0];
+  assert.ok(!pub.ok && /counts\.png/.test(pub.why), pub.why);
+});
+
 run();

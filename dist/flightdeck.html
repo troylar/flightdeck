@@ -2019,9 +2019,12 @@ PF.util = (function () {
    major version or one of its must-understand features refuses it, names it and never guesses what it means.
 
    The 1.21 bridge knows every 1.x format and the names of the 2.0 ones (FROZEN), only to refuse those precisely ("Needs
-   Flightdeck 2.0"). It knows no feature: each later slice registers only the features it implements. */
+   Flightdeck 2.0"). Each 2.0 slice registers only the features it implements (review #12): slice 2 part 1 registers phase
+   and gate notes and screenshots (PART1), in checklist/2, publication/2 and run/3; every other 2.0 feature stays refused. */
 PF.envelope = (function () {
   'use strict';
+  /* The features this copy builds, so the only ones it reads or writes. */
+  var PART1 = ['phase-notes', 'phase-shots', 'gate-shots'];
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
 
   /* Every family, with the majors this copy reads and the features it knows in each, its legacy spelling, and whether this
@@ -2029,9 +2032,9 @@ PF.envelope = (function () {
        legacy.kind: the kind field that marks the family; legacy.field: the field that holds the major (missing = legacyMajor);
        unmarked: a file with no marker at all is major 1 (step types, people.json, skills, types.json entries). */
   var FAMILIES = {
-    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [] }, rewrite: true, syntax: true, future: { 2: '2.0' } },
-    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [] }, rewrite: false, future: { 2: '2.0' } },
-    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [] }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
+    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART1 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
+    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART1 }, rewrite: false, future: { 2: '2.0' } },
+    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART1 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
     'flightdeck-step-type': { files: 'step-types/*.json', majors: { 1: [] }, rewrite: true, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0' } },
@@ -2124,27 +2127,39 @@ PF.envelope = (function () {
     return { ok: true, family: family, major: major, features: features, legacy: legacy };
   }
 
-  /* The fields a writer adds: none while the lowest sufficient format is the 1.x one. The bridge writes nothing new, so any
-     feature is refused here rather than stamped. */
-  function stamp(family, features) {
+  /* The fields a writer adds (lowest sufficient format): none when the record uses no 2.0 feature, so it stays in the 1.x
+     shape every older copy reads; otherwise the lowest major that knows every feature, the features in the frozen order, and
+     the app that wrote it (only when it's a version: it's shown in messages, never trusted for meaning). A feature this copy
+     doesn't build is refused, never stamped. */
+  function stamp(family, features, app) {
     if (!own(FAMILIES, family)) throw new Error('No file family ' + family + '.');
-    if (features && features.length) throw new Error('This copy of Flightdeck writes no ' + features.join(', ') + '.');
-    return {};
+    var list = (features || []).filter(function (f, i, a) { return a.indexOf(f) === i; });
+    if (!list.length) return {};
+    var fam = FAMILIES[family], majors = Object.keys(fam.majors).map(Number).sort(function (a, b) { return a - b; });
+    var major = majors.filter(function (m) { return list.every(function (f) { return fam.majors[m].indexOf(f) >= 0; }); })[0];
+    if (major == null) throw new Error('This copy of Flightdeck writes no ' + list.join(', ') + ' in ' + family + '.');
+    var out = { format: family + '/' + major, features: FROZEN.filter(function (f) { return list.indexOf(f) >= 0; }) };
+    if (semver(app)) out.app = app;
+    return out;
   }
 
-  /* A checklist's verdict from its front matter. There are no front-matter-only minimums: a format: or features: line counts
-     only beside a body construct that every older parser rejects, and this copy parses none, so the line alone is a blocker
-     (with a newer major or an unknown feature, the version that's needed is named). '' when there's no such line. */
-  function markdown(meta) {
+  /* A checklist's verdict from its front matter and body. There are no front-matter-only minimums: a format: or features:
+     line counts only beside a body construct that every older parser rejects (PF.map.features: a phase note, a phase or gate
+     screenshot), and only for a major and features this copy knows (an unknown one names the version that's needed). With a
+     1.x body the line is itself a blocker. '' when there's no such line. map: the parsed checklist (PF.map.parse). */
+  function markdown(meta, map) {
     if (!obj(meta) || (!own(meta, 'format') && !own(meta, 'features'))) return { ok: true, why: '' };
     var f = own(meta, 'format') ? parseFormat(txt(meta.format).trim()) : null;
     var feats = own(meta, 'features') ? txt(meta.features).split(',').map(function (x) { return x.trim(); }).filter(Boolean) : [];
     var known = FAMILIES['flightdeck-checklist'];
     if (own(meta, 'format') && (!f || f.family !== 'flightdeck-checklist')) return refuse('malformed', 'The front matter says "format: ' + txt(meta.format).slice(0, 60) + '", which isn\'t a checklist format. Remove the format line.');
     if (f && !own(known.majors, f.major)) { var n = needsOf(known, f.major, feats, null); return refuse('newer', 'This checklist says it needs ' + (n ? 'Flightdeck ' + n : 'a newer Flightdeck') + ' (format: ' + txt(meta.format).slice(0, 60) + ').' + (n === '2.0' ? ' Nothing in it needs Flightdeck 2.0 that this copy can see; if nothing does, remove the format line.' : ''), { needs: n }); }
-    var unknown = feats.filter(function (x) { return known.majors[f ? f.major : 1].indexOf(x) < 0; });
+    var all = Object.keys(known.majors).reduce(function (a, m) { return a.concat(known.majors[m]); }, []);
+    var unknown = feats.filter(function (x) { return all.indexOf(x) < 0; });
     if (unknown.length) { var n2 = needsOf(known, null, unknown, null); return refuse('newer', 'This checklist says it uses ' + unknown.slice(0, 5).join(', ') + ', which ' + (n2 ? 'needs Flightdeck ' + n2 : 'this copy doesn\'t understand') + '. Remove the features line if nothing in it does.', { needs: n2 }); }
-    return refuse('malformed', 'This says it needs Flightdeck 2.0, but nothing in it does. Remove the format line.');
+    var used = map && PF.map && PF.map.features ? PF.map.features(map) : [];
+    if (!used.length || (f && f.major < 2)) return refuse('malformed', 'This says it needs Flightdeck 2.0, but nothing in it does. Remove the format line.', { needs: f && f.major < 2 ? '' : '2.0' });
+    return { ok: true, why: '' };
   }
 
   /* The family a JSON file in the team folder belongs to, by its path; '' for paths with no JSON family. */
@@ -2174,7 +2189,7 @@ PF.envelope = (function () {
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
   function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
-  return { FAMILIES: FAMILIES, FROZEN: FROZEN, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
+  return { FAMILIES: FAMILIES, FROZEN: FROZEN, PART1: PART1, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
     txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();
 
@@ -2641,12 +2656,12 @@ PF.map = (function () {
           if (phase.gate && !phase.gate.implicit) { err(i, 'Phase "' + phase.title + '" already has a gate.'); continue; }
           var parts = g[1].split(/\s+·\s+/), owner = null;
           parts.slice(1).forEach(function (p) { var o = /^owner\s+@([\w-]+)$/i.exec(p.trim()); if (o) owner = o[1]; else err(i, 'Gate option not understood: "' + p + '".'); });
-          gate = { id: head.id, title: parts[0].trim(), owner: owner, approves: '', binds: [], note: '', implicit: false, fields: {} };
+          gate = { id: head.id, title: parts[0].trim(), owner: owner, approves: '', binds: [], note: '', shots: [], implicit: false, fields: {} };
           phase.gate = gate;
           continue;
         }
         var pm = /^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$/.exec(head.rest);
-        phase = { id: head.id, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', steps: [], tracks: [], gate: null, line: i + 1 };
+        phase = { id: head.id, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', note: '', shots: [], steps: [], tracks: [], gate: null, line: i + 1 };
         phases.push(phase);
         continue;
       }
@@ -2663,15 +2678,17 @@ PF.map = (function () {
         phase.steps.push(step);
         continue;
       }
+      /* Notes and screenshots belong to the step or gate above, or to the phase when they come right under its heading, before
+         its first step or track (2.0: phase notes, phase and gate screenshots; older copies refuse those lines). */
+      var owner2 = step || gate || (phase && !track ? phase : null);
       if ((m = /^\s{2,}>\s?(.*)$/.exec(line))) {
-        var target = step || gate;
-        if (!target) { err(i, 'A note must follow a step or a gate.'); continue; }
-        target.note += (target.note ? '\n' : '') + m[1];
+        if (!owner2) { err(i, 'A note must follow a phase heading, a step or a gate.'); continue; }
+        owner2.note += (owner2.note ? '\n' : '') + m[1];
         continue;
       }
-      if (step && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) {
+      if (owner2 && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) {
         if (!/^images\/[\w./-]+$/.test(m[2]) || m[2].indexOf('..') >= 0) { err(i, 'Screenshots must be under images/: "' + m[2] + '".'); continue; }
-        step.shots.push({ caption: m[1], src: m[2] });
+        owner2.shots.push({ caption: m[1], src: m[2] });
         continue;
       }
       if ((m = /^\s{2,}([\w-]+):\s*(.*)$/.exec(line))) {
@@ -2683,7 +2700,7 @@ PF.map = (function () {
     }
 
     phases.forEach(function (p) {
-      if (!p.gate) p.gate = { id: p.id ? p.id + '-confirm' : '', title: 'Confirm ' + p.title, owner: null, approves: '', binds: [], note: '', implicit: true, fields: {} };
+      if (!p.gate) p.gate = { id: p.id ? p.id + '-confirm' : '', title: 'Confirm ' + p.title, owner: null, approves: '', binds: [], note: '', shots: [], implicit: true, fields: {} };
     });
     return { meta: meta, phases: phases, errors: errors, questions: questions };
   }
@@ -2708,7 +2725,7 @@ PF.map = (function () {
     else if (!/^[a-z0-9][a-z0-9-]*$/.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
     if (!meta.title) blockers.push('Front matter needs a title.');
     /* A format: or features: line is never a minimum by itself (every older copy publishes it as ordinary text). */
-    var env = PF.envelope.markdown(meta);
+    var env = PF.envelope.markdown(meta, map);
     if (!env.ok) blockers.push(env.why);
     /* Within what a run file keeps (a child run's record of its details included), so nothing a map declares is lost on reload. */
     if (meta.context.length > 40) blockers.push('"context" lists ' + meta.context.length + ' run details; the most a checklist can have is 40.');
@@ -2806,6 +2823,23 @@ PF.map = (function () {
     steps(map).forEach(function (x) { list(x.step.fields.sets).forEach(function (f) { (out[f] = out[f] || []).push(x.step); }); });
     return out;
   }
+  /* The 2.0 features a checklist's own lines use, in the frozen order: what makes its version preflight-publication/2. A gate
+     note isn't one (every copy since 1.10 publishes it). */
+  function features(map) {
+    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false };
+    (map.phases || []).forEach(function (p) {
+      if (p.note) has['phase-notes'] = true;
+      if (p.shots && p.shots.length) has['phase-shots'] = true;
+      if (p.gate && p.gate.shots && p.gate.shots.length) has['gate-shots'] = true;
+    });
+    return PF.envelope.FROZEN.filter(function (f) { return has[f]; });
+  }
+  /* Every screenshot a checklist names, once each, in order: steps', phases' and gates'. */
+  function shotSources(map) {
+    var out = [], add = function (list) { (list || []).forEach(function (sh) { if (out.indexOf(sh.src) < 0) out.push(sh.src); }); };
+    (map.phases || []).forEach(function (p) { add(p.shots); p.steps.forEach(function (s) { add(s.shots); }); add(p.gate && p.gate.shots); });
+    return out;
+  }
   function usedTypes(map) {
     var seen = {};
     steps(map).forEach(function (x) { if (x.step.type) seen[x.step.type] = true; });
@@ -2829,7 +2863,7 @@ PF.map = (function () {
     return text.slice(0, at) + head + text.slice(at + m[2].length);
   }
 
-  return { parse: parse, check: check, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
+  return { parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();
 
 /* The outline builder's model of a draft: the same Markdown the checklist parser reads (map.js), with the lines each phase,
@@ -4059,7 +4093,8 @@ PF.timeline = (function () {
 PF.publish = (function () {
   'use strict';
   var U = PF.util, M = PF.map, T = PF.types;
-  var FORMAT = 'preflight-publication/1';
+  var FORMAT = 'preflight-publication/1', FORMAT2 = 'preflight-publication/2';
+  var HEX64 = /^[0-9a-f]{64}$/;
   var NEWER = 'This version uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
 
   /* Each publish gets its own folder (v5-k3m9p2q8), so two people publishing at once never write the same files. */
@@ -4082,13 +4117,30 @@ PF.publish = (function () {
     var version = nextVersion(opts.existing), folder = folderName(version, opts.rand);
     var types = T.freeze(M.usedTypes(map), opts.customTypes);
     var typesJson = JSON.stringify(types, null, 2);
-    var info = {
-      format: FORMAT, process: map.meta.process, title: map.meta.title, version: version, folder: folder,
+    /* Lowest sufficient format (docs/design.md section 28): /1 unless the checklist uses a 2.0 feature, so every older copy
+       keeps running a version that needs nothing new. */
+    var feats = features(map), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
+    var images = opts.images || {}, bytes = opts.imageBytes || {};
+    if (feats.length) {
+      var missing = Object.keys(images).filter(function (src) { return !bytes[src]; });
+      if (missing.length) return { blockers: ['Screenshot ' + missing[0] + ' hasn\'t been read yet. Try publishing again.'] };
+    }
+    var info = env.format ? { format: env.format, features: env.features } : { format: FORMAT };
+    if (env.app) info.app = env.app;
+    var base = {
+      process: map.meta.process, title: map.meta.title, version: version, folder: folder,
       publishedBy: opts.by, publishedAt: opts.now, changes: changes.slice(0, 200),
       mapHash: U.hash(draftMd), typesHash: U.hash(typesJson)
     };
+    Object.keys(base).forEach(function (k) { info[k] = base[k]; });
     /* Reference screenshots copied into this version, each with a fingerprint, so a version is complete only when they've all arrived intact. */
-    info.images = opts.images || {};
+    info.images = images;
+    /* A /2 version also freezes its payload: SHA-256 over the exact bytes of every file it holds. */
+    if (feats.length) {
+      var imgBytes = {};
+      Object.keys(images).forEach(function (src) { imgBytes[src] = bytes[src]; });
+      info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes });
+    }
     /* The corrections this version includes, from PF.corrections.forPublish. Older copies ignore the field (verify reads only
        what it checks), so a version that has it runs everywhere a version without it does. */
     if (Array.isArray(opts.corrections) && opts.corrections.length) info.corrections = opts.corrections.slice(0, 500).map(function (c) {
@@ -4120,6 +4172,44 @@ PF.publish = (function () {
     return '';
   }
 
+  /* The 2.0 features a checklist uses (PF.map.features), which decide its version's format. */
+  function features(map) { return M.features(map); }
+
+  function sha(data) { return PF.sha256.create().update(data).digest(); }
+  /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes } }. Slots
+     for extensions and pins exist and stay empty until the slices that write them. */
+  function payload(files) {
+    var images = {}, src = (files && files.images) || {};
+    Object.keys(src).forEach(function (p) { images[p] = sha(src[p]); });
+    return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: {}, skills: {} } };
+  }
+  /* The payload of any readable version: a /2 version's own, or the one a /1 version implies from its fingerprints. */
+  function payloadOf(info) {
+    if (info && info.payload && typeof info.payload === 'object' && info.format === FORMAT2) return info.payload;
+    var images = {}, src = info && isObj(info.images) ? info.images : {};
+    Object.keys(src).forEach(function (k) { images[k] = src[k]; });
+    return { implied: true, map: info.mapHash, types: info.typesHash, images: images, extensions: {}, pins: {} };
+  }
+  function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  /* A /2 version whose payload this copy can't read or check (missing, odd, or with a pin or extension it doesn't have): a
+     later Flightdeck wrote it, so it's refused like a newer format, by name, never read for meaning. */
+  function payloadShapeOk(info) {
+    var p = info.payload;
+    if (!isObj(p) || !isObj(p.images) || !isObj(p.extensions) || !isObj(p.pins)) return false;
+    if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return false;
+    if (!HEX64.test(p.map) || !HEX64.test(p.types) || Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return false;
+    if (Object.keys(p.extensions).length) return false;
+    return Object.keys(p.pins).every(function (k) { return (k === 'children' || k === 'skills') && isObj(p.pins[k]) && !Object.keys(p.pins[k]).length; });
+  }
+  /* Why a readable /2 version's files don't match its payload, or null. */
+  function payloadProblem(info, files) {
+    var p = info.payload, have = Object.keys(isObj(info.images) ? info.images : {}).sort(), want = Object.keys(p.images).sort();
+    if (have.join('\n') !== want.join('\n')) return { why: 'Its screenshots don\'t match its payload. Edited by hand.', unusable: true };
+    if (sha(files['map.md']) !== p.map || sha(files['types.json']) !== p.types) return { why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', unusable: false };
+    return null;
+  }
+  function appNeeds(app) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof app === 'string' ? app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
+
   /* A publication is usable only when all three files arrived and match, and this copy understands what they say. Anything
      else is "still syncing", damaged or unusable here, and never listed as a version to run. */
   function verify(folder, files) {
@@ -4133,6 +4223,7 @@ PF.publish = (function () {
     if (env) return { ok: false, why: newerWhy(info, env.needs), info: info, unusable: true, newer: true, needs: env.needs || '' };
     if (files['map.md'] == null || files['types.json'] == null) return { ok: false, why: 'Still syncing: some files haven\'t arrived.', info: info };
     if (U.hash(files['map.md']) !== info.mapHash || U.hash(files['types.json']) !== info.typesHash) return { ok: false, why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', info: info };
+    if (info.format === FORMAT2) { var pp = payloadProblem(info, files); if (pp) return { ok: false, why: pp.why, info: info, unusable: pp.unusable }; }
     if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
     var types; try { types = JSON.parse(files['types.json']); } catch (e) { return { ok: false, why: 'types.json is unreadable.', info: info }; }
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
@@ -4145,7 +4236,8 @@ PF.publish = (function () {
   function envelopeOf(info) {
     if (info.format === FORMAT && info.features == null) return null;
     var env = PF.envelope.judge('preflight-publication', info);
-    return env.ok ? null : { needs: env.needs || '' };
+    if (!env.ok) return { needs: env.needs || '' };
+    return info.format === FORMAT2 && !payloadShapeOk(info) ? { needs: appNeeds(info.app) } : null;
   }
   /* Why a run's version can't be used because a newer Flightdeck wrote it, or '' (pubProblem, before anything else is read). */
   function newerOf(info) { var env = envelopeOf(info); return env ? newerWhy(info, env.needs) : ''; }
@@ -4199,19 +4291,20 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, NEWER: NEWER, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();
 
 /* Runs: one execution of one published map. Pure functions over a plain run object (saved as run.json). */
 PF.run = (function () {
   'use strict';
   var U = PF.util, M = PF.map;
-  var FORMAT = 'preflight-run/2';
+  var FORMAT = 'preflight-run/2', FORMAT3 = 'preflight-run/3';
   var LOG_MAX = 300;
 
   function create(pub, o) {
     /* Only a version this copy fully understands can start a run; P.verify already sets the others aside. */
-    var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
+    var two = !!pub.info && pub.info.format === PF.publish.FORMAT2;
+    var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT && !two ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
     var map = pub.map, details = {}, roles = {};
     map.meta.context.forEach(function (f) { details[f] = String((o.details || {})[f] || '').trim(); });
@@ -4231,6 +4324,14 @@ PF.run = (function () {
       marksFrom: 'start',
       pauses: [], paused: null
     };
+    /* A run of a /2 version is run/3 (the lowest sufficient format follows the version): it names the version's features and
+       keeps its types fingerprint and frozen payload, so a run says exactly what it ran. */
+    if (two) {
+      var env = PF.envelope.stamp('preflight-run', pub.info.features || [], o.app), head = { format: env.format || FORMAT3 };
+      if (env.features) head.features = env.features;
+      if (env.app) head.app = env.app;
+      r = order3(Object.assign(head, r, { format: head.format, typesHash: pub.info.typesHash, payload: JSON.parse(JSON.stringify(pub.info.payload)) }));
+    }
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); }
     addLog(r, o.by, o.now, 'Started the run');
     return r;
@@ -4971,7 +5072,15 @@ PF.run = (function () {
     return lines.join('\n').replace(/\n+$/, '');
   }
 
-  function valid(o) { return !!o && o.format === FORMAT && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
+  /* run/3's fields in the frozen order (test/fixtures/v2): the envelope, then the version's fingerprints, then the rest as run/2. */
+  var ORDER3 = ['format', 'features', 'app', 'id', 'process', 'version', 'folder', 'mapHash', 'typesHash', 'title', 'category', 'snapshot', 'types', 'payload'];
+  function order3(r) {
+    var out = {};
+    ORDER3.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r, k)) out[k] = r[k]; });
+    Object.keys(r).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(out, k)) out[k] = r[k]; });
+    return out;
+  }
+  function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
 
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
   var STEP_STATES = { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }, GATE_STATES = { passed: 1, waived: 1, failed: 1, review: 1 };
@@ -4992,7 +5101,23 @@ PF.run = (function () {
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
+  var HEX64 = /^[0-9a-f]{64}$/;
+  /* Why a run/3 can't be read in full here, or '': a top-level field this copy doesn't know, or a payload it can't check (a pin
+     or extension it doesn't have). Such a run is listed by name only, like a newer major, never sanitized and saved. */
+  function unknown3(o) {
+    var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run3, f) && f[0] !== '_'; })[0];
+    if (extra != null) return 'The run has "' + String(extra).slice(0, 40) + '".';
+    var p = o.payload, obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); };
+    if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
+    if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
+    if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
+    if (Object.keys(p.extensions).length || Object.keys(p.pins).some(function (k) { return (k !== 'children' && k !== 'skills') || !obj(p.pins[k]) || Object.keys(p.pins[k]).length; })) return 'It pins other versions or holds extensions.';
+    return '';
+  }
+  /* The Flightdeck a run/3 this copy can't fully read needs: its writer's own version when that's 2.0 or later, else 2.0. */
+  function needs3(o) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof o.app === 'string' ? o.app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
   var MARKS = { blocked: 1, recheck: 1, na: 1, differently: 1 };
   function newer(o) {
     var why = '';
@@ -5006,7 +5131,7 @@ PF.run = (function () {
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
-    look(o, 'run', 'The run');
+    look(o, o.format === FORMAT3 ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
     look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
@@ -5044,6 +5169,8 @@ PF.run = (function () {
   function newerFormat(o) {
     if (!o || typeof o !== 'object' || typeof o.format !== 'string' || !/^preflight-run\//.test(o.format)) return null;
     var env = PF.envelope.judge('preflight-run', o);
+    /* A run/3 this copy can't read as a run (missing what every run has) is still a 2.0 file: listed by name, as the bridge did. */
+    if (env.ok && o.format === FORMAT3) return nameOnly(o, needs3(o));
     if (env.ok || env.kind !== 'newer') return null;
     return nameOnly(o, env.needs || '');
   }
@@ -5242,7 +5369,9 @@ PF.run = (function () {
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
     /* A run/2 with a must-understand feature this copy doesn't know is listed by name only, never read for meaning. */
-    if (o.features != null) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
+    if (o.features != null || o.format === FORMAT3) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
+    var three = o.format === FORMAT3;
+    if (three && unknown3(o)) return nameOnly(o, needs3(o));
     var r = {
       format: FORMAT, id: o.id, process: str(o.process, 60), version: Math.max(0, parseInt(o.version, 10) || 0), folder: str(o.folder, 60), mapHash: str(o.mapHash, 16),
       title: str(o.title, 100) || 'Untitled run', category: str(o.category, 60), snapshot: o.snapshot, types: o.types && typeof o.types === 'object' ? o.types : {},
@@ -5295,11 +5424,19 @@ PF.run = (function () {
        Not saved itself ("_"). */
     var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o);
     if (bad) r._unrunnable = bad;
+    if (three) {
+      r.format = FORMAT3;
+      if (Array.isArray(o.features)) r.features = PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; });
+      if (typeof o.app === 'string' && /^\d+\.\d+\.\d+/.test(o.app)) r.app = o.app.slice(0, 40);
+      r.typesHash = str(o.typesHash, 16);
+      r.payload = JSON.parse(JSON.stringify(o.payload));
+      r = order3(r);
+    }
     return r;
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
@@ -9282,7 +9419,7 @@ PF.appjson = (function () {
     process: { process: ABOUT, version: VERSION, usable: 'boolean', evidenceFrom: 'string', context: ['string'], roles: ['string'], types: [{ id: 'string', label: 'string' }],
       phases: [{ id: 'string', title: 'string', mode: 'string', tracks: [{ id: 'string', title: 'string', roles: ['string'] }],
         steps: [{ id: 'string', text: 'string', type: 'string', must: 'boolean', planned: 'boolean', roles: ['string'], binds: ['string'], sets: ['string'], fields: map('string'), track: opt('string'), timing: TIMING, evidence: [EVIDENCE] }],
-        gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], timing: TIMING } }] },
+        gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], note: 'string', timing: TIMING } }] },
     runs: { runs: [SUMMARY], planned: [{ id: 'string', process: 'string', title: 'string', version: opt('number'), when: opt('string'), by: 'string', created: opt('string'), note: 'string',
       details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: opt('boolean'),
       copies: 'number', copiesDiffer: 'boolean', requestedBy: opt({ name: 'string', version: 'string' }) }] },
@@ -9361,6 +9498,35 @@ PF.appjson = (function () {
     return (listIn || []).map(function (d) { return { name: s(d.name), label: s(d.label || d.name), kind: s(d.kind || 'text'), required: !!d.required, options: Array.isArray(d.options) ? d.options.map(s) : [] }; });
   }
 
+  /* ---- contract 1 keeps what Flightdeck 1.x could read (docs/apps.md) ----
+     It shows exactly what 1.18 showed, so a script that never asked for more never sees a 2.0 record as data: a 2.0 version
+     (preflight-publication/2) is named as newer, never usable and never the latest; a run/3 is listed by name only, as
+     newer. Both stay problems (exit 4), as 1.18 names them. */
+  var V1_WHY = ' flightdeck-read/1 shows only what Flightdeck 1.x reads, so it names this instead of reading it.';
+  function v1Pub(p) {
+    if (!p || !p.ok || !p.info || p.info.format !== P.FORMAT2) return p;
+    var out = {}; Object.keys(p).forEach(function (k) { out[k] = p[k]; });
+    var v = typeof p.info.version === 'number' ? 'v' + p.info.version : 'This version';
+    out.ok = false; out.unusable = true; out.newer = true; out.needs = '2.0';
+    out.why = v + ' was published with Flightdeck 2.0 (it uses ' + (Array.isArray(p.info.features) ? p.info.features.join(', ') : 'its features') + ').' + V1_WHY;
+    return out;
+  }
+  function v1Processes(list) {
+    return (list || []).map(function (proc) {
+      var pubs = (proc.pubs || []).map(v1Pub), out = {};
+      if (pubs.every(function (p, i) { return p === proc.pubs[i]; })) return proc;
+      Object.keys(proc).forEach(function (k) { out[k] = proc[k]; });
+      out.pubs = pubs; out.index = P.index(pubs);
+      return out;
+    });
+  }
+  function v1Run(r) {
+    if (!r || r.format !== R.FORMAT3) return r;
+    var out = R.nameOnly(r, '2.0');
+    if (out) out._unrunnable = R.NEWER + ' Made with Flightdeck 2.0.' + V1_WHY;
+    return out;
+  }
+
   /* ---- processes and versions ---- */
   /* Why a version can't be used, as a problem kind: from a newer Flightdeck, unusable here, still arriving, or damaged. */
   function pubProblem(res) {
@@ -9405,7 +9571,7 @@ PF.appjson = (function () {
           return { id: s(st.id), text: s(st.text), type: s(st.type), must: !!st.must, planned: !!st.planned, roles: st.roles.map(s), binds: st.binds.map(s), sets: list(st.fields.sets),
             fields: strMap(st.fields), track: orNull(st.track), timing: timing(st.fields), evidence: evidence(t ? T.recordFields(t, st.fields) : []) };
         }),
-        gate: { id: s(ph.gate.id), title: s(ph.gate.title), implicit: !!ph.gate.implicit, owner: orNull(ph.gate.owner), approves: s(ph.gate.approves), binds: ph.gate.binds.map(s), timing: timing(ph.gate.fields) } };
+        gate: { id: s(ph.gate.id), title: s(ph.gate.title), implicit: !!ph.gate.implicit, owner: orNull(ph.gate.owner), approves: s(ph.gate.approves), binds: ph.gate.binds.map(s), note: s(ph.gate.note), timing: timing(ph.gate.fields) } };
     });
     return out;
   }
@@ -9500,7 +9666,7 @@ PF.appjson = (function () {
   }
 
   return { CONTRACT: CONTRACT, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
-    pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
+    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();
 
 /* Proposals: an AI assistant's change to a draft, written once as a file, that a person applies in Flightdeck. Their attempts
@@ -9988,20 +10154,24 @@ PF.repo = (function () {
     });
   }
 
-  function bytesHash(blob) {
-    return blob.arrayBuffer().then(function (buf) {
-      var b = new Uint8Array(buf), s = '';
-      for (var i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
-      return U.hash(s);
-    });
+  function bytesOf(blob) { return blob.arrayBuffer().then(function (buf) { return new Uint8Array(buf); }); }
+  function fnvBytes(b) {
+    var s = '';
+    for (var i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
+    return U.hash(s);
   }
+  function bytesHash(blob) { return bytesOf(blob).then(fnvBytes); }
+  /* Every screenshot a version records must be there and match: its fingerprint, and for a /2 version the SHA-256 of its
+     exact bytes in the payload too. */
   function checkImages(fs, base, res) {
     var imgs = res.ok && res.info.images ? Object.keys(res.info.images) : [];
+    var strong = res.ok && res.info.format === P.FORMAT2 && res.info.payload ? res.info.payload.images : null;
     return imgs.reduce(function (p, src) {
       return p.then(function (r) {
         if (!r.ok) return r;
-        return fs.blob(base + src).then(function (b) { return b ? bytesHash(b) : null; }).then(function (h) {
-          return h === res.info.images[src] ? r : { ok: false, why: h ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
+        return fs.blob(base + src).then(function (b) { return b ? bytesOf(b) : null; }).then(function (b) {
+          var good = !!b && fnvBytes(b) === res.info.images[src] && (!strong || PF.sha256.create().update(b).digest() === strong[src]);
+          return good ? r : { ok: false, why: b ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
         });
       });
     }, Promise.resolve(res));
@@ -10969,13 +11139,14 @@ PF.repo = (function () {
     var parsed = PF.map.parse(draftMd), process = parsed.meta.process, base = 'publications/' + process + '/' + built.folder + '/';
     /* Reference screenshots are copied into the publication with a fingerprint each, so replacing one in images/ later never changes
        an old version's instructions. A screenshot that isn't in the folder stops the publish rather than vanishing from it. */
-    var shots = [], blobs = {};
-    PF.map.steps(parsed).forEach(function (x) { x.step.shots.forEach(function (sh) { if (shots.indexOf(sh.src) < 0) shots.push(sh.src); }); });
+    var shots = PF.map.shotSources(parsed), blobs = {};
     var read = shots.reduce(function (p, src) { return p.then(function (missing) { return fs.blob(src).then(function (b) { if (!b) return missing.concat([src]); blobs[src] = b; return missing; }); }); }, Promise.resolve([]));
     return read.then(function (missing) {
       if (missing.length) return { blockers: missing.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; }) };
-      return shots.reduce(function (p, src) { return p.then(function (m) { return bytesHash(blobs[src]).then(function (h) { m[src] = h; return m; }); }); }, Promise.resolve({})).then(function (images) {
-        var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, rand: built.folder.replace(/^v\d+-/, '') })) : built;
+      var bytes = {};
+      return shots.reduce(function (p, src) { return p.then(function (m) { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; m[src] = fnvBytes(b); return m; }); }); }, Promise.resolve({})).then(function (images) {
+        var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, imageBytes: bytes, rand: built.folder.replace(/^v\d+-/, '') })) : built;
+        if (rebuilt.blockers) return rebuilt;
         return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
       });
@@ -17310,7 +17481,7 @@ PF.examples = (function () {
         if (p && p.latest && !p.draftChanged) { su.busy = false; say(p.title + ' is published already.', 'good'); render(); return null; }
         var people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
         return queued(function () {
-          return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString() }); });
+          return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString(), app: APP_VERSION }); });
         }).then(function (pub) {
           if (g !== gen) return null;
           su.busy = false;
@@ -17893,7 +18064,7 @@ PF.examples = (function () {
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
     var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs } }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs }, app: APP_VERSION }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, { process: child.process, id: child.id, inputs: inputs }, state.me, new Date().toISOString()); }
@@ -19956,7 +20127,7 @@ PF.examples = (function () {
           if (!f || f.text !== shown) return { changed: true };
           /* The corrections this exact text includes, worked out from the folder as last read (see PF.corrections.forPublish). */
           var inc = pg === gen ? PF.corrections.forPublish(f.text, ctx.corrections(id)).list : [];
-          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
+          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
         });
       }).then(function (res) {
         if (pg !== gen) return;
@@ -20629,7 +20800,7 @@ PF.examples = (function () {
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
-    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows }); }
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me;

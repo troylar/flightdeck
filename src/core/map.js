@@ -56,12 +56,12 @@ PF.map = (function () {
           if (phase.gate && !phase.gate.implicit) { err(i, 'Phase "' + phase.title + '" already has a gate.'); continue; }
           var parts = g[1].split(/\s+·\s+/), owner = null;
           parts.slice(1).forEach(function (p) { var o = /^owner\s+@([\w-]+)$/i.exec(p.trim()); if (o) owner = o[1]; else err(i, 'Gate option not understood: "' + p + '".'); });
-          gate = { id: head.id, title: parts[0].trim(), owner: owner, approves: '', binds: [], note: '', implicit: false, fields: {} };
+          gate = { id: head.id, title: parts[0].trim(), owner: owner, approves: '', binds: [], note: '', shots: [], implicit: false, fields: {} };
           phase.gate = gate;
           continue;
         }
         var pm = /^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$/.exec(head.rest);
-        phase = { id: head.id, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', steps: [], tracks: [], gate: null, line: i + 1 };
+        phase = { id: head.id, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', note: '', shots: [], steps: [], tracks: [], gate: null, line: i + 1 };
         phases.push(phase);
         continue;
       }
@@ -78,15 +78,17 @@ PF.map = (function () {
         phase.steps.push(step);
         continue;
       }
+      /* Notes and screenshots belong to the step or gate above, or to the phase when they come right under its heading, before
+         its first step or track (2.0: phase notes, phase and gate screenshots; older copies refuse those lines). */
+      var owner2 = step || gate || (phase && !track ? phase : null);
       if ((m = /^\s{2,}>\s?(.*)$/.exec(line))) {
-        var target = step || gate;
-        if (!target) { err(i, 'A note must follow a step or a gate.'); continue; }
-        target.note += (target.note ? '\n' : '') + m[1];
+        if (!owner2) { err(i, 'A note must follow a phase heading, a step or a gate.'); continue; }
+        owner2.note += (owner2.note ? '\n' : '') + m[1];
         continue;
       }
-      if (step && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) {
+      if (owner2 && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) {
         if (!/^images\/[\w./-]+$/.test(m[2]) || m[2].indexOf('..') >= 0) { err(i, 'Screenshots must be under images/: "' + m[2] + '".'); continue; }
-        step.shots.push({ caption: m[1], src: m[2] });
+        owner2.shots.push({ caption: m[1], src: m[2] });
         continue;
       }
       if ((m = /^\s{2,}([\w-]+):\s*(.*)$/.exec(line))) {
@@ -98,7 +100,7 @@ PF.map = (function () {
     }
 
     phases.forEach(function (p) {
-      if (!p.gate) p.gate = { id: p.id ? p.id + '-confirm' : '', title: 'Confirm ' + p.title, owner: null, approves: '', binds: [], note: '', implicit: true, fields: {} };
+      if (!p.gate) p.gate = { id: p.id ? p.id + '-confirm' : '', title: 'Confirm ' + p.title, owner: null, approves: '', binds: [], note: '', shots: [], implicit: true, fields: {} };
     });
     return { meta: meta, phases: phases, errors: errors, questions: questions };
   }
@@ -123,7 +125,7 @@ PF.map = (function () {
     else if (!/^[a-z0-9][a-z0-9-]*$/.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
     if (!meta.title) blockers.push('Front matter needs a title.');
     /* A format: or features: line is never a minimum by itself (every older copy publishes it as ordinary text). */
-    var env = PF.envelope.markdown(meta);
+    var env = PF.envelope.markdown(meta, map);
     if (!env.ok) blockers.push(env.why);
     /* Within what a run file keeps (a child run's record of its details included), so nothing a map declares is lost on reload. */
     if (meta.context.length > 40) blockers.push('"context" lists ' + meta.context.length + ' run details; the most a checklist can have is 40.');
@@ -221,6 +223,23 @@ PF.map = (function () {
     steps(map).forEach(function (x) { list(x.step.fields.sets).forEach(function (f) { (out[f] = out[f] || []).push(x.step); }); });
     return out;
   }
+  /* The 2.0 features a checklist's own lines use, in the frozen order: what makes its version preflight-publication/2. A gate
+     note isn't one (every copy since 1.10 publishes it). */
+  function features(map) {
+    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false };
+    (map.phases || []).forEach(function (p) {
+      if (p.note) has['phase-notes'] = true;
+      if (p.shots && p.shots.length) has['phase-shots'] = true;
+      if (p.gate && p.gate.shots && p.gate.shots.length) has['gate-shots'] = true;
+    });
+    return PF.envelope.FROZEN.filter(function (f) { return has[f]; });
+  }
+  /* Every screenshot a checklist names, once each, in order: steps', phases' and gates'. */
+  function shotSources(map) {
+    var out = [], add = function (list) { (list || []).forEach(function (sh) { if (out.indexOf(sh.src) < 0) out.push(sh.src); }); };
+    (map.phases || []).forEach(function (p) { add(p.shots); p.steps.forEach(function (s) { add(s.shots); }); add(p.gate && p.gate.shots); });
+    return out;
+  }
   function usedTypes(map) {
     var seen = {};
     steps(map).forEach(function (x) { if (x.step.type) seen[x.step.type] = true; });
@@ -244,5 +263,5 @@ PF.map = (function () {
     return text.slice(0, at) + head + text.slice(at + m[2].length);
   }
 
-  return { parse: parse, check: check, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
+  return { parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();

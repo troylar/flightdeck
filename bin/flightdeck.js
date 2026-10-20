@@ -775,6 +775,8 @@ async function readData(eng, adapter, req) {
       relevant = runCovers(m[1], m[2], null);
       const one = await repo.readRunOnly(L.fs, m[1], m[2]);
       if (!one.found) return notFound('There\'s no run ' + req.key + ' in the team folder.');
+      /* Contract 1 (the only one yet) shows what Flightdeck 1.x reads: a run/3 and a 2.0 version are named as newer. */
+      one.run = A.v1Run(one.run); one.pub = A.v1Pub(one.pub);
       const r = one.run, key = m[1] + '/' + m[2];
       if (one.nofile) L.note('runs/' + key + '/run.json', 'nofile', 'The run folder has no run.json.');
       take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
@@ -794,6 +796,7 @@ async function readData(eng, adapter, req) {
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
     relevant = covers(needs(req));
     const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true });
+    d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean);
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */
     const pubOf = (r) => { const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r); };

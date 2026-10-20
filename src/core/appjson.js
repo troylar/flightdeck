@@ -37,7 +37,7 @@ PF.appjson = (function () {
     process: { process: ABOUT, version: VERSION, usable: 'boolean', evidenceFrom: 'string', context: ['string'], roles: ['string'], types: [{ id: 'string', label: 'string' }],
       phases: [{ id: 'string', title: 'string', mode: 'string', tracks: [{ id: 'string', title: 'string', roles: ['string'] }],
         steps: [{ id: 'string', text: 'string', type: 'string', must: 'boolean', planned: 'boolean', roles: ['string'], binds: ['string'], sets: ['string'], fields: map('string'), track: opt('string'), timing: TIMING, evidence: [EVIDENCE] }],
-        gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], timing: TIMING } }] },
+        gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], note: 'string', timing: TIMING } }] },
     runs: { runs: [SUMMARY], planned: [{ id: 'string', process: 'string', title: 'string', version: opt('number'), when: opt('string'), by: 'string', created: opt('string'), note: 'string',
       details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: opt('boolean'),
       copies: 'number', copiesDiffer: 'boolean', requestedBy: opt({ name: 'string', version: 'string' }) }] },
@@ -116,6 +116,35 @@ PF.appjson = (function () {
     return (listIn || []).map(function (d) { return { name: s(d.name), label: s(d.label || d.name), kind: s(d.kind || 'text'), required: !!d.required, options: Array.isArray(d.options) ? d.options.map(s) : [] }; });
   }
 
+  /* ---- contract 1 keeps what Flightdeck 1.x could read (docs/apps.md) ----
+     It shows exactly what 1.18 showed, so a script that never asked for more never sees a 2.0 record as data: a 2.0 version
+     (preflight-publication/2) is named as newer, never usable and never the latest; a run/3 is listed by name only, as
+     newer. Both stay problems (exit 4), as 1.18 names them. */
+  var V1_WHY = ' flightdeck-read/1 shows only what Flightdeck 1.x reads, so it names this instead of reading it.';
+  function v1Pub(p) {
+    if (!p || !p.ok || !p.info || p.info.format !== P.FORMAT2) return p;
+    var out = {}; Object.keys(p).forEach(function (k) { out[k] = p[k]; });
+    var v = typeof p.info.version === 'number' ? 'v' + p.info.version : 'This version';
+    out.ok = false; out.unusable = true; out.newer = true; out.needs = '2.0';
+    out.why = v + ' was published with Flightdeck 2.0 (it uses ' + (Array.isArray(p.info.features) ? p.info.features.join(', ') : 'its features') + ').' + V1_WHY;
+    return out;
+  }
+  function v1Processes(list) {
+    return (list || []).map(function (proc) {
+      var pubs = (proc.pubs || []).map(v1Pub), out = {};
+      if (pubs.every(function (p, i) { return p === proc.pubs[i]; })) return proc;
+      Object.keys(proc).forEach(function (k) { out[k] = proc[k]; });
+      out.pubs = pubs; out.index = P.index(pubs);
+      return out;
+    });
+  }
+  function v1Run(r) {
+    if (!r || r.format !== R.FORMAT3) return r;
+    var out = R.nameOnly(r, '2.0');
+    if (out) out._unrunnable = R.NEWER + ' Made with Flightdeck 2.0.' + V1_WHY;
+    return out;
+  }
+
   /* ---- processes and versions ---- */
   /* Why a version can't be used, as a problem kind: from a newer Flightdeck, unusable here, still arriving, or damaged. */
   function pubProblem(res) {
@@ -160,7 +189,7 @@ PF.appjson = (function () {
           return { id: s(st.id), text: s(st.text), type: s(st.type), must: !!st.must, planned: !!st.planned, roles: st.roles.map(s), binds: st.binds.map(s), sets: list(st.fields.sets),
             fields: strMap(st.fields), track: orNull(st.track), timing: timing(st.fields), evidence: evidence(t ? T.recordFields(t, st.fields) : []) };
         }),
-        gate: { id: s(ph.gate.id), title: s(ph.gate.title), implicit: !!ph.gate.implicit, owner: orNull(ph.gate.owner), approves: s(ph.gate.approves), binds: ph.gate.binds.map(s), timing: timing(ph.gate.fields) } };
+        gate: { id: s(ph.gate.id), title: s(ph.gate.title), implicit: !!ph.gate.implicit, owner: orNull(ph.gate.owner), approves: s(ph.gate.approves), binds: ph.gate.binds.map(s), note: s(ph.gate.note), timing: timing(ph.gate.fields) } };
     });
     return out;
   }
@@ -255,5 +284,5 @@ PF.appjson = (function () {
   }
 
   return { CONTRACT: CONTRACT, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
-    pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
+    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();
