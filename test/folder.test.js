@@ -1899,36 +1899,51 @@ const pngFile = (name, bytes) => Object.assign(new Blob([new Uint8Array(bytes ||
 
 rule('A screenshot is written once under images/<process>/, named for its step, a time and a random part, and read back', async () => {
   const fs = folder();
-  const res = await repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile(), now: 1760000000000, rand: () => 'k3m9p2' });
-  assert.strictEqual(res.path, 'images/release/flags-1760000000000-k3m9p2.png');
+  const res = await repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile(), writer: 'w1', now: 1760000000000, rand: () => 'k3m9p2' });
+  assert.strictEqual(res.path, 'images/release/flags-1760000000000-w1-k3m9p2.png');
   const back = new Uint8Array(await (await fs.blob(res.path)).arrayBuffer());
   same(Array.from(back), PNG);
 });
 
 rule('A screenshot\'s write-once name never overwrites: a name already taken gets another random part, and the file there is untouched', async () => {
-  const fs = folder(), taken = 'images/release/flags-1760000000000-aaaaaa.png';
+  const fs = folder(), taken = 'images/release/flags-1760000000000-w1-aaaaaa.png';
   await fs.write(taken, 'theirs');
   const rands = ['aaaaaa', 'bbbbbb'];
-  const res = await repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile(), now: 1760000000000, rand: () => rands.shift() });
-  assert.strictEqual(res.path, 'images/release/flags-1760000000000-bbbbbb.png');
+  const res = await repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile(), writer: 'w1', now: 1760000000000, rand: () => rands.shift() });
+  assert.strictEqual(res.path, 'images/release/flags-1760000000000-w1-bbbbbb.png');
   assert.strictEqual((await fs.read(taken)).text, 'theirs', 'never written over');
   /* Every name taken: refused, nothing written. */
-  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile(), now: 1760000000000, rand: () => 'aaaaaa' }), /free name/);
+  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile(), writer: 'w1', now: 1760000000000, rand: () => 'aaaaaa' }), /free name/);
   assert.strictEqual((await fs.read(taken)).text, 'theirs');
 });
 
 rule('A screenshot that reads back different, isn\'t an allowed image or is too big is refused', async () => {
   const fs = folder(), blob = fs.blob.bind(fs);
   fs.blob = p => Promise.resolve(new Blob([new Uint8Array([0x89, 0x50])], { type: 'image/png' }));
-  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile() }), /didn.t save completely/);
+  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', writer: 'w1', file: pngFile() }), /didn.t save completely/);
   fs.blob = blob;
   const written = Object.keys(fs.files).filter(p => /^images\//.test(p)).length;
-  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: Object.assign(new Blob(['%PDF-1'], { type: 'application/pdf' }), { name: 'a.pdf' }) }), /PNG, JPEG, WebP or GIF/);
-  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: pngFile('x.png', [1, 2, 3, 4, 5, 6, 7, 8]) }), /doesn.t look like a \.png/);
+  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', writer: 'w1', file: Object.assign(new Blob(['%PDF-1'], { type: 'application/pdf' }), { name: 'a.pdf' }) }), /PNG, JPEG, WebP or GIF/);
+  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', writer: 'w1', file: pngFile('x.png', [1, 2, 3, 4, 5, 6, 7, 8]) }), /doesn.t look like a \.png/);
   const big = pngFile(); Object.defineProperty(big, 'size', { value: PF.attach.SHOT_MAX + 1 });
-  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: big }), /up to 5 MB/);
-  await assert.rejects(repo.saveShot(fs, { process: '../x', step: 'flags', file: pngFile() }), /can.t/);
+  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', writer: 'w1', file: big }), /up to 5 MB/);
+  await assert.rejects(repo.saveShot(fs, { process: '../x', step: 'flags', writer: 'w1', file: pngFile() }), /can.t/);
   assert.strictEqual(Object.keys(fs.files).filter(p => /^images\//.test(p)).length, written, 'the refused ones write nothing');
+});
+
+rule('Two windows adding a screenshot at the same moment with the same random part never share a name: each name carries its window', async () => {
+  const fs = folder(), stat = fs.stat.bind(fs);
+  /* Both windows look before either writes, as two windows racing do. */
+  fs.stat = p => /^images\//.test(p) ? Promise.resolve(null) : stat(p);
+  const a = pngFile('a.png', PNG.concat([0xa])), b = pngFile('b.png', PNG.concat([0xb]));
+  const [ra, rb] = await Promise.all([
+    repo.saveShot(fs, { process: 'release', step: 'flags', file: a, writer: 'wina', now: 1760000000000, rand: () => 'same01' }),
+    repo.saveShot(fs, { process: 'release', step: 'flags', file: b, writer: 'winb', now: 1760000000000, rand: () => 'same01' })
+  ]);
+  assert.notStrictEqual(ra.path, rb.path);
+  same(Array.from(new Uint8Array(await (await fs.blob(ra.path)).arrayBuffer())), PNG.concat([0xa]), 'each window\'s own bytes');
+  same(Array.from(new Uint8Array(await (await fs.blob(rb.path)).arrayBuffer())), PNG.concat([0xb]));
+  await assert.rejects(repo.saveShot(fs, { process: 'release', step: 'flags', file: a, now: 1, rand: () => 'x1' }), /window/, 'no writer, no write');
 });
 
 run();

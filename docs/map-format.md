@@ -77,11 +77,11 @@ A step can show reference screenshots: one `![caption](images/…)` line each, i
 
 ```markdown
 - [ ] {confirm} Feature flags set in the deploy values {#flags}
-  ![The flags page with checkout on](images/release/flags-1760000000000-k3m9p2.png)
-  ![The values file in the pull request](images/release/flags-1760000000123-x7w1q4.png)
+  ![The flags page with checkout on](images/release/flags-1760000000000-w8k2m4q7xa-k3m9p2.png)
+  ![The values file in the pull request](images/release/flags-1760000000123-w8k2m4q7xa-x7w1q4.png)
 ```
 
-In the builder, select a step: its Screenshots section adds images with Choose files, by dropping them on it, or by pasting one. Each image is checked (PNG, JPEG, WebP or GIF, up to 5 MB, and its contents match), written once as `images/<process>/<step-id>-<time>-<random>.<ext>`, a new name that never replaces another file, and read back; only then is its line added to the draft. Captions are edited in place, Move up and Move down reorder them, and Remove takes the line out of the draft only: the image stays in the folder, since other versions and runs may use it. Every one of these is a change Undo takes back, and nothing reaches the draft file until Save draft. Publishing copies each screenshot into the version, so a published version keeps its pictures even if `images/` changes later. Phases and gates don't have screenshots.
+In the builder, select a step: its Screenshots section adds images with Choose files, by dropping them on it, or by pasting one. Each image is checked (PNG, JPEG, WebP or GIF, up to 5 MB, and its contents match), written once as `images/<process>/<step-id>-<time>-<window>-<random>.<ext>`, a name that includes the window adding it, so it never replaces another file, and read back; only then is its line added to the draft. Captions are edited in place, Move up and Move down reorder them, and Remove takes the line out of the draft only: the image stays in the folder, since other versions and runs may use it. Every one of these is a change Undo takes back, and nothing reaches the draft file until Save draft. Publishing copies each screenshot into the version, so a published version keeps its pictures even if `images/` changes later. Phases and gates don't have screenshots.
 
 ## Step types
 

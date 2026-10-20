@@ -1021,18 +1021,19 @@ PF.repo = (function () {
     return fs.write(path, blob).then(function () { return path; });
   }
 
-  /* A reference screenshot added in the builder (o: { process, step, file, now?, rand? }): checked like an attachment (images
-     only, 5 MB, its first bytes), written once under a new name (a name that's taken gets another random part; nothing is
-     ever written over), then read back and compared byte for byte. Resolves { path, ext, size }; the caller adds the line
+  /* A reference screenshot added in the builder (o: { process, step, file, writer, now?, rand? }): checked like an attachment
+     (images only, 5 MB, its first bytes), written once under a new name that carries this window's writer ID, so no other
+     window can choose it (a name that's taken anyway gets another random part; nothing is ever written over), then read back and compared byte for byte. Resolves { path, ext, size }; the caller adds the line
      to the draft only after that. A failed or partial write rejects, and nothing refers to the file. */
   function saveShot(fs, o) {
     var f = o.file, A = PF.attach, ok = A.checkShot(f && f.name || '', f && f.type, f && f.size);
     if (ok.error) return Promise.reject(new Error(ok.error));
     var now = o.now != null ? o.now : Date.now(), rand = o.rand || function () { return U.randomId(6); }, tries = 0, sent;
-    if (!A.shotPath(o.process, o.step, now, 'a', ok.ext)) return Promise.reject(new Error('Flightdeck can\'t name a screenshot for this process.'));
+    if (!/^[A-Za-z0-9]{1,40}$/.test(String(o.writer || ''))) return Promise.reject(new Error('Flightdeck can\'t name a screenshot without this window\'s ID.'));
+    if (!A.shotPath(o.process, o.step, now, o.writer, 'a', ok.ext)) return Promise.reject(new Error('Flightdeck can\'t name a screenshot for this process.'));
     function same(a, b) { if (a.length !== b.length) return false; for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
     function attempt() {
-      var path = A.shotPath(o.process, o.step, now, rand(), ok.ext);
+      var path = A.shotPath(o.process, o.step, now, o.writer, rand(), ok.ext);
       if (!path) throw new Error('Flightdeck can\'t name a screenshot for this process.');
       return fs.stat(path).then(function (st) {
         if (st) { if (++tries >= 3) throw new Error('Couldn\'t find a free name for the image. Try again.'); return attempt(); }

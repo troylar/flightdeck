@@ -2359,50 +2359,86 @@
   function shotAdd(list, stepKey) {
     var files = Array.prototype.slice.call(list || []), p = currentProcess(), sel = state.obSel;
     if (!files.length || !p || !sel || sel.kind !== 'step' || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
-    var capEl = document.getElementById('ob-shot-new'), cap = PF.outline.caption(capEl ? capEl.value : '');
+    var capEl = document.getElementById('ob-shot-new'), capRaw = capEl ? capEl.value : '', cap = PF.outline.caption(capRaw);
     if (cap.error) { shotErr('ob-shot-new', cap.error); return Promise.resolve(); }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
-    var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false, firstKey = stepKey != null ? String(stepKey) : sel.key;
-    var stepOf = function (k) { return PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === k; })[0] || null; };
-    var st0 = stepOf(firstKey); if (!st0) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
-    var stepId = st0.id;
+    var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false;
+    var gone = 'That step isn\'t in the draft anymore, so the image wasn\'t added.';
+    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key);
+    if (!ident) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
     state.shotBusy[key] = (state.shotBusy[key] || 0) + n; render();
     function settle(k) { k = Math.min(k, left); left -= k; state.shotBusy[key] = (state.shotBusy[key] || 0) - k; if (state.shotBusy[key] <= 0) delete state.shotBusy[key]; }
     function here() { return g === gen && fsKey() === fk && state.processId === pid; }
-    function stop(field, msg) { stopped = true; settle(left); if (here()) shotErr(field, msg); else render(); }
+    /* A reason shows next to Choose files when that step's form is the one open; otherwise it's said as a message. */
+    function stop(field, msg) {
+      stopped = true; settle(left);
+      if (!here() || !msg) { render(); return; }
+      var s = state.obSel, on = s && s.kind === 'step' && shotFind(edText(p), ident);
+      if (on && on.key === s.key) shotErr(field, msg); else { say(msg, 'warn'); render(); }
+    }
     return files.reduce(function (pr, f, i) {
       return pr.then(function () {
         if (stopped) return;
         if (!here()) { stop(); return; }
         var name = String(f.name || 'image').split(/[\\/]/).pop().slice(0, 80), caption = cap.value + (n > 1 ? ' (' + (i + 1) + ' of ' + n + ')' : '');
         var ok = PF.attach.checkShot(name, f.type, f.size); if (ok.error) { stop('ob-shot-file', ok.error); return; }
-        /* The step is found again by its ID (its key, while it has a unique one), since the draft can change meanwhile. */
-        var st = stepId ? PF.outline.parse(edText(p)).steps.filter(function (x) { return x.id === stepId; }) : [];
-        var k = st.length === 1 ? st[0].key : firstKey;
-        var plan = PF.outline.apply(edText(p), { op: 'addShot', step: k, caption: caption, src: PF.attach.shotPath(pid, stepId, Date.now(), 'aaaaaa', ok.ext) });
+        var st = shotFind(edText(p), ident); if (!st) { stop('ob-shot-file', gone); return; }
+        var plan = PF.outline.apply(edText(p), { op: 'addShot', step: st.key, caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) });
         if (plan.error) { stop('ob-shot-file', plan.error); return; }
         if (U.draftTooBig(plan.text)) { stop('ob-shot-file', '"' + name + '" wasn\'t added: its line would take this draft over 1 MB, and Flightdeck saves drafts up to 1 MB. Shorten the draft first.'); return; }
         return headOf(f).then(function (head) {
           if (!PF.attach.sniff(head, ok.ext)) throw { plain: '"' + ok.name + '" doesn\'t look like a .' + ok.ext + ' file inside, so it wasn\'t added.' };
-          return queued(function () { return repo.saveShot(sfs, { process: pid, step: stepId, file: f }); });
+          return queued(function () { return repo.saveShot(sfs, { process: pid, step: ident.id, file: f, writer: WRITER }); });
         }).then(function (r) {
           if (!here()) { stop(); if (g === gen && fsKey() === fk) say('The image was saved as ' + r.path + ', but the draft of ' + p.title + ' was closed, so it wasn\'t added to it. Add it again from the step.', 'warn'); render(); return; }
-          var now = stepId ? PF.outline.parse(edText(p)).steps.filter(function (x) { return x.id === stepId; }) : [];
-          var sk = now.length === 1 ? now[0].key : stepOf(firstKey) ? firstKey : null;
-          if (!sk) { stop('ob-shot-file', 'The step isn\'t in the draft anymore, so the image wasn\'t added. It\'s saved as ' + r.path + '.'); return; }
-          /* Text typed in a box of the form and not applied yet is applied first, so the redraw doesn't lose it. */
-          var pf = state.obPending === pid && state.obPendingField, pel = pf && document.getElementById(pf);
-          if (pel && /^ob-(text|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) builderField(pf, pel.value);
+          /* Exactly the step it was added for, or nothing: a step without an ID is matched by its whole block and phase. */
+          var now = shotFind(edText(p), ident);
+          if (!now) { stop('ob-shot-file', gone + ' It\'s saved as ' + r.path + '.'); return; }
           settle(1);
-          var res = builderEdit({ op: 'addShot', step: sk, caption: caption, src: r.path }, 'ob-shot-file');
+          var res = shotApply({ op: 'addShot', step: now.key, caption: caption, src: r.path }, i === n - 1 ? capRaw : null);
           if (!res) { stopped = true; settle(left); return; }
-          if (capEl && i === n - 1) capEl.value = '';
-          state.focus = '#ob-shot-file'; render();
+          /* The step's block now holds the new line; later images in this batch look for that. */
+          var after = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.line === now.line; })[0];
+          if (after) ident = shotIdentOf(PF.outline.parse(edText(p)), after);
         }, function (e) {
           stop('ob-shot-file', e && e.plain ? e.plain : 'Couldn\'t add "' + name + '": ' + (e && e.message || 'the image couldn\'t be saved.') + ' Nothing was added to the step.');
         });
       });
     }, Promise.resolve()).then(function () { if (left) settle(left); if (g === gen) render(); });
+  }
+  /* Who a step is, kept while its image is written: its ID when exactly one step has it, else its whole block (its lines)
+     and its phase. shotFind answers only that same step, never one that took its place. */
+  function shotIdentOf(o, s) {
+    var unique = s.id && o.steps.filter(function (x) { return x.id === s.id; }).length === 1;
+    return { id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: s.phase.title + '\n' + s.phase.index };
+  }
+  function shotIdent(text, k) { var o = PF.outline.parse(text), s = o.steps.filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s) : null; }
+  function shotFind(text, ident) {
+    var o = PF.outline.parse(text), hits = o.steps.filter(function (x) {
+      if (ident.id) return x.id === ident.id;
+      return o.lines.slice(x.line, x.end).join('\n') === ident.block && x.phase.title + '\n' + x.phase.index === ident.phase;
+    });
+    return hits.length === 1 ? hits[0] : null;
+  }
+  /* An image's line, added while the person may be typing elsewhere in the builder: what they typed (applied or not, refused
+     or not), which box is pending, its reason and where focus is all stay as they were. Nothing typed is applied for them.
+     capRaw: the caption box's text this batch used, cleared once the batch is done unless it was changed meanwhile. */
+  function shotApply(op, capRaw) {
+    var typed = [], pend = { p: state.obPending, f: state.obPendingField }, err = state.fieldErr && state.fieldErr.id === 'ob' ? state.fieldErr : null;
+    Array.prototype.forEach.call(app.querySelectorAll('input[id], textarea[id]'), function (el) {
+      if (!/^ob-/.test(el.id || '') || el.type === 'file' || /^ob-part-q/.test(el.id)) return;
+      var drawnV = /^ob-new-|^ob-shot-new$/.test(el.id) ? '' : fieldApplied(el.id);
+      if (el.id === 'ob-shot-new' ? el.value !== capRaw && el.value !== '' : el.value !== drawnV) typed.push({ id: el.id, v: el.value });
+    });
+    var res = builderEdit(op, 'ob-shot-file');
+    if (!res) return null;
+    if (pend.p) { state.obPending = pend.p; state.obPendingField = pend.f; }
+    if (err) state.fieldErr = err;
+    state.planFormReset = false;
+    render();
+    typed.forEach(function (t) { var el = document.getElementById(t.id); if (el && el.value !== t.v) el.value = t.v; });
+    if (capRaw != null && !typed.some(function (t) { return t.id === 'ob-shot-new'; })) { var ce = document.getElementById('ob-shot-new'); if (ce) ce.value = ''; }
+    return res;
   }
   /* An image pasted while the step's form has focus goes to that step. */
   document.addEventListener('paste', function (e) {

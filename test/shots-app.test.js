@@ -32,7 +32,7 @@ rule('Shots: Choose files writes the image under images/<process>/ with a unique
   await choose(app, 'The flags page', [png()]);
   const imgs = images(app);
   assert.strictEqual(imgs.length, 1, 'one image written');
-  assert.ok(/^images\/release\/flags-\d+-[a-z0-9]+\.png$/.test(imgs[0]), imgs[0]);
+  assert.ok(/^images\/release\/flags-\d+-[a-z0-9]+-[a-z0-9]+\.png$/.test(imgs[0]), imgs[0]);
   assert.strictEqual(app.fs.files[DRAFT].t, before, 'the draft isn\'t written: the line waits in the editor');
   assert.ok(/Unsaved changes/.test(app.html()));
   const md = await markdown(app), lines = md.split('\n'), at = lines.findIndex(l => /\{#flags\}/.test(l));
@@ -185,6 +185,63 @@ rule('Shots: while an image is being added, the step form says so, leaving warns
   await watch();
   assert.strictEqual(app.fs.files[DRAFT].t, A, 'and the line is unsaved work, so it still waits');
   assert.ok(/Your AI assistant proposed changes/.test(app.html()));
+});
+
+/* A slow image add, held at its write until the test opens the gate. */
+function slowWrite(app) { const g = gate(), write = app.fs.write.bind(app.fs); app.fs.write = (p, d) => /^images\//.test(p) ? g.p.then(() => write(p, d)) : write(p, d); return { g, restore() { app.fs.write = write; } }; }
+
+rule('Shots, counterexample: a phase name typed while an image is being added stays in its box, still unsaved typing, and Enter applies it', async () => {
+  const app = await shotsOn(), slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'Slow'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.click('ob-sel-phase', 'verify'); await app.tick();
+  app.setScoped('ob-ph-title', 'Verify it now'); app.input('ob-ph-title', 'Verify it now'); await app.tick();
+  slow.g.open(); await app.tick(120); slow.restore();
+  assert.strictEqual(app.draft('ob-ph-title'), 'Verify it now', 'the typing is still in its box');
+  assert.ok(/Unsaved changes/.test(app.html()));
+  assert.strictEqual(shotLines(await markdown(app)).length, 1, 'the image\'s line was added');
+  app.click('ob-sel-phase', 'verify'); await app.tick();
+  app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it now', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
+  assert.ok(/## Verify it now · READ-DO \{#verify\}/.test(await markdown(app)), 'and Enter applies it');
+});
+
+rule('Shots, counterexample: the step\'s own wording typed during the add stays, and isn\'t applied on its own', async () => {
+  const app = await shotsOn(), slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'Slow'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.setScoped('ob-text', 'Flags half typed'); app.input('ob-text', 'Flags half typed'); await app.tick();
+  slow.g.open(); await app.tick(120); slow.restore();
+  assert.strictEqual(app.draft('ob-text'), 'Flags half typed', 'kept in the box');
+  assert.ok(/Feature flags set in the deploy values/.test(await markdown(app)) && !/Flags half typed/.test(await markdown(app)), 'not applied for the person');
+});
+
+rule('Shots, counterexample: a refused caption keeps its text and its reason when an image add completes', async () => {
+  const app = await shotsOn();
+  await choose(app, 'First', [png()]);
+  const slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'Second'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.setScoped('ob-shot-cap-0', 'a ] b'); app.select('ob-shot-cap-0', 'a ] b'); await app.tick();
+  assert.ok(/id="ferr-ob-shot-cap-0" role="alert">Leave out/.test(app.html()), 'set-up: refused');
+  slow.g.open(); await app.tick(120); slow.restore();
+  assert.strictEqual(app.draft('ob-shot-cap-0'), 'a ] b', 'the refused text stays');
+  assert.ok(/id="ferr-ob-shot-cap-0" role="alert">Leave out/.test(app.html()), 'with its reason');
+  assert.strictEqual(shotLines(await markdown(app)).length, 2, 'the second image was added');
+});
+
+rule('Shots, counterexample: an add for a step without an ID never lands on another step when that one is deleted meanwhile', async () => {
+  const app = boot(); await app.tick(60);
+  app.fs.files[DRAFT].t = app.fs.files[DRAFT].t.replace(' {#rollback}', '').replace(' {#tests}', '');
+  app.focus(); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const O = app.PF.outline, keyOf = re => O.parse(app.fs.files[DRAFT].t).steps.filter(s => re.test(s.text))[0].key;
+  const k = keyOf(/^Rollback/);
+  app.click('ob-sel', k); await app.tick();
+  const slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'For rollback'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.click('ob-del', k); await app.tick();
+  slow.g.open(); await app.tick(120); slow.restore();
+  assert.ok(/That step isn(?:'|&#39;)t in the draft anymore/.test(app.html()), 'said');
+  assert.strictEqual(images(app).length, 1, 'the image stays');
+  assert.deepStrictEqual(shotLines(await markdown(app)), [], 'no line on the step that took its place');
 });
 
 run();

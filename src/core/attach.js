@@ -104,7 +104,7 @@ PF.attach = (function () {
     return out;
   }
   /* Reference screenshots added in the builder: images only, up to 5 MB each (every published version keeps its own copy),
-     written once at images/<process>/<step>-<time>-<random>.<ext>, a name that never replaces another file. */
+     written once at images/<process>/<step>-<time>-<writer>-<random>.<ext>, a name that never replaces another file. */
   var SHOT_MAX = 5 * 1024 * 1024, SHOT_ALLOWED = 'PNG, JPEG, WebP or GIF images';
   var SHOT_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif';
   function checkShot(name, type, bytes) {
@@ -115,10 +115,12 @@ PF.attach = (function () {
     if (+bytes > SHOT_MAX) return { error: label + ' is ' + size(bytes) + '. Screenshots can be up to 5 MB each.' };
     return check(name, type, bytes);
   }
-  function shotPath(process, step, now, rand, ext) {
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(String(process || '')) || !/^[a-z0-9]+$/.test(String(rand || '')) || !own(TYPES, ext) || TYPES[ext].kind !== 'image') return null;
+  /* The window's writer ID is part of the name, as with other write-once files, so two windows can never pick the same one
+     (a name check alone races across windows); the random part keeps one window's names apart. */
+  function shotPath(process, step, now, writer, rand, ext) {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(String(process || '')) || !/^[A-Za-z0-9]{1,40}$/.test(String(writer || '')) || !/^[a-z0-9]+$/.test(String(rand || '')) || !own(TYPES, ext) || TYPES[ext].kind !== 'image') return null;
     var st = /^[a-z0-9][a-z0-9-]*$/.test(String(step || '')) ? String(step).slice(0, 60) : 'step';
-    return 'images/' + process + '/' + st + '-' + Math.floor(+now || 0) + '-' + rand + '.' + ext;
+    return 'images/' + process + '/' + st + '-' + Math.floor(+now || 0) + '-' + writer + '-' + rand + '.' + ext;
   }
   return { SHOT_MAX: SHOT_MAX, SHOT_ACCEPT: SHOT_ACCEPT, SHOT_ALLOWED: SHOT_ALLOWED, checkShot: checkShot, shotPath: shotPath, MAX: MAX, PER_NOTE: PER_NOTE, PREVIEW_MAX: PREVIEW_MAX, ACCEPT: ACCEPT, ALLOWED: ALLOWED, check: check, sniff: sniff, safeName: safeName, pathFor: pathFor, pathOk: pathOk, kindOf: kindOf, nameOf: nameOf, extOf: extOf, size: size, cleanInfo: cleanInfo };
 })();
