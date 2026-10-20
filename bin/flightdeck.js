@@ -1145,7 +1145,11 @@ async function skillMain(argv) {
   }
   /* The one verdict for the name (PF.skills.resolve), from that file and every revision filed under the name, readable or
      not: anything it can't read, or two revisions at one rev, is refused before anything is written. */
-  const verdict = okName ? PF.skills.resolve(name, legacy ? [legacy] : [], regs.filter((x) => (x.skill && x.skill.name === name) || (x.file || '').indexOf('skill-registrations/' + name + '/') === 0)) : null;
+  /* What the listings couldn't show for the name holds it, as in the app (PF.skills.held): skills/ that can't be listed, or
+     whose file for the name is past the files a copy reads, stands in for the file read here. */
+  const listed = okName ? await PF.repo.loadLegacySkills(rfs).then(null, (e) => Object.assign([], { unlisted: 'skills/ couldn\'t be listed (' + (e && (e.code || e.message)) + ').' })) : [];
+  const held = okName ? PF.skills.held(listed, regs, name) : { legacy: [], revs: [] };
+  const verdict = okName ? PF.skills.resolve(name, held.legacy.length ? held.legacy : legacy ? [legacy] : [], regs.filter((x) => (x.skill && x.skill.name === name) || (x.file || '').indexOf('skill-registrations/' + name + '/') === 0).concat(held.revs)) : null;
   const said = verdict ? { name: verdict.name, status: verdict.status, source: verdict.source, rev: verdict.rev, kinds: verdict.kinds, blocks: verdict.blocks } : null;
   const no = (kind, why) => out({ verdict: said, error: { kind, why } }, EXIT.error);
   if (verdict && verdict.blocks) return no('invalid', 'Can\'t register ' + name + ': ' + verdict.reasons.join(' ') + ' Nothing was written.');
@@ -1155,7 +1159,7 @@ async function skillMain(argv) {
   const text = JSON.stringify(got.rec, null, 2) + '\n';
   try { writeNew(dir, got.path.split('/'), text); } catch (e) { return no('failed', e.message); }
   /* Read it back through the same reader the app uses: what's there must be this registration, exactly. */
-  const back = (await PF.repo.loadRegistrations(readAdapter(dir, { maxBytes: READ_MAX }))).filter((x) => x.file === got.path)[0];
+  const back = (await PF.repo.loadRegistrations(readAdapter(dir, { maxBytes: READ_MAX }), { name: got.rec.name })).filter((x) => x.file === got.path)[0];
   const sha = crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
   if (!back || !back.skill || back.skill.sha !== sha) return no('failed', got.path + ' didn\'t read back as written' + (back && back.errors.length ? ': ' + back.errors.join('; ') : '') + '.');
   let tomb = null;

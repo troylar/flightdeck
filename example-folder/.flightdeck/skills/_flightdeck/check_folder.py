@@ -682,7 +682,8 @@ def check_publication(folder, name):
 # legacy files and revisions through the app, flightdeck skill register and this checker, and fails on any difference.
 REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json$")
 STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
-SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "revision-refused", "review"]
+SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "revision-refused", "revisions-unlisted", "review"]
+MAX_SKILLS = 500
 
 
 def _str(v, n):
@@ -789,11 +790,14 @@ def resolve_skill(name, legacy, revs):
         if k not in kinds:
             kinds.append(k)
         reasons.append(why)
-    valid, bad = [r for r in revs if "why" not in r], [r for r in revs if "why" in r]
+    valid = [r for r in revs if "why" not in r]
+    unl, bad = [r for r in revs if "why" in r and r.get("unlisted")], [r for r in revs if "why" in r and not r.get("unlisted")]
     tombs, lok = [x for x in legacy if x.get("tombstone")], [x for x in legacy if x.get("ok")]
     for x in legacy:
         if not x.get("tombstone") and not x.get("ok"):
             add("legacy-unreadable" if x.get("unreadable") else "legacy-refused", x["file"] + ": " + x["why"])
+    if unl:
+        add("revisions-unlisted", "Not every revision of " + name + " could be listed: " + "; ".join(r["why"] for r in unl) + " Until they all list, no revision of it, and no legacy file, is current.")
     if bad:
         add("revision-refused", "A revision of " + name + " can't be read here: " + "; ".join(r["file"] + ": " + r["why"] for r in bad) + ". Resolve it first; until then no revision is current.")
     top = None
@@ -826,37 +830,93 @@ def _read_json(path):
         return None, "isn't valid JSON", False, data
 
 
+def _list(path):
+    """(names, None), ([], None) for a folder that isn't there, or ([], why) for one that can't be listed: never empty."""
+    if not os.path.lexists(path):
+        return [], None
+    if os.path.islink(path):
+        return [], "is a link, which Flightdeck doesn't follow."
+    try:
+        return sorted(os.listdir(path)), None
+    except OSError as e:
+        return [], "couldn't be listed (" + (e.strerror or str(e)) + ")."
+
+
 def skill_registrations(root):
-    """Every skill name in skills/ and skill-registrations/, through resolve_skill, as the app matches them."""
+    """Every skill name in skills/ and skill-registrations/, through resolve_skill, as the app matches them. What a listing
+    can't show (a folder that can't be listed, a link, files past the first 500) holds the names it would name (PF.skills.held)."""
     legacy, revs, names = {}, {}, []
+
+    def slot(n):
+        if n not in names:
+            names.append(n)
     sdir = os.path.join(root, "skills")
-    for f in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
-        if not f.lower().endswith(".json") or not os.path.isfile(os.path.join(sdir, f)):
-            continue
+    found, legacy_unlisted = _list(sdir)
+    if legacy_unlisted:
+        legacy_unlisted = "skills/ " + legacy_unlisted
+    files = [f for f in found if f.lower().endswith(".json") and os.path.isfile(os.path.join(sdir, f))]
+    dropped = files[MAX_SKILLS:]
+    for f in files[:MAX_SKILLS]:
         o, why, unreadable, _ = _read_json(os.path.join(sdir, f))
         x = {"why": why, "unreadable": unreadable} if why else check_legacy(o, f)
         x["file"] = "skills/" + f
         n = x.get("name") or f[:-5]
         legacy.setdefault(n, []).append(x)
-        if n not in names:
-            names.append(n)
+        slot(n)
     rdir = os.path.join(root, "skill-registrations")
-    for name in sorted(os.listdir(rdir)) if os.path.isdir(rdir) else []:
+    marks, paths = {}, []
+
+    def mark(n, why):
+        marks.setdefault(n, []).append({"why": why, "unlisted": True, "file": "skill-registrations/" + n + "/"})
+    found, regs_unlisted = _list(rdir)
+    if regs_unlisted:
+        regs_unlisted = "skill-registrations/ " + regs_unlisted
+    for name in found:
         ndir = os.path.join(rdir, name)
+        if os.path.islink(ndir):
+            mark(name, "skill-registrations/" + name + " is a link, which Flightdeck doesn't follow.")
+            continue
         if not os.path.isdir(ndir):
             continue
-        for f in sorted(os.listdir(ndir)):
-            if not f.lower().endswith(".json") or not os.path.isfile(os.path.join(ndir, f)):
+        inside, why = _list(ndir)
+        if why:
+            mark(name, "skill-registrations/" + name + "/ " + why)
+        for f in inside:
+            if not f.lower().endswith(".json"):
                 continue
-            rel = "skill-registrations/" + name + "/" + f
-            o, why, _, data = _read_json(os.path.join(ndir, f))
-            got = {"why": why} if why else check_registration(rel, o, sha(data))
-            got["file"] = rel
-            n = got.get("name") or name
-            revs.setdefault(n, []).append(got)
-            if n not in names:
-                names.append(n)
-    return [resolve_skill(n, legacy.get(n, []), revs.get(n, [])) for n in names]
+            if os.path.islink(os.path.join(ndir, f)):
+                mark(name, "skill-registrations/" + name + "/" + f + " is a link, which Flightdeck doesn't follow.")
+            elif os.path.isfile(os.path.join(ndir, f)):
+                paths.append("skill-registrations/" + name + "/" + f)
+    paths.sort()
+    for rel in paths[MAX_SKILLS:]:
+        n = rel.split("/")[1]
+        if not any(m["why"].endswith("a copy reads.") for m in marks.get(n, [])):
+            mark(n, "skill-registrations/" + n + "/ has files past the %d registrations a copy reads." % MAX_SKILLS)
+    for rel in paths[:MAX_SKILLS]:
+        name = rel.split("/")[1]
+        o, why, _, data = _read_json(os.path.join(root, *rel.split("/")))
+        got = {"why": why} if why else check_registration(rel, o, sha(data))
+        got["file"] = rel
+        n = got.get("name") or name
+        revs.setdefault(n, []).append(got)
+        slot(n)
+    for n, ms in marks.items():
+        revs.setdefault(n, []).extend(ms)
+        slot(n)
+    for f in dropped:
+        slot(f[:-5])
+    out = []
+    for n in names:
+        L, V = list(legacy.get(n, [])), list(revs.get(n, []))
+        if legacy_unlisted:
+            L.append({"why": legacy_unlisted, "unreadable": True, "file": n + ".json"})
+        elif n + ".json" in dropped:
+            L.append({"why": "skills/" + n + ".json wasn't read: skills/ holds more files than a copy reads", "unreadable": True, "file": n + ".json"})
+        if regs_unlisted:
+            V.append({"why": regs_unlisted, "unlisted": True, "file": "skill-registrations/" + n + "/"})
+        out.append(resolve_skill(n, L, V))
+    return out
 
 
 def team_files(root):

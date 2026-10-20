@@ -44,6 +44,7 @@ PF.pins = (function () {
   /* version: N on a {run.process} step, at publish: the one version numbered N, or why it can't be pinned. */
   function atVersion(proc, process, n) {
     if (!proc) return { why: '"' + process + '" isn\'t published in this folder' };
+    if (proc.unlisted) return { why: proc.unlisted };
     var all = numbered(proc, n);
     if (!all.length) return { why: process + ' v' + n + ' isn\'t in this folder' };
     if (all.length > 1) return { why: 'two versions are numbered ' + process + ' v' + n + ' here (' + all.map(folderOf).sort().join(', ') + '); a person has to choose one' };
@@ -53,6 +54,7 @@ PF.pins = (function () {
   /* The exact version a pin names, or why it can't be used. Nothing else stands in for it. */
   function find(proc, pin) {
     if (!proc) return { why: 'its checklist isn\'t published in this folder' };
+    if (proc.unlisted) return { why: proc.unlisted };
     var n = PF.publish.versionOf(pin.folder), all = numbered(proc, n), mine = all.filter(function (x) { return folderOf(x) === pin.folder; })[0];
     var others = all.filter(function (x) { return x !== mine; });
     if (!mine) return { why: others.length ? 'this folder\'s v' + n + ' is a different version (' + others.map(folderOf).sort().join(', ') + '), not ' + pin.folder : pin.folder + ' isn\'t in this folder', missing: true };

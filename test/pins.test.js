@@ -576,6 +576,18 @@ rule('Linking an orphan to a run/3 step with no pin yet pins the step to the orp
   refuse(Object.assign(plain(v1), { mapHash: 'ffffffff' }), { run: Object.assign(plain(v1), { mapHash: 'ffffffff' }), procOf, findRun: () => null }, /checklist/);
 });
 
+rule('A process whose versions can\'t be listed is unreadable, never unpublished: pinning a step, finding a pin and registering a skill against it refuse with the listing\'s reason', async () => {
+  const locked = { list: (p) => p === 'publications/verify' ? Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES' })) : Promise.resolve([]), read: () => Promise.resolve(null) };
+  const proc = await PF.repo.readProcess(locked, 'verify');
+  assert.ok(proc, 'a state, not null');
+  const why = (x) => x && x.why || '';
+  assert.ok(/couldn't be listed/.test(why(PF.pins.find(proc, { process: 'verify', folder: 'v1-abcd1234' }))), why(PF.pins.find(proc, { process: 'verify', folder: 'v1-abcd1234' })));
+  assert.ok(/couldn't be listed/.test(why(PF.pins.atVersion(proc, 'verify', 1))), why(PF.pins.atVersion(proc, 'verify', 1)));
+  const g = PF.skills.registration({ name: 'x', version: '1', location: 'here', implements: { process: 'verify', folder: 'v1-abcd1234' } }, proc, null, { app: '2.0.0', now: AT, by: 'a', window: 'w', rand: 'abcdefgh' });
+  assert.ok(!g.rec && /couldn't be listed/.test(g.why), JSON.stringify(g));
+  assert.strictEqual(await PF.repo.readProcess({ list: () => Promise.resolve([]) }, 'verify'), null, 'a process with no versions is still not published');
+});
+
 rule('Rechecking a {run.skill} step keeps the registration it observed in the step\'s history, through sanitize and the archive', () => {
   const kids = childProc(['A']), md = PARENT(['  version: 1']).replace('Write the report {#report}', 'Write the report for ^ticket {#report}');
   const parent = publish(md, { childProcs: { verify: proc(kids) } });

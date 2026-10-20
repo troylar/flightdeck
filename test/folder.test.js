@@ -664,7 +664,11 @@ rule('Step types past 100 and skill registrations past 500 are counted and repor
   const d = await repo.loadAll(fs);
   assert.strictEqual(d.stepTypes.skipped, 3); assert.strictEqual(Object.keys(d.stepTypes.types).length, 100);
   assert.ok(d.stepTypes.types['team.t000'] && !d.stepTypes.types['team.t102'], 'the first by name, the same on every computer');
-  assert.strictEqual(d.skillsSkipped, 3); assert.strictEqual(d.skills.length, 500);
+  assert.strictEqual(d.skillsSkipped, 3);
+  // The three past the limit aren't read, and each still holds its name: listed as not read, never current.
+  const past = d.skills.filter(x => !x.skill && /wasn't read/.test((x.errors || []).join(' ')));
+  assert.strictEqual(d.skills.length - past.length, 500); assert.strictEqual(past.length, 3);
+  assert.ok(past.every(x => x.verdict && x.verdict.status === 'unmatched' && x.verdict.blocks), JSON.stringify(past[0]));
 });
 
 rule('Drafts that say the same process: are both read, so both can be reported', async () => {

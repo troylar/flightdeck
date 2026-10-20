@@ -628,7 +628,7 @@ PF.repo = (function () {
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
     var top = {};
-    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && i.kind === 'dir') top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
+    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed),
@@ -650,6 +650,8 @@ PF.repo = (function () {
       r[10].concat(r[11]).forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, u.dir === 'followups' ? 'flightdeck-followup-decision' : u.dir === 'suggestions' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', u)); });
       r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
+      /* skills/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part that failed. */
+      if (r[5] && r[5].unlisted && !('skills' in failed)) failed.skills = r[5].unlisted;
       var plans = groupPlans(r[6].plans, r[6].statuses);
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
@@ -864,22 +866,41 @@ PF.repo = (function () {
      the SHA-256 of its bytes), merged into one entry per skill (PF.skills.merge). Reading for other apps with contract 1 keeps
      1.18's scope: registrations aren't discovered (legacy only). */
   function loadSkills(fs, legacyOnly, noRegs) {
-    return Promise.all([loadLegacySkills(fs), legacyOnly || noRegs ? Promise.resolve([]) : loadRegistrations(fs)]).then(function (r) {
+    /* For this copy's own reading, a skills/ that can't be listed is unreadable for every name (PF.skills.held), never empty.
+       Reading for other apps (contract 1) keeps 1.18's failure. */
+    var legacy = legacyOnly ? loadLegacySkills(fs) : loadLegacySkills(fs).then(null, function (e) { var l = []; l.skipped = 0; l.unlisted = 'skills/ ' + listWhy(e) + '.'; return l; });
+    return Promise.all([legacy, legacyOnly || noRegs ? Promise.resolve([]) : loadRegistrations(fs)]).then(function (r) {
       if (legacyOnly) return r[0];
       var out = PF.skills.merge(r[0], r[1]); out.skipped = r[0].skipped + (r[1].skipped || 0);
+      if (r[0].unlisted) out.unlisted = r[0].unlisted;
       return out;
     });
   }
-  function loadRegistrations(fs) {
-    var skipped = 0;
-    return fs.list('skill-registrations').then(function (names) {
-      var dirs = (names || []).filter(function (i) { return i.kind === 'dir'; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+  function listWhy(e) { return 'couldn\'t be listed (' + (e && (e.code || e.message) || String(e)) + ')'; }
+  /* Every revision in skill-registrations/ (the first MAX_SKILLS by path). What can't be listed is never left out: the folder
+     itself (list.unlisted), a name's folder, a link (Flightdeck doesn't follow them) or a name whose files are past the limit is
+     an entry { unlisted: true } for that name, which holds it (PF.skills.resolve). opts.name: only that name's folder (reading
+     back what flightdeck skill register wrote). */
+  function loadRegistrations(fs, opts) {
+    var skipped = 0, marks = [], whole = null, only = opts && opts.name;
+    var mark = function (name, why) { marks.push({ skill: null, errors: [why], file: 'skill-registrations/' + name + '/', unlisted: true }); };
+    var list = function (p) { return Promise.resolve().then(function () { return fs.list(p); }); };
+    return list('skill-registrations').then(function (names) {
+      var all = (names || []).filter(function (i) { return !only || i.name === only; });
+      all.filter(function (i) { return i.kind === 'link'; }).forEach(function (i) { mark(i.name, 'skill-registrations/' + i.name + ' is a link, which Flightdeck doesn\'t follow.'); });
+      var dirs = all.filter(function (i) { return i.kind === 'dir'; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
       return Promise.all(dirs.map(function (d) {
-        return fs.list('skill-registrations/' + d.name).then(function (items) { return (items || []).filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return 'skill-registrations/' + d.name + '/' + i.name; }); }, function () { return []; });
+        return list('skill-registrations/' + d.name).then(function (items) {
+          var json = (items || []).filter(function (i) { return /\.json$/i.test(i.name); });
+          json.filter(function (i) { return i.kind === 'link'; }).forEach(function (i) { mark(d.name, 'skill-registrations/' + d.name + '/' + i.name + ' is a link, which Flightdeck doesn\'t follow.'); });
+          return json.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return 'skill-registrations/' + d.name + '/' + i.name; });
+        }, function (e) { mark(d.name, 'skill-registrations/' + d.name + '/ ' + listWhy(e) + '.'); return []; });
       }));
-    }, function () { return []; }).then(function (lists) {
+    }, function (e) { whole = 'skill-registrations/ ' + listWhy(e) + '.'; return []; }).then(function (lists) {
       var paths = [].concat.apply([], lists).sort();
       skipped = Math.max(0, paths.length - MAX_SKILLS);
+      var cut = {};
+      paths.slice(MAX_SKILLS).forEach(function (p) { var n = p.split('/')[1]; if (!cut[n]) { cut[n] = true; mark(n, 'skill-registrations/' + n + '/ has files past the ' + MAX_SKILLS + ' registrations a copy reads.'); } });
       return Promise.all(paths.slice(0, MAX_SKILLS).map(function (path) {
         var bad = function (why) { return { skill: null, errors: [path + ': ' + why], file: path }; };
         return Promise.all([fs.read(path), fs.blob(path).then(function (b) { return b ? bytesOf(b) : null; }, function () { return null; })]).then(function (got) {
@@ -890,13 +911,13 @@ PF.repo = (function () {
           try { return PF.skills.checkV2(o, path, PF.sha256.hex(got[1])); } catch (e) { return bad('couldn\'t be read as a skill registration'); }
         }, function () { return bad('couldn\'t be read'); });
       }));
-    }).then(function (list) { list.skipped = skipped; return list; });
+    }).then(function (list) { list = list.concat(marks); list.skipped = skipped; if (whole) list.unlisted = whole; return list; });
   }
   function loadLegacySkills(fs) {
-    var skipped = 0;
-    return fs.list('skills').then(function (items) {
+    var skipped = 0, dropped = [];
+    return Promise.resolve().then(function () { return fs.list('skills'); }).then(function (items) {
       var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-      skipped = Math.max(0, files.length - MAX_SKILLS);
+      skipped = Math.max(0, files.length - MAX_SKILLS); dropped = files.slice(MAX_SKILLS).map(function (i) { return i.name; });
       return Promise.all(files.slice(0, MAX_SKILLS).map(function (i) {
         var bad = function (why) { return { skill: null, errors: ['skills/' + i.name + ': ' + why], file: i.name }; };
         return fs.read('skills/' + i.name).then(function (f) {
@@ -907,7 +928,7 @@ PF.repo = (function () {
           try { var c = PF.skills.check(o, i.name); c.file = i.name; return c; } catch (e) { return bad('couldn\'t be read as a skill registration'); }
         }, function () { return Object.assign(bad('couldn\'t be read'), { unreadable: true }); });
       }));
-    }).then(function (list) { list.skipped = skipped; return list; });
+    }).then(function (list) { list.skipped = skipped; if (dropped.length) list.dropped = dropped; return list; });
   }
   /* The team's Jira workflows: jira/workflows.json (see core/jira.js). Missing is fine; a broken file is reported. */
   function loadWorkflows(fs) {
@@ -1128,12 +1149,15 @@ PF.repo = (function () {
     var out = {};
     return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
   }
-  /* One process's versions, as the app lists them ({ latest, all, clashes, broken }), or null when none is there. */
+  /* One process's versions, as the app lists them ({ latest, all, clashes, broken }), or null when none is there. One whose
+     folder can't be listed is { unlisted: why } with no versions, which every pin lookup refuses with that reason. */
   function readProcess(fs, name) {
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(name)) return Promise.resolve(null);
-    return fs.list('publications/' + name).then(function (vers) {
+    var unlisted = null;
+    return Promise.resolve().then(function () { return fs.list('publications/' + name); }).then(function (vers) {
       return Promise.all((vers || []).filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, name, v.name); }));
-    }, function () { return []; }).then(function (pubs) {
+    }, function (e) { unlisted = 'publications/' + name + '/ ' + listWhy(e); return []; }).then(function (pubs) {
+      if (unlisted) return { latest: null, all: [], clashes: [], broken: [], unlisted: unlisted };
       if (!pubs.length) return null;
       var i = P.index(pubs);
       return { latest: i.latest, all: i.all, clashes: i.clashes, broken: pubs.filter(function (x) { return !x.ok; }) };
