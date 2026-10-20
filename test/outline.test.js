@@ -755,4 +755,55 @@ rule('Outline: a step with split lines, or a draft it can\'t read safely, takes 
   assert.ok(O.apply(SHOTS.replace(/\n/g, '\r'), { op: 'removeShot', step: 'alpha', shot: 0 }).error);
 });
 
+/* ---------- 2.0: a phase's note and screenshots, a gate's screenshots ---------- */
+const plain = o => JSON.parse(JSON.stringify(o));
+const PHASED = ['---', 'process: p', 'title: P', '---', '', '## Prepare {#prep}', '  > Use the scratch server.', '  ![The scratch server](images/p/scratch.png)', '- [ ] {confirm} Look {#look}', '  > Step note.', '',
+  '## Gate: Ready {#ready}', '  > Counts match.', '  ![Counts](images/p/counts.png)', '', '## Close {#close}', '- [ ] {confirm} File it {#file}', ''].join('\n');
+rule('The builder reads a phase\'s note and screenshots and a gate\'s screenshots as map.js does, and edits elsewhere keep them', () => {
+  const o = O.parse(PHASED), ph = o.phases[0];
+  assert.strictEqual(ph.notes, 1); assert.deepStrictEqual(plain(ph.shots.map(x => [x.caption, x.src])), [['The scratch server', 'images/p/scratch.png']]);
+  assert.deepStrictEqual(plain(ph.gate.shots.map(x => x.src)), ['images/p/counts.png']);
+  assert.ok(!ph.odd && !ph.gate.odd);
+  /* A step added at the start of the phase goes below the phase's lines, so they stay the phase's. */
+  const t = ok(O.apply(PHASED, { op: 'add', to: { phase: 'prep', where: 'start' }, text: 'First' }));
+  const m = M.parse(t);
+  assert.strictEqual(m.phases[0].note, 'Use the scratch server.'); assert.strictEqual(m.phases[0].shots.length, 1);
+  assert.strictEqual(m.phases[0].steps[0].text, 'First'); assert.strictEqual(m.phases[0].steps[0].note, '');
+  const tr = ok(O.apply(PHASED, { op: 'addTrack', to: { phase: 'prep' }, title: 'Lane', text: 'Lane step' }));
+  assert.strictEqual(M.parse(tr).phases[0].note, 'Use the scratch server.');
+  const moved = ok(O.apply(PHASED, { op: 'movePhase', phase: 'close', dir: 'up' }));
+  assert.strictEqual(M.parse(moved).phases[1].note, 'Use the scratch server.');
+  assert.deepStrictEqual(plain(errors(moved)), []);
+});
+rule('The builder edits a phase\'s note: add one under the heading, change it (several lines), clear it; nothing else changes', () => {
+  const bare = PHASED.replace('  > Use the scratch server.\n', '');
+  const a = ok(O.apply(bare, { op: 'phaseNote', phase: 'prep', note: 'Read first.' }));
+  assert.deepStrictEqual(plain(changes(bare, a)), { removed: [], added: ['  > Read first.'] });
+  assert.strictEqual(lines(a)[lines(a).indexOf('## Prepare {#prep}') + 1], '  > Read first.', 'right under the heading');
+  const b = ok(O.apply(PHASED, { op: 'phaseNote', phase: 'prep', note: 'Line one.\nLine two.' }));
+  assert.strictEqual(M.parse(b).phases[0].note, 'Line one.\nLine two.');
+  assert.deepStrictEqual(plain(changes(PHASED, b)), { removed: ['  > Use the scratch server.'], added: ['  > Line one.', '  > Line two.'] });
+  const c = ok(O.apply(PHASED, { op: 'phaseNote', phase: 'prep', note: '  ' }));
+  assert.strictEqual(M.parse(c).phases[0].note, ''); assert.deepStrictEqual(plain(changes(PHASED, c)), { removed: ['  > Use the scratch server.'], added: [] });
+  assert.ok(O.apply(PHASED, { op: 'phaseNote', phase: 'prep', note: 'Use the scratch server.' }).same);
+  assert.ok(O.apply(PHASED, { op: 'phaseNote', phase: 'nope', note: 'x' }).error);
+});
+rule('The builder adds, captions, moves and removes a phase\'s screenshots and a gate\'s, changing only those lines', () => {
+  const a = ok(O.apply(PHASED, { op: 'addShot', phase: 'prep', caption: 'Second', src: 'images/p/two.png' }));
+  assert.deepStrictEqual(plain(M.parse(a).phases[0].shots.map(x => x.caption)), ['The scratch server', 'Second']);
+  assert.deepStrictEqual(plain(changes(PHASED, a)), { removed: [], added: ['  ![Second](images/p/two.png)'] });
+  const b = ok(O.apply(a, { op: 'moveShot', phase: 'prep', shot: 1, dir: 'up' }));
+  assert.deepStrictEqual(plain(M.parse(b).phases[0].shots.map(x => x.caption)), ['Second', 'The scratch server']);
+  const c = ok(O.apply(b, { op: 'editShot', phase: 'prep', shot: 0, caption: 'Two' }));
+  assert.strictEqual(M.parse(c).phases[0].shots[0].caption, 'Two');
+  const d = ok(O.apply(c, { op: 'removeShot', phase: 'prep', shot: 0 }));
+  assert.strictEqual(d, PHASED);
+  const nonote = PHASED.replace('  > Use the scratch server.\n  ![The scratch server](images/p/scratch.png)\n', '');
+  const e = ok(O.apply(nonote, { op: 'addShot', phase: 'prep', caption: 'Only', src: 'images/p/only.png' }));
+  assert.strictEqual(lines(e)[lines(e).indexOf('## Prepare {#prep}') + 1], '  ![Only](images/p/only.png)');
+  const g = ok(O.apply(PHASED, { op: 'addShot', gate: 'prep', caption: 'Lights', src: 'images/p/lights.png' }));
+  assert.deepStrictEqual(plain(M.parse(g).phases[0].gate.shots.map(x => x.src)), ['images/p/counts.png', 'images/p/lights.png']);
+  assert.ok(O.apply(PHASED, { op: 'addShot', phase: 'prep', caption: 'x', src: '../x.png' }).error);
+});
+
 run();

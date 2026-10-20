@@ -835,7 +835,7 @@
     /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
     state.reading = { done: 0, total: null };
     /* Input kept for return belongs to its folder: a new folder starts clean. */
-    state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
+    state.corrDrafts = {}; state.noteCorrs = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
     /* A drill-down's runs and the version picked on How runs go belong to this folder. */
     state.runFilter = null; state.insFolder = {};
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -1044,7 +1044,7 @@
         if (p && p.latest && !p.draftChanged) { su.busy = false; say(p.title + ' is published already.', 'good'); render(); return null; }
         var people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
         return queued(function () {
-          return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString() }); });
+          return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString(), app: APP_VERSION }); });
         }).then(function (pub) {
           if (g !== gen) return null;
           su.busy = false;
@@ -1627,7 +1627,7 @@
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
     var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs } }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs }, app: APP_VERSION }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, { process: child.process, id: child.id, inputs: inputs }, state.me, new Date().toISOString()); }
@@ -2364,14 +2364,16 @@
      of the draft: the line is unsaved until Save draft. */
   function shotAdd(list, stepKey) {
     var files = Array.prototype.slice.call(list || []), p = currentProcess(), sel = state.obSel;
-    if (!files.length || !p || !sel || sel.kind !== 'step' || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    if (!files.length || !p || !sel || (sel.kind !== 'step' && sel.kind !== 'phase') || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    /* A phase's own screenshots (2.0) are added the same way, from the phase's form. */
+    var kind = sel.kind, opOf = function (k, more) { var o = { op: 'addShot' }; o[kind] = k; Object.keys(more).forEach(function (x) { o[x] = more[x]; }); return o; };
     var capEl = document.getElementById('ob-shot-new'), capRaw = capEl ? capEl.value : '', cap = PF.outline.caption(capRaw);
     if (cap.error) { shotErr('ob-shot-new', cap.error); return Promise.resolve(); }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
     var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false, epoch = edEpoch(pid, fk);
-    var gone = 'That step isn\'t in the draft anymore, so the image wasn\'t added.';
-    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key);
-    if (!ident) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
+    var gone = 'That ' + kind + ' isn\'t in the draft anymore, so the image wasn\'t added.';
+    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key, kind);
+    if (!ident) { shotErr('ob-shot-file', 'That ' + kind + ' isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
     state.shotBusy[key] = (state.shotBusy[key] || 0) + n; render();
     function settle(k) { k = Math.min(k, left); left -= k; state.shotBusy[key] = (state.shotBusy[key] || 0) - k; if (state.shotBusy[key] <= 0) delete state.shotBusy[key]; }
     function here() { return g === gen && fsKey() === fk && state.processId === pid; }
@@ -2379,7 +2381,7 @@
     function stop(field, msg) {
       stopped = true; settle(left);
       if (!here() || !msg) { render(); return; }
-      var s = state.obSel, on = s && s.kind === 'step' && shotFind(edText(p), ident);
+      var s = state.obSel, on = s && s.kind === kind && shotFind(edText(p), ident);
       if (on && on.key === s.key) shotErr(field, msg); else { say(msg, 'warn'); render(); }
     }
     return files.reduce(function (pr, f, i) {
@@ -2389,7 +2391,7 @@
         var name = String(f.name || 'image').split(/[\\/]/).pop().slice(0, 80), caption = cap.value + (n > 1 ? ' (' + (i + 1) + ' of ' + n + ')' : '');
         var ok = PF.attach.checkShot(name, f.type, f.size); if (ok.error) { stop('ob-shot-file', ok.error); return; }
         var st = shotFind(edText(p), ident); if (!st) { stop('ob-shot-file', gone); return; }
-        var plan = PF.outline.apply(edText(p), { op: 'addShot', step: st.key, caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) });
+        var plan = PF.outline.apply(edText(p), opOf(st.key, { caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) }));
         if (plan.error) { stop('ob-shot-file', plan.error); return; }
         if (U.draftTooBig(plan.text)) { stop('ob-shot-file', '"' + name + '" wasn\'t added: its line would take this draft over 1 MB, and Flightdeck saves drafts up to 1 MB. Shorten the draft first.'); return; }
         return headOf(f).then(function (head) {
@@ -2402,11 +2404,11 @@
           var now = shotFind(edText(p), ident);
           if (!now) { stop('ob-shot-file', gone + ' It\'s saved as ' + r.path + '.'); return; }
           settle(1);
-          var res = shotApply({ op: 'addShot', step: now.key, caption: caption, src: r.path }, i === n - 1 ? capRaw : null);
+          var res = shotApply(opOf(now.key, { caption: caption, src: r.path }), i === n - 1 ? capRaw : null);
           if (!res) { stopped = true; settle(left); return; }
-          /* The step's block now holds the new line; later images in this batch look for that. */
-          var after = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.line === now.line; })[0];
-          if (after) ident = shotIdentOf(PF.outline.parse(edText(p)), after);
+          /* The block now holds the new line; later images in this batch look for that. */
+          var po = PF.outline.parse(edText(p)), after = (kind === 'phase' ? po.phases : po.steps).filter(function (x) { return x.line === now.line; })[0];
+          if (after) ident = shotIdentOf(po, after, kind);
         }, function (e) {
           stop('ob-shot-file', e && e.plain ? e.plain : 'Couldn\'t add "' + name + '": ' + (e && e.message || 'the image couldn\'t be saved.') + ' Nothing was added to the step.');
         });
@@ -2415,15 +2417,17 @@
   }
   /* Who a step is, kept while its image is written: its ID when exactly one step has it, else its whole block (its lines)
      and its phase. shotFind answers only that same step, never one that took its place. */
-  function shotIdentOf(o, s) {
-    var unique = s.id && o.steps.filter(function (x) { return x.id === s.id; }).length === 1;
-    return { id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: s.phase.title + '\n' + s.phase.index };
+  function shotIdentOf(o, s, kind) {
+    var list = kind === 'phase' ? o.phases : o.steps, unique = s.id && list.filter(function (x) { return x.id === s.id; }).length === 1;
+    var ph = kind === 'phase' ? s : s.phase;
+    return { kind: kind === 'phase' ? 'phase' : 'step', id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: ph.title + '\n' + ph.index };
   }
-  function shotIdent(text, k) { var o = PF.outline.parse(text), s = o.steps.filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s) : null; }
+  function shotIdent(text, k, kind) { var o = PF.outline.parse(text), s = (kind === 'phase' ? o.phases : o.steps).filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s, kind) : null; }
   function shotFind(text, ident) {
-    var o = PF.outline.parse(text), hits = o.steps.filter(function (x) {
+    var o = PF.outline.parse(text), hits = (ident.kind === 'phase' ? o.phases : o.steps).filter(function (x) {
       if (ident.id) return x.id === ident.id;
-      return o.lines.slice(x.line, x.end).join('\n') === ident.block && x.phase.title + '\n' + x.phase.index === ident.phase;
+      var ph = ident.kind === 'phase' ? x : x.phase;
+      return o.lines.slice(x.line, x.end).join('\n') === ident.block && ph.title + '\n' + ph.index === ident.phase;
     });
     return hits.length === 1 ? hits[0] : null;
   }
@@ -2447,9 +2451,9 @@
     if (capRaw != null && !typed.some(function (t) { return t.id === 'ob-shot-new'; })) { var ce = document.getElementById('ob-shot-new'); if (ce) ce.value = ''; }
     return res;
   }
-  /* An image pasted while the step's form has focus goes to that step. */
+  /* An image pasted while a step's or a phase's form has focus goes to it. */
   document.addEventListener('paste', function (e) {
-    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || state.obSel.kind !== 'step' || !e.clipboardData) return;
+    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || (state.obSel.kind !== 'step' && state.obSel.kind !== 'phase') || !e.clipboardData) return;
     var t = e.target; if (!(t && t.closest && t.closest('.ob-form'))) return;
     var items = e.clipboardData.items || [], files = [];
     for (var i = 0; i < items.length; i++) if (items[i].kind === 'file') { var f = items[i].getAsFile(); if (f) files.push(f); }
@@ -2797,8 +2801,9 @@
     var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
     if (id === 'ob-text') return st ? st.text : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
-    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = st && st.shots[+id.slice(12)]; return sh ? sh.caption : ''; }
+    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
+    if (id === 'ob-ph-note') return ph ? ph.note : '';
     if (id === 'ob-tr-title') { var tr = ph && ph.tracks[+s.track]; return tr ? tr.title : ''; }
     if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
     return '';
@@ -2915,7 +2920,9 @@
       else if (id === 'ob-tr-role') res = builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { role: value } }, id);
       else return;
     } else {
+      if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', phase: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
       if (id === 'ob-ph-title') res = reid(ph && ph.id, builderEdit({ op: 'editPhase', phase: s.key, set: { title: value, reid: !!(ph && fresh(ph.id)) } }, id));
+      else if (id === 'ob-ph-note') res = builderEdit({ op: 'phaseNote', phase: s.key, note: value }, id);
       else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
       else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
         /* Leaving the "name a gate" box empty adds nothing. */
@@ -3481,7 +3488,7 @@
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
       state.focus = !s ? 'ed-h' : s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
       render();
@@ -3496,13 +3503,15 @@
     'ob-role': function (id) { builderToggle('role', id); },
     'ob-bind': function (id) { builderToggle('bind', id); },
     'ob-shot-move': function (id, b) {
-      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || s.kind !== 'step') return;
-      var res = builderEdit({ op: 'moveShot', step: s.key, shot: +id, dir: up ? 'up' : 'down' }); if (!res) return;
+      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
+      var mv = { op: 'moveShot', shot: +id, dir: up ? 'up' : 'down' }; mv[s.kind] = s.key;
+      var res = builderEdit(mv); if (!res) return;
       state.focus = '[data-act="ob-shot-move"][data-id="' + (+id + (res.same ? 0 : up ? -1 : 1)) + '"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
     },
     'ob-shot-remove': function (id) {
-      var s = state.obSel; if (!s || s.kind !== 'step') return;
-      var res = builderEdit({ op: 'removeShot', step: s.key, shot: +id }); if (!res || res.same) return;
+      var s = state.obSel; if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
+      var rm = { op: 'removeShot', shot: +id }; rm[s.kind] = s.key;
+      var res = builderEdit(rm); if (!res || res.same) return;
       sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
     },
     'ob-del': function (id) {
@@ -3690,7 +3699,7 @@
           if (!f || f.text !== shown) return { changed: true };
           /* The corrections this exact text includes, worked out from the folder as last read (see PF.corrections.forPublish). */
           var inc = pg === gen ? PF.corrections.forPublish(f.text, ctx.corrections(id)).list : [];
-          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
+          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
         });
       }).then(function (res) {
         if (pg !== gen) return;
@@ -3980,6 +3989,23 @@
     'corr-scope': function (id) { var f = state.corrForm; if (!f) return; f.scope = id === 'fix' ? 'fix' : 'just'; state.fieldErr = null; state.focus = '[data-act="corr-scope"][data-id="' + f.scope + '"]'; render(); },
     'corr-cancel': function () { var f = state.corrForm; if (f) dropCorrDraft(f); state.corrForm = null; state.fieldErr = null; if (f) state.focus = '[data-act="corr-open"][data-id="' + cssEsc(f.step) + '"][data-mode="' + f.mode + '"]'; render(); },
     'corr-save': function () { saveCorrection(false); },
+    /* A correction to a phase's note or a gate's (2.0). */
+    'nc-open': function (id, b) {
+      var r = ctx.run(); if (!r || !state.me) return;
+      var kind = b && b.dataset.kind === 'gate' ? 'gate' : 'phase';
+      var ph = R.mapOf(r).phases.filter(function (p) { return kind === 'gate' ? p.gate && p.gate.id === id : p.id === id; })[0]; if (!ph) return;
+      /* Each one is its own draft: opening another never touches it, and opening it again brings back what was typed. */
+      var all = state.noteCorrs = state.noteCorrs || {}, k = ncKey(state.runKey, kind, id);
+      if (!all[k]) all[k] = { key: state.runKey, kind: kind, id: id, to: (kind === 'gate' ? ph.gate.note : ph.note) || '', why: '' };
+      state.fieldErr = null; state.focus = 'nc-to-' + kind + '-' + id; state.focusEnd = true; render();
+    },
+    'nc-cancel': function (id, b) {
+      var kind = b && b.dataset.kind === 'gate' ? 'gate' : 'phase', all = state.noteCorrs || {}, k = ncKey(state.runKey, kind, id);
+      if (!all[k]) return;
+      delete all[k]; if (state.fieldErr && state.fieldErr.id === 'nc-' + kind + '-' + id) state.fieldErr = null;
+      state.focus = '[data-act="nc-open"][data-kind="' + kind + '"][data-id="' + cssEsc(id) + '"]'; render();
+    },
+    'nc-save': function (id, b) { saveNoteCorrection(b && b.dataset.kind === 'gate' ? 'gate' : 'phase', id); },
     'corr-done': function () { saveCorrection(true); },
     /* Deciding on a group of corrections: anyone; declining needs a reason; withdrawing is for whoever suggested it. */
     'corr-applied': function (id) { decideCorr(id, 'applied', '', 'Marked as applied to the draft.'); },
@@ -4118,6 +4144,8 @@
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
     'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
+    'zoom-phase': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.id === id; })[0]; if (!ph) return; openLightbox(ph.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
+    'zoom-gate': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.gate.id === id; })[0]; if (!ph) return; openLightbox(ph.gate.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-note': function (id, b) { var r = ctx.run(), n = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; if (!n) return; openLightbox(imagesOf(n), +b.dataset.i); },
     'att-remove': function (id) { var p = state.pendingFiles.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.pendingFiles = state.pendingFiles.filter(function (x) { return x !== p; }); state.attErr = null; state.focus = /^corr:/.test(p.step) ? 'corr-why' : 'note-text'; render(); },
     /* A text attachment opens as plain text in a dialog; anything else saves a copy. Only files of the note or suggestion named are read. */
@@ -4210,6 +4238,24 @@
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
       return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () { render(); });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
+  }
+  /* A note correction's draft: by folder, run and the phase or gate it's about. */
+  function ncKey(key, kind, id) { return draftKey(key, 'nc:' + kind + ':' + id); }
+  function saveNoteCorrection(kind, tid) {
+    var r = ctx.run(), all = state.noteCorrs || {}, k = ncKey(state.runKey, kind, tid), f = all[k], sfx = '-' + kind + '-' + tid;
+    if (!r || !f || !state.me || f.sending) return;
+    var o = { id: U.randomId(10), at: new Date().toISOString(), by: state.me, session: WRITER, map: R.mapOf(r), op: 'wording', to: f.to, why: f.why, version: +r.version || 0, folder: r.folder, files: [] }, note;
+    o[f.kind] = f.id;
+    try { note = PF.corrections.build(o); }
+    catch (e) { var fld = e.field === 'corr-why' ? 'why' : 'to'; state.fieldErr = { id: 'nc' + sfx, msg: e.message, field: fld }; state.focus = 'nc-' + fld + sfx; render(); return; }
+    state.fieldErr = null; f.sending = true;
+    var nfs = state.fs, ng = gen, endBusy = busyStart(); say('Saving…', ''); state.msg.quiet = true; render();
+    queued(function () { return repo.addNote(nfs, r, WRITER, note); }).then(function () {
+      endBusy(); f.sending = false; if (ng !== gen) return;
+      if (all[k] === f) delete all[k];
+      say('Correction saved on this computer.', 'good'); state.msg.quiet = true;
+      return (state.runKey === f.key ? refreshRun() : null);
+    }).then(function () { render(); }, function (e) { endBusy(); f.sending = false; if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
   /* The composer's boxes are read into its state as they change, so a redraw (or the live redline) never loses them. */
   function readCorrForm(f) {
@@ -4363,7 +4409,7 @@
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
-    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows }); }
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me;
@@ -4425,6 +4471,8 @@
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
+    var ncm = /^nc-(to|why)-(phase|gate)-(.+)$/.exec(e.target.id || ''), ncf = ncm && state.runKey && (state.noteCorrs || {})[ncKey(state.runKey, ncm[2], ncm[3])];
+    if (ncf) { ncf[ncm[1]] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'nc-' + ncm[2] + '-' + ncm[3]) state.fieldErr = null; }
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */
     if (e.target.id === 'draft-editor') {
@@ -4496,7 +4544,7 @@
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;

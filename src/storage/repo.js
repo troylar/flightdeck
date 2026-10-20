@@ -91,26 +91,39 @@ PF.repo = (function () {
   function readVersion(fs, proc, folder) {
     var base = 'publications/' + proc + '/' + folder + '/';
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
-      var res = P.verify(folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
+      return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
+    }).then(function (res) {
       res.folder = folder; res.process = proc;
       return checkImages(fs, base, res);
     });
   }
-
-  function bytesHash(blob) {
-    return blob.arrayBuffer().then(function (buf) {
-      var b = new Uint8Array(buf), s = '';
-      for (var i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
-      return U.hash(s);
-    });
+  /* A version verified as the app verifies it: a /2 version by the SHA-256 of the exact bytes of its checklist and step
+     types (P.exactOf), read only when it is /2. Every reader of a version in a folder goes through this. */
+  function verifyExact(fs, base, folder, texts) {
+    var check = function (exact) { return P.verify(folder, texts, exact); }, res = check(null);
+    if (!res.needsBytes) return Promise.resolve(res);
+    var raw = function (n) { return fs.blob(base + n).then(function (b) { return b ? bytesOf(b) : null; }, function () { return null; }); };
+    return Promise.all([raw('map.md'), raw('types.json')]).then(function (b) { return check(P.exactOf({ 'map.md': b[0], 'types.json': b[1] })); });
   }
+
+  function bytesOf(blob) { return blob.arrayBuffer().then(function (buf) { return new Uint8Array(buf); }); }
+  function fnvBytes(b) {
+    var s = '';
+    for (var i = 0; i < b.length; i += 32768) s += String.fromCharCode.apply(null, b.subarray(i, i + 32768));
+    return U.hash(s);
+  }
+  function bytesHash(blob) { return bytesOf(blob).then(fnvBytes); }
+  /* Every screenshot a version records must be there and match: its fingerprint, and for a /2 version the SHA-256 of its
+     exact bytes in the payload too. */
   function checkImages(fs, base, res) {
     var imgs = res.ok && res.info.images ? Object.keys(res.info.images) : [];
+    var strong = res.ok && res.info.format === P.FORMAT2 && res.info.payload ? res.info.payload.images : null;
     return imgs.reduce(function (p, src) {
       return p.then(function (r) {
         if (!r.ok) return r;
-        return fs.blob(base + src).then(function (b) { return b ? bytesHash(b) : null; }).then(function (h) {
-          return h === res.info.images[src] ? r : { ok: false, why: h ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
+        return fs.blob(base + src).then(function (b) { return b ? bytesOf(b) : null; }).then(function (b) {
+          var good = !!b && fnvBytes(b) === res.info.images[src] && (!strong || PF.sha256.create().update(b).digest() === strong[src]);
+          return good ? r : { ok: false, why: b ? 'Screenshot ' + src + ' doesn\'t match its publication record.' : 'Still syncing: screenshot ' + src + ' hasn\'t arrived.', info: r.info, folder: r.folder, process: r.process };
         });
       });
     }, Promise.resolve(res));
@@ -384,9 +397,11 @@ PF.repo = (function () {
            own copy of them is never taken as evidence for the version, so one run can't vouch for it for every other run.
            Files not there yet, or not matching the record, are still syncing: no approval, checked again next time. */
         return Promise.all([fs.read(dir + 'map.md'), fs.read(dir + 'types.json')]).then(function (r) {
-          var v = P.verify(run.folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': f.text });
+          return verifyExact(fs, dir, run.folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': f.text });
+        }).then(function (v) {
           if (!v.ok) return v.unusable ? (c.bad[dir] = v.why) : '';
-          return approve(info);
+          /* Its screenshots, and a /2 version's exact bytes, as a refresh checks them: not matching yet is still syncing. */
+          return checkImages(fs, dir, v).then(function (x) { return x.ok ? approve(info) : ''; });
         }, function () { return ''; });
       }, function () { return ''; });
     });
@@ -1078,13 +1093,14 @@ PF.repo = (function () {
     var parsed = PF.map.parse(draftMd), process = parsed.meta.process, base = 'publications/' + process + '/' + built.folder + '/';
     /* Reference screenshots are copied into the publication with a fingerprint each, so replacing one in images/ later never changes
        an old version's instructions. A screenshot that isn't in the folder stops the publish rather than vanishing from it. */
-    var shots = [], blobs = {};
-    PF.map.steps(parsed).forEach(function (x) { x.step.shots.forEach(function (sh) { if (shots.indexOf(sh.src) < 0) shots.push(sh.src); }); });
+    var shots = PF.map.shotSources(parsed), blobs = {};
     var read = shots.reduce(function (p, src) { return p.then(function (missing) { return fs.blob(src).then(function (b) { if (!b) return missing.concat([src]); blobs[src] = b; return missing; }); }); }, Promise.resolve([]));
     return read.then(function (missing) {
       if (missing.length) return { blockers: missing.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; }) };
-      return shots.reduce(function (p, src) { return p.then(function (m) { return bytesHash(blobs[src]).then(function (h) { m[src] = h; return m; }); }); }, Promise.resolve({})).then(function (images) {
-        var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, rand: built.folder.replace(/^v\d+-/, '') })) : built;
+      var bytes = {};
+      return shots.reduce(function (p, src) { return p.then(function (m) { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; m[src] = fnvBytes(b); return m; }); }); }, Promise.resolve({})).then(function (images) {
+        var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, imageBytes: bytes, rand: built.folder.replace(/^v\d+-/, '') })) : built;
+        if (rebuilt.blockers) return rebuilt;
         return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
       });
@@ -1836,8 +1852,10 @@ PF.repo = (function () {
         /* Versions are read from snapshots: the files behind a claim are the very bytes in the pack. */
         var pubs = limited(r[2], 8, function (m) {
           return Promise.all(m.want.map(function (n) { return record(m.base + n); })).then(function (rs) {
-            var files = {}; m.want.forEach(function (n, i) { files[n] = rs[i].text == null ? null : rs[i].text; });
-            return { folder: m.folder, files: files, v: P.verify(m.folder, files) };
+            var files = {}, exact = {}; m.want.forEach(function (n, i) { files[n] = rs[i].text == null ? null : rs[i].text; });
+            /* A /2 version by the SHA-256 of the exact bytes snapshotted for the pack, never its text. */
+            ['map.md', 'types.json'].forEach(function (n) { var x = done[m.base + n]; if (x && !x.gone && x.sha256) exact[n] = x.sha256; });
+            return { folder: m.folder, files: files, v: P.verify(m.folder, files, exact) };
           });
         });
         return Promise.all([runs, pubs]).then(function (x) {
@@ -1934,11 +1952,15 @@ PF.repo = (function () {
           if (ctx.why) Object.keys(p.ids.corr).forEach(function (cid) { p.claims.push({ correction: cid, group: '', text: 'Where it stands', folder: '', why: ctx.why }); });
           return Promise.all(Object.keys(vers).map(function (folder) {
             var b = 'publications/' + proc + '/' + folder;
-            return listFiles(b).then(function (items) {
+            /* The version the run ran is its payload (2.0): the screenshots it lists. One its payload doesn't list still goes in,
+               labeled as not part of the version. */
+            var mine = vers[folder] === 'publication' ? record(b + '/publication.json').then(function (x) { var i = x.text != null ? json(x.text) : null; return i && typeof i === 'object' && !Array.isArray(i) && !P.newerOf(i) ? P.payloadFiles(i) : null; }) : Promise.resolve(null);
+            return Promise.all([listFiles(b), mine]).then(function (both) {
+              var items = both[0], listed = both[1];
               items.forEach(function (x) {
                 if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
                 var rel = x.path.slice(b.length + 1);
-                if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') === 0 ? 'A screenshot in the version the run ran' : 'The version the run ran' });
+                if (vers[folder] === 'publication' && (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0 || rel.indexOf('images/') === 0)) add(x.path, { role: 'publication', label: rel.indexOf('images/') !== 0 ? 'The version the run ran' : !listed || listed.indexOf(rel) >= 0 ? 'A screenshot in the version the run ran' : 'In the version\'s folder, but it isn\'t part of the version (its payload doesn\'t list it)' });
                 else if (['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '"' });
               });
             });
@@ -2037,7 +2059,15 @@ PF.repo = (function () {
       rc.fuDecisions = p.files.filter(function (f) { return f.role === 'followup'; }).map(function (f) { var o = json(textOf(f.path)); return o ? PF.followups.cleanDecision(o, p.process, f.path.split('/').pop()) : null; }).filter(Boolean);
       var pubTexts = {};
       if (p.folder) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { var path = 'publications/' + p.process + '/' + p.folder + '/' + n, x = p.files.some(function (f) { return f.path === path; }) ? textOf(path) : null; if (x != null) pubTexts[n] = x; });
-      rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null);
+      /* The version's screenshots, as snapshotted for the pack: their SHA-256, and their bytes when kept. */
+      var pubShots = {};
+      if (p.folder) { var pinfo = pubTexts['publication.json'] != null ? json(pubTexts['publication.json']) : null; if (pinfo && typeof pinfo === 'object' && !Array.isArray(pinfo) && !P.newerOf(pinfo) && pinfo.images && typeof pinfo.images === 'object') Object.keys(pinfo.images).forEach(function (src) {
+        var path = 'publications/' + p.process + '/' + p.folder + '/' + src, x = done[path];
+        if (x && !x.gone && x.sha256) pubShots[src] = { sha256: x.sha256, bytes: x.bytes ? E.join(x.bytes) : null };
+      });
+      /* The checklist's and step types' exact bytes, for a /2 version's payload. */
+      ['map.md', 'types.json'].forEach(function (n) { var x = done['publications/' + p.process + '/' + p.folder + '/' + n]; if (x && !x.gone && x.sha256) pubShots['\u0000' + n] = { sha256: x.sha256 }; }); }
+      rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null);
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
       rc.claims = p.claims.map(function (c) {
         var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + p.process + '/' + c.folder + '/' + n; }) : [];

@@ -2,12 +2,13 @@
 PF.run = (function () {
   'use strict';
   var U = PF.util, M = PF.map;
-  var FORMAT = 'preflight-run/2';
+  var FORMAT = 'preflight-run/2', FORMAT3 = 'preflight-run/3';
   var LOG_MAX = 300;
 
   function create(pub, o) {
     /* Only a version this copy fully understands can start a run; P.verify already sets the others aside. */
-    var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
+    var two = !!pub.info && pub.info.format === PF.publish.FORMAT2;
+    var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT && !two ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
     var map = pub.map, details = {}, roles = {};
     map.meta.context.forEach(function (f) { details[f] = String((o.details || {})[f] || '').trim(); });
@@ -27,6 +28,14 @@ PF.run = (function () {
       marksFrom: 'start',
       pauses: [], paused: null
     };
+    /* A run of a /2 version is run/3 (the lowest sufficient format follows the version): it names the version's features and
+       keeps its types fingerprint and frozen payload, so a run says exactly what it ran. */
+    if (two) {
+      var env = PF.envelope.stamp('preflight-run', pub.info.features || [], o.app), head = { format: env.format || FORMAT3 };
+      if (env.features) head.features = env.features;
+      if (env.app) head.app = env.app;
+      r = order3(Object.assign(head, r, { format: head.format, typesHash: pub.info.typesHash, payload: JSON.parse(JSON.stringify(pub.info.payload)) }));
+    }
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); }
     addLog(r, o.by, o.now, 'Started the run');
     return r;
@@ -767,7 +776,15 @@ PF.run = (function () {
     return lines.join('\n').replace(/\n+$/, '');
   }
 
-  function valid(o) { return !!o && o.format === FORMAT && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
+  /* run/3's fields in the frozen order (test/fixtures/v2): the envelope, then the version's fingerprints, then the rest as run/2. */
+  var ORDER3 = ['format', 'features', 'app', 'id', 'process', 'version', 'folder', 'mapHash', 'typesHash', 'title', 'category', 'snapshot', 'types', 'payload'];
+  function order3(r) {
+    var out = {};
+    ORDER3.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r, k)) out[k] = r[k]; });
+    Object.keys(r).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(out, k)) out[k] = r[k]; });
+    return out;
+  }
+  function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
 
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
   var STEP_STATES = { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }, GATE_STATES = { passed: 1, waived: 1, failed: 1, review: 1 };
@@ -788,7 +805,23 @@ PF.run = (function () {
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
+  var HEX64 = /^[0-9a-f]{64}$/;
+  /* Why a run/3 can't be read in full here, or '': a top-level field this copy doesn't know, or a payload it can't check (a pin
+     or extension it doesn't have). Such a run is listed by name only, like a newer major, never sanitized and saved. */
+  function unknown3(o) {
+    var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run3, f) && f[0] !== '_'; })[0];
+    if (extra != null) return 'The run has "' + String(extra).slice(0, 40) + '".';
+    var p = o.payload, obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); };
+    if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
+    if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
+    if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
+    if (Object.keys(p.extensions).length || Object.keys(p.pins).some(function (k) { return (k !== 'children' && k !== 'skills') || !obj(p.pins[k]) || Object.keys(p.pins[k]).length; })) return 'It pins other versions or holds extensions.';
+    return '';
+  }
+  /* The Flightdeck a run/3 this copy can't fully read needs: its writer's own version when that's 2.0 or later, else 2.0. */
+  function needs3(o) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof o.app === 'string' ? o.app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
   var MARKS = { blocked: 1, recheck: 1, na: 1, differently: 1 };
   function newer(o) {
     var why = '';
@@ -802,7 +835,7 @@ PF.run = (function () {
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
-    look(o, 'run', 'The run');
+    look(o, o.format === FORMAT3 ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
     look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
@@ -840,6 +873,8 @@ PF.run = (function () {
   function newerFormat(o) {
     if (!o || typeof o !== 'object' || typeof o.format !== 'string' || !/^preflight-run\//.test(o.format)) return null;
     var env = PF.envelope.judge('preflight-run', o);
+    /* A run/3 this copy can't read as a run (missing what every run has) is still a 2.0 file: listed by name, as the bridge did. */
+    if (env.ok && o.format === FORMAT3) return nameOnly(o, needs3(o));
     if (env.ok || env.kind !== 'newer') return null;
     return nameOnly(o, env.needs || '');
   }
@@ -1038,7 +1073,9 @@ PF.run = (function () {
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
     /* A run/2 with a must-understand feature this copy doesn't know is listed by name only, never read for meaning. */
-    if (o.features != null) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
+    if (o.features != null || o.format === FORMAT3) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
+    var three = o.format === FORMAT3;
+    if (three && unknown3(o)) return nameOnly(o, needs3(o));
     var r = {
       format: FORMAT, id: o.id, process: str(o.process, 60), version: Math.max(0, parseInt(o.version, 10) || 0), folder: str(o.folder, 60), mapHash: str(o.mapHash, 16),
       title: str(o.title, 100) || 'Untitled run', category: str(o.category, 60), snapshot: o.snapshot, types: o.types && typeof o.types === 'object' ? o.types : {},
@@ -1091,11 +1128,19 @@ PF.run = (function () {
        Not saved itself ("_"). */
     var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o);
     if (bad) r._unrunnable = bad;
+    if (three) {
+      r.format = FORMAT3;
+      if (Array.isArray(o.features)) r.features = PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; });
+      if (typeof o.app === 'string' && /^\d+\.\d+\.\d+/.test(o.app)) r.app = o.app.slice(0, 40);
+      r.typesHash = str(o.typesHash, 16);
+      r.payload = JSON.parse(JSON.stringify(o.payload));
+      r = order3(r);
+    }
     return r;
   }
 
   return {
-    FORMAT: FORMAT, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

@@ -21,6 +21,8 @@ const AT = '2026-03-02T12:00:00.000Z';
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const below = (v) => cmp(v, H.bundles.FLOOR) < 0;
 const at = (v, from) => cmp(v, from) >= 0;
+/* 1.21.0 is the bridge: it refuses what 2.0 writes as this version does, so the pre-bridge characterizations below check it the bridge's way. */
+const bridged = (v) => at(v, '1.21.0');
 const fixture = (tag) => H.readTree(path.join(G.DIR, tag));
 let mainFolder = null;
 const mainFiles = async () => (mainFolder = mainFolder || await G.main());
@@ -290,7 +292,7 @@ eachTag('a preflight-publication/2 version is unusable: never the latest, and no
   if (below(t.version)) { assert.strictEqual(proc.index.latest.info.version, 2, 'below the floor, a /2 version is run as if it were /1'); return; }
   assert.strictEqual(proc.index.latest.info.version, 1, 'v1 stays the latest');
   const v = OLD.publish.verify('v2-zzzz2222', { 'publication.json': files[v2 + 'publication.json'], 'map.md': files[v2 + 'map.md'], 'types.json': files[v2 + 'types.json'] });
-  assert.ok(!v.ok && v.unusable && v.why === OLD.publish.NEWER);
+  assert.ok(!v.ok && v.unusable && (bridged(t.version) ? /Flightdeck 2\.0/.test(v.why) : v.why === OLD.publish.NEWER), v.why);
   assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[v2 + 'map.md']), md: files[v2 + 'map.md'], types: JSON.parse(files[v2 + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
 });
 
@@ -331,8 +333,8 @@ eachTag('a follow-up decision with fv: 2 is read as an ordinary decision there (
   const name = file.replace(/\.1\.json$/, '.2.json').replace('w-avery', 'w-blake');
   files[name] = JSON.stringify(o, null, 2);
   const d = await OLD.repo.loadAll(H.memFolder(OLD, files));
-  assert.ok(d.fuDecisions.some(x => x.rev === 2 && x.status === 'done'), t.tag + ' accepts it');
-  assert.strictEqual(d.fuUnread.length, 0);
+  if (bridged(t.version)) assert.ok(!d.fuDecisions.some(x => x.rev === 2) && d.refused.some(r => r.path === name && r.kind === 'newer'), t.tag + ' (the bridge) refuses it');
+  else { assert.ok(d.fuDecisions.some(x => x.rev === 2 && x.status === 'done'), t.tag + ' accepts it'); assert.strictEqual(d.fuUnread.length, 0); }
   const NEW = H.loadMain(), n = await NEW.repo.loadAll(H.memFolder(NEW, files));
   assert.ok(!n.fuDecisions.some(x => x.rev === 2), 'this version never reads it as a decision');
   const u = n.fuUnread.find(x => x._file === name.split('/').pop());
@@ -346,8 +348,8 @@ eachTag('a correction decision with dv: 3 is read as an ordinary decision there 
   const name = file.replace(/\.1\.json$/, '.2.json').replace('w-avery', 'w-blake');
   files[name] = JSON.stringify(o, null, 2);
   const d = await OLD.repo.loadAll(H.memFolder(OLD, files));
-  assert.ok(d.corrDecisions.some(x => x.kind === 'correction-decision' && x.rev === 2), t.tag + ' accepts it');
-  assert.strictEqual(d.corrUnread.length, 0);
+  if (bridged(t.version)) assert.ok(!d.corrDecisions.some(x => x.rev === 2) && d.refused.some(r => r.path === name && r.kind === 'newer'), t.tag + ' (the bridge) refuses it');
+  else { assert.ok(d.corrDecisions.some(x => x.kind === 'correction-decision' && x.rev === 2), t.tag + ' accepts it'); assert.strictEqual(d.corrUnread.length, 0); }
   const NEW = H.loadMain(), n = await NEW.repo.loadAll(H.memFolder(NEW, files));
   assert.ok(!n.corrDecisions.some(x => x.rev === 2), 'this version never reads it as a decision');
   const u = n.corrUnread.find(x => x._file === name.split('/').pop());
@@ -361,8 +363,11 @@ eachTag('a front-matter format: or features: line is kept in meta and published 
     const md = G.CHECKLIST.replace('roles: lead, checker\n', 'roles: lead, checker\n' + extra + '\n');
     const m = H.memFolder(OLD, fixture(t.tag)), existing = (await OLD.repo.loadAll(m)).processes[0].index.all.map(p => p.info);
     const res = await OLD.repo.publish(m, md, { people: G.PEOPLE, customTypes: { 'team.restore': OLD.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Minimum only', existing, now: AT });
-    assert.ok(!res.blockers, extra + ': ' + res.blockers);
-    assert.strictEqual(JSON.parse(res.files['publication.json']).format, 'preflight-publication/1');
+    if (bridged(t.version)) assert.ok(res.blockers && res.blockers.some(b => /Flightdeck 2\.0|newer Flightdeck/.test(b)), extra + ': the bridge refuses it');
+    else {
+      assert.ok(!res.blockers, extra + ': ' + res.blockers);
+      assert.strictEqual(JSON.parse(res.files['publication.json']).format, 'preflight-publication/1');
+    }
     const mine = await NEW.repo.publish(H.memFolder(NEW, fixture(t.tag)), md, { people: G.PEOPLE, customTypes: { 'team.restore': NEW.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Minimum only', existing, now: AT });
     assert.ok(mine.blockers && mine.blockers.some(b => /Flightdeck 2\.0|newer Flightdeck/.test(b)), extra + ': this version refuses it');
   }
@@ -439,7 +444,7 @@ eachTag('READ/1: its command names a run/3 newer (exit 4) and a plan/2 malformed
     const r = read(newer, 'runs');
     assert.strictEqual(r.code, 4);
     const kinds = {}; r.json.problems.forEach(x => { kinds[x.path] = x.kind; });
-    same([kinds['runs/backup/run-a/run.json'], kinds['proposals/plan-backup-pinned.json']], ['newer', 'malformed'], JSON.stringify(r.json.problems));
+    same([kinds['runs/backup/run-a/run.json'], kinds['proposals/plan-backup-pinned.json']], ['newer', bridged(t.version) ? 'newer' : 'malformed'], JSON.stringify(r.json.problems));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }, (t) => expects('read', t.version));
 
@@ -470,7 +475,7 @@ eachTag('In its app, a save that meets a preflight-run/3 on disk writes nothing;
   app.click('toggle', id); await app.tick(80);
   assert.ok(saves >= 1, 'set-up: the change was saved');
   same(filesUnder(app, dir), before, 'zero writes');
-  if (!below(t.version)) assert.ok(/newer copy of Flightdeck/.test(app.html() + app.live()), 'and it says why');
+  if (!below(t.version)) assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0/.test(app.html() + app.live()), 'and it says why');
 });
 
 eachTag('In its app, keeping a conflict copy that is preflight-run/3 is refused and changes nothing', async (OLD, t) => {
@@ -484,7 +489,7 @@ eachTag('In its app, keeping a conflict copy that is preflight-run/3 is refused 
   const before = filesUnder(app, dir);
   app.click('use-copy', name); await app.tick(120);
   same(filesUnder(app, dir), before, 'nothing kept, replaced or removed');
-  assert.ok(/newer copy of Flightdeck|can.t be read/.test(app.live() + app.html()), 'and it says why');
+  assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0|can.t be read/.test(app.live() + app.html()), 'and it says why');
 });
 
 /* A step on the recorded run that a plain click answers (no evidence form, no child run). */
@@ -523,7 +528,7 @@ eachTag('In its app, a refused change is kept only in that window: on screen, ne
   const page = b.html(), before = snap();
   assert.ok(!/data-act="restore-local"/.test(page), 'no Restore it here');
   if (below(t.version)) assert.ok(!/A copy kept in this browser/.test(page), 'below the floor the run isn\'t listed, so neither is the copy');
-  else assert.ok(/newer copy of Flightdeck/.test(page) && /A copy kept in this browser/.test(page) && /data-act="discard-local"/.test(page), 'listed with Discard only');
+  else assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0/.test(page) && /A copy kept in this browser/.test(page) && /data-act="discard-local"/.test(page), 'listed with Discard only');
   // Known: the action has no button here, but called anyway (1.11.1 on) it keeps "the version it replaces" first, which is the
   // name-only view of the run/3: a replaced-*.json in preflight-run/2 with no steps and no checklist. run.json is never touched.
   b.click('restore-local'); await b.tick(120);
@@ -533,7 +538,7 @@ eachTag('In its app, a refused change is kept only in that window: on screen, ne
   const rec = JSON.parse(after[changed[0]]);
   assert.ok(/\/replaced-[^/]+\.json$/.test(changed[0]) && rec.format === 'preflight-run/2' && !Object.keys(rec.steps).length && rec.snapshot === '', 'a name-only record');
   assert.strictEqual(after[r.path], before[r.path], 'run.json untouched');
-  assert.ok(/newer copy of Flightdeck/.test(b.live()), 'and it says why');
+  assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0/.test(b.live()), 'and it says why: ' + b.live());
 });
 
 eachTag('In its builder, a draft with 2.0 lines opens, and a builder edit saves only that change: every line it doesn\'t understand is kept as written', async (OLD, t) => {
@@ -565,7 +570,7 @@ eachTag('In its step-type editor, a step type with a format envelope (with or wi
     if (kind) env.record = def.record.concat([{ name: 'rows', label: 'Rows', kind }]);
     const text = JSON.stringify(env, null, 2); app.fs.files[f] = { t: text, m: Date.now() };
     app.click('refresh'); await app.tick(80); app.click('nav', 'types'); await app.tick();
-    assert.ok(/unknown field\(s\): format, features, app/.test(app.html()), (kind || 'envelope only') + ': listed with what it can\'t read');
+    assert.ok(bridged(t.version) ? /This step type needs Flightdeck 2\.0/.test(app.html()) : /unknown field\(s\): format, features, app/.test(app.html()), (kind || 'envelope only') + ': listed with what it can\'t read');
     app.click('edit-type', 'change.request'); await app.tick(40);
     assert.ok(!/id="tf-label"/.test(app.html()) && /Fix the file/.test(app.live()), 'the editor doesn\'t open it');
     app.click('new-type'); await app.tick(); app.set('tf-id', 'change.request'); app.set('tf-label', 'Mine'); app.submit('type-form'); await app.tick(120);

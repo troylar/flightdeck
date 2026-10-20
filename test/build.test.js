@@ -134,17 +134,25 @@ rule('docs/apps.md documents flightdeck plan request: its command, every status,
 
 rule('1.20.0 has its own release entry, in plain words', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.20.0')[0];
-  assert.ok(r && rel[1] === r, '1.20.0 is the release before 1.21.0');
+  assert.ok(r && rel[rel.findIndex(x => x.version === '1.21.0') + 1] === r, '1.20.0 is the release before 1.21.0');
   const text = JSON.stringify(r);
   assert.ok(/plan request/.test(text) && /A person starts/.test(text) && /by its own account/.test(text), text);
 });
 
 rule('1.21.0 has its own release entry, in plain words, naming no employer, product or tool', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '1.21.0');
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.21.0')[0];
+  assert.ok(r && rel[rel.indexOf(r) - 1].version === '2.0.0', '1.21.0 is the release before 2.0.0');
   const text = JSON.stringify(r);
   assert.ok(/Needs Flightdeck 2\.0/.test(text) && /no longer read as if it were an older one/.test(text) && /never changes them/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour/i.test(text), 'US English');
+});
+
+rule('2.0.0 has its own release entry, in plain US English, naming the notes and screenshots older copies can\'t run', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
+  assert.strictEqual(r.version, '2.0.0');
+  const text = JSON.stringify(r);
+  assert.ok(/phase/i.test(text) && /gate/i.test(text) && /screenshot/i.test(text) && /1\.21/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 
 run();

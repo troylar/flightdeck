@@ -118,7 +118,7 @@ Shared shapes: a **person** has `id` and `name` (`name` is `null` when `people.j
 | `types` | The step types it uses: `id` and `label` |
 | `phases` | Each phase: `id`, `title`, `mode` (`READ-DO`, `DO-CONFIRM` or empty), `tracks` (`id`, `title`, `roles`), `steps` and `gate` |
 
-Each step: `id` (stable across versions; keep these in your app's settings), `text`, `type`, `must`, `planned`, `roles`, `binds` (run details it's tied to), `sets` (run details it sets), `fields` (the checklist's fields, as text), `track` (or `null`), `timing` and `evidence`. Each gate: `id`, `title`, `implicit` (a plain "confirm together"), `owner` (a role or `null`), `approves`, `binds` and `timing`.
+Each step: `id` (stable across versions; keep these in your app's settings), `text`, `type`, `must`, `planned`, `roles`, `binds` (run details it's tied to), `sets` (run details it sets), `fields` (the checklist's fields, as text), `track` (or `null`), `timing` and `evidence`. Each gate: `id`, `title`, `implicit` (a plain "confirm together"), `owner` (a role or `null`), `approves`, `binds`, `note` (the gate's note from the checklist, as written; `""` when it has none; added in 2.0, which shows gate notes for every version) and `timing`.
 
 ### runs
 

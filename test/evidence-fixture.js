@@ -58,7 +58,8 @@ function bytesOf(mem) {
 }
 
 /* Builds the folder. Returns { files: {path: Buffer}, run, groupId, v2, fuId, notesPath, base }. */
-async function build(PF) {
+async function build(PF, opts) {
+  opts = opts || {};
   const R = PF.run, repo = PF.repo, C = PF.corrections, EX = exampleSetup(PF);
   const people = example('people.json'), md = example('maps/drafts/release.md');
   const mem = new PF.fs.MemoryFS('evidence:' + Math.random(), null);
@@ -120,7 +121,10 @@ async function build(PF) {
   const gs = C.landing(C.status([g], [Object.assign(C.cleanDecision(dec, 'release'), { _file: g.id + '.w4.1.json' })]), [v1], []);
   const mem2 = new PF.fs.MemoryFS('evidence2:' + Math.random(), null);
   mem2.reset({});
-  const pub2 = await repo.publish(mem2, rv.text, { people: JSON.parse(people), ...EX, by: 'person-avery', changes: 'Pods wording', existing: [v1.info], now: NOW, rand: 'bbbb2222', corrections: C.forPublish(rv.text, gs).list });
+  /* v2note: v2 also adds a note on the first phase, so it is a preflight-publication/2 version. */
+  const md2 = opts.v2note ? rv.text.replace(/^(## [^\n]*\{#[\w-]+\}\n)/m, '$1  > Check the release notes first.\n') : rv.text;
+  if (opts.v2note && md2 === rv.text) throw new Error('no phase heading for the v2 note');
+  const pub2 = await repo.publish(mem2, md2, { people: JSON.parse(people), ...EX, by: 'person-avery', changes: 'Pods wording', existing: [v1.info], now: NOW, rand: 'bbbb2222', corrections: C.forPublish(md2, gs).list });
   if (pub2.blockers) throw new Error(String(pub2.blockers));
   Object.assign(files, bytesOf(mem2));
   return { files, run: r, groupId: g.id, v1: r.folder, v2: pub2.folder, base, notesPath: base + 'notes-w2.jsonl', shot, log };

@@ -52,20 +52,9 @@ PF.skills = (function () {
   /* A safe link for a location: https only; anything else (a path) is shown as text to copy. */
   function link(location) { return /^https:\/\/\S+$/i.test(location || '') ? location : ''; }
 
-  /* What a step is, for comparing versions: anything a skill would have to follow. */
-  /* A step as a skill must follow it: its content, plus where it sits (phase, its mode, track) and the gate that closes it. */
-  function stepsOf(map, types, images) {
-    var o = Object.create(null);
-    var gsig = function (g) { g = g || {}; return [g.title, g.owner, g.approves, g.implicit, g.note, g.binds, g.fields]; };
-    map.phases.forEach(function (p, pi) {
-      /* The gate before the phase (what must be approved before this work starts) and the gate that closes it. */
-      var gate = JSON.stringify([pi > 0 ? gsig(map.phases[pi - 1].gate) : null, gsig(p.gate)]);
-      p.steps.forEach(function (s, si) { o[s.id] = { step: s, phase: p, sig: JSON.stringify([s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, p.id, p.mode, gate, types && types[s.type] ? types[s.type] : null,
-        /* Reference screenshots are instructions too: their captions, paths and the fingerprint frozen into the version. */
-        (s.shots || []).map(function (sh) { return [sh.caption, sh.src, images && Object.prototype.hasOwnProperty.call(images, sh.src) ? images[sh.src] : null]; })]) }; });
-    });
-    return o;
-  }
+  /* A step as a skill must follow it (PF.signature): its content, where it sits, its phase's note and screenshots, and the
+     gates around it. */
+  function stepsOf(map, types, images) { return PF.signature.steps(map, types, images); }
   function orderOf(map, ids) { return M.steps(map).map(function (x) { return x.step.id; }).filter(function (id) { return !ids || ids.indexOf(id) >= 0; }); }
   /* How the steps a skill covers changed between two maps: [{ id, change: changed|removed|added, from, to }]. */
   /* Maps or publications (whose frozen step types count: a type gaining required evidence changes what the skill must do). */
@@ -81,6 +70,11 @@ PF.skills = (function () {
     /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
     var ca = (fromMap.meta && fromMap.meta.context) || [], cb = (toMap.meta && toMap.meta.context) || [];
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
+    /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
+    if (PF.signature.process(from) !== PF.signature.process(to)) {
+      var what = PF.signature.inputChanges(from, to);
+      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what });
+    }
     /* The same steps in a different order is a change too: a skill follows the order. */
     var oa = orderOf(fromMap, ids).filter(function (id) { return b[id]; }), ob = orderOf(toMap, ids).filter(function (id) { return a[id]; });
     if (oa.join(',') !== ob.join(',')) out.push({ id: '(order)', change: 'order', from: oa, to: ob });
@@ -174,8 +168,26 @@ PF.skills = (function () {
     if (s.roles && s.roles.length) lines.push('  - who: ' + s.roles.join(', '));
     if (s.binds && s.binds.length) lines.push('  - tied to run details: ' + s.binds.map(function (b) { return '^' + b; }).join(', ') + ' (if one changes, the step must be redone)');
     if (s.note) lines.push('  - note: ' + s.note.replace(/\n/g, ' '));
-    (s.shots || []).forEach(function (sh) { lines.push('  - reference screenshot: ' + sh.caption + ' (' + sh.src + ', in the published version\'s folder)'); });
+    (s.shots || []).forEach(function (sh) { lines.push(shotLine('  - ', sh)); });
     return lines.join('\n');
+  }
+  /* A reference screenshot, as a brief lists it. */
+  function shotLine(lead, sh) { return lead + 'reference screenshot: ' + sh.caption + ' (' + sh.src + ', in the published version\'s folder)'; }
+  /* Where a step sits, as far as its instructions go: its phase's note and screenshots (2.0), and the gate before its phase
+     and the one closing it, with their notes and screenshots. Shown with the step wherever its Before and Now are compared,
+     so a change there (which the signature counts) is visible. */
+  function placeBlock(map, phase) {
+    var pi = map.phases.indexOf(phase), lines = [], gate = function (g, what) {
+      if (!g || g.implicit) return;
+      if (g.note) lines.push('  - ' + what + ' "' + g.title + '" note: ' + g.note.replace(/\n/g, ' '));
+      (g.shots || []).forEach(function (sh) { lines.push(shotLine('  - ' + what + ' "' + g.title + '" ', sh)); });
+    };
+    if (pi < 0) return '';
+    if (phase.note) lines.push('  - its phase "' + phase.title + '" note: ' + phase.note.replace(/\n/g, ' '));
+    (phase.shots || []).forEach(function (sh) { lines.push(shotLine('  - its phase "' + phase.title + '" ', sh)); });
+    gate(pi > 0 ? map.phases[pi - 1].gate : null, 'the gate before its phase,');
+    gate(phase.gate, 'the gate closing its phase,');
+    return lines.length ? '\n' + lines.join('\n') : '';
   }
   function evidenceBlock(ready, signs) {
     var out = ['## Evidence from runs', '', ready.completed + ' completed run' + (ready.completed === 1 ? '' : 's') + ' on this version, ' + ready.clean + ' clean (' + (ready.cleanRuns.join(', ') || 'none') + ').'];
@@ -189,7 +201,7 @@ PF.skills = (function () {
   /* The process as a skill must follow it: phases in order with their mode, tracks, steps, and the gate that closes each. */
   function structure(map, ids, types) {
     var out = [];
-    var gateLine = function (p, g, lead) { return lead + '**Gate: ' + (g.implicit ? 'confirm "' + p.title + '" together' : g.title) + '**' + (g.owner ? ' (owner: ' + g.owner + ')' : '') + (g.approves ? ', approves ' + g.approves : '') + (g.note ? '. ' + g.note.replace(/\n/g, ' ') : '') + ['at', 'due', 'after'].filter(function (f) { return g.fields && g.fields[f]; }).map(function (f) { return '. ' + { at: 'At ', due: 'Due by ', after: 'Due within this long after the run starts: ' }[f] + g.fields[f]; }).join('') + '. Stop here until a person passes it; never pass it for them.'; };
+    var gateLine = function (p, g, lead) { return lead + '**Gate: ' + (g.implicit ? 'confirm "' + p.title + '" together' : g.title) + '**' + (g.owner ? ' (owner: ' + g.owner + ')' : '') + (g.approves ? ', approves ' + g.approves : '') + (g.note ? '. ' + g.note.replace(/\n/g, ' ') : '') + ['at', 'due', 'after'].filter(function (f) { return g.fields && g.fields[f]; }).map(function (f) { return '. ' + { at: 'At ', due: 'Due by ', after: 'Due within this long after the run starts: ' }[f] + g.fields[f]; }).join('') + '. Stop here until a person passes it; never pass it for them.' + (g.shots || []).map(function (sh) { return '\n' + shotLine('- ', sh); }).join(''); };
     var included = [];
     map.phases.forEach(function (p, pi) {
       var steps = p.steps.filter(function (s) { return !ids || ids.indexOf(s.id) >= 0; });
@@ -199,6 +211,9 @@ PF.skills = (function () {
       if (prev && included.indexOf(pi - 1) < 0) out.push(gateLine(prev, prev.gate || {}, 'Before starting: ') + ' Check it has been passed in the run first.', '');
       included.push(pi);
       out.push('### Phase: ' + p.title + (p.mode ? ' (' + p.mode + ': ' + (p.mode === 'READ-DO' ? 'read each step, then do it, in order' : 'do the work, then confirm each step') + ')' : ''));
+      /* The phase's own note and screenshots (2.0): instructions for every step in it. */
+      if (p.note) out.push('Note for the phase: ' + p.note.replace(/\n/g, ' '));
+      (p.shots || []).forEach(function (sh) { out.push(shotLine('- ', sh)); });
       var track = null;
       steps.forEach(function (s) {
         if (s.track !== track) { track = s.track; if (track) { var t = (p.tracks || []).filter(function (x) { return x.id === track; })[0]; out.push('Track ' + (t ? '"' + t.title + '"' + (t.roles.length ? ' (' + t.roles.join(', ') + ')' : '') : track) + ', in parallel with the phase\'s other tracks:'); } }
@@ -218,6 +233,7 @@ PF.skills = (function () {
       evidenceBlock(ready, signs), '',
       '## Rules', '', '- Do only what the steps say; where a step is done by hand in a tool, have the skill stop and ask.', '- Never put secrets, tokens or customer data in the skill.'].join('\n');
   }
+  function placeOf(pub, id) { var x = M.findStep(pub.map, id); return x ? placeBlock(pub.map, x.phase) : ''; }
   function updateBrief(skill, st, ready, signs) {
     return ['# Update the skill ' + skill.name + (skill.version ? ' (' + skill.version + ')' : ''), '',
       'Source: ' + (skill.location || 'not recorded'), '',
@@ -226,9 +242,10 @@ PF.skills = (function () {
       st.changes.map(function (c) {
         if (c.change === 'removed') return '- **' + c.id + '** was removed. It was:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '  ');
         if (c.change === 'context') return '- The run details the process takes changed: now ' + (c.to.join(', ') || 'none') + ' (was ' + (c.from.join(', ') || 'none') + ').';
+        if (c.change === 'inputs') return '- What the process takes changed: ' + c.what.join('; ') + '.';
         if (c.change === 'order') return '- The steps are now in this order: ' + c.to.join(', ') + ' (was ' + c.from.join(', ') + ').';
         if (c.change === 'added') return '- **' + c.id + '** is new:\n' + stepBlock(c.to, st.latest.types).replace(/^/gm, '  ');
-        return '- **' + c.id + '** changed.\n  Before:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '    ') + '\n  Now:\n' + stepBlock(c.to, st.latest.types).replace(/^/gm, '    ');
+        return '- **' + c.id + '** changed.\n  Before:\n' + (stepBlock(c.from, st.base.types) + placeOf(st.base, c.id)).replace(/^/gm, '    ') + '\n  Now:\n' + (stepBlock(c.to, st.latest.types) + placeOf(st.latest, c.id)).replace(/^/gm, '    ');
       }).join('\n'), '',
       '## The process now, in order', '', structure(st.latest.map, skill.steps, st.latest.types), '',
       evidenceBlock(ready, signs)].join('\n');

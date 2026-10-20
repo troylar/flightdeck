@@ -116,8 +116,8 @@
     if (!open.length) return '';
     var o = PF.outline.parse(text), on = !ctx.state.disc || ctx.state.disc['md-corr'] !== false;
     return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary><ul class="small">' + open.map(function (g) {
-      var s = g.target.step && o.steps.filter(function (x) { return x.id === g.target.step; })[0], ph = !s && g.target.phase && o.phases.filter(function (x) { return x.id === g.target.phase; })[0];
-      var at = s ? s.line : ph ? ph.line : -1, name = s ? s.text : ph ? 'Phase: ' + ph.title : g.from || g.target.step || g.target.phase;
+      var s = g.target.step && o.steps.filter(function (x) { return x.id === g.target.step; })[0], ph = !s && (g.target.gate ? o.phases.filter(function (x) { return x.gate && x.gate.id === g.target.gate; })[0] : g.target.phase && o.phases.filter(function (x) { return x.id === g.target.phase; })[0]);
+      var at = s ? s.line : ph && g.target.gate ? ph.gate.line : ph ? ph.line : -1, name = s ? s.text : ph && g.target.gate ? 'Gate: ' + ph.gate.title : ph ? 'Phase: ' + ph.title : C.targetName(g);
       return '<li><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
     }).join('') + '</ul></details>';
   }
@@ -395,6 +395,7 @@
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
     if (hit.status.s === 'update' && hit.status.changes) h += '<ul class="changes">' + hit.status.changes.map(function (c) {
       if (c.change === 'order') return '<li><b>Order:</b> its steps now run in a different order.</li>';
+      if (c.change === 'inputs') return '<li><b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
       if (c.change === 'context') return '<li><b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
       return '<li><b>' + esc((c.to || c.from).text) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
     }).join('') + '</ul>';

@@ -2,7 +2,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const SRC = path.join(__dirname, '..', 'src');
-const FILES = ['core/util.js', 'core/envelope.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/run.js', 'core/corrections.js', 'core/followups.js', 'core/insights.js', 'core/skills.js', 'core/attach.js', 'core/contract.js', 'core/people.js', 'core/health.js', 'core/connection.js', 'core/setup.js', 'core/search.js', 'core/sha256.js', 'core/zip.js', 'core/evidence.js', 'core/plans.js', 'core/requests.js', 'core/appjson.js', 'core/proposals.js', 'storage/fs.js', 'storage/repo.js'];
+const FILES = ['core/util.js', 'core/envelope.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/run.js', 'core/corrections.js', 'core/followups.js', 'core/insights.js', 'core/signature.js', 'core/skills.js', 'core/attach.js', 'core/contract.js', 'core/people.js', 'core/health.js', 'core/connection.js', 'core/setup.js', 'core/search.js', 'core/sha256.js', 'core/zip.js', 'core/evidence.js', 'core/plans.js', 'core/requests.js', 'core/appjson.js', 'core/proposals.js', 'storage/fs.js', 'storage/repo.js'];
 
 /* edit(file, source) can change a module before it loads, to stand in for an older copy of Flightdeck. */
 function load(withViews, edit) {
@@ -62,4 +62,12 @@ function completeRun(PF, r, now) {
   r.ended = { outcome: 'Completed', at: now };
   return r;
 }
-module.exports = { FILES, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };
+/* The exact bytes' SHA-256 of a version's checklist and step types held as text in a test (UTF-8, as a folder holds them),
+   for PF.publish.verify, which checks a /2 version only by them. */
+function exactOf(PF, files) {
+  const raw = {};
+  ['map.md', 'types.json'].forEach(n => { if (files[n] != null) raw[n] = new Uint8Array(Buffer.from(files[n], 'utf8')); });
+  return PF.publish.exactOf(raw);
+}
+
+module.exports = { FILES, exactOf, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };

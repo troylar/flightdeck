@@ -104,12 +104,12 @@
     if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>corrections/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some corrections may show the wrong status until it syncs.') + '</span></div>';
     if (!list.length) h += '<p class="small">No open corrections.</p>';
     var order = [], groups = Object.create(null);
-    if (map) map.phases.forEach(function (ph) { order.push('phase:' + ph.id); ph.steps.forEach(function (x) { order.push(x.id); }); });
-    list.forEach(function (g) { var k = g.target.step || 'phase:' + g.target.phase; if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(g); });
+    if (map) map.phases.forEach(function (ph) { order.push('phase:' + ph.id); ph.steps.forEach(function (x) { order.push(x.id); }); if (ph.gate && !ph.gate.implicit) order.push('gate:' + ph.gate.id); });
+    list.forEach(function (g) { var k = C.targetKey(g.target); if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(g); });
     order.filter(function (k) { return groups[k]; }).forEach(function (k) {
-      var x = map && k.indexOf('phase:') !== 0 && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0];
+      var x = map && !/^(phase|gate):/.test(k) && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0], gt = map && k.indexOf('gate:') === 0 && map.phases.filter(function (q) { return q.gate && 'gate:' + q.gate.id === k; })[0];
       var gs = groups[k], alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
-      h += '<h3 class="fixgroup">' + (x ? U.mdInline(x.step.text) : ph ? 'Phase: ' + esc(ph.title) : esc(gs[0].from || k.replace(/^phase:/, 'Phase ')) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
+      h += '<h3 class="fixgroup">' + (x ? U.mdInline(x.step.text) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
         (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '') +
         '<ul class="fixlist">' + gs.map(function (g) { return groupItem(ctx, p, g); }).join('') + '</ul>';
     });
@@ -165,7 +165,7 @@
   function publishCorrections(ctx, p) {
     var C = PF.corrections, fp = C.forPublish(p.draft.md, fixesOf(ctx, p));
     if (!fp.groups.length && !fp.left.length) return '';
-    var name = function (g) { return '"' + esc(g.from || g.target.step || g.target.phase) + '"'; };
+    var name = function (g) { return '"' + esc(C.targetName(g)) + '"'; };
     return '<p class="small corr-pub" role="status"><b>Included in this version: ' + fp.groups.length + ' correction' + (fp.groups.length === 1 ? '' : 's') + '.</b>' +
       (fp.left.length ? ' Left out, changed since applied: ' + fp.left.map(name).join(', ') + '.' : '') + '</p>';
   }
@@ -199,7 +199,7 @@
     var base = corrBase(ctx, p), c = g.first, ch = g.change, edited = ov.edit ? ov.edit.text : null;
     var applied = (st.corrApplied || {})[ctx.fsKey + '\n' + p.id + '\n' + g.id] || null;
     var rv = C.review(g, base.text, ov.edit && ov.edit.text != null && (ch.op === 'wording' || ch.op === 'add') ? edited : null, { applied: applied }), stepName = c.from || (rv.now && rv.now.text) || '';
-    var h = bar('Apply to the draft: ' + (stepName ? '“' + esc(stepName) + '”' : 'step ' + esc(g.target.step || g.target.phase)));
+    var h = bar('Apply to the draft: ' + (stepName ? '“' + esc(stepName) + '”' : (g.target.step ? 'step ' : '') + esc(C.targetName(g))));
     h += '<p class="small"><span class="badge b-plan">' + esc(C.OP_LABEL[ch.op]) + '</span> Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + (base.fresh ? ' · There\'s no draft yet: applying starts one from v' + esc(p.latest ? p.latest.info.version : '') + '.' : '') + '</p>';
     var stateLine = { clean: '', already: 'This is already in the draft.', changed: rv.reason, gone: rv.reason || 'This step isn\'t in the draft anymore.', manual: 'Flightdeck can\'t apply this one for you. ' + rv.reason }[rv.state];
     if (ov.edit) stateLine = 'Your edit is applied as written. Check it against the draft now.';
@@ -244,6 +244,12 @@
     return box(h + err + '<div class="row ca-acts">' + acts + '</div>');
   }
 
+  /* A draft that uses something new in 2.0 publishes a version older copies can't run: say which, and what that means. */
+  function publishNeeds(p) {
+    var n = PF.publish.needs(M.parse(p.draft.md)); if (!n) return '';
+    var list = n.names.length === 1 ? n.names[0] : n.names.slice(0, -1).join(', ') + ' and ' + n.names[n.names.length - 1];
+    return '<p class="small pub-needs" role="note"><b>Needs Flightdeck 2.0:</b> ' + esc(list) + '. Teammates on Flightdeck 1.21 or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
+  }
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (!p) {
@@ -275,7 +281,7 @@
       if (p.draftChanged) {
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
-          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishCorrections(ctx, p);
+          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(p) + publishCorrections(ctx, p);
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
       h += '</section>';

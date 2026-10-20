@@ -13,6 +13,7 @@ Prints JSON:
 It uses the same fingerprints as the app (FNV-1a over the text's UTF-16 code units, and over the raw bytes for
 screenshots), so "complete" here means the app will accept the version too.
 """
+import hashlib
 import json
 import os
 import re
@@ -175,9 +176,19 @@ def tokens(s, ch):
     return out, rest.strip()
 
 
+def shot_sources(parsed):
+    """Every screenshot a checklist shows, once each: steps', phases' and gates' (PF.map.shotSources in the app)."""
+    out = []
+    for x in parsed["steps"] + parsed["phases"] + [p["gate"] for p in parsed["phases"] if p.get("gate")]:
+        for src in x.get("shots") or []:
+            if src not in out:
+                out.append(src)
+    return out
+
+
 def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    errors, steps = [], []
+    errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
 
     def err(n, msg):
@@ -221,11 +232,12 @@ def parse_map(md):
                         for part in re.split(r"\s+·\s+", g.group(1))[1:]:
                             if not re.match(r"^owner\s+@(%s|-)+$" % W, part.strip(), re.I):
                                 err(i, "Gate option not understood: \"%s\"." % part)
-                        gate = {"kind": "gate"}
+                        gate = {"kind": "gate", "note": "", "shots": []}
                         phase["gate"] = gate
                 else:
                     pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
-                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None}
+                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": []}
+                    phases.append(phase)
             i += 1
             continue
         if questions:
@@ -242,20 +254,26 @@ def parse_map(md):
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
                 rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"type": typ, "text": rest, "fields": {}}
+                step = {"type": typ, "text": rest, "fields": {}, "shots": []}
                 steps.append(step)
             i += 1
             continue
+        # Notes and screenshots belong to the step or gate above, or to the phase right under its heading (2.0).
+        owner = step or gate or (phase if phase is not None and not track else None)
         m = re.match(r"^\s{2,}>\s?(.*)$", line)
         if m:
-            if not (step or gate):
-                err(i, "A note must follow a step or a gate.")
+            if not owner:
+                err(i, "A note must follow a phase heading, a step or a gate.")
+            elif owner is not step:
+                owner["note"] += ("\n" if owner["note"] else "") + m.group(1)
             i += 1
             continue
-        m = step and re.match(r"^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$", line)
+        m = owner and re.match(r"^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$", line)
         if m:
             if not re.match(r"^images/(%s|[./-])+$" % W, m.group(2)) or ".." in m.group(2):
                 err(i, "Screenshots must be under images/: \"%s\"." % m.group(2))
+            else:
+                owner["shots"].append(m.group(2))
             i += 1
             continue
         m = re.match(r"^\s{2,}((?:%s|-)+):\s*(.*)$" % W, line)
@@ -272,7 +290,7 @@ def parse_map(md):
                 continue
         err(i, "Not understood, so it was skipped: \"%s\"" % line.strip()[:60])
         i += 1
-    return {"errors": errors, "steps": steps, "questions": questions}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases}
 
 
 def js_list(s):
@@ -384,6 +402,14 @@ def unrunnable(md, types):
     return ""
 
 
+def read_bytes(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
 def read_text(path):
     try:
         with open(path, "rb") as f:
@@ -396,7 +422,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["status"]},
@@ -484,6 +510,33 @@ def newer_why(info, needs):
     return label + " needs Flightdeck " + needs + ". This copy shows it but won't run it. Open the team folder's own flightdeck.html."
 
 
+PUBLICATION_FORMAT2 = "preflight-publication/2"
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def payload_ok(info):
+    """Whether a /2 version's payload is one this copy checks (PF.publish: no pins or extensions yet)."""
+    p = info.get("payload")
+    if not isinstance(p, dict) or set(p.keys()) - {"map", "types", "images", "extensions", "pins"}:
+        return False
+    if not all(isinstance(p.get(k), dict) for k in ("images", "extensions", "pins")):
+        return False
+    if not all(isinstance(p.get(k), str) and HEX64.match(p[k]) for k in ("map", "types")):
+        return False
+    if not all(isinstance(v, str) and HEX64.match(v) for v in p["images"].values()) or p["extensions"]:
+        return False
+    return all(k in ("children", "skills") and isinstance(v, dict) and not v for k, v in p["pins"].items())
+
+
+def payload_needs(info):
+    a = _semver(info.get("app"))
+    return "%d.%d" % (a[0], a[1]) if a and a[0] >= 2 else "2.0"
+
+
 def check_publication(folder, name):
     files = {n: read_text(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
@@ -494,14 +547,24 @@ def check_publication(folder, name):
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
         return "damaged", "publication.json isn't a publication record", None
+    two = info.get("format") == PUBLICATION_FORMAT2
     if info.get("format") != PUBLICATION_FORMAT or info.get("features") is not None:
         v = judge("preflight-publication", info)
         if not v["ok"]:
             return "unusable", newer_why(info, v["needs"]), info
+        if two and not payload_ok(info):
+            return "unusable", newer_why(info, payload_needs(info)), info
     if files["map.md"] is None or files["types.json"] is None:
         return "syncing", "some files haven't arrived", info
     if text_hash(files["map.md"]) != info.get("mapHash") or text_hash(files["types.json"]) != info.get("typesHash"):
         return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
+    if two:
+        p = info["payload"]
+        if sorted((info.get("images") or {}).keys()) != sorted(p["images"].keys()):
+            return "unusable", "Its screenshots don't match its payload. Edited by hand.", info
+        # The payload is over the exact bytes on disk, before any byte-order mark is dropped.
+        if sha(read_bytes(os.path.join(folder, "map.md"))) != p["map"] or sha(read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
+            return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
     m = re.match(r"^v(\d+)-[a-z0-9]+$", name)
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
@@ -518,12 +581,17 @@ def check_publication(folder, name):
         why = NEWER + " A step type in it can't be read."
     if why:
         return "unusable", why, info
+    listed = info.get("images") if isinstance(info.get("images"), dict) else {}
+    unlisted = [src for src in shot_sources(parse_map(files["map.md"])) if src not in listed]
+    if unlisted:
+        return "unusable", "A screenshot it shows isn't in its publication record (%s). Edited by hand." % unlisted[0], info
     for src, want in (info.get("images") or {}).items():
         path = os.path.join(folder, *src.split("/"))
         if not os.path.isfile(path):
             return "syncing", "screenshot %s hasn't arrived" % src, info
         with open(path, "rb") as f:
-            if fnv(f.read()) != want:
+            data = f.read()
+            if fnv(data) != want or (two and sha(data) != info["payload"]["images"].get(src)):
                 return "damaged", "screenshot %s doesn't match its record" % src, info
     return "complete", "", info
 

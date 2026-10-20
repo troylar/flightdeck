@@ -17,6 +17,8 @@ const { cmp } = require('../tools/old-bundles');
 const TAGS = H.bundles.tags();
 const AT = '2026-10-20T12:00:00.000Z';
 const below = (v) => cmp(v, H.bundles.FLOOR) < 0;
+/* 1.21.0 is the bridge: it refuses what 2.0 writes the way this version does. */
+const bridged = (v) => cmp(v, '1.21.0') >= 0;
 const fixture = (tag) => H.readTree(path.join(G.DIR, tag));
 const V2 = S.tree('folder');
 const NEW_TOPS = ['staged/', 'extensions/', 'skill-registrations/', 'reports/', 'report-decisions/'];
@@ -62,7 +64,7 @@ eachTag('reads the 2.0 samples as matrix A says: /2 unusable, run/3 name only, p
   assert.ok(!d.validations.some(v => /stage/.test(v._file || '')), 'a stage sign-off isn\'t counted');
   assert.ok(!d.stepTypes.types['team.count'] && d.stepTypes.errors.some(e => e.file === 'team.count.json'), 'a 2.0 step type is listed broken');
   const sk = d.skills.find(s => (s.file || '') === 'release-notes.json' || (s.skill && s.skill.name === 'release-notes'));
-  assert.ok(sk && sk.errors.length && /implements/.test(sk.errors.join(' ')), 'the tombstone is refused: ' + JSON.stringify(sk && sk.errors));
+  assert.ok(sk && sk.errors.length && (bridged(t.version) ? /skill-registrations\/ for Flightdeck 2\.0/ : /implements/).test(sk.errors.join(' ')), 'the tombstone is refused: ' + JSON.stringify(sk && sk.errors));
   const typed = OLD.map.check(OLD.map.parse(V2['maps/drafts/typed.md']), { people: G.PEOPLE, types: {} });
   assert.ok(typed.blockers.length, 'a 2.0 draft can\'t be published');
   if (expects('proposals', t.version)) assert.ok(OLD.proposals.cleanPresence(JSON.parse(V2['presence/w-twozero.json']), 'w-twozero.json'), 'presence with app is read (the field ignored)');
@@ -253,7 +255,7 @@ TAGS.filter(t => expects('read', t.version)).forEach((t) => rule(t.tag + ': READ
       assert.strictEqual(mine.code, theirs.code, a.join(' ') + ' exit code');
       assert.deepStrictEqual(Object.keys(mk).sort(), Object.keys(tk).sort(), a.join(' ') + ': the same files');
       Object.keys(tk).forEach(p => {
-        if (refine(p)) { assert.strictEqual(tk[p], 'malformed', p); assert.strictEqual(mk[p], 'newer', p); }
+        if (refine(p)) { assert.strictEqual(tk[p], bridged(t.version) ? 'newer' : 'malformed', p); assert.strictEqual(mk[p], 'newer', p); }
         else assert.strictEqual(mk[p], tk[p], a.join(' ') + ' ' + p);
       });
       (mine.json.problems || []).filter(x => x.kind === 'newer').forEach(x => assert.ok(/Flightdeck 2\.0|newer Flightdeck/.test(x.why), x.path + ': ' + x.why));

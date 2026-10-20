@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto'), cp = require('child_process');
 const { load, rule, run } = require('./harness');
 const { BytesFS, build, NOW } = require('./evidence-fixture');
-const PF = load(), S = PF.sha256, Z = PF.zip, E = PF.evidence, repo = PF.repo;
+const PF = load(), S = PF.sha256, Z = PF.zip, E = PF.evidence, repo = PF.repo, P = PF.publish;
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 let fixture = null;
@@ -189,6 +189,21 @@ rule('"Published in v2" comes with v2\'s checklist, types and record; without th
   const c2 = res.col.runs[0].claims.filter(c => c.group === fixture.groupId)[0];
   assert.ok(c2 && !c2.verified && /Can't be confirmed from this pack/.test(c2.status), JSON.stringify(c2));
   assert.ok(html.includes('Can&#39;t be confirmed from this pack'));
+});
+
+rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
+  const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
+  assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');
+  let { res } = await pack(new BytesFS(fx.files), { run: 'release/run1' });
+  const claim = res.col.runs[0].claims.filter(c => c.group === fx.groupId)[0];
+  assert.ok(claim && claim.text === 'Published in v2' && claim.verified, 'as published: ' + JSON.stringify(res.col.runs[0].claims));
+  const files = Object.assign({}, fx.files, { [v2 + 'map.md']: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fx.files[v2 + 'map.md']]) });
+  const good = await repo.loadAll(new BytesFS(fx.files), { deep: true }), bad = await repo.loadAll(new BytesFS(files), { deep: true });
+  assert.ok(good.processes[0].index.all.some(v => v.info.folder === fx.v2), 'the app reads v2 as published');
+  assert.ok(!bad.processes[0].index.all.some(v => v.info.folder === fx.v2), 'the app refuses v2 with a byte-order mark');
+  ({ res } = await pack(new BytesFS(files), { run: 'release/run1' }));
+  const c2 = res.col.runs[0].claims.filter(c => c.group === fx.groupId)[0];
+  assert.ok(c2 && !(c2.text === 'Published in v2' && c2.verified), 'with a byte-order mark: ' + JSON.stringify(c2));
 });
 
 rule('A run\'s frozen step types that differ from the version\'s types.json are flagged first, in red', async () => {
@@ -526,6 +541,47 @@ rule('Choosing runs by date reads one run.json at a time, inside the memory budg
   assert.strictEqual(most, 1, 'one at a time');
   same(res.col.runs.map(r => r.key), ['release/run1']);
   assert.ok(res.col.retained.peak >= 2 * 1048576 && res.col.retained.peak <= 3 * 1048576, 'counted, within the cap: ' + res.col.retained.peak);
+});
+
+rule('2.0: the version a run ran goes in the pack by its payload: its files and the screenshots it lists; anything else in its folder is labeled as not part of it', async () => {
+  await folder();
+  const files = Object.assign({}, fixture.files), base = 'publications/release/' + fixture.v1 + '/', info = JSON.parse(files[base + 'publication.json'].toString());
+  same(P.payloadFiles(info), ['map.md', 'types.json', 'publication.json'].concat(Object.keys(info.images || {}).sort()));
+  same(P.payloadFiles({ format: 'preflight-publication/2', payload: { images: { 'images/x/b.png': 'a'.repeat(64), 'images/x/a.png': 'b'.repeat(64) } } }), ['map.md', 'types.json', 'publication.json', 'images/x/a.png', 'images/x/b.png']);
+  files[base + 'images/release/stray.png'] = require('./evidence-fixture').PNG;
+  files[base + 'notes.txt'] = Buffer.from('hand-added');
+  const col = await repo.collectEvidence(new BytesFS(files), { run: 'release/run1' }, { plan: true });
+  const byPath = p => col.files.filter(x => x.path === base + p)[0];
+  assert.strictEqual(byPath('map.md').label, 'The version the run ran');
+  assert.ok(byPath('images/release/stray.png') && /isn't part of the version/.test(byPath('images/release/stray.png').label), JSON.stringify(byPath('images/release/stray.png')));
+  assert.ok(!byPath('notes.txt'), 'other files in a version folder stay out, as before');
+});
+
+rule('2.0: Evidence checks every screenshot in the version\'s payload: a corrupted one fails the version check, as the app refuses the version', async () => {
+  const P2 = load(), m = new P2.fs.MemoryFS('ev-shots', null), people = JSON.parse(require('./harness').example('people.json'));
+  m.reset({ 'people.json': JSON.stringify(people) });
+  const png = require('./evidence-fixture').PNG;
+  await m.write('images/x/scratch.png', new Blob([png], { type: 'image/png' }));
+  const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n  > Use the scratch server.\n  ![The scratch server](images/x/scratch.png)\n- [ ] {confirm} Look {#a}\n';
+  const res = await P2.repo.publish(m, md, { people, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+  assert.ok(!res.blockers, String(res.blockers));
+  const pub = (await P2.repo.loadAll(m)).processes[0].index.latest;
+  assert.strictEqual(pub.info.format, 'preflight-publication/2', 'set-up');
+  const r = P2.run.create(pub, { by: 'person-avery', session: 'w-ev', now: NOW, id: 'run1' });
+  await P2.repo.saveRun(m, r, 'w-ev');
+  const files = require('./evidence-fixture').bytesOf(m), shot = 'publications/x/' + pub.info.folder + '/images/x/scratch.png';
+  const good = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
+  const check = col => col.runs[0].checks.find(c => c.id === 'publication');
+  assert.strictEqual(check(good).ok, true, check(good).detail);
+  files[shot] = Buffer.concat([files[shot], Buffer.from([0])]);
+  const bad = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
+  assert.strictEqual(check(bad).ok, false, 'a corrupted screenshot fails the check: ' + check(bad).detail);
+  assert.ok(/scratch\.png/.test(check(bad).detail), check(bad).detail);
+  files[shot] = files[shot].subarray(0, files[shot].length - 1);
+  const map = 'publications/x/' + pub.info.folder + '/map.md';
+  files[map] = Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), files[map]]);
+  const bom = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
+  assert.strictEqual(check(bom).ok, false, 'a byte-order mark in map.md fails it too (the payload is over exact bytes): ' + check(bom).detail);
 });
 
 run();

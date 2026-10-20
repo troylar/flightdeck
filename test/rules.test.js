@@ -1614,7 +1614,8 @@ rule('Correction fields and decision files from disk keep only what the app unde
   same([n.version, n.target, n.change.to.length, n.base, n.why, n.happened, n.replaces], [0, { phase: 'p'.repeat(60), step: 'pods' }, 2000, '', undefined, 'h', undefined]);
   same(C.cleanNote({ change: { op: 'teleport' } }).change, { op: 'describe' });
   same(C.cleanNote({ change: { op: 'move', to: { after: '../x' } } }).change, { op: 'describe' });
-  same(C.cleanNote({ cv: 2, change: { op: 'wording', to: 'x' } }).change, { op: 'describe' }, 'a newer format shows as what it describes');
+  same(C.cleanNote({ cv: 3, change: { op: 'wording', to: 'x' } }).change, { op: 'describe' }, 'a newer format shows as what it describes');
+  same(C.cleanNote({ cv: 2, target: { gate: 'g' }, change: { op: 'move', to: { after: 'x' } } }).change, { op: 'describe' }, 'a phase or gate correction only words a note or swaps a screenshot');
   assert.strictEqual(C.cleanDecision({ kind: 'correction-decision', group: '../x', status: 'applied', by: 'a', at: NOW }, 'release'), null);
   assert.strictEqual(C.cleanDecision({ kind: 'correction-decision', group: 'g1', status: 'merged', by: 'a', at: NOW }, 'release'), null);
   const d = C.cleanDecision({ kind: 'correction-decision', group: 'g1', status: 'declined', reason: 'r'.repeat(400), by: 'a', at: NOW, rev: -2, seen: '../x.json', members: ['ok', '../no', 3], extra: 1 }, 'release');
@@ -2812,6 +2813,147 @@ rule('Drift names every place a cleaned record differs from its file, apart from
   same(D({ steps: { a: { h: [{ d: { by: 'x', note: 'n' } }] } } }, { steps: { a: { h: [{ d: { note: 'n' } }] } } }, { dropped: ['steps.*.h[*].d.by'] }), []);
   same(D({ a: 1 }, { a: 1, _bookkeeping: true }), []);
   same(D({ _x: 1 }, {}), ['_x']);
+});
+
+/* ---------- 2.0: corrections on a phase's note or a gate's (cv 2), and correction identity that never moves ---------- */
+rule('Correction identity is unchanged in 2.0: every group ID in the 1.16 folders and the 1.13 notes fixture is what it was', async () => {
+  const H = require('./compat-harness'), path = require('path'), fsn = require('fs');
+  for (const tag of ['v1.16.0', 'v1.16.1']) {
+    const files = H.readTree(path.join(__dirname, 'fixtures', 'folders', tag));
+    const fs = new PF.fs.MemoryFS('gid' + tag, null); fs.reset(Object.fromEntries(Object.entries(files).filter(([p]) => !/\.png$/.test(p)).map(([p, t]) => [p, t.toString()])));
+    const d = await PF.repo.loadAll(fs, { deep: true }), ids = [];
+    [...new Set(d.runs.map(r => r.process))].forEach(p => C.groups(C.collect(d.runs, p)).forEach(g => ids.push(p + ':' + g.id + ':' + g.members.length)));
+    same(ids, ['backup:g11454c9769ea41f9:1'], tag);
+  }
+  const lines = fsn.readFileSync(path.join(__dirname, 'fixtures', 'notes-corrections-1.13.jsonl'), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+  const notes = lines.map(n => Object.assign({ id: n.id, by: n.by, at: n.at, text: n.text, files: n.files || [], kind: n.kind, step: n.step }, n.kind === 'correction' ? C.cleanNote(n) : {}));
+  const r = { process: 'release', id: 'run1', title: 'R', folder: 'v1-abcd1234', version: 1, snapshot: example('maps/drafts/release.md'), _notes: notes, steps: {}, gates: {}, types: {} };
+  same(C.groups(C.collect([r], 'release')).map(g => g.id), ['g0dabcdd1d2d5e3ff', 'gfbe1a1c3661e474d', 'gf9161bda9c8a8920']);
+});
+
+const NOTED_MD = ['---', 'process: backup', 'title: Backup check', 'roles: lead', '---', '', '## Prepare {#prep}', '  > Use the scratch server.', '  ![The scratch server](images/b/scratch.png)', '- [ ] {confirm} Read the runbook @lead {#read}', '',
+  '## Gate: Restored {#restored}', '  > The restored copy opens.', '  ![Counts](images/b/counts.png)', '', '## Close {#close}', '- [ ] {confirm} File it @lead {#file}', ''].join('\n');
+const notedMap = () => M.parse(NOTED_MD);
+const noteCorr = (o) => C.build(Object.assign({ id: 'n' + (++corrN), at: NOW, by: 'person-blake', session: 'w-twozero', map: notedMap(), version: 1, folder: 'v1-ab9ysnqh' }, o));
+rule('A correction can target a phase\'s note or a gate\'s (cv 2), in the frozen sample\'s shape; a step\'s correction stays cv 1', () => {
+  const S = require('../tools/v2-samples'), sample = JSON.parse(S.tree('folder')['runs/backup/run-a/notes-w-twozero.jsonl'].trim());
+  const c = noteCorr({ id: sample.id, at: sample.at, by: sample.by, session: sample.session, phase: 'prep', op: 'wording', to: 'Use the scratch server, never production.', why: '' });
+  assert.deepStrictEqual(Object.keys(c), Object.keys(sample), 'the sample\'s fields, in its order');
+  same(c.target, { phase: 'prep' }); same(c.change, sample.change); assert.strictEqual(c.cv, 2); assert.strictEqual(c.step, '');
+  assert.ok(/note of the phase "Prepare"/.test(c.text), c.text);
+  const g = noteCorr({ gate: 'restored', op: 'wording', to: 'The restored copy opens and its counts match.' });
+  same(g.target, { gate: 'restored' }); assert.strictEqual(g.cv, 2); assert.ok(/note of the gate "Restored"/.test(g.text), g.text);
+  const shot = noteCorr({ gate: 'restored', op: 'screenshot', why: 'It shows last month\'s counts.' });
+  same(shot.change, { op: 'screenshot', shot: 'images/b/counts.png' });
+  assert.throws(() => noteCorr({ phase: 'prep', op: 'wording', to: 'Use the scratch server.' }), /No wording changed/);
+  assert.throws(() => noteCorr({ phase: 'nope', op: 'wording', to: 'x' }), /isn't in this version/);
+  assert.throws(() => noteCorr({ phase: 'prep', op: 'move', to: 'x' }), /Choose what to change/);
+  assert.throws(() => noteCorr({ phase: 'close', op: 'screenshot', why: 'x' }), /no screenshot/);
+  assert.strictEqual(corr({}).cv, 1, 'a step\'s correction is what every copy since 1.13 reads');
+});
+rule('A phase or gate correction is read back by this copy as written, groups on phase:<id> or gate:<id>, and older copies see its summary (Describe)', () => {
+  const a = noteCorr({ phase: 'prep', op: 'wording', to: 'Never production.' }), b = noteCorr({ phase: 'prep', op: 'wording', to: 'Never  production.', by: 'person-avery' });
+  const g = noteCorr({ gate: 'restored', op: 'wording', to: 'Never production.' });
+  const back = n => Object.assign({ id: n.id, by: n.by, at: n.at, text: n.text, files: [], kind: 'correction', step: n.step }, C.cleanNote(JSON.parse(JSON.stringify(n))));
+  const ca = C.cleanNote(JSON.parse(JSON.stringify(a)));
+  same([ca.cv, ca.target, ca.change, !!ca.newer], [2, { phase: 'prep', step: null }, { op: 'wording', to: 'Never production.' }, false]);
+  same(C.cleanNote(JSON.parse(JSON.stringify(g))).target, { phase: '', step: null, gate: 'restored' });
+  same(C.cleanNote(Object.assign({}, a, { cv: 3 })).change, { op: 'describe' }, 'a newer cv still reads as its summary');
+  const r = { process: 'backup', id: 'run1', title: 'R', folder: 'v1-ab9ysnqh', version: 1, snapshot: NOTED_MD, _notes: [back(a), back(b), back(g)], steps: {}, gates: {}, types: {} };
+  const gs = C.groups(C.collect([r], 'backup'));
+  same(gs.map(x => x.members.length), [2, 1], 'the same wording on one phase is one group; on the gate another');
+  assert.notStrictEqual(gs[0].id, gs[1].id);
+  same(JSON.parse(JSON.stringify(C.openCounts(C.status(gs, [])))), { 'phase:prep': 1, 'gate:restored': 1 });
+  /* What a 1.13 to 1.21 copy does with it: cv above what it knows is a Describe correction with the note's own summary. */
+  const old = PF.corrections.cleanNote(Object.assign({}, a, { cv: 9 }));
+  assert.ok(old.newer);
+});
+rule('Applying a phase or gate wording correction edits that note in the draft through the builder; a screenshot one is done by hand', () => {
+  const a = noteCorr({ phase: 'prep', op: 'wording', to: 'Never production.' }), g = noteCorr({ gate: 'restored', op: 'wording', to: 'Counts match.' });
+  const grp = n => ({ process: 'backup', target: C.cleanNote(JSON.parse(JSON.stringify(n))).target, change: n.change, members: [n] });
+  const ops = C.toOps(grp(a), NOTED_MD);
+  same(ops, { ops: [{ op: 'phaseNote', phase: 'prep', note: 'Never production.' }] });
+  const t = PF.outline.apply(NOTED_MD, ops.ops[0]).text;
+  assert.strictEqual(M.parse(t).phases[0].note, 'Never production.');
+  const t2 = PF.outline.apply(NOTED_MD, C.toOps(grp(g), NOTED_MD).ops[0]).text;
+  assert.strictEqual(M.parse(t2).phases[0].gate.note, 'Counts match.');
+  assert.ok(C.toOps(grp(noteCorr({ gate: 'restored', op: 'screenshot', why: 'Old' })), NOTED_MD).manual);
+  assert.ok(C.toOps(grp(a), NOTED_MD.replace('## Prepare {#prep}', '## Prepare {#other}')).gone);
+});
+
+rule('A phase or gate note correction goes through Apply like a step\'s: reviewed with the note before and after, undone, and found in the version that has it', () => {
+  /* A group as the app has it: collected from a run on the version NOTED_MD, which gives the note as that version had it. */
+  const g = (n) => {
+    const note = Object.assign({ id: n.id, by: n.by, at: n.at, text: n.text, files: [], kind: 'correction', step: n.step }, C.cleanNote(JSON.parse(JSON.stringify(n))));
+    const r = { process: 'backup', id: 'run1', title: 'R', folder: 'v1-ab9ysnqh', version: 1, snapshot: NOTED_MD, _notes: [note], steps: {}, gates: {}, types: {} };
+    return Object.assign(C.groups(C.collect([r], 'backup'))[0], { status: 'applied' });
+  };
+  const a = g(noteCorr({ gate: 'restored', op: 'wording', to: 'Counts match.' }));
+  assert.strictEqual(a.from, 'The restored copy opens.', 'the note as the run\'s version had it');
+  const rv = C.review(a, NOTED_MD);
+  same([rv.state, rv.now.text, rv.result.text, /gate "Restored"/.test(rv.now.where)], ['clean', 'The restored copy opens.', 'Counts match.', true]);
+  const back = PF.outline.apply(rv.text, C.inverse(NOTED_MD, rv.ops)[0]).text;
+  assert.strictEqual(back, NOTED_MD, 'undo puts the note back as it was');
+  same(C.review(a, rv.text).state, 'already');
+  assert.ok(C.satisfied(a, rv.text) && !C.satisfied(a, NOTED_MD));
+  const o = C.outcome(a, rv.text); assert.strictEqual(o.step, ''); assert.notStrictEqual(o.sig, C.outcome(a, NOTED_MD).sig);
+  same(C.review(a, NOTED_MD.replace('{#restored}', '{#other}')).state, 'gone');
+  /* The draft's note changed since the run's version: a person edits or confirms, as for a changed step. */
+  const newer = C.review(a, NOTED_MD.replace('The restored copy opens.', 'The restored copy opens. Preserve the database.'));
+  same([newer.state, newer.reason], ['changed', 'This note changed in the draft since the run\'s version.']);
+  same(C.review(Object.assign({}, a, { sig: '' }), NOTED_MD).state, 'changed', 'no baseline from the run: never applied unseen');
+  const brief = C.brief({ id: 'backup', title: 'Backup check' }, [Object.assign({}, a, { status: 'open', runs: 1, members: [Object.assign({ runTitle: 'R', version: 1 }, a.first)] })], { map: M.parse(NOTED_MD) });
+  assert.ok(/the note of the gate restored \{#restored\}/.test(brief), brief);
+});
+
+/* ---------- 2.0: one meaning signature for skills (PF.signature) ---------- */
+const SIG_MD = ['---', 'process: sg', 'title: Sig', 'roles: lead, ops', 'context: commit, ticket', '---', '', '## Prepare · READ-DO {#prep}', '  > Use the scratch server.', '- [ ] {confirm} Read it ^commit @lead {#read}', '',
+  '## Gate: Ready {#ready}', '  > The board said yes.', '', '## Ship · READ-DO {#ship}', '- [ ] {confirm} Ship it @ops {#go}', ''].join('\n');
+const sigPub = (md, images) => ({ map: M.parse(md), types: {}, info: { images: images || {} } });
+rule('PF.signature signs what a skill follows: a phase note, a phase screenshot and a gate screenshot (with its image fingerprint) each change a step\'s signature', () => {
+  const G = PF.signature, base = G.steps(M.parse(SIG_MD), {}, {});
+  assert.ok(base.read && base.go && typeof base.read.sig === 'string');
+  const diff = (md, images) => { const b = G.steps(M.parse(md), {}, images || {}); return Object.keys(base).filter(k => base[k].sig !== b[k].sig).sort(); };
+  same(diff(SIG_MD), []);
+  same(diff(SIG_MD.replace('Use the scratch server.', 'Use the staging server.')), ['read'], 'a phase note: that phase\'s steps');
+  const shot = SIG_MD.replace('  > Use the scratch server.\n', '  > Use the scratch server.\n  ![Server](images/sg/a.png)\n');
+  same(diff(shot), ['read'], 'a phase screenshot');
+  const gshot = SIG_MD.replace('  > The board said yes.\n', '  > The board said yes.\n  ![Board](images/sg/b.png)\n');
+  same(diff(gshot), ['go', 'read'], 'a screenshot on the gate before a phase flags that phase, and the phase it closes');
+  const h1 = G.steps(M.parse(gshot), {}, { 'images/sg/b.png': 'aa' }), h2 = G.steps(M.parse(gshot), {}, { 'images/sg/b.png': 'bb' });
+  assert.notStrictEqual(h1.go.sig, h2.go.sig, 'the frozen image fingerprint counts');
+  same(diff(SIG_MD.replace('The board said yes.', 'The board and QA said yes.')), ['go', 'read'], 'a gate note');
+});
+rule('PF.signature.process signs every declared input, bound or not: run details, roles and runs; skills.changes names what changed', () => {
+  const G = PF.signature, S = PF.skills, a = sigPub(SIG_MD);
+  assert.strictEqual(G.process(a), G.process(sigPub(SIG_MD)));
+  const roles = sigPub(SIG_MD.replace('roles: lead, ops', 'roles: lead, ops, qa'));
+  assert.notStrictEqual(G.process(a), G.process(roles));
+  same(S.changes(a, roles).map(c => [c.id, c.change, c.what]), [['(inputs)', 'inputs', ['Roles: now lead, ops, qa (was lead, ops)']]]);
+  const unbound = sigPub(SIG_MD.replace('context: commit, ticket', 'context: commit, ticket, region'));
+  same(S.changes(a, unbound).map(c => c.change), ['context'], 'an input no step binds is a change');
+  const team = sigPub(SIG_MD.replace('roles: lead, ops', 'roles: lead, ops\nruns: team'));
+  same(S.changes(a, team).map(c => [c.change, c.what]), [['inputs', ['Runs: team (was not set)']]]);
+  const note = sigPub(SIG_MD.replace('Use the scratch server.', 'Use the staging server.'));
+  same(S.changes(a, note).map(c => [c.id, c.change]), [['read', 'changed']], 'a phase note changed: its steps need an update');
+  assert.ok(/Roles: now lead, ops, qa/.test(S.changes(a, roles).map(c => c.what.join(' ')).join(' ')));
+});
+
+rule('Skill briefs carry a phase\'s note and screenshots and a gate\'s screenshots: create shows them, and an update for a note-only change shows it in Before and Now', () => {
+  const S = PF.skills, rich = SIG_MD.replace('  > Use the scratch server.\n', '  > Use the scratch server.\n  ![Server status](images/sg/a.png)\n').replace('  > The board said yes.\n', '  > The board said yes.\n  ![Board minutes](images/sg/b.png)\n');
+  const pub = (md, v) => Object.assign(sigPub(md), { info: { version: v, folder: 'v' + v + '-aaaa', images: {} } });
+  const ready = PF.skills.readiness([], pub(rich, 1), null);
+  const brief = S.createBrief(pub(rich, 1), null, ready, []);
+  assert.ok(/Use the scratch server\./.test(brief), 'the phase note');
+  assert.ok(/Server status \(images\/sg\/a\.png/.test(brief), 'the phase screenshot');
+  assert.ok(/Board minutes \(images\/sg\/b\.png/.test(brief), 'the gate screenshot');
+  assert.ok(/The board said yes\./.test(brief), 'the gate note');
+  const a = pub(SIG_MD, 1), b = pub(SIG_MD.replace('Use the scratch server.', 'Use the staging server.'), 2);
+  const st = { base: a, latest: b, changes: S.changes(a, b) };
+  const up = S.updateBrief({ name: 'sg-skill', process: 'sg', implements: 1 }, st, ready, []);
+  const changed = up.slice(up.indexOf('## What changed'), up.indexOf('## The process now'));
+  const before = changed.slice(changed.indexOf('Before:'), changed.indexOf('Now:')), now = changed.slice(changed.indexOf('Now:'));
+  assert.ok(/scratch server/.test(before) && /staging server/.test(now) && before.replace('Before:', '') !== now.replace('Now:', ''), changed);
 });
 
 run();

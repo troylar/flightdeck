@@ -96,6 +96,12 @@
       var count = x.skill.steps.filter(function (id) { return ids.indexOf(id) >= 0; }).length;
       if (count) lines += noteLine(x, count);
     });
+    /* A marker for a phase's note and screenshots (2.0) and a gate's note, said in words; the run shows them. */
+    var marks = [];
+    if (p.note) marks.push('a note');
+    if ((p.shots || []).length) marks.push(plural(p.shots.length, 'screenshot'));
+    if (marks.length) lines += '<div class="fp-line fp-note">' + I('note') + '<span><b>Phase note</b> ' + esc(marks.join(' and ')) + ' at the start of this phase</span></div>';
+    if (p.gate.note || (p.gate.shots || []).length) lines += '<div class="fp-line fp-note">' + I('note') + '<span><b>Gate note</b> ' + esc([p.gate.note ? 'a note' : '', (p.gate.shots || []).length ? plural(p.gate.shots.length, 'screenshot') : ''].filter(Boolean).join(' and ')) + ' at the gate</span></div>';
     var rough = an && an.deviated.filter(function (c) { return ids.indexOf(c.id) >= 0; })[0];
     if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(rough.text) + '" went off-script in ' + esc(PF.insights.count(rough.offScript, rough.n)) + V.insightsQual(rough.q, ['unreached'], 'span') + '</span></div>';
     p.steps.filter(function (s) { return s.type === 'run.process' && s.fields.process; }).forEach(function (s) {

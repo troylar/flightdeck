@@ -313,4 +313,78 @@ rule('The checker agrees with the app on plans, plan decisions, versions and ste
   }
 });
 
+/* Slice 2 part 1: a real 2.0 version (phase notes, phase and gate screenshots: preflight-publication/2 with its payload) is
+   complete for both; one whose payload doesn't match its files is damaged for both; one whose payload pins another version
+   (a later slice) is unusable for both, in the same words. */
+rule('The checker reads a 2.0 version with phase notes and phase and gate screenshots like the app: complete, checked by its payload', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-v2-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    await d.write('images/x/scratch.png', new Blob([Buffer.from([1, 2, 3, 4])], { type: 'image/png' }));
+    await d.write('images/x/counts.png', new Blob([Buffer.from([5, 6, 7, 8, 9])], { type: 'image/png' }));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n  > Use the scratch server.\n  ![The scratch server](images/x/scratch.png)\n- [ ] {confirm} Look {#a}\n\n## Gate: Ready {#ready}\n  > Counts match.\n  ![Counts](images/x/counts.png)\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const base = 'publications/x/' + v.folder + '/', info = JSON.parse(fs.readFileSync(path.join(root, ...base.split('/'), 'publication.json'), 'utf8'));
+    assert.strictEqual(info.format, 'preflight-publication/2', 'set-up');
+    const copy = async (n, edit) => {
+      const folder = 'v' + n + '-copy000' + n, dst = 'publications/x/' + folder + '/', i = JSON.parse(JSON.stringify(info));
+      Object.assign(i, { version: n, folder }); edit(i);
+      for (const f of ['map.md', 'types.json', 'images/x/scratch.png', 'images/x/counts.png']) { fs.mkdirSync(path.dirname(path.join(root, ...(dst + f).split('/'))), { recursive: true }); fs.copyFileSync(path.join(root, ...(base + f).split('/')), path.join(root, ...(dst + f).split('/'))); }
+      await d.write(dst + 'publication.json', JSON.stringify(i, null, 2));
+      return folder;
+    };
+    const mapOff = await copy(2, i => { i.payload.map = 'a'.repeat(64); });
+    const shotOff = await copy(3, i => { i.payload.images['images/x/counts.png'] = 'b'.repeat(64); });
+    const pinned = await copy(4, i => { i.payload.pins.children.verify = { process: 'verify', version: 4, folder: 'v4-cccc4444', mapHash: 'aaaa0001', typesHash: 'aaaa0002' }; });
+    const later = await copy(5, i => { i.features = ['phase-notes', 'typed-details']; });
+    const unlisted = await copy(6, i => { delete i.images['images/x/counts.png']; delete i.payload.images['images/x/counts.png']; });
+    /* A byte-order mark the checker's text reading drops: the exact bytes no longer match the payload. */
+    const bom = await copy(7, () => {});
+    const bomPath = path.join(root, 'publications', 'x', bom, 'map.md');
+    fs.writeFileSync(bomPath, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), fs.readFileSync(bomPath)]));
+    const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
+    const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' })).publications.x;
+    const mine = f => out.versions.find(x => x.folder === f), theirs = f => pubs.find(x => x.folder === f);
+    assert.ok(theirs(v.folder).ok, theirs(v.folder).why);
+    assert.strictEqual(mine(v.folder).status, 'complete', mine(v.folder).why);
+    assert.strictEqual(mine(bom).status, 'damaged', 'a byte-order mark: ' + mine(bom).why);
+    for (const f of [mapOff, shotOff]) { assert.ok(!theirs(f).ok && !theirs(f).unusable, f); assert.strictEqual(mine(f).status, 'damaged', f + ': ' + mine(f).why); }
+    for (const f of [pinned, later, unlisted]) { assert.ok(!theirs(f).ok && theirs(f).unusable, f); assert.strictEqual(mine(f).status, 'unusable', f); assert.strictEqual(mine(f).why, theirs(f).why, f + ': same words'); }
+    assert.strictEqual(out.current, v.folder);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker refuses a version whose step screenshot its record (and a /2 version\'s payload) doesn\'t list, like the app, /1 and /2', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-stepshot-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    await d.write('images/x/job.png', new Blob([Buffer.from([1, 2, 3, 4])], { type: 'image/png' }));
+    await d.write('images/x/scratch.png', new Blob([Buffer.from([5, 6, 7])], { type: 'image/png' }));
+    const one = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)\n';
+    const two = one.replace('## P {#p}\n', '## P {#p}\n  > Use the scratch server.\n  ![The scratch server](images/x/scratch.png)\n');
+    const v1 = await repo.publish(d, one, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW });
+    const v2 = await repo.publish(d, two, { people, ...EX, by: 'person-avery', changes: 'x', existing: [{ version: 1 }], now: NOW, app: '2.0.0' });
+    for (const v of [v1, v2]) {
+      const p = path.join(root, 'publications', 'x', v.folder, 'publication.json'), i = JSON.parse(fs.readFileSync(p, 'utf8'));
+      delete i.images['images/x/job.png']; if (i.payload) delete i.payload.images['images/x/job.png'];
+      fs.writeFileSync(p, JSON.stringify(i, null, 2));
+    }
+    const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
+    const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' })).publications.x;
+    for (const v of [v1, v2]) {
+      const theirs = pubs.find(x => x.folder === v.folder), mine = out.versions.find(x => x.folder === v.folder);
+      assert.ok(!theirs.ok && theirs.unusable, v.folder + ': the app refuses it');
+      assert.strictEqual(mine.status, 'unusable', v.folder + ': ' + mine.status + ' ' + mine.why);
+      assert.strictEqual(mine.why, theirs.why, v.folder + ': same words');
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();
