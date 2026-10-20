@@ -52,20 +52,9 @@ PF.skills = (function () {
   /* A safe link for a location: https only; anything else (a path) is shown as text to copy. */
   function link(location) { return /^https:\/\/\S+$/i.test(location || '') ? location : ''; }
 
-  /* What a step is, for comparing versions: anything a skill would have to follow. */
-  /* A step as a skill must follow it: its content, plus where it sits (phase, its mode, track) and the gate that closes it. */
-  function stepsOf(map, types, images) {
-    var o = Object.create(null);
-    var gsig = function (g) { g = g || {}; return [g.title, g.owner, g.approves, g.implicit, g.note, g.binds, g.fields]; };
-    map.phases.forEach(function (p, pi) {
-      /* The gate before the phase (what must be approved before this work starts) and the gate that closes it. */
-      var gate = JSON.stringify([pi > 0 ? gsig(map.phases[pi - 1].gate) : null, gsig(p.gate)]);
-      p.steps.forEach(function (s, si) { o[s.id] = { step: s, phase: p, sig: JSON.stringify([s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, p.id, p.mode, gate, types && types[s.type] ? types[s.type] : null,
-        /* Reference screenshots are instructions too: their captions, paths and the fingerprint frozen into the version. */
-        (s.shots || []).map(function (sh) { return [sh.caption, sh.src, images && Object.prototype.hasOwnProperty.call(images, sh.src) ? images[sh.src] : null]; })]) }; });
-    });
-    return o;
-  }
+  /* A step as a skill must follow it (PF.signature): its content, where it sits, its phase's note and screenshots, and the
+     gates around it. */
+  function stepsOf(map, types, images) { return PF.signature.steps(map, types, images); }
   function orderOf(map, ids) { return M.steps(map).map(function (x) { return x.step.id; }).filter(function (id) { return !ids || ids.indexOf(id) >= 0; }); }
   /* How the steps a skill covers changed between two maps: [{ id, change: changed|removed|added, from, to }]. */
   /* Maps or publications (whose frozen step types count: a type gaining required evidence changes what the skill must do). */
@@ -81,6 +70,11 @@ PF.skills = (function () {
     /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
     var ca = (fromMap.meta && fromMap.meta.context) || [], cb = (toMap.meta && toMap.meta.context) || [];
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
+    /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
+    if (PF.signature.process(from) !== PF.signature.process(to)) {
+      var what = PF.signature.inputChanges(from, to);
+      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what });
+    }
     /* The same steps in a different order is a change too: a skill follows the order. */
     var oa = orderOf(fromMap, ids).filter(function (id) { return b[id]; }), ob = orderOf(toMap, ids).filter(function (id) { return a[id]; });
     if (oa.join(',') !== ob.join(',')) out.push({ id: '(order)', change: 'order', from: oa, to: ob });
@@ -226,6 +220,7 @@ PF.skills = (function () {
       st.changes.map(function (c) {
         if (c.change === 'removed') return '- **' + c.id + '** was removed. It was:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '  ');
         if (c.change === 'context') return '- The run details the process takes changed: now ' + (c.to.join(', ') || 'none') + ' (was ' + (c.from.join(', ') || 'none') + ').';
+        if (c.change === 'inputs') return '- What the process takes changed: ' + c.what.join('; ') + '.';
         if (c.change === 'order') return '- The steps are now in this order: ' + c.to.join(', ') + ' (was ' + c.from.join(', ') + ').';
         if (c.change === 'added') return '- **' + c.id + '** is new:\n' + stepBlock(c.to, st.latest.types).replace(/^/gm, '  ');
         return '- **' + c.id + '** changed.\n  Before:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '    ') + '\n  Now:\n' + stepBlock(c.to, st.latest.types).replace(/^/gm, '    ');

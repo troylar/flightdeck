@@ -6981,6 +6981,49 @@ PF.insights = (function () {
     matches: matches, runSig: runSig, folders: folders, filterRuns: filterRuns, notCounted: notCounted, hasProblems: hasProblems };
 })();
 
+/* The meaning of a checklist, as a skill must follow it (2.0). steps(): one signature per step, covering what it says and
+   needs, where it sits, its phase's note and screenshots, and the gate before its phase and the one that closes it (their
+   notes and screenshots too). process(): every declared input, bound by a step or not. Skills and their briefs compare
+   these; correction identity (corrections.stepSig, group IDs) never uses them. Pure: no I/O. */
+PF.signature = (function () {
+  'use strict';
+  var own = function (o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); };
+  /* Reference screenshots are instructions too: their captions, paths and the fingerprint frozen into the version. */
+  function shots(list, images) { return (list || []).map(function (sh) { return [sh.caption, sh.src, own(images, sh.src) ? images[sh.src] : null]; }); }
+  function gate(g, images) { g = g || {}; return [g.title, g.owner, g.approves, g.implicit, g.note, g.binds, g.fields, shots(g.shots, images)]; }
+
+  function steps(map, types, images) {
+    var o = Object.create(null);
+    map.phases.forEach(function (p, pi) {
+      var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
+      var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
+      p.steps.forEach(function (s) {
+        o[s.id] = { step: s, phase: p, sig: JSON.stringify([s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, phase, gates, types && types[s.type] ? types[s.type] : null, shots(s.shots, images)]) };
+      });
+    });
+    return o;
+  }
+
+  /* Every declared input of a process: its run details, roles and runs, and the payload's extensions and pins (empty until
+     later 2.0 slices fill them). pub: a publication { map, info } or a map. */
+  function inputs(pub) {
+    var map = pub.map || pub, meta = map.meta || {}, pay = pub.info && pub.info.payload;
+    return { context: (meta.context || []).slice(), roles: (meta.roles || []).slice(), runs: meta.runs || '',
+      extensions: pay && pay.extensions || {}, pins: pay && pay.pins || { children: {}, skills: {} } };
+  }
+  function process(pub) { return PF.util.hash(JSON.stringify(inputs(pub))); }
+  /* What changed in the inputs apart from the run details (which skills.changes reports on their own), in words. */
+  function inputChanges(a, b) {
+    var x = inputs(a), y = inputs(b), out = [], list = function (l) { return l.join(', ') || 'none'; };
+    if (x.roles.join(',') !== y.roles.join(',')) out.push('Roles: now ' + list(y.roles) + ' (was ' + list(x.roles) + ')');
+    if (x.runs !== y.runs) out.push('Runs: ' + (y.runs || 'not set') + ' (was ' + (x.runs || 'not set') + ')');
+    if (JSON.stringify(x.extensions) !== JSON.stringify(y.extensions)) out.push('Its extensions changed');
+    if (JSON.stringify(x.pins) !== JSON.stringify(y.pins)) out.push('The versions it pins changed');
+    return out;
+  }
+  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges };
+})();
+
 /* Skills built from processes. A skill lives wherever its team keeps it (a Bitbucket repo, a local folder, anywhere); the team
    folder records the mapping in skills/<name>.json, written by whoever (or whichever AI assistant) creates or updates the skill:
 
@@ -7035,20 +7078,9 @@ PF.skills = (function () {
   /* A safe link for a location: https only; anything else (a path) is shown as text to copy. */
   function link(location) { return /^https:\/\/\S+$/i.test(location || '') ? location : ''; }
 
-  /* What a step is, for comparing versions: anything a skill would have to follow. */
-  /* A step as a skill must follow it: its content, plus where it sits (phase, its mode, track) and the gate that closes it. */
-  function stepsOf(map, types, images) {
-    var o = Object.create(null);
-    var gsig = function (g) { g = g || {}; return [g.title, g.owner, g.approves, g.implicit, g.note, g.binds, g.fields]; };
-    map.phases.forEach(function (p, pi) {
-      /* The gate before the phase (what must be approved before this work starts) and the gate that closes it. */
-      var gate = JSON.stringify([pi > 0 ? gsig(map.phases[pi - 1].gate) : null, gsig(p.gate)]);
-      p.steps.forEach(function (s, si) { o[s.id] = { step: s, phase: p, sig: JSON.stringify([s.type, s.text, s.must, s.roles, s.binds, s.fields, s.note, s.track, p.id, p.mode, gate, types && types[s.type] ? types[s.type] : null,
-        /* Reference screenshots are instructions too: their captions, paths and the fingerprint frozen into the version. */
-        (s.shots || []).map(function (sh) { return [sh.caption, sh.src, images && Object.prototype.hasOwnProperty.call(images, sh.src) ? images[sh.src] : null]; })]) }; });
-    });
-    return o;
-  }
+  /* A step as a skill must follow it (PF.signature): its content, where it sits, its phase's note and screenshots, and the
+     gates around it. */
+  function stepsOf(map, types, images) { return PF.signature.steps(map, types, images); }
   function orderOf(map, ids) { return M.steps(map).map(function (x) { return x.step.id; }).filter(function (id) { return !ids || ids.indexOf(id) >= 0; }); }
   /* How the steps a skill covers changed between two maps: [{ id, change: changed|removed|added, from, to }]. */
   /* Maps or publications (whose frozen step types count: a type gaining required evidence changes what the skill must do). */
@@ -7064,6 +7096,11 @@ PF.skills = (function () {
     /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
     var ca = (fromMap.meta && fromMap.meta.context) || [], cb = (toMap.meta && toMap.meta.context) || [];
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
+    /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
+    if (PF.signature.process(from) !== PF.signature.process(to)) {
+      var what = PF.signature.inputChanges(from, to);
+      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what });
+    }
     /* The same steps in a different order is a change too: a skill follows the order. */
     var oa = orderOf(fromMap, ids).filter(function (id) { return b[id]; }), ob = orderOf(toMap, ids).filter(function (id) { return a[id]; });
     if (oa.join(',') !== ob.join(',')) out.push({ id: '(order)', change: 'order', from: oa, to: ob });
@@ -7209,6 +7246,7 @@ PF.skills = (function () {
       st.changes.map(function (c) {
         if (c.change === 'removed') return '- **' + c.id + '** was removed. It was:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '  ');
         if (c.change === 'context') return '- The run details the process takes changed: now ' + (c.to.join(', ') || 'none') + ' (was ' + (c.from.join(', ') || 'none') + ').';
+        if (c.change === 'inputs') return '- What the process takes changed: ' + c.what.join('; ') + '.';
         if (c.change === 'order') return '- The steps are now in this order: ' + c.to.join(', ') + ' (was ' + c.from.join(', ') + ').';
         if (c.change === 'added') return '- **' + c.id + '** is new:\n' + stepBlock(c.to, st.latest.types).replace(/^/gm, '  ');
         return '- **' + c.id + '** changed.\n  Before:\n' + stepBlock(c.from, st.base.types).replace(/^/gm, '    ') + '\n  Now:\n' + stepBlock(c.to, st.latest.types).replace(/^/gm, '    ');
@@ -15321,6 +15359,7 @@ PF.vk = (function () {
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
     if (hit.status.s === 'update' && hit.status.changes) h += '<ul class="changes">' + hit.status.changes.map(function (c) {
       if (c.change === 'order') return '<li><b>Order:</b> its steps now run in a different order.</li>';
+      if (c.change === 'inputs') return '<li><b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
       if (c.change === 'context') return '<li><b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
       return '<li><b>' + esc((c.to || c.from).text) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
     }).join('') + '</ul>';

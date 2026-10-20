@@ -2896,4 +2896,37 @@ rule('A phase or gate note correction goes through Apply like a step\'s: reviewe
   assert.ok(/the note of the gate restored \{#restored\}/.test(brief), brief);
 });
 
+/* ---------- 2.0: one meaning signature for skills (PF.signature) ---------- */
+const SIG_MD = ['---', 'process: sg', 'title: Sig', 'roles: lead, ops', 'context: commit, ticket', '---', '', '## Prepare · READ-DO {#prep}', '  > Use the scratch server.', '- [ ] {confirm} Read it ^commit @lead {#read}', '',
+  '## Gate: Ready {#ready}', '  > The board said yes.', '', '## Ship · READ-DO {#ship}', '- [ ] {confirm} Ship it @ops {#go}', ''].join('\n');
+const sigPub = (md, images) => ({ map: M.parse(md), types: {}, info: { images: images || {} } });
+rule('PF.signature signs what a skill follows: a phase note, a phase screenshot and a gate screenshot (with its image fingerprint) each change a step\'s signature', () => {
+  const G = PF.signature, base = G.steps(M.parse(SIG_MD), {}, {});
+  assert.ok(base.read && base.go && typeof base.read.sig === 'string');
+  const diff = (md, images) => { const b = G.steps(M.parse(md), {}, images || {}); return Object.keys(base).filter(k => base[k].sig !== b[k].sig).sort(); };
+  same(diff(SIG_MD), []);
+  same(diff(SIG_MD.replace('Use the scratch server.', 'Use the staging server.')), ['read'], 'a phase note: that phase\'s steps');
+  const shot = SIG_MD.replace('  > Use the scratch server.\n', '  > Use the scratch server.\n  ![Server](images/sg/a.png)\n');
+  same(diff(shot), ['read'], 'a phase screenshot');
+  const gshot = SIG_MD.replace('  > The board said yes.\n', '  > The board said yes.\n  ![Board](images/sg/b.png)\n');
+  same(diff(gshot), ['go', 'read'], 'a screenshot on the gate before a phase flags that phase, and the phase it closes');
+  const h1 = G.steps(M.parse(gshot), {}, { 'images/sg/b.png': 'aa' }), h2 = G.steps(M.parse(gshot), {}, { 'images/sg/b.png': 'bb' });
+  assert.notStrictEqual(h1.go.sig, h2.go.sig, 'the frozen image fingerprint counts');
+  same(diff(SIG_MD.replace('The board said yes.', 'The board and QA said yes.')), ['go', 'read'], 'a gate note');
+});
+rule('PF.signature.process signs every declared input, bound or not: run details, roles and runs; skills.changes names what changed', () => {
+  const G = PF.signature, S = PF.skills, a = sigPub(SIG_MD);
+  assert.strictEqual(G.process(a), G.process(sigPub(SIG_MD)));
+  const roles = sigPub(SIG_MD.replace('roles: lead, ops', 'roles: lead, ops, qa'));
+  assert.notStrictEqual(G.process(a), G.process(roles));
+  same(S.changes(a, roles).map(c => [c.id, c.change, c.what]), [['(inputs)', 'inputs', ['Roles: now lead, ops, qa (was lead, ops)']]]);
+  const unbound = sigPub(SIG_MD.replace('context: commit, ticket', 'context: commit, ticket, region'));
+  same(S.changes(a, unbound).map(c => c.change), ['context'], 'an input no step binds is a change');
+  const team = sigPub(SIG_MD.replace('roles: lead, ops', 'roles: lead, ops\nruns: team'));
+  same(S.changes(a, team).map(c => [c.change, c.what]), [['inputs', ['Runs: team (was not set)']]]);
+  const note = sigPub(SIG_MD.replace('Use the scratch server.', 'Use the staging server.'));
+  same(S.changes(a, note).map(c => [c.id, c.change]), [['read', 'changed']], 'a phase note changed: its steps need an update');
+  assert.ok(/Roles: now lead, ops, qa/.test(S.changes(a, roles).map(c => c.what.join(' ')).join(' ')));
+});
+
 run();
