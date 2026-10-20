@@ -87,14 +87,14 @@ PF.outline = (function () {
         if (!phase || gate) continue;
         var sp = stepParts(line);
         step = { id: sp.id, type: sp.type, text: sp.text, must: sp.mark === '!', planned: sp.mark === '~', roles: sp.roles, binds: sp.binds, parts: sp,
-          fields: {}, fieldLines: {}, notes: 0, line: i, end: i + 1, odd: false, phase: phase, track: track ? track.index : -1, index: o.steps.length };
+          fields: {}, fieldLines: {}, notes: 0, shots: [], line: i, end: i + 1, odd: false, phase: phase, track: track ? track.index : -1, index: o.steps.length };
         phase.steps.push(step); o.steps.push(step); blk = step;
         continue;
       }
       if (/^\s{2,}>\s?(.*)$/.test(line)) {
         var tg = step || gate;
         if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; continue; }
-      } else if (step && /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.test(line)) { own(step, i); continue; }
+      } else if (step && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) { own(step, i); step.shots.push({ caption: m[1], src: m[2], line: i }); continue; }
       else if ((m = /^\s{2,}([\w-]+):\s*(.*)$/.exec(line))) {
         if (gate && m[1] === 'approves') { own(gate, i); gate.approves = m[2].trim(); gate.approvesLine = i; continue; }
         if (gate && (m[1] === 'at' || m[1] === 'due' || m[1] === 'after')) { own(gate, i); continue; }
@@ -351,6 +351,56 @@ PF.outline = (function () {
     }, at);
     if (!res.error) res.id = reid || s.id;
     return res;
+  }
+
+  /* ---------- a step's screenshots: its ![caption](images/…) lines ---------- */
+  var SHOT_SRC = /^images\/[\w./-]+$/;
+  /* A caption is plain text on one line, said by screen readers as the picture's alt text. */
+  function caption(c) {
+    var v = oneLine(c);
+    if (!v) return { error: 'Write a caption first. It says what the screenshot shows, and it\'s what screen readers read out.' };
+    if (/[\[\]]/.test(v)) return { error: 'Leave out [ and ] in a caption.' };
+    if (v.length > 200) return { error: 'Keep a caption to 200 characters.' };
+    return { value: v };
+  }
+  /* One step's screenshot lines, as edits that change only those lines; the safety net checks the step's screenshots became
+     exactly what was asked for. set: { add: {caption, src} } | { edit: i, caption } | { move: i, dir } | { remove: i }. */
+  function editShots(text, key, set) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
+    if (s.odd) return { error: ERR.odd };
+    var lines = o.lines.slice(), cr = crOf(o, s.line), want = s.shots.map(function (x) { return { caption: x.caption, src: x.src }; }), at = s.line, k;
+    var lineOf = function (sh, c, src) { var ind = /^\s*/.exec(bare(lines[sh.line]))[0]; return ind + '![' + c + '](' + src + ')' + crOf(o, sh.line); };
+    if (set.add) {
+      var c = caption(set.add.caption); if (c.error) return { error: c.error };
+      var src = String(set.add.src || '');
+      if (!SHOT_SRC.test(src) || src.indexOf('..') >= 0) return { error: 'Screenshots must be under images/.' };
+      var last = s.shots[s.shots.length - 1], ind = last ? /^\s*/.exec(bare(lines[last.line]))[0] : '  ';
+      at = last ? last.line + 1 : s.end;
+      lines.splice(at, 0, ind + '![' + c.value + '](' + src + ')' + cr);
+      want.push({ caption: c.value, src: src });
+    } else {
+      k = +(set.edit != null ? set.edit : set.move != null ? set.move : set.remove);
+      var sh = s.shots[k]; if (!(k >= 0) || !sh) return { error: 'That screenshot isn\'t in the draft anymore. It may have just changed.' };
+      at = sh.line;
+      if (set.edit != null) {
+        var e = caption(set.caption); if (e.error) return { error: e.error };
+        if (e.value === sh.caption) return { text: text, at: at, same: true };
+        lines[sh.line] = lineOf(sh, e.value, sh.src); want[k].caption = e.value;
+      } else if (set.move != null) {
+        var j = k + (set.dir === 'up' || set.dir < 0 ? -1 : 1), other = s.shots[j];
+        if (!other) return { error: j < k ? ERR.first : ERR.last };
+        lines[sh.line] = lineOf(sh, other.caption, other.src); lines[other.line] = lineOf(other, sh.caption, sh.src);
+        want.splice(j, 0, want.splice(k, 1)[0]); at = other.line;
+      } else { lines.splice(sh.line, 1); want.splice(k, 1); }
+    }
+    var line = s.line + 1;
+    return done(o, text, lines, function (A) {
+      var x = null;
+      A.phases.forEach(function (ph) { ph.steps.forEach(function (st) { if (st._line === line) x = st; }); });
+      if (!x) return false;
+      x.shots = want;
+    }, at);
   }
 
   function addStep(text, to, step) {
@@ -737,11 +787,15 @@ PF.outline = (function () {
       case 'addTrack': return addTrack(text, op.to || {}, op);
       case 'editTrack': return editTrack(text, op.phase, op.track, op.set || {});
       case 'deleteTrack': return deleteTrack(text, op.phase, op.track, op);
+      case 'addShot': return editShots(text, op.step, { add: { caption: op.caption, src: op.src } });
+      case 'editShot': return editShots(text, op.step, { edit: op.shot, caption: op.caption });
+      case 'moveShot': return editShots(text, op.step, { move: op.shot, dir: op.dir });
+      case 'removeShot': return editShots(text, op.step, { remove: op.shot });
     }
     return { error: 'Nothing to do.' };
   }
 
   return { MODES: MODES, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
-    addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
+    addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
 })();

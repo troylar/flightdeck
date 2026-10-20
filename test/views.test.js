@@ -2295,4 +2295,36 @@ rule('Review: the change against the draft, its checks, what happened before, an
   assert.ok(/Too many changes to show line by line/.test(V.proposalReview(ctx, ov)));
 });
 
+rule('Draft builder: a step\'s Screenshots section shows thumbnails with their captions as alt text, labeled controls, and a place to add more, all escaped', () => {
+  const { ctx, state } = setup();
+  const md = ['---', 'process: x', 'title: X', '---', '## One · READ-DO {#one}', '- [ ] {confirm} Alpha {#alpha}', '  ![The <b>flags</b> "page"](images/x/alpha-1.png)', '  ![Second <script>alert(1)</script>](images/x/alpha-2.png)', '- [ ] {confirm} Beta {#beta}', ''].join('\n');
+  const p = { id: 'x', title: 'X', latest: null, all: [], clashes: [], broken: [], skills: [], draft: { file: 'x.md', md }, draftChanged: true };
+  const asked = [];
+  ctx.processes = () => [p]; ctx.data.validations = []; state.view = 'process'; state.processId = 'x'; state.ptab = 'edit'; state.builder = true;
+  ctx.img = (src, caption, full, own) => { asked.push([src, own]); return '<img alt="' + PF.util.esc(caption) + '" src="blob:test">'; };
+  state.editor = { pid: 'x', base: md, baseHash: 'x', text: null };
+  state.obSel = { pid: 'x', kind: 'step', key: 'alpha' };
+  let html = V.process(ctx);
+  assert.ok(/<h3 class="ob-sec" id="ob-shots-h">Screenshots<\/h3>/.test(html), 'a Screenshots heading');
+  assert.ok(/<ol class="ob-shots" aria-labelledby="ob-shots-h">/.test(html), 'a list named by it');
+  assert.ok(/<img alt="The &lt;b&gt;flags&lt;\/b&gt; &quot;page&quot;"/.test(html), 'alt text is the caption, escaped');
+  assert.ok(!/<script>alert|<b>flags/.test(html), 'nothing raw');
+  assert.deepStrictEqual(asked.map(a => a[1]), [true, true], 'thumbnails come from the folder\'s images/, never a run\'s publication');
+  assert.ok(/<label class="field" for="ob-shot-cap-0">Caption<span class="sr"> for screenshot 1 of 2<\/span><input id="ob-shot-cap-0" maxlength="200" data-enter="ob-commit" value="The &lt;b&gt;flags&lt;\/b&gt; &quot;page&quot;">/.test(html), 'each caption is a labeled box');
+  assert.ok(/data-act="ob-shot-move" data-id="0" data-dir="up" aria-label="Move screenshot 1 up">Move up</.test(html) && /data-act="ob-shot-move" data-id="1" data-dir="down" aria-label="Move screenshot 2 down">Move down</.test(html), 'reorder buttons name which one');
+  assert.ok(/data-act="ob-shot-remove" data-id="1" aria-label="Remove screenshot 2: Second &lt;script&gt;alert\(1\)&lt;\/script&gt;">Remove</.test(html), 'Remove names it');
+  assert.ok(/Removing takes it out of this draft only\. The image file stays in the folder/.test(html), 'and says the file stays');
+  assert.ok(/<div class="ob-shot-add" data-drop="shots" data-id="alpha" role="group" aria-labelledby="ob-shot-add-h">/.test(html), 'a drop zone for this step');
+  assert.ok(/<label class="field" for="ob-shot-new">Caption for the next screenshot<input id="ob-shot-new" maxlength="200" data-nav-safe/.test(html), 'the caption for new images is labeled');
+  assert.ok(/<label class="btn" for="ob-shot-file">[\s\S]*?Choose files<\/label><input type="file" id="ob-shot-file" class="sr" accept="\.png,\.jpg,\.jpeg,\.webp,\.gif,image\/png,image\/jpeg,image\/webp,image\/gif" multiple aria-describedby="ob-shot-hint">/.test(html), 'Choose files: images only');
+  assert.ok(/id="ob-shot-hint">Or drop or paste images here\. PNG, JPEG, WebP or GIF, up to 5 MB each\./.test(html), 'how else to add');
+  assert.ok(/<p class="small" id="ob-shot-status" role="status"><\/p>/.test(html), 'a status line, quiet until something is added');
+  ctx.shotBusy = () => 2; html = V.process(ctx);
+  assert.ok(/id="ob-shot-status" role="status">Adding 2 screenshots…<\/p>/.test(html), 'says what it\'s doing');
+  state.fieldErr = { id: 'ob', field: 'ob-shot-file', msg: 'Couldn\'t add "<x>.png": no.' }; html = V.process(ctx);
+  assert.ok(/<input type="file" id="ob-shot-file"[^>]* aria-invalid="true" aria-describedby="ferr-ob-shot-file ob-shot-hint"/.test(html) && /<p class="ferr" id="ferr-ob-shot-file" role="alert">Couldn&#39;t add &quot;&lt;x&gt;\.png&quot;: no\.<\/p>/.test(html), 'a refusal shows next to Choose files');
+  state.obSel = { pid: 'x', kind: 'step', key: 'beta' }; state.fieldErr = null; ctx.shotBusy = null; html = V.process(ctx);
+  assert.ok(/No screenshots yet\./.test(html) && !/class="ob-shots"/.test(html), 'a step without any');
+});
+
 run();

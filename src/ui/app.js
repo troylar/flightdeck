@@ -139,6 +139,8 @@
     },
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
+    /* How many images this window is adding to a draft's step right now (the builder's Screenshots section says so). */
+    shotBusy: function (pid) { return shotBusy(pid); },
     localCopy: function (r) { var c = lsGet(localKey(r.id), null); return c && c.id === r.id ? c : null; },
     /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
     health: function (full) { return healthReport(full); },
@@ -160,9 +162,10 @@
     /* Connection checks from other windows that this one hasn't answered or put off. */
     connPending: function () { return state.conn ? PF.connection.pending(state.conn, WRITER, state.connDismissed).filter(function (p) { return !(state.connAnswering || {})[p._file]; }) : []; },
     /* Thumbnails are small copies made once per image; the full image is loaded only in the lightbox and released when it closes. */
-    img: function (src, caption, full) {
+    /* own: the folder's images/ file itself, as the draft builder shows it, never a run's frozen copy. */
+    img: function (src, caption, full, own) {
       /* A run shows the screenshots frozen into its own publication. Only publications made before screenshots were frozen fall back to images/. */
-      var r = ctx.run(), paths = [src], key = src;
+      var r = own ? null : ctx.run(), paths = [src], key = src;
       if (r && /^images\//.test(src)) {
         /* The run itself records whether its publication froze screenshots, so a publication that's still syncing shows
            "Missing", never today's images/ file. Only runs of older publications fall back to images/. */
@@ -1746,7 +1749,7 @@
       var ed = state.editors[e];
       if (e.indexOf(k) !== 0) return;
       var onScreen = state.view === 'process' && state.ptab === 'edit' && state.processId === ed.pid;
-      if ((onScreen || dirty(ed) || state.obPending === ed.pid) && out.indexOf(ed.pid) < 0) out.push(ed.pid);
+      if ((onScreen || dirty(ed) || state.obPending === ed.pid || shotBusy(ed.pid)) && out.indexOf(ed.pid) < 0) out.push(ed.pid);
     });
     return out.sort();
   }
@@ -1871,7 +1874,7 @@
     if (ready.length && !liveWhy(p.id)) { acceptProposal(p.id, ready[ready.length - 1].id, 'live', null); return; }
     var waiting = list.filter(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'already' || x.fit === 'review'; })[0], ed = editorOf(p.id);
     if (!waiting || whispered[key + '|' + waiting.id]) return;
-    if (whisper(dirty(ed) || state.obPending === p.id ? 'Your AI assistant proposed changes while you have unsaved ones. They\'ll wait for you to review them.' : 'Your AI assistant proposed changes. Review them from the notice in the editor.')) whispered[key + '|' + waiting.id] = true;
+    if (whisper(dirty(ed) || state.obPending === p.id || shotBusy(p.id) ? 'Your AI assistant proposed changes while you have unsaved ones. They\'ll wait for you to review them.' : 'Your AI assistant proposed changes. Review them from the notice in the editor.')) whispered[key + '|' + waiting.id] = true;
   }
   /* Said through #live only (the one announcement path), without a notice of its own, moving focus or switching tabs; at
      most one every 5 s, so a burst of arrivals isn't a burst of speech. */
@@ -1896,8 +1899,8 @@
   }
   /* Everything about this window's editor that a change would show: its identity, text, base and conflict, and builder text
      waiting. Captured before any file is read or written, and compared again right before saving. */
-  function edToken(pid) { var ed = editorOf(pid); return { ed: ed, text: ed ? ed.text : null, base: ed ? ed.base : null, conflict: ed ? ed.conflict : null, ob: state.obPending === pid }; }
-  function sameToken(a, b) { return a.ed === b.ed && a.text === b.text && a.base === b.base && a.conflict === b.conflict && a.ob === b.ob; }
+  function edToken(pid) { var ed = editorOf(pid); return { ed: ed, text: ed ? ed.text : null, base: ed ? ed.base : null, conflict: ed ? ed.conflict : null, ob: state.obPending === pid, shots: shotBusy(pid) }; }
+  function sameToken(a, b) { return a.ed === b.ed && a.text === b.text && a.base === b.base && a.conflict === b.conflict && a.ob === b.ob && a.shots === b.shots; }
   var attemptN = 0;
   state.propTx = {};
   var PROP_SAY = {
@@ -1913,7 +1916,7 @@
   function liveWhy(pid, adopted) {
     var ed = editorOf(pid);
     if (!ed || document.hidden || state.view !== 'process' || state.ptab !== 'edit' || state.processId !== pid) return 'not open';
-    if ((!adopted && dirty(ed)) || ed.conflict || state.obPending === pid || composing) return 'unsaved';
+    if ((!adopted && dirty(ed)) || ed.conflict || state.obPending === pid || shotBusy(pid) || composing) return 'unsaved';
     if (!adopted && state.draftSaving[edKey(pid)]) return 'saving';
     var mine = ownPresence(), m = PF.proposals.mainOf(pid, freshOthers().concat(mine ? [mine] : []));
     if (m.ambiguous || m.writer !== WRITER) return 'not main';
@@ -2250,6 +2253,7 @@
     var ed = editorOf(p.id);
     if (ed && ed.conflict) return 'Someone else changed this draft while you were editing it. Settle that in the editor first.';
     if (dirty(ed) || state.obPending === p.id) return 'You have unsaved changes to this draft. Save or discard them in the editor first.';
+    if (shotBusy(p.id)) return 'A screenshot is still being added to this draft. Try again when it\'s done.';
     return '';
   }
   /* A decision of applied, with the result it records, written once; Link, Already addressed and Mark as applied in the dialog. */
@@ -2340,6 +2344,94 @@
     }
     return res;
   }
+  /* ---------- screenshots in the builder (docs/design.md section 20) ---------- */
+  /* Images being added, per folder and process: unsaved work while they're written, so live apply waits, Apply and
+     corrections wait, presence holds the draft and leaving the page asks first. */
+  state.shotBusy = {};
+  function shotKey(pid, fk) { return (fk == null ? fsKey() : fk) + '|' + pid; }
+  function shotBusy(pid) { return state.shotBusy[shotKey(pid)] || 0; }
+  function shotErr(field, msg) { state.fieldErr = { id: 'ob', field: field, msg: msg }; state.focus = '#' + field; say(null); render(); }
+  /* Images chosen, pasted or dropped on the selected step, one at a time and in order: each is checked (kind, 5 MB, its first
+     bytes), the line it would add is checked against the draft (its caption, the step, the 1 MB limit), then the image is
+     written once and read back (repo.saveShot), and only then is its line added through builderEdit, as one Undo entry. A
+     refusal or a failed write stops there, adds nothing and says why next to Choose files. The editor stays the only writer
+     of the draft: the line is unsaved until Save draft. */
+  function shotAdd(list, stepKey) {
+    var files = Array.prototype.slice.call(list || []), p = currentProcess(), sel = state.obSel;
+    if (!files.length || !p || !sel || sel.kind !== 'step' || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    var capEl = document.getElementById('ob-shot-new'), cap = PF.outline.caption(capEl ? capEl.value : '');
+    if (cap.error) { shotErr('ob-shot-new', cap.error); return Promise.resolve(); }
+    if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
+    var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false, firstKey = stepKey != null ? String(stepKey) : sel.key;
+    var stepOf = function (k) { return PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === k; })[0] || null; };
+    var st0 = stepOf(firstKey); if (!st0) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
+    var stepId = st0.id;
+    state.shotBusy[key] = (state.shotBusy[key] || 0) + n; render();
+    function settle(k) { k = Math.min(k, left); left -= k; state.shotBusy[key] = (state.shotBusy[key] || 0) - k; if (state.shotBusy[key] <= 0) delete state.shotBusy[key]; }
+    function here() { return g === gen && fsKey() === fk && state.processId === pid; }
+    function stop(field, msg) { stopped = true; settle(left); if (here()) shotErr(field, msg); else render(); }
+    return files.reduce(function (pr, f, i) {
+      return pr.then(function () {
+        if (stopped) return;
+        if (!here()) { stop(); return; }
+        var name = String(f.name || 'image').split(/[\\/]/).pop().slice(0, 80), caption = cap.value + (n > 1 ? ' (' + (i + 1) + ' of ' + n + ')' : '');
+        var ok = PF.attach.checkShot(name, f.type, f.size); if (ok.error) { stop('ob-shot-file', ok.error); return; }
+        /* The step is found again by its ID (its key, while it has a unique one), since the draft can change meanwhile. */
+        var st = stepId ? PF.outline.parse(edText(p)).steps.filter(function (x) { return x.id === stepId; }) : [];
+        var k = st.length === 1 ? st[0].key : firstKey;
+        var plan = PF.outline.apply(edText(p), { op: 'addShot', step: k, caption: caption, src: PF.attach.shotPath(pid, stepId, Date.now(), 'aaaaaa', ok.ext) });
+        if (plan.error) { stop('ob-shot-file', plan.error); return; }
+        if (U.draftTooBig(plan.text)) { stop('ob-shot-file', '"' + name + '" wasn\'t added: its line would take this draft over 1 MB, and Flightdeck saves drafts up to 1 MB. Shorten the draft first.'); return; }
+        return headOf(f).then(function (head) {
+          if (!PF.attach.sniff(head, ok.ext)) throw { plain: '"' + ok.name + '" doesn\'t look like a .' + ok.ext + ' file inside, so it wasn\'t added.' };
+          return queued(function () { return repo.saveShot(sfs, { process: pid, step: stepId, file: f }); });
+        }).then(function (r) {
+          if (!here()) { stop(); if (g === gen && fsKey() === fk) say('The image was saved as ' + r.path + ', but the draft of ' + p.title + ' was closed, so it wasn\'t added to it. Add it again from the step.', 'warn'); render(); return; }
+          var now = stepId ? PF.outline.parse(edText(p)).steps.filter(function (x) { return x.id === stepId; }) : [];
+          var sk = now.length === 1 ? now[0].key : stepOf(firstKey) ? firstKey : null;
+          if (!sk) { stop('ob-shot-file', 'The step isn\'t in the draft anymore, so the image wasn\'t added. It\'s saved as ' + r.path + '.'); return; }
+          /* Text typed in a box of the form and not applied yet is applied first, so the redraw doesn't lose it. */
+          var pf = state.obPending === pid && state.obPendingField, pel = pf && document.getElementById(pf);
+          if (pel && /^ob-(text|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) builderField(pf, pel.value);
+          settle(1);
+          var res = builderEdit({ op: 'addShot', step: sk, caption: caption, src: r.path }, 'ob-shot-file');
+          if (!res) { stopped = true; settle(left); return; }
+          if (capEl && i === n - 1) capEl.value = '';
+          state.focus = '#ob-shot-file'; render();
+        }, function (e) {
+          stop('ob-shot-file', e && e.plain ? e.plain : 'Couldn\'t add "' + name + '": ' + (e && e.message || 'the image couldn\'t be saved.') + ' Nothing was added to the step.');
+        });
+      });
+    }, Promise.resolve()).then(function () { if (left) settle(left); if (g === gen) render(); });
+  }
+  /* An image pasted while the step's form has focus goes to that step. */
+  document.addEventListener('paste', function (e) {
+    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || state.obSel.kind !== 'step' || !e.clipboardData) return;
+    var t = e.target; if (!(t && t.closest && t.closest('.ob-form'))) return;
+    var items = e.clipboardData.items || [], files = [];
+    for (var i = 0; i < items.length; i++) if (items[i].kind === 'file') { var f = items[i].getAsFile(); if (f) files.push(f); }
+    if (!files.length) return;
+    e.preventDefault(); shotAdd(files);
+  });
+  /* Files dragged from the computer onto Add screenshots. Let go anywhere else in the editor, they're caught, so the browser
+     never swaps the page (and unsaved work) for the file. Dragging steps and parts is left to the builder's own handlers. */
+  function shotZone(e) { return e.target && e.target.closest ? e.target.closest('[data-drop="shots"]') : null; }
+  function shotDrag(e) { return state.view === 'process' && state.ptab === 'edit' && !drag && !partDrag && filesDrag(e); }
+  document.addEventListener('dragover', function (e) {
+    if (!shotDrag(e)) return;
+    var z = shotZone(e); e.preventDefault();
+    try { e.dataTransfer.dropEffect = z ? 'copy' : 'none'; } catch (err) { /* older browsers */ }
+    if (z && z.classList && !z.classList.contains('dropping')) z.classList.add('dropping');
+  });
+  document.addEventListener('dragleave', function (e) { if (!shotDrag(e)) return; var z = shotZone(e); if (z && z.classList && !(e.relatedTarget && z.contains(e.relatedTarget))) z.classList.remove('dropping'); });
+  document.addEventListener('drop', function (e) {
+    if (!shotDrag(e)) return;
+    var z = shotZone(e); e.preventDefault();
+    if (!z) { say('Drop images on Add screenshots in a step\'s form.', 'warn'); render(); return; }
+    if (z.classList) z.classList.remove('dropping');
+    shotAdd(e.dataTransfer.files, z.getAttribute('data-id'));
+  });
+
   /* ---------- Undo, Redo and History (PF.timeline): one timeline per draft editor and per step-type form ---------- */
   var TL = PF.timeline;
   function tlOf(ed) { return ed.tl || (ed.tl = TL.create()); }
@@ -2662,6 +2754,7 @@
     var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
     if (id === 'ob-text') return st ? st.text : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
+    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = st && st.shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
     if (id === 'ob-tr-title') { var tr = ph && ph.tracks[+s.track]; return tr ? tr.title : ''; }
     if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
@@ -2768,6 +2861,7 @@
     if (s.kind === 'step') {
       var st = o.steps.filter(function (x) { return x.key === s.key; })[0], mk = id === 'ob-mark' ? (value === 'must' ? '!' : value === 'planned' ? '~' : ' ') : null;
       var set = id === 'ob-text' ? { text: value, reid: !!(st && fresh(st.id)) } : mk ? { mark: mk } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
+      if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', step: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
       if (!set) return;
       res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
       /* The three kinds exclude each other: say what the new one means, and what leaving must-do allows. */
@@ -3344,7 +3438,7 @@
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
       state.focus = !s ? 'ed-h' : s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
       render();
@@ -3358,6 +3452,16 @@
     },
     'ob-role': function (id) { builderToggle('role', id); },
     'ob-bind': function (id) { builderToggle('bind', id); },
+    'ob-shot-move': function (id, b) {
+      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || s.kind !== 'step') return;
+      var res = builderEdit({ op: 'moveShot', step: s.key, shot: +id, dir: up ? 'up' : 'down' }); if (!res) return;
+      state.focus = '[data-act="ob-shot-move"][data-id="' + (+id + (res.same ? 0 : up ? -1 : 1)) + '"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
+    },
+    'ob-shot-remove': function (id) {
+      var s = state.obSel; if (!s || s.kind !== 'step') return;
+      var res = builderEdit({ op: 'removeShot', step: s.key, shot: +id }); if (!res || res.same) return;
+      sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
+    },
     'ob-del': function (id) {
       var p = currentProcess(), st = p && PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === id; })[0];
       var res = builderEdit({ op: 'delete', step: id }, null, 'deleted the step “' + (st ? String(st.text).slice(0, 60) : '') + '”'); if (!res) return;
@@ -4286,7 +4390,7 @@
     }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, true); scheduleRender(); }
     /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
-    if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title)$/.test(e.target.id || '') && state.processId) {
+    if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+)$/.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
       var differs = norm(e.target.value) !== norm(fieldApplied(e.target.id)), was = !!state.obPending;
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) dropPending();
@@ -4347,7 +4451,8 @@
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
@@ -4799,7 +4904,7 @@
     setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; render();
   }
   window.addEventListener('beforeunload', function (e) {
-    var any = !!state.obPending || Object.keys(state.editors || {}).some(function (k) { return dirty(state.editors[k]); });
+    var any = !!state.obPending || Object.keys(state.shotBusy).length > 0 || Object.keys(state.editors || {}).some(function (k) { return dirty(state.editors[k]); });
     if (any) { e.preventDefault(); e.returnValue = ''; }
   });
   boot().then(resumeEditor, resumeEditor).then(announceRelease, announceRelease);

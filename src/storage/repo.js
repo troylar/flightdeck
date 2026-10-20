@@ -1021,6 +1021,37 @@ PF.repo = (function () {
     return fs.write(path, blob).then(function () { return path; });
   }
 
+  /* A reference screenshot added in the builder (o: { process, step, file, now?, rand? }): checked like an attachment (images
+     only, 5 MB, its first bytes), written once under a new name (a name that's taken gets another random part; nothing is
+     ever written over), then read back and compared byte for byte. Resolves { path, ext, size }; the caller adds the line
+     to the draft only after that. A failed or partial write rejects, and nothing refers to the file. */
+  function saveShot(fs, o) {
+    var f = o.file, A = PF.attach, ok = A.checkShot(f && f.name || '', f && f.type, f && f.size);
+    if (ok.error) return Promise.reject(new Error(ok.error));
+    var now = o.now != null ? o.now : Date.now(), rand = o.rand || function () { return U.randomId(6); }, tries = 0, sent;
+    if (!A.shotPath(o.process, o.step, now, 'a', ok.ext)) return Promise.reject(new Error('Flightdeck can\'t name a screenshot for this process.'));
+    function same(a, b) { if (a.length !== b.length) return false; for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
+    function attempt() {
+      var path = A.shotPath(o.process, o.step, now, rand(), ok.ext);
+      if (!path) throw new Error('Flightdeck can\'t name a screenshot for this process.');
+      return fs.stat(path).then(function (st) {
+        if (st) { if (++tries >= 3) throw new Error('Couldn\'t find a free name for the image. Try again.'); return attempt(); }
+        return fs.write(path, f).then(function () { return fs.blob(path); }).then(function (b) {
+          if (!b) throw new Error('The image wasn\'t there when Flightdeck read it back. Try again.');
+          return b.arrayBuffer();
+        }).then(function (back) {
+          if (!same(new Uint8Array(back), sent)) throw new Error('The image didn\'t save completely. Try again.');
+          return { path: path, ext: ok.ext, size: ok.size };
+        });
+      });
+    }
+    return f.arrayBuffer().then(function (buf) {
+      sent = new Uint8Array(buf);
+      if (!A.sniff(sent.subarray(0, 4096), ok.ext)) throw new Error('"' + ok.name + '" doesn\'t look like a .' + ok.ext + ' file inside, so it wasn\'t added.');
+      return attempt();
+    });
+  }
+
   /* Write the map and types first and the publication record last, so a half-synced publication is never mistaken for a complete one. */
   function publish(fs, draftMd, opts) {
     var built = P.build(draftMd, opts);
@@ -2115,5 +2146,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

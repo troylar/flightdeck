@@ -705,4 +705,54 @@ rule('What a person applied (their own wording) is recognized on the next look, 
   assert.strictEqual(C.review(w, rw.text, null, { applied: C.outcome(w, rw.text) }).state, 'already');
 });
 
+/* ---------- screenshots (1.19): a step's ![caption](images/…) lines ---------- */
+const SHOTS = ['---', 'process: s', 'title: S', '---', '## One · READ-DO {#one}', '- [ ] {confirm} Alpha {#alpha}', '  where: Here', '  ![First](images/s/alpha-1.png)', '  > a note', '  ![Second](images/s/alpha-2.png)', '- [ ] {confirm} Beta {#beta}', ''].join('\n');
+const capsOf = (t, id) => M.steps(M.parse(t)).filter(x => x.step.id === id)[0].step.shots.map(s => s.caption);
+
+rule('Outline: a step\'s screenshots are read with their lines', () => {
+  const s = O.parse(SHOTS).steps[0];
+  same(s.shots.map(x => [x.caption, x.src, x.line]), [['First', 'images/s/alpha-1.png', 7], ['Second', 'images/s/alpha-2.png', 9]]);
+});
+
+rule('Outline: adding a screenshot puts one line after the step\'s own lines and changes nothing else', () => {
+  const t = ok(O.apply(SHOTS, { op: 'addShot', step: 'alpha', caption: 'Third', src: 'images/s/alpha-3.png' }));
+  same(changes(SHOTS, t), { removed: [], added: ['  ![Third](images/s/alpha-3.png)'] });
+  assert.ok(lines(t).indexOf('  ![Third](images/s/alpha-3.png)') === lines(t).indexOf('  ![Second](images/s/alpha-2.png)') + 1, 'after the last one');
+  same(capsOf(t, 'alpha'), ['First', 'Second', 'Third']);
+  const b = ok(O.apply(SHOTS, { op: 'addShot', step: 'beta', caption: 'Only', src: 'images/s/beta-1.png' }));
+  same(changes(SHOTS, b), { removed: [], added: ['  ![Only](images/s/beta-1.png)'] });
+  same(capsOf(b, 'beta'), ['Only']);
+  same(ids(t), ids(SHOTS)); healthy(SHOTS, t);
+});
+
+rule('Outline: a screenshot\'s caption is required plain text on one line, without [ or ]; its file must be under images/', () => {
+  assert.ok(/caption/.test(O.apply(SHOTS, { op: 'addShot', step: 'alpha', caption: '  ', src: 'images/s/x.png' }).error));
+  assert.ok(/Leave out \[ and \]/.test(O.apply(SHOTS, { op: 'addShot', step: 'alpha', caption: 'a ] b', src: 'images/s/x.png' }).error));
+  assert.ok(O.apply(SHOTS, { op: 'addShot', step: 'alpha', caption: 'ok', src: '../x.png' }).error);
+  assert.ok(O.apply(SHOTS, { op: 'addShot', step: 'alpha', caption: 'ok', src: 'images/s/a b.png' }).error);
+  const t = ok(O.apply(SHOTS, { op: 'addShot', step: 'alpha', caption: ' Two\nlines  <b>x</b> ', src: 'images/s/x.png' }));
+  assert.ok(lines(t).includes('  ![Two lines <b>x</b>](images/s/x.png)'), 'spaces collapse; text is kept as written (the page escapes it)');
+  same(O.caption('  A  b '), { value: 'A b' });
+});
+
+rule('Outline: editing a caption, moving and removing a screenshot each change only its own line', () => {
+  const e = ok(O.apply(SHOTS, { op: 'editShot', step: 'alpha', shot: 1, caption: 'Renamed' }));
+  same(changes(SHOTS, e), { removed: ['  ![Second](images/s/alpha-2.png)'], added: ['  ![Renamed](images/s/alpha-2.png)'] });
+  const m = ok(O.apply(SHOTS, { op: 'moveShot', step: 'alpha', shot: 1, dir: 'up' }));
+  same(capsOf(m, 'alpha'), ['Second', 'First']);
+  assert.ok(lines(m).indexOf('  > a note') === 8 && lines(m)[7] === '  ![Second](images/s/alpha-2.png)', 'the note between them stays put');
+  assert.strictEqual(O.apply(SHOTS, { op: 'moveShot', step: 'alpha', shot: 0, dir: 'up' }).error, 'It\'s already first.');
+  assert.strictEqual(O.apply(SHOTS, { op: 'moveShot', step: 'alpha', shot: 1, dir: 'down' }).error, 'It\'s already last.');
+  const r = ok(O.apply(SHOTS, { op: 'removeShot', step: 'alpha', shot: 0 }));
+  same(changes(SHOTS, r), { removed: ['  ![First](images/s/alpha-1.png)'], added: [] });
+  assert.ok(O.apply(SHOTS, { op: 'removeShot', step: 'alpha', shot: 5 }).error, 'a screenshot that isn\'t there');
+  [e, m, r].forEach(t => { same(ids(t), ids(SHOTS)); healthy(SHOTS, t); });
+});
+
+rule('Outline: a step with split lines, or a draft it can\'t read safely, takes no screenshot edits', () => {
+  const split = SHOTS.replace('- [ ] {confirm} Beta {#beta}', '<!-- c -->\n  ![Late](images/s/late.png)\n- [ ] {confirm} Beta {#beta}');
+  assert.ok(/Edit it in Markdown/.test(O.apply(split, { op: 'addShot', step: 'alpha', caption: 'x', src: 'images/s/x.png' }).error));
+  assert.ok(O.apply(SHOTS.replace(/\n/g, '\r'), { op: 'removeShot', step: 'alpha', shot: 0 }).error);
+});
+
 run();

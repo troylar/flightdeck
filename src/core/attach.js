@@ -103,5 +103,22 @@ PF.attach = (function () {
     });
     return out;
   }
-  return { MAX: MAX, PER_NOTE: PER_NOTE, PREVIEW_MAX: PREVIEW_MAX, ACCEPT: ACCEPT, ALLOWED: ALLOWED, check: check, sniff: sniff, safeName: safeName, pathFor: pathFor, pathOk: pathOk, kindOf: kindOf, nameOf: nameOf, extOf: extOf, size: size, cleanInfo: cleanInfo };
+  /* Reference screenshots added in the builder: images only, up to 5 MB each (every published version keeps its own copy),
+     written once at images/<process>/<step>-<time>-<random>.<ext>, a name that never replaces another file. */
+  var SHOT_MAX = 5 * 1024 * 1024, SHOT_ALLOWED = 'PNG, JPEG, WebP or GIF images';
+  var SHOT_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif';
+  function checkShot(name, type, bytes) {
+    /* The kind is judged on its own first (as if the file had one byte), so a big PDF is refused for being a PDF. */
+    var kind = check(name, type, +bytes > 0 ? 1 : 0), shown = String(name || '').split(/[\\/]/).pop().slice(0, 80), label = shown ? '"' + shown + '"' : 'That file';
+    if (kind.error && /can't be attached|says it's/.test(kind.error) || !kind.error && kind.kind !== 'image') return { error: label + ' can\'t be a screenshot. Screenshots can be ' + SHOT_ALLOWED + '.' };
+    if (kind.error) return kind;
+    if (+bytes > SHOT_MAX) return { error: label + ' is ' + size(bytes) + '. Screenshots can be up to 5 MB each.' };
+    return check(name, type, bytes);
+  }
+  function shotPath(process, step, now, rand, ext) {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(String(process || '')) || !/^[a-z0-9]+$/.test(String(rand || '')) || !own(TYPES, ext) || TYPES[ext].kind !== 'image') return null;
+    var st = /^[a-z0-9][a-z0-9-]*$/.test(String(step || '')) ? String(step).slice(0, 60) : 'step';
+    return 'images/' + process + '/' + st + '-' + Math.floor(+now || 0) + '-' + rand + '.' + ext;
+  }
+  return { SHOT_MAX: SHOT_MAX, SHOT_ACCEPT: SHOT_ACCEPT, SHOT_ALLOWED: SHOT_ALLOWED, checkShot: checkShot, shotPath: shotPath, MAX: MAX, PER_NOTE: PER_NOTE, PREVIEW_MAX: PREVIEW_MAX, ACCEPT: ACCEPT, ALLOWED: ALLOWED, check: check, sniff: sniff, safeName: safeName, pathFor: pathFor, pathOk: pathOk, kindOf: kindOf, nameOf: nameOf, extOf: extOf, size: size, cleanInfo: cleanInfo };
 })();
