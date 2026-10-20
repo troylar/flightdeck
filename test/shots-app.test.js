@@ -244,4 +244,49 @@ rule('Shots, counterexample: an add for a step without an ID never lands on anot
   assert.deepStrictEqual(shotLines(await markdown(app)), [], 'no line on the step that took its place');
 });
 
+const RESET = /The image was saved as images\/release\/[\w.-]+ but not added, because the draft was reset\./;
+
+rule('Shots, counterexample: Discard my changes while an image is being added: its line never comes back, and the person is told', async () => {
+  const app = await shotsOn();
+  await choose(app, 'First', [png()]);
+  const slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'Second'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.click('revert-draft'); await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()), 'set-up: discarded');
+  slow.g.open(); await app.tick(120); slow.restore();
+  assert.ok(RESET.test(app.html()) || RESET.test(app.live()), 'said');
+  assert.ok(!/Unsaved changes/.test(app.html()), 'the draft stays as discarded');
+  assert.strictEqual(images(app).length, 2, 'both images stay in the folder');
+  assert.deepStrictEqual(shotLines(await markdown(app)), []);
+});
+
+rule('Shots, counterexample: Take theirs while an image is being added: no line on their text', async () => {
+  const app = await shotsOn(), original = app.fs.files[DRAFT].t;
+  app.click('ob-del', 'rollback'); await app.tick();
+  await app.fs.write(DRAFT, original.replace('title: Production release', 'title: Theirs'));
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/Someone else changed this draft/.test(app.html()), 'set-up: a conflict');
+  app.click('ob-sel', 'flags'); await app.tick();
+  const slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'Mine'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.click('draft-take-theirs'); await app.tick();
+  slow.g.open(); await app.tick(120); slow.restore();
+  assert.ok(RESET.test(app.html()) || RESET.test(app.live()), 'said');
+  assert.ok(!/Unsaved changes/.test(app.html()), 'their text, nothing unsaved');
+  assert.deepStrictEqual(shotLines(await markdown(app)), []);
+});
+
+rule('Shots, counterexample: switching folders while an image is being added adds nothing to any editor', async () => {
+  const app = await shotsOn();
+  const slow = slowWrite(app);
+  app.setScoped('ob-shot-new', 'Old folder'); app.change('ob-shot-file', [png()]); await app.tick(40);
+  app.click('reset-examples'); await app.tick(80);
+  slow.g.open(); await app.tick(120); slow.restore();
+  app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()));
+  assert.deepStrictEqual(shotLines(await markdown(app)), []);
+  assert.ok(!app.leaveWarns(), 'nothing left counted as being added');
+});
+
 run();

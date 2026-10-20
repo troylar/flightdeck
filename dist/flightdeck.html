@@ -17281,7 +17281,13 @@ PF.examples = (function () {
   function edKey(pid, k) { return (k == null ? fsKey() : k) + '\n' + pid; }
   function editorOf(pid, k) { return (state.editors || {})[edKey(pid, k)] || null; }
   function setEditor(ed) { (state.editors = state.editors || {})[edKey(ed.pid, ed.fsKey)] = ed; return ed; }
-  function dropEditor(pid) { if (state.editors) delete state.editors[edKey(pid)]; }
+  function dropEditor(pid) { resetEditor(pid); if (state.editors) delete state.editors[edKey(pid)]; }
+  /* A draft editor's epoch: bumped whenever its text is reset rather than edited (Discard, Take theirs, Restore, a new or
+     dropped editor). Work that finishes later (an image being added) captures it and does nothing once it changed. A folder
+     switch is covered by gen. */
+  var edEpochs = {};
+  function edEpoch(pid, fk) { return edEpochs[edKey(pid, fk)] || 0; }
+  function resetEditor(pid, fk) { var k = edKey(pid, fk); edEpochs[k] = (edEpochs[k] || 0) + 1; }
   function dirty(ed) { return !!(ed && ed.text != null && ed.text !== ed.base); }
   /* The editor for a process: text and the fingerprint it was opened from, taken together, once. */
   function openEditor(p) {
@@ -17306,7 +17312,7 @@ PF.examples = (function () {
          text typed in the builder's form isn't applied yet (that's unsaved too). */
       /* A read of this draft (a routine load, or the editor's watcher) counts by its own sequence. */
       var readAt = p.draft && fileSeq[p.draft.file] != null ? fileSeq[p.draft.file] : data.readSeq || 0;
-      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || !p.draft || state.draftSaving[edKey(p.id)] || readAt <= (ed.after || 0)) return;
+      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || shotBusy(p.id) || !p.draft || state.draftSaving[edKey(p.id)] || readAt <= (ed.after || 0)) return;
       /* The newer draft is one change in the editor's timeline (slice 2): one Undo takes it back as an unsaved edit, and the
          changes before it stay undoable. It's already in the folder, so a later save never lists it as the person's. */
       var h = U.hash(p.draft.md); if (h === ed.baseHash || p.draft.md === ed.base) return;
@@ -17832,7 +17838,7 @@ PF.examples = (function () {
          restore replaced the text, so nothing before it can be undone. Parts saved are no longer new. */
       if (!opts.replace && ed && ed.text != null && ed.text !== text) { ed.base = text; ed.baseHash = res.hash; ed.conflict = null; ed.seen = cachedHash(p.id); ed.after = readsStarted; ed.fresh = null; ed.incoming = null; }
       else ed = setEditor({ pid: p.id, fsKey: key, base: text, baseHash: res.hash, text: null, seen: cachedHash(p.id), after: readsStarted, tl: ed && ed.tl });
-      if (opts.replace) { if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
+      if (opts.replace) { resetEditor(p.id, key); if (ed.tl) TL.barrier(ed.tl, opts.why || 'The draft was replaced here. Earlier changes can\'t be undone.'); }
       else TL.saved(carried, res.hash);
       logSave(sfs, key, { kind: 'draft-edit', id: p.id, from: expectHash, to: res.hash, before: before, after: text, source: hsource, version: opts.version, units: opts.units || hu.units, items: hu.items });
       if (ed.tl) learnIds(ed, text);
@@ -17979,7 +17985,7 @@ PF.examples = (function () {
     var capEl = document.getElementById('ob-shot-new'), capRaw = capEl ? capEl.value : '', cap = PF.outline.caption(capRaw);
     if (cap.error) { shotErr('ob-shot-new', cap.error); return Promise.resolve(); }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
-    var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false;
+    var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false, epoch = edEpoch(pid, fk);
     var gone = 'That step isn\'t in the draft anymore, so the image wasn\'t added.';
     var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key);
     if (!ident) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
@@ -17996,7 +18002,7 @@ PF.examples = (function () {
     return files.reduce(function (pr, f, i) {
       return pr.then(function () {
         if (stopped) return;
-        if (!here()) { stop(); return; }
+        if (!here() || edEpoch(pid, fk) !== epoch) { stop(); return; }
         var name = String(f.name || 'image').split(/[\\/]/).pop().slice(0, 80), caption = cap.value + (n > 1 ? ' (' + (i + 1) + ' of ' + n + ')' : '');
         var ok = PF.attach.checkShot(name, f.type, f.size); if (ok.error) { stop('ob-shot-file', ok.error); return; }
         var st = shotFind(edText(p), ident); if (!st) { stop('ob-shot-file', gone); return; }
@@ -18007,6 +18013,7 @@ PF.examples = (function () {
           if (!PF.attach.sniff(head, ok.ext)) throw { plain: '"' + ok.name + '" doesn\'t look like a .' + ok.ext + ' file inside, so it wasn\'t added.' };
           return queued(function () { return repo.saveShot(sfs, { process: pid, step: ident.id, file: f, writer: WRITER }); });
         }).then(function (r) {
+          if (g !== gen || edEpoch(pid, fk) !== epoch) { stop(); say('The image was saved as ' + r.path + ' but not added, because the draft was reset.', 'warn'); render(); return; }
           if (!here()) { stop(); if (g === gen && fsKey() === fk) say('The image was saved as ' + r.path + ', but the draft of ' + p.title + ' was closed, so it wasn\'t added to it. Add it again from the step.', 'warn'); render(); return; }
           /* Exactly the step it was added for, or nothing: a step without an ID is matched by its whole block and phase. */
           var now = shotFind(edText(p), ident);
@@ -19004,7 +19011,7 @@ PF.examples = (function () {
       saveDraftText({ id: state.processId, title: state.processId, draft: null }, ed.text, null, 'Saved your draft again.', { expectText: null });
     },
     'draft-keep-mine': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!p || !ed || !ed.conflict) return; saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.conflict.theirsHash, 'Draft saved over the other change.', { source: 'keep-mine', expectText: ed.conflict.theirs == null ? null : ed.conflict.theirs }); },
-    'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
+    'draft-take-theirs': function () { var p = currentProcess(), ed = p && editorOf(p.id); if (!ed || !ed.conflict || stillSaving(p)) return; var t = ed.conflict.theirs || ''; dropPending(); resetEditor(ed.pid, ed.fsKey); setEditor({ pid: ed.pid, fsKey: ed.fsKey, text: null, base: t, baseHash: ed.conflict.theirsHash, seen: cachedHash(ed.pid), after: readsStarted, tl: ed.tl }); if (ed.tl) TL.barrier(ed.tl, 'You took their version here. Earlier changes can\'t be undone.'); state.planFormReset = true; render(); },
     /* ---------- proposals from AI assistants (docs/design.md section 27) ---------- */
     'prop-review': function (id) { var pid = state.processId; if (!pid || !id) return; openReview(pid, id); },
     /* From Review, Apply carries the records the person saw there; from the list, there are none to carry. */
