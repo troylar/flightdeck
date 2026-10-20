@@ -358,4 +358,33 @@ rule('The checker reads a 2.0 version with phase notes and phase and gate screen
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker refuses a version whose step screenshot its record (and a /2 version\'s payload) doesn\'t list, like the app, /1 and /2', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-stepshot-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    await d.write('images/x/job.png', new Blob([Buffer.from([1, 2, 3, 4])], { type: 'image/png' }));
+    await d.write('images/x/scratch.png', new Blob([Buffer.from([5, 6, 7])], { type: 'image/png' }));
+    const one = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)\n';
+    const two = one.replace('## P {#p}\n', '## P {#p}\n  > Use the scratch server.\n  ![The scratch server](images/x/scratch.png)\n');
+    const v1 = await repo.publish(d, one, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW });
+    const v2 = await repo.publish(d, two, { people, ...EX, by: 'person-avery', changes: 'x', existing: [{ version: 1 }], now: NOW, app: '2.0.0' });
+    for (const v of [v1, v2]) {
+      const p = path.join(root, 'publications', 'x', v.folder, 'publication.json'), i = JSON.parse(fs.readFileSync(p, 'utf8'));
+      delete i.images['images/x/job.png']; if (i.payload) delete i.payload.images['images/x/job.png'];
+      fs.writeFileSync(p, JSON.stringify(i, null, 2));
+    }
+    const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
+    const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' })).publications.x;
+    for (const v of [v1, v2]) {
+      const theirs = pubs.find(x => x.folder === v.folder), mine = out.versions.find(x => x.folder === v.folder);
+      assert.ok(!theirs.ok && theirs.unusable, v.folder + ': the app refuses it');
+      assert.strictEqual(mine.status, 'unusable', v.folder + ': ' + mine.status + ' ' + mine.why);
+      assert.strictEqual(mine.why, theirs.why, v.folder + ': same words');
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

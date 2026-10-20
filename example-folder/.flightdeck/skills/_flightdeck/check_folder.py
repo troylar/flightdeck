@@ -254,7 +254,7 @@ def parse_map(md):
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
                 rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"type": typ, "text": rest, "fields": {}}
+                step = {"type": typ, "text": rest, "fields": {}, "shots": []}
                 steps.append(step)
             i += 1
             continue
@@ -272,7 +272,7 @@ def parse_map(md):
         if m:
             if not re.match(r"^images/(%s|[./-])+$" % W, m.group(2)) or ".." in m.group(2):
                 err(i, "Screenshots must be under images/: \"%s\"." % m.group(2))
-            elif owner is not step:
+            else:
                 owner["shots"].append(m.group(2))
             i += 1
             continue
