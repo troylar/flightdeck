@@ -91,7 +91,16 @@
   var typeForms = {};
   Object.defineProperty(state, 'typeForm', { enumerable: true,
     get: function () { return typeForms[fsKey()] || null; },
-    set: function (v) { if (v) typeForms[fsKey()] = v; else delete typeForms[fsKey()]; } });
+    set: function (v) { if ((v || null) !== (typeForms[fsKey()] || null)) navSeq++; if (v) typeForms[fsKey()] = v; else delete typeForms[fsKey()]; } });
+  /* Back and Forward (docs/design.md section 29): every field the location is built from bumps navSeq when it changes, so a
+     person's move makes a new history entry and anything else (a folder read, typing) replaces at most. */
+  var navSeq = 0;
+  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt'].forEach(function (name) {
+    var v = state[name];
+    Object.defineProperty(state, name, { enumerable: true, get: function () { return v; }, set: function (x) { if (x !== v) navSeq++; v = x; } });
+  });
+  var HIST = (function () { try { return typeof history !== 'undefined' && history && typeof history.replaceState === 'function' && typeof location !== 'undefined' ? history : null; } catch (e) { return null; } })();
+  var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, restoring: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false };
   applyTheme();
   var data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, proposed: { procs: {} }, presence: [], readAt: new Date().toISOString() };
   /* Writes to the folder happen one at a time, in order, so a later change never lands before an earlier one. */
@@ -113,6 +122,8 @@
     processTitle: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.title : id; },
     processes: function () { return processes(); },
     get fsKey() { return fsKey(); },
+    /* A link waiting for the folder (Home says Reconnect opens it). */
+    navPending: function () { return !!H.pending; },
     orphanSkills: function () { processes(); return orphanSkills; },
     /* Unsaved edits to a draft that was removed from this folder, so they stay findable. */
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
@@ -587,10 +598,11 @@
       (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
+      navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
-    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); });
+    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -822,7 +834,8 @@
     setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
   }
   function updateFreshness() { var el = document.getElementById('fresh'); if (el) el.innerHTML = V.freshness(ctx, ctx.run(), el.dataset && el.dataset.k === 'strip'); }
-  function useFs(fs) {
+  /* opts.setup: Getting started's own folder step, which keeps the wizard. */
+  function useFs(fs, opts) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
     Object.keys(state.unsaved).forEach(function (id) { lsSet(localKey(id), state.unsaved[id]); });
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
@@ -835,7 +848,10 @@
     /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
     state.reading = { done: 0, total: null };
     /* Input kept for return belongs to its folder: a new folder starts clean. */
-    state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null;
+    state.corrDrafts = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null; state.peopleAdd = null; state.planning = null;
+    if (!(opts && opts.setup)) { state.setup = null; if (state.view === 'setup') home(); }
+    /* Opening a folder isn't the person's move: the entry is replaced with where it lands, tagged with the new folder. */
+    H.seen = navSeq; H.mode = 'replace';
     /* A drill-down's runs and the version picked on How runs go belong to this folder. */
     state.runFilter = null; state.insFolder = {};
     state.fs = fs; releaseUrls(state.urls); releaseUrls(state.full); sig = ''; procCache = null;
@@ -955,7 +971,7 @@
     var r = PF.people.roles(data.people), bk = r.backup && !r.backup.inactive && r.backup.id !== state.me ? r.backup.id : null;
     return PF.setup.starter(base, state.me, bk);
   }
-  function setupState(mode, step) { state.setup = { mode: mode, step: step || (mode === 'start' ? 'folder' : mode === 'join' ? 'open' : ''), me: { name: '', email: '' }, team: [{ k: 't1', name: '', email: '' }], backup: '', kn: 1 }; return state.setup; }
+  function setupState(mode, step) { state.setup = { fs: fsKey(), mode: mode, step: step || (mode === 'start' ? 'folder' : mode === 'join' ? 'open' : ''), me: { name: '', email: '' }, team: [{ k: 't1', name: '', email: '' }], backup: '', kn: 1 }; return state.setup; }
   /* Answers to connection checks still in the folder (up to 7 days), read once each, while Getting started isn't done. */
   var answersBusy = false;
   function loadSetupAnswers() {
@@ -1018,7 +1034,8 @@
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
       if (t !== opening) return;
       state.me = myId; lsSet('me', myId); state.needsReconnect = null;
-      return useFs(folderFs(rec)).then(function () {
+      var made = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
+      return made.then(function () {
         if (t !== opening) return;
         su.busy = false; su.created = true; su.step = 'checklist'; su.dir = null; state.focus = 'su-h';
         say('Created the team folder "' + dir.name + '" with ' + doc.length + (doc.length === 1 ? ' person' : ' people') + '. Next, your first checklist.', 'good'); render(); window.scrollTo(0, 0);
@@ -1070,7 +1087,8 @@
       return handles.set(d).catch(function () { return { dir: d, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
         if (t !== opening) return;
         state.needsReconnect = null;
-        return useFs(folderFs(rec)).then(function () {
+        var opened = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
+        return opened.then(function () {
           if (t !== opening) return;
           su.busy = false; su.mode = 'join'; su.step = 'who'; state.focus = 'su-h'; render(); window.scrollTo(0, 0);
         });
@@ -1191,6 +1209,7 @@
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
     try { renderNow(); } finally { rendering = false; }
+    scheduleSync();
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
@@ -3146,6 +3165,7 @@
 
   /* ---------- navigation ---------- */
   function openPlanForm(planning) {
+    if (!planning.fs) planning.fs = fsKey();
     setView('start'); state.processId = planning.process; state.planId = null; state.planning = planning; state.fieldErr = null;
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
@@ -3187,10 +3207,291 @@
     setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
-    enterContext();
+    arriveAtStep(state.sel);
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
     window.scrollTo(0, 0);
   }
+
+  /* ---------- Back and Forward (docs/design.md section 29) ---------- */
+  /* Each entry's history.state is { fd: 1, n, f }: n numbers it (a push is pos + 1, no two entries share one), f is a
+     fingerprint of its team folder. pos is the entry the browser is on, cur the entry whose screen is drawn; they differ only
+     while a link waits (H.pending). The URL is written only by syncLocation(), once after a render; Back and Forward come in
+     through onPop(), with go()'s guards and the click's own functions. history.go(0) is never called (it would reload). */
+  function navFp() { return state.fs ? U.hash(fsKey()) : null; }
+  function navOff() { H.on = false; H.pending = null; H.hold = null; if (H.restoring) { clearTimeout(H.restoring.timer); H.restoring = null; } }
+  /* The first refused call (an unusual browser, a sandboxed frame) turns history off for this page. */
+  function histWrite(push, hash, n, f) {
+    var s = { fd: 1, n: n, f: f };
+    try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); return true; } catch (e) { navOff(); return false; }
+  }
+  function navHere() { return PF.nav.format(PF.nav.locate(state)); }
+  function scheduleSync() { if (!H.on || H.queued) return; H.queued = true; Promise.resolve().then(function () { H.queued = false; syncLocation(); }); }
+  function syncLocation() {
+    if (!H.on || H.restoring) return;
+    /* A move that spans an await writes nothing until it lands, unless the person moves meanwhile. */
+    if (H.hold) { if (navSeq === H.hold.seq) return; H.hold = null; }
+    var moved = navSeq !== H.seen, replace = H.mode === 'replace';
+    H.seen = navSeq; H.mode = null;
+    if (H.pending) {
+      if (!moved || replace) return;
+      var waited = !!state.needsReconnect; H.pending = null;
+      if (waited) { say('The linked page wasn\'t opened.', 'warn'); render(); }
+    }
+    var hash = navHere(), f = navFp(), c = H.cur;
+    if (moved && !replace) {
+      if (hash === c.hash && f === c.f && c.n === H.pos && !c.gone) return;
+      if (histWrite(true, hash, H.pos + 1, f)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f }; }
+      return;
+    }
+    if (hash === c.hash && f === c.f && c.n === H.pos) return;
+    if (histWrite(false, hash, H.pos, f)) H.cur = { n: H.pos, hash: hash, f: f };
+  }
+  /* A move that spans an await (starting a run, a step type's read) holds the URL; heldOwn marks the operation's own
+     in-between changes, releaseNav its landing. replace: the landing replaces the entry (it came from Back or Forward). */
+  function holdNav(replace) { var t = { seq: navSeq, replace: !!replace }; if (H.on) H.hold = t; return t; }
+  function heldOwn(t, fn) { fn(); if (H.hold === t) t.seq = navSeq; }
+  function releaseNav(t) { if (!t || H.hold !== t) return; H.hold = null; if (t.replace) H.mode = 'replace'; scheduleSync(); }
+  /* Links wait for the folder's first complete read; while the examples stand in for a folder that needs Reconnect, only
+     entries made in the examples open (a typed link or one from the team folder waits for Reconnect). */
+  function readyFor(t) { return H.loadedGen === gen && (!state.needsReconnect || (t.f != null && t.f === navFp())); }
+  function navLoaded() {
+    H.loadedGen = gen;
+    var t = H.pending; if (!H.on || !t || !readyFor(t)) return;
+    H.pending = null; arrive(t);
+  }
+  function navLoadFailed() {
+    if (!H.on || !H.pending || state.needsReconnect) return;
+    H.pending = null;
+    arrive({ loc: { view: 'home' }, n: H.pos, f: null, msg: 'The team folder couldn\'t be read, so the linked page wasn\'t opened.' });
+  }
+  function navBoot() {
+    if (!H.on) return;
+    try { HIST.scrollRestoration = 'manual'; } catch (e) { /* not supported */ }
+    var es = null, hash = '';
+    try { es = PF.nav.entry(HIST.state); hash = String(location.hash || ''); } catch (e) { navOff(); return; }
+    var n = es ? es.n : 0;
+    H.pos = n; H.cur = { n: n, hash: '#/', f: es ? es.f : null };
+    if (hash && hash !== '#/' && hash !== '#') {
+      H.bootLink = true; H.pending = { loc: PF.nav.parse(hash), n: n, f: es ? es.f : null, typed: !es };
+      if (!es) histWrite(false, null, n, null);
+      return;
+    }
+    histWrite(false, '#/', n, H.cur.f);
+  }
+  function onPop(ev) {
+    if (!H.on) return;
+    harvest();
+    var es = PF.nav.entry(ev ? ev.state : null);
+    /* A restore in progress: every move is swallowed until the browser is back on the drawn entry. */
+    if (H.restoring) { if (es) H.pos = es.n; if (es && es.n === H.restoring.n) { clearTimeout(H.restoring.timer); H.restoring = null; } return; }
+    popAt(es);
+  }
+  function popAt(es) {
+    var hash = String(location.hash || '');
+    if (!es) {
+      /* Typed or pasted into the address bar: a new entry after the one the browser was on, numbered now. */
+      var n = H.pos + 1;
+      if (H.cur.n >= n) H.cur.gone = true;
+      if (!histWrite(false, null, n, null)) return;
+      es = { n: n, f: null, typed: true };
+    }
+    H.pos = es.n;
+    var t = { loc: PF.nav.parse(hash), n: es.n, f: es.f, typed: !!es.typed };
+    if (!readyFor(t)) { H.pending = t; render(); return; }
+    H.pending = null;
+    arrive(t);
+  }
+  function restoreTimedOut() {
+    H.restoring = null;
+    var es = null; try { es = PF.nav.entry(HIST.state); } catch (e) { es = null; }
+    if (es && es.n === H.cur.n) { H.pos = es.n; return; }
+    popAt(es);
+  }
+  /* After a refusal the screen never moved: put the browser back on the drawn entry without touching the entries after it,
+     or, when that entry is gone or this one was typed, write the drawn location where the browser is. */
+  function restoreUrl(t) {
+    var c = H.cur;
+    if (!t.typed && !c.gone && c.n !== H.pos) {
+      H.restoring = { n: c.n, timer: setTimeout(restoreTimedOut, 1000) };
+      try { HIST.go(c.n - H.pos); } catch (e) { navOff(); }
+      return;
+    }
+    if (histWrite(false, c.hash, H.pos, c.f)) H.cur = { n: H.pos, hash: c.hash, f: c.f };
+  }
+  function refuseFor(dirty) {
+    say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
+    /* Focus never lands on a box in a closed phone sheet. */
+    if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
+    state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
+  }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
+  /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
+     does, and stays; one holding typing or choices isn't closed. Returns whether there was one. */
+  function navLayer() {
+    if (state.overlay) {
+      if ((state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl])) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); }
+      else closeOverlay();
+      return true;
+    }
+    var om = document.querySelector && document.querySelector('.rw-menu[open]');
+    if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; render(); var sm = om.querySelector && om.querySelector('summary'); if (sm) sm.focus(); return true; }
+    var tf = state.tfPreview && state.view === 'types';
+    if (!tf && !state.obPlace && !state.obAsk && !obSheetOpen && !(sheetWasOpen && state.view === 'run')) return false;
+    var dirty = pendingBox();
+    if (dirty) { refuseFor(dirty); return true; }
+    if (tf) ACTIONS['tf-preview']();
+    else if (state.obPlace) cancelPlacing();
+    else if (state.obAsk) ACTIONS['ob-ask-cancel']();
+    else if (obSheetOpen) ACTIONS['ob-done']();
+    else { state.refOpen = false; render(); }
+    return true;
+  }
+  function headingOf() { var v = state.view; return v === 'run' ? 'run-h' : v === 'process' && state.ptab === 'edit' ? 'ed-h' : v === 'types' && state.typeForm ? 'tf-h' : v === 'setup' ? 'su-h' : 'page-h'; }
+  /* A target the browser is on: the folder check, layers, guards, then the move, and the entry gets what is drawn. */
+  function arrive(t) {
+    var loc = t.loc, msg = t.msg || null;
+    if (!loc) { loc = { view: 'home' }; msg = 'That link isn\'t one Flightdeck can open.'; }
+    if (t.f != null && t.f !== navFp()) {
+      say('That page was in another team folder, so it wasn\'t opened.', 'warn');
+      var here = navHere(), f = navFp();
+      if (histWrite(false, here, H.pos, f)) H.cur = { n: H.pos, hash: here, f: f };
+      render(); return;
+    }
+    if (navLayer()) { restoreUrl(t); return; }
+    var dirty = pendingBox();
+    if (dirty) { refuseFor(dirty); restoreUrl(t); return; }
+    var res = moveTo(loc);
+    if (res === 'stay') { restoreUrl(t); render(); return; }
+    if (msg) say(msg, 'warn');
+    if (res === 'async') {
+      H.cur = { n: H.pos, hash: String(location.hash || ''), f: navFp() }; H.seen = navSeq; H.mode = null;
+      if (H.hold) H.hold.seq = navSeq;
+      state.focus = 'page-h'; render(); window.scrollTo(0, 0); return;
+    }
+    var hash = navHere(), fp = navFp();
+    H.seen = navSeq; H.mode = null;
+    if (histWrite(false, hash, H.pos, fp)) H.cur = { n: H.pos, hash: hash, f: fp };
+    if (res !== 'focus') state.focus = headingOf();
+    render(); window.scrollTo(0, 0);
+  }
+  function navWarn(m) { say(m, 'warn'); }
+  /* The move: the smallest step a click would take, through the click's own functions. Returns 'moved', 'focus' (moved,
+     focus already chosen), 'stay' (the screen is as it was; the URL is put back) or 'async' (a step type's read). */
+  function moveTo(loc) {
+    var F = state.typeForm, onForm = !!F && state.view === 'types';
+    if (onForm) flushAdds(F);
+    if (loc.view === 'types') return moveToTypes(loc, F, onForm);
+    var unsaved = false;
+    if (state.view === 'process' && state.ptab === 'edit' && !(loc.view === 'process' && loc.process === state.processId && loc.tab === 'edit')) {
+      var cp = currentProcess(); state.obPlace = null; state.obAsk = null;
+      unsaved = !!cp && editorDirty(cp);
+    }
+    var res = moveToScreen(loc);
+    if (unsaved && !state.msg) say('Your changes aren\'t saved yet. They stay in the editor until you save or discard them.', 'warn');
+    /* As a top-bar click: a step-type form with changes stays for when you come back; an untouched one closes. */
+    if (onForm && F && typeForms[F.fsKey] === F && !typeFormChanged(F) && state.view !== 'types') state.typeForm = null;
+    return res;
+  }
+  function moveToScreen(loc) {
+    var v = loc.view;
+    if (v === 'home') { home(); return 'moved'; }
+    if (['runs', 'followups', 'processes', 'skills', 'settings'].indexOf(v) >= 0) { ACTIONS.nav(v); return 'moved'; }
+    if (v === 'new-process') { ACTIONS['new-process'](); return 'moved'; }
+    if (v === 'health' || v === 'connection') { ACTIONS[v](); return 'moved'; }
+    if (v === 'recovery') { var ok = !!loc.section && PF.health.sections(RECOVERY).list.some(function (x) { return x.id === loc.section; }); ACTIONS.recovery(ok ? loc.section : ''); return 'moved'; }
+    if (v === 'setup') {
+      if (state.setup && state.setup.fs === fsKey()) { setView('setup'); state.runKey = null; state.processId = null; resetRunUi(); return 'moved'; }
+      home(); navWarn('Getting started was closed. Continue it from Home.'); return 'moved';
+    }
+    if (v === 'process') return moveToProcess(loc);
+    if (v === 'plan') return moveToPlan(loc);
+    if (v === 'run') return moveToRun(loc);
+    if (v === 'skill') {
+      var files = [];
+      var add = function (x) { var k = x.skill.file || x.skill.name; if (U.hash(k) === loc.skill && files.indexOf(k) < 0) files.push(k); };
+      processes().forEach(function (p) { p.skills.forEach(add); }); ctx.orphanSkills().forEach(add);
+      if (files.length === 1) { ACTIONS['open-skill'](files[0]); return 'moved'; }
+      ACTIONS.nav('skills'); navWarn('That skill isn\'t in this folder anymore.'); return 'moved';
+    }
+    home(); return 'moved';
+  }
+  function moveToProcess(loc) {
+    var pid = loc.process, p = processes().filter(function (x) { return x.id === pid; })[0];
+    if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navWarn('That process isn\'t in this folder anymore.'); return 'moved'; }
+    var rf = state.runFilter;
+    if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
+    if (loc.sub === 'start') {
+      if (p && p.latest && state.me) { var pl = state.planning; if (pl && pl.fs === fsKey() && pl.process === pid) openPlanForm(pl); else ACTIONS.start(pid); return 'moved'; }
+      loc = { view: 'process', process: pid };
+    }
+    if (!(state.view === 'process' && state.processId === pid)) ACTIONS['open-process'](pid);
+    if (!p) return 'moved';
+    if (loc.tab === 'edit') {
+      /* Nobody skips the Edit anyway choice the button offers. */
+      if ((p.editing || []).length) { ACTIONS['view-version'](null); navWarn('Someone else has this draft open. Choose Edit anyway to edit it too.'); return 'moved'; }
+      if (state.ptab !== 'edit') ACTIONS.ptab('edit');
+      return 'moved';
+    }
+    if (loc.tab === 'insights') { if ((p.all || []).length) ACTIONS.ptab('insights'); else ACTIONS['view-version'](null); return 'moved'; }
+    if (loc.version === 'current') { if (p.latest) { state.ptab = 'overview'; ACTIONS['back-current'](); } else ACTIONS['view-version'](null); return 'moved'; }
+    if (loc.version) {
+      var pub = (p.all || []).filter(function (x) { return x.folder === loc.version; })[0];
+      if (pub && pub.map) ACTIONS['view-version'](loc.version); else { ACTIONS['view-version'](null); navWarn('That version isn\'t in this folder anymore.'); }
+      return 'moved';
+    }
+    ACTIONS['view-version'](null); return 'moved';
+  }
+  function moveToPlan(loc) {
+    var ids = [];
+    data.plans.forEach(function (x) { if (U.hash(x.id) === loc.plan && ids.indexOf(x.id) < 0) ids.push(x.id); });
+    var p = ids.length === 1 ? data.plans.filter(function (x) { return x.id === ids[0]; })[0] : null, s = p && p._status;
+    if (p && !s) { ACTIONS['review-plan'](p.id); return 'moved'; }
+    /* A decided plan never reopens with Start the run or Decline. */
+    if (s && s.status === 'accepted' && s.run && ctx.findRun(p.process + '/' + s.run)) { openRun(p.process + '/' + s.run); return 'moved'; }
+    ACTIONS.nav('runs');
+    navWarn(!s ? 'That plan isn\'t in this folder anymore.' : s.status === 'accepted' ? 'That plan was already started.' : 'That plan was declined.');
+    return 'moved';
+  }
+  function moveToRun(loc) {
+    var key = loc.process + '/' + loc.run, r = ctx.findRun(key);
+    if (!r) {
+      if (processes().some(function (x) { return x.id === loc.process; })) ACTIONS['open-process'](loc.process); else ACTIONS.nav('runs');
+      navWarn('That run isn\'t in this folder anymore.'); return 'moved';
+    }
+    var sub = loc.sub || '';
+    if (sub === 'finish' && r.ended) sub = 'receipt';
+    else if (sub === 'finish' && !ctx.recording(r)) sub = '';
+    var same = state.runKey === key && inRun();
+    if (!sub) { if (!same) openRun(key); else if (state.view !== 'run') reenterRun(); return 'moved'; }
+    if (!same) openRun(key); else if (state.view === 'run') savePanes();
+    setView(sub === 'share' ? 'mission' : sub);
+    if (sub === 'finish') state.pick = null;
+    return 'moved';
+  }
+  /* Step types (section 3.5): a kept form is never discarded by Back, and the URL always matches what is drawn. */
+  function navTypes() { typeOpens++; releaseUrls(state.urls); setView('types'); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null; state.more = {}; }
+  function moveToTypes(loc, F, onForm) {
+    var wantNew = loc.sub === 'new', wantId = loc.type != null ? loc.type : null;
+    if (F) {
+      if (wantNew ? !F.existing : wantId != null && F.existing === wantId) { navTypes(); return 'moved'; }
+      if (typeFormChanged(F)) {
+        navTypes(); F.leaving = true;
+        if (!wantNew && wantId == null) F.backLeave = true; else say('Save or leave this step type first, then go back again.', 'warn');
+        state.focus = '[data-act="type-save"]'; return onForm ? 'stay' : 'focus';
+      }
+      ACTIONS['type-cancel']();
+      if (!wantNew && wantId == null) { navTypes(); return 'moved'; }
+    }
+    navTypes();
+    if (wantNew) { navWarn('That new step type was closed.'); return 'moved'; }
+    if (wantId != null) {
+      if (!Object.prototype.hasOwnProperty.call((data.stepTypes || {}).types || {}, wantId)) { navWarn('That step type isn\'t in this folder anymore.'); return 'moved'; }
+      ACTIONS['edit-type'](wantId, null, true); return 'async';
+    }
+    return 'moved';
+  }
+  /* Back to the run screen keeps the selected step and brings back what's kept on it, as selecting it would. */
+  function reenterRun() { var sel = state.sel; setView('run'); state.sel = sel; arriveAtStep(sel); }
 
   /* ---------- events ---------- */
   document.addEventListener('click', function (e) {
@@ -3547,10 +3848,11 @@
     'new-type': function () { partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
     'copy-type': function (id) { var t = T.get(id); if (!t) return; setView('types'); state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
-    'edit-type': function (id) {
+    'edit-type': function (id, b, fromHistory) {
       /* Only the latest open request lands: one that finishes after another form was opened, or after leaving, does nothing. */
-      var sfs = state.fs, g = gen, t = ++typeOpens;
+      var sfs = state.fs, g = gen, t = ++typeOpens, held = holdNav(fromHistory);
       sfs.read('step-types/' + id + '.json').then(function (f) {
+        releaseNav(held);
         /* And only on the Step types list: never over a run, a page or a form someone moved on to. */
         if (g !== gen || t !== typeOpens || state.view !== 'types' || (state.typeForm && state.typeForm.fsKey === fsKey())) return;
         var o = null; try { o = f ? JSON.parse(f.text) : null; } catch (e) { o = null; }
@@ -3558,7 +3860,7 @@
         if (!o || errs.length) { say('step-types/' + id + '.json ' + (errs[0] || 'has a problem') + '. Fix the file, or ask your AI assistant to.', 'warn'); render(); return; }
         var tf = typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)); tf.baseDef = o;
         setView('types'); state.typeForm = resumeTypeTl(tf, id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
-      }, function (e) { if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
+      }, function (e) { releaseNav(held); if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
     'tf-add': function (id, b) {
       var f = state.typeForm, d = f && f.def; if (!d) return; flushAdds(f);
@@ -3586,13 +3888,13 @@
     },
     /* ---------- the step-type editor's own controls; every change to the type goes through typeChange, so it's undoable ---------- */
     'type-done': function () {
-      var f = state.typeForm; if (!f) return; flushAdds(f);
+      var f = state.typeForm; if (!f) return; flushAdds(f); f.backLeave = false;
       if (typeFormChanged(f)) { f.leaving = true; state.focus = '[data-act="type-save"]'; render(); return; }
       ACTIONS['type-cancel']();
     },
     /* On a phone the preview is a sheet over the form, so the place being edited stays where it was. */
     'tf-preview': function () { state.tfPreview = !state.tfPreview; state.focus = state.tfPreview ? '.tf-prevclose' : '.tf-prevbtn'; render(); },
-    'type-stay': function () { var f = state.typeForm; if (f) f.leaving = false; state.focus = 'tf-h'; render(); },
+    'type-stay': function () { var f = state.typeForm; if (f) { f.leaving = false; f.backLeave = false; } state.focus = 'tf-h'; render(); },
     /* Save from the leave prompt saves, then goes back to the list. */
     'type-save': function () { var f = state.typeForm; if (f && f.leaving) f.closeAfterSave = true; readTypeForm(); saveType(); },
     'tf-id-edit': function () { var f = state.typeForm; if (!f || f.existing) return; f.idEdit = true; state.focus = 'tf-id'; render(); },
@@ -3629,6 +3931,8 @@
       var f = state.typeForm;
       /* Closing without saving: unsaved changes are dropped, so they can't be undone over the file when it's opened again. */
       if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseHash); }
+      /* Leaving from the prompt Back showed lands on the list in that entry's place. */
+      if (f && f.backLeave) H.mode = 'replace';
       state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
     'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
     'type-take-theirs': function () {
@@ -3779,7 +4083,7 @@
     pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now); }, { any: true }); }); },
     takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
-    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { setView('receipt'); render(); window.scrollTo(0, 0); } }); },
+    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { H.mode = 'replace'; setView('receipt'); render(); window.scrollTo(0, 0); } }); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
     finish: function () { setView('finish'); state.pick = null; render(); window.scrollTo(0, 0); },
     'add-followup': function (id, b) {
@@ -3939,7 +4243,7 @@
     /* A quick way between the checklist and the selected step, for keyboards and screen readers. */
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
-    'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { setView('receipt'); render(); } }); },
+    'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { H.mode = 'replace'; setView('receipt'); render(); } }); },
     'discard-unsaved': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
@@ -4113,7 +4417,7 @@
     },
     mission: function () { if (state.view === 'run') savePanes(); setView('mission'); render(); window.scrollTo(0, 0); },
     receipt: function () { setView('receipt'); render(); window.scrollTo(0, 0); },
-    'exit-mission': function () { setView('run'); render(); },
+    'exit-mission': function () { reenterRun(); render(); },
     /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
     'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
@@ -4366,12 +4670,12 @@
     var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
-    var sfs = state.fs, sg = gen, who = state.me;
+    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     queued(function () { r.recorder.session = SESSION; return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
       return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who) : null;
-    }).then(function () { endBusy(); if (sg !== gen) return; state.planId = null; state.planPick = null; state.planDiff = false; return load(true); }).then(function () { if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); render(); },
-      function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
+    }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); render(); },
+      function (err) { endBusy(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });
 
   /* Getting started's people, and Settings' Add a person. */
@@ -4732,8 +5036,13 @@
       leaveContext();
     }
     state.sel = id; if (state.pick && state.pick.id !== id) { state.pick = null; state.fieldsDraft = null; }
+    arriveAtStep(id);
+  }
+  /* Arriving at a step (selecting it, opening the run, coming back to it): its kept correction, and a Fill in it had open,
+     with its values. */
+  function arriveAtStep(id) {
     enterContext();
-    var d = state.runKey && draftOf(state.runKey, id, false);
+    var d = id && state.runKey && draftOf(state.runKey, id, false);
     if (d && d.open && !state.pick) { state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' }; state.fieldsDraft = d.fd && d.fd.key === state.runKey && d.fd.fs === fsKey() ? d.fd : null; }
   }
   function nextStepId(r, map) { var nx = R.nextUp(r, map, state.me); return nx.kind === 'step' && nx.step ? nx.step.id : null; }
@@ -4853,7 +5162,7 @@
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { setView('run'); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -4867,7 +5176,8 @@
       }
       return;
     }
-    if (state.overlay && state.overlay.list && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { ACTIONS['lb-step'](e.key === 'ArrowLeft' ? '-1' : '1'); return; }
+    /* Alt+Left and Alt+Right are the browser's Back and Forward, never the picture's. */
+    if (state.overlay && state.overlay.list && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.altKey && !e.ctrlKey && !e.metaKey) { ACTIONS['lb-step'](e.key === 'ArrowLeft' ? '-1' : '1'); return; }
     /* A comma ends a tag: it's added at once (a tag can't hold a comma). */
     if (typing && e.key === ',' && t.id === 'tf-tagadd') { e.preventDefault(); ACTIONS['tf-tag-add'](); return; }
     if (typing && e.key === 'Enter' && t.dataset.enter) {
@@ -4937,20 +5247,24 @@
     /* C opens Correct this step on the selected step. */
     if (e.key === 'c' && state.sel && state.me && state.view === 'run') { e.preventDefault(); ACTIONS['corr-open'](state.sel, { dataset: { mode: 'correct' } }); return; }
     if (e.key === 'n' && state.sel) { state.refOpen = true; render(); var nt = document.getElementById('note-text'); if (nt) { e.preventDefault(); nt.focus(); } return; }
-    if (e.key === 'm') { if (state.view === 'run') savePanes(); setView(state.view === 'mission' ? 'run' : 'mission'); render(); }
+    if (e.key === 'm') { if (state.view === 'run') { savePanes(); setView('mission'); } else reenterRun(); render(); }
   });
 
+  navBoot();
   render();
   /* A refresh while editing a draft comes back to the editor (this tab only). Unsaved edits don't survive a refresh, so the
      browser asks before leaving with any. */
   function resumeEditor() {
     var id = resumeEdit; resumeEdit = null;
+    /* A link decides where a reload lands; the editor comes back only without one. */
+    if (H.bootLink) return;
     var p = id && processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
-    setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; render();
+    setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; H.mode = 'replace'; render();
   }
   window.addEventListener('beforeunload', function (e) {
     var any = !!state.obPending || Object.keys(state.shotBusy).length > 0 || Object.keys(state.editors || {}).some(function (k) { return dirty(state.editors[k]); });
     if (any) { e.preventDefault(); e.returnValue = ''; }
   });
+  window.addEventListener('popstate', onPop);
   boot().then(resumeEditor, resumeEditor).then(announceRelease, announceRelease);
 })();

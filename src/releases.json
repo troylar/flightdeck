@@ -1,5 +1,20 @@
 [
   {
+    "version": "1.22.0",
+    "date": "2026-10-20",
+    "headline": "Back and Forward work inside Flightdeck",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Navigation",
+        "title": "Back and Forward work inside Flightdeck",
+        "before": "The browser's Back button left Flightdeck.",
+        "now": "Back and Forward move between screens, runs and the receipt. Back closes an open dialog first, and never loses what you typed.",
+        "where": "Everywhere; Alt+Left and Alt+Right work too"
+      }
+    ]
+  },
+  {
     "version": "1.21.0",
     "date": "2026-10-20",
     "headline": "Ready for teammates on Flightdeck 2.0",

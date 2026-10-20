@@ -2814,4 +2814,41 @@ rule('Drift names every place a cleaned record differs from its file, apart from
   same(D({ _x: 1 }, {}), ['_x']);
 });
 
+/* ---------- Back and Forward: the location in the address bar (PF.nav, docs/design.md section 29) ---------- */
+rule('Every screen has one hash, and parsing it gives the same place back', () => {
+  const N = PF.nav, long = 'a' + 'b-'.repeat(44) + 'c';
+  const cases = [
+    [{ view: 'home' }, '#/'], [{ view: 'runs' }, '#/runs'], [{ view: 'followups' }, '#/followups'], [{ view: 'processes' }, '#/processes'],
+    [{ view: 'skills' }, '#/skills'], [{ view: 'settings' }, '#/settings'], [{ view: 'new-process' }, '#/new-process'], [{ view: 'setup' }, '#/setup'],
+    [{ view: 'types' }, '#/types'], [{ view: 'types', sub: 'new' }, '#/types/new'], [{ view: 'types', type: 'new' }, '#/types/edit/new'],
+    [{ view: 'types', type: 'change.board.approval' }, '#/types/edit/change.board.approval'],
+    [{ view: 'health' }, '#/health'], [{ view: 'connection' }, '#/connection'], [{ view: 'recovery' }, '#/recovery'], [{ view: 'recovery', section: 'run-missing' }, '#/recovery/run-missing'],
+    [{ view: 'process', process: 'release' }, '#/process/release'], [{ view: 'process', process: 'release', tab: 'edit' }, '#/process/release/edit'],
+    [{ view: 'process', process: 'release', tab: 'insights' }, '#/process/release/insights'], [{ view: 'process', process: 'release', version: 'current' }, '#/process/release/current'],
+    [{ view: 'process', process: 'release', version: 'v3-ab12cd34' }, '#/process/release/v/v3-ab12cd34'], [{ view: 'process', process: 'release', sub: 'start' }, '#/process/release/start'],
+    [{ view: 'process', process: long }, '#/process/' + long],
+    [{ view: 'plan', plan: U.hash('plan-release-2026.10.20') }, '#/plan/' + U.hash('plan-release-2026.10.20')],
+    [{ view: 'run', process: 'release', run: 'Abc-123' }, '#/run/release/Abc-123'], [{ view: 'run', process: 'release', run: 'abc', sub: 'share' }, '#/run/release/abc/share'],
+    [{ view: 'run', process: 'release', run: 'abc', sub: 'finish' }, '#/run/release/abc/finish'], [{ view: 'run', process: 'release', run: 'abc', sub: 'receipt' }, '#/run/release/abc/receipt'],
+    [{ view: 'skill', skill: U.hash('backup (1).json') }, '#/skill/' + U.hash('backup (1).json')]
+  ];
+  cases.forEach(([loc, hash]) => { assert.strictEqual(N.format(loc), hash); same(N.parse(hash), loc, hash); assert.ok(/^#\/[a-z0-9._\/-]*$/i.test(hash), hash); });
+  same(N.parse(''), { view: 'home' });
+  // A value that isn't an ID gives the list it would be in, never a hash parse() refuses.
+  assert.strictEqual(N.format({ view: 'run', process: 'release', run: '<x>' }), '#/runs');
+  assert.strictEqual(N.format({ view: 'process', process: 'Bad Name' }), '#/processes');
+  assert.strictEqual(N.format({ view: 'skill', skill: 'notes.json' }), '#/skills');
+});
+rule('A hostile hash is refused, never thrown, and history state other than Flightdeck\'s own is ignored', () => {
+  const N = PF.nav;
+  ['#/run/<script>/x', '#/run/a/%3Cscript%3E', '#/process/%E0%A4%A', '#/' + 'a'.repeat(10000), '#/process/../x', '#/process/a%2Fb', '#/process/a%00b', '#/process/a\u0001',
+    '#/types/__proto__', '#/types/edit/__proto__', '#/__proto__', '#/constructor', '#/run/a/b/c/d/e/f/g', '#/nowhere', '#/runs/', '#//', '#runs', 'javascript:alert(1)',
+    '#/process/release/v/../x', '#/process/release/v/v1', '#/plan/XYZ', '#/plan/0123456', '#/skill/notes.json', '#/types/edit/' + 'a'.repeat(41), '#/recovery/A_b', '#/run/a/b/edit',
+    '#/process/release/hash', '#/process/release/edit/x', null, undefined, 42, {}].forEach(h => assert.strictEqual(N.parse(h), null, String(h)));
+  same(N.entry({ fd: 1, n: 3, f: 'abcdef01' }), { n: 3, f: 'abcdef01' });
+  same(N.entry({ fd: 1, n: 0, f: null }), { n: 0, f: null });
+  [null, 'x', { fd: 2, n: 1, f: null }, { fd: 1, n: -1, f: null }, { fd: 1, n: 1.5, f: null }, { fd: 1, n: '1', f: null }, { fd: 1, n: 1, f: 'Folder' }, { fd: 1, n: 1, f: '<b>' }, { fd: 1, n: Infinity, f: null }]
+    .forEach(s => assert.strictEqual(N.entry(s), null, JSON.stringify(s)));
+});
+
 run();

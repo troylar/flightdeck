@@ -6,6 +6,8 @@
 PF.types = (function () {
   'use strict';
   var VERSION = 2;
+  /* A team type's ID, as the reader accepts it (also what PF.nav accepts in a link). */
+  var ID = /^[a-z][a-z0-9-]*(\.[a-z0-9-]+)*$/, ID_MAX = 40;
 
   /* Map fields every type accepts. */
   var COMMON = {
@@ -117,7 +119,7 @@ PF.types = (function () {
       var env = PF.envelope.judge('flightdeck-step-type', def);
       if (!env.ok && env.kind === 'newer') return ['This step type needs ' + (env.needs ? 'Flightdeck ' + env.needs : 'a newer Flightdeck') + '. This copy shows it but can\'t use or change it.'];
     }
-    if (typeof def.id !== 'string' || !/^[a-z][a-z0-9-]*(\.[a-z0-9-]+)*$/.test(def.id) || def.id.length > 40) errs.push('"id" must be lowercase letters, numbers, dashes and dots, like "change.request"');
+    if (typeof def.id !== 'string' || !ID.test(def.id) || def.id.length > ID_MAX) errs.push('"id" must be lowercase letters, numbers, dashes and dots, like "change.request"');
     else if (BY[def.id]) errs.push('"' + def.id + '" is a built-in type; choose another id');
     if (typeof def.label !== 'string' || !def.label.trim() || def.label.length > 40) errs.push('"label" must be 1-40 characters');
     if (def.hint != null && (typeof def.hint !== 'string' || def.hint.length > 120)) errs.push('"hint" must be at most 120 characters');
@@ -262,5 +264,5 @@ PF.types = (function () {
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
 
-  return { VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
 })();

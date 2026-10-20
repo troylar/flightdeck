@@ -35,7 +35,7 @@ function boot(opts) {
   const intervals = [];
   // Tests start past the first-run welcome unless they ask for it (firstRun).
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
-  const get = id => (els[id] = els[id] || element(id));
+  const get = id => { if (!els[id]) { els[id] = element(id); els[id].focus = () => { if (opts.domFocus) document.activeElement = els[id]; }; } return els[id]; };
   ['app', 'top', 'overlay', 'live', 'tab-badge'].forEach(get);
   /* Like a real page: a redraw recreates the screen's inputs as their markup draws them, and the app's own code puts back what
      was typed. Only the boxes drawn now are on the page; one that isn't keeps its last value, so a test can still read it. */
@@ -89,7 +89,8 @@ function boot(opts) {
   appEl.children = [];
   const formAttrs = {};
   const form = { closest: () => null, contains: () => false, querySelector: () => null, parentNode: appEl, setAttribute(k, v) { formAttrs[k] = v; }, removeAttribute(k) { delete formAttrs[k]; }, hasAttribute: k => k in formAttrs };
-  appEl.querySelector = sel => { asked.push(sel); return sel === '.ob-form' && /class="panel stack ob-form"/.test(appEl._html) ? form : null; };
+  appEl.querySelector = sel => { asked.push(sel); if (sel === '.ob-form') return /class="panel stack ob-form"/.test(appEl._html) ? form : null; return opts.domFocus ? drawn(appEl, sel) : null; };
+  if (opts.domFocus) { const was = appEl.contains; appEl.contains = el => !!el && ((el._region === appEl && el._src === appEl._html) || was(el)); }
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
   // storageThrows: a pattern of keys the browser refuses to read or write (blocked site data, a full quota): those calls throw.
@@ -97,7 +98,7 @@ function boot(opts) {
   const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
     hidden: false, title: '', body: element('body'), activeElement: null,
-    getElementById: id => els[id] || null, querySelector: () => null, querySelectorAll: () => [], createElement: () => element('x'),
+    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => element('x'),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
@@ -110,10 +111,121 @@ function boot(opts) {
     innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: !!opts.narrow && /max-width/.test(q) }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
+  /* The address bar and session history of a file:// page: a list of entries and an index. back(), forward() and go(n)
+     queue a traversal; each completes on a later tick, one at a time, moving the index, the URL and history.state before
+     its popstate fires, as a browser does. holdPops() holds the queue (a slow browser, keys pressed quickly). go(0) and
+     location.reload() would reload the page and lose what's in memory: reloads() counts them. A URL that isn't a bare
+     hash throws, as a cross-document change would; historyThrows makes every call throw (a sandboxed frame). */
+  const BASE = 'file:///C:/team/flightdeck.html';
+  const copyState = v => v === undefined ? null : JSON.parse(JSON.stringify(v));
+  // opts.hash and opts.historyState: the entry the page loads on (a reload, a bookmark); opts.entries (and opts.index): the
+  // whole session history it loads into, as { hash, state } (entries made before a reload).
+  const hist = { entries: (opts.entries || [{ hash: opts.hash || '', state: opts.historyState }]).map(e => ({ url: BASE + (e.hash || ''), state: copyState(e.state) })), queue: [], held: false, busy: false, reloads: 0, mismatch: 0 };
+  hist.index = opts.index != null ? opts.index : hist.entries.length - 1;
+  const secErr = m => Object.assign(new Error(m), { name: 'SecurityError' });
+  const hashOf = u => { const i = u.indexOf('#'); return i < 0 || i === u.length - 1 ? '' : u.slice(i); };
+  const urlOf = u => { if (u === undefined || u === null) return hist.entries[hist.index].url; if (typeof u !== 'string' || u[0] !== '#') throw secErr('Only the hash may change: ' + u); return BASE + u; };
+  const blocked = () => { if (opts.historyThrows) throw secErr('The operation is insecure.'); };
+  const history = {
+    get length() { return hist.entries.length; }, scrollRestoration: 'auto',
+    get state() { return copyState(hist.entries[hist.index].state); },
+    pushState(st, t, u) { blocked(); const url = urlOf(u); hist.entries.splice(hist.index + 1); hist.entries.push({ url, state: copyState(st) }); hist.index++; },
+    replaceState(st, t, u) { blocked(); const url = urlOf(u); hist.entries[hist.index] = { url, state: copyState(st) }; },
+    go(n) { blocked(); n = Number(n) || 0; if (!n) { hist.reloads++; return; } traverse({ delta: n }); },
+    back() { this.go(-1); }, forward() { this.go(1); }
+  };
+  const location = { protocol: 'file:', get href() { return hist.entries[hist.index].url; }, get hash() { return hashOf(hist.entries[hist.index].url); }, reload() { hist.reloads++; } };
+  window.history = history; window.location = location;
+  function traverse(item) { hist.queue.push(item); pump(); }
+  function pump() {
+    if (hist.held || hist.busy || !hist.queue.length) return;
+    hist.busy = true;
+    setTimeout(() => {
+      hist.busy = false;
+      if (hist.held || !hist.queue.length) return;
+      const it = hist.queue.shift();
+      if (it.typed != null) { hist.entries.splice(hist.index + 1); hist.entries.push({ url: BASE + it.typed, state: null }); hist.index++; }
+      else { const to = hist.index + it.delta; if (to < 0 || to >= hist.entries.length) { pump(); return; } hist.index = to; }
+      const ev = { state: history.state }, at = hist.index, url = hist.entries[at].url;
+      (winListeners.popstate || []).forEach(fn => {
+        // The event and the entry the browser is on always agree when a listener starts.
+        if (hist.index !== at || hist.entries[at].url !== url || JSON.stringify(ev.state) !== JSON.stringify(history.state)) hist.mismatch++;
+        fn(ev);
+      });
+      pump();
+    }, 0);
+  }
+  /* Opt-in (domFocus): the drawn HTML answers getElementById and querySelector with nodes, and focus() moves
+     document.activeElement, so a test can see where focus went. One node per drawn element while the HTML is unchanged. */
+  const parsedRegions = new Map();
+  const VOID = /^(input|img|br|hr|meta|link|area|base|col|embed|source|track|wbr)$/;
+  const attrsOf = src => { const a = {}; src.replace(/\s([\w:-]+)(?:="([^"]*)")?/g, (m, k, v) => { a[k] = v == null ? '' : unq(v); return m; }); return a; };
+  function nodesOf(region) {
+    const html = region._html || '', was = parsedRegions.get(region);
+    if (was && was.html === html) return was.nodes;
+    const nodes = [], stack = [], re = /<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g; let m;
+    while ((m = re.exec(html))) {
+      const tag = m[2].toLowerCase();
+      if (m[1]) { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].tag === tag) { stack.splice(i).forEach(n => { n._end = m.index; }); break; } continue; }
+      const n = drawnNode(region, html, tag, attrsOf(m[3]), m.index, stack[stack.length - 1] || null);
+      nodes.push(n);
+      if (!VOID.test(tag) && !/\/$/.test(m[3])) stack.push(n); else n._end = m.index + m[0].length;
+    }
+    stack.forEach(n => { n._end = html.length; });
+    parsedRegions.set(region, { html, nodes });
+    return nodes;
+  }
+  function splitTop(sel, ch) { const out = []; let depth = 0, q = false, cur = ''; for (const c of sel) { if (c === '"') q = !q; if (!q && c === '[') depth++; if (!q && c === ']') depth--; if (!q && !depth && (ch === ',' ? c === ',' : /\s/.test(c))) { if (cur.trim()) out.push(cur.trim()); cur = ''; continue; } cur += c; } if (cur.trim()) out.push(cur.trim()); return out; }
+  function compound(c) {
+    const re = /^([a-zA-Z][\w-]*|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="(?:[^"\\]|\\.)*")?\])*)$/, m = re.exec(c);
+    if (!m) return null;
+    const parts = { tag: m[1] && m[1] !== '*' ? m[1].toLowerCase() : null, ids: [], classes: [], attrs: [] };
+    m[2].replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\(.)/g, '$1')]); return x; });
+    return parts;
+  }
+  function matchOne(n, p) {
+    if (!p) return false;
+    if (p.tag && n.tagName.toLowerCase() !== p.tag) return false;
+    if (p.ids.some(id => n._attrs.id !== id)) return false;
+    const cls = (n._attrs.class || '').split(/\s+/);
+    if (p.classes.some(c => cls.indexOf(c) < 0)) return false;
+    return p.attrs.every(([k, v]) => k in n._attrs && (v == null || n._attrs[k] === v));
+  }
+  function matches(n, sel) {
+    return splitTop(sel, ',').some(alt => {
+      const chain = splitTop(alt, ' ').map(compound);
+      if (!matchOne(n, chain[chain.length - 1])) return false;
+      let anc = n._parent, i = chain.length - 2;
+      while (i >= 0 && anc) { if (matchOne(anc, chain[i])) i--; anc = anc._parent; }
+      return i < 0;
+    });
+  }
+  function drawnNode(region, html, tag, attrs, at, parent) {
+    const ds = {}; Object.keys(attrs).forEach(k => { if (/^data-/.test(k)) ds[k.slice(5).replace(/-(\w)/g, (x, c) => c.toUpperCase())] = attrs[k]; });
+    const n = {
+      tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, nodeType: 1,
+      getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
+      classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
+      focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
+      // A typed box (an element the test made) is inside when its drawn node is.
+      contains: o => { if (o && o._src === undefined && o.id) o = nodesOf(region).filter(x => x.id === o.id)[0]; return !!o && o._src === n._src && o._region === n._region && o._at >= n._at && o._at < n._end; },
+      closest: sel => { for (let x = n; x; x = x._parent) if (matches(x, sel)) return x; return null; },
+      querySelectorAll: sel => nodesOf(region).filter(x => x !== n && n.contains(x) && matches(x, sel)),
+      querySelector: sel => n.querySelectorAll(sel)[0] || null
+    };
+    if (/^(input|textarea|select)$/.test(tag) && attrs.id) { const d = drawnValue(html, attrs.id); n.value = d == null ? '' : d; n.defaultValue = n.value; n.type = attrs.type || (tag === 'input' ? 'text' : tag); }
+    return n;
+  }
+  const drawn = (region, sel) => { try { return nodesOf(region).filter(x => matches(x, sel))[0] || null; } catch (e) { return null; } };
+  const drawnAnywhere = sel => [appEl, els.overlay, els.top].map(r => drawn(r, sel)).filter(Boolean)[0] || null;
+  if (opts.domFocus) {
+    const own = r => el => !!el && el._region === r && el._src === r._html;
+    ['top', 'overlay'].forEach(k => { const r = els[k]; r.querySelector = sel => drawn(r, sel); r.contains = own(r); });
+  }
   // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
   if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(opts.picker);
   const ctx = vm.createContext({
-    window, document, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
+    window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
@@ -197,7 +309,12 @@ function boot(opts) {
     // side form): the app then sees which form it belongs to, as closest() does in a browser.
     setScoped(id, value) { this.set(id, value); get(id).closest = sel => sel === '[data-scope]' ? scopeOf(id) : null; return this; },
     draft(id) { return els[id] ? els[id].value : ''; },
-    click(act, id, data) { const btn = { dataset: Object.assign({ act, id }, data || {}), disabled: false, classList: { contains: () => false } }; (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} })); },
+    click(act, id, data) {
+      const btn = { dataset: Object.assign({ act, id }, data || {}), disabled: false, classList: { contains: () => false } };
+      // As a real click does, the pressed control takes focus first (domFocus).
+      if (opts.domFocus) { const q = v => String(v).replace(/"/g, '\\"'), n = drawnAnywhere('[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '')); if (n) document.activeElement = n; }
+      (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} }));
+    },
     // A key pressed on an element (a stand-in with dataset and closest), with modifier keys such as { altKey: true }.
     keyOn(k, mods, target) { (listeners.keydown || []).forEach(fn => fn(Object.assign({ key: k, target: target || document.body, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false }, mods || {}))); },
     key(k) { (listeners.keydown || []).forEach(fn => fn({ key: k, target: document.body, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false })); },
@@ -220,7 +337,19 @@ function boot(opts) {
     run() {
       const k = app._runPath && app.fs.files[app._runPath] ? app._runPath : (app._runPath = Object.keys(app.fs.files).find(p => /^runs\/release\/[^/]+\/run\.json$/.test(p) && JSON.parse(app.fs.files[p].t).title === 'Release 2026.10.16'));
       return { path: k, key: 'release/' + k.split('/')[2], json: JSON.parse(app.fs.files[k].t) }; },
-    files(prefix) { return Object.keys(app.fs.files).filter(p => p.indexOf(prefix) === 0); }
+    files(prefix) { return Object.keys(app.fs.files).filter(p => p.indexOf(prefix) === 0); },
+    // The browser's Back and Forward (a button, Alt+Left, a mouse button), a jump from the Back menu, and a hash typed or
+    // pasted into the address bar. Each lands on a later tick; settle() waits until every one has.
+    back() { history.go(-1); }, forward() { history.go(1); }, go(n) { history.go(n); },
+    typeHash(h) { traverse({ typed: h }); },
+    holdPops() { hist.held = true; }, releasePops() { hist.held = false; pump(); },
+    async settle() { for (let i = 0; i < 200 && (hist.queue.length || hist.busy); i++) await tick(2); await tick(); },
+    url: () => hist.entries[hist.index].url, hash: () => location.hash,
+    entries: () => hist.entries.map(e => ({ hash: hashOf(e.url), state: copyState(e.state) })), index: () => hist.index,
+    reloads: () => hist.reloads, popMismatch: () => hist.mismatch, scrollRestoration: () => history.scrollRestoration,
+    // Where focus is (domFocus): the focused node's id, or its data-act and data-id, or 'body'.
+    activeId() { const a = document.activeElement; if (!a || a === document.body) return 'body'; if (a.id) return a.id; return a.dataset && a.dataset.act ? '[data-act="' + a.dataset.act + '"]' + (a.dataset.id != null ? '[data-id="' + a.dataset.id + '"]' : '') : null; },
+    node: sel => drawnAnywhere(sel)
   };
   return app;
 }

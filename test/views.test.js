@@ -268,7 +268,7 @@ rule('Plans: a plan made for an older version starts on it, with the differences
   // Plan mode: the same form, with a time and a note, saving instead of starting.
   state.planId = null; state.planning = { process: 'release', from: 'release/run1', title: 'Release', details: { ticket: 'ABC-7' }, roles: { qa: 'person-morgan' } };
   html = V.start(ctx);
-  assert.ok(/<h1>Plan a run<\/h1>/.test(html) && /id="plan-form"/.test(html) && !/id="start-form"/.test(html));
+  assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(html) && /id="plan-form"/.test(html) && !/id="start-form"/.test(html));
   assert.ok(/<label class="field" for="plan-when">When \(optional\)<input type="datetime-local" id="plan-when"/.test(html), 'a labeled date and time');
   assert.ok(/<label class="field" for="plan-note">/.test(html) && />Save the plan</.test(html) && !/Start the run/.test(html));
   assert.ok(/id="detail-ticket"[^>]*value="ABC-7"/.test(html) && !/id="detail-tag"/.test(html), 'prefilled; a detail a step sets is not asked for');
@@ -2357,6 +2357,18 @@ rule('Requests: a requested plan names its tool as a claim on Runs, on Home and 
   assert.strictEqual((flagged.match(new RegExp('id="card-' + id + '"', 'g')) || []).length, 1, 'element ids stay unique');
   html = V.start(ctx);
   assert.ok(/id="start-submit"[^>]*disabled/.test(html) && /-LAPTOP\.json/.test(html) && /delete the wrong one/.test(html), html);
+});
+
+rule('Back and Forward: the screens it lands on have a heading that takes focus (id and tabindex="-1")', () => {
+  const { ctx, state } = setup();
+  const head = html => /<h1 id="page-h" tabindex="-1">/.test(html);
+  state.view = 'mission'; assert.ok(head(V.mission(ctx)), 'screen share');
+  state.view = 'finish'; assert.ok(head(V.finish(ctx)), 'Finish');
+  state.view = 'receipt'; assert.ok(head(V.receipt(ctx)), 'the receipt');
+  const latest = ctx.data.processes[0].index.latest;
+  ctx.processes = () => [{ id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: '' }, draftChanged: false, typesChanged: [] }];
+  state.processId = 'release'; state.view = 'process'; assert.ok(head(V.process(ctx)), 'the process page');
+  assert.ok(head(V.pageHead('Runs', 'Runs', '')), 'a page heading without an id gets page-h');
 });
 
 run();

@@ -2074,7 +2074,7 @@ rule('Plans: planning a run from a process page writes one new plan file with wh
   app.click('open-process', 'release'); await app.tick();
   assert.ok(/data-act="plan-run" data-id="release">Plan a run</.test(app.html()), 'next to Start a run');
   app.click('plan-run', 'release'); await app.tick();
-  assert.ok(/<h1>Plan a run<\/h1>/.test(app.html()) && /type="datetime-local" id="plan-when"/.test(app.html()));
+  assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(app.html()) && /type="datetime-local" id="plan-when"/.test(app.html()));
   const before = app.files('proposals/');
   app.set('run-title', 'Release 2026.11.06').set('detail-ticket', 'ABC-5000').set('plan-when', '2026-11-06T09:00').set('plan-note', 'Morgan takes QA').set('role-qa', 'person-morgan');
   app.submitForm('plan-form'); await app.tick(80);
@@ -2090,7 +2090,7 @@ rule('Plans: planning a run from a process page writes one new plan file with wh
   assert.strictEqual(plan.roles.qa, 'person-morgan');
   assert.strictEqual(plan.when, new Date('2026-11-06T09:00').toISOString());
   assert.strictEqual(plan.note, 'Morgan takes QA'); assert.strictEqual(plan.by, 'person-casey');
-  assert.ok(/Planned Release 2026\.11\.06\./.test(app.html()) && /<h1>Runs<\/h1>/.test(app.html()), 'goes to Runs and says so');
+  assert.ok(/Planned Release 2026\.11\.06\./.test(app.html()) && /<h1[^>]*>Runs<\/h1>/.test(app.html()), 'goes to Runs and says so');
   assert.ok(app.html().includes('id="card-' + plan.id + '"'), 'listed under Planned');
   // A file with the same name is already there (another computer, or an assistant): nothing is replaced.
   app.fs.files['proposals/plan-release-taken000.json'] = { t: 'THEIRS', m: Date.now() };
@@ -2124,7 +2124,7 @@ rule('Plans: duplicating a run plans its details and roles on the current versio
   app.click('receipt'); await app.tick();
   assert.ok(/data-act="plan-from-run"/.test(app.html()), 'and on its receipt');
   app.click('plan-from-run', key); await app.tick();
-  assert.ok(/<h1>Plan a run<\/h1>/.test(app.html()) && /id="detail-ticket"[^>]*value="ABC-4722"/.test(app.html()) && !/id="detail-tag"/.test(app.html()));
+  assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(app.html()) && /id="detail-ticket"[^>]*value="ABC-4722"/.test(app.html()) && !/id="detail-tag"/.test(app.html()));
   const before = app.files('proposals/');
   app.submitForm('plan-form'); await app.tick(80);
   const plan = JSON.parse(app.fs.files[newPlans(app, before)[0]].t);
@@ -5861,6 +5861,728 @@ rule('Requests: an identical OneDrive copy shows the request once, arrived twice
   app.click('review-plan', req.id); await app.tick();
   app.submitForm('start-form'); await app.tick(120);
   assert.strictEqual(releaseRuns(app).length, before.length + 1, 'once one is deleted, it starts');
+});
+
+/* ---------- Back and Forward (docs/design.md section 29) ---------- */
+const navBoot = async (o) => { const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); if (!(o && o.nobody)) { app.choose('person-casey'); await app.tick(); } return app; };
+const hashes = app => app.entries().map(e => e.hash);
+// Every entry is numbered by its place, as Flightdeck writes them: no two share an n, and none is missing.
+const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && Object.keys(e.state).sort().join() === 'f,fd,n', 'entry ' + i + ' ' + JSON.stringify(e)));
+const onRun = app => /id="run-h"/.test(app.html());
+const onReceipt = app => /<div class="eyebrow">Receipt ·/.test(app.html());
+const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
+const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</h1>') >= 0);
+const back = async app => { app.back(); await app.settle(); };
+const fwd = async app => { app.forward(); await app.settle(); };
+// Every hash ever written: route words and IDs only.
+const ID_ONLY = /^#\/[a-z0-9._\/-]*$/i;
+
+rule('Back and Forward: Home, a process, a run and its receipt, back and forth, each on its own screen and hash', async () => {
+  const app = await navBoot();
+  assert.strictEqual(app.hash(), '#/');
+  assert.strictEqual(app.scrollRestoration(), 'manual');
+  app.click('open-process', 'release'); await app.tick();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick();
+  app.click('receipt'); await app.tick();
+  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/run/' + key, '#/run/' + key + '/receipt']);
+  assert.strictEqual(app.index(), 3); numbered(app);
+  await back(app); assert.ok(onRun(app), 'the run'); assert.strictEqual(app.hash(), '#/run/' + key);
+  await back(app); assert.ok(onProcess(app), 'the process'); assert.strictEqual(app.hash(), '#/process/release');
+  await back(app); assert.ok(onHome(app), 'Home'); assert.strictEqual(app.index(), 0);
+  await fwd(app); await fwd(app); await fwd(app);
+  assert.ok(onReceipt(app), 'the receipt again'); assert.strictEqual(app.index(), 3);
+  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/run/' + key, '#/run/' + key + '/receipt'], 'nothing added or lost');
+  numbered(app); assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch(), 0);
+});
+
+rule('Back and Forward: typing, filters, selecting steps, the checklist views, dialogs, refreshes and folder reads add no entry', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick();
+  const before = JSON.stringify(hashes(app)), at = app.index();
+  app.key('j'); await app.tick(); app.key('j'); await app.tick(); app.key('k'); await app.tick();
+  app.click('select', 'announce'); await app.tick();
+  app.key('?'); await app.tick(); app.key('Escape'); await app.tick();
+  app.click('refresh'); await app.tick(60);
+  app.every(); await app.tick(40); app.every(); await app.tick(40);
+  assert.strictEqual(JSON.stringify(hashes(app)), before); assert.strictEqual(app.index(), at);
+  app.click('open-process', 'release'); await app.tick();
+  const two = JSON.stringify(hashes(app));
+  app.click('flight', 'plan'); await app.tick(); app.click('flight', 'md'); await app.tick(); app.click('flight', 'list'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  const three = JSON.stringify(hashes(app));
+  app.click('filter', 'all'); await app.tick(); app.click('filter', 'mine'); await app.tick();
+  assert.strictEqual(JSON.stringify(hashes(app)), three, 'filters push nothing');
+  assert.notStrictEqual(two, three);
+  numbered(app);
+});
+
+rule('Back and Forward: one action that changes process, version and tab makes one entry', async () => {
+  const app = await navBoot();
+  const n = app.entries().length;
+  app.click('go', null, { view: 'process', process: 'release', ptab: 'insights' }); await app.tick();
+  assert.strictEqual(app.entries().length, n + 1);
+  assert.strictEqual(app.hash(), '#/process/release/insights');
+  await back(app); assert.ok(onHome(app));
+});
+
+rule('Back and Forward: hostile hashes typed into the address bar land on Home with a message, never on the page', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'release'); await app.tick();
+  const bad = ['#/run/<script>/x', '#/run/a/%3Cscript%3E', '#/process/%E0%A4%A', '#/' + 'x'.repeat(10000), '#/process/../x', '#/process/a%2Fb', '#/process/a%01b', '#/types/__proto__', '#/run/a/b/c/d/e/f/g', '#/nowhere-at-all'];
+  for (const h of bad) {
+    app.click('open-process', 'release'); await app.tick();
+    app.typeHash(h); await app.settle();
+    assert.ok(onHome(app), 'Home for ' + h.slice(0, 40));
+    assert.ok(/That link isn't one Flightdeck can open\./.test(app.live()), app.live());
+    assert.strictEqual(app.hash(), '#/');
+    ['<script>', '%3Cscript', 'nowhere-at-all', '__proto__', 'x'.repeat(50)].forEach(t => { assert.ok(app.html().indexOf(t) < 0 && app.live().indexOf(t) < 0 && app.top().indexOf(t) < 0, t); });
+  }
+  numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a browser that refuses the History API still works as before, with nothing written', async () => {
+  const app = await navBoot({ historyThrows: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick();
+  assert.ok(onRun(app), 'still navigates');
+  assert.deepStrictEqual(app.entries(), [{ hash: '', state: null }]);
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(/<div class="eyebrow">Runs<\/div>/.test(app.html()));
+});
+
+rule('Back and Forward: every screen and tab has a route', async () => {
+  const fs = require('fs'), path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+  const pages = /var PAGES = \{([^}]*)\}/.exec(src)[1].split(',').map(x => x.split(':')[0].trim().replace(/'/g, ''));
+  const app = await navBoot(), N = app.PF.nav;
+  assert.ok(pages.length >= 18, pages.join());
+  pages.concat(['home']).forEach(v => ['overview', 'edit', 'insights'].forEach(ptab => {
+    const loc = N.locate({ view: v, processId: 'release', runKey: 'release/abc', ptab, mapVer: null, planId: 'plan-x', skillFile: 'x.json', recoveryAt: '', typeForm: null });
+    assert.ok(loc, 'a route for ' + v);
+    const back = N.parse(N.format(loc));
+    assert.ok(back && (v === 'home' || back.view !== 'home'), v + ' → ' + N.format(loc));
+  }));
+});
+
+rule('Back and Forward: editor Done and the version picker push, so Back returns to the editor and the earlier version', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release/edit');
+  app.click('ed-done'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release');
+  await back(app);
+  assert.ok(/id="ed-h"/.test(app.html()), 'the editor again'); assert.strictEqual(app.hash(), '#/process/release/edit');
+  await back(app);
+  assert.strictEqual(app.hash(), '#/process/release');
+  const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]);
+  assert.ok(vers.length >= 2, 'the example has versions: ' + vers.join());
+  // v2 is the current version, v1 the first: picking v1 then v2, Back shows v1, Back again the page's default.
+  // The page redraws the picker from the version shown (syncBound); this stand-in keeps a chosen value, so it is let go.
+  app.select('map-ver', vers[1]); await app.tick(); app.gone('map-ver');
+  app.select('map-ver', vers[0]); await app.tick(); app.gone('map-ver');
+  assert.strictEqual(app.hash(), '#/process/release/v/' + vers[0]);
+  await back(app); assert.strictEqual(app.hash(), '#/process/release/v/' + vers[1]); assert.ok(/<option value="v1-[a-z0-9]+" selected>/.test(app.html()), 'v1 shown');
+  await back(app); assert.strictEqual(app.hash(), '#/process/release');
+  numbered(app);
+});
+
+rule('Back and Forward: a move within one screen kind pushes: run to its child run, one recovery section to another', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick();
+  app.click('select', 'notes'); await app.tick();
+  const child = /data-act="open-run" data-id="(check-in\/[a-z0-9-]+)"/.exec(app.html());
+  assert.ok(child, 'the release links its check-in run');
+  app.click('open-run', child[1]); await app.tick();
+  assert.strictEqual(app.hash(), '#/run/' + child[1]);
+  await back(app); assert.strictEqual(app.hash(), '#/run/' + key); assert.ok(app.html().indexOf('Release 2026.10.16') >= 0);
+  app.click('recovery', 'run-missing'); await app.tick();
+  app.click('recovery', 'a-runs-file-is-gone'); await app.tick();
+  app.click('recovery', 'onedrive-isnt-syncing'); await app.tick();
+  assert.strictEqual(app.hash(), '#/recovery/onedrive-isnt-syncing');
+  await back(app); assert.strictEqual(app.hash(), '#/recovery/a-runs-file-is-gone');
+  numbered(app);
+});
+
+rule('Back and Forward: Back with a builder box typed and not applied refuses, keeps the typing and focus, and leaves the entries alone', async () => {
+  const app = await navBoot({ localStore: {}, domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ed-done'); await app.tick();
+  await back(app);
+  assert.strictEqual(app.hash(), '#/process/release/edit');
+  app.click('ob-sel', 'flags'); await app.tick();
+  const was = /<textarea id="ob-text"[^>]*>([^<]*)</.exec(app.html())[1];
+  app.input('ob-text', 'Half typed'); await app.tick();
+  const list = JSON.stringify(app.entries());
+  await back(app);
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
+  assert.ok(/id="ed-h"/.test(app.html()), 'still the editor');
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
+  assert.strictEqual(JSON.stringify(app.entries()), list, 'the entry after it is still there');
+  assert.strictEqual(app.draft('ob-text'), 'Half typed'); assert.strictEqual(app.activeId(), 'ob-text');
+  // Cleared, Forward goes where it went before.
+  app.input('ob-text', was); await app.tick();
+  await fwd(app);
+  assert.strictEqual(app.hash(), '#/process/release'); assert.ok(!/id="ed-h"/.test(app.html()));
+  assert.strictEqual(app.reloads(), 0); numbered(app);
+});
+
+rule('Back and Forward: Back from a step type with changes shows the leave prompt; Leave without saving lands on the list', async () => {
+  const app = await navBoot({ domFocus: true });
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  assert.strictEqual(app.hash(), '#/types/edit/change.request');
+  app.input('tf-label', 'Changed by me'); await app.tick();
+  await back(app); await app.tick(40);
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()), 'the prompt');
+  assert.strictEqual(app.hash(), '#/types/edit/change.request'); assert.strictEqual(app.index(), 2);
+  assert.strictEqual(app.activeId(), '[data-act="type-save"]');
+  app.click('type-cancel'); await app.tick();
+  assert.ok(!/id="type-form"/.test(app.html()), 'the list');
+  assert.deepStrictEqual(hashes(app), ['#/', '#/types', '#/types']); assert.strictEqual(app.index(), 2);
+  numbered(app);
+});
+
+rule('Back and Forward: Back from the draft editor with unsaved text goes, says so, and the text is there on Forward', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  const text = /<textarea[^>]*id="draft-editor"[^>]*>([\s\S]*?)<\/textarea>/.exec(app.html())[1];
+  app.input('draft-editor', text.replace('Production release', 'Production release EDITED')); await app.tick(20);
+  await back(app);
+  assert.strictEqual(app.hash(), '#/process/release'); assert.ok(!/id="ed-h"/.test(app.html()));
+  assert.ok(/Your changes aren.t saved yet/.test(app.live()), app.live());
+  await fwd(app);
+  assert.ok(/id="ed-h"/.test(app.html()) && /Production release EDITED/.test(app.html()), 'the text is in the editor');
+});
+
+rule('Back and Forward: Fill in, its values and a note are kept as drafts and come back, by Forward and by a click', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const step = app.nextStep();
+  app.click('pick', step, { kind: 'fields' }); await app.tick();
+  app.set('fld-job', 'KEPT-1'); await app.tick();
+  await back(app);
+  assert.ok(onHome(app));
+  await fwd(app);
+  assert.ok(onRun(app) && /id="fld-job"/.test(app.html()), 'Fill in drawn open again');
+  assert.strictEqual(app.draft('fld-job'), 'KEPT-1');
+  app.click('nav', 'home'); await app.tick();
+  app.click('open-run', key); await app.tick();
+  assert.ok(/id="fld-job"/.test(app.html()), 'and after a click back to the run');
+  assert.strictEqual(app.draft('fld-job'), 'KEPT-1');
+  await back(app); await back(app);
+  assert.ok(onRun(app) && /id="fld-job"/.test(app.html()), 'and by Back');
+});
+
+rule('Back and Forward: Back closes an open dialog and stays, focus back on its opener; a dialog holding typing refuses', async () => {
+  const app = await navBoot({ domFocus: true });
+  app.click('open-run', app.run().key); await app.tick();
+  const list = JSON.stringify(app.entries());
+  app.click('help'); await app.tick();
+  assert.ok(/id="help-t"/.test(app.overlay()), 'set-up: help is open');
+  await back(app);
+  assert.strictEqual(app.overlay(), '', 'closed'); assert.ok(onRun(app), 'still the run');
+  assert.strictEqual(JSON.stringify(app.entries()), list); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(app.activeId(), '[data-act="help"]');
+  const b = await navBoot({ nobody: true }); b.choose('person-morgan'); await b.tick();
+  b.click('open-process', 'release'); await b.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(b.html())[1];
+  b.click('corr-review', id); await b.tick(20); b.click('corr-ca-declining'); await b.tick();
+  b.set('ca-reason', 'Not this time'); await b.tick();
+  await back(b);
+  assert.ok(/id="ca-reason"/.test(b.overlay()), 'not closed'); assert.strictEqual(b.draft('ca-reason'), 'Not this time');
+  assert.ok(/Finish or cancel this first\./.test(b.live()));
+  assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 1); assert.strictEqual(b.reloads(), 0);
+});
+
+rule('Back and Forward: on a phone, Back closes the step sheet first and stays on the run; one holding a typed reason stays open', async () => {
+  const app = await navBoot({ narrow: true, domFocus: true });
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const step = app.nextStep();
+  app.click('select', step); await app.tick();
+  const sheet = app.node('.rw-ins[data-open="true"]');
+  assert.ok(sheet && sheet.getAttribute('role') === 'dialog' && sheet.getAttribute('aria-modal') === 'true' && app.topInert(), 'set-up: the sheet is open and modal');
+  await back(app);
+  assert.ok(!app.node('.rw-ins[data-open="true"]'), 'closed'); assert.ok(onRun(app));
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 1);
+  app.click('select', step); await app.tick();
+  app.click('pick', step, { kind: 'block' }); await app.tick();
+  assert.ok(/id="pick-input"/.test(app.html()), 'set-up: the Block reason box');
+  app.set('pick-input', 'Waiting on the board'); await app.tick();
+  await back(app); await back(app);
+  assert.ok(app.node('.rw-ins[data-open="true"]'), 'the sheet stays open');
+  assert.ok(/Finish or cancel this first\./.test(app.live()));
+  assert.strictEqual(app.activeId(), 'pick-input'); assert.strictEqual(app.draft('pick-input'), 'Waiting on the board');
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a link to a run that isn\'t in the folder opens its process with a message, replacing the entry', async () => {
+  const app = await navBoot({ hash: '#/run/release/no-such-run' });
+  assert.ok(onProcess(app), 'the process page');
+  assert.ok(/That run isn.t in this folder anymore\./.test(app.live()));
+  assert.deepStrictEqual(hashes(app), ['#/process/release']); numbered(app);
+  const two = await navBoot({ hash: '#/run/gone-process/abc' });
+  assert.ok(/<div class="eyebrow">Runs<\/div>/.test(two.html())); assert.deepStrictEqual(hashes(two), ['#/runs']);
+});
+
+/* The examples' folder fingerprint, as entries made in them carry it. */
+async function examplesFp() { const a = boot(); await a.tick(60); return a.entries()[0].state.f; }
+/* A remembered team folder holding a copy of another boot's examples (its runs have other IDs than a new boot's). */
+async function teamCopy() { const src = boot(); await src.tick(80); const files = {}; sameRunsFolder(src, files); return { files, key: src.run().key, fp: src.PF.util.hash('folder:team-1') }; }
+
+rule('Back and Forward: an entry from another folder is refused, nothing of it opens, and the next Back reaches the one before', async () => {
+  const fp = await examplesFp();
+  const app = await navBoot({ entries: [{ hash: '#/', state: { fd: 1, n: 0, f: fp } }, { hash: '#/runs', state: { fd: 1, n: 1, f: 'deadbeef' } }, { hash: '#/processes', state: { fd: 1, n: 2, f: fp } }] });
+  assert.ok(/<div class="eyebrow">Processes<\/div>/.test(app.html()), 'the reload lands on its own entry');
+  await back(app);
+  assert.ok(/That page was in another team folder, so it wasn.t opened\./.test(app.live()));
+  assert.ok(/<div class="eyebrow">Processes<\/div>/.test(app.html()), 'nothing of it opened');
+  assert.deepStrictEqual(app.entries()[1], { hash: '#/processes', state: { fd: 1, n: 1, f: fp } }, 'replaced with where you are');
+  await back(app);
+  assert.ok(onHome(app)); assert.strictEqual(app.index(), 0); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a reload on a run link while the folder needs Reconnect shows Home, then the team folder\'s run after Reconnect', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}), hash: '#/run/' + t.key, historyState: { fd: 1, n: 3, f: t.fp } });
+  assert.ok(onHome(app), 'Home first'); assert.ok(/Reconnect to open the page you linked to\./.test(app.html()));
+  assert.strictEqual(app.hash(), '#/run/' + t.key, 'the address bar keeps the link');
+  app.click('reconnect'); await app.tick(200);
+  assert.ok(onRun(app), 'the run'); assert.strictEqual(app.hash(), '#/run/' + t.key);
+  assert.deepStrictEqual(app.entries(), [{ hash: '#/run/' + t.key, state: { fd: 1, n: 3, f: t.fp } }]);
+});
+
+rule('Back and Forward: while Reconnect is pending, a pasted link waits and never opens the examples\' copy; inside the examples Back and Forward work', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}) });
+  const exKey = app.run().key;
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', exKey); await app.tick();
+  await back(app); assert.ok(onProcess(app), 'Back inside the examples'); await fwd(app); assert.ok(onRun(app), 'and Forward');
+  app.click('nav', 'home'); await app.tick();
+  app.typeHash('#/process/release'); await app.settle();
+  assert.ok(onHome(app), 'waits on Home'); assert.ok(/Reconnect to open the page you linked to\./.test(app.html()));
+  // A Back to a team-folder entry waits the same way.
+  app.click('reconnect'); await app.tick(200);
+  assert.ok(onProcess(app), 'opens after Reconnect'); assert.strictEqual(app.hash(), '#/process/release');
+  assert.ok(app.html().indexOf(t.key.split('/')[1]) >= 0 && app.html().indexOf(exKey.split('/')[1]) < 0, 'the team folder\'s release, not the examples\'');
+  assert.ok(app.entries().every(e => e.state && e.state.fd === 1), 'every entry is numbered');
+});
+
+rule('Back and Forward: a link opened inside the examples while Reconnect waits drops it with a message', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}), hash: '#/process/release', historyState: null });
+  assert.ok(onHome(app));
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(/The linked page wasn.t opened\./.test(app.live()));
+  app.click('reconnect'); await app.tick(200);
+  assert.ok(!onProcess(app), 'nothing opens after Reconnect');
+});
+
+rule('Back and Forward: focus goes to the new screen\'s heading after Back', async () => {
+  const app = await navBoot({ domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  await back(app); assert.strictEqual(app.activeId(), 'run-h');
+  await back(app); assert.strictEqual(app.activeId(), 'page-h'); assert.ok(onProcess(app));
+  await back(app); assert.strictEqual(app.activeId(), 'page-h'); assert.ok(onHome(app));
+});
+
+rule('Back and Forward: only route words and IDs reach the address bar and history state', async () => {
+  const app = await navBoot();
+  const key = app.run().key, r = app.run().json;
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', key); await app.tick(); app.click('mission'); await app.tick(); app.click('exit-mission'); await app.tick();
+  app.click('receipt'); await app.tick();
+  app.click('nav', 'skills'); await app.tick();
+  const sk = /data-act="open-skill" data-id="([^"]+)"/.exec(app.html())[1];
+  app.click('open-skill', sk); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.click('nav', 'settings'); await app.tick(); app.click('nav', 'types'); await app.tick(); app.click('health'); await app.tick(40); app.click('connection'); await app.tick(40);
+  const words = [r.title, sk, 'Casey', 'person-casey', 'examples', 'preflight'].concat(Object.values(r.details || {}).filter(v => String(v).length > 3));
+  app.entries().forEach(e => {
+    assert.ok(ID_ONLY.test(e.hash), e.hash);
+    words.forEach(w => assert.ok(e.hash.toLowerCase().indexOf(String(w).toLowerCase()) < 0, e.hash + ' has ' + w));
+    assert.deepStrictEqual(Object.keys(e.state).sort(), ['f', 'fd', 'n']); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
+  });
+  assert.ok(hashes(app).indexOf('#/skill/' + app.PF.util.hash(sk)) >= 0);
+  assert.ok(hashes(app).indexOf('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')) >= 0);
+});
+
+rule('Back and Forward: Alt+Left in the picture viewer leaves the picture alone (it is the browser\'s Back)', async () => {
+  const app = await navBoot();
+  const r = app.run(), lines = r.json.snapshot.split('\n'), i = lines.findIndex(l => /\{#announce\}/.test(l));
+  lines.splice(i + 1, 0, '  ![Picture one](images/release/a.png)', '  ![Picture two](images/release/b.png)');
+  r.json.snapshot = lines.join('\n'); r.json.rev = (r.json.rev || 0) + 1;
+  await app.fs.write(r.path, JSON.stringify(r.json)); app.click('refresh'); await app.tick(80);
+  app.click('open-run', r.key); await app.tick(); app.click('select', 'announce'); await app.tick();
+  app.click('zoom', 'announce', { i: '0' }); await app.tick();
+  assert.ok(/Picture one/.test(app.overlay()), 'set-up: the first picture');
+  app.keyOn('ArrowLeft', { altKey: true }); await app.tick();
+  app.keyOn('ArrowRight', { altKey: true }); await app.tick();
+  app.keyOn('ArrowRight', { metaKey: true }); await app.tick();
+  assert.ok(/Picture one/.test(app.overlay()) && !/Picture two<\/figcaption>/.test(app.overlay()), 'not stepped');
+  app.keyOn('ArrowRight'); await app.tick();
+  assert.ok(/Picture two/.test(app.overlay()), 'a plain arrow still steps');
+});
+
+rule('Back and Forward: the default page, the current version and an older one are three places, each showing its own text', async () => {
+  const app = await navBoot();
+  const path = 'maps/drafts/release.md';
+  await app.fs.write(path, app.fs.files[path].t.replace('Post "starting release" in the team channel', 'Post DRAFTONLY in the team channel'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  // The checklist's own row for the step (the page also lists the draft's changes).
+  const draftShown = a => /id="cl-st-announce"[^>]*>(?:(?!<\/li>)[\s\S])*DRAFTONLY/.test(a.html());
+  assert.ok(draftShown(app), 'set-up: the page shows the draft');
+  app.click('back-current'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release/current'); assert.ok(!draftShown(app));
+  const v1 = /<option value="(v1-[a-z0-9]+)"/.exec(app.html())[1];
+  app.select('map-ver', v1); await app.tick(); app.gone('map-ver');
+  assert.strictEqual(app.hash(), '#/process/release/v/' + v1);
+  const v1Text = app.html();
+  await back(app); assert.ok(!draftShown(app) && /<option value="v2-[a-z0-9]+" selected>/.test(app.html()), 'the current version');
+  await back(app); assert.ok(draftShown(app), 'the draft again'); assert.strictEqual(app.hash(), '#/process/release');
+  await fwd(app); assert.ok(!draftShown(app)); assert.strictEqual(app.hash(), '#/process/release/current');
+  await fwd(app); assert.strictEqual(app.html(), v1Text, 'the older version, the same as before');
+  numbered(app);
+});
+
+rule('Back and Forward: a running run\'s receipt is reached again by Back, Forward and a reload on its link', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('receipt'); await app.tick();
+  await back(app); assert.ok(onRun(app)); await fwd(app); assert.ok(onReceipt(app) && /In progress/.test(app.html()));
+  const again = await navBoot({ localStore: app.store, hash: '#/run/' + key + '/receipt', historyState: app.entries()[app.index()].state });
+  assert.ok(onReceipt(again), 'a reload on the link'); assert.strictEqual(again.hash(), '#/run/' + key + '/receipt');
+});
+
+rule('Back and Forward: step types: a type called new, a new form, and a changed form kept across Back-menu jumps', async () => {
+  const app = await navBoot();
+  const def = JSON.parse(app.fs.files['step-types/change.request.json'].t); def.id = 'new'; def.label = 'Called new';
+  await app.fs.write('step-types/new.json', JSON.stringify(def, null, 2)); app.click('refresh'); await app.tick(80);
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'new'); await app.tick(40);
+  assert.strictEqual(app.hash(), '#/types/edit/new'); assert.ok(/value="Called new"/.test(app.html()));
+  app.click('type-cancel'); await app.tick();
+  app.click('new-type'); await app.tick();
+  assert.strictEqual(app.hash(), '#/types/new');
+  // An unchanged new form: a jump to the type's entry opens that type.
+  app.go(-2); await app.settle(); await app.tick(40);
+  assert.ok(/value="Called new"/.test(app.html()), 'type A opens'); assert.strictEqual(app.hash(), '#/types/edit/new');
+  await fwd(app); await fwd(app); await app.tick(40);
+  assert.ok(/That new step type was closed\./.test(app.live()), app.live()); assert.strictEqual(app.hash(), '#/types');
+  // A changed new form B: the jump keeps B with the prompt, at B's place.
+  app.click('new-type'); await app.tick(); app.input('tf-label', 'Form B'); await app.tick();
+  const at = app.index();
+  app.go(-3); await app.settle(); await app.tick(40); await app.settle();
+  assert.ok(/Form B/.test(app.html()) && /This step type has changes that aren.t saved/.test(app.html()), 'B kept, with the prompt');
+  assert.ok(/Save or leave this step type first, then go back again\./.test(app.live()), app.live() + JSON.stringify(app.entries()));
+  assert.strictEqual(app.index(), at); assert.strictEqual(app.hash(), '#/types/new');
+  // From another screen, a #/types entry while B is kept shows B's prompt under B's own location.
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()) && /Form B/.test(app.html()));
+  assert.strictEqual(app.hash(), '#/types/new'); numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a slow step-type read from Back never reopens over a later Back to the list', async () => {
+  const app = await navBoot();
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  const read = app.fs.read.bind(app.fs), g = gate();
+  app.fs.read = p => p === 'step-types/change.request.json' ? read(p).then(v => g.p.then(() => v)) : read(p);
+  app.click('nav', 'types'); await app.tick();
+  app.go(-3); await app.settle(); await app.tick(5);
+  assert.ok(!/id="type-form"/.test(app.html()), 'the read is still on its way');
+  await back(app); await app.tick(5);
+  g.open(); await app.tick(80); await app.settle();
+  assert.ok(!/id="type-form"/.test(app.html()), 'stays on the list');
+  assert.ok(/^#\/types$/.test(app.hash()), app.hash()); numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: screen share, the receipt and Finish return to the run with Fill in and a correction open, values intact', async () => {
+  for (const [go, leave] of [['mission', 'back'], ['receipt', 'back'], ['finish', 'back'], ['mission', 'exit-mission'], ['receipt', 'escape']]) {
+    const app = await navBoot();
+    const key = app.run().key;
+    app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+    const step = app.nextStep();
+    app.click('pick', step, { kind: 'fields' }); await app.tick();
+    app.set('fld-job', 'JOB-9'); await app.tick();
+    app.click('corr-open', step, { mode: 'correct' }); await app.tick();
+    app.input('corr-why', 'WHY-9'); await app.tick();
+    app.click(go); await app.tick();
+    if (leave === 'back') await back(app); else if (leave === 'escape') { app.key('Escape'); await app.tick(); } else { app.click(leave); await app.tick(); }
+    assert.ok(onRun(app), go + ' ' + leave + ': the run');
+    assert.ok(/id="fld-job"/.test(app.html()) && app.draft('fld-job') === 'JOB-9', go + ' ' + leave + ': Fill in open with its value');
+    assert.ok(/id="corr-why"/.test(app.html()) && app.draft('corr-why') === 'WHY-9', go + ' ' + leave + ': the correction open with its text');
+  }
+});
+
+rule('Back and Forward: Back to a draft removed from the folder while it had unsaved edits shows its recovery page', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'incident'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  const text = /<textarea[^>]*id="draft-editor"[^>]*>([\s\S]*?)<\/textarea>/.exec(app.html())[1];
+  app.input('draft-editor', text + '\nEDITED-LINE'); await app.tick(20);
+  app.click('nav', 'home'); await app.tick();
+  delete app.fs.files['maps/drafts/incident.md'];
+  Object.keys(app.fs.files).filter(p => /^publications\/incident\//.test(p)).forEach(p => { delete app.fs.files[p]; });
+  app.click('refresh'); await app.tick(80);
+  await back(app);
+  assert.ok(/This draft was removed from the folder/.test(app.html()) && /EDITED-LINE/.test(app.html()), app.live());
+});
+
+rule('Back and Forward: overlapping moves never reload, never reuse a number, and end on the drawn entry', async () => {
+  const app = await navBoot({ localStore: {} });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Half typed'); await app.tick();
+  app.holdPops(); app.back(); app.back(); app.releasePops();
+  await app.settle(); await new Promise(r => setTimeout(r, 1200)); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
+  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/process/release/edit']);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed');
+  // A typed hash refused while a dialog is open, then the dialog again and Back.
+  const b = await navBoot();
+  b.click('open-process', 'release'); await b.tick();
+  b.key('?'); await b.tick();
+  b.typeHash('#/runs'); await b.settle();
+  assert.strictEqual(b.overlay(), '', 'the dialog closed first'); assert.ok(onProcess(b));
+  b.key('?'); await b.tick();
+  await back(b); await new Promise(r => setTimeout(r, 50)); await b.settle();
+  assert.strictEqual(b.reloads(), 0); numbered(b);
+  assert.strictEqual(b.overlay(), ''); assert.ok(onProcess(b));
+  assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch() + b.popMismatch(), 0);
+});
+
+rule('Back and Forward: text typed in Add a tag on an otherwise unchanged form isn\'t lost: it becomes a tag and the form is kept', async () => {
+  const app = await navBoot();
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  app.click('type-cancel'); await app.tick();
+  app.click('new-type'); await app.tick();
+  app.set('tf-tagadd', 'risky');
+  app.go(-2); await app.settle(); await app.tick(40);
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()), 'the prompt, not closed');
+  assert.ok(/#risky/.test(app.html()), 'the text became a tag');
+  assert.strictEqual(app.hash(), '#/types/new');
+});
+
+rule('Back and Forward: the start form never shows another folder\'s planning, by click or by history', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ picker: folderHandle('B', t.files), indexedDB: memoryIDB() });
+  app.click('open-run', app.run().key); await app.tick();
+  app.click('plan-from-run', app.run().key); await app.tick();
+  assert.ok(/Plan a run/.test(app.html()) && /Release 2026\.10\.16/.test(app.html()), 'set-up: planning from folder A\'s run');
+  app.click('connect'); await app.tick(200);
+  app.click('open-process', 'release'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  assert.ok(!/Plan a run/.test(app.html()), 'by click: a plain start form');
+  app.click('nav', 'runs'); await app.tick();
+  app.typeHash('#/process/release/start'); await app.settle();
+  assert.ok(/id="start-form"/.test(app.html()) && !/Plan a run/.test(app.html()), 'by history: a plain start form');
+});
+
+rule('Back and Forward: skill file names the loader accepts round-trip as a fingerprint, by Back, Forward and a reload', async () => {
+  const app = await navBoot();
+  const base = JSON.parse(app.fs.files['skills/pr-opener.json'].t);
+  const names = ['backup checks.json', 'backup (1).json', 'バックアップの確認と復元の手順書を毎週見直すための自動化スキルです一二三四.json'];
+  for (const [i, n] of names.entries()) await app.fs.write('skills/' + n, JSON.stringify(Object.assign({}, base, { name: 'skill-' + i }), null, 2));
+  app.click('refresh'); await app.tick(80);
+  for (const n of names) {
+    app.click('nav', 'skills'); await app.tick();
+    assert.ok(app.html().indexOf('data-act="open-skill" data-id="' + n + '"') >= 0, 'listed: ' + n);
+    app.click('open-skill', n); await app.tick();
+    const h = '#/skill/' + app.PF.util.hash(n);
+    assert.strictEqual(app.hash(), h);
+    await back(app); await fwd(app);
+    assert.strictEqual(app.hash(), h); assert.ok(/<div class="eyebrow">Skill/.test(app.html()), 'Forward opens it');
+    const again = await navBoot({ localStore: app.store, hash: h, historyState: app.entries()[app.index()].state });
+    assert.ok(/<div class="eyebrow">Skill/.test(again.html()) && again.html().indexOf('skill-' + names.indexOf(n)) >= 0, 'a reload opens it: ' + n);
+  }
+});
+
+rule('Back and Forward: starting a run from a plan or the start form makes one entry, the run\'s, also when the person moves meanwhile', async () => {
+  const app = await navBoot();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = hashes(app);
+  app.submitForm('start-form'); await app.tick(200);
+  assert.ok(onRun(app), 'set-up: started');
+  assert.deepStrictEqual(hashes(app).slice(0, -1), before); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick();
+  const two = hashes(app);
+  app.submitForm('start-form'); await app.tick(200);
+  assert.deepStrictEqual(hashes(app).slice(0, -1), two); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  // Paused in the folder's read: the person visits Runs and Settings, then the run lands after them.
+  app.click('start', 'release'); await app.tick();
+  const list = app.fs.list.bind(app.fs), g = gate(); let armed = true;
+  app.fs.list = p => { if (armed && p === 'runs') { armed = false; return list(p).then(x => g.p.then(() => x)); } return list(p); };
+  const three = hashes(app);
+  app.submitForm('start-form'); await app.tick(60);
+  app.click('nav', 'runs'); await app.tick(); app.click('nav', 'settings'); await app.tick();
+  g.open(); await app.tick(200);
+  assert.deepStrictEqual(hashes(app).slice(0, three.length), three);
+  assert.deepStrictEqual(hashes(app).slice(three.length, -1), ['#/runs', '#/settings']); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  numbered(app);
+});
+
+rule('Back and Forward: a decided plan never reopens with Start the run or Decline; its files are unchanged', async () => {
+  const app = await navBoot();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.submitForm('start-form'); await app.tick(200);
+  const key = app.run && /^#\/run\/(.*)$/.exec(app.hash())[1];
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-example-next'); await app.tick();
+  app.click('decline-plan', 'plan-release-example-next'); await app.tick(100);
+  const files = JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t]));
+  const startOrDecline = h => /id="start-form"/.test(h) || /data-act="decline-plan"/.test(h);
+  await back(app); assert.ok(!startOrDecline(app.html()) && /That plan was declined\./.test(app.live()), 'declined: Runs');
+  for (let i = 0; i < 3; i++) await back(app);
+  assert.ok(!startOrDecline(app.html()) && onRun(app) && app.hash() === '#/run/' + key, 'accepted: its run (' + app.hash() + ')');
+  const again = await navBoot({ localStore: app.store, hash: '#/plan/' + app.PF.util.hash('plan-release-example-next') });
+  assert.ok(!startOrDecline(again.html()) && /That plan was declined\./.test(again.live()), 'a reload too');
+  assert.strictEqual(JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t])), files);
+});
+
+rule('Back and Forward: Getting started belongs to its folder; Start your team survives a trip to Runs and back', async () => {
+  const { example } = require('./harness');
+  const a = {}, b = { 'people.json': example('people.json') }, opts = { localStore: { 'preflight:builder': 'false' }, picker: folderHandle('A', a), indexedDB: memoryIDB() };
+  const app = boot(opts); await app.tick(80);
+  app.click('setup-mode', 'start'); await app.tick();
+  app.click('setup-pick'); await app.tick(80);
+  app.click('setup-next', 'people'); await app.tick();
+  app.input('su-me-name', 'Riley Park'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.ok(/id="su-h"/.test(app.html()) && /Riley Park/.test(app.html() + app.draft('su-me-name')), 'the wizard, still open, with its input');
+  assert.strictEqual(app.hash(), '#/setup');
+  // Another folder opened with Change team folder: nothing of the wizard comes along.
+  app.click('nav', 'runs'); await app.tick();
+  opts.picker = folderHandle('B', b);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  for (const how of ['back', 'typed']) {
+    if (how === 'back') { app.go(-2); await app.settle(); } else { app.typeHash('#/setup'); await app.settle(); }
+    // The wizard's entry was made in the examples, so Back refuses it as another folder's; typed, it's Getting started closed.
+    assert.ok(how === 'back' ? /That page was in another team folder, so it wasn.t opened\./.test(app.live()) : onHome(app) && /Getting started was closed\. Continue it from Home\./.test(app.live()), how + ': ' + app.live());
+    assert.ok(!/Riley Park/.test(app.html()) && !/id="su-h"/.test(app.html()), how + ': nothing of folder A');
+    app.click('nav', 'settings'); await app.tick();
+  }
+});
+
+rule('Back and Forward: Add a person typed in one folder is empty in the next, by click and by Back', async () => {
+  const { example } = require('./harness');
+  const a = { 'people.json': example('people.json') }, b = { 'people.json': example('people.json') }, opts = { picker: folderHandle('A', a), indexedDB: memoryIDB() };
+  const app = boot(opts); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  app.input('pa-name', 'Folder A Person'); app.input('pa-email', 'a@example.com'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  opts.picker = folderHandle('B', b);
+  app.click('connect'); await app.tick(200); app.goneUndrawn();
+  app.click('nav', 'settings'); await app.tick();
+  assert.ok(!/Folder A Person|a@example\.com/.test(app.html()), 'by click: empty');
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.ok(/<div class="eyebrow">Settings<\/div>/.test(app.html()) && !/Folder A Person|a@example\.com/.test(app.html()), 'by Back: empty');
+  app.submit('people-add-form'); await app.tick(200);
+  assert.ok(!/Folder A Person/.test(b['people.json']), 'nothing of A\'s submitted to B');
+});
+
+rule('Back and Forward: IDs the readers accept round-trip: a plan ID with dots and a 90-character process ID', async () => {
+  const app = await navBoot();
+  const plan = JSON.parse(app.fs.files['proposals/plan-release-2026-10-24.json'].t); plan.id = 'plan-release-2026.10.20';
+  await app.fs.write('proposals/plan-release-2026.10.20.json', JSON.stringify(plan, null, 2));
+  const long = 'p' + 'ab-'.repeat(29) + 'z', draft = app.fs.files['maps/drafts/check-in.md'].t.replace(/^process: .*$/m, 'process: ' + long);
+  assert.strictEqual(long.length, 89 + 0 * 1 || long.length);
+  await app.fs.write('maps/drafts/' + long + '.md', draft);
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026.10.20'); await app.tick();
+  const ph = app.hash(); assert.strictEqual(ph, '#/plan/' + app.PF.util.hash('plan-release-2026.10.20'));
+  app.click('open-process', long); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/' + long);
+  await back(app); assert.ok(/id="start-form"/.test(app.html()), 'the plan again'); await fwd(app); assert.ok(onProcess(app));
+  for (const h of [ph, '#/process/' + long]) {
+    const again = await navBoot({ localStore: app.store, hash: h, historyState: app.entries()[0].state });
+    assert.strictEqual(again.hash(), h, 'a reload keeps ' + h);
+    assert.ok(h === ph ? /id="start-form"/.test(again.html()) : onProcess(again), 'and opens it');
+  }
+});
+
+rule('Back and Forward: the browser\'s place and the drawn entry stay right through held links, typed hashes and guarded jumps', async () => {
+  // (b) entries 0 to 4 with 4 drawn; a jump to entry 1 held for Reconnect; a typed hash becomes entry 2 and cuts 3 and 4;
+  // Reconnect opens it; then a guarded Back to entry 1 is put back on entry 2.
+  const t = await teamCopy();
+  const app = await navBoot({ localStore: {}, indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}) });
+  app.click('nav', 'runs'); await app.tick(); app.click('nav', 'processes'); await app.tick(); app.click('nav', 'skills'); await app.tick(); app.click('nav', 'settings'); await app.tick();
+  numbered(app); assert.strictEqual(app.index(), 4);
+  const entries = app.entries(); entries[1] = { hash: '#/process/release', state: { fd: 1, n: 1, f: t.fp } };
+  const b = await navBoot({ localStore: {}, indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}), entries, index: 4 });
+  b.go(-3); await b.settle();
+  assert.strictEqual(b.index(), 1); assert.ok(/<div class="eyebrow">Settings<\/div>/.test(b.html()) || onHome(b), 'held: the screen stays');
+  b.typeHash('#/process/release/edit'); await b.settle();
+  assert.deepStrictEqual(hashes(b).length, 3); assert.strictEqual(b.index(), 2); numbered(b);
+  b.click('reconnect'); await b.tick(200);
+  assert.strictEqual(b.hash(), '#/process/release/edit'); assert.ok(/id="ed-h"/.test(b.html()), 'opened in the team folder');
+  b.click('ob-sel', 'flags'); await b.tick(); b.input('ob-text', 'typed'); await b.tick();
+  await back(b);
+  assert.ok(/Apply or clear what you typed/.test(b.live()));
+  assert.strictEqual(b.index(), 2); assert.strictEqual(b.hash(), '#/process/release/edit'); numbered(b); assert.strictEqual(b.reloads(), 0);
+});
+
+rule('Back and Forward: End the run lands on the receipt in Finish\'s place, so Back never reopens Finish of an ended run', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('finish'); await app.tick();
+  assert.strictEqual(app.hash(), '#/run/' + key + '/finish');
+  app.click('end', 'Cancelled'); await app.tick(60);
+  assert.ok(onReceipt(app), 'set-up: ended');
+  assert.deepStrictEqual(hashes(app), ['#/', '#/run/' + key, '#/run/' + key + '/receipt']);
+  await back(app); assert.ok(onRun(app));
+  const again = await navBoot({ localStore: app.store, hash: '#/run/' + key + '/finish' });
+  assert.ok(onReceipt(again) && again.hash() === '#/run/' + key + '/receipt', 'a link to Finish of an ended run is its receipt');
+});
+
+rule('Back and Forward: every promise callback in the app that changes a route field holds the URL, replaces, or is a known landing', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  // The callback's body, by its braces (strings and comments skipped).
+  const bodyAt = i => {
+    let d = 0, q = null;
+    for (let j = i; j < src.length; j++) {
+      const c = src[j];
+      if (q) { if (c === '\\') j++; else if (c === q) q = null; continue; }
+      if (c === "'" || c === '"') { q = c; continue; }
+      if (c === '/' && src[j + 1] === '*') { j = src.indexOf('*/', j) + 1; continue; }
+      if (c === '{') d++; else if (c === '}' && !--d) return src.slice(i, j + 1);
+    }
+    return src.slice(i);
+  };
+  const ROUTE = /state\.(view|processId|runKey|ptab|mapVer|planId|skillFile|recoveryAt|typeForm)\s*=[^=]|setView\(|openRun\(|\bhome\(\)/;
+  // Held (holdNav), replacing (H.mode), opening a folder (useFs replaces), or the person's own save, start or decline
+  // landing, which pushes like the click it finishes (docs/design.md section 29).
+  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file'];
+  const re = /\.then\(function\s*\([^)]*\)\s*\{/g; let m; const found = [];
+  while ((m = re.exec(src))) { const b = bodyAt(m.index + m[0].length - 1); if (ROUTE.test(b)) found.push(b); }
+  assert.ok(found.length >= 10, 'the scan finds the callbacks: ' + found.length);
+  assert.deepStrictEqual(found.filter(b => !OK.some(k => b.indexOf(k) >= 0)).map(b => b.replace(/\s+/g, ' ').slice(0, 160)), []);
 });
 
 run();

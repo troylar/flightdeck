@@ -24,9 +24,9 @@
     return all.sort();
   }
   function hasTags(ctx) { var chosen = ctx.state.tags || []; return function (tags) { return chosen.every(function (t) { return (tags || []).indexOf(t) >= 0; }); }; }
-  /* id: a heading that takes focus when the page opens (page-h). */
+  /* id: the heading that takes focus when the page opens (page-h unless given; Back and Forward focus it too). */
   function pageHead(eyebrow, title, sub, actions, id) {
-    return '<div class="runhead"><div><div class="eyebrow">' + eyebrow + '</div><h1' + (id ? ' id="' + id + '" tabindex="-1"' : '') + '>' + title + '</h1>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div>' + (actions ? '<div class="row">' + actions + '</div>' : '') + '</div>';
+    return '<div class="runhead"><div><div class="eyebrow">' + eyebrow + '</div><h1 id="' + (id || 'page-h') + '" tabindex="-1">' + title + '</h1>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div>' + (actions ? '<div class="row">' + actions + '</div>' : '') + '</div>';
   }
 
   /* A plan's time, or null when it has none or it can't be read. */
@@ -89,6 +89,7 @@
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && PF.skills.readiness(d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
     });
     var h = notices(ctx);
+    if (st.needsReconnect && ctx.navPending && ctx.navPending()) h += '<div class="notice" role="status"><span>Reconnect to open the page you linked to.</span><button class="mini" data-act="reconnect">Reconnect</button></div>';
     if (st.fs && st.fs.kind === 'memory' && !st.needsReconnect) h += '<div class="notice"><span><b>You\'re looking at the examples</b>, a made-up team saved in this browser only. When you\'re ready, start or join your own team.</span><button class="btn" data-act="setup-mode" data-id="welcome">Start or join a team</button></div>';
     h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : 'Choose who you are at the top right to see what needs you.', '', 'page-h');
     h += stillReading(ctx, true);
