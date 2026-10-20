@@ -2941,13 +2941,13 @@ PF.outline = (function () {
           if (!phase || phase.gate) continue;
           var parts = g[1].split(/\s+·\s+/), owner = '', extra = false;
           parts.slice(1).forEach(function (p) { var ow = /^owner\s+@([\w-]+)$/i.exec(p.trim()); if (ow) owner = ow[1]; else extra = true; });
-          gate = { id: head.id, idSuffix: head.suffix, title: parts[0].trim(), owner: owner, approves: '', approvesLine: -1, line: i, end: i + 1, odd: extra, phase: phase };
+          gate = { id: head.id, idSuffix: head.suffix, title: parts[0].trim(), owner: owner, approves: '', approvesLine: -1, notes: 0, noteLines: [], note: '', shots: [], line: i, end: i + 1, odd: extra, phase: phase };
           phase.gate = gate; blk = gate;
           continue;
         }
         var pm = /^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$/.exec(head.rest);
-        phase = { id: head.id, idSuffix: head.suffix, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', line: i, steps: [], tracks: [], gate: null, index: o.phases.length };
-        o.phases.push(phase);
+        phase = { id: head.id, idSuffix: head.suffix, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', line: i, end: i + 1, notes: 0, noteLines: [], note: '', shots: [], odd: false, steps: [], tracks: [], gate: null, index: o.phases.length };
+        o.phases.push(phase); blk = phase;
         continue;
       }
       if (questions) continue;
@@ -2959,10 +2959,11 @@ PF.outline = (function () {
         phase.steps.push(step); o.steps.push(step); blk = step;
         continue;
       }
+      /* As map.js: notes and screenshots belong to the step or gate above, or to the phase right under its heading (2.0). */
+      var tg = step || gate || (phase && !track ? phase : null);
       if (/^\s{2,}>\s?(.*)$/.test(line)) {
-        var tg = step || gate;
-        if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; continue; }
-      } else if (step && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) { own(step, i); step.shots.push({ caption: m[1], src: m[2], line: i }); continue; }
+        if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; if (tg.noteLines) { tg.noteLines.push(i); tg.note = (tg.note ? tg.note + '\n' : '') + /^\s{2,}>\s?(.*)$/.exec(line)[1]; } continue; }
+      } else if (tg && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) { own(tg, i); tg.shots.push({ caption: m[1], src: m[2], line: i }); continue; }
       else if ((m = /^\s{2,}([\w-]+):\s*(.*)$/.exec(line))) {
         if (gate && m[1] === 'approves') { own(gate, i); gate.approves = m[2].trim(); gate.approvesLine = i; continue; }
         if (gate && (m[1] === 'at' || m[1] === 'due' || m[1] === 'after')) { own(gate, i); continue; }
@@ -3052,8 +3053,8 @@ PF.outline = (function () {
       meta: map.meta, questions: map.questions, errors: map.errors.map(function (e) { return e.msg; }).sort(),
       phases: map.phases.map(function (p) {
         var g = p.gate;
-        return lined({ id: p.id, title: p.title, mode: p.mode,
-          gate: { id: g.id, title: g.title, owner: g.owner, approves: g.approves, binds: g.binds, note: g.note, fields: g.fields, implicit: g.implicit },
+        return lined({ id: p.id, title: p.title, mode: p.mode, note: p.note, shots: p.shots,
+          gate: { id: g.id, title: g.title, owner: g.owner, approves: g.approves, binds: g.binds, note: g.note, shots: g.shots, fields: g.fields, implicit: g.implicit },
           tracks: p.tracks.map(function (t) { return [t.id, t.title, t.roles]; }),
           steps: p.steps.map(function (s) { return lined({ id: s.id, type: s.type, text: s.text, must: s.must, planned: s.planned, roles: s.roles, binds: s.binds, fields: s.fields, note: s.note, shots: s.shots, track: s.track }, s.line); }) }, p.line);
       })
@@ -3233,9 +3234,10 @@ PF.outline = (function () {
   }
   /* One step's screenshot lines, as edits that change only those lines; the safety net checks the step's screenshots became
      exactly what was asked for. set: { add: {caption, src} } | { edit: i, caption } | { move: i, dir } | { remove: i }. */
-  function editShots(text, key, set) {
+  function editShots(text, key, set, kind) {
     var g = guard(text); if (g.error) return { error: g.error };
-    var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
+    var o = g.o, ph = kind === 'phase' || kind === 'gate' ? phaseBy(o, key) : null, s = kind === 'phase' ? ph : kind === 'gate' ? ph && ph.gate : stepBy(o, key);
+    if (!s) return { error: ERR.gone };
     if (s.odd) return { error: ERR.odd };
     var lines = o.lines.slice(), cr = crOf(o, s.line), want = s.shots.map(function (x) { return { caption: x.caption, src: x.src }; }), at = s.line, k;
     var lineOf = function (sh, c, src) { var ind = /^\s*/.exec(bare(lines[sh.line]))[0]; return ind + '![' + c + '](' + src + ')' + crOf(o, sh.line); };
@@ -3244,7 +3246,8 @@ PF.outline = (function () {
       var src = String(set.add.src || '');
       if (!SHOT_SRC.test(src) || src.indexOf('..') >= 0) return { error: 'Screenshots must be under images/.' };
       var last = s.shots[s.shots.length - 1], ind = last ? /^\s*/.exec(bare(lines[last.line]))[0] : '  ';
-      at = last ? last.line + 1 : s.end;
+      /* A phase's first screenshot goes after its note, right under the heading, so it stays the phase's. */
+      at = last ? last.line + 1 : kind === 'phase' && s.noteLines.length ? s.noteLines[s.noteLines.length - 1] + 1 : kind === 'phase' ? s.line + 1 : s.end;
       lines.splice(at, 0, ind + '![' + c.value + '](' + src + ')' + cr);
       want.push({ caption: c.value, src: src });
     } else {
@@ -3265,10 +3268,27 @@ PF.outline = (function () {
     var line = s.line + 1;
     return done(o, text, lines, function (A) {
       var x = null;
-      A.phases.forEach(function (ph) { ph.steps.forEach(function (st) { if (st._line === line) x = st; }); });
+      if (kind === 'phase') x = A.phases[ph.index];
+      else if (kind === 'gate') x = A.phases[ph.index] && A.phases[ph.index].gate;
+      else A.phases.forEach(function (p) { p.steps.forEach(function (st) { if (st._line === line) x = st; }); });
       if (!x) return false;
       x.shots = want;
     }, at);
+  }
+  /* A phase's note (2.0): its "  > " lines right under the heading, replaced by the new text, one line each; '' removes them. */
+  function phaseNote(text, key, note) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, p = phaseBy(o, key); if (!p) return { error: ERR.gone };
+    if (p.odd) return { error: ERR.odd };
+    var want = String(note == null ? '' : note).replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+$/, ''); });
+    while (want.length && !want[want.length - 1].trim()) want.pop();
+    while (want.length && !want[0].trim()) want.shift();
+    if (want.join('\n').length > 2000) return { error: 'Keep a phase note to 2,000 characters.' };
+    var lines = o.lines.slice(), at = p.noteLines.length ? p.noteLines[0] : p.line + 1, cr = crOf(o, p.line);
+    if (p.noteLines.some(function (l, k) { return k && l !== p.noteLines[k - 1] + 1; })) return { error: ERR.odd };
+    lines.splice.apply(lines, [at, p.noteLines.length].concat(want.map(function (l) { return '  > ' + l + cr; })));
+    var res = done(o, text, lines, function (A) { A.phases[p.index].note = want.join('\n'); }, at);
+    return res;
   }
 
   function addStep(text, to, step) {
@@ -3655,15 +3675,20 @@ PF.outline = (function () {
       case 'addTrack': return addTrack(text, op.to || {}, op);
       case 'editTrack': return editTrack(text, op.phase, op.track, op.set || {});
       case 'deleteTrack': return deleteTrack(text, op.phase, op.track, op);
-      case 'addShot': return editShots(text, op.step, { add: { caption: op.caption, src: op.src } });
-      case 'editShot': return editShots(text, op.step, { edit: op.shot, caption: op.caption });
-      case 'moveShot': return editShots(text, op.step, { move: op.shot, dir: op.dir });
-      case 'removeShot': return editShots(text, op.step, { remove: op.shot });
+      case 'addShot': return editShots(text, shotKey(op), { add: { caption: op.caption, src: op.src } }, shotKind(op));
+      case 'editShot': return editShots(text, shotKey(op), { edit: op.shot, caption: op.caption }, shotKind(op));
+      case 'moveShot': return editShots(text, shotKey(op), { move: op.shot, dir: op.dir }, shotKind(op));
+      case 'removeShot': return editShots(text, shotKey(op), { remove: op.shot }, shotKind(op));
+      case 'phaseNote': return phaseNote(text, op.phase, op.note);
     }
     return { error: 'Nothing to do.' };
   }
 
-  return { MODES: MODES, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
+  /* A screenshot op names its step, or a phase (the phase's own screenshots) or a gate (by its phase's key). */
+  function shotKind(op) { return op.step != null ? 'step' : op.gate != null ? 'gate' : 'phase'; }
+  function shotKey(op) { return op.step != null ? op.step : op.gate != null ? op.gate : op.phase; }
+
+  return { MODES: MODES, phaseNote: phaseNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
 })();
@@ -14726,10 +14751,12 @@ PF.vk = (function () {
         '<button type="button" class="mini" data-act="ob-ask-cancel">Cancel</button></div>';
       return t + '</section>';
     }
-    var gt = ph.gate, sig = sigOf(o, ph.line, ph.line + 1) + (gt ? '.' + sigOf(o, gt.line, gt.end) : ''), pask = askOf(ctx, 'phase', ph.key);
+    var gt = ph.gate, sig = sigOf(o, ph.line, ph.end) + (gt ? '.' + sigOf(o, gt.line, gt.end) : ''), pask = askOf(ctx, 'phase', ph.key);
     var f = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-phase|' + esc(ph.key) + '|' + sig + '">' + formHead('Phase', ['Phase ' + (ph.index + 1) + ' of ' + o.phases.length]) +
       '<label class="field" for="ob-ph-title">Name<input id="ob-ph-title" maxlength="120" data-enter="ob-commit" value="' + esc(ph.title) + '"' + errAt(ctx, 'ob-ph-title') + '></label>' + errMsg(ctx, 'ob-ph-title') +
       '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>READ-DO: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>DO-CONFIRM: do the work, then confirm together</option></select></label>' +
+      '<label class="field" for="ob-ph-note">Note for the phase <span class="small">shown at the top of the phase in runs. Needs Flightdeck 2.0 to run.</span><textarea id="ob-ph-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-ph-note') + '>' + esc(ph.note || '') + '</textarea></label>' + errMsg(ctx, 'ob-ph-note') +
+      (ph.odd ? '<p class="small">This phase has lines under its heading the builder can\'t change safely. Edit its note and screenshots in Markdown.</p>' : shotsSection(ctx, p, ph, 'phase')) +
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button><button type="button" class="mini" data-act="ob-ask" data-id="phase">Delete this phase</button>' +
       '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="phase:' + esc(ph.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this phase</button></div>';
@@ -14750,7 +14777,7 @@ PF.vk = (function () {
      Remove (the line only; the file stays in images/), then a place to add more by Choose files, drop or paste (app.js
      writes each image once and reads it back before its line is added). Thumbnails come from the folder's images/, never a
      run's publication (the last argument to ctx.img). */
-  function shotsSection(ctx, p, s) {
+  function shotsSection(ctx, p, s, kind) {
     var A = PF.attach, n = s.shots.length, busy = ctx.shotBusy ? +ctx.shotBusy(p.id) || 0 : 0;
     var h = '<h3 class="ob-sec" id="ob-shots-h">Screenshots</h3>';
     if (n) {
@@ -18801,14 +18828,16 @@ PF.examples = (function () {
      of the draft: the line is unsaved until Save draft. */
   function shotAdd(list, stepKey) {
     var files = Array.prototype.slice.call(list || []), p = currentProcess(), sel = state.obSel;
-    if (!files.length || !p || !sel || sel.kind !== 'step' || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    if (!files.length || !p || !sel || (sel.kind !== 'step' && sel.kind !== 'phase') || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    /* A phase's own screenshots (2.0) are added the same way, from the phase's form. */
+    var kind = sel.kind, opOf = function (k, more) { var o = { op: 'addShot' }; o[kind] = k; Object.keys(more).forEach(function (x) { o[x] = more[x]; }); return o; };
     var capEl = document.getElementById('ob-shot-new'), capRaw = capEl ? capEl.value : '', cap = PF.outline.caption(capRaw);
     if (cap.error) { shotErr('ob-shot-new', cap.error); return Promise.resolve(); }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
     var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false, epoch = edEpoch(pid, fk);
-    var gone = 'That step isn\'t in the draft anymore, so the image wasn\'t added.';
-    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key);
-    if (!ident) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
+    var gone = 'That ' + kind + ' isn\'t in the draft anymore, so the image wasn\'t added.';
+    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key, kind);
+    if (!ident) { shotErr('ob-shot-file', 'That ' + kind + ' isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
     state.shotBusy[key] = (state.shotBusy[key] || 0) + n; render();
     function settle(k) { k = Math.min(k, left); left -= k; state.shotBusy[key] = (state.shotBusy[key] || 0) - k; if (state.shotBusy[key] <= 0) delete state.shotBusy[key]; }
     function here() { return g === gen && fsKey() === fk && state.processId === pid; }
@@ -18816,7 +18845,7 @@ PF.examples = (function () {
     function stop(field, msg) {
       stopped = true; settle(left);
       if (!here() || !msg) { render(); return; }
-      var s = state.obSel, on = s && s.kind === 'step' && shotFind(edText(p), ident);
+      var s = state.obSel, on = s && s.kind === kind && shotFind(edText(p), ident);
       if (on && on.key === s.key) shotErr(field, msg); else { say(msg, 'warn'); render(); }
     }
     return files.reduce(function (pr, f, i) {
@@ -18826,7 +18855,7 @@ PF.examples = (function () {
         var name = String(f.name || 'image').split(/[\\/]/).pop().slice(0, 80), caption = cap.value + (n > 1 ? ' (' + (i + 1) + ' of ' + n + ')' : '');
         var ok = PF.attach.checkShot(name, f.type, f.size); if (ok.error) { stop('ob-shot-file', ok.error); return; }
         var st = shotFind(edText(p), ident); if (!st) { stop('ob-shot-file', gone); return; }
-        var plan = PF.outline.apply(edText(p), { op: 'addShot', step: st.key, caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) });
+        var plan = PF.outline.apply(edText(p), opOf(st.key, { caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) }));
         if (plan.error) { stop('ob-shot-file', plan.error); return; }
         if (U.draftTooBig(plan.text)) { stop('ob-shot-file', '"' + name + '" wasn\'t added: its line would take this draft over 1 MB, and Flightdeck saves drafts up to 1 MB. Shorten the draft first.'); return; }
         return headOf(f).then(function (head) {
@@ -18839,11 +18868,11 @@ PF.examples = (function () {
           var now = shotFind(edText(p), ident);
           if (!now) { stop('ob-shot-file', gone + ' It\'s saved as ' + r.path + '.'); return; }
           settle(1);
-          var res = shotApply({ op: 'addShot', step: now.key, caption: caption, src: r.path }, i === n - 1 ? capRaw : null);
+          var res = shotApply(opOf(now.key, { caption: caption, src: r.path }), i === n - 1 ? capRaw : null);
           if (!res) { stopped = true; settle(left); return; }
-          /* The step's block now holds the new line; later images in this batch look for that. */
-          var after = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.line === now.line; })[0];
-          if (after) ident = shotIdentOf(PF.outline.parse(edText(p)), after);
+          /* The block now holds the new line; later images in this batch look for that. */
+          var po = PF.outline.parse(edText(p)), after = (kind === 'phase' ? po.phases : po.steps).filter(function (x) { return x.line === now.line; })[0];
+          if (after) ident = shotIdentOf(po, after, kind);
         }, function (e) {
           stop('ob-shot-file', e && e.plain ? e.plain : 'Couldn\'t add "' + name + '": ' + (e && e.message || 'the image couldn\'t be saved.') + ' Nothing was added to the step.');
         });
@@ -18852,15 +18881,17 @@ PF.examples = (function () {
   }
   /* Who a step is, kept while its image is written: its ID when exactly one step has it, else its whole block (its lines)
      and its phase. shotFind answers only that same step, never one that took its place. */
-  function shotIdentOf(o, s) {
-    var unique = s.id && o.steps.filter(function (x) { return x.id === s.id; }).length === 1;
-    return { id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: s.phase.title + '\n' + s.phase.index };
+  function shotIdentOf(o, s, kind) {
+    var list = kind === 'phase' ? o.phases : o.steps, unique = s.id && list.filter(function (x) { return x.id === s.id; }).length === 1;
+    var ph = kind === 'phase' ? s : s.phase;
+    return { kind: kind === 'phase' ? 'phase' : 'step', id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: ph.title + '\n' + ph.index };
   }
-  function shotIdent(text, k) { var o = PF.outline.parse(text), s = o.steps.filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s) : null; }
+  function shotIdent(text, k, kind) { var o = PF.outline.parse(text), s = (kind === 'phase' ? o.phases : o.steps).filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s, kind) : null; }
   function shotFind(text, ident) {
-    var o = PF.outline.parse(text), hits = o.steps.filter(function (x) {
+    var o = PF.outline.parse(text), hits = (ident.kind === 'phase' ? o.phases : o.steps).filter(function (x) {
       if (ident.id) return x.id === ident.id;
-      return o.lines.slice(x.line, x.end).join('\n') === ident.block && x.phase.title + '\n' + x.phase.index === ident.phase;
+      var ph = ident.kind === 'phase' ? x : x.phase;
+      return o.lines.slice(x.line, x.end).join('\n') === ident.block && ph.title + '\n' + ph.index === ident.phase;
     });
     return hits.length === 1 ? hits[0] : null;
   }
@@ -18884,9 +18915,9 @@ PF.examples = (function () {
     if (capRaw != null && !typed.some(function (t) { return t.id === 'ob-shot-new'; })) { var ce = document.getElementById('ob-shot-new'); if (ce) ce.value = ''; }
     return res;
   }
-  /* An image pasted while the step's form has focus goes to that step. */
+  /* An image pasted while a step's or a phase's form has focus goes to it. */
   document.addEventListener('paste', function (e) {
-    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || state.obSel.kind !== 'step' || !e.clipboardData) return;
+    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || (state.obSel.kind !== 'step' && state.obSel.kind !== 'phase') || !e.clipboardData) return;
     var t = e.target; if (!(t && t.closest && t.closest('.ob-form'))) return;
     var items = e.clipboardData.items || [], files = [];
     for (var i = 0; i < items.length; i++) if (items[i].kind === 'file') { var f = items[i].getAsFile(); if (f) files.push(f); }
@@ -19234,8 +19265,9 @@ PF.examples = (function () {
     var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
     if (id === 'ob-text') return st ? st.text : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
-    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = st && st.shots[+id.slice(12)]; return sh ? sh.caption : ''; }
+    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
+    if (id === 'ob-ph-note') return ph ? ph.note : '';
     if (id === 'ob-tr-title') { var tr = ph && ph.tracks[+s.track]; return tr ? tr.title : ''; }
     if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
     return '';
@@ -19352,7 +19384,9 @@ PF.examples = (function () {
       else if (id === 'ob-tr-role') res = builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { role: value } }, id);
       else return;
     } else {
+      if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', phase: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
       if (id === 'ob-ph-title') res = reid(ph && ph.id, builderEdit({ op: 'editPhase', phase: s.key, set: { title: value, reid: !!(ph && fresh(ph.id)) } }, id));
+      else if (id === 'ob-ph-note') res = builderEdit({ op: 'phaseNote', phase: s.key, note: value }, id);
       else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
       else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
         /* Leaving the "name a gate" box empty adds nothing. */
@@ -19918,7 +19952,7 @@ PF.examples = (function () {
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
       state.focus = !s ? 'ed-h' : s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
       render();
@@ -19933,13 +19967,15 @@ PF.examples = (function () {
     'ob-role': function (id) { builderToggle('role', id); },
     'ob-bind': function (id) { builderToggle('bind', id); },
     'ob-shot-move': function (id, b) {
-      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || s.kind !== 'step') return;
-      var res = builderEdit({ op: 'moveShot', step: s.key, shot: +id, dir: up ? 'up' : 'down' }); if (!res) return;
+      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
+      var mv = { op: 'moveShot', shot: +id, dir: up ? 'up' : 'down' }; mv[s.kind] = s.key;
+      var res = builderEdit(mv); if (!res) return;
       state.focus = '[data-act="ob-shot-move"][data-id="' + (+id + (res.same ? 0 : up ? -1 : 1)) + '"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
     },
     'ob-shot-remove': function (id) {
-      var s = state.obSel; if (!s || s.kind !== 'step') return;
-      var res = builderEdit({ op: 'removeShot', step: s.key, shot: +id }); if (!res || res.same) return;
+      var s = state.obSel; if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
+      var rm = { op: 'removeShot', shot: +id }; rm[s.kind] = s.key;
+      var res = builderEdit(rm); if (!res || res.same) return;
       sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
     },
     'ob-del': function (id) {
@@ -20933,7 +20969,7 @@ PF.examples = (function () {
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;

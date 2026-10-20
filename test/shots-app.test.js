@@ -289,4 +289,29 @@ rule('Shots, counterexample: switching folders while an image is being added add
   assert.ok(!app.leaveWarns(), 'nothing left counted as being added');
 });
 
+/* 2.0: a phase's form has its note and its screenshots, added the same way as a step's. */
+rule('Shots: a phase\'s form edits its note and adds, captions and removes its own screenshots, each one Undo entry', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel-phase', 'prep'); await app.tick();
+  assert.ok(/id="ob-ph-note"/.test(app.html()) && /id="ob-shot-file"/.test(app.html()), 'the phase form has a note and Screenshots');
+  app.select('ob-ph-note', 'Use the staging cluster first.\nThen production.'); await app.tick();
+  let md = await markdown(app), lines = md.split('\n'), at = lines.findIndex(l => /^## Before production changes/.test(l));
+  assert.deepStrictEqual(lines.slice(at + 1, at + 3), ['  > Use the staging cluster first.', '  > Then production.'], 'right under the phase heading');
+  app.click('ob-sel-phase', 'prep'); await app.tick();
+  await choose(app, 'The cluster page', [png()]);
+  const imgs = images(app); assert.strictEqual(imgs.length, 1);
+  md = await markdown(app); lines = md.split('\n');
+  assert.strictEqual(lines[at + 3], '  ![The cluster page](' + imgs[0] + ')', 'after the phase note');
+  const m = JSON.parse(JSON.stringify(require('./harness').load().map.parse(md)));
+  assert.strictEqual(m.phases[0].note, 'Use the staging cluster first.\nThen production.');
+  assert.deepStrictEqual(m.phases[0].shots.map(x => x.src), [imgs[0]]);
+  app.click('ob-sel-phase', 'prep'); await app.tick();
+  app.click('ob-shot-remove', '0'); await app.tick();
+  assert.deepStrictEqual(shotLines(await markdown(app)), [], 'removed');
+  assert.strictEqual(images(app).length, 1, 'the file stays');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.strictEqual(shotLines(await markdown(app)).length, 1, 'Undo puts it back');
+});
+
 run();

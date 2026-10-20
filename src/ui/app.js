@@ -2364,14 +2364,16 @@
      of the draft: the line is unsaved until Save draft. */
   function shotAdd(list, stepKey) {
     var files = Array.prototype.slice.call(list || []), p = currentProcess(), sel = state.obSel;
-    if (!files.length || !p || !sel || sel.kind !== 'step' || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    if (!files.length || !p || !sel || (sel.kind !== 'step' && sel.kind !== 'phase') || sel.pid !== p.id || builderBlocked(p)) return Promise.resolve();
+    /* A phase's own screenshots (2.0) are added the same way, from the phase's form. */
+    var kind = sel.kind, opOf = function (k, more) { var o = { op: 'addShot' }; o[kind] = k; Object.keys(more).forEach(function (x) { o[x] = more[x]; }); return o; };
     var capEl = document.getElementById('ob-shot-new'), capRaw = capEl ? capEl.value : '', cap = PF.outline.caption(capRaw);
     if (cap.error) { shotErr('ob-shot-new', cap.error); return Promise.resolve(); }
     if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null;
     var sfs = state.fs, g = gen, fk = fsKey(), pid = p.id, key = shotKey(pid, fk), n = files.length, left = n, stopped = false, epoch = edEpoch(pid, fk);
-    var gone = 'That step isn\'t in the draft anymore, so the image wasn\'t added.';
-    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key);
-    if (!ident) { shotErr('ob-shot-file', 'That step isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
+    var gone = 'That ' + kind + ' isn\'t in the draft anymore, so the image wasn\'t added.';
+    var ident = shotIdent(edText(p), stepKey != null ? String(stepKey) : sel.key, kind);
+    if (!ident) { shotErr('ob-shot-file', 'That ' + kind + ' isn\'t in the draft anymore. It may have just changed.'); return Promise.resolve(); }
     state.shotBusy[key] = (state.shotBusy[key] || 0) + n; render();
     function settle(k) { k = Math.min(k, left); left -= k; state.shotBusy[key] = (state.shotBusy[key] || 0) - k; if (state.shotBusy[key] <= 0) delete state.shotBusy[key]; }
     function here() { return g === gen && fsKey() === fk && state.processId === pid; }
@@ -2379,7 +2381,7 @@
     function stop(field, msg) {
       stopped = true; settle(left);
       if (!here() || !msg) { render(); return; }
-      var s = state.obSel, on = s && s.kind === 'step' && shotFind(edText(p), ident);
+      var s = state.obSel, on = s && s.kind === kind && shotFind(edText(p), ident);
       if (on && on.key === s.key) shotErr(field, msg); else { say(msg, 'warn'); render(); }
     }
     return files.reduce(function (pr, f, i) {
@@ -2389,7 +2391,7 @@
         var name = String(f.name || 'image').split(/[\\/]/).pop().slice(0, 80), caption = cap.value + (n > 1 ? ' (' + (i + 1) + ' of ' + n + ')' : '');
         var ok = PF.attach.checkShot(name, f.type, f.size); if (ok.error) { stop('ob-shot-file', ok.error); return; }
         var st = shotFind(edText(p), ident); if (!st) { stop('ob-shot-file', gone); return; }
-        var plan = PF.outline.apply(edText(p), { op: 'addShot', step: st.key, caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) });
+        var plan = PF.outline.apply(edText(p), opOf(st.key, { caption: caption, src: PF.attach.shotPath(pid, ident.id, Date.now(), WRITER, 'aaaaaa', ok.ext) }));
         if (plan.error) { stop('ob-shot-file', plan.error); return; }
         if (U.draftTooBig(plan.text)) { stop('ob-shot-file', '"' + name + '" wasn\'t added: its line would take this draft over 1 MB, and Flightdeck saves drafts up to 1 MB. Shorten the draft first.'); return; }
         return headOf(f).then(function (head) {
@@ -2402,11 +2404,11 @@
           var now = shotFind(edText(p), ident);
           if (!now) { stop('ob-shot-file', gone + ' It\'s saved as ' + r.path + '.'); return; }
           settle(1);
-          var res = shotApply({ op: 'addShot', step: now.key, caption: caption, src: r.path }, i === n - 1 ? capRaw : null);
+          var res = shotApply(opOf(now.key, { caption: caption, src: r.path }), i === n - 1 ? capRaw : null);
           if (!res) { stopped = true; settle(left); return; }
-          /* The step's block now holds the new line; later images in this batch look for that. */
-          var after = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.line === now.line; })[0];
-          if (after) ident = shotIdentOf(PF.outline.parse(edText(p)), after);
+          /* The block now holds the new line; later images in this batch look for that. */
+          var po = PF.outline.parse(edText(p)), after = (kind === 'phase' ? po.phases : po.steps).filter(function (x) { return x.line === now.line; })[0];
+          if (after) ident = shotIdentOf(po, after, kind);
         }, function (e) {
           stop('ob-shot-file', e && e.plain ? e.plain : 'Couldn\'t add "' + name + '": ' + (e && e.message || 'the image couldn\'t be saved.') + ' Nothing was added to the step.');
         });
@@ -2415,15 +2417,17 @@
   }
   /* Who a step is, kept while its image is written: its ID when exactly one step has it, else its whole block (its lines)
      and its phase. shotFind answers only that same step, never one that took its place. */
-  function shotIdentOf(o, s) {
-    var unique = s.id && o.steps.filter(function (x) { return x.id === s.id; }).length === 1;
-    return { id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: s.phase.title + '\n' + s.phase.index };
+  function shotIdentOf(o, s, kind) {
+    var list = kind === 'phase' ? o.phases : o.steps, unique = s.id && list.filter(function (x) { return x.id === s.id; }).length === 1;
+    var ph = kind === 'phase' ? s : s.phase;
+    return { kind: kind === 'phase' ? 'phase' : 'step', id: unique ? s.id : '', block: o.lines.slice(s.line, s.end).join('\n'), phase: ph.title + '\n' + ph.index };
   }
-  function shotIdent(text, k) { var o = PF.outline.parse(text), s = o.steps.filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s) : null; }
+  function shotIdent(text, k, kind) { var o = PF.outline.parse(text), s = (kind === 'phase' ? o.phases : o.steps).filter(function (x) { return x.key === k; })[0]; return s ? shotIdentOf(o, s, kind) : null; }
   function shotFind(text, ident) {
-    var o = PF.outline.parse(text), hits = o.steps.filter(function (x) {
+    var o = PF.outline.parse(text), hits = (ident.kind === 'phase' ? o.phases : o.steps).filter(function (x) {
       if (ident.id) return x.id === ident.id;
-      return o.lines.slice(x.line, x.end).join('\n') === ident.block && x.phase.title + '\n' + x.phase.index === ident.phase;
+      var ph = ident.kind === 'phase' ? x : x.phase;
+      return o.lines.slice(x.line, x.end).join('\n') === ident.block && ph.title + '\n' + ph.index === ident.phase;
     });
     return hits.length === 1 ? hits[0] : null;
   }
@@ -2447,9 +2451,9 @@
     if (capRaw != null && !typed.some(function (t) { return t.id === 'ob-shot-new'; })) { var ce = document.getElementById('ob-shot-new'); if (ce) ce.value = ''; }
     return res;
   }
-  /* An image pasted while the step's form has focus goes to that step. */
+  /* An image pasted while a step's or a phase's form has focus goes to it. */
   document.addEventListener('paste', function (e) {
-    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || state.obSel.kind !== 'step' || !e.clipboardData) return;
+    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || (state.obSel.kind !== 'step' && state.obSel.kind !== 'phase') || !e.clipboardData) return;
     var t = e.target; if (!(t && t.closest && t.closest('.ob-form'))) return;
     var items = e.clipboardData.items || [], files = [];
     for (var i = 0; i < items.length; i++) if (items[i].kind === 'file') { var f = items[i].getAsFile(); if (f) files.push(f); }
@@ -2797,8 +2801,9 @@
     var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
     if (id === 'ob-text') return st ? st.text : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
-    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = st && st.shots[+id.slice(12)]; return sh ? sh.caption : ''; }
+    if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
+    if (id === 'ob-ph-note') return ph ? ph.note : '';
     if (id === 'ob-tr-title') { var tr = ph && ph.tracks[+s.track]; return tr ? tr.title : ''; }
     if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
     return '';
@@ -2915,7 +2920,9 @@
       else if (id === 'ob-tr-role') res = builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { role: value } }, id);
       else return;
     } else {
+      if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', phase: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
       if (id === 'ob-ph-title') res = reid(ph && ph.id, builderEdit({ op: 'editPhase', phase: s.key, set: { title: value, reid: !!(ph && fresh(ph.id)) } }, id));
+      else if (id === 'ob-ph-note') res = builderEdit({ op: 'phaseNote', phase: s.key, note: value }, id);
       else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
       else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
         /* Leaving the "name a gate" box empty adds nothing. */
@@ -3481,7 +3488,7 @@
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
       state.focus = !s ? 'ed-h' : s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
       render();
@@ -3496,13 +3503,15 @@
     'ob-role': function (id) { builderToggle('role', id); },
     'ob-bind': function (id) { builderToggle('bind', id); },
     'ob-shot-move': function (id, b) {
-      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || s.kind !== 'step') return;
-      var res = builderEdit({ op: 'moveShot', step: s.key, shot: +id, dir: up ? 'up' : 'down' }); if (!res) return;
+      var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
+      var mv = { op: 'moveShot', shot: +id, dir: up ? 'up' : 'down' }; mv[s.kind] = s.key;
+      var res = builderEdit(mv); if (!res) return;
       state.focus = '[data-act="ob-shot-move"][data-id="' + (+id + (res.same ? 0 : up ? -1 : 1)) + '"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
     },
     'ob-shot-remove': function (id) {
-      var s = state.obSel; if (!s || s.kind !== 'step') return;
-      var res = builderEdit({ op: 'removeShot', step: s.key, shot: +id }); if (!res || res.same) return;
+      var s = state.obSel; if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
+      var rm = { op: 'removeShot', shot: +id }; rm[s.kind] = s.key;
+      var res = builderEdit(rm); if (!res || res.same) return;
       sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
     },
     'ob-del': function (id) {
@@ -4496,7 +4505,7 @@
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;

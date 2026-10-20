@@ -73,13 +73,13 @@ PF.outline = (function () {
           if (!phase || phase.gate) continue;
           var parts = g[1].split(/\s+·\s+/), owner = '', extra = false;
           parts.slice(1).forEach(function (p) { var ow = /^owner\s+@([\w-]+)$/i.exec(p.trim()); if (ow) owner = ow[1]; else extra = true; });
-          gate = { id: head.id, idSuffix: head.suffix, title: parts[0].trim(), owner: owner, approves: '', approvesLine: -1, line: i, end: i + 1, odd: extra, phase: phase };
+          gate = { id: head.id, idSuffix: head.suffix, title: parts[0].trim(), owner: owner, approves: '', approvesLine: -1, notes: 0, noteLines: [], note: '', shots: [], line: i, end: i + 1, odd: extra, phase: phase };
           phase.gate = gate; blk = gate;
           continue;
         }
         var pm = /^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$/.exec(head.rest);
-        phase = { id: head.id, idSuffix: head.suffix, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', line: i, steps: [], tracks: [], gate: null, index: o.phases.length };
-        o.phases.push(phase);
+        phase = { id: head.id, idSuffix: head.suffix, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', line: i, end: i + 1, notes: 0, noteLines: [], note: '', shots: [], odd: false, steps: [], tracks: [], gate: null, index: o.phases.length };
+        o.phases.push(phase); blk = phase;
         continue;
       }
       if (questions) continue;
@@ -91,10 +91,11 @@ PF.outline = (function () {
         phase.steps.push(step); o.steps.push(step); blk = step;
         continue;
       }
+      /* As map.js: notes and screenshots belong to the step or gate above, or to the phase right under its heading (2.0). */
+      var tg = step || gate || (phase && !track ? phase : null);
       if (/^\s{2,}>\s?(.*)$/.test(line)) {
-        var tg = step || gate;
-        if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; continue; }
-      } else if (step && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) { own(step, i); step.shots.push({ caption: m[1], src: m[2], line: i }); continue; }
+        if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; if (tg.noteLines) { tg.noteLines.push(i); tg.note = (tg.note ? tg.note + '\n' : '') + /^\s{2,}>\s?(.*)$/.exec(line)[1]; } continue; }
+      } else if (tg && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) { own(tg, i); tg.shots.push({ caption: m[1], src: m[2], line: i }); continue; }
       else if ((m = /^\s{2,}([\w-]+):\s*(.*)$/.exec(line))) {
         if (gate && m[1] === 'approves') { own(gate, i); gate.approves = m[2].trim(); gate.approvesLine = i; continue; }
         if (gate && (m[1] === 'at' || m[1] === 'due' || m[1] === 'after')) { own(gate, i); continue; }
@@ -184,8 +185,8 @@ PF.outline = (function () {
       meta: map.meta, questions: map.questions, errors: map.errors.map(function (e) { return e.msg; }).sort(),
       phases: map.phases.map(function (p) {
         var g = p.gate;
-        return lined({ id: p.id, title: p.title, mode: p.mode,
-          gate: { id: g.id, title: g.title, owner: g.owner, approves: g.approves, binds: g.binds, note: g.note, fields: g.fields, implicit: g.implicit },
+        return lined({ id: p.id, title: p.title, mode: p.mode, note: p.note, shots: p.shots,
+          gate: { id: g.id, title: g.title, owner: g.owner, approves: g.approves, binds: g.binds, note: g.note, shots: g.shots, fields: g.fields, implicit: g.implicit },
           tracks: p.tracks.map(function (t) { return [t.id, t.title, t.roles]; }),
           steps: p.steps.map(function (s) { return lined({ id: s.id, type: s.type, text: s.text, must: s.must, planned: s.planned, roles: s.roles, binds: s.binds, fields: s.fields, note: s.note, shots: s.shots, track: s.track }, s.line); }) }, p.line);
       })
@@ -365,9 +366,10 @@ PF.outline = (function () {
   }
   /* One step's screenshot lines, as edits that change only those lines; the safety net checks the step's screenshots became
      exactly what was asked for. set: { add: {caption, src} } | { edit: i, caption } | { move: i, dir } | { remove: i }. */
-  function editShots(text, key, set) {
+  function editShots(text, key, set, kind) {
     var g = guard(text); if (g.error) return { error: g.error };
-    var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
+    var o = g.o, ph = kind === 'phase' || kind === 'gate' ? phaseBy(o, key) : null, s = kind === 'phase' ? ph : kind === 'gate' ? ph && ph.gate : stepBy(o, key);
+    if (!s) return { error: ERR.gone };
     if (s.odd) return { error: ERR.odd };
     var lines = o.lines.slice(), cr = crOf(o, s.line), want = s.shots.map(function (x) { return { caption: x.caption, src: x.src }; }), at = s.line, k;
     var lineOf = function (sh, c, src) { var ind = /^\s*/.exec(bare(lines[sh.line]))[0]; return ind + '![' + c + '](' + src + ')' + crOf(o, sh.line); };
@@ -376,7 +378,8 @@ PF.outline = (function () {
       var src = String(set.add.src || '');
       if (!SHOT_SRC.test(src) || src.indexOf('..') >= 0) return { error: 'Screenshots must be under images/.' };
       var last = s.shots[s.shots.length - 1], ind = last ? /^\s*/.exec(bare(lines[last.line]))[0] : '  ';
-      at = last ? last.line + 1 : s.end;
+      /* A phase's first screenshot goes after its note, right under the heading, so it stays the phase's. */
+      at = last ? last.line + 1 : kind === 'phase' && s.noteLines.length ? s.noteLines[s.noteLines.length - 1] + 1 : kind === 'phase' ? s.line + 1 : s.end;
       lines.splice(at, 0, ind + '![' + c.value + '](' + src + ')' + cr);
       want.push({ caption: c.value, src: src });
     } else {
@@ -397,10 +400,27 @@ PF.outline = (function () {
     var line = s.line + 1;
     return done(o, text, lines, function (A) {
       var x = null;
-      A.phases.forEach(function (ph) { ph.steps.forEach(function (st) { if (st._line === line) x = st; }); });
+      if (kind === 'phase') x = A.phases[ph.index];
+      else if (kind === 'gate') x = A.phases[ph.index] && A.phases[ph.index].gate;
+      else A.phases.forEach(function (p) { p.steps.forEach(function (st) { if (st._line === line) x = st; }); });
       if (!x) return false;
       x.shots = want;
     }, at);
+  }
+  /* A phase's note (2.0): its "  > " lines right under the heading, replaced by the new text, one line each; '' removes them. */
+  function phaseNote(text, key, note) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, p = phaseBy(o, key); if (!p) return { error: ERR.gone };
+    if (p.odd) return { error: ERR.odd };
+    var want = String(note == null ? '' : note).replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+$/, ''); });
+    while (want.length && !want[want.length - 1].trim()) want.pop();
+    while (want.length && !want[0].trim()) want.shift();
+    if (want.join('\n').length > 2000) return { error: 'Keep a phase note to 2,000 characters.' };
+    var lines = o.lines.slice(), at = p.noteLines.length ? p.noteLines[0] : p.line + 1, cr = crOf(o, p.line);
+    if (p.noteLines.some(function (l, k) { return k && l !== p.noteLines[k - 1] + 1; })) return { error: ERR.odd };
+    lines.splice.apply(lines, [at, p.noteLines.length].concat(want.map(function (l) { return '  > ' + l + cr; })));
+    var res = done(o, text, lines, function (A) { A.phases[p.index].note = want.join('\n'); }, at);
+    return res;
   }
 
   function addStep(text, to, step) {
@@ -787,15 +807,20 @@ PF.outline = (function () {
       case 'addTrack': return addTrack(text, op.to || {}, op);
       case 'editTrack': return editTrack(text, op.phase, op.track, op.set || {});
       case 'deleteTrack': return deleteTrack(text, op.phase, op.track, op);
-      case 'addShot': return editShots(text, op.step, { add: { caption: op.caption, src: op.src } });
-      case 'editShot': return editShots(text, op.step, { edit: op.shot, caption: op.caption });
-      case 'moveShot': return editShots(text, op.step, { move: op.shot, dir: op.dir });
-      case 'removeShot': return editShots(text, op.step, { remove: op.shot });
+      case 'addShot': return editShots(text, shotKey(op), { add: { caption: op.caption, src: op.src } }, shotKind(op));
+      case 'editShot': return editShots(text, shotKey(op), { edit: op.shot, caption: op.caption }, shotKind(op));
+      case 'moveShot': return editShots(text, shotKey(op), { move: op.shot, dir: op.dir }, shotKind(op));
+      case 'removeShot': return editShots(text, shotKey(op), { remove: op.shot }, shotKind(op));
+      case 'phaseNote': return phaseNote(text, op.phase, op.note);
     }
     return { error: 'Nothing to do.' };
   }
 
-  return { MODES: MODES, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
+  /* A screenshot op names its step, or a phase (the phase's own screenshots) or a gate (by its phase's key). */
+  function shotKind(op) { return op.step != null ? 'step' : op.gate != null ? 'gate' : 'phase'; }
+  function shotKey(op) { return op.step != null ? op.step : op.gate != null ? op.gate : op.phase; }
+
+  return { MODES: MODES, phaseNote: phaseNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
 })();

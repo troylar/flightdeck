@@ -289,10 +289,12 @@
         '<button type="button" class="mini" data-act="ob-ask-cancel">Cancel</button></div>';
       return t + '</section>';
     }
-    var gt = ph.gate, sig = sigOf(o, ph.line, ph.line + 1) + (gt ? '.' + sigOf(o, gt.line, gt.end) : ''), pask = askOf(ctx, 'phase', ph.key);
+    var gt = ph.gate, sig = sigOf(o, ph.line, ph.end) + (gt ? '.' + sigOf(o, gt.line, gt.end) : ''), pask = askOf(ctx, 'phase', ph.key);
     var f = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-phase|' + esc(ph.key) + '|' + sig + '">' + formHead('Phase', ['Phase ' + (ph.index + 1) + ' of ' + o.phases.length]) +
       '<label class="field" for="ob-ph-title">Name<input id="ob-ph-title" maxlength="120" data-enter="ob-commit" value="' + esc(ph.title) + '"' + errAt(ctx, 'ob-ph-title') + '></label>' + errMsg(ctx, 'ob-ph-title') +
       '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>READ-DO: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>DO-CONFIRM: do the work, then confirm together</option></select></label>' +
+      '<label class="field" for="ob-ph-note">Note for the phase <span class="small">shown at the top of the phase in runs. Needs Flightdeck 2.0 to run.</span><textarea id="ob-ph-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-ph-note') + '>' + esc(ph.note || '') + '</textarea></label>' + errMsg(ctx, 'ob-ph-note') +
+      (ph.odd ? '<p class="small">This phase has lines under its heading the builder can\'t change safely. Edit its note and screenshots in Markdown.</p>' : shotsSection(ctx, p, ph, 'phase')) +
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button><button type="button" class="mini" data-act="ob-ask" data-id="phase">Delete this phase</button>' +
       '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="phase:' + esc(ph.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this phase</button></div>';
@@ -313,7 +315,7 @@
      Remove (the line only; the file stays in images/), then a place to add more by Choose files, drop or paste (app.js
      writes each image once and reads it back before its line is added). Thumbnails come from the folder's images/, never a
      run's publication (the last argument to ctx.img). */
-  function shotsSection(ctx, p, s) {
+  function shotsSection(ctx, p, s, kind) {
     var A = PF.attach, n = s.shots.length, busy = ctx.shotBusy ? +ctx.shotBusy(p.id) || 0 : 0;
     var h = '<h3 class="ob-sec" id="ob-shots-h">Screenshots</h3>';
     if (n) {
