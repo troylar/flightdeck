@@ -83,6 +83,12 @@ PF.publish = (function () {
 
   /* The 2.0 features a checklist uses (PF.map.features), which decide its version's format. */
   function features(map) { return M.features(map); }
+  /* What each 2.0 feature is, in words, for the publish panel. */
+  var FEATURE_NAMES = { 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate' };
+  function needs(map) {
+    var f = features(map); if (!f.length) return null;
+    return { features: f, names: f.map(function (x) { return FEATURE_NAMES[x] || x; }) };
+  }
 
   function sha(data) { return PF.sha256.create().update(data).digest(); }
   /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes } }. Slots
@@ -200,5 +206,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

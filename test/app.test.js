@@ -5890,4 +5890,21 @@ rule('App (2.0): anyone viewing a run can suggest a change to a phase\'s note or
   assert.ok(!/id="nc-to"/.test(app.html()), 'closed'); assert.ok(/Correction saved on this computer\./.test(app.html() + app.live()), 'said');
 });
 
+rule('App (2.0): the publish panel names the 2.0 features a draft uses and what that means for teammates on 1.21 or earlier; a draft that uses none says nothing', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const md = app.fs.files['maps/drafts/release.md'].t;
+  await app.fs.write('maps/drafts/release.md', md.replace(/(## Gate: Ready to deploy[^\n]*\n  approves:[^\n]*\n)/, '$1  > Check the change board first.\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  assert.ok(/data-act="publish"/.test(app.html()) && !/Needs Flightdeck 2\.0/.test(app.html()), 'a gate note is not new: every copy since 1.10 publishes it');
+  const phaseNoted = md.replace(/(\n## [^\n]*\{#[\w-]+\}\n)/, '$1  > Read the runbook first.\n');
+  assert.notStrictEqual(phaseNoted, md, 'set-up: a phase note');
+  await app.fs.write('maps/drafts/release.md', phaseNoted);
+  app.click('refresh'); await app.tick(80);
+  const h = app.html();
+  assert.ok(/<p class="small pub-needs"[^>]*><b>Needs Flightdeck 2\.0:<\/b> a note on a phase\./.test(h), h.slice(h.indexOf('change-note'), h.indexOf('change-note') + 1500));
+  assert.ok(/Teammates on Flightdeck 1\.21 or earlier see this version but can(&#39;|')t run it/.test(h));
+});
+
 run();

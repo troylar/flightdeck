@@ -244,6 +244,12 @@
     return box(h + err + '<div class="row ca-acts">' + acts + '</div>');
   }
 
+  /* A draft that uses something new in 2.0 publishes a version older copies can't run: say which, and what that means. */
+  function publishNeeds(p) {
+    var n = PF.publish.needs(M.parse(p.draft.md)); if (!n) return '';
+    var list = n.names.length === 1 ? n.names[0] : n.names.slice(0, -1).join(', ') + ' and ' + n.names[n.names.length - 1];
+    return '<p class="small pub-needs" role="note"><b>Needs Flightdeck 2.0:</b> ' + esc(list) + '. Teammates on Flightdeck 1.21 or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
+  }
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (!p) {
@@ -275,7 +281,7 @@
       if (p.draftChanged) {
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
-          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishCorrections(ctx, p);
+          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(p) + publishCorrections(ctx, p);
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
       h += '</section>';
