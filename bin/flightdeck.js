@@ -854,6 +854,228 @@ async function readMain(argv) {
 }
 function failureJson(eng, kind, why) { return eng ? eng.PF.appjson.failure(eng.version, kind, why, []) : { contract: 'flightdeck-read/1', app: versionOf(app()) || '', error: { kind, why }, problems: [] }; }
 
+/* ---------- Asking for a run: flightdeck plan request (docs/apps.md, docs/design.md section 26) ----------
+   An app asks for a run by writing a planned run to proposals/, which a person reviews and starts in the app. It never starts
+   a run and never writes run.json. The file's name comes from the tool and the key (PF.requests.idFor), and any request
+   already under that name (or a OneDrive copy of it) is read and compared before anything is resolved, so a retry writes
+   nothing. It reads the way the --json commands read (a problem ledger over a read-only view, READ's envelope and exit codes)
+   and writes one file, once, in proposals/ only. */
+
+/* Write proposals/<name> once, never replacing anything and never through a link: the text goes to a temporary file beside it
+   (created exclusively), flushed, then hard-linked to the final name, which fails if the name is taken, so the final name only
+   ever holds the whole text. A disk without hard links gets the final name created exclusively instead. The result is read
+   back byte for byte. Resolves to 'written', or 'exists' when the name was taken first (by another request on this computer,
+   or one OneDrive delivered). hooks.beforeLink: tests only, to land another write in the gap. Exclusive creation prevents
+   replacing a file here; it can't stop two computers that aren't syncing from both writing (OneDrive then keeps both). */
+function writeRequest(dir, name, text, hooks) {
+  if (!/^req-[a-z0-9-]{1,60}\.json$/.test(name)) fail('refusing an unexpected request name: ' + name);
+  const home = folders(dir, ['proposals'], true), target = path.join(home, name), data = Buffer.from(text, 'utf8');
+  const tmp = path.join(home, '.' + name + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
+  const put = (fd) => { for (let off = 0; off < data.length;) { const n = fs.writeSync(fd, data, off, data.length - off); if (!(n > 0)) throw new Error('the disk accepted no more bytes'); off += n; } fs.fsyncSync(fd); };
+  const EXCL = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0);
+  let fd = null, mine = null;
+  try {
+    fd = fs.openSync(tmp, EXCL);
+    mine = fs.fstatSync(fd);
+    put(fd);
+    fs.closeSync(fd); fd = null;
+    folders(dir, ['proposals'], false);
+    const now = lstatOrNull(tmp);
+    if (!now || now.isSymbolicLink() || now.ino !== mine.ino || now.dev !== mine.dev) fail('refusing to write through a link: ' + home);
+    if (hooks && hooks.beforeLink) hooks.beforeLink();
+    try { fs.linkSync(tmp, target); }
+    catch (e) {
+      if (e.code === 'EEXIST') return 'exists';
+      if (['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'].indexOf(e.code) < 0) throw e;
+      let f2;
+      try { f2 = fs.openSync(target, EXCL); } catch (e2) { if (e2.code === 'EEXIST' || e2.code === 'ELOOP') return 'exists'; throw e2; }
+      try { put(f2); } finally { fs.closeSync(f2); }
+    }
+    folders(dir, ['proposals'], false);
+    const st = lstatOrNull(target);
+    if (!st || st.isSymbolicLink() || !st.isFile()) fail('refusing to write through a link: ' + target);
+    if (!fs.readFileSync(target).equals(data)) fail('proposals/' + name + ' didn\'t read back the same after it was written. Check the team folder before asking again.');
+    return 'written';
+  } catch (e) {
+    if (e instanceof Refused) throw e;
+    fail('couldn\'t write proposals/' + name + ': ' + e.message);
+  } finally {
+    if (fd !== null) try { fs.closeSync(fd); } catch (e) { /* already failing */ }
+    /* The temporary file goes, if it's still the one this process made (the final name, once linked, keeps the bytes). */
+    if (mine) { try { const left = lstatOrNull(tmp); if (left && !left.isSymbolicLink() && left.ino === mine.ino && left.dev === mine.dev) fs.unlinkSync(tmp); } catch (e) { /* the result says what happened */ } }
+  }
+}
+
+/* eng: { PF, version }. adapter: the team folder (list, read, stat, blob), only ever read through PF.repo.readOnly inside a
+   problem ledger, as the --json commands read it. req: { key, text (the request's JSON), dryRun, now }. write(name, text):
+   writes proposals/<name> once (writeRequest), resolving 'written' or 'exists'; without it nothing is ever written. Resolves
+   to { code, json }: READ's envelope (exit 0, or 4 when something it depends on couldn't be read, and then nothing is
+   written) with data { request }, or an error object (exit 1: usage, invalid, key-taken, failed; exit 5: not-found). */
+async function requestData(eng, adapter, req, write) {
+  const PF = eng.PF, A = PF.appjson, RQ = PF.requests, repo = PF.repo, app = eng.version || '';
+  const L = repo.ledger(repo.readOnly(adapter, 'Checking a request'));
+  const take = (list) => list.forEach((p) => L.note(p.path, p.kind, p.why));
+  /* What the outcome depends on, which grows as it's read: this request's files in proposals/, then the process's versions
+     and people.json. A problem anywhere else (another plan, another process) is never this request's problem. */
+  const scope = [];
+  let id = '';
+  const relevant = (p) => p === '' || p === 'proposals' || p === 'proposals/' || (!!id && p.indexOf('proposals/' + id) === 0) ||
+    scope.some((x) => p === x || p === x + '/' || p.indexOf(x + '/') === 0 || x.indexOf(p.replace(/\/$/, '') + '/') === 0);
+  const ledger = () => { take(adapterProblems(adapter)); return L.problems().filter((p) => relevant(p.path)); };
+  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why, ledger()) });
+  const done = (file, status, plan, leftEmpty, runKey) => {
+    /* Held always names what couldn't be read; one it can't name is a failure, never a silent success. */
+    if (status === 'held' && !ledger().length) return err(EXIT.error, 'failed', 'Part of the team folder couldn\'t be read, so nothing was written. Try again.');
+    const e = A.envelope(app, new Date().toISOString(), ledger(), A.request(id, file, status, plan, leftEmpty, runKey)); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
+  try {
+    if (typeof req.key !== 'string' || !RQ.KEY.test(req.key)) return err(EXIT.error, 'usage', 'say which key with --key: lowercase letters, numbers, dots, dashes or underscores, at most 64 characters, like 2026-11.');
+    if (Buffer.byteLength(String(req.text), 'utf8') > RQ.LIMITS.bytes) return err(EXIT.error, 'invalid', 'A request is at most 16 KB; this one is more.');
+    let value;
+    try { value = JSON.parse(String(req.text).replace(/^﻿/, '')); } catch (e) { return err(EXIT.error, 'invalid', 'The request isn\'t complete JSON: ' + e.message); }
+    const c = RQ.clean(value, req.key);
+    if (c.errors.length) {
+      /* Every reason at once: when its process can be read, the checklist's own (details, roles, version) too. */
+      let more = [];
+      if (c.intent && c.intent.process) {
+        const d = await repo.loadAll(dependsOn(repo.readOnly(adapter, 'Checking a request'), ['publications/' + c.intent.process]), { readOnly: true, explain: true, deep: true }).catch(() => null);
+        const ck = d ? RQ.check(c.intent, d.processes.filter((x) => x.process === c.intent.process)[0]) : null;
+        more = ck && ck.errors ? ck.errors : [];
+      }
+      return err(EXIT.error, 'invalid', c.errors.concat(more).join(' '));
+    }
+    const intent = c.intent, proc = intent.process;
+    id = RQ.idFor(intent.producer.name, req.key);
+    const file = 'proposals/' + id + '.json';
+
+    /* 1. Any request already under this name, or a OneDrive copy of it, before anything is resolved. unsure: something with
+       its name that couldn't be read or isn't a plan, so whether this request is there isn't known. */
+    const found = async () => {
+      let items;
+      try { items = await L.fs.list('proposals'); } catch (e) { return null; }
+      const copies = [], statuses = [], own = (i) => (i.name === id + '.json' ? 0 : 1);
+      let unsure = false;
+      const names = items.filter((i) => RQ.isCopyName(i.name, id)).sort((a, b) => own(a) - own(b) || (a.name < b.name ? -1 : 1));
+      for (const i of names) {
+        const at = 'proposals/' + i.name;
+        if (i.kind !== 'file') { L.note(at, i.kind === 'link' ? 'link' : 'unreadable', 'This has the request\'s name but isn\'t a file Flightdeck reads. Nothing was written.'); unsure = true; continue; }
+        let f;
+        try { f = await L.fs.read(at, { maxBytes: RQ.LIMITS.file }); } catch (e) { unsure = true; continue; }
+        if (!f) { unsure = true; continue; }
+        let o;
+        try { o = JSON.parse(f.text); } catch (e) { L.note(at, 'malformed', 'This file isn\'t complete JSON (it may still be arriving), so Flightdeck can\'t tell whether it\'s this request. Nothing was written.'); unsure = true; continue; }
+        const plan = !!o && typeof o === 'object' && !Array.isArray(o) && o.kind === 'plan' && typeof o.id === 'string';
+        if (plan && o.id !== id) {
+          if (own(i) === 0) { L.note(at, 'malformed', 'This file has this request\'s name but holds another plan (' + String(o.id).slice(0, 120) + '). Nothing was written.'); unsure = true; }
+          continue;
+        }
+        if (!plan) { L.note(at, 'malformed', 'This file has this request\'s name but isn\'t a plan, so Flightdeck can\'t tell whether it\'s this request. Nothing was written.'); unsure = true; continue; }
+        o._file = i.name;
+        copies.push(o);
+      }
+      for (const i of items.filter((x) => x.kind === 'file' && x.name.indexOf(id + '.status-') === 0 && /\.json$/.test(x.name))) {
+        let o = null;
+        try { const f = await L.fs.read('proposals/' + i.name, { maxBytes: RQ.LIMITS.file }); o = f ? JSON.parse(f.text) : null; }
+        catch (e) { if (e instanceof SyntaxError) L.note('proposals/' + i.name, 'malformed', 'This plan decision isn\'t complete JSON, so whether the request was started may not be shown.'); }
+        if (o && typeof o === 'object' && o.kind === 'status' && o.proposal === id) statuses.push(o);
+      }
+      return { copies, unsure, statuses };
+    };
+    /* A request already there: the same canonical intent in every copy is "already requested"; anything else is refused. */
+    const compare = (there) => {
+      const diffs = there.copies.map((x) => ({ name: x._file, d: RQ.differs(intent, x) })).filter((x) => x.d.length);
+      if (diffs.length) return err(EXIT.error, 'key-taken', 'A request with that key is already in the folder with other details: ' + diffs.map((x) => 'proposals/' + x.name + ' (' + x.d.join(', ') + ')').join('; ') + '. Use another key for another request. Nothing was written.');
+      const shown = repo.groupPlans(there.copies.map((x) => Object.assign({}, x)), there.statuses), st = shown.length === 1 ? shown[0]._status : null;
+      const first = there.copies[0];
+      return done('proposals/' + first._file, 'already', first, [], st && st.status === 'accepted' && typeof st.run === 'string' ? proc + '/' + st.run : null);
+    };
+    const there = await found();
+    if (!there || there.unsure) return done(file, 'held', null, [], null);
+    if (there.copies.length) return compare(there);
+
+    /* 2. Nothing there: resolve what it asks for against the process's versions, check it, then write. */
+    scope.push('publications/' + proc, 'people.json');
+    const d = await repo.loadAll(dependsOn(L.fs, ['publications/' + proc, 'people.json']), { readOnly: true, explain: true, deep: true });
+    take(folderProblems(PF, d));
+    if (ledger().length) return done(file, 'held', null, [], null);
+    const ck = RQ.check(intent, d.processes.filter((x) => x.process === proc)[0]);
+    if (ck.notFound) return err(EXIT.notFound, 'not-found', ck.notFound);
+    if (ck.errors) return err(EXIT.error, 'invalid', ck.errors.join(' '));
+    const plan = RQ.build(intent, ck.pub, req.now || new Date().toISOString()), left = RQ.leftEmpty(intent, d.people);
+    if (req.dryRun || !write) return done(file, 'would-request', plan, left, null);
+    let res;
+    try { res = await write(id + '.json', RQ.text(plan)); } catch (e) { return err(EXIT.error, 'failed', e && e.message || String(e)); }
+    if (res === 'written') return done(file, 'requested', plan, left, null);
+    /* The name was taken between the check and the write: what's there now decides, exactly as on a retry. */
+    const again = await found();
+    if (!again || again.unsure || !again.copies.length) return done(file, 'held', null, [], null);
+    return compare(again);
+  } catch (e) {
+    return err(EXIT.error, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
+  }
+}
+
+/* The request's bytes: from a file, or standard input with "-". At most limit bytes are taken in; more is refused (tooBig). */
+function readRequestInput(arg, limit) {
+  if (arg === '-') {
+    return new Promise((res, rej) => {
+      const chunks = [];
+      let n = 0, over = false;
+      process.stdin.on('data', (c) => { if (over) return; n += c.length; if (n > limit) { over = true; process.stdin.pause(); process.stdin.destroy(); return res({ tooBig: true }); } chunks.push(c); });
+      process.stdin.on('end', () => { if (!over) res({ buf: Buffer.concat(chunks) }); });
+      process.stdin.on('error', (e) => { if (!over) rej(e); });
+    });
+  }
+  return new Promise((res) => {
+    const fd = fs.openSync(expand(arg), 'r');
+    try {
+      const st = fs.fstatSync(fd);
+      if (st.isFile() && st.size > limit) return res({ tooBig: true });
+      const buf = Buffer.alloc(limit + 1);
+      let got = 0;
+      for (;;) { const k = fs.readSync(fd, buf, got, buf.length - got, null); if (!k) break; got += k; if (got > limit) return res({ tooBig: true }); }
+      res({ buf: buf.subarray(0, got) });
+    } finally { fs.closeSync(fd); }
+  });
+}
+/* The words for plan request without --json. */
+function requestWords(json) {
+  if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
+  const r = json.data.request, p = r.plan, lines = [];
+  const what = p ? '"' + p.title + '" (' + p.process + ' v' + p.version + ')' : '';
+  if (r.status === 'requested') lines.push('Requested ' + what + ' in ' + r.file + '. A person starts it in Flightdeck; nothing starts by itself.');
+  if (r.status === 'would-request') lines.push('Would request ' + what + ' in ' + r.file + '. Nothing was written (--dry-run).');
+  if (r.status === 'already') lines.push('Already requested: ' + what + ' in ' + r.file + ', requested ' + p.created + '. Nothing was written.' + (r.run ? ' It was started as ' + r.run + '.' : ''));
+  if (r.status === 'held') lines.push('Nothing was written, because part of what this request depends on couldn\'t be read. Try again once it can be read:');
+  if (r.leftEmpty.length) lines.push('Left for the person who starts it (not active in people.json): ' + r.leftEmpty.join(', ') + '.');
+  json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
+  return lines.join('\n');
+}
+async function requestMain(argv) {
+  const asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run');
+  const ki = argv.indexOf('--key'), key = ki >= 0 ? argv[ki + 1] : null;
+  const args = argv.filter((a, i) => (!a.startsWith('--') || a === '-') && !(i > 0 && argv[i - 1] === '--key'));
+  let eng = null;
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : requestWords(json), code });
+  const usage = (why) => out(failureJson(eng, 'usage', why), EXIT.error);
+  try { eng = loadEngine(); } catch (e) { return out(failureJson(null, 'failed', e.message), EXIT.error); }
+  const RQ = eng.PF.requests;
+  if (args[1] !== 'request') return usage('say what to do: flightdeck plan request <team folder> <request.json | -> --key <key>');
+  if (!args[2] || !args[3] || args[4]) return usage('say the team folder and the request file, or - for standard input: flightdeck plan request <team folder> <request.json | -> --key <key>');
+  if (ki < 0 || !key || key.startsWith('--')) return usage('say which key with --key, for example --key 2026-11. The same key always means the same request.');
+  if (!RQ.KEY.test(key)) return usage('the key is lowercase letters, numbers, dots, dashes or underscores, at most 64 characters, starting with a letter or number, like 2026-11.');
+  const unknown = argv.filter((a) => a.startsWith('--') && ['--json', '--dry-run', '--key'].indexOf(a) < 0);
+  if (unknown.length) return usage('plan request doesn\'t take ' + unknown.join(', ') + '.');
+  let dir;
+  try { dir = folderArg(args[2], 'plan request'); } catch (e) { return out(failureJson(eng, 'failed', e.message), EXIT.error); }
+  let input;
+  try { input = await readRequestInput(args[3], RQ.LIMITS.bytes); } catch (e) { return usage('couldn\'t read the request ' + (args[3] === '-' ? 'from standard input' : args[3]) + ': ' + e.message); }
+  if (input.tooBig) return out(failureJson(eng, 'invalid', 'A request is at most 16 KB; this one is more.'), EXIT.error);
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(input.buf); } catch (e) { return out(failureJson(eng, 'invalid', 'The request isn\'t UTF-8 text.'), EXIT.error); }
+  const r = await requestData(eng, readAdapter(dir, { maxBytes: READ_MAX }), { key, text, dryRun }, (name, t) => writeRequest(dir, name, t));
+  return out(r.json, r.code);
+}
+
 /* ---------- Writing drafts for AI assistants: flightdeck draft read | save | propose (contract flightdeck-draft/1) ----------
    These commands change the team folder, and only ever write maps/drafts/<process>.md (a direct save), one new
    proposed/<process>/<operation>.json and one new history/drafts/<process>/agent-<operation>.jsonl, all through folders()
@@ -1074,6 +1296,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       what's waiting in a run and on whom (with --person, that person's next step)
   flightdeck followups <team folder> [--process <id>] [--status open|all] --json
                                       every follow-up and what became of it
+  flightdeck plan request <team folder> <request.json | -> --key <key> [--json] [--dry-run]
+                                      for other apps: ask for a run. Writes a planned run to proposals/ once, for a
+                                      person to start in Flightdeck; the same key and request again writes nothing
   flightdeck draft read <team folder> <process> [--session <id>] [--or-latest] --json
                                       for AI assistants: the draft's exact text and rev, who has it open,
                                       this session's proposals and the text to continue from
@@ -1096,6 +1321,11 @@ The JSON commands only read: they never change a file in the team folder. Exit c
 is printed, and "problems" names every file or folder that couldn't be read); 1: no data; 5: no such process, version or
 run. People-directory email fields are omitted. See docs/apps.md in the Flightdeck repository.
 
+plan request never starts a run and never writes run.json; it writes one new file in proposals/, once. Exit code 0:
+requested, already requested, or (--dry-run) what it would write; 4: nothing written, because something it depends on
+couldn't be read; 1: refused (usage, a request that isn't valid, or the same key with other details); 5: no such process
+or version.
+
 flightdeck draft changes the team folder (contract flightdeck-draft/1). Exit code 0: written or proposed (read: complete);
 4: read, partial; 1: usage, missing-base, too-big or failed; 5: read, no such process.
 
@@ -1113,6 +1343,7 @@ function main(argv) {
   const first = argv.filter((a) => !a.startsWith('--'))[0];
   if (READS.indexOf(first) >= 0 && !argv.includes('--help')) return readMain(argv);
   if (first === 'draft' && !argv.includes('--help')) return draftMain(argv);
+  if (first === 'plan' && !argv.includes('--help')) return requestMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */
@@ -1230,4 +1461,4 @@ if (require.main === module) {
     if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
   } catch (e) { failed(e); }
 }
-module.exports = { _hooks, main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, EXIT };
+module.exports = { _hooks, main, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, EXIT };

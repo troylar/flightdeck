@@ -2,7 +2,7 @@
 
 Flightdeck is a checklist tool for people: a monthly backup check, a quarterly access review, onboarding a new hire, closing the month, a release. Other apps can work beside a run the way a teammate would: look at it, then let the people decide. Since 1.18 an app can **read** checklists, runs, what's waiting and on whom, and follow-ups as JSON, through the `flightdeck` command. It works offline, on the team folder itself. There's no server and nothing to sign in to.
 
-Reading is the only thing an app can do with runs so far. Asking for a run and reporting work a tool did are planned for later slices; until then a person starts every run and checks every step. Since 1.19, AI assistants can also read and save **drafts** of checklists with `flightdeck draft` (contract `flightdeck-draft/1`, at the end of this page). Those commands change the team folder; the reading commands never do.
+Since 1.20 an app can also **ask for a run** with `flightdeck plan request`: it writes a planned run that a person reviews and starts in the app (see *Asking for a run*, below). Reporting work a tool did is planned for a later release; until then a person checks every step. Since 1.19, AI assistants can also read and save **drafts** of checklists with `flightdeck draft` (contract `flightdeck-draft/1`, at the end of this page). `plan request` and the draft commands change the team folder; the reading commands never do.
 
 ## What reading promises
 
@@ -138,7 +138,7 @@ Each step: `id` (stable across versions; keep these in your app's settings), `te
 | `readOnly` | Why this copy can only show the run, or `null` |
 | `marksComplete` | `true` when the run kept marks from its start. When it's `false` (a run started before 1.15), a step with no `marks` may still have been blocked or redone in an answer the run no longer holds: read it as unknown, not as none. |
 
-Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, `changed` when the plan was edited after a decision) `run` (the started run's key, once accepted), `startsOn` (`version` and `folder` a person starting it now gets, as the app picks it, or `null` when the process has no usable version) and `versionMissing` (`true` when the plan names a version the folder doesn't have, so the app would start it on the latest instead). When any of the process's versions couldn't be read, both are `null`: unknown, never claimed missing. A `version` that isn't a version number (like `v3` or `1.5`) makes the plan `malformed`.
+Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, including a plan started twice from two computers, `changed` when the plan was edited after a decision) `run` (the started run's key, once accepted), `copies` (how many files hold this plan: OneDrive keeps both when two computers write it while disconnected; copies that say the same thing are listed once), `copiesDiffer` (`true` when those copies say different things: each is listed, and the app starts neither until a person deletes one), `requestedBy` (`name` and `version` of the tool that asked for it with `flightdeck plan request`, by its own account, or `null` for a plan a person or an assistant wrote), `startsOn` (`version` and `folder` a person starting it now gets, as the app picks it, or `null` when the process has no usable version) and `versionMissing` (`true` when the plan names a version the folder doesn't have, so the app would start it on the latest instead). When any of the process's versions couldn't be read, both are `null`: unknown, never claimed missing. A `version` that isn't a version number (like `v3` or `1.5`) makes the plan `malformed`.
 
 ### run
 
@@ -177,6 +177,104 @@ The examples are ordinary team processes. None of them is special to Flightdeck.
 5. **Check follow-ups.** `flightdeck followups "$TEAM" --status open --json` lists what's still open after each run, with its owner.
 
 Treat a partial result (exit 4) as partial: show what was read and say what wasn't. A tool that can't see the team folder hands this JSON to a person or an assistant who can.
+
+## Asking for a run
+
+An app can ask for a run the way a teammate would put one on the calendar: a script asks for the monthly backup check on the first of the month, a scheduler asks for the quarterly access review, an onboarding tool asks for a new hire's checklist, a deploy script asks for a release. The request shows in the app as a planned run. **A person starts it**, changes it or declines it, exactly as with any planned run. Nothing starts by itself, and the command never writes `run.json`.
+
+```
+flightdeck plan request <team folder> <request.json | -> --key <key> [--json] [--dry-run]
+```
+
+**For example**, on the first of each month a backup script writes this to `request.json` and runs `flightdeck plan request "$TEAM" request.json --key 2026-11`:
+
+```json
+{ "process": "backup-check", "title": "Backup check · November", "details": { "site": "main office" },
+  "roles": { "checker": "person-casey" }, "note": "Monthly, on the first.",
+  "producer": { "name": "backup-script", "version": "1.4.0" } }
+```
+
+Run it again (the script retried, or ran twice) and nothing changes: the request is already there. Use a new key for each run you want, such as the month or the ticket.
+
+### The request
+
+At most 16 KB of UTF-8 JSON, from a file or from standard input with `-`. Anything not listed here, at any level, is refused.
+
+| Field | Required | What it is |
+|---|---|---|
+| `process` | yes | The process ID, like `backup-check` |
+| `producer` | yes | `name`: your tool, lowercase letters, numbers and dashes, at most 30 (like `backup-script`); `version`: its version, like `1.4.0` |
+| `version` | no | A version number to start on. Left out, Flightdeck picks the latest version it can use, and the request stays on that version |
+| `title` | no | The run's name, at most 100 characters. Left out, the checklist's title |
+| `details` | no | Run details by name, each text up to 120 characters. Names must be the checklist's run details |
+| `roles` | no | Role to person ID (from `people.json`). Names must be the checklist's roles. A person who isn't active there is kept as asked, and the start form leaves that role for whoever starts the run |
+| `when` | no | A date and time with its zone, like `2026-11-01T09:00:00Z`. The app lists planned runs by it and shows one on Home from 24 hours before |
+| `note` | no | At most 250 characters, for the person who starts it |
+
+Text can't hold line breaks or other control characters.
+
+`--key` is lowercase letters, numbers, dots, dashes or underscores, at most 64 characters, starting with a letter or number (`2026-11`, `abc-123`, `q4.access-review`). The same tool and key always mean the same request.
+
+### What it writes
+
+One file, once: `proposals/req-<tool>-<hash>.json`, where `<hash>` is the first 24 hex characters of the SHA-256 of `["<tool>","<key>"]` (that JSON array, as UTF-8). The hash covers the tool and the key together, so two different pairs never share a name; the tool's name is there for people reading the folder. The file is an ordinary planned run with only the fields plans already have, so every copy of Flightdeck since 1.13 lists it and can start it:
+
+```json
+{ "kind": "plan", "id": "req-backup-script-…", "process": "backup-check", "version": 3, "title": "Backup check · November",
+  "details": { "site": "main office" }, "roles": { "checker": "person-casey" },
+  "note": "Requested by backup-script. Monthly, on the first.", "by": "backup-script 1.4.0 (a tool)", "created": "2026-11-01T06:00:00.000Z" }
+```
+
+The app shows it as "requested by backup-script, by its own account". **The name is a claim, not an identity:** anyone who can write to the team folder can write a file like this, so Flightdeck can't confirm which tool or person wrote it, and the start form says so.
+
+### Asking again: the same key
+
+Before it resolves anything, the command reads any request already under that name, including a copy OneDrive kept beside it (`req-…-LAPTOP.json`, `req-… (1).json`). It compares what this call asks for with what's there:
+
+- **The same request** (exit 0, `already`): nothing is written. The original time and version stand, even if a newer version was published since.
+- **Other details** (exit 1, `key-taken`): refused, naming the file and what differs. Nothing is written. Use another key for another request.
+
+What's compared is the request as asked: the process, your tool's name, and `details`, `roles`, `when` and `note`, where leaving one out means none. `version` and `title` are compared only when you send them, because when you leave them out Flightdeck chose them the first time. Your tool's `version` is never compared. Key order, and the same time written another way, don't matter.
+
+### The result
+
+With `--json`, READ's envelope (`flightdeck-read/1`): `contract`, `app`, `readAt`, `complete`, `problems`, `note` and `data`, where `data` is `{ "request": {...} }` (one field, `request`):
+
+| Field | What it is |
+|---|---|
+| `id` | The plan's ID, which is also its file name without `.json` |
+| `file` | The file, relative to the team folder |
+| `status` | `requested` (written now), `already` (it was there; nothing written), `would-request` (with `--dry-run`; nothing written) or `held` (nothing written, because something it depends on couldn't be read; `problems` says what) |
+| `plan` | The plan as written, as it already was, or as it would be written; `null` when `held` |
+| `leftEmpty` | Roles whose person isn't active in `people.json`, for the person who starts it to fill |
+| `run` | When the request was already started, that run's key; else `null` |
+
+Without `--json` it says the same in words.
+
+| Code | Means |
+|---|---|
+| `0` | `requested`, `already` or `would-request` |
+| `4` | `held`: something the request depends on couldn't be read (a copy of the request, one of the process's versions, `people.json`), so nothing was written. `complete` is `false`, and `problems` names each file. Try again once it can be read. |
+| `1` | Refused, with an error object: `usage` (a missing or bad key, folder or file), `invalid` (the request isn't valid; every reason is named, including details and roles the checklist doesn't have), `key-taken` (the same key with other details) or `failed` (the folder couldn't be read or written, or a link was refused) |
+| `5` | `not-found`: no such process, or no such version of it |
+
+### What it reads and writes
+
+It reads only `proposals/` (this request's own files and their decisions), the process's versions and `people.json`, and a problem anywhere else never holds it back. It writes one new file in `proposals/` and nothing else: never through a link, never outside the folder. The file is written to a temporary name first, flushed, then put in place in one step that fails if the name is already taken, so it never replaces a file and the final name never holds half a request. It's read back byte for byte. `--dry-run` only reads: it doesn't even make `proposals/` when it's missing.
+
+### What it can't promise
+
+- **Two computers that aren't syncing.** Creating the file exclusively stops a second request from replacing the first on one computer, but it doesn't stop two computers that can't see each other (OneDrive paused or offline) from both writing it. OneDrive then keeps both, one as `req-…-COMPUTER.json`. Flightdeck shows copies that say the same thing once ("This request arrived twice"). Copies that say different things are both listed, flagged, and can't be started until a person deletes the wrong one. Copies of the same request made by different versions of your tool count as the same.
+- **A run starting exactly once.** A request is a plan, and a person starts it. Two people starting it from two computers before their files sync makes two runs; Flightdeck then shows the plan's decisions as conflicting (`conflicting`) instead of hiding one. Check Runs before starting it again.
+- **Who asked.** The tool's name is what the file says.
+- **Older copies.** Flightdeck 1.13 to 1.19 list a request as an ordinary planned run ("planned by backup-script 1.4.0 (a tool)") and can start it. They show each OneDrive copy as its own planned run and don't flag a plan started twice, so with older copies still in use, delete a duplicate copy as soon as you see one (Folder health, from 1.15, reports it).
+
+### A walkthrough, with a request
+
+1. **Learn the checklist once** with `flightdeck process "$TEAM" backup-check --json`: its run details and roles, so the request uses the right names.
+2. **Ask for the run** with `flightdeck plan request "$TEAM" request.json --key 2026-11`. Retry freely: the same key and request change nothing.
+3. **A person starts it** in the app, from **Runs** or Home, and can change the title, details and roles first.
+4. **Find the run** with `flightdeck runs "$TEAM" --process backup-check --status planned --json`: once started, the planned run's `status` is `accepted` and `run` is the run's key. `flightdeck plan request` with the same key says it too (`run`).
 
 ## Writing drafts (for AI assistants)
 

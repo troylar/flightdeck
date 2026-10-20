@@ -31,6 +31,17 @@
 
   /* A plan's time, or null when it has none or it can't be read. */
   function whenOf(p) { var t = typeof p.when === 'string' ? Date.parse(p.when) : NaN; return isNaN(t) ? null : t; }
+  /* Who asked for a plan: a person (or an assistant) planned it; another app's request names its tool, as a claim. */
+  function plannedBy(ctx, p) {
+    var c = PF.requests.claim(p);
+    return c ? 'requested by ' + c.name + ', by its own account' : 'planned by ' + (p.by ? nameOf(ctx, p.by) : 'an AI assistant');
+  }
+  /* OneDrive kept more than one file of this plan: the same plan (shown once), or copies that differ (none can start). HTML. */
+  function copiesLine(p) {
+    var what = PF.requests.claim(p) ? 'request' : 'plan';
+    if (p._copiesDiffer) return '<b>Two different copies of this ' + what + ' are in the folder.</b> Neither can be started until a person deletes one.';
+    return p._copies > 1 ? 'This ' + what + ' arrived ' + (p._copies === 2 ? 'twice' : p._copies + ' times') + ' (OneDrive kept a copy). It\'s shown once.' : '';
+  }
   /* Soonest first; plans without a time after them, oldest first. */
   function byWhen(plans) {
     return plans.slice().sort(function (a, b) {
@@ -65,9 +76,9 @@
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
     byWhen(d.plans.filter(function (p) { return !p._status; })).forEach(function (p) {
-      var t = whenOf(p);
-      if (t == null) add('plan', esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', p._conflicting ? clash : 'Review it before it starts.', 'review-plan', p.id, 'Review the plan');
-      else if (t - now <= 86400000) add('plan', esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), p._conflicting ? clash : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.', 'review-plan', p.id, 'Review and start');
+      var t = whenOf(p), c = PF.requests.claim(p), flag = p._conflicting ? clash : p._copiesDiffer ? copiesLine(p) : null;
+      if (t == null) add('plan', c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.', 'review-plan', p.id, 'Review the plan');
+      else if (t - now <= 86400000) add('plan', esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.'), 'review-plan', p.id, 'Review and start');
     });
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', 'Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.', 'open-process', id, 'Open it'); });
     ctx.processes().forEach(function (p) {
@@ -156,8 +167,12 @@
     if (only) return h + only;
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 style="margin:0">Running</h2><div class="filter" role="group" aria-label="Show runs"><button class="chipbtn" data-act="filter" data-id="mine" aria-pressed="' + (st.filter !== 'all') + '">Mine</button><button class="chipbtn" data-act="filter" data-id="all" aria-pressed="' + (st.filter === 'all') + '">Everyone</button></div></div>';
     h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.reading ? 'None read yet.' : st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
+    /* Copies of one plan that differ are each shown; only the first keeps the card's id, so ids stay unique. */
+    var cardIds = {};
     if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
-      return '<button class="card plan" id="card-' + esc(p.id) + '" data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
+      var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
+      cardIds[p.id] = true;
+      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
     }).join('') + '</div></section>';
     h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? K.paged(st, 'runs-ended', ended, cards, runKey) : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
       (d.legacy.length ? '<p class="small">From Flightdeck v0.1 (read-only files in <code>runs/</code>): ' + d.legacy.map(function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }).join(', ') + '</p>' : '') + '</section>';
@@ -215,5 +230,5 @@
     return h;
   }
 
-  V.planWhen = whenOf; V.home = home; V.runs = runs; V.followUpsPage = followUpsPage; V.processesPage = processesPage; V.skillsPage = skillsPage; V.pageHead = pageHead;
+  V.planWhen = whenOf; V.plannedBy = plannedBy; V.planCopies = copiesLine; V.home = home; V.runs = runs; V.followUpsPage = followUpsPage; V.processesPage = processesPage; V.skillsPage = skillsPage; V.pageHead = pageHead;
 })();

@@ -55,7 +55,7 @@ rule('The assistants\' folder checker agrees with the app on complete, damaged a
   }
   assert.strictEqual(out.publications.release.current, v1.folder);
   assert.deepStrictEqual(out.plans.map(p => p.id + ':' + p.status), ['plan-a:decided', 'plan-b:pending']);
-  assert.deepStrictEqual(app.plans.map(p => p.id + ':' + !!p._status).sort(), ['plan-a:true', 'plan-b:false']);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(app.plans.map(p => p.id + ':' + !!p._status).sort())), ['plan-a:true', 'plan-b:false']);
   assert.deepStrictEqual(out.conflicts, [{ run: 'release/r1', copies: ['run-PC (1).json'] }]);
 
   // Change plan-a after the decision: both say it's no longer decided.
@@ -176,6 +176,41 @@ rule('A version that lists the corrections it includes (1.16) is complete for th
   assert.ok(app.processes[0].pubs[0].ok, 'the app runs it');
   assert.strictEqual(out.publications.release.versions.find(v => v.folder === v1.folder).status, 'complete', 'the checker ignores the field');
   assert.strictEqual(out.publications.release.current, v1.folder);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+rule('The assistants\' folder checker agrees with the app on OneDrive copies of a plan and on a plan started twice', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-check-'));
+  const d = new DiskFS(root);
+  await d.write('people.json', JSON.stringify(people));
+  await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  const plan = (id, extra) => JSON.stringify(Object.assign({ kind: 'plan', id, process: 'release', version: 1, title: 'Requested', details: {}, roles: {}, note: 'Requested by ci-check.', by: 'ci-check 1.4.0 (a tool)', created: NOW }, extra || {}), null, 2) + '\n';
+  const A = 'req-ci-check-' + 'a'.repeat(24), B = 'req-ci-check-' + 'b'.repeat(24), C = 'req-ci-check-' + 'c'.repeat(24);
+  // The same request twice (another computer's own time), a request whose copies differ, and a plan started on two computers.
+  await d.write('proposals/' + A + '.json', plan(A));
+  await d.write('proposals/' + A + '-LAPTOP.json', plan(A, { created: '2026-10-18T08:00:00.000Z' }));
+  await d.write('proposals/' + B + '.json', plan(B));
+  await d.write('proposals/' + B + '-LAPTOP.json', plan(B, { title: 'Other' }));
+  await d.write('proposals/' + C + '.json', plan(C));
+  let app = await repo.loadAll(d, { deep: true });
+  const c = app.plans.find(p => p.id === C);
+  await repo.recordPlanStatus(d, c, 'w1', 'accepted', 'run1', 'person-casey');
+  await repo.recordPlanStatus(d, c, 'w2', 'accepted', 'run2', 'person-blake');
+  // The LAPTOP copy of A was started: the start counts for the request.
+  await repo.recordPlanStatus(d, Object.assign({}, app.plans.find(p => p.id === A), { _hash: PF.util.hash(JSON.stringify(JSON.parse(plan(A, { created: '2026-10-18T08:00:00.000Z' })))) }), 'w3', 'accepted', 'run3', 'person-casey');
+  app = await repo.loadAll(d, { deep: true });
+  const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+  const py1 = (id) => out.plans.filter(p => p.id === id);
+  const a = app.plans.filter(p => p.id === A);
+  assert.strictEqual(a.length, 1); assert.ok(a[0]._status && a[0]._status.run === 'run3');
+  assert.deepStrictEqual(py1(A).map(p => [p.file, p.status]), [[A + '.json', 'decided']]);
+  assert.ok(app.plans.filter(p => p.id === B).every(p => p._copiesDiffer));
+  assert.deepStrictEqual(py1(B).map(p => p.status), ['ambiguous']);
+  assert.ok(/different copies/.test(py1(B)[0].why));
+  assert.strictEqual(app.plans.find(p => p.id === C)._conflicting, true);
+  assert.deepStrictEqual(py1(C).map(p => p.status), ['ambiguous']);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

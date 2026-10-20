@@ -102,7 +102,7 @@ rule('docs/apps.md documents flightdeck-draft/1: every field of draft read and d
 
 rule('1.19.0 has its own release entry, and its text promises exactly slices 1 and 2: live apply with nothing unsaved, never a merge', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.19.0')[0];
-  assert.ok(r && rel[0] === r, '1.19.0 is the newest release');
+  assert.ok(r, '1.19.0 has its own release entry');
   const text = JSON.stringify(r);
   assert.ok(!/merg|never silently|always appears|instantly|real[- ]time/i.test(text), 'nothing slice 3 promises, and no promise beyond a few seconds');
   assert.ok(/proposal/i.test(text) && /draft read, save and propose/.test(text), 'slice 1');
@@ -115,6 +115,28 @@ rule('Only the display uses the newest-200 list of proposals: judging, Apply, de
   const uses = files.map(f => [f, (src(f).match(/\.shown\b/g) || []).length]).filter(x => x[1]);
   assert.deepStrictEqual(uses, [['src/ui/app.js', 1]], 'the capped list (shown) is read in one place, the display filter in processes()');
   files.forEach(f => assert.ok(!/(pr|pr2|x|procs\.\w+|procs\[\w+\])\.proposals\b/.test(src(f)), f + ' reads a capped list under its old name'));
+});
+
+rule('docs/apps.md documents flightdeck plan request: its command, every status, error kind and exit code, and its limits', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'flightdeck.html'), 'utf8'), core = /<script id="pf-core">([\s\S]*?)<\/script>/.exec(html)[1];
+  assert.ok(/PF\.requests = /.test(core), 'core/requests.js is in CORE');
+  const PF = require('./harness').load(), Q = PF.requests.CLI, doc = fs.readFileSync(path.join(ROOT, 'docs', 'apps.md'), 'utf8');
+  assert.ok(doc.includes('flightdeck plan request '));
+  const missing = Q.input.concat(Q.statuses, Q.errors).filter(k => !doc.includes('`' + k + '`'));
+  assert.strictEqual(missing.length, 0, 'not in docs/apps.md: ' + missing.join(', '));
+  ['--key', '--dry-run'].forEach(f => assert.ok(doc.includes(f), f));
+  assert.ok(/doesn't stop two computers/.test(doc) && /exactly once/.test(doc), 'the stated limits');
+  const help = require('child_process').execFileSync(process.execPath, [path.join(ROOT, 'bin', 'flightdeck.js'), 'help'], { encoding: 'utf8' });
+  assert.ok(help.includes('flightdeck plan request <team folder>'), 'the help names it');
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  assert.ok(readme.includes('flightdeck plan request'), 'README');
+});
+
+rule('1.20.0 has its own release entry, in plain words', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.20.0')[0];
+  assert.ok(r && rel[0] === r, '1.20.0 is the newest release');
+  const text = JSON.stringify(r);
+  assert.ok(/plan request/.test(text) && /A person starts/.test(text) && /by its own account/.test(text), text);
 });
 
 run();

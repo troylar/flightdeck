@@ -634,16 +634,7 @@ PF.repo = (function () {
         /* Reading for other apps shows only plans and decisions in the format; the rest are named above. */
         statuses = statuses.filter(function (x) { return !statusWhy(x); }); plans = plans.filter(function (x) { return !planWhy(x); });
       }
-      /* A decision counts only for the exact plan it was made on; if the plan changed afterwards, it's pending again. */
-      plans.forEach(function (p) {
-        p._hash = U.hash(JSON.stringify(stripMeta(p)));
-        var mine = statuses.filter(function (s) { return s.proposal === p.id; });
-        /* Decisions that disagree (one accepted, one declined) leave the plan undecided rather than picking one. */
-        var match = mine.filter(function (s) { return s.proposalHash === p._hash; });
-        p._conflicting = match.some(function (s) { return s.status !== match[0].status; });
-        p._status = match.length && !p._conflicting ? match[0] : null;
-        p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
-      });
+      plans = groupPlans(plans, statuses);
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
         var x = reads[k]; if (!x) return;
@@ -1456,6 +1447,33 @@ PF.repo = (function () {
      A raw, read-only collector, separate from display loading. It never calls loadRun or readRun: those can delete a save
      receipt already in run.json's lineage and build display objects. It sees the folder only through readOnly(), which has
      list, read, stat and blob and throws on anything that would change a file, in the app and in the command line alike. */
+  /* Plans and their decisions. One plan can be in two files: OneDrive keeps both when two computers wrote it while
+     disconnected (a request from another app, made on each). Copies that say the same thing (PF.requests.same: equal apart
+     from when each was written) are one plan, shown once from the file under its own name (_copies says how many files);
+     copies that differ are each shown, flagged (_copiesDiffer, _files), and the app starts neither until a person deletes one.
+     A decision counts only for the exact plan it was made on (any copy of it); if the plan changed afterwards, it's pending
+     again. Decisions that disagree (one accepted and one declined, or two starts naming different runs) leave the plan
+     undecided rather than picking one, so a plan started on two computers is shown, never hidden. */
+  function groupPlans(plans, statuses) {
+    var byId = Object.create(null), order = [], out = [];
+    plans.forEach(function (p) { p._hash = U.hash(JSON.stringify(stripMeta(p))); if (!byId[p.id]) { byId[p.id] = []; order.push(p.id); } byId[p.id].push(p); });
+    order.forEach(function (id) {
+      var own = id + '.json', g = byId[id].sort(function (a, b) { var ca = a._file === own ? 0 : 1, cb = b._file === own ? 0 : 1; return ca - cb || (String(a._file) < String(b._file) ? -1 : String(a._file) > String(b._file) ? 1 : 0); });
+      var alike = g.every(function (p) { return PF.requests.same(p, g[0]); }), files = g.map(function (p) { return p._file; });
+      (alike ? [g[0]] : g).forEach(function (p) {
+        var hashes = alike ? g.map(function (x) { return x._hash; }) : [p._hash];
+        var mine = statuses.filter(function (s) { return s.proposal === p.id; });
+        var match = mine.filter(function (s) { return hashes.indexOf(s.proposalHash) >= 0; });
+        var started = match.filter(function (s) { return s.status === 'accepted'; });
+        p._conflicting = match.some(function (s) { return s.status !== match[0].status; }) || started.some(function (s) { return (s.run || null) !== (started[0].run || null); });
+        p._status = match.length && !p._conflicting ? match[0] : null;
+        p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
+        p._copies = g.length; p._copiesDiffer = !alike; p._files = files;
+        out.push(p);
+      });
+    });
+    return out;
+  }
   /* Reading for other apps: what's wrong with a plan or a plan decision, or '' when it's in the format. */
   function textOr(v) { return v == null || typeof v === 'string'; }
   function plainOf(v, ok) {
@@ -2115,5 +2133,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

@@ -5793,4 +5793,74 @@ rule('App: Runs › Export evidence… asks for a process and two days, checks t
   assert.ok(/\d+ runs? · /.test(app.overlay()) && /Change the days/.test(app.overlay()), app.overlay().slice(0, 800));
 });
 
+/* REQUEST (1.20): another app asks for a run with flightdeck plan request; a person starts it here. The folder the app has
+   open is copied to disk, the real command runs on it, and the file it wrote is put back as OneDrive would. */
+function requestThroughCli(app, body, key) {
+  const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-req-'));
+  Object.keys(app.fs.files).filter(p => typeof app.fs.files[p].t === 'string').forEach(p => { const f = path.join(dir, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, app.fs.files[p].t); });
+  const inFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-req-in-')), 'r.json');
+  fs.writeFileSync(inFile, JSON.stringify(body));
+  const r = cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'flightdeck.js'), 'plan', 'request', dir, inFile, '--key', key, '--json'], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  const j = JSON.parse(r.stdout), rel = j.data.request.file;
+  return { id: j.data.request.id, rel, text: fs.readFileSync(path.join(dir, ...rel.split('/')), 'utf8') };
+}
+const ASKED = { process: 'release', title: 'Release requested by a script', details: { ticket: 'ABC-777', environment: 'production' }, roles: { qa: 'person-morgan' }, producer: { name: 'ci-check', version: '1.4.0' } };
+
+rule('Requests: a requested run shows as a planned run naming the tool as a claim, and a person starts it', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const req = requestThroughCli(app, ASKED, '2026-11');
+  const runsBefore = releaseRuns(app);
+  app.fs.files[req.rel] = { t: req.text, m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  assert.deepStrictEqual(releaseRuns(app), runsBefore, 'nothing starts by itself');
+  assert.ok(/ci-check requested "Release requested by a script" \(by its own account\)/.test(app.html()), 'on Home, as a claim');
+  app.click('nav', 'runs'); await app.tick();
+  const card = new RegExp('<button class="card plan" id="card-' + req.id + '"[^>]*>[\\s\\S]*?</button>').exec(app.html());
+  assert.ok(card && /requested by ci-check, by its own account/.test(card[0]) && /Release requested by a script/.test(card[0]), card ? card[0] : app.html());
+  app.click('review-plan', req.id); await app.tick();
+  const html = app.html();
+  assert.ok(/Requested by ci-check 1\.4\.0, by its own account\./.test(html) && /can(&#39;|')t confirm which tool or person wrote this file/.test(html), 'the claim, said as one');
+  assert.ok(/id="detail-ticket"[^>]*value="ABC-777"/.test(html) && /id="start-submit"(?![^>]*disabled)/.test(html));
+  app.submitForm('start-form'); await app.tick(120);
+  const made = releaseRuns(app).filter(p => runsBefore.indexOf(p) < 0);
+  assert.strictEqual(made.length, 1, 'the person started it');
+  const run = JSON.parse(app.fs.files[made[0]].t);
+  assert.strictEqual(run.title, 'Release requested by a script'); assert.strictEqual(run.details.ticket, 'ABC-777');
+  assert.strictEqual(run.recorder.person, 'person-casey', 'the person who started it records it, never the tool');
+  assert.strictEqual(app.files('proposals/' + req.id + '.status-').length, 1, 'the request is marked started, like any plan');
+  assert.strictEqual(JSON.parse(app.fs.files[app.files('proposals/' + req.id + '.status-')[0]].t).run, run.id);
+  assert.strictEqual(app.fs.files[req.rel].t, req.text, 'the request file itself is never changed');
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(!new RegExp('data-act="review-plan" data-id="' + req.id + '"').test(app.html()), 'started, so no longer planned');
+});
+
+rule('Requests: an identical OneDrive copy shows the request once, arrived twice; copies that differ are flagged and can\'t be started', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const req = requestThroughCli(app, ASKED, 'twice');
+  app.fs.files[req.rel] = { t: req.text, m: Date.now() };
+  app.fs.files['proposals/' + req.id + '-LAPTOP.json'] = { t: req.text.replace(/"created": "[^"]*"/, '"created": "2026-01-01T00:00:00.000Z"'), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'runs'); await app.tick();
+  assert.strictEqual((app.html().match(new RegExp('data-act="review-plan" data-id="' + req.id + '"', 'g')) || []).length, 1, 'shown once');
+  assert.ok(/This request arrived twice/.test(app.html()));
+  app.fs.files['proposals/' + req.id + '-LAPTOP.json'] = { t: req.text.replace('Release requested by a script', 'Another title'), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  assert.strictEqual((app.html().match(new RegExp('data-act="review-plan" data-id="' + req.id + '"', 'g')) || []).length, 2, 'both shown');
+  assert.ok(/Two different copies of this request are in the folder/.test(app.html()));
+  app.click('review-plan', req.id); await app.tick();
+  assert.ok(/id="start-submit"[^>]*disabled/.test(app.html()) && /delete the wrong one/.test(app.html()), 'can\'t be started until a person deletes one');
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  delete app.fs.files['proposals/' + req.id + '-LAPTOP.json'];
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', req.id); await app.tick();
+  app.submitForm('start-form'); await app.tick(120);
+  assert.strictEqual(releaseRuns(app).length, before.length + 1, 'once one is deleted, it starts');
+});
+
 run();
