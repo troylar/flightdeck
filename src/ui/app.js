@@ -570,7 +570,10 @@
       loading = null;
       keepUnread(d);
       keepNewerDrafts(d, seq);
-      notePresence(d, !(d.failed || {}).presence);
+      /* Presence, like drafts, is never put back by a read older than the newest one applied (the watcher's included). */
+      var presNewer = presSeq > seq;
+      if (presNewer) d.presence = data.presence; else if (!(d.failed || {}).presence) presSeq = seq;
+      notePresence(d, !presNewer && !(d.failed || {}).presence);
       /* The folder's read replaced what the watcher had read of proposed/: it reads that process again on its next look. */
       watch.names = null;
       d.runs = applyRunsRead(d, at);
@@ -1733,6 +1736,8 @@
      While this window holds a draft editor for this folder (on screen, or with unsaved work kept in memory), it rewrites
      presence/<WRITER>.json every 10 s; it removes it when it holds none, and on pagehide. Other windows' presence is fresh by
      its beat in elapsed time (PF.proposals.freshApp). It decides nothing about saving: every save is checked anyway. */
+  /* The sequence (readsStarted) of the read whose presence/ listing data.presence holds. */
+  var presSeq = 0;
   var pres = { memo: {}, beat: 0, at: -Infinity, since: null, written: null, busy: false, cleanAt: -Infinity, fsKey: '' };
   state.claims = {};
   function heldDrafts() {
@@ -1824,7 +1829,7 @@
       wantPres ? repo.loadPresence(sfs).then(null, function () { return null; }) : Promise.resolve(null)
     ]).then(function (got) {
       if (g !== gen || watch !== w) return;
-      if (got[2]) { data.presence = got[2]; notePresence({ presence: got[2] }, true); w.pres = now; changed = true; }
+      if (got[2] && seq > presSeq) { presSeq = seq; data.presence = got[2]; notePresence({ presence: got[2] }, true); w.pres = now; changed = true; }
       var jobs = [], names = got[0] ? got[0].map(function (i) { return i.name; }).sort().join('\n') : null;
       if (names != null && names !== w.names) jobs.push(repo.loadProposedOne(sfs, pid).then(function (x) {
         if (g !== gen || watch !== w) return;
@@ -1904,11 +1909,12 @@
   /* Why this window can't apply a proposal live (slice 2) right now, or '': the draft's editor is on screen here, nothing is
      unsaved (no unsaved text, builder text waiting, conflict or composition), nothing is saving, this window is the one
      unambiguous main editor among the editors it can see, and it listed presence/ in the last 20 s. */
-  function liveWhy(pid) {
+  /* adopted: the change is already in the editor (so it differs from the draft and is saving); everything else still holds. */
+  function liveWhy(pid, adopted) {
     var ed = editorOf(pid);
     if (!ed || document.hidden || state.view !== 'process' || state.ptab !== 'edit' || state.processId !== pid) return 'not open';
-    if (dirty(ed) || ed.conflict || state.obPending === pid || composing) return 'unsaved';
-    if (state.draftSaving[edKey(pid)]) return 'saving';
+    if ((!adopted && dirty(ed)) || ed.conflict || state.obPending === pid || composing) return 'unsaved';
+    if (!adopted && state.draftSaving[edKey(pid)]) return 'saving';
     var mine = ownPresence(), m = PF.proposals.mainOf(pid, freshOthers().concat(mine ? [mine] : []));
     if (m.ambiguous || m.writer !== WRITER) return 'not main';
     if (!(elapsed() - (pres.listedAt == null ? -Infinity : pres.listedAt) <= PF.proposals.LISTED_MS)) return 'not listed';
@@ -1982,16 +1988,22 @@
                 /* When the save starts: an Undo of the adopted change since then withdraws it; anything else changed cancels it. */
                 if (adopted && undone()) return { withdrawn: true };
                 if (!stillEditor(adopted ? adopted.tok : tok) || !stillRecords(again[0], again[1])) return { cancelled: true };
+                /* Live: still allowed to apply live (shown, the main editor, presence/ looked at lately); otherwise the change
+                   stays in the editor, unsaved, for the person to save or undo. */
+                if (isLive && liveWhy(pid, true)) return { cancelled: true, kept: true };
                 return repo.saveDraft(sfs, file, text, expectText == null ? null : U.hash(expectText), { lock: LOCKS ? lock : null, expectText: expectText });
               });
             }).then(function (res) {
               if (adopted) delete state.draftSaving[sk];
               if (res.withdrawn) { if (adopted.ed.incoming) adopted.ed.incoming = null; return outcome('withdrawn', null, 'You took back your AI assistant\'s change. It\'s listed on the process page if you want it later.'); }
+              if (res.cancelled && res.kept) return outcome('cancelled', null, 'Your AI assistant\'s change is in the editor but wasn\'t saved: this window stopped applying changes live (hidden, or no longer the main editor). Save the draft to keep it, or Undo it.');
               if (res.cancelled) return outcome('cancelled');
               if (!res.ok) {
                 /* Adopted, then refused: the proposal's text stays in the editor, unsaved, with today's conflict panel. */
                 var ce = editorOf(pid, fk);
                 if (adopted && ce === adopted.ed && res.conflict) { ce.conflict = res; ce.baseHash = expectText == null ? null : U.hash(expectText); }
+                /* Written, then replaced by another change before the read-back: it was saved, so it never says it wasn't. */
+                if (res.afterWrite) return outcome('overwritten', null, 'Your save was written, then replaced by another change. Compare them ' + (adopted ? 'below' : 'in the editor') + '. Your AI assistant\'s change is listed on the process page.');
                 return outcome('not-saved', null, isLive ? 'Not saved: someone else changed this draft.' : 'Not saved: someone else changed this draft. Review the proposal again on the process page.');
               }
               if (live() && fsKey() === fk) {
@@ -2189,7 +2201,7 @@
         if (ed) { if (ed.text == null) ed.text = text; ed.baseHash = expectHash; ed.conflict = res; }
         else setEditor({ pid: p.id, fsKey: key, text: text, base: '', baseHash: expectHash, conflict: res });
         if (g !== gen) return;
-        if (here) state.ptab = 'edit'; else say('The draft of ' + p.title + ' wasn\'t saved: someone else changed it. Open it to compare.', 'warn');
+        if (here) state.ptab = 'edit'; else say(res.afterWrite ? 'Your save of the draft of ' + p.title + ' was written, then replaced by another change. Open it to compare.' : 'The draft of ' + p.title + ' wasn\'t saved: someone else changed it. Open it to compare.', 'warn');
         render();
         /* A draft that was missing and is back (a recovery that found a new file) needs the folder read to show it. */
         if (!p.draft) return load(true);

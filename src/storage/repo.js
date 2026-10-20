@@ -1244,6 +1244,14 @@ PF.repo = (function () {
   function loadProposedOne(fs, proc) {
     var PP = PF.proposals, c = cacheOf(fs), sub = { prop: Object.assign({}, c.prop || {}), recs: Object.assign({}, c.recs || {}) };
     return loadProposed({ list: function (p) { return p === PP.DIR ? Promise.resolve([{ name: proc, kind: 'dir' }]) : fs.list(p); }, read: function (p, o) { return fs.read(p, o); } }, sub, false).then(function (got) {
+      /* What it read of this process goes back into the folder's cache (written-once files, keyed by path), so neither the
+         next look nor the next full read reads, parses and hashes them again; other processes' entries are untouched. */
+      var dir = PP.DIR + '/' + proc + '/';
+      [['prop', sub.prop], ['recs', sub.recs]].forEach(function (x) {
+        var m = c[x[0]] = c[x[0]] || {};
+        Object.keys(m).forEach(function (k) { if (k.indexOf(dir) === 0 && !(k in x[1])) delete m[k]; });
+        Object.keys(x[1]).forEach(function (k) { if (k.indexOf(dir) === 0) m[k] = x[1][k]; });
+      });
       return got.procs[proc] || null;
     });
   }

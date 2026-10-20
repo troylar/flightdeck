@@ -308,4 +308,87 @@ rule('The watcher: one listing of proposed/<process>/ and one stat of the draft 
   assert.deepStrictEqual(calls.filter(c => /proposed\/release|maps\/drafts/.test(c)), [], 'off screen: nothing');
 });
 
+/* ---------- review of b8d7268 ---------- */
+rule('Review: an older full refresh finishing late never puts back presence older than what the watcher saw: a newer claim elsewhere keeps this window from applying', async () => {
+  const files = {}, L = locks(), Channel = bus();
+  const w1 = await live({ sharedFiles: files, locks: L, Channel });
+  const w2 = await live({ sharedFiles: files, locks: L, Channel, me: 'person-avery' });
+  await w1.watch(); await w2.watch();
+  w1.click('main-editor'); await w1.tick(80);
+  await w2.watch(10100); await w1.watch(10100);
+  assert.ok(/This is the main editor for this draft\./.test(w1.html()), 'set-up: window 1 is main');
+  // Window 1 starts a full refresh; its read of window 2's presence is held, with what it said then.
+  const read = w1.fs.read.bind(w1.fs), g = gate(); let armed = true;
+  w1.fs.read = (p, o) => { const r = read(p, o); if (armed && /^presence\//.test(p) && files[p] && JSON.parse(files[p].t).by === 'person-avery') { armed = false; return r.then(v => g.p.then(() => v)); } return r; };
+  w1.click('refresh'); await w1.tick(20);
+  w2.click('main-editor'); await w2.tick(80);
+  await w1.watch(10100);
+  assert.ok(!/This is the main editor for this draft\./.test(w1.html()), 'the watcher saw window 2\'s newer claim');
+  const A = files[DRAFT].t, p = plant(w1, { text: retitle(A, 'B') });
+  g.open(); await w1.tick(200); w1.fs.read = read;
+  await w1.watch(); await w1.watch();
+  assert.deepStrictEqual(recs(w1, p.id), [], 'window 1 applied nothing: window 2 is the main editor');
+  assert.strictEqual(files[DRAFT].t, A);
+});
+
+rule('Review: when the save starts, live apply is checked again in full: hidden by then, nothing is saved, the change stays in the editor unsaved, and the outcome is recorded', async () => {
+  const app = await live(), A = app.fs.files[DRAFT].t, B = retitle(A, 'B'), p = plant(app, { text: B });
+  const g = gate(), list = app.PF.repo.listRecords; let n = 0;
+  app.PF.repo.listRecords = function () { const r = list.apply(this, arguments); return ++n === 4 ? g.p.then(() => r) : r; };
+  await app.watch();
+  assert.ok(/title: B/.test(app.html()), 'adopted');
+  app.doc.hidden = true;
+  g.open(); await app.tick(200); app.PF.repo.listRecords = list;
+  assert.strictEqual(app.fs.files[DRAFT].t, A, 'no hidden save');
+  assert.deepStrictEqual(statuses(app, p.id), ['cancelled']);
+  app.doc.hidden = false; app.click('dismiss'); await app.tick();
+  assert.ok(/title: B/.test(app.html()) && /Unsaved changes/.test(app.html()), 'the change stays in the editor, unsaved');
+  assert.ok(/Your AI assistant proposed changes while you have unsaved ones/.test(app.html()), 'with the waiting notice');
+});
+
+rule('Review: a save written, then replaced by another change before its read-back says so (never "Nothing was saved"), with its own outcome', async () => {
+  const app = await live(), A = app.fs.files[DRAFT].t, B = retitle(A, 'B'), C = retitle(A, 'Someone else'), p = plant(app, { text: B });
+  const write = app.fs.write.bind(app.fs); let done = false;
+  app.fs.write = (path, t) => write(path, t).then(v => { if (path === DRAFT && !done) { done = true; return write(DRAFT, C).then(() => v); } return v; });
+  await app.watch(); await app.tick(100); app.fs.write = write;
+  assert.strictEqual(app.fs.files[DRAFT].t, C);
+  assert.deepStrictEqual(statuses(app, p.id), ['overwritten']);
+  assert.ok(/Your save was written, then replaced by another change\. Compare them below/.test(app.html()), app.html().match(/fpe-alerts[\s\S]{0,600}/));
+  assert.ok(!/Nothing was saved/.test(app.html()));
+});
+
+rule('Review: a step moved to another phase, or phases reordered, is highlighted and said as a move', async () => {
+  const app = await live({ builder: true }), A = app.fs.files[DRAFT].t, PP = app.PF.proposals;
+  const flags = A.split('\n').filter(l => /\{#flags\}/.test(l))[0];
+  const o = app.PF.outline.parse(A), fl = o.steps.filter(s => s.key === 'flags')[0], lines = A.split('\n');
+  const block = lines.slice(fl.line, fl.end), rest = lines.slice(0, fl.line).concat(lines.slice(fl.end));
+  const last = app.PF.outline.parse(rest.join('\n')).phases.slice(-1)[0], at = last.contentEnd != null ? last.contentEnd : rest.length;
+  const moved = rest.slice(0, at).concat(block, rest.slice(at)).join('\n');
+  const c = PP.changes(A, moved);
+  assert.ok(flags && c.keys.indexOf('step:flags') >= 0, JSON.stringify(c));
+  assert.ok(/1 step moved/.test(PP.changeWords(c)), PP.changeWords(c));
+  plant(app, { text: moved });
+  await app.watch();
+  assert.strictEqual(app.fs.files[DRAFT].t, moved);
+  assert.ok(/class="ob-step[^"]*\bob-inc\b[^"]*"[^>]*data-ob-step="flags"/.test(app.html()), 'the moved step is highlighted');
+  assert.ok(/1 step moved/.test(app.live()), app.live());
+  const ph = app.PF.outline.parse(A).phases, L = A.split('\n'), p0 = ph[0], p1 = ph[1];
+  const swapped = L.slice(0, p0.line).concat(L.slice(p1.line, p1.regionEnd), L.slice(p0.line, p1.line), L.slice(p1.regionEnd)).join('\n');
+  assert.ok(/phase(s)? moved/.test(PP.changeWords(PP.changes(A, swapped))), PP.changeWords(PP.changes(A, swapped)));
+});
+
+rule('Review: proposals the watcher already read stay read: one more arriving costs one proposal read, not all of them again', async () => {
+  const app = await live(), A = app.fs.files[DRAFT].t;
+  await app.watch(); await app.watch();
+  const read = app.fs.read.bind(app.fs), reads = [];
+  app.fs.read = (p, o) => { if (/^proposed\/release\/p-[^.]+\.json$/.test(p)) reads.push(p); return read(p, o); };
+  for (let i = 0; i < 5; i++) plant(app, { id: 'p-b' + i + '-aaaaaaaaaa', text: retitle(A, 'X' + i), base: retitle(A, 'Y') });
+  await app.watch();
+  assert.strictEqual(reads.length, 5, 'set-up: the watcher read the five: ' + JSON.stringify(reads));
+  reads.length = 0;
+  plant(app, { id: 'p-b9-aaaaaaaaaa', text: retitle(A, 'X9'), base: retitle(A, 'Y') });
+  await app.watch();
+  assert.deepStrictEqual(reads, ['proposed/release/p-b9-aaaaaaaaaa.json']);
+});
+
 run();

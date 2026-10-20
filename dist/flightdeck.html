@@ -8858,8 +8858,9 @@ PF.proposals = (function () {
   var BEAT_MS = 10000, FRESH_MS = 60000, AHEAD_MS = 600000, CLEAN_MS = 86400000, CLEAN_MAX = 20, LISTED_MS = 20000;
   var ID = /^p-[a-z0-9]{1,12}-[a-z0-9]{10}$/, PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,59}$/, SESSION = /^[a-z0-9][a-z0-9-]{0,59}$/, SHA = /^[0-9a-f]{64}$/;
   var BASES = ['draft', 'proposal', 'version', 'none'], HOW = ['live', 'apply'];
-  /* What a decision can say: a person's (applied, declined, reopened) and an attempt's outcome (withdrawn, not-saved, cancelled). */
-  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled', 'replaced'];
+  /* What a decision can say: a person's (applied, declined, reopened) and an attempt's outcome (withdrawn, not-saved, cancelled,
+     overwritten: its save was written, then replaced by another change before the read-back). */
+  var STATUSES = ['applied', 'declined', 'reopened', 'withdrawn', 'not-saved', 'cancelled', 'replaced', 'overwritten'];
   /* A person's decisions (and the command line's replaced): the latest of these decides; an attempt's outcome never overrides them. */
   var DECIDING = { applied: 1, declined: 1, reopened: 1, replaced: 1 };
   /* The command line's contract, flightdeck-draft/1: every field and word docs/apps.md must document (test/build.test.js). */
@@ -9059,33 +9060,55 @@ PF.proposals = (function () {
   }
 
   /* What a change did to the steps and phases, by their outline keys (the ID, or the position for one without): changed (its
-     lines differ), added, removed. keys: what the editor highlights afterwards ('step:<key>', 'phase:<key>'). */
+     lines differ), moved (the same lines in another phase or lane, or out of order with the rest), added, removed. keys:
+     what the editor highlights afterwards ('step:<key>', 'phase:<key>'). */
   function changes(before, after) {
     var A = PF.outline.parse(String(before)), B = PF.outline.parse(String(after));
-    function steps(o) { return o.steps.map(function (s) { return { key: s.key, id: s.key.charAt(0) !== '#', src: o.lines.slice(s.line, s.end).join('\n') }; }); }
-    function phases(o) { return o.phases.map(function (p) { return { key: p.key, id: p.key.charAt(0) !== '#', src: [o.lines[p.line], p.gate ? o.lines.slice(p.gate.line, p.gate.end).join('\n') : ''].join('\n') }; }); }
-    /* Parts with an ID are matched by it; a part without one (its key is only its position) by its exact lines, so a step
-       added above it doesn't make it look changed. */
+    function steps(o) { return o.steps.map(function (s) { return { key: s.key, id: s.key.charAt(0) !== '#', src: o.lines.slice(s.line, s.end).join('\n'), at: (s.phase ? s.phase.key : '') + '|' + s.track }; }); }
+    function phases(o) { return o.phases.map(function (p) { return { key: p.key, id: p.key.charAt(0) !== '#', src: [o.lines[p.line], p.gate ? o.lines.slice(p.gate.line, p.gate.end).join('\n') : ''].join('\n'), at: '' }; }); }
+    /* Parts with an ID are matched by it; a part without one (its key is only its position) by its exact lines and where it
+       is, so a step added above it doesn't make it look changed. Order: the parts matched in both, kept in the longest
+       common order; the rest of them moved. */
     function diffOf(a, b) {
-      var byId = {}, free = {}, out = { changed: [], added: [], removed: [] };
-      a.forEach(function (x) { if (x.id) byId[x.key] = x; else (free[x.src] = free[x.src] || []).push(x); });
+      var byId = {}, free = {}, out = { changed: [], moved: [], added: [], removed: [] }, pairs = [];
+      a.forEach(function (x, i) { x.i = i; if (x.id) byId[x.key] = x; else (free[x.at + '\n' + x.src] = free[x.at + '\n' + x.src] || []).push(x); });
       b.forEach(function (y) {
-        if (y.id) { var x = byId[y.key]; if (!x) out.added.push(y.key); else { delete byId[y.key]; if (x.src !== y.src) out.changed.push(y.key); } return; }
-        if (free[y.src] && free[y.src].length) free[y.src].shift(); else out.added.push(y.key);
+        if (y.id) {
+          var x = byId[y.key]; if (!x) { out.added.push(y.key); return; }
+          delete byId[y.key]; pairs.push([x, y]);
+          if (x.src !== y.src) out.changed.push(y.key); else if (x.at !== y.at) out.moved.push(y.key);
+          return;
+        }
+        var f = free[y.at + '\n' + y.src];
+        if (f && f.length) pairs.push([f.shift(), y]); else out.added.push(y.key);
       });
       Object.keys(byId).forEach(function (k) { out.removed.push(k); });
       Object.keys(free).forEach(function (k) { free[k].forEach(function (x) { out.removed.push(x.key); }); });
+      /* Out of order within its own phase and lane (moving a whole phase doesn't move its steps): not in the longest
+         increasing run of old positions there (patience sorting, n log n). */
+      var groups = {};
+      pairs.forEach(function (q) { if (q[0].at === q[1].at) (groups[q[1].at] = groups[q[1].at] || []).push(q); });
+      Object.keys(groups).forEach(function (g) {
+        var list = groups[g], seq = list.map(function (q) { return q[0].i; }), tails = [], prev = [];
+        seq.forEach(function (v, i) {
+          var lo = 0, hi = tails.length; while (lo < hi) { var m = (lo + hi) >> 1; if (seq[tails[m]] < v) lo = m + 1; else hi = m; }
+          prev[i] = lo ? tails[lo - 1] : -1; tails[lo] = i;
+        });
+        var keep = {}, k = tails.length ? tails[tails.length - 1] : -1; while (k >= 0) { keep[k] = true; k = prev[k]; }
+        list.forEach(function (q, i) { var key = q[1].key; if (!keep[i] && out.changed.indexOf(key) < 0 && out.moved.indexOf(key) < 0) out.moved.push(key); });
+      });
       return out;
     }
     var s = diffOf(steps(A), steps(B)), p = diffOf(phases(A), phases(B));
-    return { steps: s, phases: p, keys: s.changed.concat(s.added).map(function (k) { return 'step:' + k; }).concat(p.changed.concat(p.added).map(function (k) { return 'phase:' + k; })) };
+    function keys(d, kind) { return d.changed.concat(d.moved, d.added).map(function (k) { return kind + ':' + k; }); }
+    return { steps: s, phases: p, keys: keys(s, 'step').concat(keys(p, 'phase')) };
   }
-  /* "2 steps changed, 1 added, 1 phase changed"; with no step or phase touched, "the details at the top changed". */
+  /* "2 steps changed, 1 moved, 1 added, 1 phase moved"; with no step or phase touched, "the details at the top changed". */
   function changeWords(c) {
     var out = [];
     [['step', c.steps], ['phase', c.phases]].forEach(function (x) {
       var d = x[1], first = true;
-      [['changed', d.changed.length], ['added', d.added.length], ['removed', d.removed.length]].forEach(function (y) {
+      [['changed', d.changed.length], ['moved', (d.moved || []).length], ['added', d.added.length], ['removed', d.removed.length]].forEach(function (y) {
         if (!y[1]) return;
         out.push(first ? y[1] + ' ' + x[0] + (y[1] === 1 ? '' : 's') + ' ' + y[0] : y[1] + ' ' + y[0]); first = false;
       });
@@ -10448,6 +10471,14 @@ PF.repo = (function () {
   function loadProposedOne(fs, proc) {
     var PP = PF.proposals, c = cacheOf(fs), sub = { prop: Object.assign({}, c.prop || {}), recs: Object.assign({}, c.recs || {}) };
     return loadProposed({ list: function (p) { return p === PP.DIR ? Promise.resolve([{ name: proc, kind: 'dir' }]) : fs.list(p); }, read: function (p, o) { return fs.read(p, o); } }, sub, false).then(function (got) {
+      /* What it read of this process goes back into the folder's cache (written-once files, keyed by path), so neither the
+         next look nor the next full read reads, parses and hashes them again; other processes' entries are untouched. */
+      var dir = PP.DIR + '/' + proc + '/';
+      [['prop', sub.prop], ['recs', sub.recs]].forEach(function (x) {
+        var m = c[x[0]] = c[x[0]] || {};
+        Object.keys(m).forEach(function (k) { if (k.indexOf(dir) === 0 && !(k in x[1])) delete m[k]; });
+        Object.keys(x[1]).forEach(function (k) { if (k.indexOf(dir) === 0) m[k] = x[1][k]; });
+      });
       return got.procs[proc] || null;
     });
   }
@@ -12316,7 +12347,7 @@ PF.vk = (function () {
     h += '<div class="row ca-acts" id="pr-acts">' + acts + '<button type="button" class="mini" data-act="close-overlay">Close</button></div>';
     return box(h);
   }
-  var DEC_WORDS = { applied: 'Applied', declined: 'Declined', reopened: 'Reopened', withdrawn: 'Taken back before it was saved', 'not-saved': 'Not saved: someone else changed the draft', cancelled: 'Stopped: the draft changed while it was being applied' };
+  var DEC_WORDS = { applied: 'Applied', declined: 'Declined', reopened: 'Reopened', withdrawn: 'Taken back before it was saved', 'not-saved': 'Not saved: someone else changed the draft', cancelled: 'Stopped: the draft changed while it was being applied', overwritten: 'Saved, then replaced by another change before Flightdeck read it back' };
   function capDiff(rows) {
     if (!rows.some(function (r) { return r.op === '+' || r.op === '-'; })) return '<p class="small">No differences.</p>';
     return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : r.op === '…' ? '<span class="small">  … ' + esc(r.text) + '</span>\n' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
@@ -13870,7 +13901,7 @@ PF.vk = (function () {
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
     if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
-    if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span><b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
+    if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span>' + (ed.conflict.afterWrite ? '<b>Your save was written, then replaced by another change.</b> Compare them below, then keep yours or take theirs.' : '<b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.') + '</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
       '<details open class="fpe-theirs"><summary class="small">Their version</summary><pre class="source">' + esc(ed.conflict.theirs || '(the draft was deleted)') + '</pre></details>';
     /* Who else has it open, which window is the main editor, and a proposal waiting: no live role here; messages are
        announced once, through #live. */
@@ -16010,7 +16041,10 @@ PF.examples = (function () {
       loading = null;
       keepUnread(d);
       keepNewerDrafts(d, seq);
-      notePresence(d, !(d.failed || {}).presence);
+      /* Presence, like drafts, is never put back by a read older than the newest one applied (the watcher's included). */
+      var presNewer = presSeq > seq;
+      if (presNewer) d.presence = data.presence; else if (!(d.failed || {}).presence) presSeq = seq;
+      notePresence(d, !presNewer && !(d.failed || {}).presence);
       /* The folder's read replaced what the watcher had read of proposed/: it reads that process again on its next look. */
       watch.names = null;
       d.runs = applyRunsRead(d, at);
@@ -17173,6 +17207,8 @@ PF.examples = (function () {
      While this window holds a draft editor for this folder (on screen, or with unsaved work kept in memory), it rewrites
      presence/<WRITER>.json every 10 s; it removes it when it holds none, and on pagehide. Other windows' presence is fresh by
      its beat in elapsed time (PF.proposals.freshApp). It decides nothing about saving: every save is checked anyway. */
+  /* The sequence (readsStarted) of the read whose presence/ listing data.presence holds. */
+  var presSeq = 0;
   var pres = { memo: {}, beat: 0, at: -Infinity, since: null, written: null, busy: false, cleanAt: -Infinity, fsKey: '' };
   state.claims = {};
   function heldDrafts() {
@@ -17264,7 +17300,7 @@ PF.examples = (function () {
       wantPres ? repo.loadPresence(sfs).then(null, function () { return null; }) : Promise.resolve(null)
     ]).then(function (got) {
       if (g !== gen || watch !== w) return;
-      if (got[2]) { data.presence = got[2]; notePresence({ presence: got[2] }, true); w.pres = now; changed = true; }
+      if (got[2] && seq > presSeq) { presSeq = seq; data.presence = got[2]; notePresence({ presence: got[2] }, true); w.pres = now; changed = true; }
       var jobs = [], names = got[0] ? got[0].map(function (i) { return i.name; }).sort().join('\n') : null;
       if (names != null && names !== w.names) jobs.push(repo.loadProposedOne(sfs, pid).then(function (x) {
         if (g !== gen || watch !== w) return;
@@ -17344,11 +17380,12 @@ PF.examples = (function () {
   /* Why this window can't apply a proposal live (slice 2) right now, or '': the draft's editor is on screen here, nothing is
      unsaved (no unsaved text, builder text waiting, conflict or composition), nothing is saving, this window is the one
      unambiguous main editor among the editors it can see, and it listed presence/ in the last 20 s. */
-  function liveWhy(pid) {
+  /* adopted: the change is already in the editor (so it differs from the draft and is saving); everything else still holds. */
+  function liveWhy(pid, adopted) {
     var ed = editorOf(pid);
     if (!ed || document.hidden || state.view !== 'process' || state.ptab !== 'edit' || state.processId !== pid) return 'not open';
-    if (dirty(ed) || ed.conflict || state.obPending === pid || composing) return 'unsaved';
-    if (state.draftSaving[edKey(pid)]) return 'saving';
+    if ((!adopted && dirty(ed)) || ed.conflict || state.obPending === pid || composing) return 'unsaved';
+    if (!adopted && state.draftSaving[edKey(pid)]) return 'saving';
     var mine = ownPresence(), m = PF.proposals.mainOf(pid, freshOthers().concat(mine ? [mine] : []));
     if (m.ambiguous || m.writer !== WRITER) return 'not main';
     if (!(elapsed() - (pres.listedAt == null ? -Infinity : pres.listedAt) <= PF.proposals.LISTED_MS)) return 'not listed';
@@ -17422,16 +17459,22 @@ PF.examples = (function () {
                 /* When the save starts: an Undo of the adopted change since then withdraws it; anything else changed cancels it. */
                 if (adopted && undone()) return { withdrawn: true };
                 if (!stillEditor(adopted ? adopted.tok : tok) || !stillRecords(again[0], again[1])) return { cancelled: true };
+                /* Live: still allowed to apply live (shown, the main editor, presence/ looked at lately); otherwise the change
+                   stays in the editor, unsaved, for the person to save or undo. */
+                if (isLive && liveWhy(pid, true)) return { cancelled: true, kept: true };
                 return repo.saveDraft(sfs, file, text, expectText == null ? null : U.hash(expectText), { lock: LOCKS ? lock : null, expectText: expectText });
               });
             }).then(function (res) {
               if (adopted) delete state.draftSaving[sk];
               if (res.withdrawn) { if (adopted.ed.incoming) adopted.ed.incoming = null; return outcome('withdrawn', null, 'You took back your AI assistant\'s change. It\'s listed on the process page if you want it later.'); }
+              if (res.cancelled && res.kept) return outcome('cancelled', null, 'Your AI assistant\'s change is in the editor but wasn\'t saved: this window stopped applying changes live (hidden, or no longer the main editor). Save the draft to keep it, or Undo it.');
               if (res.cancelled) return outcome('cancelled');
               if (!res.ok) {
                 /* Adopted, then refused: the proposal's text stays in the editor, unsaved, with today's conflict panel. */
                 var ce = editorOf(pid, fk);
                 if (adopted && ce === adopted.ed && res.conflict) { ce.conflict = res; ce.baseHash = expectText == null ? null : U.hash(expectText); }
+                /* Written, then replaced by another change before the read-back: it was saved, so it never says it wasn't. */
+                if (res.afterWrite) return outcome('overwritten', null, 'Your save was written, then replaced by another change. Compare them ' + (adopted ? 'below' : 'in the editor') + '. Your AI assistant\'s change is listed on the process page.');
                 return outcome('not-saved', null, isLive ? 'Not saved: someone else changed this draft.' : 'Not saved: someone else changed this draft. Review the proposal again on the process page.');
               }
               if (live() && fsKey() === fk) {
@@ -17629,7 +17672,7 @@ PF.examples = (function () {
         if (ed) { if (ed.text == null) ed.text = text; ed.baseHash = expectHash; ed.conflict = res; }
         else setEditor({ pid: p.id, fsKey: key, text: text, base: '', baseHash: expectHash, conflict: res });
         if (g !== gen) return;
-        if (here) state.ptab = 'edit'; else say('The draft of ' + p.title + ' wasn\'t saved: someone else changed it. Open it to compare.', 'warn');
+        if (here) state.ptab = 'edit'; else say(res.afterWrite ? 'Your save of the draft of ' + p.title + ' was written, then replaced by another change. Open it to compare.' : 'The draft of ' + p.title + ' wasn\'t saved: someone else changed it. Open it to compare.', 'warn');
         render();
         /* A draft that was missing and is back (a recovery that found a new file) needs the folder read to show it. */
         if (!p.draft) return load(true);

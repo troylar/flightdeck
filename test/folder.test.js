@@ -1758,8 +1758,8 @@ rule('What a change from your AI assistant did, in words: steps and phases chang
   const a = ['---', 'process: release', 'title: Release', '---', '', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}', '- [ ] {confirm} Two {#two}', '', '## Ship · READ-DO {#ship}', '- [ ] {confirm} Three {#three}', ''].join('\n');
   const b = a.replace('One {#one}', 'One, changed {#one}').replace('Two {#two}', 'Two, changed {#two}').replace('- [ ] {confirm} Three {#three}', '- [ ] {confirm} Three {#three}\n- [ ] {confirm} Four {#four}').replace('## Ship · READ-DO', '## Ship it · READ-DO');
   const c = PP.changes(a, b);
-  same(c.steps, { changed: ['one', 'two'], added: ['four'], removed: [] });
-  same(c.phases, { changed: ['ship'], added: [], removed: [] });
+  same(c.steps, { changed: ['one', 'two'], moved: [], added: ['four'], removed: [] });
+  same(c.phases, { changed: ['ship'], moved: [], added: [], removed: [] });
   same(c.keys.sort(), ['phase:ship', 'step:four', 'step:one', 'step:two']);
   assert.strictEqual(PP.changeWords(c), '2 steps changed, 1 added, 1 phase changed');
   assert.strictEqual(PP.changeWords(PP.changes(a, a.replace('- [ ] {confirm} Two {#two}\n', ''))), '1 step removed');
@@ -1770,6 +1770,14 @@ rule('What a change from your AI assistant did, in words: steps and phases chang
   const c2 = PP.changes(k, k.replace('- [ ] {confirm} Plain', '- [ ] {confirm} New one\n- [ ] {confirm} Plain'));
   assert.strictEqual(PP.changeWords(c2), '1 step added');
   same(c2.keys, ['step:#2']);
+  // Moves: a step to another phase, a step within its phase, and phases reordered (their steps move with them, unchanged).
+  const mv = PP.changes(a, a.replace('- [ ] {confirm} Two {#two}\n', '').replace('- [ ] {confirm} Three {#three}', '- [ ] {confirm} Two {#two}\n- [ ] {confirm} Three {#three}'));
+  same([mv.steps.moved, mv.keys], [['two'], ['step:two']]);
+  assert.strictEqual(PP.changeWords(mv), '1 step moved');
+  const order = PP.changes(a, a.replace('- [ ] {confirm} One {#one}\n- [ ] {confirm} Two {#two}', '- [ ] {confirm} Two {#two}\n- [ ] {confirm} One {#one}'));
+  assert.strictEqual(PP.changeWords(order), '1 step moved');
+  const parts = a.split('\n## Ship'), swapped = parts[0].split('\n## Prep')[0] + '\n## Ship' + parts[1].replace(/\n$/, '') + '\n\n## Prep' + parts[0].split('\n## Prep')[1].replace(/\n+$/, '') + '\n';
+  assert.strictEqual(PP.changeWords(PP.changes(a, swapped)), '1 phase moved', swapped);
 });
 
 rule('Presence files: each window writes its own; cleanup deletes only files over 24 hours old whose size and time didn\'t change, at most 20', async () => {
