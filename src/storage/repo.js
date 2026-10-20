@@ -1941,7 +1941,7 @@ PF.repo = (function () {
             var b = 'publications/' + proc + '/' + folder;
             /* The version the run ran is its payload (2.0): the screenshots it lists. One its payload doesn't list still goes in,
                labeled as not part of the version. */
-            var mine = vers[folder] === 'publication' ? record(b + '/publication.json').then(function (x) { var i = x.text != null ? json(x.text) : null; return i && typeof i === 'object' ? P.payloadFiles(i) : null; }) : Promise.resolve(null);
+            var mine = vers[folder] === 'publication' ? record(b + '/publication.json').then(function (x) { var i = x.text != null ? json(x.text) : null; return i && typeof i === 'object' && !Array.isArray(i) && !P.newerOf(i) ? P.payloadFiles(i) : null; }) : Promise.resolve(null);
             return Promise.all([listFiles(b), mine]).then(function (both) {
               var items = both[0], listed = both[1];
               items.forEach(function (x) {

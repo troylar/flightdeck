@@ -106,7 +106,7 @@ PF.publish = (function () {
     return { implied: true, map: info.mapHash, types: info.typesHash, images: images, extensions: {}, pins: {} };
   }
   /* The files that make up a version, by its payload: the three records and every screenshot the payload lists. */
-  function payloadFiles(info) { return ['map.md', 'types.json', 'publication.json'].concat(Object.keys(payloadOf(info).images || {}).sort()); }
+  function payloadFiles(info) { var im = payloadOf(info).images; return ['map.md', 'types.json', 'publication.json'].concat(isObj(im) ? Object.keys(im).sort() : []); }
   function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   /* A /2 version whose payload this copy can't read or check (missing, odd, or with a pin or extension it doesn't have): a
      later Flightdeck wrote it, so it's refused like a newer format, by name, never read for meaning. */
