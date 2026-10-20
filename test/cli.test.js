@@ -1434,4 +1434,18 @@ rule('READ: runs and run say the same about every run: its problems, whether it 
   }
 });
 
+
+rule('READ: a run that doesn\'t match its version is named at its own run.json, and never makes a plan\'s version unknown', async () => {
+  const at = 'runs/release/run1/run.json', edit = f => { const o = JSON.parse(f[at]); o.mapHash = 'deadbeef'; f[at] = JSON.stringify(o, null, 2); };
+  for (const req of [REQ.runs, REQ.run]) {
+    const r = agree(await readMem(req, edit));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === at && p.kind === 'unusable' && p.why.includes(rfBuilt.folder)), JSON.stringify(r.json.problems));
+    assert.ok(!r.json.problems.some(p => p.path.startsWith('publications/')), 'the version itself is fine: ' + JSON.stringify(r.json.problems));
+  }
+  const p = agree(await readMem(REQ.runs, edit)).json.data.planned[0];
+  assert.deepStrictEqual([p.startsOn, p.versionMissing], [{ version: 1, folder: rfBuilt.folder }, false]);
+  const bad = agree(await readMem(REQ.runs, edit, { read: x => { if (x === 'publications/release/' + rfBuilt.folder + '/publication.json') throw eacces(x); } })).json.data.planned[0];
+  assert.deepStrictEqual([bad.startsOn, bad.versionMissing], [null, null], 'a real failure of the version does');
+});
+
 run();

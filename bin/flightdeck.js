@@ -669,7 +669,8 @@ function judgeRun(PF, r, pub) {
     const why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, pub.info) : '';
     if (why && !r._unrunnable) r._unrunnable = why;
     if (!pub.ok) { const x = A.pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
-    else if (why) out.push({ path: dir, kind: 'unusable', why });
+    /* The version is fine; the run doesn't match it. Named at the run, so the version is never taken as unreadable. */
+    else if (why) out.push({ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'unusable', why: 'This run doesn\'t match its version ' + r.folder + ' (its checklist or version number differs from the version\'s record), so the app opens it read-only.' });
   }
   return out.concat(runProblems(PF, r));
 }
@@ -790,7 +791,8 @@ async function readData(eng, adapter, req) {
       const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
       const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
-      /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read. */
+      /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
+         verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */
       const probs = ledger(), unsure = (proc) => probs.some((x) => ['', 'publications', 'publications/'].indexOf(x.path) >= 0 || x.path === 'publications/' + proc || x.path.indexOf('publications/' + proc + '/') === 0);
       return done(all, A.runs(list, plans, nameOf, d.processes, unsure), d.readAt);
     }
