@@ -6,6 +6,20 @@
     "changes": [
       {
         "kind": "new",
+        "area": "Checklist editor",
+        "title": "See your AI assistant's changes as you edit",
+        "now": "When your AI assistant changes a draft you have open with nothing unsaved, its change appears in the editor within a few seconds, marked \"Changed by your AI assistant\", and is saved. One Undo takes it back. Otherwise it waits for you on the process page. From another computer, add OneDrive's time. With the draft open on two computers, use Decline there rather than Undo.",
+        "where": "Edit on a process page"
+      },
+      {
+        "kind": "improved",
+        "area": "Checklist editor",
+        "title": "Undo a newer draft that arrived",
+        "before": "When a newer draft arrived while you had nothing unsaved, the editor took it and your earlier changes couldn't be undone.",
+        "now": "A newer draft arrives as one change you can undo, and the changes before it can still be undone."
+      },
+      {
+        "kind": "new",
         "area": "Processes",
         "title": "Proposed changes wait for you",
         "now": "When a draft is open in an editor, or changed since your AI assistant read it, its changes arrive as a proposal. Review it, then Apply or Decline it on the process page. Apply works only when the proposal starts from the draft as it is now; anything else waits for you to look at it.",

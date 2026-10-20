@@ -152,7 +152,7 @@ Anyone in a run can correct a step: what the checklist said, what it should say,
 
 ## Editing drafts
 
-Read with `flightdeck draft read --json` and keep the text you read. Save with `flightdeck draft save --expect <rev> --base <that text's file>`. If someone has the draft open, or it changed since you read it, your change is saved as a proposal that a person applies in Flightdeck; say so in your report. Never write `maps/drafts/` yourself when the command is available. Flightdeck shows who has a draft open; that's a courtesy, not a lock.
+Read with `flightdeck draft read --json` and keep the text you read. Save with `flightdeck draft save --expect <rev> --base <that text's file>`. If someone has the draft open, or it changed since you read it, your change is saved as a proposal; say so in your report. If the person has the draft open in Flightdeck's main editor with nothing unsaved and your proposal starts from the draft as it is, it appears in their editor within a few seconds (OneDrive adds its own delay when they're on another computer), highlighted, saved for them, with one Undo to take it back. Otherwise it waits for them to review and apply it on the process page. Never write `maps/drafts/` yourself when the command is available. Flightdeck shows who has a draft open; that's a courtesy, not a lock.
 
 - Pass the same `--session` (from your first `draft read`) to every command of one task. Saving again from your own pending proposal replaces it; add `--after-earlier` only when your new change must come after the earlier one rather than replace it.
 - `--from -` reads the new text from standard input. A draft is at most 1 MB of UTF-8, and its `process:` line must name the process.

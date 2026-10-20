@@ -100,12 +100,13 @@ rule('docs/apps.md documents flightdeck-draft/1: every field of draft read and d
   ['--expect', '--from', '--base', '--session', '--label', '--by', '--note', '--after-earlier', '--or-latest'].forEach(f => assert.ok(doc.includes(f), f));
 });
 
-rule('1.19.0 has its own release entry, and its text promises only what slice 1 does', () => {
+rule('1.19.0 has its own release entry, and its text promises exactly slices 1 and 2: live apply with nothing unsaved, never a merge', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.19.0')[0];
   assert.ok(r && rel[0] === r, '1.19.0 is the newest release');
   const text = JSON.stringify(r);
-  assert.ok(!/within seconds|appears in the editor|One Undo takes it back|never silently/i.test(text), 'nothing slice 2 or 3 promises');
-  assert.ok(/proposal/i.test(text) && /draft read, save and propose/.test(text));
+  assert.ok(!/merg|never silently|always appears|instantly|real[- ]time/i.test(text), 'nothing slice 3 promises, and no promise beyond a few seconds');
+  assert.ok(/proposal/i.test(text) && /draft read, save and propose/.test(text), 'slice 1');
+  assert.ok(/with nothing unsaved/.test(text) && /within a few seconds/.test(text) && /One Undo takes it back/.test(text) && /OneDrive/.test(text) && /Decline/.test(text), 'slice 2, with its limits');
 });
 
 rule('Only the display uses the newest-200 list of proposals: judging, Apply, decisions and the command line use every proposal', () => {

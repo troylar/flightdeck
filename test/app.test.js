@@ -312,7 +312,7 @@ async function builderOn() {
   return app;
 }
 
-rule('App: once the editor follows a newer draft from the folder, Undo can\'t bring back the older text over it', async () => {
+rule('App: once the editor follows a newer draft from the folder, Undo takes it back only in the editor: their draft stays on disk until the person saves', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
   app.click('ob-sel', 'flags'); await app.tick();
   app.check('ob-mark-step', true); await app.tick();
@@ -321,10 +321,13 @@ rule('App: once the editor follows a newer draft from the folder, Undo can\'t br
   const theirs = original.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'nothing to undo against their version');
+  assert.ok(!/Unsaved changes/.test(app.html()), 'followed');
   app.click('tl-undo', 'draft'); await app.tick();
-  app.click('save-draft'); await app.tick(80);
-  assert.strictEqual(app.fs.files[path].t, theirs, 'their change is still on disk');
+  assert.ok(/Unsaved changes/.test(app.html()), 'their change, taken back in the editor, is an unsaved edit');
+  assert.strictEqual(app.fs.files[path].t, theirs, 'Undo never writes the draft');
+  app.click('tl-redo', 'draft'); await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()), 'Redo: their text again, nothing unsaved');
+  assert.strictEqual(app.fs.files[path].t, theirs);
 });
 
 rule('App: the builder\'s side form shows the step as the folder has it now, and keeps typing when nothing underneath changed', async () => {
@@ -348,7 +351,7 @@ rule('App: moving a phase without an ID keeps it selected, so the next change go
   app.focus(); await app.tick(80);
   app.click('ob-sel-phase', '#0'); await app.tick();
   app.click('ob-ph-move', '#0', { dir: 'down' }); await app.tick();
-  assert.ok(/<li class="ob-phase sel"><div class="ob-ph-head"><div class="fp-eye">Phase 2/.test(app.html()), 'the moved phase is still the selected one');
+  assert.ok(/<li class="ob-phase sel[^"]*"><div class="ob-ph-head"><div class="fp-eye">Phase 2/.test(app.html()), 'the moved phase is still the selected one');
   app.set('ob-ph-title', 'First, renamed'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'First, renamed', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const t = app.fs.files[path].t;
@@ -362,7 +365,7 @@ rule('App: Undo puts the selection back with the text, so a phase without an ID 
   app.click('ob-sel-phase', '#0'); await app.tick();
   app.click('ob-ph-move', '#0', { dir: 'down' }); await app.tick();
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/<li class="ob-phase sel"><div class="ob-ph-head"><div class="fp-eye">Phase 1/.test(app.html()), 'First is selected again, back in first place');
+  assert.ok(/<li class="ob-phase sel[^"]*"><div class="ob-ph-head"><div class="fp-eye">Phase 1/.test(app.html()), 'First is selected again, back in first place');
   app.set('ob-ph-title', 'First, renamed'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'First, renamed', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const t = app.fs.files[path].t;
@@ -419,25 +422,23 @@ rule('App: Undo after Save makes the draft unsaved again, and saving it is check
   assert.ok(/class="hist-entry"><div class="hist-what">The step deletion of &quot;Rollback commit written in the release ticket&quot;<\/div><div class="small">You · [^<]* · saved/.test(app.overlay()), 'History says the change was saved');
 });
 
-rule('App: following a newer draft from the folder sets a baseline: Undo stops there, and History says where', async () => {
+rule('App: following a newer draft from the folder is one undoable change: Undo takes it back as unsaved, and the changes before it stay undoable', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md';
   app.click('ob-del', 'rollback'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const theirs = app.fs.files[path].t.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'nothing to undo against their version');
-  assert.ok(/id="tl-undo-why-draft">Earlier changes can.t be undone: the draft was replaced since/.test(app.html()), 'and the button says why');
-  app.click('ob-del', 'flags'); await app.tick();
+  assert.ok(!/Unsaved changes/.test(app.html()), 'the editor follows it, with nothing unsaved');
+  assert.ok(!/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'Undo is available');
+  assert.ok(/This draft changed in the team folder\. Undo available\./.test(app.live()), 'and says so once');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/data-ob-step="flags"/.test(app.html()) && !/Unsaved changes/.test(app.html()), 'a change made after it undoes');
+  assert.ok(/Unsaved changes/.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'one Undo takes their change back, as an unsaved edit');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Earlier changes can.t be undone: the draft was replaced since/.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'and Undo stops at the baseline');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()), 'and the change before it can still be undone');
   app.click('hist-open', 'draft'); await app.tick();
-  const h = app.overlay();
-  assert.ok(/<b>Before<\/b><pre class="source">- \[!\] \{confirm\} Feature flags set in the deploy values \^environment @backend \{#flags\}\n/.test(h), 'before and after show whole lines');
-  assert.ok(/role="dialog"/.test(h) && /<li class="hist-mark">The draft changed in the folder here. Earlier changes can(&#39;|')t be undone.<\/li>/.test(h), 'History shows the baseline');
-  assert.ok(h.indexOf('hist-mark') > h.indexOf('The step deletion of &quot;Feature flags') && h.indexOf('hist-mark') < h.indexOf('The step deletion of &quot;Rollback'), 'between the changes before and after it');
+  assert.ok(/The change from the team folder/.test(app.overlay()), 'History lists it');
+  assert.ok(!/class="hist-mark"/.test(app.overlay()), 'no barrier');
   assert.strictEqual(app.fs.files[path].t, theirs, 'their draft is untouched');
 });
 
@@ -700,7 +701,7 @@ const blocked = async (opts) => {
   app.click('setup-mode', 'examples'); await app.tick(); app.choose('person-casey'); await app.tick();
   return app;
 };
-const shown = app => { const m = /<div class="notice[^"]*" role="status"><span>([\s\S]*?)<\/span>/.exec(app.html()); return m ? m[1] : null; };
+const shown = app => { const m = /<div class="notice[^"]*"(?: role="status")?><span>([\s\S]*?)<\/span>/.exec(app.html()); return m ? m[1] : null; };
 const pageCss = () => /<style>([\s\S]*?)<\/style>/.exec(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8'))[1];
 const cssRules = css => css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}@]+\{[^{}]*\}/g).map(r => ({ sel: r.slice(0, r.indexOf('{')).trim(), body: r.slice(r.indexOf('{') + 1, -1) }));
 
@@ -2611,7 +2612,7 @@ rule('App: a part dragged onto a line in the outline is added there, selected, w
   assert.ok(/<li class="ob-step sel ob-new" draggable="true" data-ob-step="new-must-do-step">/.test(app.html()), 'selected and flashed');
   assert.strictEqual(app.focused(), 'ob-text', 'its text box has focus');
   assert.ok(/Added a must-do step after “Full test gate green on the release commit”, inside Before production changes\./.test(app.live()), app.live());
-  assert.ok(/<div class="notice good" role="status"><span>Added a must-do step[^<]*<\/span><span class="row"><button type="button" class="btn" data-act="tl-undo" data-id="draft">Undo<\/button>/.test(app.html()), 'with a real Undo button');
+  assert.ok(/<div class="notice good"><span>Added a must-do step[^<]*<\/span><span class="row"><button type="button" class="btn" data-act="tl-undo" data-id="draft">Undo<\/button>/.test(app.html()), 'with a real Undo button');
   assert.ok(/class="ob-switch reveal" for="ob-mark-must"><input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked>/.test(app.html()), 'Must do is shown, chosen and highlighted');
   assert.ok(/It follows the name until you save the draft/.test(app.html()), 'a new part\'s ID follows its name for now');
   app.set('ob-text', 'Smoke tests pass on staging'); enter(app, 'ob-text', 'Smoke tests pass on staging'); await app.tick();
@@ -2902,7 +2903,7 @@ rule('App: a successful save is confirmed quietly beside Save, not with a notice
   const app = await builderOn();
   app.click('ob-del', 'rollback'); await app.tick();
   app.click('save-draft'); await app.tick(80);
-  assert.ok(!/<div class="notice[^"]*" role="status"><span>Draft saved\./.test(app.html()), 'no notice');
+  assert.ok(!/<div class="notice[^"]*"(?: role="status")?><span>Draft saved\./.test(app.html()), 'no notice');
   assert.ok(/fpe-state just/.test(app.html()) && /Draft saved\./.test(app.live()), 'the check beside Save, and still announced');
 });
 

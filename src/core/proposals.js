@@ -211,6 +211,41 @@ PF.proposals = (function () {
     return { added: added, removed: removed, renamed: renamed };
   }
 
+  /* What a change did to the steps and phases, by their outline keys (the ID, or the position for one without): changed (its
+     lines differ), added, removed. keys: what the editor highlights afterwards ('step:<key>', 'phase:<key>'). */
+  function changes(before, after) {
+    var A = PF.outline.parse(String(before)), B = PF.outline.parse(String(after));
+    function steps(o) { return o.steps.map(function (s) { return { key: s.key, id: s.key.charAt(0) !== '#', src: o.lines.slice(s.line, s.end).join('\n') }; }); }
+    function phases(o) { return o.phases.map(function (p) { return { key: p.key, id: p.key.charAt(0) !== '#', src: [o.lines[p.line], p.gate ? o.lines.slice(p.gate.line, p.gate.end).join('\n') : ''].join('\n') }; }); }
+    /* Parts with an ID are matched by it; a part without one (its key is only its position) by its exact lines, so a step
+       added above it doesn't make it look changed. */
+    function diffOf(a, b) {
+      var byId = {}, free = {}, out = { changed: [], added: [], removed: [] };
+      a.forEach(function (x) { if (x.id) byId[x.key] = x; else (free[x.src] = free[x.src] || []).push(x); });
+      b.forEach(function (y) {
+        if (y.id) { var x = byId[y.key]; if (!x) out.added.push(y.key); else { delete byId[y.key]; if (x.src !== y.src) out.changed.push(y.key); } return; }
+        if (free[y.src] && free[y.src].length) free[y.src].shift(); else out.added.push(y.key);
+      });
+      Object.keys(byId).forEach(function (k) { out.removed.push(k); });
+      Object.keys(free).forEach(function (k) { free[k].forEach(function (x) { out.removed.push(x.key); }); });
+      return out;
+    }
+    var s = diffOf(steps(A), steps(B)), p = diffOf(phases(A), phases(B));
+    return { steps: s, phases: p, keys: s.changed.concat(s.added).map(function (k) { return 'step:' + k; }).concat(p.changed.concat(p.added).map(function (k) { return 'phase:' + k; })) };
+  }
+  /* "2 steps changed, 1 added, 1 phase changed"; with no step or phase touched, "the details at the top changed". */
+  function changeWords(c) {
+    var out = [];
+    [['step', c.steps], ['phase', c.phases]].forEach(function (x) {
+      var d = x[1], first = true;
+      [['changed', d.changed.length], ['added', d.added.length], ['removed', d.removed.length]].forEach(function (y) {
+        if (!y[1]) return;
+        out.push(first ? y[1] + ' ' + x[0] + (y[1] === 1 ? '' : 's') + ' ' + y[0] : y[1] + ' ' + y[0]); first = false;
+      });
+    });
+    return out.length ? out.join(', ') : 'the details at the top changed';
+  }
+
   /* ---------- the comparison Review shows: Myers, line by line, capped at 2,000 differences ---------- */
   var DIFF_MAX = 2000, CONTEXT = 3;
   function diff(a, b, cap) {
@@ -313,6 +348,6 @@ PF.proposals = (function () {
   return { DIR: DIR, PRESENCE: PRESENCE, FILE_MAX: FILE_MAX, TEXT_MAX: TEXT_MAX, LIST_MAX: LIST_MAX, BEAT_MS: BEAT_MS, FRESH_MS: FRESH_MS, AHEAD_MS: AHEAD_MS, CLEAN_MS: CLEAN_MS, CLEAN_MAX: CLEAN_MAX, LISTED_MS: LISTED_MS,
     ID: ID, PROC: PROC, WRITER: WRITER, SESSION: SESSION, SHA: SHA, STATUSES: STATUSES, CLI: CLI, DIFF_MAX: DIFF_MAX,
     sha: sha, newId: newId, textProcess: textProcess, make: make, check: check, parseName: parseName, attempt: attempt, decision: decision, cleanRecord: cleanRecord,
-    recState: recState, reviewed: reviewed, sameSet: sameSet, judge: judge, baseFor: baseFor, ids: ids, diff: diff,
+    recState: recState, reviewed: reviewed, sameSet: sameSet, judge: judge, baseFor: baseFor, ids: ids, diff: diff, changes: changes, changeWords: changeWords,
     presence: presence, presenceName: presenceName, cleanPresence: cleanPresence, freshCli: freshCli, freshApp: freshApp, mainOf: mainOf, claim: claim };
 })();

@@ -8,6 +8,7 @@ Edit a checklist with your AI assistant at the same time.
 
 ### New
 
+- **See your AI assistant's changes as you edit** (Checklist editor). When your AI assistant changes a draft you have open with nothing unsaved, its change appears in the editor within a few seconds, marked "Changed by your AI assistant", and is saved. One Undo takes it back. Otherwise it waits for you on the process page. From another computer, add OneDrive's time. With the draft open on two computers, use Decline there rather than Undo. *Where:* Edit on a process page
 - **Proposed changes wait for you** (Processes). When a draft is open in an editor, or changed since your AI assistant read it, its changes arrive as a proposal. Review it, then Apply or Decline it on the process page. Apply works only when the proposal starts from the draft as it is now; anything else waits for you to look at it. *Where:* A process page
 - **See who's editing a draft** (Checklist editor). A draft open in someone's editor shows who and on which computer, as far as this computer can see right now. You can still edit it, and each save is checked against the draft you opened.
 - **flightdeck draft read, save and propose** (Command line). AI assistants read and save drafts with the flightdeck command. When someone has the draft open, it sends a proposal instead of writing over their work.
@@ -15,6 +16,7 @@ Edit a checklist with your AI assistant at the same time.
 
 ### Improved
 
+- **Undo a newer draft that arrived** (Checklist editor). A newer draft arrives as one change you can undo, and the changes before it can still be undone.
 - **Saves check the exact text** (Checklist editor). Saving a draft checks that the file is still exactly the text you started from, right before writing, not only a short fingerprint of it.
 
 ## 1.18.0 · Oct 19, 2026

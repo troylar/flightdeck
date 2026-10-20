@@ -33,7 +33,7 @@ If the folder has `step-types/` or `jira/workflows.json`, read them too: use the
    - A gate with `owner @role` and `approves:` where approval matters.
    - Explanations, links and gotchas in `>` notes. Reference screenshots only if they already exist in `images/`.
 4. **Check it yourself** against the format and guide before saving: unique IDs, known types, choice values from the allowed list, roles and `^details` declared in the front matter, no step over about 12 words, no filler openings, no secrets.
-5. **Save** with `flightdeck draft save <team folder> <process> --expect none --from <your file> --json`. It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist waits as a proposal that a person applies in Flightdeck (say so in your report). Without the command, check again that the file doesn't exist yet; if it does, stop and report instead of overwriting. Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `runs/`, `proposed/` or `presence/`.
+5. **Save** with `flightdeck draft save <team folder> <process> --expect none --from <your file> --json`. It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the process page (say which in your report). Without the command, check again that the file doesn't exist yet; if it does, stop and report instead of overwriting. Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `runs/`, `proposed/` or `presence/`.
 
 ## Report back
 

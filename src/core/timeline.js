@@ -90,6 +90,8 @@ PF.timeline = (function () {
       selBefore: meta.selBefore || null, selAfter: meta.selAfter || null, lines: !!meta.lines, show: meta.lines ? linesOf(before, after, p) : meta.show ? { before: meta.show.before, after: meta.show.after } : null,
       at: at, t: at, closed: kind !== 'typing', savedAs: null };
     if (meta.wait) e.waits = meta.wait;
+    /* A change that arrived from outside (kind 'incoming'): adopt names the proposal and attempt it applied, if any. */
+    if (meta.adopt) e.adopt = { proposal: meta.adopt.proposal, attempt: meta.adopt.attempt };
     tl.entries.push(e); tl.pos = tl.entries.length; tl.chars += size(e);
     trim(tl);
     return e;
