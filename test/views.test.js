@@ -1067,7 +1067,8 @@ let cn = 0;
 const cr = (r, o) => C.build(Object.assign({ id: 'c' + (++cn), at: NOW, by: 'person-blake', session: 'w1', map: R.mapOf(r), version: 1, folder: r.folder, step: 'approved', op: 'wording', to: 'Change request approved by the board for tonight\'s window' }, o));
 const withShot = () => {
   const md = example('maps/drafts/release.md').replace('{#approved}\n', '{#approved}\n  ![CAB page](images/release/cab.png)\n');
-  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'view0009' });
+  /* A version lists every screenshot it shows, as publishing records it. */
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'view0009', images: { 'images/release/cab.png': PF.util.hash('cab') }, imageBytes: { 'images/release/cab.png': new Uint8Array([99, 97, 98]) } });
   return R.create(P.verify(b.folder, b.files), { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'other', now: NOW, id: 'run1' });
 };
 
