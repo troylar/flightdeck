@@ -11541,6 +11541,7 @@ PF.reports = (function () {
     if (g.differ || g.unreadable.length) return no(g.reason);
     var rep = g.report, x = map ? M.findStep(map, g.step) : null;
     if (o.readOnly) return no(o.readOnly);
+    if (o.held) return no(o.held);
     if (!o.recording) return no('Only the recorder can accept a report.');
     if (rep.verdict !== 'pass') return no('This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.');
     if (!r || r.folder !== rep.publication.folder) return no('This report is for ' + rep.publication.folder + ', but the run is on ' + (r ? r.folder : 'another version') + '.');
@@ -11572,8 +11573,9 @@ PF.reports = (function () {
   function parseLog(what) { var m = typeof what === 'string' ? LOG.exec(what) : null; return m ? { producer: m[1], id: m[2], sha256: m[3] } : null; }
   /* Acceptances in the run whose decision isn't in the folder (the window closed before it was written): the log names the
      report and its hash, and the step's answer is still the one accepted. recordable when a copy with exactly those bytes is
-     there now; a decision is never written from other bytes. */
-  function unrecorded(r, groups, cur) {
+     there now and the step still holds exactly that report's evidence (map is needed to tell); a decision is never written
+     from other bytes or for evidence changed since (why: 'gone' or 'changed'). */
+  function unrecorded(r, groups, cur, map) {
     var out = [], seen = dict();
     (r && r.log || []).forEach(function (l) {
       var p = l && parseLog(l.what);
@@ -11589,9 +11591,24 @@ PF.reports = (function () {
       if (hit && hit.d.status === 'accepted' && hit.d.sha256 === p.sha256 && hit.d.answer.at === l.at) return;
       if (hit && hit.d.rev && hit.d.at > l.at) return;
       seen[g.key + p.sha256] = true;
-      out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ });
+      var bytes = g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ && g.sha256 === p.sha256 && !!g.report;
+      var same = bytes && sameEvidence(g, r, map);
+      out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: bytes && same, why: !bytes ? 'gone' : same ? '' : 'changed' });
     });
     return out;
+  }
+  /* Decision files on this report that couldn't be read (unread: { process, _file }, as loading names them): until they can,
+     nobody knows what was decided, so nothing may be decided again. */
+  function unreadOn(g, unread) {
+    var h = decisionHash(g);
+    return (unread || []).filter(function (u) { var nm = u && u.process === g.process ? parseDecisionName(u._file) : null; return !!nm && nm.run === g.run && nm.hash === h; }).map(function (u) { return u._file; });
+  }
+  /* Whether the step's answer holds exactly the report's evidence as accepting it would have stored it. */
+  function sameEvidence(g, r, map) {
+    var x = map && g.report ? M.findStep(map, g.step) : null, a = x && own(r.steps, g.step) ? r.steps[g.step] : null;
+    if (!a) return false;
+    var chk = R.checkEvidence(r, x.step, null, valuesFor(g.report, r, x.step).values), schema = schemaOf(r, x.step);
+    return !chk.error && fingerprint(a.values || {}, schema) === fingerprint(chk.values, schema);
   }
   /* Whether the saved run holds exactly the answer an acceptance made (intent: { step, at, by, fp, schema }). */
   function landed(r, intent) {
@@ -11638,9 +11655,11 @@ PF.reports = (function () {
     return { errors: [], warnings: warnings, applies: ap.result === 'match' ? 'yes' : ap.result === 'mismatch' ? 'no' : 'unknown', unused: vu.unused };
   }
   /* The text a report is written as: its fields in order, id and created filled when the caller left them out. */
+  /* A report as text, known properties in order first; every other property is kept too, so the reader still refuses it. */
   function text(o) {
     var out = {};
     KEYS.forEach(function (k) { if (own(o, k) && o[k] !== undefined) out[k] = o[k]; });
+    Object.keys(o).forEach(function (k) { if (KEYS.indexOf(k) < 0) Object.defineProperty(out, k, { value: o[k], enumerable: true, writable: true, configurable: true }); });
     return JSON.stringify(out, null, 2) + '\n';
   }
   /* Refuses text that holds a private key, which a report never needs (only PEM blocks are looked for). */
@@ -11664,7 +11683,7 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();
 
 /* Shapes for other apps (docs/apps.md): what `flightdeck processes | process | runs | run | next | followups --json` and
@@ -17020,7 +17039,8 @@ PF.vk = (function () {
     var mine = (b.pending || []).filter(function (p) { return p.key === g.key; })[0], un = (b.unrecorded || []).filter(function (u) { return u.g.key === g.key; })[0];
     if (mine && mine.err) h += '<div class="notice bad" role="status"><span>The step is checked, but the decision on this report couldn\'t be saved: ' + esc(mine.err) + '</span>' + (st.me ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>';
     else if (mine) h += '<p class="small" role="status">Saving the decision once the step is saved…</p>';
-    else if (un) h += un.recordable ? '<div class="notice warn"><span>Accepted in the run, but the decision isn\'t in the team folder yet.</span>' + (ctx.recording(r) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>'
+    else if (un) h += un.recordable ? '<div class="notice warn"><span>Accepted in the run, but the decision isn\'t in the team folder yet.</span>' + (ctx.recording(r) && !(b.held && b.held(g)) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>'
+      : un.why === 'changed' ? '<div class="notice warn"><span>Accepted in the run, but the step\'s evidence was changed since, so the decision can\'t be recorded from this report.</span></div>'
       : '<div class="notice warn"><span>Accepted in the run, but the report it accepted isn\'t in the folder in that form anymore.</span></div>';
     h += actions(ctx, r, map, g, dec, id);
     h += '<details class="small rep-details"><summary>Details</summary><p>Flightdeck can\'t confirm which tool or person wrote this file.</p>' +
@@ -17036,8 +17056,10 @@ PF.vk = (function () {
   function actions(ctx, r, map, g, dec, id) {
     if (!g.report || !ctx.recording(r)) return '';
     var st = ctx.state, b = bundle(ctx, r), pick = st.repPick && st.repPick.key === g.key ? st.repPick : null, busy = st.repSaving === g.key;
-    var el = X.eligible(g, r, map, { recording: true, readOnly: b.readOnly, fillOpen: b.fillOpen ? b.fillOpen(g.step) : false });
+    var held = b.held ? b.held(g) : '';
+    var el = X.eligible(g, r, map, { recording: true, readOnly: b.readOnly, held: held, fillOpen: b.fillOpen ? b.fillOpen(g.step) : false });
     var h = '';
+    if (held) return '<div class="notice warn" role="status"><span>' + esc(held) + '</span></div>';
     if (pick && pick.mode === 'accept' && el.ok) {
       var labels = el.step ? R.evidenceFor(r, el.step).list : [], vals = labels.filter(function (d) { return el.values[d.name]; }).map(function (d) { return d.label + ' ' + el.values[d.name]; });
       h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-cf"><h4 id="' + id + '-cf" tabindex="-1">Accept this report?</h4>' +
@@ -24353,14 +24375,21 @@ PF.examples = (function () {
     if (repMemo[key]) return repMemo[key];
     var e = repLoad(r), cur = repCur(), list = e ? e.list : [];
     return (repMemo[key] = { list: list, badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: !!(e && e.loading), cur: cur,
-      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur), pending: pendingAccepts(key), readOnly: repReadOnly(r),
-      fillOpen: function (id) { return fillOpenOn(key, id); } });
+      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r)), pending: pendingAccepts(key), readOnly: repReadOnly(r),
+      fillOpen: function (id) { return fillOpenOn(key, id); }, held: repHeld });
   }
   function reportsWaiting() {
     if (!state.me || !data.reports) return {};
     var keys = Object.create(null);
     data.runs.forEach(function (r) { if (r.state === 'running' && !r.ended && r.recorder.person === state.me) keys[r.process + '/' + r.id] = true; });
     return PF.reports.undecided(data.reports.files, repCur(), keys);
+  }
+  /* Why nothing may be decided on a report now: a decision on it, or the decisions folder, couldn't be read, so what was
+     decided isn't known (a failed read is never "not decided"). '' when it may be. */
+  function repHeld(g) {
+    if ((data.failed || {})['report decisions']) return 'Decisions on reports couldn\'t be read on the last check, so nothing can be decided here until they can.';
+    var files = PF.reports.unreadOn(g, data.repUnread);
+    return files.length ? 'A decision on this report can\'t be read (' + files[0] + '), so nobody here knows what was decided. Decide once it can be read.' : '';
   }
   /* Why the open run can't take an answer here, as mutateRun would say it, or ''. */
   function repReadOnly(r) { return r._unrunnable ? r._unrunnable + ' This run is read-only here.' : runUnread(r) || (state.recovering ? 'Wait until the copy is kept, then try again.' : ''); }
@@ -24396,7 +24425,7 @@ PF.examples = (function () {
       state.repSaving = null;
       if (!now || !now.report || now.sha256 !== g.sha256) { delete repCache[fk + '\n' + key]; state.repPick = null; say('This report changed in the team folder since it was shown, so nothing was accepted. Look at it again, then decide.', 'warn'); render(); return; }
       var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2);
-      var el = X.eligible(g, r2, map, { recording: ctx.recording(r2), readOnly: r2 ? repReadOnly(r2) : '', fillOpen: fillOpenOn(key, g.step) });
+      var el = X.eligible(g, r2, map, { recording: ctx.recording(r2), readOnly: r2 ? repReadOnly(r2) : '', held: repHeld(g), fillOpen: fillOpenOn(key, g.step) });
       if (!el.ok) { say(el.why, 'warn'); render(); return; }
       var cur = repCur()[g.key];
       return answerStep(key, g.step, { how: 'report', report: { g: g, sha: g.sha256, values: el.values, schema: el.schema, inputs: el.applies.result === 'match' ? 'match' : 'unknown', cur: cur ? cur.d : null, fk: fk } });
@@ -24453,6 +24482,7 @@ PF.examples = (function () {
     var o = repItem(id);
     if (!o.it || state.repSaving) return;
     if (!ctx.recording(o.r)) { say('Only the recorder can decide on a report.', 'warn'); render(); return; }
+    if (repHeld(o.it.g)) { say(repHeld(o.it.g), 'warn'); render(); return; }
     var X = PF.reports, g = o.it.g, cur = repCur()[g.key], reason = status === 'declined' ? val('rep-reason') : '', rec;
     try { rec = X.decision(g, g.sha256, status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
     catch (e) { if (e.field) { if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: e.field, msg: e.message }; state.focus = e.field; } else say(e.message, 'warn'); render(); return; }
@@ -24480,6 +24510,7 @@ PF.examples = (function () {
     }
     var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
     if (!u || !u.recordable || !ctx.recording(r) || state.repSaving) return;
+    if (repHeld(u.g)) { say(repHeld(u.g), 'warn'); render(); return; }
     var g = u.g, copy = g.copies.filter(function (c) { return c.ok && c.sha256 === u.sha256; })[0], dfs = state.fs, gg = gen, fk = fsKey();
     if (!copy) return;
     state.repSaving = id; render();
@@ -24488,7 +24519,9 @@ PF.examples = (function () {
       state.repSaving = null;
       if (!now || !now.report || now.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
       var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
-      if (!a || a.s !== 'done' || a.at !== u.at || a.by !== u.by) { say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
+      /* Judged again on the run as it is now, with the bytes just read: the same answer, holding exactly this report's evidence. */
+      var again = r2 ? X.unrecorded(r2, [Object.assign({}, g, { report: now.report })], repCur(), map).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+      if (!a || !again || !again.recordable) { say(again && again.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
       var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
       try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
       catch (e) { say(e.message, 'warn'); render(); return; }

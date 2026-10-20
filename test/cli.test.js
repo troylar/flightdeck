@@ -2378,6 +2378,19 @@ rule('REPORT: write puts one file in reports/<process>/ once and reads it back; 
   assert.ok(r.code === 0 && /^[a-z0-9]{12}$/.test(r.json.data.report.id) && !isNaN(Date.parse(r.json.data.report.created)), r.out);
   const text = fs.readFileSync(path.join(dir, r.json.data.report.file), 'utf8');
   assert.strictEqual(r.json.data.report.sha256, require('crypto').createHash('sha256').update(text).digest('hex'));
+  // Filling in id and created never drops a property the reader would refuse, and never writes more than the reader takes.
+  const typo = Object.assign({}, noId, { evidences: { run: '1' } });
+  const rt = repAgree(readCli('report', 'write', dir, repFile(typo), '--json'));
+  assert.ok(rt.code === 1 && /evidences/.test(rt.json.error.why), rt.out);
+  const PF0 = require('./harness').load(), big = Object.assign({}, noId, { evidence: { run: '1' }, verdict: 'fail', blockers: Array.from({ length: 20 }, (_, i) => i + 'b'.repeat(290)), links: Array.from({ length: 20 }, (_, i) => ({ label: 'L'.repeat(80), url: 'https://ci.example.com/' + i + '/' + 'p'.repeat(1800) })),
+    inputs: Array.from({ length: 30 }, (_, i) => ({ name: 'n' + i, value: 'v'.repeat(290), source: 'external' })) });
+  for (let i = 0; Buffer.byteLength(JSON.stringify(big)) < 65000; i++) big.evidence['e' + i] = 'v'.repeat(Math.min(290, 65000 - Buffer.byteLength(JSON.stringify(big))));
+  assert.ok(Buffer.byteLength(JSON.stringify(big)) <= 65536 && Buffer.byteLength(PF0.reports.text(Object.assign({ id: 'abcd1234abcd', created: '2026-10-20T09:00:00.000Z' }, big))) > 65536, 'set-up: the input fits, the file written wouldn\'t');
+  assert.ok(PF0.reports.clean(JSON.stringify(Object.assign({ id: 'abcd1234', created: '2026-10-20T09:00:00.000Z' }, big)), 'release', 'run1.tests.ci-check.abcd1234.json').ok, 'set-up: otherwise valid');
+  const treeBig = EV.tree(dir);
+  const rb = repAgree(readCli('report', 'write', dir, repFile(big), '--json'));
+  assert.ok(rb.code === 1 && /more than 64 KB/.test(rb.json.error.why), rb.out);
+  assert.deepStrictEqual(EV.tree(dir), treeBig, 'nothing written');
   // A byte-order mark isn't written, and the SHA-256 printed (check and write) is always of the bytes in the file.
   const bom = Object.assign({}, REPORT, { id: 'bomb0m00aa' }), bomFile = repFile(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(bom))]));
   const ck = repAgree(readCli('report', 'check', bomFile, '--json'));

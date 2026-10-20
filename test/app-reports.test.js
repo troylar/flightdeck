@@ -28,7 +28,7 @@ function report(app, o) {
 }
 async function plant(app, o) { const x = report(app, o); await app.fs.write(x.path, x.text); app.click('refresh'); await app.tick(80); return x; }
 const isDone = (app) => { const a = app.run().json.steps.jenkins; return !!a && a.s === 'done'; };
-const decisions = (app) => app.files('report-decisions/release/').map(p => JSON.parse(app.fs.files[p].t));
+const decisions = (app) => app.files('report-decisions/release/').map(p => { try { return JSON.parse(app.fs.files[p].t); } catch (e) { return null; } }).filter(Boolean);
 async function openStep(app, id) { app.click('select', id); await app.tick(40); }
 
 rule('App: a report shows its three facts on its step and checks nothing by itself', async () => {
@@ -195,6 +195,36 @@ rule('App: an acceptance the run records without its decision is recorded from t
     assert.deepStrictEqual([ds[0].status, ds[0].sha256, ds[0].answer.at], ['accepted', x.sha, at]);
     assert.ok(/Accepted by Casey/.test(app.html()));
   }
+});
+
+rule('App: a logged acceptance whose evidence was changed since isn\'t recorded as the report\'s', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
+  j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '1433', buildLink: 'https://ci.example.com/jobs/1432' } };
+  j.log.push({ at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') });
+  j.rev = (j.rev || 0) + 1;
+  await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  assert.ok(/evidence was changed since, so the decision can(&#39;|')t be recorded/.test(app.html()));
+  assert.ok(!/data-act="rep-record"/.test(app.html()));
+  app.click('rep-record', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), [], 'nothing recorded');
+});
+
+rule('App: a decision on a report that can\'t be read holds it: no Accept, Decline or Reopen until it can be read', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  const j = app.run().json, h = app.PF.reports.decisionHash({ process: 'release', run: j.id, step: 'jenkins', producer: 'ci-check', id: 'abcd1234' });
+  await app.fs.write('report-decisions/release/' + j.id + '.' + h + '.w9.4.json', '{"format": "flightdeck-report-decision/1", "status": "decl');
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  assert.ok(/A decision on this report can(&#39;|')t be read/.test(app.html()), 'it says why');
+  assert.ok(!/data-act="rep-accept"/.test(app.html()) && !/data-act="rep-decline"/.test(app.html()));
+  app.click('rep-accept-go', x.key); app.click('rep-decline-go', x.key); app.click('rep-reopen', x.key); await app.tick(120);
+  assert.ok(!isDone(app), 'nothing accepted');
+  assert.deepStrictEqual(decisions(app).filter(Boolean).length, 0, 'nothing decided');
 });
 
 rule('App: Fill in after an acceptance shows the evidence changed; Decline needs a reason; Reopen writes a decision only', async () => {

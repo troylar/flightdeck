@@ -281,10 +281,14 @@ rule('An acceptance logged in the run but never recorded is recoverable only fro
   const e = X.eligible(g, r, map, { recording: true });
   R.done(r, map, 'deploy', 'person-avery', LATER, e.values, { exact: true });
   r.log.push({ at: LATER, by: 'person-avery', what: X.logLine(g, g.sha256, 'Deploy') });
-  const u = X.unrecorded(r, [g], {});
+  const u = X.unrecorded(r, [g], {}, map);
   assert.strictEqual(u.length, 1); assert.ok(u[0].recordable);
+  assert.strictEqual(X.unrecorded(r, [g], {})[0].recordable, false, 'without the map, it can\'t be told, so it isn\'t');
   const changed = X.group('backup-check', [entry(report({ summary: 'edited later' }))]).list;
-  assert.strictEqual(X.unrecorded(r, changed, {})[0].recordable, false);
+  assert.deepStrictEqual(plain(X.unrecorded(r, changed, {}, map).map(x => [x.recordable, x.why])), [[false, 'gone']]);
+  // Evidence changed after the acceptance (Fill in, in any copy): the decision would say the report's evidence checked it.
+  const r2 = JSON.parse(JSON.stringify(r)); r2.steps.deploy.values.build = '1433';
+  assert.deepStrictEqual(plain(X.unrecorded(r2, [g], {}, map).map(x => [x.recordable, x.why])), [[false, 'changed']]);
   const d = X.decision(g, g.sha256, 'accepted', 'person-avery', LATER, null, { inputs: 'match', answer: { at: LATER, by: 'person-avery', fp: X.fingerprint(r.steps.deploy.values, e.schema) } });
   const cur = X.current([X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', X.decisionName(d, 'w1')).d]);
   assert.strictEqual(X.unrecorded(r, [g], cur).length, 0);
@@ -300,10 +304,18 @@ rule('Recovery finds the report by the step that still holds the logged answer, 
   R.done(r, map, 'smoke', 'person-avery', LATER, e.values, { exact: true });
   r.log.push({ at: LATER, by: 'person-avery', what: X.logLine(gb, gb.sha256, 'Smoke') });
   [[ga, gb], [gb, ga]].forEach(gs => {
-    const u = X.unrecorded(r, gs, {});
+    const u = X.unrecorded(r, gs, {}, map);
     assert.strictEqual(u.length, 1);
     assert.deepStrictEqual([u[0].g.step, u[0].recordable], ['smoke', true], 'whatever order the groups come in');
   });
+});
+
+rule('A decision file that can\'t be read holds its report: nothing may be decided on it until it can', () => {
+  const { r, map } = makeRun(), g = groupOf(report());
+  const h = X.decisionHash(g), unread = [{ process: 'backup-check', _file: 'run1.' + h + '.w9.4.json' }, { process: 'backup-check', _file: 'run1.00000000.w9.1.json' }, { process: 'other', _file: 'run1.' + h + '.w9.1.json' }, { process: 'backup-check', _file: 'junk' }];
+  assert.deepStrictEqual(plain(X.unreadOn(g, unread)), ['run1.' + h + '.w9.4.json'], 'only its own, by run and hash');
+  const e = X.eligible(g, r, map, { recording: true, held: 'A decision on this report can\'t be read.' });
+  assert.deepStrictEqual([e.ok, e.why], [false, 'A decision on this report can\'t be read.']);
 });
 
 /* ---------- command line and Home ---------- */

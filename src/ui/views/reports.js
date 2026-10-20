@@ -71,7 +71,8 @@
     var mine = (b.pending || []).filter(function (p) { return p.key === g.key; })[0], un = (b.unrecorded || []).filter(function (u) { return u.g.key === g.key; })[0];
     if (mine && mine.err) h += '<div class="notice bad" role="status"><span>The step is checked, but the decision on this report couldn\'t be saved: ' + esc(mine.err) + '</span>' + (st.me ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>';
     else if (mine) h += '<p class="small" role="status">Saving the decision once the step is saved…</p>';
-    else if (un) h += un.recordable ? '<div class="notice warn"><span>Accepted in the run, but the decision isn\'t in the team folder yet.</span>' + (ctx.recording(r) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>'
+    else if (un) h += un.recordable ? '<div class="notice warn"><span>Accepted in the run, but the decision isn\'t in the team folder yet.</span>' + (ctx.recording(r) && !(b.held && b.held(g)) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>'
+      : un.why === 'changed' ? '<div class="notice warn"><span>Accepted in the run, but the step\'s evidence was changed since, so the decision can\'t be recorded from this report.</span></div>'
       : '<div class="notice warn"><span>Accepted in the run, but the report it accepted isn\'t in the folder in that form anymore.</span></div>';
     h += actions(ctx, r, map, g, dec, id);
     h += '<details class="small rep-details"><summary>Details</summary><p>Flightdeck can\'t confirm which tool or person wrote this file.</p>' +
@@ -87,8 +88,10 @@
   function actions(ctx, r, map, g, dec, id) {
     if (!g.report || !ctx.recording(r)) return '';
     var st = ctx.state, b = bundle(ctx, r), pick = st.repPick && st.repPick.key === g.key ? st.repPick : null, busy = st.repSaving === g.key;
-    var el = X.eligible(g, r, map, { recording: true, readOnly: b.readOnly, fillOpen: b.fillOpen ? b.fillOpen(g.step) : false });
+    var held = b.held ? b.held(g) : '';
+    var el = X.eligible(g, r, map, { recording: true, readOnly: b.readOnly, held: held, fillOpen: b.fillOpen ? b.fillOpen(g.step) : false });
     var h = '';
+    if (held) return '<div class="notice warn" role="status"><span>' + esc(held) + '</span></div>';
     if (pick && pick.mode === 'accept' && el.ok) {
       var labels = el.step ? R.evidenceFor(r, el.step).list : [], vals = labels.filter(function (d) { return el.values[d.name]; }).map(function (d) { return d.label + ' ' + el.values[d.name]; });
       h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-cf"><h4 id="' + id + '-cf" tabindex="-1">Accept this report?</h4>' +

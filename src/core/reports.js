@@ -407,6 +407,7 @@ PF.reports = (function () {
     if (g.differ || g.unreadable.length) return no(g.reason);
     var rep = g.report, x = map ? M.findStep(map, g.step) : null;
     if (o.readOnly) return no(o.readOnly);
+    if (o.held) return no(o.held);
     if (!o.recording) return no('Only the recorder can accept a report.');
     if (rep.verdict !== 'pass') return no('This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.');
     if (!r || r.folder !== rep.publication.folder) return no('This report is for ' + rep.publication.folder + ', but the run is on ' + (r ? r.folder : 'another version') + '.');
@@ -438,8 +439,9 @@ PF.reports = (function () {
   function parseLog(what) { var m = typeof what === 'string' ? LOG.exec(what) : null; return m ? { producer: m[1], id: m[2], sha256: m[3] } : null; }
   /* Acceptances in the run whose decision isn't in the folder (the window closed before it was written): the log names the
      report and its hash, and the step's answer is still the one accepted. recordable when a copy with exactly those bytes is
-     there now; a decision is never written from other bytes. */
-  function unrecorded(r, groups, cur) {
+     there now and the step still holds exactly that report's evidence (map is needed to tell); a decision is never written
+     from other bytes or for evidence changed since (why: 'gone' or 'changed'). */
+  function unrecorded(r, groups, cur, map) {
     var out = [], seen = dict();
     (r && r.log || []).forEach(function (l) {
       var p = l && parseLog(l.what);
@@ -455,9 +457,24 @@ PF.reports = (function () {
       if (hit && hit.d.status === 'accepted' && hit.d.sha256 === p.sha256 && hit.d.answer.at === l.at) return;
       if (hit && hit.d.rev && hit.d.at > l.at) return;
       seen[g.key + p.sha256] = true;
-      out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ });
+      var bytes = g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ && g.sha256 === p.sha256 && !!g.report;
+      var same = bytes && sameEvidence(g, r, map);
+      out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: bytes && same, why: !bytes ? 'gone' : same ? '' : 'changed' });
     });
     return out;
+  }
+  /* Decision files on this report that couldn't be read (unread: { process, _file }, as loading names them): until they can,
+     nobody knows what was decided, so nothing may be decided again. */
+  function unreadOn(g, unread) {
+    var h = decisionHash(g);
+    return (unread || []).filter(function (u) { var nm = u && u.process === g.process ? parseDecisionName(u._file) : null; return !!nm && nm.run === g.run && nm.hash === h; }).map(function (u) { return u._file; });
+  }
+  /* Whether the step's answer holds exactly the report's evidence as accepting it would have stored it. */
+  function sameEvidence(g, r, map) {
+    var x = map && g.report ? M.findStep(map, g.step) : null, a = x && own(r.steps, g.step) ? r.steps[g.step] : null;
+    if (!a) return false;
+    var chk = R.checkEvidence(r, x.step, null, valuesFor(g.report, r, x.step).values), schema = schemaOf(r, x.step);
+    return !chk.error && fingerprint(a.values || {}, schema) === fingerprint(chk.values, schema);
   }
   /* Whether the saved run holds exactly the answer an acceptance made (intent: { step, at, by, fp, schema }). */
   function landed(r, intent) {
@@ -504,9 +521,11 @@ PF.reports = (function () {
     return { errors: [], warnings: warnings, applies: ap.result === 'match' ? 'yes' : ap.result === 'mismatch' ? 'no' : 'unknown', unused: vu.unused };
   }
   /* The text a report is written as: its fields in order, id and created filled when the caller left them out. */
+  /* A report as text, known properties in order first; every other property is kept too, so the reader still refuses it. */
   function text(o) {
     var out = {};
     KEYS.forEach(function (k) { if (own(o, k) && o[k] !== undefined) out[k] = o[k]; });
+    Object.keys(o).forEach(function (k) { if (KEYS.indexOf(k) < 0) Object.defineProperty(out, k, { value: o[k], enumerable: true, writable: true, configurable: true }); });
     return JSON.stringify(out, null, 2) + '\n';
   }
   /* Refuses text that holds a private key, which a report never needs (only PEM blocks are looked for). */
@@ -530,5 +549,5 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();
