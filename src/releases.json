@@ -1,5 +1,26 @@
 [
   {
+    "version": "1.18.0",
+    "date": "2026-10-19",
+    "headline": "Other apps can read checklists, runs, what's waiting and follow-ups as JSON",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Read checklists and runs as JSON",
+        "now": "Scripts and other apps can read the team folder as a teammate would: flightdeck processes, process, runs, run, next and followups, with --json. They show checklists, runs, what's waiting and on whom, and follow-ups. They only read and never change the folder. Anything they couldn't read is named file by file, with exit code 4. People-directory email fields are omitted.",
+        "where": "flightdeck run <team folder> <process>/<run id> --json, and docs/apps.md"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Copy a run's key",
+        "now": "Copy run key copies the key other apps use to read a run, like backup-check/k3m9p2q8.",
+        "where": "A run's More menu"
+      }
+    ]
+  },
+  {
     "version": "1.17.0",
     "date": "2026-10-19",
     "headline": "Search everything with Ctrl+K, and big team folders open and refresh faster, show 50 runs at a time, and warn when refreshing is slow",

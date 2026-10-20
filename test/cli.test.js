@@ -683,4 +683,804 @@ rule('export reads a run.json with a UTF-8 byte-order mark like any other: a com
   assert.strictEqual(r.code, 0, r.out);
 });
 
+
+/* ---------- READ: flightdeck processes | process | runs | run | next | followups --json (1.18) ---------- */
+const RF = require('./read-fixture');
+const FD = require('../bin/flightdeck.js');
+const SRC = require('./harness').load(), AJ = SRC.appjson;
+/* What's wrong with a value against a schema entry, as a plain list (the sandbox's arrays have their own prototype). */
+const wrong = (v, d) => JSON.parse(JSON.stringify(AJ.conforms(v, d)));
+let rfBuilt = null;
+async function readFolder(edit, after) {
+  rfBuilt = rfBuilt || await RF.build(SRC);
+  const files = Object.assign({}, rfBuilt.files);
+  if (edit) edit(files, rfBuilt);
+  const dir = RF.toDisk(files, tmp());
+  if (after) after(dir);
+  return dir;
+}
+function readCli(...a) {
+  const r = cp().spawnSync(process.execPath, [BIN, ...a], { encoding: 'utf8', maxBuffer: 64 * 1048576 });
+  let json = null; try { json = JSON.parse(r.stdout); } catch (e) { /* the caller says what it expected */ }
+  return { code: r.status, json, out: r.stdout, err: r.stderr };
+}
+/* The contract's promise, checked on every READ call in these tests: complete, a non-empty problems list and exit 4 agree,
+   and an error object (no data) exits 1 or 5. */
+function agree(r) {
+  assert.ok(r.json, 'JSON on stdout: ' + r.out + r.err);
+  if (r.json.error) {
+    assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.error), [], 'error object');
+    assert.ok(r.code === 1 || r.code === 5, 'an error object exits 1 or 5, not ' + r.code);
+    return r;
+  }
+  assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.envelope), [], 'envelope');
+  assert.strictEqual(r.json.contract, 'flightdeck-read/1');
+  assert.strictEqual(r.json.complete, r.json.problems.length === 0, 'complete is true exactly when problems is empty');
+  assert.strictEqual(r.code === 4, !r.json.complete, 'exit 4 exactly when not complete (exit ' + r.code + ')');
+  if (r.json.complete) assert.strictEqual(r.code, 0);
+  return r;
+}
+const shape = (r, name) => assert.deepStrictEqual(wrong(r.json.data, AJ.SCHEMA[name]), [], name + ' data');
+
+rule('READ: processes --json lists each process with its versions, in the documented shape', async () => {
+  const dir = await readFolder(), r = agree(readCli('processes', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'processes');
+  assert.strictEqual(r.json.app, cli('version').out.trim());
+  const p = r.json.data.processes[0];
+  assert.strictEqual(p.id, 'release'); assert.strictEqual(p.title, 'Production release'); assert.strictEqual(p.category, 'Releases');
+  assert.deepStrictEqual(p.group, ['Engineering', 'Releases']); assert.deepStrictEqual(p.tags, ['production', 'deploy']); assert.strictEqual(p.owner, 'person-casey');
+  assert.deepStrictEqual(p.latest, { version: 1, folder: rfBuilt.folder });
+  assert.deepStrictEqual(p.versions.map(v => [v.folder, v.version, v.usable, v.why, v.clash, v.publishedBy]), [[rfBuilt.folder, 1, true, null, false, 'person-avery']]);
+});
+
+rule('READ: process --json gives phases, steps, gates and the publication\'s evidence; a version that isn\'t there exits 5', async () => {
+  const dir = await readFolder(), r = agree(readCli('process', dir, 'release', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'process');
+  const d = r.json.data, steps = [].concat(...d.phases.map(p => p.steps)), by = id => steps.filter(s => s.id === id)[0];
+  assert.strictEqual(d.evidenceFrom, 'publication'); assert.strictEqual(d.usable, true); assert.strictEqual(d.version.folder, rfBuilt.folder);
+  assert.ok(d.context.includes('commit') && d.roles.includes('release-lead'));
+  assert.ok(by('approved').evidence.some(e => e.name === 'number' && e.required === true), JSON.stringify(by('approved').evidence));
+  assert.deepStrictEqual(by('tests').binds, ['commit']); assert.strictEqual(by('approved').must, true); assert.deepStrictEqual(by('approved').roles, ['release-lead']);
+  assert.strictEqual(by('notes').type, 'run.process');
+  assert.strictEqual(d.phases[0].gate.id, 'ready'); assert.deepStrictEqual(d.phases[0].gate.binds, ['commit', 'environment']);
+  for (const a of [['--version', '1'], ['--folder', rfBuilt.folder]]) assert.deepStrictEqual(agree(readCli('process', dir, 'release', ...a, '--json')).json.data, d, a.join(' '));
+  for (const a of [['release', '--version', '9'], ['release', '--folder', 'v9-zzzz9999'], ['nope']]) {
+    const x = agree(readCli('process', dir, ...a, '--json'));
+    assert.ok(x.code === 5 && x.json.error.kind === 'not-found', a.join(' ') + ': ' + x.out);
+  }
+});
+
+rule('READ: runs --json lists runs and planned runs, filtered by --process and --status', async () => {
+  const dir = await readFolder(), r = agree(readCli('runs', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'runs');
+  const d = r.json.data, run1 = d.runs.filter(x => x.key === 'release/run1')[0], run2 = d.runs.filter(x => x.key === 'release/run2')[0];
+  assert.strictEqual(run1.state, 'running'); assert.deepStrictEqual(run1.recorder, { id: 'person-casey', name: 'Casey Nguyen' });
+  assert.strictEqual(run1.progress.done, 1); assert.ok(run1.progress.total > 5); assert.strictEqual(run1.details.commit, 'aaa111'); assert.strictEqual(run1.ended, null);
+  assert.strictEqual(run2.state, 'completed'); assert.strictEqual(run2.ended.outcome, 'Completed');
+  assert.deepStrictEqual(d.planned.map(p => [p.id, p.status, p.run]), [['plan-release-2026-10-24', 'pending', null]]);
+  const keys = (...a) => { const x = agree(readCli('runs', dir, ...a, '--json')); return [x.json.data.runs.map(y => y.key).sort(), x.json.data.planned.length]; };
+  assert.deepStrictEqual(keys('--status', 'running'), [['release/run1'], 0]);
+  assert.deepStrictEqual(keys('--status', 'ended'), [['release/run2'], 0]);
+  assert.deepStrictEqual(keys('--status', 'planned'), [[], 1]);
+  assert.deepStrictEqual(keys('--process', 'release'), [['release/run1', 'release/run2'], 1]);
+  assert.strictEqual(agree(readCli('runs', dir, '--process', 'nope', '--json')).code, 5);
+  assert.strictEqual(readCli('runs', dir, '--status', 'sometimes', '--json').code, 1);
+});
+
+rule('READ: run --json gives each step\'s state, who and when, its values and the run\'s own evidence, gates and follow-ups', async () => {
+  const dir = await readFolder(), r = agree(readCli('run', dir, 'release/run1', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'run');
+  const run = r.json.data.run, step = run.steps.filter(s => s.id === 'approved')[0];
+  assert.strictEqual(run.key, 'release/run1'); assert.strictEqual(step.state, 'done'); assert.deepStrictEqual(step.by, { id: 'person-casey', name: 'Casey Nguyen' });
+  assert.strictEqual(step.values.number, 'sample number');
+  const local = SRC.run.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json']));
+  const want = SRC.run.evidenceFor(local, SRC.map.findStep(SRC.run.mapOf(local), 'approved').step).list.map(e => e.name);
+  assert.deepStrictEqual(step.evidence.map(e => e.name), want);
+  assert.ok(run.gates.some(g => g.id === 'ready' && g.status === 'open'));
+  assert.deepStrictEqual(run.roles.filter(x => x.role === 'qa')[0].person, { id: 'person-morgan', name: 'Morgan Diaz' });
+  const r2 = agree(readCli('run', dir, 'release/run2', '--json')).json.data.run;
+  assert.deepStrictEqual(r2.followUps.map(f => [f.id, f.status]), [['fu1', 'ticket'], ['fu2', 'open']]);
+  assert.strictEqual(r2.followUps[0].decision.ticket, 'ABC-124');
+  assert.strictEqual(agree(readCli('run', dir, 'release/run9', '--json')).code, 5);
+  assert.strictEqual(agree(readCli('run', dir, 'nope/run1', '--json')).code, 5);
+  assert.strictEqual(readCli('run', dir, 'release', '--json').code, 1);
+});
+
+rule('READ: next --json says what\'s waiting and on whom, as the run screen does; --person adds that person\'s next step', async () => {
+  const dir = await readFolder(), r = agree(readCli('next', dir, 'release/run1', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'next');
+  const local = SRC.run.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json'])), map = SRC.run.mapOf(local), nu = SRC.run.nextUp(local, map);
+  const n = r.json.data.next;
+  assert.strictEqual(n.kind, nu.kind); assert.strictEqual(n.step.id, nu.step.id);
+  assert.deepStrictEqual(n.step.roles, [...nu.step.roles].map(ro => ({ role: ro, person: { id: local.roles[ro], name: rfBuilt.people.filter(p => p.id === local.roles[ro])[0].name } })));
+  assert.strictEqual(r.json.data.person, null); assert.strictEqual(r.json.data.mine, null);
+  const m = agree(readCli('next', dir, 'release/run1', '--person', 'person-blake', '--json')).json.data, mine = SRC.run.myNext(local, map, 'person-blake');
+  assert.deepStrictEqual(m.person, { id: 'person-blake', name: 'Blake Ortiz' });
+  assert.strictEqual(m.mine.step.id, mine.step.id);
+});
+
+rule('READ: followups --json lists every follow-up with its current decision; --status open leaves out the decided ones', async () => {
+  const dir = await readFolder(), r = agree(readCli('followups', dir, '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'followups');
+  const f = r.json.data.followUps;
+  assert.deepStrictEqual(f.map(x => [x.key, x.status, x.label]), [['release/run2/fu1', 'ticket', 'Moved to a ticket'], ['release/run2/fu2', 'open', 'Open']]);
+  assert.deepStrictEqual(f[0].owner, { id: 'person-blake', name: 'Blake Ortiz' }); assert.strictEqual(f[0].decision.ticket, 'ABC-124');
+  assert.deepStrictEqual(agree(readCli('followups', dir, '--status', 'open', '--json')).json.data.followUps.map(x => x.id), ['fu2']);
+});
+
+/* Each case: what to break, the commands that must report it, and the problem's path and kind. */
+const PROBLEMS = [
+  ['a run folder without run.json', f => { f['runs/release/run3/notes-w9.jsonl'] = '{"id":"n1","text":"hello"}\n'; }, null, [['runs'], ['followups']], 'runs/release/run3/run.json', 'nofile'],
+  ['a malformed proposal', f => { f['proposals/plan-broken.json'] = '{"kind": "plan", '; }, null, [['runs']], 'proposals/plan-broken.json', 'malformed'],
+  ['a proposal that isn\'t a plan', f => { f['proposals/plan-odd.json'] = '{"kind": "plan", "id": 7}'; }, null, [['runs']], 'proposals/plan-odd.json', 'malformed'],
+  ['a malformed follow-up decision', f => { f['followups/release/run2.fu2.w3.1.json'] = '{"kind": "followup-dec'; }, null, [['followups'], ['run', 'release/run2']], 'followups/release/run2.fu2.w3.1.json', 'malformed'],
+  ['a malformed run.json', f => { f['runs/release/run5/run.json'] = '{"format": "preflight-run/2", "id": "run5"'; }, null, [['runs']], 'runs/release/run5/run.json', 'malformed'],
+  ['a run from a newer Flightdeck', f => { f['runs/release/run4/run.json'] = JSON.stringify({ format: 'preflight-run/3', id: 'run4', process: 'release', title: 'From the future' }); }, null, [['runs'], ['run', 'release/run4']], 'runs/release/run4/run.json', 'newer'],
+  ['an unusable version', (f, b) => addVersion(f, b, 2, 'bbbb2222', md => md.replace('{confirm} Feature flags', '{no.such} Feature flags')), null, [['processes'], ['process', 'release']], 'publications/release/v2-bbbb2222/', 'unusable'],
+  ['a version from a newer Flightdeck', (f, b) => addVersion(f, b, 3, 'cccc3333', null, 'preflight-publication/2'), null, [['processes'], ['process', 'release']], 'publications/release/v3-cccc3333/', 'newer'],
+  ['a version still syncing', (f, b) => { addVersion(f, b, 4, 'dddd4444'); delete f['publications/release/v4-dddd4444/map.md']; }, null, [['processes']], 'publications/release/v4-dddd4444/', 'still-syncing'],
+  ['conflict copies beside a run', f => { f['runs/release/run1/run-LAPTOP.json'] = f['runs/release/run1/run.json'].replace('Release 2026.10.20', 'Release 2026.10.20 (copy)'); }, null, [['runs'], ['run', 'release/run1'], ['next', 'release/run1']], 'runs/release/run1/', 'conflict'],
+  ['a link the CLI won\'t follow', null, dir => { const o = tmp(); fs.writeFileSync(path.join(o, 'x.json'), '{"kind": "plan", "id": "plan-x", "process": "release"}'); fs.symlinkSync(path.join(o, 'x.json'), path.join(dir, 'proposals', 'plan-x.json')); }, [['runs']], 'proposals/plan-x.json', 'link'],
+  ['a file too large to read', null, dir => { fs.writeFileSync(path.join(dir, 'runs', 'release', 'run1', 'notes-big.jsonl'), Buffer.alloc(17 * 1048576, 32)); }, [['runs'], ['run', 'release/run1']], 'runs/release/run1/notes-big.jsonl', 'skipped']
+];
+function addVersion(f, b, n, rand, edit, format) {
+  const src = 'publications/release/' + b.folder + '/', dst = 'publications/release/v' + n + '-' + rand + '/';
+  const md = edit ? edit(f[src + 'map.md']) : f[src + 'map.md'], info = JSON.parse(f[src + 'publication.json']);
+  Object.assign(info, { version: n, folder: 'v' + n + '-' + rand, mapHash: SRC.util.hash(md) }, format ? { format } : {});
+  f[dst + 'map.md'] = md; f[dst + 'types.json'] = f[src + 'types.json']; f[dst + 'publication.json'] = JSON.stringify(info, null, 2);
+}
+const ALL = [['processes'], ['process', 'release'], ['runs'], ['run', 'release/run1'], ['next', 'release/run1'], ['followups']];
+
+rule('READ: a clean folder reads complete, exit 0, with no problems, from every command', async () => {
+  const dir = await readFolder();
+  ALL.forEach(([c, ...a]) => { const r = agree(readCli(c, dir, ...a, '--json')); assert.ok(r.json.complete && r.code === 0, c + ': ' + JSON.stringify(r.json.problems)); });
+});
+
+PROBLEMS.forEach(([name, edit, after, cmds, at, kind]) => {
+  rule('READ: ' + name + ' is reported per file (' + kind + '), the result is partial with exit 4, and the data is still printed', async () => {
+    const dir = await readFolder(edit, after);
+    cmds.forEach(([c, ...a]) => {
+      const r = agree(readCli(c, dir, ...a, '--json'));
+      assert.strictEqual(r.code, 4, c + ' ' + a.join(' ') + ': exit ' + r.code + ' ' + r.err);
+      assert.ok(r.json.problems.some(p => p.path === at && p.kind === kind), c + ': ' + JSON.stringify(r.json.problems));
+      assert.ok(r.json.data && typeof r.json.data === 'object', 'data still printed');
+    });
+  });
+});
+
+rule('READ: each command reports only problems in its own scope', async () => {
+  const dir = await readFolder(f => { f['proposals/plan-broken.json'] = '{'; f['runs/release/run3/notes-w9.jsonl'] = '{}\n'; });
+  assert.ok(agree(readCli('processes', dir, '--json')).json.complete, 'processes: runs and proposals are out of scope');
+  assert.ok(agree(readCli('run', dir, 'release/run1', '--json')).json.complete, 'run: only that run, its version and its decisions');
+  assert.strictEqual(agree(readCli('runs', dir, '--json')).json.problems.length, 2);
+});
+
+rule('READ: people-directory email fields never appear in any command\'s output', async () => {
+  const dir = await readFolder(), emails = rfBuilt.people.map(p => p.email).filter(Boolean);
+  assert.ok(emails.length >= 3);
+  ALL.concat([['next', 'release/run1', '--person', 'person-blake']]).forEach(([c, ...a]) => {
+    const r = agree(readCli(c, dir, ...a, '--json'));
+    emails.forEach(e => assert.ok(!r.out.includes(e), c + ' shows ' + e));
+    assert.ok(!/"email"/.test(r.out), c + ' has an email field');
+  });
+});
+
+rule('READ never changes the folder: the tree is identical after every command, with an old save receipt that loading would remove', async () => {
+  const dir = await readFolder(f => { f['runs/release/run1/candidate-other-zzzz9999.json'] = f['runs/release/run1/run.json'].replace(/"rev": \d+/, '"rev": 77'); });
+  const before = EV.tree(dir);
+  assert.ok(Object.keys(before).includes('runs/release/run1/candidate-other-zzzz9999.json'));
+  ALL.forEach(([c, ...a]) => { const r = agree(readCli(c, dir, ...a, '--json')); assert.ok(r.json.complete, c + ': ' + JSON.stringify(r.json.problems)); });
+  assert.deepStrictEqual(EV.tree(dir), before, 'the team folder tree is identical, the save receipt included');
+});
+
+/* A folder in memory whose write, append and remove throw and are counted, for the in-process READ engine. */
+function strictFolder(files, seen) {
+  const B = new EV.BytesFS(files, { strict: true, hooks: seen ? { list: p => seen.push('list ' + p), read: p => seen.push('read ' + p), stat: p => seen.push('stat ' + p), blob: p => seen.push('blob ' + p) } : {} });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, RF.OLD.getTime()));
+  return B;
+}
+const REQ = { processes: { cmd: 'processes' }, process: { cmd: 'process', proc: 'release' }, runs: { cmd: 'runs' }, run: { cmd: 'run', key: 'release/run1' }, next: { cmd: 'next', key: 'release/run1', person: 'person-casey' }, followups: { cmd: 'followups' } };
+
+rule('READ: every mutating method of the folder throws, and no command calls one', async () => {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files, { 'runs/release/run1/candidate-other-zzzz9999.json': rfBuilt.files['runs/release/run1/run.json'].replace(/"rev": \d+/, '"rev": 77') });
+  const eng = { PF: SRC, version: 'test' };
+  for (const k of Object.keys(REQ)) {
+    const B = strictFolder(files), r = await FD.readData(eng, B, REQ[k]);
+    assert.strictEqual(r.code, 0, k + ': ' + JSON.stringify(r.json.problems || r.json.error));
+    assert.deepStrictEqual(B.mutations, [], k);
+  }
+  const ro = SRC.repo.readOnly(strictFolder(files));
+  ['write', 'append', 'remove'].forEach(m => assert.throws(() => ro[m]('runs/release/run1/run.json', 'x'), /read-only/));
+});
+
+rule('READ: run and next read only their own run, its version, its follow-up decisions and the people list', async () => {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files), eng = { PF: SRC, version: 'test' };
+  const ok = ['list followups', 'list runs/release', 'runs/release/run1/', 'runs/release/run1', 'publications/release/' + rfBuilt.folder + '/', 'list followups/release', 'followups/release/run1.', 'read people.json'];
+  for (const k of ['run', 'next']) {
+    const seen = [], r = await FD.readData(eng, strictFolder(files, seen), REQ[k]);
+    assert.strictEqual(r.code, 0, k);
+    const stray = seen.filter(s => { const p = s.replace(/^\w+ /, ''); return !ok.some(o => s === o || p.startsWith(o)); });
+    assert.deepStrictEqual(stray, [], k + ' read outside its run');
+    assert.ok(seen.some(s => s === 'read runs/release/run1/run.json'));
+  }
+});
+
+rule('READ: next equals the run screen\'s Next up at every point of a run, from first step to the end', async () => {
+  await readFolder();
+  const R = SRC.run, mem = new SRC.fs.MemoryFS('read-next:' + Math.random(), null), eng = { PF: SRC, version: 'test' };
+  mem.reset(rfBuilt.files);
+  const r = R.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json'])), map = R.mapOf(r), done = require('./harness').sampleDone(SRC);
+  let checks = 0;
+  for (let pi = 0; pi < map.phases.length; pi++) {
+    for (const s of map.phases[pi].steps.concat([null])) {
+      await mem.write('runs/release/run1/run.json', JSON.stringify(r, null, 2));
+      const got = (await FD.readData(eng, mem, { cmd: 'next', key: 'release/run1' })).json.data.next, nu = R.nextUp(r, map);
+      assert.strictEqual(got.kind, nu.kind);
+      assert.strictEqual(got.step ? got.step.id : null, nu.step ? nu.step.id : null);
+      assert.strictEqual(got.gate ? got.gate.id : null, nu.gate ? nu.gate.id : null);
+      checks++;
+      if (s && !R.answered(r, s)) done(r, map, s.id, 'person-casey', RF.NOW);
+    }
+    R.pass(r, map, pi, 'person-casey', RF.NOW);
+  }
+  R.end(r, map, 'Completed', 'person-casey', 'Casey Nguyen', RF.NOW);
+  await mem.write('runs/release/run1/run.json', JSON.stringify(r, null, 2));
+  assert.strictEqual((await FD.readData(eng, mem, { cmd: 'next', key: 'release/run1' })).json.data.next.kind, 'ended');
+  assert.ok(checks > 10, 'checked ' + checks + ' points');
+});
+
+rule('READ: --contract 1 is this contract; one this copy doesn\'t have exits 1 naming those it has', async () => {
+  const dir = await readFolder();
+  assert.strictEqual(agree(readCli('runs', dir, '--contract', '1', '--json')).code, 0);
+  const r = agree(readCli('runs', dir, '--contract', '2', '--json'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'contract' && /flightdeck-read\/1/.test(r.json.error.why), r.out);
+});
+
+rule('READ: without --json, or on a folder that can\'t be read, nothing is printed as data and the exit code is 1', async () => {
+  const dir = await readFolder();
+  let r = readCli('runs', dir);
+  assert.ok(r.code === 1 && /--json/.test(r.err), r.out + r.err);
+  r = agree(readCli('runs', path.join(dir, 'nope'), '--json'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'failed', r.out);
+});
+
+
+rule('READ: the size cap reaches the folder through the wrappers, and a file over it is refused before any byte is read', async () => {
+  const dir = await readFolder();
+  fs.writeFileSync(path.join(dir, 'proposals', 'big.json'), Buffer.alloc(4096, 32));
+  const A = FD.readAdapter(fs.realpathSync(dir)), view = SRC.repo.lane(SRC.repo.readOnly(A, 'Reading for other apps'), 'load');
+  const orig = fs.readFileSync, reads = [];
+  fs.readFileSync = function (f) { if (typeof f === 'number') reads.push(f); return orig.apply(fs, arguments); };
+  const origSync = fs.readSync;
+  fs.readSync = function (f) { reads.push(f); return origSync.apply(fs, arguments); };
+  try {
+    await assert.rejects(view.read('proposals/big.json', { maxBytes: 1024 }), e => e.skipped === true && /over the 1\.0 KB/.test(e.message));
+    await assert.rejects(view.blob('proposals/big.json', { maxBytes: 1024 }), e => e.skipped === true);
+  } finally { fs.readFileSync = orig; fs.readSync = origSync; }
+  assert.deepStrictEqual(reads, [], 'no bytes read');
+  assert.deepStrictEqual(A.skipped.map(x => x.path), ['proposals/big.json']);
+  assert.strictEqual((await view.read('proposals/big.json', { maxBytes: 8192 })).text.length, 4096, 'under the cap it reads');
+});
+
+
+rule('READ: a problem at a folder above the scope counts too: a linked process folder is named by runs --process', async () => {
+  const dir = await readFolder(null, d => { const real = path.join(tmp(), 'release'); fs.renameSync(path.join(d, 'runs', 'release'), real); fs.symlinkSync(real, path.join(d, 'runs', 'release')); });
+  for (const a of [['runs', '--process', 'release'], ['followups', '--process', 'release']]) {
+    const r = agree(readCli(a[0], dir, ...a.slice(1), '--json'));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'runs/release' && p.kind === 'link'), a.join(' ') + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
+
+/* ---------- READ review: the problem ledger (every failed list, read, parse, size, link or vanished file, per path) ---------- */
+const H = require('./harness');
+/* The fixture's files as bytes in memory, through the in-process READ engine, with hooks that can fail or remove a file. */
+async function readMem(req, edit, hooks) {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files);
+  if (edit) edit(files, rfBuilt);
+  const B = new EV.BytesFS(files, { strict: true, hooks: hooks || {} });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, RF.OLD.getTime()));
+  const r = await FD.readData({ PF: SRC, version: 'test' }, B, req);
+  return { code: r.code, json: JSON.parse(JSON.stringify(r.json)), out: JSON.stringify(r.json), err: '', B };
+}
+const has = (r, at, kind) => r.json.problems.some(p => p.path === at && p.kind === kind);
+const eacces = p => Object.assign(new Error('EACCES: permission denied, open \'' + p + '\''), { code: 'EACCES' });
+
+rule('READ: a checklist with screenshots reads like any other: processes and process list it, usable and complete', async () => {
+  const mem = new SRC.fs.MemoryFS('shots:' + Math.random(), null), people = H.example('people.json');
+  mem.reset({ 'people.json': people });
+  await mem.write('images/x/job.png', new Blob(['picture one'], { type: 'image/png' }));
+  const md = '---\nprocess: shots\ntitle: Shots\n---\n## P · READ-DO {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)';
+  const pub = await SRC.repo.publish(mem, md, { people: JSON.parse(people), ...H.exampleSetup(SRC), by: 'person-avery', changes: 'x', existing: [], now: RF.NOW });
+  assert.ok(!pub.blockers, String(pub.blockers));
+  const dir = EV.toDisk(EV.bytesOf(mem), tmp());
+  const r = agree(readCli('processes', dir, '--json'));
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems || r.json.error));
+  assert.deepStrictEqual(r.json.data.processes.map(p => [p.id, p.versions.map(v => v.usable)]), [['shots', [true]]]);
+  const x = agree(readCli('process', dir, 'shots', '--json'));
+  assert.ok(x.code === 0 && x.json.data.usable === true, x.out);
+});
+
+rule('READ: a run whose frozen step types are newer than this copy is listed as newer, never shown parsed', async () => {
+  const edit = f => { const o = JSON.parse(f['runs/release/run1/run.json']), t = Object.keys(o.types)[0]; o.types[t].fromTheFuture = true; f['runs/release/run1/run.json'] = JSON.stringify(o, null, 2); };
+  const r = agree(await readMem(REQ.run, edit));
+  assert.ok(r.code === 4 && has(r, 'runs/release/run1/run.json', 'newer'), JSON.stringify(r.json.problems));
+  assert.strictEqual(r.json.data.run, null, 'no parsed steps');
+  const all = agree(await readMem(REQ.runs, edit));
+  assert.ok(all.code === 4 && has(all, 'runs/release/run1/run.json', 'newer') && !all.json.data.runs.some(x => x.key === 'release/run1'), JSON.stringify(all.json.problems));
+});
+
+rule('READ: run and next name a version they couldn\'t check: publication.json unreadable or malformed, map.md missing', async () => {
+  const at = f => 'publications/release/' + rfBuilt.folder + '/' + f;
+  const cases = [
+    [null, { read: p => { if (p === at('publication.json')) throw eacces(p); } }, at('publication.json'), 'unreadable'],
+    [f => { f[at('publication.json')] = '{'; }, null, 'publications/release/' + rfBuilt.folder + '/', 'malformed'],
+    [f => { delete f[at('map.md')]; }, null, 'publications/release/' + rfBuilt.folder + '/', 'still-syncing']
+  ];
+  for (const [edit, hooks, path0, kind] of cases) for (const k of ['run', 'next']) {
+    const r = agree(await readMem(REQ[k], edit, hooks));
+    assert.ok(r.code === 4 && has(r, path0, kind), k + ' ' + kind + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
+rule('READ: one version that can\'t be read is named by file, and the healthy versions are still listed', async () => {
+  const bad = 'publications/release/v2-bbbb2222/map.md';
+  const r = agree(await readMem(REQ.processes, (f, b) => addVersion(f, b, 2, 'bbbb2222'), { read: p => { if (p === bad) throw eacces(p); } }));
+  assert.ok(r.code === 4 && has(r, bad, 'unreadable'), JSON.stringify(r.json.problems));
+  const rel = r.json.data.processes.filter(p => p.id === 'release')[0];
+  assert.ok(rel && rel.versions.some(v => v.folder === rfBuilt.folder && v.usable), JSON.stringify(r.json.data));
+  assert.ok(!r.json.problems.some(p => p.path === 'publications/'), 'not the whole part');
+  const one = agree(await readMem(REQ.process, (f, b) => addVersion(f, b, 2, 'bbbb2222'), { read: p => { if (p === bad) throw eacces(p); } }));
+  assert.ok(one.code === 4 && one.json.data.version.folder === rfBuilt.folder && has(one, bad, 'unreadable'), one.out);
+});
+
+rule('READ: a run.json gone between the listing and the read is named (vanished), never silently left out', async () => {
+  const gone = 'runs/release/run1/run.json', hooks = { read: (p, B) => { if (p === gone) B.files.delete(p); } };
+  for (const k of ['run', 'runs', 'next']) {
+    const r = agree(await readMem(REQ[k], null, hooks));
+    assert.ok(r.code === 4 && has(r, gone, 'vanished'), k + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
+rule('READ: not found keeps every problem it met: a linked run folder exits 5 and names the link', async () => {
+  const dir = await readFolder(null, d => { const real = path.join(tmp(), 'run1'); fs.renameSync(path.join(d, 'runs', 'release', 'run1'), real); fs.symlinkSync(real, path.join(d, 'runs', 'release', 'run1')); });
+  for (const c of ['run', 'next']) {
+    const r = agree(readCli(c, dir, 'release/run1', '--json'));
+    assert.ok(r.code === 5 && r.json.error.kind === 'not-found', r.out);
+    assert.ok(r.json.problems.some(p => p.path === 'runs/release/run1' && p.kind === 'link'), c + ': ' + r.out);
+  }
+  const u = agree(readCli('run', dir, 'release', '--json'));
+  assert.ok(u.code === 1 && Array.isArray(u.json.problems), 'a usage error carries the (empty) ledger too');
+});
+
+rule('READ: a proposal or decision with a value outside the format is malformed and left out; it never throws or shows', async () => {
+  const st = f => { f['proposals/plan-release-2026-10-24.status-w9.json'] = JSON.stringify({ kind: 'status', proposal: 'plan-release-2026-10-24', proposalHash: 'x', status: 'pizza', run: null, by: 'person-casey', at: RF.NOW }); };
+  let r = agree(await readMem(REQ.runs, st));
+  assert.ok(r.code === 4 && has(r, 'proposals/plan-release-2026-10-24.status-w9.json', 'malformed'), JSON.stringify(r.json.problems));
+  assert.ok(!/pizza/.test(r.out));
+  const bad = [{ details: { toString: {} } }, { title: 7 }, { roles: { qa: ['x'] } }, { version: {} }, { when: {} }, { note: [] }];
+  for (const b of bad) {
+    r = agree(await readMem(REQ.runs, f => { f['proposals/plan-odd.json'] = JSON.stringify(Object.assign({ kind: 'plan', id: 'plan-odd', process: 'release', title: 'Odd' }, b)); }));
+    assert.ok(r.code === 4 && has(r, 'proposals/plan-odd.json', 'malformed'), JSON.stringify(b) + ': ' + JSON.stringify(r.json.problems));
+    assert.ok(!r.json.data.planned.some(p => p.id === 'plan-odd') && r.json.data.runs.length === 2, JSON.stringify(b));
+  }
+});
+
+rule('READ: the size cap counts the bytes read, so a file that grew after it was sized is still refused', async () => {
+  const dir = await readFolder();
+  fs.writeFileSync(path.join(dir, 'proposals', 'grew.json'), Buffer.alloc(4096, 32));
+  const A = FD.readAdapter(fs.realpathSync(dir)), orig = fs.fstatSync;
+  fs.fstatSync = function () { const st = orig.apply(fs, arguments); return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { size: 10 }); };
+  try {
+    await assert.rejects(A.read('proposals/grew.json', { maxBytes: 1024 }), e => e.skipped === true);
+    const b = await A.blob('proposals/grew.json', { maxBytes: 1024 });
+    await assert.rejects(b.arrayBuffer(), e => e.skipped === true);
+  } finally { fs.fstatSync = orig; }
+  assert.ok(A.skipped.some(x => x.path === 'proposals/grew.json'));
+});
+
+rule('READ: a people.json that can\'t be read as a people list is a problem, and names are left null', async () => {
+  for (const text of ['{', '{"people": 5}', '[{"id": 7}]']) for (const k of ['runs', 'run', 'next', 'followups']) {
+    const r = agree(await readMem(REQ[k], f => { f['people.json'] = text; }));
+    assert.ok(r.code === 4 && has(r, 'people.json', 'malformed'), k + ' ' + text + ': ' + JSON.stringify(r.json.problems));
+    if (k === 'runs') assert.strictEqual(r.json.data.runs.filter(x => x.key === 'release/run1')[0].recorder.name, null);
+  }
+});
+
+rule('READ: a flag without its value is a JSON usage error when --json is given', async () => {
+  const dir = await readFolder();
+  for (const a of [['runs', dir, '--status', '--json'], ['runs', dir, '--json', '--process'], ['next', dir, 'release/run1', '--person', '--json']]) {
+    const r = agree(readCli(...a));
+    assert.ok(r.code === 1 && r.json.error.kind === 'usage', a.join(' ') + ': ' + r.out + r.err);
+  }
+});
+
+
+/* ---------- READ second review: deferred blob failures and folders gone after their parent listed them ---------- */
+/* The fixture plus a checklist with a screenshot and a run on it, so every command meets blobs too. */
+let shotFiles = null;
+async function withShots() {
+  if (shotFiles) return shotFiles;
+  await readFolder();
+  const R = SRC.run, repo = SRC.repo, people = H.example('people.json');
+  const mem = new SRC.fs.MemoryFS('shots2:' + Math.random(), null);
+  mem.reset(rfBuilt.files);
+  await mem.write('images/x/job.png', new Blob(['picture one'], { type: 'image/png' }));
+  const md = '---\nprocess: shots\ntitle: Shots\n---\n## P · READ-DO {#p}\n- [ ] {confirm} Look {#a}\n  ![The job page](images/x/job.png)';
+  const pub = await repo.publish(mem, md, { people: JSON.parse(people), ...H.exampleSetup(SRC), by: 'person-avery', changes: 'x', existing: [], now: RF.NOW });
+  assert.ok(!pub.blockers, String(pub.blockers));
+  const v = (await repo.loadAll(mem, { deep: true })).processes.filter(p => p.process === 'shots')[0].index.latest;
+  const r = R.create(v, { title: 'Shots run', details: {}, roles: {}, by: 'person-casey', session: 'w1', now: RF.NOW, id: 's1' });
+  await repo.saveRun(mem, r, 'w1');
+  shotFiles = EV.bytesOf(mem);
+  return shotFiles;
+}
+/* A folder in memory that fails one call (method at path) with EIO; blob's deferred arrayBuffer and text can fail too.
+   seen collects every [method, path] made, deferred ones included. */
+function failingFolder(files, method, at, seen) {
+  const B = new EV.BytesFS(files, { strict: true });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, RF.OLD.getTime()));
+  const eio = () => Object.assign(new Error('EIO: i/o error, ' + method + ' \'' + at + '\''), { code: 'EIO' });
+  const hit = (m, p) => { if (seen) seen.push([m, p]); return m === method && p === at; };
+  const w = { calls: B.calls, mutations: B.mutations };
+  ['list', 'read', 'stat'].forEach(m => { w[m] = (p, o) => hit(m, p) ? Promise.reject(eio()) : B[m](p, o); });
+  w.blob = (p, o) => hit('blob', p) ? Promise.reject(eio()) : B.blob(p, o).then(b => b && {
+    size: b.size, slice: (x, y) => b.slice(x, y),
+    arrayBuffer: () => hit('arrayBuffer', p) ? Promise.reject(eio()) : b.arrayBuffer(),
+    text: () => hit('text', p) ? Promise.reject(eio()) : b.text()
+  });
+  ['write', 'append', 'remove'].forEach(m => { w[m] = (...a) => B[m](...a); });
+  return w;
+}
+const SHOT_REQ = [
+  [{ cmd: 'processes' }, ['publications']],
+  [{ cmd: 'process', proc: 'shots' }, ['publications/shots']],
+  [{ cmd: 'process', proc: 'release' }, ['publications/release']],
+  [{ cmd: 'runs' }, ['runs', 'proposals', 'people.json']],
+  [{ cmd: 'run', key: 'shots/s1' }, null],
+  [{ cmd: 'next', key: 'shots/s1' }, null],
+  [{ cmd: 'run', key: 'release/run2' }, null],
+  [{ cmd: 'followups' }, ['followups', 'runs', 'people.json']]
+];
+
+rule('READ: a failure injected at any call a command makes in its scope, deferred blob reads included, is named and the result isn\'t complete', async () => {
+  const files = await withShots(), eng = { PF: SRC, version: 'test' }, covered = new Set();
+  for (const [req, scope] of SHOT_REQ) {
+    const seen = [], clean = await FD.readData(eng, failingFolder(files, null, null, seen), req);
+    assert.strictEqual(clean.code, 0, req.cmd + ' clean: ' + JSON.stringify(clean.json.problems || clean.json.error));
+    const inScope = p => !scope || scope.some(x => p === x || p.startsWith(x + '/'));
+    const calls = [...new Set(seen.filter(([m, p]) => p && inScope(p)).map(x => x.join('\u0000')))].map(x => x.split('\u0000'));
+    for (const [m, at] of calls) {
+      const r = await FD.readData(eng, failingFolder(files, m, at), req), j = JSON.parse(JSON.stringify(r.json));
+      const where = req.cmd + ' ' + (req.key || req.proc || '') + ': ' + m + ' ' + at + ' -> exit ' + r.code + ' ' + JSON.stringify(j.problems);
+      assert.ok(j.error ? r.code === 1 || r.code === 5 : !j.complete && r.code === 4, where);
+      assert.ok(j.problems.some(p => p.path === at), where);
+      covered.add(m);
+    }
+  }
+  ['list', 'read', 'stat', 'blob', 'arrayBuffer'].forEach(m => assert.ok(covered.has(m), 'covered ' + m + ': ' + [...covered]));
+});
+
+rule('READ: a folder listed by its parent and gone when listed itself is vanished, never empty: a decided follow-up never looks open', async () => {
+  const dir = await readFolder(), eng = { PF: SRC, version: 'test' };
+  for (const [gone, req] of [['followups/release', { cmd: 'followups' }], ['followups/release', { cmd: 'run', key: 'release/run2' }], ['runs/release/run2', { cmd: 'runs' }]]) {
+    const copy = tmp(); fs.cpSync(dir, copy, { recursive: true });
+    const A = FD.readAdapter(fs.realpathSync(copy)), list = A.list;
+    let parentListed = false;
+    A.list = p => { const up = gone.split('/').slice(0, -1).join('/'); if (p === up) parentListed = true; if (p === gone && parentListed) fs.rmSync(path.join(copy, ...gone.split('/')), { recursive: true }); return list(p); };
+    const r = await FD.readData(eng, A, req), j = JSON.parse(JSON.stringify(r.json));
+    assert.ok(r.code === 4 && j.problems.some(p => p.path === gone && p.kind === 'vanished'), gone + ' ' + req.cmd + ': ' + JSON.stringify(j.problems));
+  }
+});
+
+
+rule('READ: a run.json with times that can\'t be read is partial and names them, while its data is shown as the app shows it', async () => {
+  const at = 'runs/release/run1/run.json';
+  const edit = (change) => f => { const o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); };
+  const cases = [
+    ['the pause under way', o => { o.paused = { by: 'person-casey', at: 'not-a-time', reason: 'Lunch' }; }],
+    ['the start', o => { o.created = 'yesterday'; }],
+    ['an earlier pause', o => { o.pauses = [{ from: 'soon', to: RF.NOW, by: 'person-casey' }]; }],
+    ['a log entry', o => { o.log.push({ at: 'whenever', by: 'person-casey', what: 'Something' }); }]
+  ];
+  for (const [what, change] of cases) for (const k of ['run', 'next', 'runs']) {
+    const r = agree(await readMem(REQ[k], edit(change)));
+    const p = r.json.problems.filter(x => x.path === at && x.kind === 'malformed')[0];
+    assert.ok(r.code === 4 && p && p.why.includes(what), what + ' / ' + k + ': ' + JSON.stringify(r.json.problems));
+    if (k === 'run') assert.strictEqual(r.json.data.run.key, 'release/run1', 'the run is still shown');
+    if (k === 'runs') assert.ok(r.json.data.runs.some(x => x.key === 'release/run1'));
+  }
+  const p = agree(await readMem(REQ.run, edit(cases[0][1])));
+  assert.strictEqual(p.json.data.run.paused, false, 'shown as the app shows it: the pause it couldn\'t read is dropped');
+});
+
+
+/* Each: the run (1 running, 2 ended), a change to its run.json as parsed, and the location READ must name. */
+const DROPS = [
+  [2, o => { delete o.gates.ready.s; }, 'gates.ready'],
+  [2, o => { o.gates.ready.approved = { commit: 7 }; }, 'gates.ready.approved.commit'],
+  [2, o => { o.gates.ready.at = 'later'; }, 'gates.ready.at'],
+  [2, o => { o.followUps[0].text = 7; }, 'followUps[0]'],
+  [2, o => { o.followUps[1].owner = { id: 'x' }; }, 'followUps[1].owner'],
+  [1, o => { o.steps = 'bad'; }, 'steps'],
+  [1, o => { o.gates = 'bad'; }, 'gates'],
+  [1, o => { o.steps = ['x']; }, 'steps'],
+  [2, o => { o.ended.by = 5; }, 'ended.by'],
+  [1, o => { o.details.commit = 42; }, 'details.commit'],
+  [1, o => { o.details = 'oops'; }, 'details'],
+  [1, o => { o.roles.qa = ['person-morgan']; }, 'roles.qa'],
+  [1, o => { o.recorder.person = 9; }, 'recorder.person'],
+  [1, o => { o.pauses = [7]; }, 'pauses[0]'],
+  [1, o => { o.lineage = (o.lineage || []).concat(['not a receipt']); }, 'lineage['],
+  [1, o => { o.marks = { approved: 'blocked' }; }, 'marks.approved'],
+  [1, o => { o.parent = { process: 'Bad Name', id: 'x' }; }, 'parent'],
+  [1, o => { o.fields = { 'bad id!': { a: 'b' } }; }, 'fields.bad id!'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].values = { 'no spaces allowed': 'x' }; }, '.values.no spaces allowed'],
+  [1, o => { const k = Object.keys(o.steps)[0]; delete o.steps[k].s; }, 'steps.'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].by = 3; }, '.by'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].history = [{ by: 'x' }]; }, '.history[0]'],
+  [1, o => { const k = Object.keys(o.steps)[0]; o.steps[k].deadline = { at: 'soon' }; }, '.deadline'],
+  [1, o => { o.log.push(7); }, 'log['],
+  [1, o => { o.log.push({ at: RF.NOW, by: 'person-casey', what: 'x'.repeat(400) }); }, '.what'],
+  [1, o => { o.title = 'T'.repeat(150); }, 'title'],
+  [1, o => { o.version = 'one'; }, 'version'],
+  [1, o => { o.types = 'none'; }, 'types'],
+  [1, o => { o.shotsFrozen = 'yes'; }, 'shotsFrozen']
+];
+const NEWER_CAUGHT = ['gates.ready.approved.commit', 'details.commit', 'roles.qa'];
+rule('READ: every record sanitize drops, cuts or replaces in any part of a run.json is named, and the result is partial', async () => {
+  for (const [n, change, where] of DROPS) {
+    const at = 'runs/release/run' + n + '/run.json';
+    const edit = f => { const o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); };
+    for (const k of ['run', 'runs']) {
+      const req = k === 'run' ? { cmd: 'run', key: 'release/run' + n } : REQ.runs;
+      const r = agree(await readMem(req, edit)), p = r.json.problems.filter(x => x.path === at && (x.kind === 'malformed' || x.kind === 'newer'))[0];
+      /* Text where text belongs and states this copy knows are newer()'s (the run is listed by name only); the rest is malformed. */
+      assert.ok(r.code === 4 && p && (p.kind === 'newer' ? NEWER_CAUGHT.includes(where) : p.why.includes(where)), where + ' / ' + k + ': ' + JSON.stringify(r.json.problems));
+    }
+  }
+});
+
+rule('READ: a clean run.json written by this copy has nothing dropped or changed, through every step of a run', async () => {
+  await readFolder();
+  const R = SRC.run, r = R.sanitize(JSON.parse(rfBuilt.files['runs/release/run1/run.json'])), map = R.mapOf(r), done = H.sampleDone(SRC);
+  for (let pi = 0; pi < map.phases.length; pi++) { map.phases[pi].steps.forEach(s => { if (!R.answered(r, s)) done(r, map, s.id, 'person-casey', RF.NOW); }); R.pass(r, map, pi, 'person-casey', RF.NOW); }
+  R.end(r, map, 'Completed', 'person-casey', 'Casey Nguyen', RF.NOW);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(R.repairs(JSON.parse(JSON.stringify(r))))), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(R.repairs(JSON.parse(rfBuilt.files['runs/release/run2/run.json'])))), []);
+});
+
+rule('READ: a run.json copied into another run\'s folder is named as belonging elsewhere, and never joined with that folder\'s decisions', async () => {
+  const edit = f => { f['runs/release/run1/run.json'] = f['runs/release/run2/run.json']; f['followups/release/run1.fu1.w2.1.json'] = f['followups/release/run2.fu1.w2.1.json'].replace('"run": "run2"', '"run": "run1"'); };
+  const at = 'runs/release/run1/run.json';
+  for (const k of ['run', 'next']) {
+    const r = agree(await readMem(REQ[k], edit));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === at && p.kind === 'malformed' && /belongs to release\/run2/.test(p.why)), k + ': ' + JSON.stringify(r.json.problems));
+    assert.ok(!/"key": "release\/run2"|release\/run2\/fu1/.test(JSON.stringify(r.json.data)) && !r.json.data.run || k === 'next', k + ': ' + JSON.stringify(r.json.data).slice(0, 200));
+    if (k === 'next') assert.strictEqual(r.json.data.next, null);
+  }
+  const all = agree(await readMem(REQ.runs, edit));
+  assert.ok(all.code === 4 && all.json.problems.some(p => p.path === at && /belongs to release\/run2/.test(p.why)));
+  assert.deepStrictEqual(all.json.data.runs.map(x => x.key).sort(), ['release/run2']);
+});
+
+
+rule('READ: a pause left on a run that has ended is history, not a problem (sanitize drops it by design, and DRIFT_ALLOW says so)', async () => {
+  const at = 'runs/release/run2/run.json';
+  const r = agree(await readMem({ cmd: 'run', key: 'release/run2' }, f => { const o = JSON.parse(f[at]); o.paused = { by: 'person-casey', at: RF.NOW, reason: 'Lunch' }; f[at] = JSON.stringify(o, null, 2); }));
+  assert.ok(r.code === 0 && r.json.complete, JSON.stringify(r.json.problems));
+});
+
+/* The fuzz oracle, written apart from U.drift: every value the file states must come back from sanitize the same, and
+   anything sanitize states where the file is silent must be a documented default (R.DRIFT_ALLOW). */
+/* sanitize's documented defaults and deliberate drops, as this test knows them; a rule below checks R.DRIFT_ALLOW says the same. */
+const DOCUMENTED_DEFAULTS = {
+  added: ['title', 'state', 'version', 'rev', 'shotsFrozen', 'paused.reason', 'recorder.handoff.rev'],
+  dropped: ['steps.*.history[*].differently.by', 'steps.*.history[*].differently.at', 'paused']
+};
+function oracleChanged(raw) {
+  const r = SRC.run.sanitize(raw);
+  if (!r) return true;
+  const c = JSON.parse(JSON.stringify(r)), allow = DOCUMENTED_DEFAULTS;
+  const pat = l => l.map(x => new RegExp('^' + x.replace(/[.[\]]/g, m => '\\' + m).replace(/\\\[\*\\\]/g, '\\[\\d+\\]').replace(/\*/g, '[^.\\[]+') + '$'));
+  const add = pat(allow.added), drop = pat(allow.dropped), empty = v => v === undefined || v === null || v === '';
+  const hollow = v => empty(v) || (typeof v === 'object' && Object.keys(v).filter(k => k[0] !== '_').length === 0);
+  let changed = false;
+  (function walk(a, b, p) {
+    if (changed) return;
+    if (empty(a)) { if (!hollow(b) && !add.some(x => x.test(p))) changed = true; return; }
+    if (b === undefined || b === null) { if (!drop.some(x => x.test(p))) changed = true; return; }
+    if (typeof a !== 'object' || a === null) { if (a !== b) changed = true; return; }
+    if (Array.isArray(a) !== Array.isArray(b) || typeof b !== 'object') { changed = true; return; }
+    const keys = new Set(Object.keys(a).concat(Object.keys(b).filter(k => k[0] !== '_')));
+    for (const k of keys) walk(a[k], b[k], Array.isArray(a) ? p + '[' + k + ']' : p ? p + '.' + k : k);
+  })(raw, c, '');
+  return changed;
+}
+rule('READ: sanitize\'s allowlist of defaults and drops is the documented one', () => {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(SRC.run.DRIFT_ALLOW || null)), DOCUMENTED_DEFAULTS);
+});
+rule('READ fuzz: a random change to any field of a valid run.json that sanitize doesn\'t keep as written is always reported', async () => {
+  await readFolder();
+  let seed = 1817;
+  const rnd = n => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const VALS = [undefined, null, '', 7, -1, 1.5, true, 'x'.repeat(400), {}, [], 'not-a-time', { toString: {} }, ['a'], { a: 1 }];
+  let reported = 0, tried = 0;
+  for (const n of [1, 2]) {
+    const at = 'runs/release/run' + n + '/run.json', base = JSON.parse(rfBuilt.files[at]), paths = [];
+    (function collect(v, p, depth) {
+      if (p) paths.push(p);
+      if (v && typeof v === 'object' && depth < (p[0] === 'types' ? 2 : 6)) for (const k of Object.keys(v)) collect(v[k], p.concat([k]), depth + 1);
+    })(base, [], 0);
+    for (const p of paths) for (let t = 0; t < 2; t++) {
+      if (p[0] === 'snapshot') continue;
+      const raw = JSON.parse(JSON.stringify(base)), val = VALS[rnd(VALS.length)];
+      let o = raw; for (const k of p.slice(0, -1)) o = o[k];
+      if (val === undefined) delete o[p[p.length - 1]]; else o[p[p.length - 1]] = JSON.parse(JSON.stringify(val));
+      if (!oracleChanged(raw)) continue;
+      tried++;
+      const r = await readMem({ cmd: 'run', key: 'release/run' + n }, f => { f[at] = JSON.stringify(raw, null, 2); });
+      const ok = r.code === 4 && r.json.problems.some(x => x.path === at && (x.kind === 'malformed' || x.kind === 'newer'));
+      assert.ok(ok, p.join('.') + ' = ' + JSON.stringify(val) + ': exit ' + r.code + ' ' + JSON.stringify(r.json.problems));
+      reported++;
+    }
+  }
+  assert.ok(tried > 100, 'mutations that sanitize changed: ' + tried);
+});
+
+rule('READ: a follow-up decision that isn\'t read as written (a note cut short, a link dropped) is named by file and field', async () => {
+  const at = 'followups/release/run2.fu1.w2.1.json';
+  const cases = [[o => { o.note = 'n'.repeat(316); }, 'note'], [o => { o.link = 'javascript:alert(1)'; }, 'link'], [o => { o.seen = 'not a file'; }, 'seen']];
+  for (const [change, field] of cases) for (const req of [{ cmd: 'run', key: 'release/run2' }, REQ.followups]) {
+    const r = agree(await readMem(req, f => { const o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); }));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === at && p.kind === 'malformed' && p.why.includes(field)), field + ' ' + req.cmd + ': ' + JSON.stringify(r.json.problems));
+  }
+});
+
+
+rule('READ: a plan\'s version must be a version number; one the folder doesn\'t have is flagged, as the app falls back to the latest', async () => {
+  const at = 'proposals/plan-release-2026-10-24.json', edit = v => f => { const o = JSON.parse(f[at]); o.version = v; f[at] = JSON.stringify(o, null, 2); };
+  for (const v of ['v3', 1.5, -1, '1.0', true]) {
+    const r = agree(await readMem(REQ.runs, edit(v)));
+    assert.ok(r.code === 4 && has(r, at, 'malformed') && !r.json.data.planned.length, JSON.stringify(v) + ': ' + JSON.stringify(r.json.problems));
+  }
+  for (const [v, missing] of [[1, false], ['1', false], [null, false], [9, true]]) {
+    const r = agree(await readMem(REQ.runs, edit(v)));
+    const p = r.json.data.planned[0];
+    assert.ok(r.code === 0 && p, JSON.stringify(v) + ': ' + JSON.stringify(r.json.problems));
+    assert.strictEqual(p.versionMissing, missing, JSON.stringify(v));
+    assert.deepStrictEqual(p.startsOn, { version: 1, folder: rfBuilt.folder }, 'the version a person starting it gets, as the app picks it');
+  }
+});
+
+rule('READ: a step\'s marks come from its durable marks and the answers it still holds, and the run says whether that record is complete', async () => {
+  const at = 'runs/release/run1/run.json';
+  const old = f => { const o = JSON.parse(f[at]); delete o.marks; delete o.marksFrom; o.steps.approved.history = [{ s: 'blocked', by: 'person-casey', at: RF.NOW, reason: 'Waiting' }]; f[at] = JSON.stringify(o, null, 2); };
+  const r = agree(await readMem(REQ.run, old));
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems));
+  const run = r.json.data.run, step = run.steps.filter(s => s.id === 'approved')[0];
+  assert.deepStrictEqual(step.marks, ['blocked'], 'the block Insights counts');
+  assert.strictEqual(run.marksComplete, false, 'an older run: "no marks" means unknown, not none');
+  const now = agree(await readMem(REQ.run)).json.data.run;
+  assert.strictEqual(now.marksComplete, true, 'a run that kept marks from its start');
+  assert.strictEqual(agree(await readMem(REQ.runs, old)).json.data.runs.filter(x => x.key === 'release/run1')[0].marksComplete, false);
+});
+
+
+/* The guard: a command's output depends on everything it reads, so a failure at ANY call it makes (every path the
+   folder saw, root listing and deferred blob reads included) must make it partial or an error naming that path. */
+const GUARD_REQ = [
+  { cmd: 'processes' }, { cmd: 'process', proc: 'shots' }, { cmd: 'process', proc: 'release' }, { cmd: 'runs' }, { cmd: 'runs', proc: 'release' },
+  { cmd: 'runs', status: 'planned' }, { cmd: 'run', key: 'shots/s1' }, { cmd: 'next', key: 'release/run1', person: 'person-blake' }, { cmd: 'run', key: 'release/run2' },
+  { cmd: 'followups' }, { cmd: 'followups', proc: 'release' }
+];
+rule('READ guard: a failure at any call a command makes, wherever it is, is named and the result isn\'t complete', async () => {
+  const files = await withShots(), eng = { PF: SRC, version: 'test' }, covered = new Set();
+  for (const req of GUARD_REQ) {
+    const seen = [], clean = await FD.readData(eng, failingFolder(files, null, null, seen), req);
+    assert.strictEqual(clean.code, 0, req.cmd + ' clean: ' + JSON.stringify(clean.json.problems || clean.json.error));
+    const calls = [...new Set(seen.map(x => x.join('\u0000')))].map(x => x.split('\u0000'));
+    for (const [m, at] of calls) {
+      const r = await FD.readData(eng, failingFolder(files, m, at), req), j = JSON.parse(JSON.stringify(r.json));
+      const where = JSON.stringify(req) + ': ' + m + ' "' + at + '" -> exit ' + r.code + ' ' + JSON.stringify(j.problems);
+      assert.ok(j.error ? r.code === 1 || r.code === 5 : !j.complete && r.code === 4, where);
+      assert.ok(j.problems.some(p => p.path === at), where);
+      covered.add(m);
+    }
+  }
+  ['list', 'read', 'stat', 'blob', 'arrayBuffer'].forEach(m => assert.ok(covered.has(m), 'covered ' + m + ': ' + [...covered]));
+});
+
+rule('READ: a plan whose version couldn\'t be checked says unknown (null), never missing', async () => {
+  const pubRec = 'publications/release/' + rfBuilt.folder + '/publication.json';
+  for (const hooks of [{ read: p => { if (p === pubRec) throw eacces(p); } }, { list: p => { if (p === 'publications/release') throw eacces(p); } }]) {
+    const r = agree(await readMem(REQ.runs, null, hooks)), p = r.json.data.planned[0];
+    assert.ok(r.code === 4 && r.json.problems.length, JSON.stringify(r.json.problems));
+    assert.ok(p && p.startsOn === null && p.versionMissing === null, JSON.stringify(p));
+  }
+});
+
+
+/* One run's view in each command: the problems at its own files and its version's folder, and its read-only reason. */
+function oneRunView(r, key, folder) {
+  const proc = key.split('/')[0], mine = p => p.path.startsWith('runs/' + key + '/') || p.path.startsWith('publications/' + proc + '/' + folder + '/');
+  const probs = r.json.problems.filter(mine).map(p => p.path + ' ' + p.kind).sort();
+  const data = r.json.data.run !== undefined ? r.json.data.run : (r.json.data.runs || []).filter(x => x.key === key)[0] || null;
+  return { probs, shown: !!data, readOnly: data ? data.readOnly : null };
+}
+rule('READ: runs and run say the same about every run: its problems, whether it shows and why it\'s read-only', async () => {
+  await readFolder();
+  const pubInfo = 'publications/release/' + rfBuilt.folder + '/publication.json';
+  const runEdit = (n, change) => f => { const at = 'runs/release/run' + n + '/run.json', o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); };
+  const cases = [
+    ['as written', 1, null],
+    ['another checklist hash', 1, runEdit(1, o => { o.mapHash = 'deadbeef'; })],
+    ['another version number', 2, runEdit(2, o => { o.version = 5; })],
+    ['a version folder that isn\'t there', 1, runEdit(1, o => { o.folder = 'v7-zzzz7777'; })],
+    ['its version from a newer Flightdeck', 1, f => { const o = JSON.parse(f[pubInfo]); o.format = 'preflight-publication/9'; f[pubInfo] = JSON.stringify(o); }],
+    ['its version unusable here', 1, f => { const at = 'publications/release/' + rfBuilt.folder + '/map.md'; f[at] = f[at].replace('{confirm} Feature flags', '{no.such} Feature flags'); const o = JSON.parse(f[pubInfo]); o.mapHash = SRC.util.hash(f[at]); f[pubInfo] = JSON.stringify(o); }],
+    ['newer frozen types', 1, runEdit(1, o => { const t = Object.keys(o.types)[0]; o.types[t].fromTheFuture = true; })],
+    ['a conflict copy', 1, f => { f['runs/release/run1/run-LAPTOP.json'] = f['runs/release/run1/run.json'].replace('Release 2026.10.20', 'Copy'); }],
+    ['a bad pause', 1, runEdit(1, o => { o.paused = { at: 'not-a-time' }; })]
+  ].concat(DROPS.map(([n, change, where]) => ['drop ' + where, n, runEdit(n, change)]));
+  for (const [name, n, edit] of cases) {
+    const key = 'release/run' + n;
+    const one = await readMem({ cmd: 'run', key }, edit), all = await readMem(REQ.runs, edit);
+    const folder = (() => { const f = Object.assign({}, rfBuilt.files); if (edit) edit(f, rfBuilt); try { return JSON.parse(f['runs/' + key + '/run.json']).folder; } catch (e) { return rfBuilt.folder; } })();
+    assert.deepStrictEqual(oneRunView(all, key, folder), oneRunView(one, key, folder), name);
+  }
+});
+
+
+rule('READ: a run that doesn\'t match its version is named at its own run.json, and never makes a plan\'s version unknown', async () => {
+  const at = 'runs/release/run1/run.json', edit = f => { const o = JSON.parse(f[at]); o.mapHash = 'deadbeef'; f[at] = JSON.stringify(o, null, 2); };
+  for (const req of [REQ.runs, REQ.run]) {
+    const r = agree(await readMem(req, edit));
+    assert.ok(r.code === 4 && r.json.problems.some(p => p.path === at && p.kind === 'unusable' && p.why.includes(rfBuilt.folder)), JSON.stringify(r.json.problems));
+    assert.ok(!r.json.problems.some(p => p.path.startsWith('publications/')), 'the version itself is fine: ' + JSON.stringify(r.json.problems));
+  }
+  const p = agree(await readMem(REQ.runs, edit)).json.data.planned[0];
+  assert.deepStrictEqual([p.startsOn, p.versionMissing], [{ version: 1, folder: rfBuilt.folder }, false]);
+  const bad = agree(await readMem(REQ.runs, edit, { read: x => { if (x === 'publications/release/' + rfBuilt.folder + '/publication.json') throw eacces(x); } })).json.data.planned[0];
+  assert.deepStrictEqual([bad.startsOn, bad.versionMissing], [null, null], 'a real failure of the version does');
+});
+
+
+/* The inverse guard: what a command doesn't depend on never makes it partial, whether it's a link found while listing
+   or a broken file. Each: the request, then paths it doesn't depend on. */
+const UNRELATED = [
+  [{ cmd: 'processes' }, ['runs/release', 'proposals/plan-x.json', 'followups/release', 'people.json']],
+  [{ cmd: 'process', proc: 'release' }, ['publications/shots', 'publications/other-process', 'runs/release', 'people.json']],
+  [{ cmd: 'runs' }, ['followups/release', 'step-types/x.json']],
+  [{ cmd: 'runs', proc: 'release' }, ['runs/shots', 'publications/shots', 'followups/release']],
+  [{ cmd: 'run', key: 'shots/s1' }, ['runs/release', 'runs/shots/s9', 'publications/release', 'followups/release/run2.fu9.w1.1.json', 'proposals/plan-x.json']],
+  [{ cmd: 'next', key: 'release/run1' }, ['runs/release/run2', 'publications/shots', 'followups/shots', 'followups/release/run2.fu9.w1.1.json']],
+  [{ cmd: 'followups' }, ['publications/release', 'proposals/plan-x.json']],
+  [{ cmd: 'followups', proc: 'release' }, ['runs/shots', 'followups/shots']]
+];
+rule('READ inverse guard: a link or a broken file on a path a command doesn\'t depend on never makes it partial', async () => {
+  const files = await withShots(), eng = { PF: SRC, version: 'test' };
+  for (const [req, paths] of UNRELATED) for (const at of paths) {
+    const linked = failingFolder(files, null, null); linked.links = [at];
+    let r = await FD.readData(eng, linked, req);
+    assert.ok(r.code === 0 && r.json.complete, JSON.stringify(req) + ' link ' + at + ': ' + JSON.stringify(r.json.problems || r.json.error));
+    if (/\.json$/.test(at) || at.split('/').length >= 2) {
+      const f = Object.assign({}, files, { [/\.json$/.test(at) ? at : at + '/zz/run.json']: '{' });
+      r = await FD.readData(eng, failingFolder(f, null, null), req);
+      assert.ok(r.code === 0 && r.json.complete, JSON.stringify(req) + ' broken file under ' + at + ': ' + JSON.stringify(r.json.problems || r.json.error));
+    }
+  }
+});
+
+rule('READ: a link beside the process a command reads, on disk, isn\'t its problem; a link it reads through is', async () => {
+  const dir = await readFolder(null, d => { const o = tmp(); fs.mkdirSync(path.join(o, 'v1-bbbb2222')); fs.symlinkSync(o, path.join(d, 'publications', 'other-process')); });
+  let r = agree(readCli('process', dir, 'release', '--json'));
+  assert.ok(r.code === 0 && r.json.complete, r.out);
+  r = agree(readCli('processes', dir, '--json'));
+  assert.ok(r.code === 4 && r.json.problems.some(p => p.path === 'publications/other-process' && p.kind === 'link'), r.out);
+});
+
 run();

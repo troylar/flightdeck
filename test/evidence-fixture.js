@@ -144,4 +144,4 @@ function tree(dir) {
   return out;
 }
 
-module.exports = { BytesFS, build, toDisk, tree, NOW, PNG };
+module.exports = { BytesFS, build, bytesOf, toDisk, tree, NOW, PNG };

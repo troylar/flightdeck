@@ -843,7 +843,7 @@ rule('Older copies never list followups/: deciding a follow-up leaves run.json a
   const fs = folder(), r = await withFollowUp(fs), F = PF.followups;
   await repo.decideFollowUp(fs, F.decision(F.list([r], [])[0], 'person-blake', 'wont', { reason: 'Not needed' }, NOW, null), 'blake-laptop');
   // A copy from before 1.16 is this copy without the follow-up decision loader.
-  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace('loadFollowUpDecisions(fs, cache, sched)\n    ].map(', 'Promise.resolve([])\n    ].map(') : src).repo;
+  const OLD = load(false, (f, src) => f === 'storage/repo.js' ? src.replace(/loadFollowUpDecisions\(fs, cache, sched[^)]*\)\n    \]\.map\(/, 'Promise.resolve([])\n    ].map(') : src).repo;
   const calls = faulty(fs);
   const d = await OLD.loadAll(fs, { deep: true });
   await OLD.loadRun(fs, 'release', 'run1');
@@ -1341,6 +1341,162 @@ rule('A small step back on the wall clock (as time sync does) while elapsed time
   for (const back of [1, 500, 30000]) { clock.ahead(30000); wall += 30000 - 30000 - back; assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'cached', back + ' ms back: not everything'); }
   clock.ahead(30000); wall -= 3 * MIN;
   assert.strictEqual((await repo.loadAll(fs, { clock, now: wall })).reads['release/old1'].kind, 'fresh', '3 minutes back: everything is due');
+});
+
+
+/* ---------- Reading for other apps (1.18 READ): read-only loading, every problem per file ---------- */
+/* An old save receipt beside a run, not in its lineage, whose contents equal the run: the branch readRun removes. */
+async function withEqualReceipt() {
+  const fs = folder(), r = await started(fs), text = fs.files['runs/release/run1/run.json'].t;
+  const p = 'runs/release/run1/candidate-other-zzzz9999.json';
+  await fs.write(p, text.replace(/"rev": \d+/, '"rev": 77'));
+  Object.keys(fs.files).forEach(k => { fs.files[k].m = 0; });
+  return { fs, r, p };
+}
+
+rule('Loading for other apps never removes a save receipt; the app\'s loading still takes that branch and removes it', async () => {
+  const { fs, p } = await withEqualReceipt();
+  const d = await repo.loadAll(repo.readOnly(fs), { readOnly: true, explain: true, deep: true });
+  const run = d.runs.find(x => x.id === 'run1');
+  assert.ok(run && fs.files[p], 'the receipt is still there');
+  same(run._conflicts, [], 'a receipt that lost nothing isn\'t a conflict');
+  const one = await repo.readRunOnly(fs, 'release', 'run1');
+  assert.ok(one.run && fs.files[p], 'reading one run keeps it too');
+  await repo.loadAll(fs, { deep: true });
+  await new Promise(res => setTimeout(res, 0));
+  assert.ok(!fs.files[p], 'the app\'s own loading removes it, so the branch the test guards is real');
+});
+
+rule('A read-only view refuses every change outright: loading through it without readOnly fails that run instead of deleting', async () => {
+  const { fs, p } = await withEqualReceipt();
+  const d = await repo.loadAll(repo.readOnly(fs), { deep: true });
+  assert.ok(fs.files[p], 'nothing removed');
+  assert.ok(d.unreadable.some(u => u.key === 'release/run1' && /read-only/.test(u.why)), JSON.stringify(d.unreadable));
+});
+
+rule('Loading with explain names a run folder without run.json; without it the app sees no result, as before', async () => {
+  const fs = folder(); await started(fs);
+  await fs.write('runs/release/run2/notes-w9.jsonl', '{"id":"n1","text":"hello"}\n');
+  const d = await repo.loadAll(fs, { deep: true, explain: true, readOnly: true });
+  same(d.nofile, [{ path: 'runs/release/run2/run.json', key: 'release/run2' }]);
+  const app = await repo.loadAll(fs, { deep: true });
+  assert.ok(!app.reads['release/run2'] && !app.nofile, 'the app is unchanged');
+  same(await repo.readRunOnly(fs, 'release', 'run2').then(x => [x.found, x.nofile, x.run]), [true, true, null]);
+  same(await repo.readRunOnly(fs, 'release', 'run9').then(x => x.found), false);
+});
+
+rule('Loading with explain lists malformed proposals and plans by file; the app\'s plans are what they were', async () => {
+  const fs = folder(); await published(fs);
+  await fs.write('proposals/plan-broken.json', '{"kind": "plan", ');
+  await fs.write('proposals/plan-odd.json', '{"kind": "plan", "id": 7, "process": "release"}');
+  await fs.write('proposals/other.json', '{"kind": "something"}');
+  const d = await repo.loadAll(fs, { explain: true, readOnly: true });
+  same(d.malformed.map(m => m.path).sort(), ['proposals/other.json', 'proposals/plan-broken.json', 'proposals/plan-odd.json']);
+  assert.ok(d.malformed.every(m => m.kind === 'malformed' && m.why));
+  const app = await repo.loadAll(fs);
+  same(app.plans.map(x => x.id), d.plans.map(x => x.id));
+  assert.ok(!app.malformed);
+});
+
+rule('A run.json that won\'t parse is malformed, and a notes file that can\'t be read is named while the rest of the run loads', async () => {
+  const fs = folder(); await started(fs);
+  await fs.write('runs/release/run3/run.json', '{"format": "preflight-run/2"');
+  await fs.write('runs/release/run1/notes-bad.jsonl', '{"id":"n1","text":"x"}\n');
+  const read = fs.read.bind(fs);
+  fs.read = p => /notes-bad/.test(p) ? Promise.reject(Object.assign(new Error('too large'), { skipped: true })) : read(p);
+  const d = await repo.loadAll(fs, { deep: true, explain: true, readOnly: true });
+  assert.ok(d.unreadable.some(u => u.path === 'runs/release/run3/run.json' && u.kind === 'malformed'), JSON.stringify(d.unreadable));
+  assert.ok(d.unreadable.some(u => u.path === 'runs/release/run1/notes-bad.jsonl' && u.kind === 'skipped'), JSON.stringify(d.unreadable));
+  assert.ok(d.runs.some(x => x.id === 'run1'), 'run1 still loads');
+});
+
+rule('The folder wrappers pass read options through: bounded() and the read-only view hand (path, options) to the folder', async () => {
+  const got = [];
+  const raw = { kind: 'memory', name: 'opts' };
+  ['list', 'read', 'stat', 'blob'].forEach(m => { raw[m] = (p, o) => { got.push([m, p, o && o.maxBytes]); return Promise.resolve(m === 'list' ? [] : null); }; });
+  const view = repo.lane(repo.readOnly(raw), 'load');
+  for (const m of ['list', 'read', 'stat', 'blob']) await view[m]('runs/x', { maxBytes: 1234 });
+  same(got, [['list', 'runs/x', 1234], ['read', 'runs/x', 1234], ['stat', 'runs/x', 1234], ['blob', 'runs/x', 1234]]);
+});
+
+rule('Every mutating method of a read-only folder throws, and loading for other apps calls none', async () => {
+  const { fs } = await withEqualReceipt();
+  const EVF = require('./evidence-fixture'), files = {};
+  Object.keys(fs.files).forEach(k => { files[k] = fs.files[k].t; });
+  const B = new EVF.BytesFS(files, { strict: true });
+  B.mtimes.forEach((v, k) => B.mtimes.set(k, 0));
+  const d = await repo.loadAll(repo.readOnly(B), { readOnly: true, explain: true, deep: true });
+  assert.ok(d.runs.some(x => x.id === 'run1'));
+  await repo.readRunOnly(B, 'release', 'run1');
+  same(B.mutations, []);
+});
+
+rule('Cached decision texts are forgotten only for folders listed this time: a partial listing keeps the rest', async () => {
+  const fs = folder();
+  await fs.write('followups/a/r1.f1.w1.1.json', '{"a":1}'); await fs.write('followups/b/r1.f1.w1.1.json', '{"b":1}');
+  const cache = { dec: {} }, sched = { deep: false, now: 1, due: () => [] };
+  const item = (proc, name) => ({ process: proc, name, path: 'followups/' + proc + '/' + name });
+  await repo.decisionTexts(fs, cache, sched, { folders: ['followups/a', 'followups/b'], tops: { followups: ['a', 'b'] } }, [item('a', 'r1.f1.w1.1.json'), item('b', 'r1.f1.w1.1.json')], 'fu');
+  same(Object.keys(cache.dec).sort(), ['followups/a/r1.f1.w1.1.json', 'followups/b/r1.f1.w1.1.json']);
+  await repo.decisionTexts(fs, cache, sched, { folders: ['followups/a'], tops: { followups: ['a', 'b'] } }, [item('a', 'r1.f1.w1.1.json')], 'fu');
+  assert.ok(cache.dec['followups/b/r1.f1.w1.1.json'], 'b wasn\'t listed this time, so its text is kept');
+  await repo.decisionTexts(fs, cache, sched, { folders: ['followups/a', 'followups/b'], tops: { followups: ['a', 'b'] } }, [item('a', 'r1.f1.w1.1.json')], 'fu');
+  assert.ok(!cache.dec['followups/b/r1.f1.w1.1.json'], 'b was listed without the file: forgotten');
+  cache.dec['followups/gone/r1.f1.w1.1.json'] = { text: '{}', at: 0 };
+  await repo.decisionTexts(fs, cache, sched, { folders: ['followups/a'], tops: { followups: ['a'] } }, [item('a', 'r1.f1.w1.1.json')], 'fu');
+  assert.ok(!cache.dec['followups/gone/r1.f1.w1.1.json'], 'a process folder gone from the top listing: forgotten');
+  cache.dec['corrections/x/g.w1.1.json'] = { text: '{}', at: 0 };
+  await repo.decisionTexts(fs, cache, sched, { folders: ['followups/a'], tops: { followups: ['a'] } }, [item('a', 'r1.f1.w1.1.json')], 'fu');
+  assert.ok(cache.dec['corrections/x/g.w1.1.json'], 'another kind\'s folders are never touched');
+});
+
+rule('Follow-up and correction decisions loaded by the app still forget a file that\'s gone, and keep the ones still there', async () => {
+  const fs = folder(); await started(fs);
+  const fu = { kind: 'followup-decision', fv: 1, process: 'release', run: 'run1', followUp: 'f1', status: 'done', by: 'person-blake', at: NOW, rev: 1, seen: null };
+  await fs.write('followups/release/run1.f1.w1.1.json', JSON.stringify(fu));
+  await fs.write('followups/release/run1.f2.w1.1.json', JSON.stringify(Object.assign({}, fu, { followUp: 'f2' })));
+  let d = await repo.loadAll(fs);
+  same(d.fuDecisions.map(x => x.followUp).sort(), ['f1', 'f2']);
+  await fs.remove('followups/release/run1.f2.w1.1.json');
+  d = await repo.loadAll(fs);
+  same(d.fuDecisions.map(x => x.followUp), ['f1']);
+});
+
+
+rule('The problem ledger records every failed list and read by path, a listed file gone when read as vanished, and passes options on', async () => {
+  const fs = folder(); await fs.write('a/b.json', '{}'); await fs.write('a/c.json', '{}'); await fs.write('a/d.json', '{}');
+  const read = fs.read.bind(fs), list = fs.list.bind(fs), seen = [];
+  fs.read = (p, o) => { seen.push(o && o.maxBytes); if (p === 'a/c.json') throw new Error('EACCES'); if (p === 'a/d.json') return Promise.reject(Object.assign(new Error('too big'), { skipped: true })); return read(p); };
+  fs.list = p => p === 'x' ? Promise.reject(Object.assign(new Error('a link'), { link: true })) : list(p);
+  const L = repo.ledger(repo.readOnly(fs));
+  await L.fs.list('a');
+  await fs.remove('a/b.json');
+  assert.strictEqual(await L.fs.read('a/b.json', { maxBytes: 5 }), null);
+  await assert.rejects(L.fs.read('a/c.json'), /EACCES/);
+  await assert.rejects(L.fs.read('a/d.json'), /too big/);
+  await assert.rejects(L.fs.list('x'), /a link/);
+  assert.strictEqual(await L.fs.read('never-listed.json'), null);
+  same(L.problems().map(p => [p.path, p.kind]), [['a/b.json', 'vanished'], ['a/c.json', 'unreadable'], ['a/d.json', 'skipped'], ['x', 'link']]);
+  assert.strictEqual(seen[0], 5, 'read options reach the folder');
+  L.note('a/c.json', 'malformed', 'also'); L.note('a/e.json', 'malformed', 'bad');
+  same(L.problems().map(p => [p.path, p.kind]), [['a/b.json', 'vanished'], ['a/c.json', 'unreadable'], ['a/d.json', 'skipped'], ['a/e.json', 'malformed'], ['x', 'link']], 'a file that failed to read isn\'t named again as malformed');
+  assert.throws(() => L.fs.write('a/z.json', 'x'), /read-only/);
+});
+
+
+rule('The problem ledger records a blob\'s later failures (arrayBuffer, text, a slice\'s) and a folder listed, then marked missing, as vanished', async () => {
+  const bad = () => Promise.reject(new Error('EIO'));
+  const raw = {
+    list: p => { if (p === 'a/gone') { const none = []; none.missing = true; return Promise.resolve(none); } if (p === 'a/never') { const none = []; none.missing = true; return Promise.resolve(none); } return Promise.resolve(p === 'a' ? [{ name: 'gone', kind: 'dir' }, { name: 'empty', kind: 'dir' }] : []); },
+    blob: p => Promise.resolve({ size: 3, arrayBuffer: bad, text: bad, slice: () => ({ arrayBuffer: bad }) }),
+    read: () => Promise.resolve(null), stat: () => Promise.resolve(null)
+  };
+  const L = repo.ledger(repo.readOnly(raw));
+  await L.fs.list('a'); same(await L.fs.list('a/empty'), []); await L.fs.list('a/gone'); await L.fs.list('a/never');
+  await assert.rejects((await L.fs.blob('x.png')).arrayBuffer(), /EIO/);
+  await assert.rejects((await L.fs.blob('y.png')).text(), /EIO/);
+  await assert.rejects((await L.fs.blob('z.png')).slice(0, 1).arrayBuffer(), /EIO/);
+  same(L.problems().map(p => [p.path, p.kind]), [['a/gone', 'vanished'], ['x.png', 'unreadable'], ['y.png', 'unreadable'], ['z.png', 'unreadable']]);
 });
 
 run();

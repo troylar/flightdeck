@@ -260,4 +260,16 @@ rule('The big folder is the same, byte for byte, every time for a seed, and diff
   assert.notStrictEqual(JSON.stringify(generate(load(), { runs: 40, running: 5, recent: 5, seed: 6 }).files), JSON.stringify(a.files));
 });
 
+
+/* READ on the 2,000-run folder: what `flightdeck runs --json` costs, through the same engine function the command runs. It
+   reads every file once (a deep load on a fresh cache), so it stays within the cold-open budget. */
+rule('READ: runs --json on the 2,000-run folder reads within the cold-open budget, and its time is recorded', async () => {
+  const PF = load(), fs = bigFolder(PF, {}), C = require('../bin/flightdeck.js');
+  const t = Date.now(), r = await C.readData({ PF, version: 'perf' }, fs, { cmd: 'runs' }), ms = Date.now() - t;
+  console.log('  READ runs --json: ' + r.json.data.runs.length + ' runs, ' + r.json.problems.length + ' problems, ' + ms + ' ms, ' + JSON.stringify(r.json).length + ' bytes; ' + line('folder', fs));
+  assert.ok(r.json.data.runs.length >= 1990, 'the runs: ' + r.json.data.runs.length);
+  assert.ok(fs.total() <= CEILING.default.cold, fs.total() + ' calls > ' + CEILING.default.cold);
+  assert.strictEqual(r.json.complete, r.json.problems.length === 0);
+});
+
 run();

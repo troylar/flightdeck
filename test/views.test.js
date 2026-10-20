@@ -2086,4 +2086,10 @@ rule('Export evidence is offered on the receipt, in the run\'s More menu and on 
   assert.ok(/data-act="ev-range"/.test(V.runs(Object.assign(ctx, { state: Object.assign(state, { view: 'runs', filter: 'all' }) }))));
 });
 
+
+rule('The run\'s More menu offers Copy run key, with the key other apps use (process/run)', () => {
+  const { ctx } = setup();
+  assert.ok(/<button type="button" class="mini" data-act="copy-run-key" data-id="release\/run1">Copy run key<\/button>/.test(V.run(ctx)));
+});
+
 run();

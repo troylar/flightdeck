@@ -28,6 +28,11 @@ PF.repo = (function () {
     });
   }
   function why(e) { return 'couldn\'t be read (' + (e && e.message || String(e)) + ')'; }
+  /* What kind of failure a read was: a link the folder refused to follow, a file over the size the reader allows, or any
+     other failure. */
+  function errKind(e) { return e && e.link ? 'link' : e && e.skipped ? 'skipped' : 'unreadable'; }
+  /* readRun's answer, with explain, for a run folder that has no run.json. */
+  var NOFILE = Object.freeze({ kind: 'nofile' });
 
   /* What's already been read from a folder. Complete publications never change, and ended runs rarely do, so routine refreshes
      skip them; a deep refresh (the Refresh button) reads everything again. */
@@ -44,32 +49,42 @@ PF.repo = (function () {
 
   /* Reading the versions also notes which are unusable here (cache.bad: a hard refusal for runs on them), and forgets what it
      knew about a folder that's gone. Complete versions stay cached, so a routine refresh asks nothing about them. */
-  function loadPublications(fs, cache, deep) {
+  /* explain (reading for other apps): a version or process folder that fails to read is kept apart (a version with
+     _readFailed, a process left out) instead of failing every version; the folder's ledger names the file. */
+  function loadPublications(fs, cache, deep, explain) {
     var seen = {};
     cache.bad = cache.bad || {}; cache.approved = cache.approved || {};
     return fs.list('publications').then(function (procs) {
       return Promise.all(procs.filter(function (p) { return p.kind === 'dir'; }).map(function (p) {
-        return fs.list('publications/' + p.name).then(function (vers) {
+        var one = fs.list('publications/' + p.name).then(function (vers) {
           return Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) {
             var base = 'publications/' + p.name + '/' + v.name + '/';
             seen[base] = true;
             if (!deep && cache.pubs[base]) return cache.pubs[base];
-            return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
-              var res = P.verify(v.name, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
-              res.folder = v.name; res.process = p.name;
-              return checkImages(fs, base, res).then(function (res) {
-                if (res.ok) cache.pubs[base] = res; else delete cache.pubs[base];
-                if (res.unusable) cache.bad[base] = res.why; else delete cache.bad[base];
-                return res;
-              });
+            var got = readVersion(fs, p.name, v.name).then(function (res) {
+              if (res.ok) cache.pubs[base] = res; else delete cache.pubs[base];
+              if (res.unusable) cache.bad[base] = res.why; else delete cache.bad[base];
+              return res;
             });
+            return explain ? got.then(null, function (e) { delete cache.pubs[base]; return { ok: false, why: why(e), folder: v.name, process: p.name, _readFailed: true }; }) : got;
           }));
-        }).then(function (pubs) { return { process: p.name, pubs: pubs, index: P.index(pubs) }; });
+        });
+        if (explain) one = one.then(null, function () { return null; });
+        return one.then(function (pubs) { return pubs && { process: p.name, pubs: pubs, index: P.index(pubs) }; });
       }));
     }).then(function (out) {
       /* A folder that's gone is forgotten, so one recreated under the same name is judged afresh. */
       [cache.pubs, cache.bad, cache.approved].forEach(function (m) { Object.keys(m).forEach(function (k) { if (/^publications\//.test(k) && !seen[k]) delete m[k]; }); });
-      return out;
+      return out.filter(Boolean);
+    });
+  }
+  /* One version folder, verified as a refresh does: its checklist, step types and record, then its screenshots. */
+  function readVersion(fs, proc, folder) {
+    var base = 'publications/' + proc + '/' + folder + '/';
+    return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
+      var res = P.verify(folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
+      res.folder = folder; res.process = proc;
+      return checkImages(fs, base, res);
     });
   }
 
@@ -108,6 +123,14 @@ PF.repo = (function () {
   function loadRuns(fs, cache, deep, freshKeys, sched, o) {
     o = o || {};
     var force = {}; (freshKeys || []).forEach(function (k) { force[k] = true; });
+    var nofile = [];
+    /* Reading for other apps: a run folder without run.json is named (nofile), never just skipped. */
+    function readOne(proc, id, all, bad) {
+      return readRun(fs, proc, id, cache, all, true, bad, o).then(function (entry) {
+        if (entry === NOFILE) { nofile.push({ path: 'runs/' + proc + '/' + id + '/run.json', key: proc + '/' + id }); return null; }
+        return entry;
+      });
+    }
     return fs.list('runs').then(function (procs) {
       return Promise.all(procs.filter(function (p) { return p.kind === 'dir'; }).map(function (p) {
         return fs.list('runs/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return p.name + '/' + i.name; }); });
@@ -134,7 +157,7 @@ PF.repo = (function () {
         var hit = cache.runs[key], proc = key.split('/')[0], id = key.split('/')[1], bad = [], dir = 'runs/' + key;
         /* One run that can't be read (a placeholder OneDrive hasn't downloaded, a file being replaced) is listed as unreadable;
            the rest of the folder still loads. */
-        return go().then(null, function (e) { delete cache.runs[key]; bad.push({ path: dir + '/run.json', key: key, why: why(e) }); return null; }).then(function (res) {
+        return go().then(null, function (e) { delete cache.runs[key]; bad.push({ path: dir + '/run.json', key: key, kind: errKind(e), why: why(e) }); return null; }).then(function (res) {
           unreadable.push.apply(unreadable, bad);
           res = res || (bad.length ? { kind: 'unreadable', why: bad[0].why } : null);
           done++; finished[key] = true;
@@ -163,7 +186,7 @@ PF.repo = (function () {
              nothing changed in between. */
           if (!cache.sized || !fs.stat) {
             var before;
-            return fingerprint(fs, dir).then(function (fp) { before = fp; return readRun(fs, proc, id, cache, all, true, bad); }).then(function (entry) {
+            return fingerprint(fs, dir).then(function (fp) { before = fp; return readOne(proc, id, all, bad); }).then(function (entry) {
               if (cache.sized == null && entry) cache.sized = isExact(entry);
               return fingerprint(fs, dir).then(function (after) { return keep(entry, after === before ? after : null, t0, all); });
             });
@@ -171,7 +194,7 @@ PF.repo = (function () {
           /* Sizes and times come with the reads: stat only the files that weren't read (copies, receipts, history), then
              list again. The run is cached only if the folder still holds the same files, under the stamps of the texts read;
              anything that changed after its read shows up as a different stamp at the next check. */
-          return readRun(fs, proc, id, cache, all, true, bad).then(function (entry) {
+          return readOne(proc, id, all, bad).then(function (entry) {
             if (!entry) return keep(null, null, t0, all);
             if (!isExact(entry)) cache.sized = false;
             var others = entry.names.filter(function (n) { return entry.stamps[n] == null; });
@@ -204,7 +227,7 @@ PF.repo = (function () {
         Object.keys(cache.runs).forEach(function (k) { var e = cache.runs[k].entry; used[e.internKey] = true; });
         Object.keys(reads).forEach(function (k) { if (reads[k].run) used[reads[k].run.folder + '|' + reads[k].run.mapHash] = true; });
         Object.keys(cache.intern).forEach(function (k) { if (!used[k]) delete cache.intern[k]; });
-        return { reads: reads, keys: keys, complete: true, unreadable: unreadable };
+        return { reads: reads, keys: keys, complete: true, unreadable: unreadable, nofile: nofile };
       });
     });
   }
@@ -283,6 +306,8 @@ PF.repo = (function () {
     if (!run._unrunnable && entry.unrunnable) run._unrunnable = entry.unrunnable;
     var bad = cacheIn ? badFor(cacheIn, entry) : '';
     if (bad && !run._unrunnable) run._unrunnable = bad;
+    if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
+    if (entry.drift && entry.drift.length) run._drift = entry.drift;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [];
@@ -375,7 +400,11 @@ PF.repo = (function () {
      the folder's file names and, for each file read, the size and time that came with the very text read (stamps), so a
      refresh can tell later whether anything changed without asking again (docs/design.md section 25). full: every notes
      file was read now, none taken from memory. */
-  function readRun(fs, proc, id, cacheIn, deep, allRuns, bad) {
+  /* o: { readOnly: never remove anything (reading for other apps), explain: say what a plain read leaves unsaid (a folder
+     without run.json gives NOFILE instead of null; a notes file that can't be read is named in bad and left out, and the
+     rest of the run still loads) }. Both off for the app, which is unchanged. */
+  function readRun(fs, proc, id, cacheIn, deep, allRuns, bad, o) {
+    o = o || {};
     cacheIn = cacheIn || cacheOf(fs); fs = bounded(fs, allRuns ? 'load' : 'open');
     var base = 'runs/' + proc + '/' + id + '/', stamps = {}, full = true;
     function stampOf(f) { return f && f.size != null && f.mtime != null ? f.size + ':' + f.mtime : null; }
@@ -388,7 +417,7 @@ PF.repo = (function () {
       var names = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; });
       var extra = names.filter(function (n) { return n !== 'run.json' && /^run.*\.json$/i.test(n); });
       var noteFiles = names.filter(function (n) { return /^notes-[\w-]+\.jsonl$/.test(n); });
-      if (names.indexOf('run.json') < 0) return null;
+      if (names.indexOf('run.json') < 0) return o.explain ? NOFILE : null;
       /* Notes files only grow, so one that hasn't changed size or time since the last read is taken from memory. */
       var notesCache = cacheIn.notes;
       function same(a, b) { return !!a && !!b && a.size === b.size && a.mtime === b.mtime; }
@@ -409,9 +438,19 @@ PF.repo = (function () {
           });
         });
       }
-      return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(readNotes))).then(withPublication).then(function (res) {
+      function noteOrSay(n) {
+        if (!o.explain) return readNotes(n);
+        return readNotes(n).then(null, function (e) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: errKind(e), why: why(e) }); return null; });
+      }
+      return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
-        if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
+        if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
+        /* Reading for other apps: a run file that names another run (copied into the wrong folder) is never read as this
+           folder's run or joined with its decisions. */
+        if (o.explain && (run.process !== proc || run.id !== id)) {
+          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id });
+          return null;
+        }
         stamps['run.json'] = stampOf(res[0]);
         var notesTexts = res.slice(1).map(function (f) { return f ? f.text : null; });
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
@@ -420,6 +459,8 @@ PF.repo = (function () {
           notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
+        /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
+        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
@@ -434,7 +475,7 @@ PF.repo = (function () {
             /* A receipt whose contents are already the current version lost nothing (a late delivery, or a save older than the
                list remembers): it's removed instead of shown as a conflict. Names are unique per save, so this can't race. */
             return fs.read(base + n).then(function (f) {
-              if (f && sameRun(f.text) === current) { fs.remove(base + n).catch(function () {}); return null; }
+              if (f && sameRun(f.text) === current) { if (!o.readOnly) fs.remove(base + n).catch(function () {}); return null; }
               return n;
             }, function () { return n; });
           });
@@ -477,10 +518,20 @@ PF.repo = (function () {
     }).then(function (x) { return x.filter(Boolean); });
   }
 
-  function loadJsonDir(fs, dir, ok) {
+  /* bad (reading for other apps): each file that won't read, parse or check is named there, and the rest still load.
+     Without it, as the app reads: what doesn't parse or check is left out, and a file that won't read fails the part. */
+  function loadJsonDir(fs, dir, ok, bad) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) {
-        return readJson(fs, dir + '/' + i.name).then(function (o) { if (o && ok(o)) { o._file = i.name; return o; } return null; });
+        var path = dir + '/' + i.name;
+        if (!bad) return readJson(fs, path).then(function (o) { if (o && ok(o)) { o._file = i.name; return o; } return null; });
+        return fs.read(path).then(function (f) {
+          if (!f) return null;
+          var o = json(f.text);
+          if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); return null; }
+          if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); return null; }
+          o._file = i.name; return o;
+        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); return null; });
       }));
     }).then(function (x) { return x.filter(Boolean); });
   }
@@ -497,7 +548,8 @@ PF.repo = (function () {
     var raw = fs, ws = wrappers ? wrappers.get(raw) : null;
     if (ws && ws[lane]) return ws[lane];
     var go = poolOf(raw), b = Object.create(raw);
-    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof raw[m] === 'function') b[m] = function (p) { return go(lane, function () { return raw[m](p); }); }; });
+    /* Options (a read's maxBytes) travel with the call, so a cap set above the pool reaches the folder. */
+    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof raw[m] === 'function') b[m] = function (p, o) { return go(lane, function () { return raw[m](p, o); }); }; });
     b._bounded = lane; b._raw = raw;
     if (wrappers) { ws = ws || {}; ws[lane] = b; wrappers.set(raw, ws); }
     return b;
@@ -544,21 +596,31 @@ PF.repo = (function () {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
     cache.clockFn = opts.clock || elapsed;
     var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
-    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], []];
+    /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
+    var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
+    return fs.list('').then(function () { return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       loadSkills(fs),
-      loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }),
+      loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }, malformed),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
       loadCorrectionDecisions(fs, cache, sched),
-      loadFollowUpDecisions(fs, cache, sched)
+      loadFollowUpDecisions(fs, cache, sched, !!opts.explain)
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       if (errs.length === PARTS.length) throw errs[0];
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
       r[9] = r[9].map(function (v) { var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; if (v.as === 'backup') o.as = 'backup'; return o; });
       var props = r[6], statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
+      if (malformed) {
+        props.forEach(function (p) {
+          var bad = p.kind === 'plan' ? planWhy(p) : statusWhy(p);
+          if (bad) malformed.push({ path: 'proposals/' + p._file, kind: 'malformed', why: bad });
+        });
+        /* Reading for other apps shows only plans and decisions in the format; the rest are named above. */
+        statuses = statuses.filter(function (x) { return !statusWhy(x); }); plans = plans.filter(function (x) { return !planWhy(x); });
+      }
       /* A decision counts only for the exact plan it was made on; if the plan changed afterwards, it's pending again. */
       plans.forEach(function (p) {
         p._hash = U.hash(JSON.stringify(stripMeta(p)));
@@ -578,6 +640,7 @@ PF.repo = (function () {
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString() };
+      if (opts.explain) { out.malformed = malformed; out.nofile = r[3].nofile || []; }
       /* Every run, as objects: fresh ones as read, cached ones built new. Built on first use, since the app applies reads instead. */
       var runs = null;
       Object.defineProperty(out, 'runs', { enumerable: true, configurable: true,
@@ -586,14 +649,60 @@ PF.repo = (function () {
       return out;
     });
   }
+  /* One run, for other apps (flightdeck run and next): read-only (nothing is removed, not even a save receipt that lost
+     nothing), through a view that throws on any change, and only that run's folder, its version's record (pubProblem), its
+     follow-up decisions and people.json. Resolves to { found: false } when the folder has no such run folder, else
+     { found, run (or null), nofile, bad: [{path, kind, why}], fuDecisions, fuUnread: [{path, why}], people, peopleWhy }. */
+  function readRunOnly(fsIn, proc, id) {
+    var fs = readOnlyView(fsIn, 'Reading for other apps'), cache = newCache(), bad = [], key = proc + '/' + id, F = PF.followups;
+    return fs.list('runs/' + proc).then(function (items) {
+      if (!items.some(function (i) { return i.kind === 'dir' && i.name === id; })) return { found: false };
+      var out = { found: true, run: null, nofile: false, bad: bad, fuDecisions: [], fuUnread: [], people: [], peopleWhy: '' };
+      /* The run's version is checked below (readVersion) and judged by the caller, as runs judges it, not by pubProblem. */
+      var runP = readRun(fs, proc, id, cache, true, true, bad, { readOnly: true, explain: true }).then(function (entry) {
+        if (entry === NOFILE) out.nofile = true; else if (entry) out.run = build(entry, null);
+      }, function (e) { bad.push({ path: 'runs/' + key + '/run.json', key: key, kind: errKind(e), why: why(e) }); });
+      /* The process's decisions folder is found through its parent's listing, so one gone between the two is named (vanished)
+         by a ledger, never read as "no decisions". */
+      var fuP = fs.list('followups').then(function (top) {
+        return top.some(function (i) { return i.kind === 'dir' && i.name === proc; }) ? fs.list('followups/' + proc) : [];
+      }).then(function (list) {
+        var mine = list.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && i.name.indexOf(id + '.') === 0; });
+        return Promise.all(mine.map(function (i) {
+          var path = 'followups/' + proc + '/' + i.name;
+          return fs.read(path).then(function (f) {
+            if (!f) return;
+            var raw = json(f.text), d = null; try { d = F.cleanDecision(raw, proc, i.name); } catch (e) { d = null; }
+            if (d) { var dr = fuDrift(raw, d); if (dr.length) d._drift = dr; }
+            if (d && d.run === id) out.fuDecisions.push(d); else if (!d) out.fuUnread.push({ path: path, why: 'isn\'t a follow-up decision this copy can read' });
+          }, function (e) { out.fuUnread.push({ path: path, kind: errKind(e), why: why(e) }); });
+        }));
+      }, function (e) { out.fuUnread.push({ path: 'followups/' + proc + '/', kind: errKind(e), why: why(e) }); });
+      var peopleP = loadPeople(fs).then(function (p) { out.people = p; }, function (e) { out.peopleWhy = why(e); out.peopleKind = errKind(e); });
+      return Promise.all([runP, fuP, peopleP]).then(function () {
+        /* The run's version, verified here so a failure is named, not taken as "nothing to say" (pubProblem's answer). */
+        var r = out.run;
+        if (!r || typeof r.folder !== 'string' || !P.versionOf(r.folder) || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return out;
+        return readVersion(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
+      });
+    });
+  }
   /* Decision files are written once and tiny. Each refresh lists their folders; a file is read when it's new, couldn't be
      read or understood last time, on Refresh, or once it's past the hour (a share each refresh, as runs are), and otherwise
-     taken from the text kept from its last read. A file that's gone from the listing is forgotten. dirs: the top folders
-     this listing covered; texts are kept by path in cache.dec. */
-  function decisionTexts(fs, cache, sched, dirs, items, kind) {
-    var dec = cache.dec = cache.dec || {}, listed = {};
+     taken from the text kept from its last read. A file that's gone from the listing is forgotten, but only from a folder
+     listed this time, so a listing that covers some folders (a schedule's share) never forgets the others' texts.
+     scope: { folders: every <top>/<process> folder listed this time, tops: { <top>: the process folders its listing
+     holds } }: a text is forgotten when its folder was listed without it, or when its process folder is gone from a top
+     listed this time. Texts are kept by path in cache.dec. */
+  function decisionTexts(fs, cache, sched, scope, items, kind) {
+    var dec = cache.dec = cache.dec || {}, listed = {}, folders = {}, tops = scope.tops || {};
     items.forEach(function (x) { listed[x.path] = true; });
-    Object.keys(dec).forEach(function (p) { if (!listed[p] && dirs.indexOf(p.split('/')[0]) >= 0) delete dec[p]; });
+    (scope.folders || []).forEach(function (f) { folders[f] = true; });
+    Object.keys(dec).forEach(function (p) {
+      var parts = p.split('/'), folder = parts.slice(0, -1).join('/');
+      if (listed[p]) return;
+      if (folders[folder] || (tops[parts[0]] && tops[parts[0]].indexOf(parts[1]) < 0)) delete dec[p];
+    });
     var known = sched && !sched.deep ? items.filter(function (x) { return dec[x.path]; }).map(function (x) { return x.path; }) : [];
     var due = {}; (sched ? sched.due(kind, known, function (p) { return dec[p].at; }, config.endedMs) : []).forEach(function (p) { due[p] = true; });
     return limited(items, 8, function (x) {
@@ -611,16 +720,18 @@ PF.repo = (function () {
      fixes from before 1.13 (suggestions/<process>/<suggestion>.<writer>.json) are read too. A file that can't be read is
      reported in corrUnread, never dropped, so its group doesn't quietly look open again. */
   function loadCorrectionDecisions(fs, cache, sched) {
-    var dirs = ['corrections', 'suggestions'];
+    var dirs = ['corrections', 'suggestions'], scope = { folders: [], tops: {} };
     return Promise.all(dirs.map(function (dir) {
       return fs.list(dir).then(function (procs) {
-        return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); }).map(function (p) {
-          return fs.list(dir + '/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { dir: dir, process: p.name, name: i.name, path: dir + '/' + p.name + '/' + i.name }; }); });
+        var ok = procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); });
+        scope.tops[dir] = ok.map(function (p) { return p.name; });
+        return Promise.all(ok.map(function (p) {
+          return fs.list(dir + '/' + p.name).then(function (items) { scope.folders.push(dir + '/' + p.name); return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { dir: dir, process: p.name, name: i.name, path: dir + '/' + p.name + '/' + i.name }; }); });
         }));
       });
     })).then(function (nested) {
       var all = [].concat.apply([], [].concat.apply([], nested));
-      return decisionTexts(fs, cache || {}, sched, dirs, all, 'corr').then(function (got) {
+      return decisionTexts(fs, cache || {}, sched, scope, all, 'corr').then(function (got) {
         return got.map(function (g) {
           var x = g.x, unread = { _unread: true, dir: x.dir, process: x.process, _file: x.name };
           /* A file that's missing now was removed; one that won't read, parse or check (a half-synced write) is unread. */
@@ -646,20 +757,27 @@ PF.repo = (function () {
   /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
      decided. run.json never changes. Read like corrections' decisions (decisionTexts); a file that can't be read is
      reported in fuUnread, never dropped, so its follow-up doesn't quietly look open again. */
-  function loadFollowUpDecisions(fs, cache, sched) {
+  /* Reading for other apps: where a follow-up decision file says something cleanDecision doesn't keep as written. */
+  var FU_ALLOW = { added: ['fv'], dropped: [] };
+  function fuDrift(raw, d) { var c = {}; Object.keys(d).forEach(function (k) { if (k[0] !== '_') c[k] = d[k]; }); return U.drift(raw, JSON.parse(JSON.stringify(c)), FU_ALLOW); }
+  function loadFollowUpDecisions(fs, cache, sched, explain) {
+    var scope = { folders: [], tops: {} };
     return fs.list('followups').then(function (procs) {
-      return Promise.all(procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); }).map(function (p) {
-        return fs.list('followups/' + p.name).then(function (items) { return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name, path: 'followups/' + p.name + '/' + i.name }; }); });
+      var ok = procs.filter(function (p) { return p.kind === 'dir' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(p.name); });
+      scope.tops.followups = ok.map(function (p) { return p.name; });
+      return Promise.all(ok.map(function (p) {
+        return fs.list('followups/' + p.name).then(function (items) { scope.folders.push('followups/' + p.name); return items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return { process: p.name, name: i.name, path: 'followups/' + p.name + '/' + i.name }; }); });
       }));
     }).then(function (nested) {
-      return decisionTexts(fs, cache || {}, sched, ['followups'], [].concat.apply([], nested), 'fu').then(function (got) {
+      return decisionTexts(fs, cache || {}, sched, scope, [].concat.apply([], nested), 'fu').then(function (got) {
         return got.map(function (g) {
           var x = g.x, unread = { _unread: true, dir: 'followups', process: x.process, _file: x.name };
           /* Each file on its own: one that won't read, parse or check is listed as unreadable, never a reason to drop the rest. */
           if (g.failed) return unread;
           if (!g.f) return null;
-          var d = null; try { d = PF.followups.cleanDecision(json(g.f.text), x.process, x.name); } catch (e) { d = null; }
+          var raw = json(g.f.text), d = null; try { d = PF.followups.cleanDecision(raw, x.process, x.name); } catch (e) { d = null; }
           if (!d) { forgetText(cache, x.path); return unread; }
+          if (explain) { var dr = fuDrift(raw, d); if (dr.length) d._drift = dr; }
           return d;
         });
       });
@@ -1163,10 +1281,77 @@ PF.repo = (function () {
      A raw, read-only collector, separate from display loading. It never calls loadRun or readRun: those can delete a save
      receipt already in run.json's lineage and build display objects. It sees the folder only through readOnly(), which has
      list, read, stat and blob and throws on anything that would change a file, in the app and in the command line alike. */
-  function readOnlyView(fs) {
+  /* Reading for other apps: what's wrong with a plan or a plan decision, or '' when it's in the format. */
+  function textOr(v) { return v == null || typeof v === 'string'; }
+  function plainOf(v, ok) {
+    if (v == null) return true;
+    if (typeof v !== 'object' || Array.isArray(v)) return false;
+    return Object.keys(v).every(function (k) { return ok(v[k]); });
+  }
+  function planWhy(p) {
+    if (typeof p.id !== 'string' || typeof p.process !== 'string') return 'is a plan without a text id and process';
+    var bad = ['title', 'when', 'by', 'created', 'note'].filter(function (k) { return !textOr(p[k]); })[0];
+    if (bad) return 'is a plan whose ' + bad + ' isn\'t text';
+    /* A version is a version number (as the app reads it: a whole number from 1, or one written as digits). */
+    if (!(p.version == null || (typeof p.version === 'string' && /^[1-9]\d{0,5}$/.test(p.version)) || (typeof p.version === 'number' && p.version >= 1 && Math.floor(p.version) === p.version))) return 'is a plan whose version isn\'t a version number';
+    if (!plainOf(p.details, function (x) { return typeof x === 'string' || (typeof x === 'number' && isFinite(x)); })) return 'is a plan whose details aren\'t text';
+    if (!plainOf(p.roles, function (x) { return typeof x === 'string'; })) return 'is a plan whose roles aren\'t people IDs';
+    return '';
+  }
+  var PLAN_STATUSES = ['accepted', 'declined'];
+  function statusWhy(x) {
+    if (typeof x.proposal !== 'string') return 'is a plan decision without a plan';
+    if (PLAN_STATUSES.indexOf(x.status) < 0) return 'is a plan decision that isn\'t accepted or declined';
+    var bad = ['proposalHash', 'run', 'by', 'at'].filter(function (k) { return !textOr(x[k]); })[0];
+    return bad ? 'is a plan decision whose ' + bad + ' isn\'t text' : '';
+  }
+  /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
+     link, skipped or unreadable), including a failure that comes later from a blob it handed out (arrayBuffer, text, a
+     slice's), and every file or folder that was listed but gone by the time it was read or listed itself (vanished). A
+     folder counts as gone only when the folder says so (a listing marked missing); an empty listing is just empty. Loaders
+     add what they found malformed with note(). A file that failed to read isn't named again for what it holds. problems()
+     is the list the envelope reports; complete means it's empty. Calls that throw at once are failures like any other. */
+  var IO_KINDS = { unreadable: true, link: true, skipped: true, vanished: true };
+  function ledger(fs) {
+    var byKey = {}, order = [], listed = {}, w = {};
+    function note(path, kind, w2) { path = String(path); var k = path + '\u0000' + kind; if (byKey[k]) return; byKey[k] = { path: path, kind: kind, why: String(w2 || '') }; order.push(k); }
+    function problems() {
+      var io = {}; order.forEach(function (k) { if (IO_KINDS[byKey[k].kind]) io[byKey[k].path] = true; });
+      return order.map(function (k) { return byKey[k]; }).filter(function (p) { return IO_KINDS[p.kind] || !io[p.path]; })
+        .sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0; })
+        .map(function (p) { return { path: p.path, kind: p.kind, why: p.why }; });
+    }
+    function attempt(f) { return new Promise(function (res) { res(f()); }); }
+    function call(m, p, o) { return attempt(function () { return fs[m](p, o); }); }
+    function failed(p) { return function (e) { note(p || '', errKind(e), why(e)); throw e; }; }
+    function gone(p) { return function (f) { if (!f && listed[p]) note(p, 'vanished', 'was listed, then gone before it could be read'); return f; }; }
+    /* A blob's own reads fail later than blob() itself: each is recorded at the blob's path too. */
+    function watched(b, p) {
+      if (!b || typeof b !== 'object') return b;
+      var o = { size: b.size, type: b.type };
+      ['arrayBuffer', 'text'].forEach(function (m) { if (typeof b[m] === 'function') o[m] = function () { return attempt(function () { return b[m](); }).then(null, failed(p)); }; });
+      if (typeof b.slice === 'function') o.slice = function (x, y) { try { return watched(b.slice(x, y), p); } catch (e) { failed(p)(e); } };
+      if (typeof b.stream === 'function') o.stream = function () { try { return b.stream(); } catch (e) { failed(p)(e); } };
+      if (typeof b.close === 'function') o.close = function () { return b.close(); };
+      return o;
+    }
+    if (typeof fs.list === 'function') w.list = function (p, o) {
+      return call('list', p, o).then(function (items) {
+        if (items && items.missing && listed[p]) note(p, 'vanished', 'was listed, then gone before it could be listed itself');
+        (items || []).forEach(function (i) { if (i && (i.kind === 'file' || i.kind === 'dir')) listed[(p ? p + '/' : '') + i.name] = true; });
+        return items;
+      }, failed(p));
+    };
+    if (typeof fs.read === 'function') w.read = function (p, o) { return call('read', p, o).then(gone(p), failed(p)); };
+    if (typeof fs.blob === 'function') w.blob = function (p, o) { return call('blob', p, o).then(function (b) { return watched(gone(p)(b), p); }, failed(p)); };
+    if (typeof fs.stat === 'function') w.stat = function (p, o) { return call('stat', p, o).then(gone(p), failed(p)); };
+    ['write', 'append', 'remove'].forEach(function (m) { w[m] = function () { return fs[m].apply(fs, arguments); }; });
+    return { fs: w, note: note, problems: problems };
+  }
+  function readOnlyView(fs, what) {
     var ro = {};
-    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof fs[m] === 'function') ro[m] = function (p) { return fs[m](p); }; });
-    ['write', 'append', 'remove'].forEach(function (m) { ro[m] = function () { throw new Error('Exporting evidence is read-only: it never changes a file in the team folder (' + m + ').'); }; });
+    ['list', 'read', 'stat', 'blob'].forEach(function (m) { if (typeof fs[m] === 'function') ro[m] = function (p, o) { return fs[m](p, o); }; });
+    ['write', 'append', 'remove'].forEach(function (m) { ro[m] = function () { throw new Error((what || 'Exporting evidence') + ' is read-only: it never changes a file in the team folder (' + m + ').'); }; });
     return ro;
   }
   var EV_CHUNK = 1048576, EV_TRIES = 3, EV_KEY = /^[a-z0-9][a-z0-9-]{0,59}\/[a-z0-9-]{1,40}$/i, EV_PROC = /^[a-z0-9][a-z0-9-]{0,59}$/;
@@ -1754,5 +1939,5 @@ PF.repo = (function () {
     });
   }
 
-  return { readOnly: readOnlyView, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
