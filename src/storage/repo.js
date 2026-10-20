@@ -1218,13 +1218,13 @@ PF.repo = (function () {
           return Promise.all([gotProps, gotRecs]).then(function (r) {
             var list = r[0].filter(Boolean).sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1; });
             /* all: every proposal's metadata, so one that depends on an older one is judged against it (only metadata is kept). */
-            return { process: p.name, proposals: list.slice(0, PP.LIST_MAX), all: list, older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
+            return { process: p.name, shown: list.slice(0, PP.LIST_MAX), all: list, older: Math.max(0, list.length - PP.LIST_MAX), bad: bad, records: r[1] };
           });
         });
       });
     }).then(function (list) {
       [pc, rc].forEach(function (m) { Object.keys(m).forEach(function (k) { if (!seen[k]) delete m[k]; }); });
-      var procs = {}; list.forEach(function (x) { if (x.proposals.length || x.bad.length || x.older) procs[x.process] = x; });
+      var procs = {}; list.forEach(function (x) { if (x.all.length || x.bad.length) procs[x.process] = x; });
       return { procs: procs };
     });
   }
@@ -1263,7 +1263,8 @@ PF.repo = (function () {
       return limited(names, 8, function (n) { return readRecord(fs, dir + '/' + n, n); }).then(function (l) { return l.filter(function (r) { return !r.gone; }); });
     });
   }
-  /* An attempt or a decision: created once (never over a file that's there) and read back. */
+  /* An attempt or a decision: created once (never over a file that's there) and read back. Within a window, the app
+     makes every record of one process in turn (acceptProposal's queue and Web Lock), so a name is never taken twice. */
   function writeRecord(fs, proc, name, rec) {
     var path = PF.proposals.DIR + '/' + proc + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
     return fs.read(path).then(function (f) {

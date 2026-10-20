@@ -910,11 +910,11 @@ async function draftState(eng, dir, proc, session) {
       if (said === proc) copies.push(i.name);
     }
   } catch (e) { /* named in the ledger */ }
-  const got = await PF.repo.loadProposed(rfs, {}, true), pr = got.procs[proc] || { proposals: [], bad: [], records: [] };
+  const got = await PF.repo.loadProposed(rfs, {}, true), pr = got.procs[proc] || { all: [], bad: [], records: [] };
   pr.bad.forEach((b) => L.note(b.path, 'malformed', b.why));
-  const recs = {}; pr.proposals.forEach((m) => { recs[m.id] = []; });
+  const recs = {}; pr.all.forEach((m) => { recs[m.id] = []; });
   pr.records.forEach((r) => { const m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m && recs[m[1]]) recs[m[1]].push(r); });
-  const judged = PP.judge(pr.proposals, recs, { exists: draft.exists && draft.text != null, rev: draft.rev });
+  const judged = PP.judge(pr.all, recs, { exists: draft.exists && draft.text != null, rev: draft.rev });
   const mine = [];
   for (const x of judged.filter((y) => y.meta.session === session)) {
     const full = await PF.repo.readProposal(rfs, proc, x.id);

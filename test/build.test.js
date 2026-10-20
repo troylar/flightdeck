@@ -108,4 +108,12 @@ rule('1.19.0 has its own release entry, and its text promises only what slice 1 
   assert.ok(/proposal/i.test(text) && /draft read, save and propose/.test(text));
 });
 
+rule('Only the display uses the newest-200 list of proposals: judging, Apply, decisions and the command line use every proposal', () => {
+  const src = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const files = ['src/ui/app.js', 'src/storage/repo.js', 'bin/flightdeck.js', 'src/ui/views/process.js', 'src/ui/views/manage.js', 'src/ui/views/home.js'];
+  const uses = files.map(f => [f, (src(f).match(/\.shown\b/g) || []).length]).filter(x => x[1]);
+  assert.deepStrictEqual(uses, [['src/ui/app.js', 1]], 'the capped list (shown) is read in one place, the display filter in processes()');
+  files.forEach(f => assert.ok(!/(pr|pr2|x|procs\.\w+|procs\[\w+\])\.proposals\b/.test(src(f)), f + ' reads a capped list under its old name'));
+});
+
 run();

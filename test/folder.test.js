@@ -1602,17 +1602,17 @@ rule('Proposals are listed per process with metadata only; a half-written one is
   await put(fs, q);
   let d = await repo.loadAll(fs);
   const rel = d.proposed.procs.release, on = d.proposed.procs.onboard;
-  same(rel.proposals.map(x => x.id), [p.id]);
-  assert.strictEqual(rel.proposals[0].text, undefined, 'no text in memory');
+  same(rel.all.map(x => x.id), [p.id]);
+  assert.strictEqual(rel.all[0].text, undefined, 'no text in memory');
   same(rel.bad.map(x => x.name), ['p-mh4k2b-aaaaaaaaaa.json']);
-  same(on.proposals.map(x => [x.id, x.base.kind]), [[q.id, 'none']]);
+  same(on.all.map(x => [x.id, x.base.kind]), [[q.id, 'none']]);
   // The full text is read on demand, verified again.
   const full = await repo.readProposal(fs, 'release', p.id);
   assert.ok(full.ok && full.proposal.text === p.text);
   // The rest arrives: next time it's valid.
   await put(fs, proposal({ id: 'p-mh4k2b-aaaaaaaaaa' }));
   d = await repo.loadAll(fs);
-  same(d.proposed.procs.release.proposals.map(x => x.id).sort(), [p.id, 'p-mh4k2b-aaaaaaaaaa'].sort());
+  same(d.proposed.procs.release.all.map(x => x.id).sort(), [p.id, 'p-mh4k2b-aaaaaaaaaa'].sort());
   same(d.proposed.procs.release.bad, []);
 });
 
@@ -1620,9 +1620,9 @@ rule('At most the newest 200 proposals per process are listed, with how many old
   const fs = proposalFolder();
   for (let i = 0; i < 205; i++) await put(fs, proposal({ id: 'p-' + (1000000 + i).toString(36) + '-aaaaaaaaaa', at: new Date(Date.parse(NOW) + i * 1000).toISOString() }));
   const d = await repo.loadAll(fs), rel = d.proposed.procs.release;
-  assert.strictEqual(rel.proposals.length, 200);
+  assert.strictEqual(rel.shown.length, 200);
   assert.strictEqual(rel.older, 5);
-  assert.ok(rel.proposals.every(x => x.id !== 'p-' + (1000000).toString(36) + '-aaaaaaaaaa'), 'the oldest are left out');
+  assert.ok(rel.shown.every(x => x.id !== 'p-' + (1000000).toString(36) + '-aaaaaaaaaa'), 'the oldest are left out');
 });
 
 rule('Attempts and decisions are created once, read back, and refused over a file that is already there', async () => {
@@ -1860,7 +1860,7 @@ rule('Review 1: the 200-proposal list never drops a parent a listed proposal dep
   const dep = proposal({ id: 'p-zzzzzz-cccccccccc', base: { kind: 'proposal', ref: parent.id, text: B }, text: B + '\nmore\n', after: parent.id, at: '2026-12-01T00:00:00.000Z' });
   await put(fs, dep);
   const rel = (await repo.loadAll(fs)).proposed.procs.release;
-  assert.strictEqual(rel.proposals.length, 200, 'still 200 listed');
+  assert.strictEqual(rel.shown.length, 200, 'still 200 listed');
   assert.ok(rel.all.some(m => m.id === parent.id), 'every proposal\'s metadata is kept for judging');
   const recs = {}; rel.all.forEach(m => { recs[m.id] = []; });
   const x = PP.judge(rel.all, recs, { exists: true, rev: sha(B) }).filter(y => y.id === dep.id)[0];

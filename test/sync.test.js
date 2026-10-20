@@ -626,7 +626,7 @@ rule('A proposal written on one computer reaches the other and is listed there o
   assert.ok(!d.proposed || !d.proposed.procs.release, 'not there before sync');
   b.sync(); a.sync();
   d = await repo.loadAll(a);
-  same(d.proposed.procs.release.proposals.map(x => x.id), [p.id]);
+  same(d.proposed.procs.release.all.map(x => x.id), [p.id]);
   const full = await repo.readProposal(a, 'release', p.id);
   assert.strictEqual(full.proposal.text, p.text);
 });

@@ -457,8 +457,8 @@
     Object.keys(procs).forEach(function (pid) {
       var pr = procs[pid], e = by[pid], fresh = !e;
       e = entry(pid); if (fresh) e.proposedOnly = true;
-      var all = pr.all || pr.proposals, shown = {}, recs = {};
-      pr.proposals.forEach(function (m) { shown[m.id] = true; }); all.forEach(function (m) { recs[m.id] = []; });
+      var all = pr.all, shown = {}, recs = {};
+      pr.shown.forEach(function (m) { shown[m.id] = true; }); all.forEach(function (m) { recs[m.id] = []; });
       pr.records.forEach(function (r) { var m = /^(p-[a-z0-9]{1,12}-[a-z0-9]{10})\./.exec(r.name); if (m && recs[m[1]]) recs[m[1]].push(r); });
       /* Judged with every proposal (a listed one may follow an older one), shown at most the newest 200. */
       e.proposed = { list: PP.judge(all, recs, draftInfo(e)).filter(function (x) { return shown[x.id]; }), bad: pr.bad, older: pr.older, records: recs };
@@ -497,7 +497,7 @@
       d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting; }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
-      Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.proposals.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
+      Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
       (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); })]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
@@ -1904,7 +1904,18 @@
      highest decisionRev, naming it. reviewed, when given, must still be exactly the records Review showed. */
   function decideProposal(pid, id, status, opts) {
     opts = opts || {};
-    var sfs = state.fs, g = gen, PP = PF.proposals;
+    var sfs = state.fs, g = gen, PP = PF.proposals, fk = fsKey(), key = fk + '|' + pid;
+    /* Decisions take their turn with every acceptance and decision on this process: in this window's queue, then under the
+       same Web Lock, and only then are the records read and the revision chosen. Two at once never share a revision or a
+       file name, and the second sees the first. */
+    function run() {
+      if (g !== gen) return false;
+      return LOCKS ? lock('preflight:accept:' + fk + '|' + pid, decide) : decide();
+    }
+    var prev = state.propTx[key] || Promise.resolve(), p = prev.then(run, run);
+    state.propTx[key] = p.then(null, function () {});
+    return p;
+    function decide() {
     return Promise.all([repo.readProposal(sfs, pid, id), repo.listRecords(sfs, pid, id)]).then(function (got) {
       if (g !== gen) return;
       var r = got[0], recs = got[1], st = PP.recState(recs);
@@ -1928,6 +1939,7 @@
         return load(true);
       }, function (e) { if (g !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
     });
+    }
   }
   /* Review: the proposal read whole and its records read now; what they were is the reviewed set Apply carries. */
   function openReview(pid, id) {
@@ -1939,7 +1951,7 @@
       if (g !== gen || state.overlay !== ov) return;
       if (!got[0].ok) { ov.loadErr = 'This proposal ' + got[0].why + '.'; render(); return; }
       ov.proposal = got[0].proposal; ov.records = got[1]; ov.reviewed = PF.proposals.reviewed(got[1]);
-      var p2 = propOf(pid, id).p, pr2 = data.proposed.procs[pid] || {}, metas = pr2.all || pr2.proposals || [], all = {};
+      var p2 = propOf(pid, id).p, pr2 = data.proposed.procs[pid] || {}, metas = pr2.all || [], all = {};
       metas.forEach(function (m) { all[m.id] = ((p2 && p2.proposed && p2.proposed.records) || {})[m.id] || []; }); all[id] = got[1];
       ov.item = PF.proposals.judge(metas, all, p2 ? draftInfo(p2) : { exists: false, rev: null }).filter(function (y) { return y.id === id; })[0] || ov.item;
       ov.draftText = p2 && p2.draft ? p2.draft.md : null;

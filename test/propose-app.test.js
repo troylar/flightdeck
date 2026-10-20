@@ -397,4 +397,18 @@ rule('Review 1: a decision is refused while a record about the proposal can\'t b
   assert.ok(!said(app, /^Declined/) && said(app, /can.t be read yet/));
 });
 
+rule('Review 2: two decisions made at once in one window take turns: each gets its own revision and file, and neither is lost', async () => {
+  const app = await page(), p = plant(app, { text: retitle(app, 'B') }), PP = app.PF.proposals;
+  const at = PP.attempt({ proposal: p.id, proposalRev: p.rev, writer: 'zz1', n: 1, how: 'apply', from: null, by: 'person-avery', at: new Date().toISOString() });
+  app.fs.files['proposed/release/' + at.name] = { t: JSON.stringify(at.rec), m: 1 };
+  await refresh(app); await review(app, p.id);
+  const g = gate(), write = app.fs.write.bind(app.fs);
+  app.fs.write = (path, t) => /proposed\/release\/p-mh4k2a-x7w1k3m9p2\.\w+\.\d+\.json$/.test(path) && !/attempt/.test(path) ? g.p.then(() => write(path, t)) : write(path, t);
+  app.click('prop-mark-applied', p.id); await app.tick(20);
+  app.click('prop-decline', p.id); await app.tick(20);
+  g.open(); await app.tick(200); app.fs.write = write;
+  const ds = recs(app, p.id).filter(r => r.rec.kind === 'proposal-decision').map(r => [r.rec.decisionRev, r.rec.status]).sort();
+  assert.deepStrictEqual(ds, [[1, 'applied'], [2, 'declined']]);
+});
+
 run();

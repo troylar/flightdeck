@@ -1735,4 +1735,19 @@ rule('Review 1: a direct save that continues from this session\'s pending propos
   assert.strictEqual(r.mine.filter(m => m.id === p1.operation)[0].status, 'replaced');
 });
 
+rule('Review 2: an older pending proposal of this session past the newest 200 is still found, continued from and replaced', () => {
+  const dir = draftFolder(), S = 's-k3m9p2q8x7w1', B = edited(DRAFT_MD, 'B'), C = edited(DRAFT_MD, 'C');
+  presence(dir, live(new Date().toISOString()));
+  const p1 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(DRAFT_MD), '--from', inFile(dir, B), '--json').json;
+  // 200 newer proposals from another session.
+  for (let i = 0; i < 200; i++) {
+    const p = DPP.make({ id: 'p-' + (2000000000000 + i).toString(36) + '-bbbbbbbbbb', process: 'release', session: 's-other0000000', label: '', by: '', at: new Date(Date.now() + 86400000 + i * 1000).toISOString(), app: 't', base: { kind: 'draft', ref: null, text: DRAFT_MD }, text: edited(DRAFT_MD, 'X' + i), replaces: null, after: null, note: '' });
+    fs.writeFileSync(path.join(dir, 'proposed', 'release', p.id + '.json'), JSON.stringify(p));
+  }
+  const r = draftCli('read', dir, 'release', '--session', S, '--json').json;
+  assert.deepStrictEqual([r.continueFrom.kind, r.continueFrom.ref], ['proposal', p1.operation]);
+  const p2 = draftCli('save', dir, 'release', '--session', S, '--expect', dsha(B), '--from', inFile(dir, C), '--json');
+  assert.deepStrictEqual([p2.code, p2.json.link], [0, 'replaces'], p2.out.slice(0, 300));
+});
+
 run();
