@@ -55,6 +55,14 @@
         "title": "Copy a run's key",
         "now": "Copy run key copies the key other apps use to read a run, like backup-check/k3m9p2q8.",
         "where": "A run's More menu"
+      },
+      {
+        "kind": "improved",
+        "area": "Flight plan",
+        "title": "See each phase's steps in the flight plan",
+        "before": "Each phase showed only how many steps it had.",
+        "now": "Each phase lists its steps: the type, the text, must-dos, who does it, the skill that covers it, lanes side by side, and the gate last. Choose a step to open it in the checklist. Show all steps or Hide all steps opens or closes every phase. Phases start open when the checklist has 40 steps or fewer. Your choice is kept for each process in this browser.",
+        "where": "A process page, Flight plan"
       }
     ]
   },

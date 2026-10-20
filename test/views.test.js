@@ -906,6 +906,82 @@ rule('Flight plan: titles from the checklist are escaped, long unbroken names ca
   assert.ok(/Add a phase to see the flight plan\./.test(html) && !/class="fp"/.test(html));
 });
 
+/* ---------- 1.18: the flight plan lists each phase's steps ---------- */
+/* One phase's steps disclosure, and one step's row inside it. */
+const fpSteps = (html, i) => { const at = html.indexOf('<details class="fp-steps" data-fps="' + i + '"'); return at < 0 ? '' : html.slice(at, html.indexOf('</details>', at) + 10); };
+const fpStep = (html, id) => { const at = html.indexOf('data-step="' + id + '"'); return at < 0 ? '' : html.slice(html.lastIndexOf('<li', at), html.indexOf('</li>', at) + 5); };
+
+rule('Flight plan: each phase lists its steps in order under a disclosure that shows the count', () => {
+  const { ctx, p, latest } = flightSetup();
+  const html = V.checklistPanel(ctx, p);
+  assert.strictEqual((html.match(/<details class="fp-steps"/g) || []).length, 3, 'one disclosure per phase');
+  assert.ok(/<summary id="fps-0">6 steps · 4 must-do<span class="sr"> in Before production changes<\/span><\/summary>/.test(fpSteps(html, 0)), 'the count is the summary, named for its phase');
+  assert.ok(/<summary id="fps-1">4 steps · 4 must-do<span class="sr"> in Deploy<\/span><\/summary>/.test(fpSteps(html, 1)));
+  const ids = s => [...s.matchAll(/data-step="([\w-]+)"/g)].map(m => m[1]);
+  assert.deepStrictEqual(ids(fpSteps(html, 0)), ['approved', 'tests', 'flags', 'rollback', 'notes', 'announce'], 'in checklist order');
+  assert.deepStrictEqual(ids(fpSteps(html, 1)), ['merge', 'jenkins', 'approve', 'pods']);
+  assert.ok(/<ol class="fp-sl" aria-label="Steps in Deploy">/.test(fpSteps(html, 1)), 'an ordered list, named');
+  const jenkins = fpStep(html, 'jenkins');
+  assert.ok(/role="img" aria-label="Jenkins job"/.test(jenkins), 'its type icon, named');
+  assert.ok(/<button type="button" class="fp-step" data-act="go" data-view="process" data-process="release" data-map-ver="/.test(jenkins) && jenkins.indexOf('data-map-ver="' + latest.info.folder + '"') > 0, 'a button that opens it in this exact version');
+  assert.ok(/>Start the production deploy job<span class="sr">/.test(jenkins), 'its text');
+  assert.ok(/<span class="badge b-must">Must do<\/span>/.test(jenkins) && /<span class="pv-role">@backend<\/span>/.test(jenkins), 'must-do and role');
+  const notes = fpStep(html, 'notes');
+  assert.ok(!/b-must/.test(notes) && /@release-lead/.test(notes), 'a step that isn\'t a must-do has no mark');
+});
+
+rule('Flight plan: a step shows the skill built from the version shown that covers it, and nothing from another version', () => {
+  const { ctx, p, latest } = flightSetup();
+  const v = latest.info.version;
+  p.skills = [skillOf('release-deploy', ['jenkins', 'approve'], v, 'current'), skillOf('old-deploy', ['merge'], v - 1, 'update'), skillOf('broken-one', ['pods'], v, 'current', ['bad'])];
+  const html = V.checklistPanel(ctx, p);
+  assert.ok(/<span class="badge b-skill">.*?release-deploy<\/span>/.test(fpStep(html, 'jenkins')) && /release-deploy/.test(fpStep(html, 'approve')), 'covered by its skill');
+  assert.ok(!/b-skill/.test(fpStep(html, 'merge')) && !/b-skill/.test(fpStep(html, 'pods')), 'a skill behind or broken claims nothing');
+});
+
+rule('Flight plan: parallel tracks list their steps as lanes side by side, and the gate is the last line', () => {
+  const { ctx, p } = flightSetup();
+  const html = V.checklistPanel(ctx, p), three = fpSteps(html, 2);
+  assert.ok(/<div class="fp-slanes">/.test(three) && !/fp-slanes/.test(fpSteps(html, 1)), 'lanes only where the phase has tracks');
+  assert.ok(/<div class="fp-slane"><p class="fp-slane-h"><b>Product checks<\/b> <span class="pv-role">@qa<\/span><\/p><ol class="fp-sl" aria-label="Steps in Product checks">/.test(three), 'each lane names itself and its roles');
+  const lane = (s, title) => s.slice(s.indexOf('<b>' + title + '</b>'), s.indexOf('</ol>', s.indexOf('<b>' + title + '</b>')));
+  assert.ok(/data-step="smoke"/.test(lane(three, 'Product checks')) && /data-step="logs"/.test(lane(three, 'Product checks')) && !/data-step="result"/.test(lane(three, 'Product checks')));
+  assert.ok(/data-step="result"[\s\S]*data-step="deploy-record"[\s\S]*data-step="close"/.test(lane(three, 'Wrap-up')));
+  assert.ok(/<p class="fp-sgate">.*?Gate: Ready to deploy<\/span><\/p><\/div><\/details>$/.test(fpSteps(html, 0)), 'a named gate ends the list');
+  assert.ok(/<p class="fp-sgate">.*?Phase checked, no named gate<\/span><\/p><\/div><\/details>$/.test(three), 'an unnamed one says so');
+});
+
+rule('Flight plan: steps from the checklist are escaped, and a draft\'s steps open the draft', () => {
+  const md = ['---', 'process: odd', 'title: Odd', 'owner: person-avery', 'roles: a', '---', '', '## One · READ-DO {#one}', '- [!] {confirm} Step <i>x</i> & "y" @a {#s1}'].join('\n');
+  const { ctx, p } = flightSetup({ id: 'odd', title: 'Odd', latest: null, all: [], draft: { file: 'odd.md', md }, draftChanged: true });
+  const html = V.checklistPanel(ctx, p), row = fpStep(html, 's1');
+  assert.ok(/Step &lt;i&gt;x&lt;\/i&gt; &amp; &quot;y&quot;/.test(row) && !/<i>x/.test(html), 'shown as text');
+  assert.ok(/data-process="odd"/.test(row) && !/data-map-ver/.test(row), 'no version: the draft is what\'s shown');
+});
+
+rule('Flight plan: phases are open when the checklist has 40 steps or fewer, closed above that, and Show all steps or Hide all steps follows', () => {
+  const { ctx, p, state } = flightSetup();
+  let html = V.checklistPanel(ctx, p);
+  assert.strictEqual((html.match(/<details class="fp-steps"[^>]* open>/g) || []).length, 3, '15 steps: all open');
+  assert.ok(/<button type="button" class="mini fp-all" data-act="fp-steps" data-id="hide">Hide all steps<\/button>/.test(html) && html.indexOf('fp-all') < html.indexOf('<ol class="fp"'), 'at the top: everything is open, so Hide');
+  const step = i => '- [ ] {confirm} Step ' + i + ' {#s' + i + '}';
+  const md = n => ['---', 'process: big', 'title: Big', 'owner: person-avery', '---', '', '## A · READ-DO {#a}'].concat(Array.from({ length: 20 }, (_, i) => step(i)), ['', '## B · READ-DO {#b}'], Array.from({ length: n - 20 }, (_, i) => step(i + 20))).join('\n');
+  const big = flightSetup({ id: 'big', title: 'Big', latest: null, all: [], draft: { file: 'big.md', md: md(40) }, draftChanged: true });
+  assert.strictEqual((V.checklistPanel(big.ctx, big.p).match(/<details class="fp-steps"[^>]* open>/g) || []).length, 2, '40 steps: open');
+  big.p.draft.md = md(41); html = V.checklistPanel(big.ctx, big.p);
+  assert.ok((html.match(/<details class="fp-steps"/g) || []).length === 2 && !/<details class="fp-steps"[^>]* open>/.test(html), '41 steps: closed');
+  assert.ok(/data-act="fp-steps" data-id="show">Show all steps</.test(html));
+  state.fpSteps = { release: { d: false } }; html = V.checklistPanel(ctx, p);
+  assert.ok(!/<details class="fp-steps"[^>]* open>/.test(html) && /data-id="show">Show all steps</.test(html), 'Hide all, as kept for this process');
+  state.fpSteps = { release: { d: true, p: { 1: false } } }; html = V.checklistPanel(ctx, p);
+  assert.ok(/data-fps="0" data-fps-open="1" open>/.test(html) && /data-fps="1" data-fps-open="0">/.test(html) && /data-fps="2" data-fps-open="1" open>/.test(html), 'one phase closed by hand');
+  assert.ok(/data-id="show">Show all steps</.test(html), 'not everything is open, so Show');
+  state.fpSteps = { other: { d: false } }; html = V.checklistPanel(ctx, p);
+  assert.strictEqual((html.match(/<details class="fp-steps"[^>]* open>/g) || []).length, 3, 'another process\'s choice doesn\'t apply');
+  state.clView = 'list'; html = V.checklistPanel(ctx, p);
+  assert.ok(!/fp-steps|fp-all/.test(html) && /<li id="cl-st-jenkins" tabindex="-1">/.test(html), 'the checklist has no disclosure, and an anchor per step');
+});
+
 rule('P1: a javascript: link written into a run file is never rendered as a link, anywhere', () => {
   const { ctx, state } = setup(r => {
     const raw = JSON.parse(JSON.stringify(r));

@@ -17,7 +17,8 @@
       var t = T.get(s.type, types), hs = hl && hl.line === s.line;
       var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (by[s.id] ? '<span class="badge b-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
         (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id);
-      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + U.mdInline(s.text) + '</span>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+      /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
+      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + U.mdInline(s.text) + '</span>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
     /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
     return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
