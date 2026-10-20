@@ -179,4 +179,35 @@ rule('A version that lists the corrections it includes (1.16) is complete for th
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+/* Each older release's own checker (test/compat-harness.js; docs/design.md section 28), on the folder that release wrote and on
+   this version's, each with a preflight-publication/2 version beside v1: from 1.11.1 it calls that version unusable and keeps
+   v1 current; before 1.11.1 it takes it as the current version (why the supported floor is 1.11.1). */
+rule('Each older release\'s checker reads its own folder and this version\'s, and from 1.11.1 calls a /2 version unusable', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const H = require('./compat-harness'), G = require('../tools/old-folders');
+  const main = await G.main(), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-old-check-'));
+  const put = (dir, files) => Object.keys(files).forEach(p => { const f = path.join(dir, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, files[p]); });
+  const withV2 = (files) => {
+    const f = Object.assign({}, files), v1 = Object.keys(f).find(p => /publication\.json$/.test(p)).replace('publication.json', ''), v2 = v1.replace(/v1-[a-z0-9]+\/$/, 'v2-zzzz2222/');
+    f[v2 + 'map.md'] = f[v1 + 'map.md']; f[v2 + 'types.json'] = f[v1 + 'types.json'];
+    f[v2 + 'publication.json'] = JSON.stringify(Object.assign(JSON.parse(f[v1 + 'publication.json']), { format: 'preflight-publication/2', features: ['typed-details'], version: 2, folder: 'v2-zzzz2222' }));
+    return f;
+  };
+  try {
+    for (const t of H.bundles.tags()) {
+      const b = H.bundles.get(t.tag);
+      if (!b) continue;
+      const ck = path.join(root, t.tag + '.py'); fs.writeFileSync(ck, b.files['check_folder.py']);
+      for (const [name, files] of [['own', H.readTree(path.join(G.DIR, t.tag))], ['this version', main]]) {
+        const dir = path.join(root, t.tag + '-' + name.replace(' ', '-')); put(dir, withV2(files));
+        const p = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' })).publications.backup;
+        const st = {}; p.versions.forEach(v => { st[v.folder] = v.status; });
+        const want = t.supported ? ['v1-ab9ysnqh', 'complete', 'unusable'] : ['v2-zzzz2222', 'complete', 'complete'];
+        assert.deepStrictEqual([p.current, st['v1-ab9ysnqh'], st['v2-zzzz2222']], want, t.tag + ' on ' + name);
+      }
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

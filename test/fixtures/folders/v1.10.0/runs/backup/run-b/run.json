@@ -1,0 +1,167 @@
+{
+  "format": "preflight-run/2",
+  "id": "run-b",
+  "process": "backup",
+  "version": 1,
+  "folder": "v1-ab9ysnqh",
+  "mapHash": "44cc03bc",
+  "title": "Backup check February",
+  "category": "Operations",
+  "snapshot": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n",
+  "types": {
+    "confirm": {
+      "id": "confirm",
+      "label": "Confirm",
+      "icon": "check",
+      "hint": "Check that something is true.",
+      "fields": {
+        "where": {
+          "label": "Where to check",
+          "kind": "text"
+        },
+        "looks": {
+          "label": "True when",
+          "kind": "text"
+        }
+      },
+      "record": [],
+      "version": 2
+    },
+    "team.restore": {
+      "id": "team.restore",
+      "label": "Restore a backup",
+      "icon": "doc",
+      "hint": "Restores a backup into a scratch copy.",
+      "fields": {
+        "system": {
+          "label": "System",
+          "kind": "text",
+          "required": true
+        }
+      },
+      "version": 2,
+      "custom": true,
+      "record": [
+        {
+          "name": "copy",
+          "label": "Restored copy",
+          "kind": "text"
+        }
+      ]
+    }
+  },
+  "details": {
+    "ticket": "ABC-100"
+  },
+  "roles": {
+    "lead": "person-avery",
+    "checker": "person-avery"
+  },
+  "recorder": {
+    "person": "person-avery",
+    "session": "w-avery"
+  },
+  "state": "completed",
+  "created": "2026-03-02T09:05:00.000Z",
+  "createdBy": "person-avery",
+  "steps": {
+    "read": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-03-02T09:06:00.000Z"
+    },
+    "restore": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-03-02T09:07:00.000Z",
+      "values": {
+        "copy": "scratch-2026-02"
+      }
+    },
+    "where": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-03-02T09:08:00.000Z",
+      "values": {
+        "evidence": "https://example.com/copies/2026-02"
+      }
+    },
+    "report": {
+      "s": "done",
+      "by": "person-avery",
+      "at": "2026-03-02T09:10:00.000Z"
+    }
+  },
+  "gates": {
+    "restored": {
+      "s": "passed",
+      "by": "person-avery",
+      "at": "2026-03-02T09:09:00.000Z",
+      "approved": {}
+    },
+    "close-confirm": {
+      "s": "passed",
+      "by": "person-avery",
+      "at": "2026-03-02T09:10:00.000Z",
+      "approved": {}
+    }
+  },
+  "fields": {},
+  "followUps": [
+    {
+      "id": "ejt2c7tv",
+      "text": "Automate the row count check",
+      "owner": "",
+      "ticket": "",
+      "step": "",
+      "from": "",
+      "by": "person-avery",
+      "at": "2026-03-02T09:11:00.000Z"
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-03-02T09:05:00.000Z",
+      "by": "person-avery",
+      "what": "Started the run"
+    },
+    {
+      "at": "2026-03-02T09:09:00.000Z",
+      "by": "person-avery",
+      "what": "Passed gate \"Restored\""
+    },
+    {
+      "at": "2026-03-02T09:10:00.000Z",
+      "by": "person-avery",
+      "what": "Passed gate \"Confirm Close\""
+    },
+    {
+      "at": "2026-03-02T09:11:00.000Z",
+      "by": "person-avery",
+      "what": "Follow-up: Automate the row count check"
+    },
+    {
+      "at": "2026-03-02T09:12:00.000Z",
+      "by": "person-avery",
+      "what": "Ended the run: Completed"
+    }
+  ],
+  "ended": {
+    "outcome": "Completed",
+    "by": "person-avery",
+    "byName": "Avery Lee",
+    "at": "2026-03-02T09:12:00.000Z"
+  },
+  "rev": 1,
+  "tz": "",
+  "shotsFrozen": true,
+  "jira": {},
+  "marksFrom": "start",
+  "pauses": [],
+  "paused": null,
+  "savedAt": "2026-03-02T09:00:15.000Z",
+  "savedBy": "w-avery",
+  "lineage": [
+    "w-avery.x8v74bfm"
+  ]
+}

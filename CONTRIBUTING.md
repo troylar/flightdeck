@@ -17,8 +17,8 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 | `src/ui/` | Screens (`views/*.js`), wiring (`app.js`), the example history (`examples.js`), icons | Views return HTML strings. Everything from files goes through `esc()` or the escape-first Markdown. |
 | `src/page.html` | Styles and the page shell | Colors are tokens with light and dark values. No external resources. |
 | `example-folder/` | A complete example team folder | Synthetic people only. Also built into the app as the examples. |
-| `test/fixtures/` | Run files from earlier versions | Never edit one; add a new fixture when the run format changes, so old runs keep loading. |
-| `tools/` | Small scripts | `type-table.js` writes the step-type table in `docs/map-format.md`; `baselines.js` records the shipped `AGENTS.md` and skills in `src/baselines.json`; `big-folder.js` makes a big synthetic team folder for the perf tests (`--out <dir>` writes one to try). |
+| `test/fixtures/` | Run files from earlier versions; `folders/<tag>/`, team folders written by each older release (`tools/old-folders.js`); `old-bundles/record.json`, the commit and SHA-256 of each older release the tests run | Never edit one; add a new fixture when the run format changes, so old runs keep loading. |
+| `tools/` | Small scripts | `type-table.js` writes the step-type table in `docs/map-format.md`; `baselines.js` records the shipped `AGENTS.md` and skills in `src/baselines.json`; `big-folder.js` makes a big synthetic team folder for the perf tests (`--out <dir>` writes one to try); `old-bundles.js` and `old-folders.js` keep the older releases the cross-version tests run (below). |
 
 `build.py` joins the files in a fixed order into one HTML file.
 
@@ -41,6 +41,16 @@ That builds `dist/flightdeck.html` and runs every test. Commit `dist/flightdeck.
 - **Change what other apps read** (the `--json` commands, docs/apps.md): change the shape and its `SCHEMA` in `src/core/appjson.js` and the command in `bin/flightdeck.js`, document the field in `docs/apps.md` (a build test checks every field, problem kind and exit code is there), and add a rule to `test/cli.test.js`. Adding a field is fine; removing one or changing what it means needs a new contract version. Reading must stay read-only and must name every file it couldn't read or understand: note it in the ledger (`repo.ledger`) rather than leaving it out or using a default.
 - **Change saving or loading:** add a case to `test/sync.test.js`. Its two simulated computers sync only when told to, which is how OneDrive behaves on release night. `test/perf.test.js` counts folder calls on a 2,000-run folder; its ceilings may only go down (lower them when a change earns it). `PERF=big` adds the 6,000-run profile.
 - **A long list on a page:** page it with `PF.vk.paged` (50 at a time, Show 50 more) rather than drawing everything; the first view of Runs draws at most 100 cards.
+
+## Older releases: the cross-version tests
+
+`test/compat.test.js` runs every release from v1.10.0 on (1.11.1 is the supported floor; older ones are characterizations) from its own shipped code against this version and its files. docs/design.md section 28 says what it covers.
+
+- **Where the old code comes from:** `node tools/old-bundles.js` takes each tag's `dist/flightdeck.html`, `bin/flightdeck.js` and `check_folder.py` with `git show`, caches them in `.old-bundles/` (not committed) and checks them against the commit and SHA-256 in `test/fixtures/old-bundles/record.json`. After the first run it works offline. In a clone without the tags those rules are skipped with a message; with `CI` set they fail (`git fetch --tags --unshallow`).
+- **Running it:** `node test/compat.test.js` (in `./test/run.sh`); `ONLY=v1.15.0` runs one release's rules. `test/compat-harness.js` gives `loadCopy(tag)` (core and storage headless) and `bootCopy(tag)` (the whole page in the app harness).
+- **After tagging a release:** `node tools/old-bundles.js --write` records it; add or extend a row in `test/compat-matrix.js` for anything it newly writes or reads (each row has a probe that runs against every release, so a wrong row fails); add a family to `test/compat-readers.js` for any new path in the team folder (an unknown path or folder fails); then `node tools/old-folders.js --write` writes its baseline folder. A tag that isn't recorded yet is named in the output, never a failure, so tagging never breaks the tests.
+- **Changing the scenario** in `tools/old-folders.js`: use only writers the matrix gives that release, then `node tools/old-folders.js --write`; the test fails if a release writes its folder differently, so the folders stay real output of real old code. Never edit a folder by hand.
+- **A new rule:** say what each release does today, quirks included. A gap a later slice closes is a rule named `Known:`; change it on purpose in the slice that closes it.
 
 ## Release notes: every user-visible change gets one
 

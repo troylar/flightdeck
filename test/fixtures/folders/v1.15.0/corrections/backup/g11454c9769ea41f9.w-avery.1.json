@@ -1,0 +1,15 @@
+{
+  "kind": "correction-decision",
+  "process": "backup",
+  "group": "g11454c9769ea41f9",
+  "members": [
+    "c-1"
+  ],
+  "status": "declined",
+  "reason": "The runbook says which server.",
+  "by": "person-avery",
+  "at": "2026-03-02T09:17:00.000Z",
+  "rev": 1,
+  "seen": null,
+  "act": ""
+}

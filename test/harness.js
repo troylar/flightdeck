@@ -62,4 +62,4 @@ function completeRun(PF, r, now) {
   r.ended = { outcome: 'Completed', at: now };
   return r;
 }
-module.exports = { completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };
+module.exports = { FILES, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };

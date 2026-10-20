@@ -29,7 +29,8 @@ function locks() {
 
 function boot(opts) {
   opts = opts || {};
-  const html = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+  /* opts.html: another build of the app (an older release, for the cross-version tests); this build by default. */
+  const html = opts.html || fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
   const intervals = [];
   // Tests start past the first-run welcome unless they ask for it (firstRun).
@@ -119,7 +120,8 @@ function boot(opts) {
     performance: opts.performance
   });
   vm.runInContext(script('pf-core'), ctx);
-  vm.runInContext(script('pf-storage'), ctx);
+  /* Builds before 1.17 kept storage inside pf-app (the cross-version tests run those). */
+  if (/<script id="pf-storage">/.test(html)) vm.runInContext(script('pf-storage'), ctx);
   // Checklists parsed once are shared by every run of a version: frozen here, so a rule that changed one would fail a test.
   if (ctx.PF.run.mapMemo) ctx.PF.run.mapMemo.freeze = true;
   // Remember the in-browser folder the app creates, so tests can plant files in it as "another computer" would.
