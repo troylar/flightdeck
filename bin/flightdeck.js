@@ -657,6 +657,24 @@ function badTimesWhy(b) {
   const names = { created: 'the start', ended: 'the end', pauses: 'an earlier pause', paused: 'the pause under way', log: 'a log entry' };
   return Object.keys(b).map((k) => (k === 'log' && Array.isArray(b.log) && b.log.length > 1 ? b.log.length + ' log entries' : names[k] || k)).join(', ');
 }
+/* One run, judged the same way by runs, run and next, so a summary never says other than the run itself: its version
+   (pub: what readVersion or the version list found; a version that isn't in the folder reads as missing files, as
+   readVersion finds it; null when the command doesn't read versions) decides why it's read-only, as the app decides it
+   (unusable here, or changed since the run started: R's own reason comes first), then every problem of the run file
+   and of that version. Sets r._unrunnable; returns the problems. */
+function judgeRun(PF, r, pub) {
+  const A = PF.appjson, out = [], valid = typeof r.folder === 'string' && !!PF.publish.versionOf(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
+  const dir = 'publications/' + r.process + '/' + r.folder + '/';
+  if (pub && valid && !pub._readFailed) {
+    const why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, pub.info) : '';
+    if (why && !r._unrunnable) r._unrunnable = why;
+    if (!pub.ok) { const x = A.pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
+    else if (why) out.push({ path: dir, kind: 'unusable', why });
+  }
+  return out.concat(runProblems(PF, r));
+}
+/* A version folder that isn't in the folder, as readVersion would find it: none of its files there. */
+function missingVersion(PF, r) { const v = PF.publish.verify(r.folder, { 'map.md': null, 'types.json': null, 'publication.json': null }); v.folder = r.folder; v.process = r.process; return v; }
 /* What's wrong with people.json as a people list, or '' (no file is fine: names are then null). */
 function peopleWhy(p) {
   if (!p || p.hash == null) return '';
@@ -680,7 +698,6 @@ function folderProblems(PF, d) {
   (d.fuUnread || []).forEach((u) => out.push({ path: 'followups/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a follow-up decision this copy can read.' }));
   (d.corrUnread || []).forEach((u) => out.push({ path: u.dir + '/' + u.process + '/' + u._file, kind: 'malformed', why: 'This file couldn\'t be read, or isn\'t a decision this copy can read.' }));
   (d.processes || []).forEach((proc) => (proc.pubs || []).forEach((p) => { if (!p.ok && !p._readFailed) { const x = A.pubProblem(p); out.push({ path: 'publications/' + proc.process + '/' + p.folder + '/', kind: x.kind, why: x.why }); } }));
-  (d.runs || []).forEach((r) => out.push(...runProblems(PF, r)));
   (d.fuDecisions || []).forEach((x) => { const p = decisionDrift(x); if (p) out.push(p); });
   const pw = peopleWhy(d.people);
   if (pw) out.push({ path: 'people.json', kind: 'malformed', why: pw });
@@ -740,15 +757,8 @@ async function readData(eng, adapter, req) {
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
       const pw = peopleWhy(one.people);
       if (pw) L.note('people.json', 'malformed', pw);
+      if (r) take(judgeRun(PF, r, one.pub));
       const usable = !!r && !newerRun(PF, r);
-      if (r) {
-        take(runProblems(PF, r));
-        const dir = 'publications/' + r.process + '/' + r.folder + '/';
-        const pub = one.pub;
-        /* The version itself: named when it can't be read or used (the run's own copy of its checklist still shows). */
-        if (pub && !pub.ok && !pub._readFailed) { const x = A.pubProblem(pub); L.note(dir, x.kind, x.why); }
-        else if (pub && pub.ok && usable && r._unrunnable) L.note(dir, 'unusable', r._unrunnable);
-      }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
       const keep = (list) => list, nameOf = A.names(one.people);
       if (req.cmd === 'run') return done(keep, usable ? A.run(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
@@ -758,6 +768,9 @@ async function readData(eng, adapter, req) {
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
     const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true });
     take(folderProblems(PF, d));
+    /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */
+    const pubOf = (r) => { const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r); };
+    d.runs.forEach((r) => take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)));
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc)) return notFound('There\'s no process ' + req.proc + ' in the team folder.');

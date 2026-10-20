@@ -1403,4 +1403,35 @@ rule('READ: a plan whose version couldn\'t be checked says unknown (null), never
   }
 });
 
+
+/* One run's view in each command: the problems at its own files and its version's folder, and its read-only reason. */
+function oneRunView(r, key, folder) {
+  const proc = key.split('/')[0], mine = p => p.path.startsWith('runs/' + key + '/') || p.path.startsWith('publications/' + proc + '/' + folder + '/');
+  const probs = r.json.problems.filter(mine).map(p => p.path + ' ' + p.kind).sort();
+  const data = r.json.data.run !== undefined ? r.json.data.run : (r.json.data.runs || []).filter(x => x.key === key)[0] || null;
+  return { probs, shown: !!data, readOnly: data ? data.readOnly : null };
+}
+rule('READ: runs and run say the same about every run: its problems, whether it shows and why it\'s read-only', async () => {
+  await readFolder();
+  const pubInfo = 'publications/release/' + rfBuilt.folder + '/publication.json';
+  const runEdit = (n, change) => f => { const at = 'runs/release/run' + n + '/run.json', o = JSON.parse(f[at]); change(o); f[at] = JSON.stringify(o, null, 2); };
+  const cases = [
+    ['as written', 1, null],
+    ['another checklist hash', 1, runEdit(1, o => { o.mapHash = 'deadbeef'; })],
+    ['another version number', 2, runEdit(2, o => { o.version = 5; })],
+    ['a version folder that isn\'t there', 1, runEdit(1, o => { o.folder = 'v7-zzzz7777'; })],
+    ['its version from a newer Flightdeck', 1, f => { const o = JSON.parse(f[pubInfo]); o.format = 'preflight-publication/9'; f[pubInfo] = JSON.stringify(o); }],
+    ['its version unusable here', 1, f => { const at = 'publications/release/' + rfBuilt.folder + '/map.md'; f[at] = f[at].replace('{confirm} Feature flags', '{no.such} Feature flags'); const o = JSON.parse(f[pubInfo]); o.mapHash = SRC.util.hash(f[at]); f[pubInfo] = JSON.stringify(o); }],
+    ['newer frozen types', 1, runEdit(1, o => { const t = Object.keys(o.types)[0]; o.types[t].fromTheFuture = true; })],
+    ['a conflict copy', 1, f => { f['runs/release/run1/run-LAPTOP.json'] = f['runs/release/run1/run.json'].replace('Release 2026.10.20', 'Copy'); }],
+    ['a bad pause', 1, runEdit(1, o => { o.paused = { at: 'not-a-time' }; })]
+  ].concat(DROPS.map(([n, change, where]) => ['drop ' + where, n, runEdit(n, change)]));
+  for (const [name, n, edit] of cases) {
+    const key = 'release/run' + n;
+    const one = await readMem({ cmd: 'run', key }, edit), all = await readMem(REQ.runs, edit);
+    const folder = (() => { const f = Object.assign({}, rfBuilt.files); if (edit) edit(f, rfBuilt); try { return JSON.parse(f['runs/' + key + '/run.json']).folder; } catch (e) { return rfBuilt.folder; } })();
+    assert.deepStrictEqual(oneRunView(all, key, folder), oneRunView(one, key, folder), name);
+  }
+});
+
 run();

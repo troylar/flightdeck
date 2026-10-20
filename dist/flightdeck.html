@@ -9452,7 +9452,8 @@ PF.repo = (function () {
     return fs.list('runs/' + proc).then(function (items) {
       if (!items.some(function (i) { return i.kind === 'dir' && i.name === id; })) return { found: false };
       var out = { found: true, run: null, nofile: false, bad: bad, fuDecisions: [], fuUnread: [], people: [], peopleWhy: '' };
-      var runP = readRun(fs, proc, id, cache, true, false, bad, { readOnly: true, explain: true }).then(function (entry) {
+      /* The run's version is checked below (readVersion) and judged by the caller, as runs judges it, not by pubProblem. */
+      var runP = readRun(fs, proc, id, cache, true, true, bad, { readOnly: true, explain: true }).then(function (entry) {
         if (entry === NOFILE) out.nofile = true; else if (entry) out.run = build(entry, null);
       }, function (e) { bad.push({ path: 'runs/' + key + '/run.json', key: key, kind: errKind(e), why: why(e) }); });
       /* The process's decisions folder is found through its parent's listing, so one gone between the two is named (vanished)
@@ -10732,7 +10733,7 @@ PF.repo = (function () {
     });
   }
 
-  return { readOnly: readOnlyView, ledger: ledger, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+  return { readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
 
 </script>
