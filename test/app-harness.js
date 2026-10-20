@@ -44,7 +44,8 @@ function boot(opts) {
     const un = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
     const at = html.indexOf('id="' + id + '"'); if (at < 0) return null;
     const tag = html.lastIndexOf('<', at), name = html.slice(tag + 1, tag + 9);
-    if (/^textarea/.test(name)) { const o = html.indexOf('>', at) + 1; return un(html.slice(o, html.indexOf('</textarea>', o))); }
+    /* As in HTML, a line break right after <textarea> isn't part of its value. */
+    if (/^textarea/.test(name)) { const o = html.indexOf('>', at) + 1; return un(html.slice(o, html.indexOf('</textarea>', o))).replace(/^\n/, ''); }
     if (/^select/.test(name)) { const m = /<option[^>]*value="([^"]*)"[^>]*\sselected/.exec(html.slice(at, html.indexOf('</select>', at))); return m ? un(m[1]) : ''; }
     const m = /\svalue="([^"]*)"/.exec(html.slice(at, html.indexOf('>', at))); return m ? un(m[1]) : '';
   };

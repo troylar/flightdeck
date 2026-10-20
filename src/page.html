@@ -1149,6 +1149,15 @@ mark { background: var(--mark); color: var(--on-mark); border-radius: 3px; paddi
 .ob-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; }
 .ob-meta .badge { display: inline-flex; white-space: nowrap; }
 .ob-role { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+/* The checklist's details (front matter) above the phases, and their lists in the form. */
+.ob-details { margin: 0 0 14px; }
+.ob-det { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 4px 8px; align-items: start; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 8px 10px; font: inherit; font-size: 14px; color: inherit; text-align: left; cursor: pointer; }
+.ob-det > .ic { margin-top: 2px; }
+.ob-details.sel .ob-det { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--amber); }
+.ob-metalist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.ob-metalist li { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.ob-metalist .ob-role, .ob-metalist .ob-chip { overflow-wrap: anywhere; }
+#ob-note, #ob-q-text { width: 100%; font: inherit; resize: vertical; }
 .ob-grip { height: 21px; align-self: flex-start; margin: 10px 0 0 6px; }
 .ob-step:hover:not(.sel) { border-color: var(--field); }
 .ob-step:hover .ob-pick { background: var(--paper); border-radius: 0 8px 8px 0; }

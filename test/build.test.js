@@ -147,11 +147,12 @@ rule('1.21.0 has its own release entry, in plain words, naming no employer, prod
   assert.ok(!/colour|cancelled|behaviour/i.test(text), 'US English');
 });
 
-rule('1.22.0 is the newest release: Back and Forward, a minor with one new change, in plain words', () => {
+rule('1.22.0 is the newest release: Back and Forward and the builder\'s details, notes and Questions, a minor with two new changes, in plain words', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
   assert.strictEqual(r.version, '1.22.0');
-  assert.deepStrictEqual(r.changes.map(c => c.kind), ['new']);
+  assert.deepStrictEqual(r.changes.map(c => c.kind), ['new', 'new']);
   const text = JSON.stringify(r);
+  assert.ok(/Checklist details/.test(text) && /Remove section/.test(text) && /note/.test(text), 'the builder change');
   assert.ok(/Back and Forward/.test(text) && /closes an open dialog first/.test(text) && /never loses what you typed/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|\bAI\b|assistant/i.test(text), 'US English, and no tool named');
 });

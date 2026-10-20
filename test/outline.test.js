@@ -755,4 +755,172 @@ rule('Outline: a step with split lines, or a draft it can\'t read safely, takes 
   assert.ok(O.apply(SHOTS.replace(/\n/g, '\r'), { op: 'removeShot', step: 'alpha', shot: 0 }).error);
 });
 
+/* ---------- checklist details, notes and the Questions section (1.22.0) ---------- */
+const DET = [
+  '---', 'process: det', 'title: Details', 'owner: person-casey', 'x-team-key: keep me  ', 'roles:   lead,qa', 'context: ticket, env', '# a comment line', '---', '',
+  '## First · READ-DO {#first}',
+  '- [ ] {confirm} Alpha @lead {#alpha}',
+  '  where: Here',
+  '  > a note',
+  '  >',
+  '  >   indented',
+  '- [ ] {confirm} Beta {#beta}',
+  '- [ ] {run.command} Gamma {#gamma}',
+  '  command: echo ^env',
+  '  where: There',
+  '',
+  '## Gate: Ready · owner @qa {#ready}',
+  '  approves: `^ticket`',
+  ''
+].join('\n');
+const metaOf = t => JSON.parse(JSON.stringify(M.parse(t).meta));
+const noteOf = (t, id) => M.findStep(M.parse(t), id).step.note;
+
+rule('Details: adding a role or run detail changes only its own front matter line, keeping its spacing', () => {
+  const r = ok(O.apply(DET, { op: 'meta', key: 'roles', set: { add: 'backend' } }));
+  same(changes(DET, r), { removed: ['roles:   lead,qa'], added: ['roles:   lead, qa, backend'] });
+  same(metaOf(r).roles, ['lead', 'qa', 'backend']);
+  const c = ok(O.apply(DET, { op: 'meta', key: 'context', set: { add: 'commit' } }));
+  same(changes(DET, c), { removed: ['context: ticket, env'], added: ['context: ticket, env, commit'] });
+  assert.ok(lines(c).includes('x-team-key: keep me  ') && lines(c).includes('# a comment line'), 'unknown keys and odd lines kept byte for byte');
+  [r, c].forEach(t => { same(ids(t), ids(DET)); healthy(DET, t); });
+});
+
+rule('Details: a key without a line is added above the closing ---, and CRLF drafts keep their line endings', () => {
+  const noRoles = DET.replace('roles:   lead,qa\n', '').replace(/@lead /, '').replace(' · owner @qa', '');
+  const t = ok(O.apply(noRoles, { op: 'meta', key: 'roles', set: { add: 'lead' } }));
+  same(changes(noRoles, t), { removed: [], added: ['roles: lead'] });
+  assert.strictEqual(lines(t)[lines(t).indexOf('roles: lead') + 1], '---');
+  const crlf = DET.replace(/\n/g, '\r\n'), u = ok(O.apply(crlf, { op: 'meta', key: 'context', set: { add: 'tag' } }));
+  assert.strictEqual(u, crlf.replace('context: ticket, env\r\n', 'context: ticket, env, tag\r\n'));
+  const b = ok(O.apply(crlf, { op: 'meta', key: 'backup', set: { value: 'person-avery' } }));
+  assert.strictEqual(b, crlf.replace('# a comment line\r\n---', '# a comment line\r\nbackup: person-avery\r\n---'));
+  const none = '## First · READ-DO {#first}\n- [ ] {confirm} Alpha {#alpha}\n';
+  const f = ok(O.apply(none, { op: 'meta', key: 'owner', set: { value: 'person-casey' } }));
+  assert.strictEqual(f, '---\nowner: person-casey\n---\n' + none, 'a draft without front matter gets one');
+  assert.ok(/front matter/.test(O.apply('---\nprocess: x\n## First\n', { op: 'meta', key: 'owner', set: { value: 'p' } }).error), 'unclosed front matter is refused');
+});
+
+rule('Details: removing a name rewrites its line; the last one removes the line; one in use is refused with what uses it', () => {
+  const free = DET.replace('  approves: `^ticket`', '  approves: it');
+  const c = ok(O.apply(free, { op: 'meta', key: 'context', set: { remove: 'ticket' } }));
+  same(changes(free, c), { removed: ['context: ticket, env'], added: ['context: env'] });
+  assert.ok(/\^ticket/.test(O.apply(DET, { op: 'meta', key: 'context', set: { remove: 'ticket' } }).error), 'a gate approves it');
+  assert.ok(/\^env/.test(O.apply(DET, { op: 'meta', key: 'context', set: { remove: 'env' } }).error), 'a field value uses ^env');
+  assert.ok(/@lead/.test(O.apply(DET, { op: 'meta', key: 'roles', set: { remove: 'lead' } }).error), 'a step uses it');
+  assert.ok(/@qa/.test(O.apply(DET, { op: 'meta', key: 'roles', set: { remove: 'qa' } }).error), 'a gate owner uses it');
+  const one = free.replace('context: ticket, env', 'context: ticket').replace('echo ^env', 'echo');
+  const gone = ok(O.apply(one, { op: 'meta', key: 'context', set: { remove: 'ticket' } }));
+  same(changes(one, gone), { removed: ['context: ticket'], added: [] });
+  const ow = ok(O.apply(DET, { op: 'meta', key: 'owner', set: { value: '' } }));
+  same(changes(DET, ow), { removed: ['owner: person-casey'], added: [] });
+  assert.strictEqual(metaOf(ow).owner, undefined);
+  assert.ok(O.apply(DET, { op: 'meta', key: 'roles', set: { remove: 'nobody' } }).error, 'a name that isn\'t listed');
+});
+
+rule('Details: clearing the last of duplicate lines keeps an empty line, so the earlier value never comes back', () => {
+  const dup = DET.replace('owner: person-casey', 'owner: person-old\nbackup: person-b1\ncontext: old-one\nowner: person-casey\nbackup: person-b2');
+  const o = ok(O.apply(dup, { op: 'meta', key: 'owner', set: { value: '' } }));
+  same(changes(dup, o), { removed: ['owner: person-casey'], added: ['owner:'] });
+  assert.strictEqual(metaOf(o).owner, '');
+  const b = ok(O.apply(dup, { op: 'meta', key: 'backup', set: { value: 'person-avery' } }));
+  same(changes(dup, b), { removed: ['backup: person-b2'], added: ['backup: person-avery'] });
+  const twice = dup.replace('roles:   lead,qa', 'roles: lead\nroles: lead,qa');
+  const r = ok(O.apply(twice, { op: 'meta', key: 'roles', set: { add: 'ops' } }));
+  same(changes(twice, r), { removed: ['roles: lead,qa'], added: ['roles: lead, qa, ops'] });
+  const lone = dup.replace('  approves: `^ticket`', '  approves: it').replace('echo ^env', 'echo').replace('context: ticket, env', 'context: ticket');
+  const c = ok(O.apply(lone, { op: 'meta', key: 'context', set: { remove: 'ticket' } }));
+  same(changes(lone, c), { removed: ['context: ticket'], added: ['context:'] });
+  same(metaOf(c).context, []);
+});
+
+rule('Details: hostile names and values are refused before anything is written', () => {
+  ['__proto__', 'constructor', 'toString', 'a,b', 'a b', 'two\nlines', 'x'.repeat(61), '', ' ', '^x', '@x'].forEach(n => {
+    assert.ok(O.apply(DET, { op: 'meta', key: 'roles', set: { add: n } }).error, 'role ' + JSON.stringify(n));
+    assert.ok(O.apply(DET, { op: 'meta', key: 'context', set: { add: n } }).error, 'detail ' + JSON.stringify(n));
+  });
+  [42, null, undefined, {}, ['lead'], { toString: () => 'lead' }].forEach(n => {
+    assert.ok(O.apply(DET, { op: 'meta', key: 'roles', set: { add: n } }).error, 'non-string ' + String(n));
+    assert.ok(O.apply(DET, { op: 'meta', key: 'owner', set: { value: n } }).error, 'non-string owner ' + String(n));
+  });
+  ['two\nlines', 'a b', 'x'.repeat(81), '#x', '__proto__'].forEach(v => assert.ok(O.apply(DET, { op: 'meta', key: 'owner', set: { value: v } }).error, 'owner ' + JSON.stringify(v)));
+  ['process', 'title', 'format', 'features', '__proto__', 'constructor', 'group'].forEach(k => assert.ok(O.apply(DET, { op: 'meta', key: k, set: { value: 'x' } }).error, 'key ' + k));
+  assert.ok(/already/.test(O.apply(DET, { op: 'meta', key: 'roles', set: { add: 'qa' } }).error), 'a duplicate');
+  assert.ok(O.apply(DET.replace('context: ticket, env', 'context: ' + Array.from({ length: 40 }, (_, i) => 'd' + i).join(', ')), { op: 'meta', key: 'context', set: { add: 'one-more' } }).error, 'at most 40 run details');
+  const same1 = O.apply(DET, { op: 'meta', key: 'owner', set: { value: 'person-casey' } });
+  assert.ok(same1.same && same1.text === DET, 'the same value is no change');
+});
+
+rule('Notes: a step\'s note is replaced in place, its indent kept; blank and indented lines round-trip exactly', () => {
+  assert.strictEqual(noteOf(DET, 'alpha'), 'a note\n\n  indented');
+  const n = ok(O.apply(DET, { op: 'note', step: 'alpha', text: 'new first\n\n  still indented\n> quoted' }));
+  same(changes(DET, n), { removed: ['  > a note', '  >   indented'], added: ['  > new first', '  >   still indented', '  > > quoted'] });
+  assert.strictEqual(noteOf(n, 'alpha'), 'new first\n\n  still indented\n> quoted');
+  const t = ok(O.apply(DET, { op: 'note', step: 'beta', text: 'Beta\'s note\n' }));
+  same(changes(DET, t), { removed: [], added: ['  > Beta\'s note', '  >'] });
+  assert.strictEqual(noteOf(t, 'beta'), 'Beta\'s note\n', 'a trailing empty line is kept, as the parser reads it');
+  const g = ok(O.apply(DET, { op: 'note', step: 'gamma', text: 'After the fields' }));
+  assert.strictEqual(lines(g)[lines(g).indexOf('  where: There') + 1], '  > After the fields', 'at the end of the step\'s block');
+  const e = ok(O.apply(DET, { op: 'note', step: 'alpha', text: '\n\n' }));
+  same(changes(DET, e), { removed: ['  > a note', '  >', '  >   indented'], added: [] });
+  const s = O.apply(DET, { op: 'note', step: 'alpha', text: '\n\na note\n\n  indented' });
+  assert.ok(s.same, 'leading blank lines are dropped (the parser drops them), so this is the same note');
+  const ws = DET.replace('  > a note\n  >\n', '  >  \n  > a note\n');
+  assert.strictEqual(noteOf(ws, 'alpha'), ' \na note\n  indented', 'a leading line with a space is content');
+  assert.ok(O.apply(ws, { op: 'note', step: 'alpha', text: ' \na note\n  indented' }).same, 'unchanged');
+  const w2 = ok(O.apply(ws, { op: 'note', step: 'alpha', text: ' \na note' }));
+  assert.strictEqual(noteOf(w2, 'alpha'), ' \na note', 'kept when edited too');
+  const crlf = DET.replace(/\n/g, '\r\n'), c = ok(O.apply(crlf, { op: 'note', step: 'alpha', text: 'x\r\ny' }));
+  assert.strictEqual(c, crlf.replace('  > a note\r\n  >\r\n  >   indented\r\n', '  > x\r\n  > y\r\n'));
+  [n, t, g, e].forEach(x => { same(ids(x), ids(DET)); healthy(DET, x); });
+});
+
+rule('Notes: note lines split by fields are gathered at the first one; odd steps and hostile values are refused', () => {
+  const split = DET.replace('  where: Here\n  > a note', '  > a note\n  where: Here');
+  const t = ok(O.apply(split, { op: 'note', step: 'alpha', text: 'one\ntwo' }));
+  assert.ok(/- \[ \] \{confirm\} Alpha @lead \{#alpha\}\n  > one\n  > two\n  where: Here\n- \[ \] \{confirm\} Beta/.test(t), t);
+  assert.strictEqual(noteOf(t, 'alpha'), 'one\ntwo');
+  const odd = DET.replace('- [ ] {confirm} Beta {#beta}', '<!-- c -->\n  > stray\n- [ ] {confirm} Beta {#beta}');
+  assert.ok(/Markdown/.test(O.apply(odd, { op: 'note', step: 'alpha', text: 'x' }).error) || O.apply(odd, { op: 'note', step: 'alpha', text: 'x' }).error);
+  [42, null, {}, ['x']].forEach(v => assert.ok(O.apply(DET, { op: 'note', step: 'alpha', text: v }).error, 'non-string ' + String(v)));
+  assert.ok(O.apply(DET, { op: 'note', step: 'nope', text: 'x' }).error);
+  assert.ok(/2000|long/.test(O.apply(DET, { op: 'note', step: 'alpha', text: 'x'.repeat(2001) }).error));
+});
+
+const QS = [
+  '---', 'process: q', 'title: Q', '---', '',
+  '## First · READ-DO {#first}', '- [ ] {confirm} Alpha {#alpha}', '',
+  '## Questions for the owner', '', '- Who signs off?', '### Not a track', '- When?', '', ''
+].join('\n');
+
+rule('Questions: the section\'s text is edited below its heading, leading blank line and all; a heading or track line is refused', () => {
+  const o = O.parse(QS);
+  assert.strictEqual(o.qText, '\n- Who signs off?\n### Not a track\n- When?');
+  const t = ok(O.apply(QS, { op: 'questions', text: '\n- Who signs off? Casey.\n- When? Fridays.' }));
+  same(changes(QS, t), { removed: ['- Who signs off?', '### Not a track', '- When?'], added: ['- Who signs off? Casey.', '- When? Fridays.'] });
+  assert.ok(t.endsWith('- When? Fridays.\n\n'), 'the blank lines after it stay');
+  ['## Phase', '##\tQuestions again', 'x\n## Next · READ-DO', '### Track: Sneaky', '###\tTRACK:  x'].forEach(v => assert.ok(O.apply(QS, { op: 'questions', text: v }).error, JSON.stringify(v)));
+  [42, null, {}].forEach(v => assert.ok(O.apply(QS, { op: 'questions', text: v }).error));
+  assert.ok(O.apply(DET, { op: 'questions', text: 'x' }).error, 'no section');
+  assert.ok(M.check(M.parse(t), {}).blockers.some(b => /Questions/.test(b)), 'still there until it\'s removed');
+});
+
+rule('Questions: Remove section takes out exactly its lines, at the end or before a phase, tabs and case included', () => {
+  const r = ok(O.apply(QS, { op: 'removeQuestions' }));
+  assert.strictEqual(r, QS.slice(0, QS.indexOf('## Questions')));
+  assert.ok(!M.parse(r).questions && !M.check(M.parse(r), {}).blockers.some(b => /Questions/.test(b)));
+  const mid = QS.replace('## Questions for the owner', '##\tQUESTIONS {#qs}') + '##\tSecond · READ-DO {#second}\n- [ ] {confirm} Beta {#beta}\n';
+  const m = ok(O.apply(mid, { op: 'removeQuestions' }));
+  assert.ok(/\{#alpha\}\n\n##\tSecond · READ-DO \{#second\}\n- \[ \] \{confirm\} Beta \{#beta\}\n$/.test(m), JSON.stringify(m));
+  same(ids(m), ['alpha', 'beta'], 'the steps after it are read now');
+  assert.strictEqual(O.apply(mid, { op: 'removeQuestions' }).later, 1, 'it says how many phases after it are read now');
+  assert.strictEqual(O.apply(QS, { op: 'removeQuestions' }).later, 0);
+  const two = QS + '## Questions, again\n- More?\n';
+  const a = ok(O.apply(two, { op: 'removeQuestions' }));
+  assert.ok(/## Questions, again/.test(a) && M.parse(a).questions, 'one section at a time');
+  assert.ok(O.apply(DET, { op: 'removeQuestions' }).error, 'nothing to remove');
+  const crlf = QS.replace(/\n/g, '\r\n');
+  assert.strictEqual(ok(O.apply(crlf, { op: 'removeQuestions' })), crlf.slice(0, crlf.indexOf('## Questions')));
+});
+
 run();

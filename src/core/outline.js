@@ -9,6 +9,8 @@ PF.outline = (function () {
   var ID_RE = /\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$/i, ANY_ID = /\{#([a-z0-9][a-z0-9-]*)\}\s*$/i;
   var STEP_RE = /^- \[( |!|~)\]\s+(.+)$/, TYPE_RE = /^\{([a-z][\w.-]*)\}\s+(.*)$/i;
   var MODES = ['READ-DO', 'DO-CONFIRM'];
+  /* A heading and a track line as map.js reads them. */
+  var HEAD = /^##\s+(.+?)\s*$/, TRACK = /^###\s+Track:\s*(.+?)\s*$/i;
   var ERR = {
     gone: 'That isn\'t in the draft anymore. It may have just changed.',
     odd: 'This part of the draft has lines the builder can\'t change safely. Edit it in Markdown.',
@@ -87,13 +89,14 @@ PF.outline = (function () {
         if (!phase || gate) continue;
         var sp = stepParts(line);
         step = { id: sp.id, type: sp.type, text: sp.text, must: sp.mark === '!', planned: sp.mark === '~', roles: sp.roles, binds: sp.binds, parts: sp,
-          fields: {}, fieldLines: {}, notes: 0, shots: [], line: i, end: i + 1, odd: false, phase: phase, track: track ? track.index : -1, index: o.steps.length };
+          fields: {}, fieldLines: {}, notes: 0, note: '', noteLines: [], shots: [], line: i, end: i + 1, odd: false, phase: phase, track: track ? track.index : -1, index: o.steps.length };
         phase.steps.push(step); o.steps.push(step); blk = step;
         continue;
       }
-      if (/^\s{2,}>\s?(.*)$/.test(line)) {
+      if ((m = /^\s{2,}>\s?(.*)$/.exec(line))) {
         var tg = step || gate;
-        if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; continue; }
+        /* note: the text as map.js joins it; noteLines: where its lines are. */
+        if (tg) { own(tg, i); tg.notes = (tg.notes || 0) + 1; tg.note = (tg.note ? tg.note + '\n' : '') + m[1]; (tg.noteLines = tg.noteLines || []).push(i); continue; }
       } else if (step && (m = /^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$/.exec(line))) { own(step, i); step.shots.push({ caption: m[1], src: m[2], line: i }); continue; }
       else if ((m = /^\s{2,}([\w-]+):\s*(.*)$/.exec(line))) {
         if (gate && m[1] === 'approves') { own(gate, i); gate.approves = m[2].trim(); gate.approvesLine = i; continue; }
@@ -112,6 +115,13 @@ PF.outline = (function () {
       /* A track runs to the next track, else to the gate or the end of the phase. */
       p.tracks.forEach(function (t, j) { t.end = j + 1 < p.tracks.length ? p.tracks[j + 1].line : p.gate ? p.gate.line : e; });
     });
+    /* The first Questions section runs to the next ## heading (or the end); its text is the lines under its heading, to
+       its last non-blank one. */
+    if (o.questions >= 0) {
+      var qe = o.questions + 1; while (qe < n && !HEAD.test(L[qe])) qe++;
+      var qb = qe; while (qb > o.questions + 1 && !L[qb - 1].trim()) qb--;
+      o.qEnd = qe; o.qBodyEnd = qb; o.qText = L.slice(o.questions + 1, qb).join('\n');
+    }
     var count = Object.create(null);
     L.forEach(function (l) { var x = ANY_ID.exec(l); if (x) { var id = x[1].toLowerCase(); o.ids[id] = true; } });
     o.phases.forEach(function (p) { if (p.id) o.ids[p.id + '-confirm'] = true; });
@@ -765,6 +775,149 @@ PF.outline = (function () {
     return { added: added, removed: removed };
   }
 
+  /* ---------- the checklist's details: front matter context:, roles:, owner: and backup: ---------- */
+  var META = { context: 'list', roles: 'list', owner: 'person', backup: 'person' };
+  var NAME_RE = /^[\w-]{1,60}$/, PERSON_RE = /^[\w.@-]{1,80}$/;
+  function reserved(n) { return n === '__proto__' || n in Object.prototype; }
+  function own_(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  /* Where a run detail or role is used, in words: the step or gate around each line that uses it. */
+  function usesOf(o, key, name) {
+    var out = [], seen = Object.create(null), from = o.front ? o.front.end : 0;
+    var say = function (w) { if (!seen[w]) { seen[w] = true; out.push(w); } };
+    var around = function (i) {
+      var s = o.steps.filter(function (x) { return i >= x.line && i < Math.max(x.end, x.line + 1); })[0];
+      if (s) return 'the step “' + short(s.text) + '”';
+      var g = null; o.phases.forEach(function (p) { if (p.gate && i >= p.gate.line && i < p.gate.end) g = p.gate; });
+      return g ? 'the gate “' + short(g.title) + '”' : 'line ' + (i + 1);
+    };
+    if (key === 'roles') {
+      o.steps.forEach(function (s) { if (s.parts.roles.indexOf(name) >= 0) say('the step “' + short(s.text) + '”'); });
+      o.phases.forEach(function (p) {
+        p.tracks.forEach(function (t) { if (t.roles.indexOf(name) >= 0) say('the lane “' + short(t.title) + '”'); });
+        if (p.gate && p.gate.owner === name) say('the gate “' + short(p.gate.title) + '”');
+      });
+      return out;
+    }
+    var re = new RegExp('\\^' + reEsc(name) + '(?![\\w-])');
+    for (var i = from; i < o.lines.length; i++) {
+      var l = bare(o.lines[i]), lm = /^\s{2,}(sets|carry):\s*(.*)$/.exec(l);
+      if (re.test(l) || (lm && lm[2].split(',').map(function (x) { return x.trim(); }).indexOf(name) >= 0)) say(around(i));
+    }
+    return out;
+  }
+  /* key: context | roles ({ add } or { remove } a name) or owner | backup ({ value }, '' to clear). Only that key's last line
+     changes (map.js reads the last one); clearing it removes the line, or empties it when an earlier line has the same key. */
+  function editMeta(text, key, set) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    if (typeof key !== 'string' || !own_(META, key)) return { error: 'That can\'t be changed here.' };
+    set = set && typeof set === 'object' ? set : {};
+    var o = g.o, lines = o.lines.slice(), kind = META[key], what = key === 'roles' ? 'role' : 'run detail', mark = key === 'roles' ? '@' : '^';
+    if (o.front && (o.front.end < 2 || bare(o.lines[o.front.end - 1]).trim() !== '---')) return { error: 'The front matter at the top has no closing --- line, so it can\'t be changed safely. Add one under it.' };
+    var hits = [], kre = new RegExp('^' + key + ':');
+    if (o.front) for (var i = o.front.start + 1; i < o.front.end - 1; i++) if (kre.test(bare(lines[i]))) hits.push(i);
+    var meta = M.parse(text).meta, str, next;
+    if (kind === 'list') {
+      var cur = meta[key].slice(), adding = own_(set, 'add'), name = adding ? set.add : set.remove;
+      if (!adding && !own_(set, 'remove')) return { error: ERR.gone };
+      if (typeof name !== 'string' || !name.trim()) return { error: 'Type a name for the ' + what + ' first.' };
+      if (adding) {
+        if (!NAME_RE.test(name)) return { error: 'A ' + what + ' is one word: letters, numbers, dashes or underscores, up to 60 characters.' };
+        if (reserved(name)) return { error: '"' + name + '" is a name Flightdeck keeps for itself; choose another.' };
+        if (cur.indexOf(name) >= 0) return { error: mark + name + ' is already a ' + what + '.' };
+        if (key === 'context' && cur.length >= 40) return { error: 'A checklist can have at most 40 run details.' };
+        next = cur.concat([name]);
+      } else {
+        if (cur.indexOf(name) < 0) return { error: mark + name + ' isn\'t listed anymore. It may have just changed.' };
+        var used = usesOf(o, key, name);
+        if (used.length) return { error: mark + name + ' is still used by ' + used[0] + (used.length > 1 ? ' and ' + (used.length - 1) + ' more' : '') + '. Take it out there first.' };
+        next = cur.filter(function (x) { return x !== name; });
+      }
+      str = next.join(', ');
+    } else {
+      var v = set.value;
+      if (typeof v !== 'string') return { error: 'Choose a person.' };
+      if (v && (!PERSON_RE.test(v) || reserved(v))) return { error: 'That person\'s ID can\'t be written in a checklist. Choose someone else.' };
+      if (v === String(meta[key] == null ? '' : meta[key]) && (v || !hits.length)) return { text: text, at: hits.length ? hits[hits.length - 1] : 0, same: true };
+      str = v;
+    }
+    var last = hits.length ? hits[hits.length - 1] : -1, at, kept = true;
+    if (last >= 0) {
+      var km = /^([\w-]+:)(\s*)/.exec(bare(lines[last]));
+      if (str) lines[last] = km[1] + (km[2] || ' ') + str + crOf(o, last);
+      else if (hits.length > 1) lines[last] = key + ':' + crOf(o, last);
+      else { lines.splice(last, 1); kept = false; }
+      at = last;
+    } else if (!str) return { text: text, at: 0, same: true };
+    else if (o.front) { at = o.front.end - 1; lines.splice(at, 0, key + ': ' + str + o.cr); }
+    else { at = 1; lines.splice(0, 0, '---' + o.cr, key + ': ' + str + o.cr, '---' + o.cr); }
+    /* A key added to the front matter comes later in the parsed object than it did before, so both sides are compared in
+       one key order. */
+    var sorted = function (m) { var c = Object.create(null); Object.keys(m).sort().forEach(function (k) { c[k] = m[k]; }); return c; };
+    return done(o, text, lines, function (A, B) {
+      if (kind === 'list') A.meta[key] = next;
+      else if (str) A.meta[key] = str;
+      else if (kept) A.meta[key] = '';
+      else delete A.meta[key];
+      A.meta = sorted(A.meta); B.meta = sorted(B.meta);
+    }, at);
+  }
+
+  /* ---------- a step's note: its "  > " lines ---------- */
+  /* The note as map.js would read the lines: each line's text joined by line breaks, leading empty lines dropped. */
+  function noteJoin(list) { var n = ''; list.forEach(function (c) { n += (n ? '\n' : '') + c; }); return n; }
+  function editNote(text, key, value) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    if (typeof value !== 'string') return { error: 'Write the note as text.' };
+    var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
+    if (s.odd) return { error: ERR.odd };
+    var v = value.replace(/\r\n?/g, '\n');
+    if (v.length > 2000) return { error: 'Keep a note to 2000 characters.' };
+    var want = v.split('\n'); while (want.length && !want[0]) want.shift();
+    var note = noteJoin(want);
+    if (note === s.note) return { text: text, at: s.line, same: true };
+    var lines = o.lines.slice(), cr = crOf(o, s.line), nl = s.noteLines, at = nl.length ? nl[0] : s.end;
+    var ind = nl.length ? /^\s*/.exec(bare(o.lines[nl[0]]))[0] : s.end - 1 > s.line ? /^\s*/.exec(bare(o.lines[s.end - 1]))[0] : '  ';
+    if (ind.length < 2) ind = '  ';
+    nl.slice().reverse().forEach(function (k) { lines.splice(k, 1); });
+    lines.splice.apply(lines, [at, 0].concat(want.map(function (c) { return ind + (c ? '> ' + c : '>') + cr; })));
+    var line = s.line + 1;
+    return done(o, text, lines, function (A) {
+      var x = null;
+      A.phases.forEach(function (ph) { ph.steps.forEach(function (st) { if (st._line === line) x = st; }); });
+      if (!x) return false;
+      x.note = note;
+    }, at);
+  }
+
+  /* ---------- the Questions section ---------- */
+  /* Its text under the heading; a line that would end the section or be read as a lane is refused. */
+  function editQuestions(text, value) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    if (typeof value !== 'string') return { error: 'Write the questions as text.' };
+    var o = g.o; if (o.questions < 0) return { error: 'There\'s no Questions section anymore. It may have just changed.' };
+    var v = value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+    if (v.length > 20000) return { error: 'Keep the Questions section to 20000 characters.' };
+    var want = v ? v.split('\n') : [];
+    if (want.some(function (l) { return HEAD.test(l) || TRACK.test(l); })) return { error: 'A line starting with ## or ### Track: would end the Questions section. Write it another way.' };
+    if (want.join('\n') === o.qText) return { text: text, at: o.questions, same: true };
+    var lines = o.lines.slice(), cr = crOf(o, o.questions);
+    lines.splice.apply(lines, [o.questions + 1, o.qBodyEnd - o.questions - 1].concat(want.map(function (l) { return l + cr; })));
+    return done(o, text, lines, function () {}, o.questions);
+  }
+  /* Removes the first Questions section: its heading and every line to the next ## heading. What came after it may now be
+     read (that's the point); nothing before it may change. later: how many phases after it are read now. */
+  function removeQuestions(text) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o; if (o.questions < 0) return { error: 'There\'s no Questions section anymore. It may have just changed.' };
+    var lines = o.lines.slice(), toEnd = o.qEnd >= lines.length;
+    /* To the end of the file: the line before it keeps its line break. */
+    if (toEnd) lines.splice(o.questions, lines.length - o.questions, ''); else lines.splice(o.questions, o.qEnd - o.questions);
+    var t = lines.join('\n'), a = sigOf(text), b = sigOf(t), q = o.questions + 1;
+    var before = a.phases.filter(function (p) { return p._line < q; });
+    if (json(a.meta) !== json(b.meta) || json(before) !== json(b.phases.slice(0, before.length))) return { error: ERR.meaning };
+    return { text: t, at: o.questions, later: b.phases.length - before.length };
+  }
+
   /* One entry point for the app: op names what to do. */
   function apply(text, op) {
     op = op || {};
@@ -791,11 +944,16 @@ PF.outline = (function () {
       case 'editShot': return editShots(text, op.step, { edit: op.shot, caption: op.caption });
       case 'moveShot': return editShots(text, op.step, { move: op.shot, dir: op.dir });
       case 'removeShot': return editShots(text, op.step, { remove: op.shot });
+      case 'meta': return editMeta(text, op.key, op.set);
+      case 'note': return editNote(text, op.step, op.text);
+      case 'questions': return editQuestions(text, op.text);
+      case 'removeQuestions': return removeQuestions(text);
     }
     return { error: 'Nothing to do.' };
   }
 
   return { MODES: MODES, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
-    addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace };
+    addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
+    personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
 })();

@@ -6599,4 +6599,155 @@ rule('Back and Forward: every promise callback in the app that changes a route f
   assert.deepStrictEqual(found.filter(b => !OK.some(k => b.indexOf(k) >= 0)).map(b => b.replace(/\s+/g, ' ').slice(0, 160)), []);
 });
 
+/* ---------- checklist details, notes and the Questions section in the builder (1.22.0) ---------- */
+const addBox = (app, id, key, value) => { app.set(id, value); app.input(id, value); app.keyOn('Enter', {}, { tagName: 'INPUT', id, value, dataset: { enter: 'ob-meta-add', id: key }, closest: () => null }); };
+const leave = (app, id, value) => { app.input(id, value); app.select(id, value); };
+const QDRAFT = ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: lead', 'context: ticket', '---', '',
+  '## First · READ-DO {#first}', '- [!] {confirm} One @lead ^ticket {#one}', '',
+  '## Questions for the owner', '', '- Who signs off?', '- Which window?', ''].join('\n');
+
+rule('Builder: Checklist details adds and removes roles and run details, and sets the owner and backup; Save changes only those lines', async () => {
+  const app = await builderOn(), original = releaseText(app);
+  assert.ok(/data-act="ob-sel-details" aria-pressed="false"/.test(app.html()) && /Owner Casey Nguyen · backup Avery Lee/.test(app.html()), 'the card, at a glance');
+  app.click('ob-sel-details'); await app.tick();
+  const html = app.html();
+  assert.ok(/<h2 id="ob-form-h">[\s\S]*?Checklist details<\/h2>/.test(html), 'its form');
+  assert.ok(/<select id="ob-owner" data-bound><option value="">Nobody yet<\/option>[\s\S]*?<option value="person-casey" selected>/.test(html), 'owner');
+  assert.ok(/<select id="ob-backup" data-bound><option value="">No backup<\/option>[\s\S]*?<option value="person-avery" selected>/.test(html), 'backup');
+  assert.ok(/data-act="ob-meta-del" data-key="roles" data-id="qa" aria-label="Remove @qa"/.test(html) && /data-act="ob-meta-del" data-key="context" data-id="tag"/.test(html), 'each with Remove');
+  addBox(app, 'ob-add-role', 'roles', 'ops'); await app.tick();
+  assert.ok(/Added @ops\./.test(app.live()) && app.draft('ob-add-role') === '', 'added, the box emptied: ' + app.live());
+  assert.strictEqual(app.focused(), '#ob-add-role');
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  addBox(app, 'ob-add-ctx', 'context', 'two words'); await app.tick();
+  assert.ok(/<p class="ferr" id="ferr-ob-add-ctx" role="alert">A run detail is one word/.test(app.html()), 'refused next to its box');
+  assert.strictEqual(app.draft('ob-add-ctx'), 'two words', 'the typing stays');
+  app.input('ob-add-ctx', ''); await app.tick();
+  app.click('ob-meta-del', 'backend', { key: 'roles' }); await app.tick();
+  assert.ok(/@backend is still used by the step “Feature flags set in the deploy values”/.test(app.html()), 'a role in use isn\'t removed');
+  app.click('ob-meta-del', 'ops', { key: 'roles' }); await app.tick();
+  assert.ok(/Removed @ops\./.test(app.live()), app.live());
+  app.select('ob-backup', ''); await app.tick();
+  app.select('ob-owner', 'person-morgan'); await app.tick();
+  assert.ok(/The owner is now Morgan Diaz\./.test(app.live()), app.live());
+  assert.strictEqual(app.draft('ob-owner'), 'person-morgan', 'a choice is left as chosen');
+  app.click('save-draft'); await app.tick(80);
+  assert.deepStrictEqual(lineDelta(original, releaseText(app)), { gone: ['backup: person-avery', 'context: ticket, commit, environment, tag', 'owner: person-casey'], added: ['context: ticket, commit, environment, tag, region', 'owner: person-morgan'] });
+});
+
+rule('Builder: the step form edits its note; no "in Markdown" is left for roles, run details or notes', async () => {
+  const app = await builderOn(), original = releaseText(app);
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000">\nNew features ship off\. Turn them on in the environment&#39;s values file, never in code\.<\/textarea>/.test(app.html()), 'the note, in a box');
+  assert.ok(!/edit notes in Markdown|Add them to "roles:" in Markdown|lists no run details \("context:"\)/.test(app.html()));
+  leave(app, 'ob-note', 'New features ship off.\n\nTurn them on in the values file.'); await app.tick();
+  assert.ok(/Changed the note of "Feature flags set in the deploy values"\. Undo available\./.test(app.live()), app.live());
+  app.click('save-draft'); await app.tick(80);
+  assert.deepStrictEqual(lineDelta(original, releaseText(app)), { gone: ['  > New features ship off. Turn them on in the environment\'s values file, never in code.'], added: ['  >', '  > New features ship off.', '  > Turn them on in the values file.'] });
+  /* A step that has no note gets one; a box applied with what the draft already says shows exactly that, and nothing waits. */
+  app.click('ob-sel', 'rollback'); await app.tick();
+  leave(app, 'ob-note', 'Paste the SHA.'); await app.tick();
+  app.input('ob-note', '\n\nPaste the SHA.'); await app.tick();
+  app.select('ob-note', '\n\nPaste the SHA.'); await app.tick();
+  assert.strictEqual(app.draft('ob-note'), 'Paste the SHA.', 'the box shows the note as the draft has it');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/Apply or clear what you typed/.test(app.live()) && /Undid/.test(app.live()), 'Undo isn\'t held up: ' + app.live());
+});
+
+rule('Builder: a draft with no roles or run details offers to add them from the step form', async () => {
+  const app = await builderOn();
+  await app.fs.write('maps/drafts/release.md', ['---', 'process: release', 'title: Production release', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', ''].join('\n'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel', 'one'); await app.tick();
+  assert.ok(/The checklist lists no roles yet\.<\/span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-role">Add roles<\/button>/.test(app.html()));
+  assert.ok(/data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details<\/button>/.test(app.html()));
+  app.click('ob-sel-details', null, { focus: 'ob-add-role' }); await app.tick();
+  assert.strictEqual(app.focused(), '#ob-add-role');
+  addBox(app, 'ob-add-role', 'roles', 'lead'); await app.tick();
+  app.click('ob-sel', 'one'); await app.tick();
+  app.click('ob-role', 'lead'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(releaseText(app), ['---', 'process: release', 'title: Production release', 'roles: lead', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One @lead {#one}', ''].join('\n'));
+});
+
+rule('Builder: the Questions section opens in a panel, its text is edited there, and Remove section asks in the page; Undo brings it back', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, QDRAFT); app.focus(); await app.tick(80);
+  assert.ok(/It still has a Questions section, so it can.t be published yet\./.test(app.html()) && /data-act="ob-sel-questions">Open the Questions<\/button>/.test(app.html()));
+  assert.ok(!/Answer the questions in Markdown/.test(app.html()));
+  app.click('ob-sel-questions'); await app.tick();
+  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000">\n\n- Who signs off\?\n- Which window\?<\/textarea>/.test(app.html()), 'its text, the blank line under the heading kept');
+  assert.strictEqual(app.focused(), 'ob-q-text');
+  leave(app, 'ob-q-text', '\n- Who signs off? Casey.\n- Which window?'); await app.tick();
+  assert.ok(/Changed the Questions section\. Undo available\./.test(app.live()), app.live());
+  leave(app, 'ob-q-text', '## Not allowed'); await app.tick();
+  assert.ok(/id="ferr-ob-q-text" role="alert">A line starting with ## or ### Track: would end the Questions section/.test(app.html()));
+  leave(app, 'ob-q-text', '\n- Who signs off? Casey.\n- Which window?'); await app.tick();
+  app.click('ob-ask', 'questions'); await app.tick();
+  assert.ok(/Remove the Questions section and everything in it\? Undo brings it back\./.test(app.html()) && /data-act="ob-q-remove" id="ob-ask-go">Remove section<\/button>/.test(app.html()));
+  assert.strictEqual(app.focused(), 'ob-ask-go');
+  app.key('Escape'); await app.tick();
+  assert.ok(!/Remove the Questions section and everything/.test(app.html()) && /id="ob-q-text"/.test(app.html()), 'Escape cancels, the panel stays');
+  app.click('ob-ask', 'questions'); await app.tick();
+  app.click('ob-ask-cancel'); await app.tick();
+  assert.ok(!/Remove the Questions section and everything/.test(app.html()), 'Cancel too');
+  app.click('ob-ask', 'questions'); await app.tick();
+  app.click('ob-q-remove'); await app.tick();
+  assert.ok(/Removed the Questions section\./.test(app.live()) && !/id="ob-q-note"/.test(app.html()), app.live());
+  assert.ok(!/It still has a Questions section/.test(app.html()) && !/id="ob-q-text"/.test(app.html()), 'the notice and the panel are gone');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/id="ob-q-note"/.test(app.html()), 'Undo brings it back');
+  app.click('tl-redo', 'draft'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const t = releaseText(app);
+  assert.strictEqual(t, QDRAFT.slice(0, QDRAFT.indexOf('## Questions')));
+  assert.ok(!app.PF.map.check(app.PF.map.parse(t), {}).blockers.some(b => /Questions/.test(b)), 'nothing about Questions blocks publishing');
+});
+
+rule('Builder: typing in the note, Questions or an Add box and not applying it holds Back, Undo and Reverse, and keeps the typing', async () => {
+  const app = await navBoot({ localStore: {}, domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-mark-step'); app.check('ob-mark-step', true); await app.tick();
+  const list = JSON.stringify(app.entries());
+  app.input('ob-note', 'Half a note'); await app.tick();
+  await back(app);
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
+  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.strictEqual(app.draft('ob-note'), 'Half a note'); assert.strictEqual(app.activeId(), 'ob-note');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
+  app.input('ob-note', 'New features ship off. Turn them on in the environment\'s values file, never in code.'); await app.tick();
+  app.click('ob-sel-details'); await app.tick();
+  app.input('ob-add-role', 'half'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(Enter applies it\), then Undo/.test(app.live()), app.live());
+  await back(app);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-add-role') === 'half', 'Back refused');
+  app.input('ob-add-role', ''); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Undid/.test(app.live()), app.live());
+});
+
+rule('Builder: people, roles and run details from the files are escaped; hostile IDs are never offered; an inactive owner stays chosen', async () => {
+  const app = await builderOn();
+  const ppl = JSON.parse(app.fs.files['people.json'].t);
+  ppl.push({ id: '"><img src=x onerror=alert(1)>', name: '<b>Bad</b>' }, { id: '__proto__', name: 'Proto' }, { id: 'person-ok', name: '<i>Ok</i>' });
+  ppl.forEach(p => { if (p.id === 'person-casey') p.inactive = true; });
+  await app.fs.write('people.json', JSON.stringify(ppl));
+  await app.fs.write('maps/drafts/release.md', ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'backup: person-gone', 'roles: <script>x</script>, lead', 'context: "><svg>', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', ''].join('\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('ob-sel-details'); await app.tick();
+  const html = app.html();
+  assert.ok(!/<img src=x|<script>x|<svg>|<b>Bad|<i>Ok/.test(html), 'nothing from the files is markup');
+  assert.ok(/&lt;script&gt;x&lt;\/script&gt;/.test(html) && /&lt;i&gt;Ok&lt;\/i&gt;/.test(html));
+  assert.ok(!/value="&quot;&gt;&lt;img/.test(html) && !/<option value="__proto__"/.test(html), 'hostile IDs aren\'t offered');
+  assert.ok(/<option value="person-casey" selected>Casey Nguyen \(inactive\)<\/option>/.test(html), 'the inactive owner stays chosen');
+  assert.ok(/<option value="person-gone" selected>person-gone \(not in people\.json\)<\/option>/.test(html), 'and a backup who left the file');
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/owner: person-casey\nbackup: person-gone\n/.test(releaseText(app)), 'kept through an unrelated change');
+});
+
 run();

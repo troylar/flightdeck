@@ -1318,7 +1318,7 @@
     var s = state.obSel, k = on && s ? [s.kind, s.key, s.track, state.insTab].join('|') : '';
     if (k === lastShown) return;
     lastShown = k; if (!k) return;
-    reveal(s.kind === 'step' ? '[data-ob-step="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '.ob-lane.sel' : '[data-ob-phase="' + cssEsc(s.key) + '"]');
+    reveal(s.kind === 'step' ? '[data-ob-step="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '.ob-lane.sel' : s.kind === 'details' ? '.ob-details' : s.kind === 'questions' ? '#ob-q-note' : '[data-ob-phase="' + cssEsc(s.key) + '"]');
     reveal('#pv-sel', 'center');
   }
   /* The run screen is a page of its own too: the top bar hides and, on a wider screen, each pane scrolls on its own. Next up
@@ -2360,7 +2360,8 @@
     say(TL.past(lb.past, subj) + '. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
     /* A step or phase without a unique ID is known by its place, so what's selected or being added to follows the change. */
     var F = function (kind, key) { return PF.outline.follow(cur, res.text, op, res.at, kind, key); };
-    var sl = state.obSel; if (sl && sl.pid === p.id) { var nk = F(sl.kind === 'track' ? 'phase' : sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
+    /* The checklist's details and its Questions section aren't steps or phases: they stay selected while they're there. */
+    var sl = state.obSel; if (sl && sl.pid === p.id && !isWhole(sl)) { var nk = F(sl.kind === 'track' ? 'phase' : sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
     var ad = state.obAdd;
     if (ad && ad.pid === p.id) {
       if (ad.after != null) ad.after = F(ad.kind === 'phase' ? 'phase' : 'step', ad.after);
@@ -2505,6 +2506,7 @@
   function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null }; }
   /* The step or phase an outline operation is about, in words and as a History item. */
   function opSubject(text, op) {
+    if (op.op === 'meta' || op.op === 'questions' || op.op === 'removeQuestions') return '';
     if (op.op === 'add') return String(op.text || '').trim();
     if (op.op === 'addPhase' || op.op === 'addTrack') return String(op.title || '').trim();
     if (op.op === 'editTrack' || op.op === 'deleteTrack') { var ph = PF.outline.parse(text).phases.filter(function (y) { return y.key === String(op.phase); })[0], tr = ph && ph.tracks[+op.track]; return tr ? String(tr.title || '') : ''; }
@@ -2684,7 +2686,7 @@
     var pf = state.obPending === p.id && state.obPendingField;
     if (!pf || /^ob-new-/.test(pf)) return false;
     if (state.overlay) closeOverlay();
-    say('Apply or clear what you typed in the box first (Enter applies it), then ' + what + '.', 'warn');
+    say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then ' + what + '.', 'warn');
     state.focus = '#' + pf; render(); return true;
   }
   /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
@@ -2815,6 +2817,8 @@
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
     var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
     if (id === 'ob-text') return st ? st.text : '';
+    if (id === 'ob-note') return st ? st.note : '';
+    if (id === 'ob-q-text') return s.kind === 'questions' && o.questions >= 0 ? o.qText : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
     if (/^ob-shot-cap-\d+$/.test(id)) { var sh = st && st.shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
@@ -2822,6 +2826,13 @@
     if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
     return '';
   }
+  /* Boxes that hold several lines compare as written (only \r dropped); one-line boxes as the ops apply them (norm). */
+  var MULTI = /^ob-(note|q-text)$/;
+  function boxNorm(id, v) { return MULTI.test(id) ? String(v == null ? '' : v).replace(/\r/g, '') : norm(v); }
+  /* Enter applies a one-line box; a box of several lines is applied when you leave it. */
+  function applyHint(id) { return MULTI.test(id || '') ? '(leaving the box applies it)' : '(Enter applies it)'; }
+  /* Selections that are about the whole checklist rather than one of its steps or phases. */
+  function isWhole(s) { return !!s && (s.kind === 'details' || s.kind === 'questions'); }
   function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; dropPending(); }
 
   /* Parts added in this window and not saved yet, by ID: own keys only, so an ID like "constructor" is never one of them.
@@ -2836,6 +2847,7 @@
   /* Where focus goes for a selection: its row, lane or phase in the outline. */
   function selFocus(s) {
     if (!s) return null;
+    if (isWhole(s)) return s.kind === 'details' ? '[data-act="ob-sel-details"]' : '[data-act="ob-sel-questions"]';
     return s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
   }
   function narrow() { return !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); }
@@ -2920,6 +2932,20 @@
     var ph = o.phases.filter(function (x) { return x.key === s.key; })[0];
     /* A part added in this window and not saved yet takes its ID from the name it's given (it's in no run or skill). */
     var reid = function (oldId, r) { if (r && r.id && r.id !== oldId && fresh(oldId)) markFresh(ed, r.id); return r; };
+    if (s.kind === 'details') {
+      var mk2 = { 'ob-owner': 'owner', 'ob-backup': 'backup', 'ob-add-role': 'roles', 'ob-add-ctx': 'context' }, key = Object.prototype.hasOwnProperty.call(mk2, id) ? mk2[id] : null;
+      if (!key) return;
+      var adding = key === 'roles' || key === 'context', name = adding ? String(value == null ? '' : value).trim() : String(value == null ? '' : value);
+      if (adding && !name) return;
+      res = builderEdit({ op: 'meta', key: key, set: adding ? { add: name } : { value: name } }, id);
+      if (res && !res.same) say(adding ? 'Added ' + (key === 'roles' ? '@' : '^') + name + '. Undo available.' : key === 'owner' ? (name ? 'The owner is now ' + personName(name) + '.' : 'The checklist has no owner now.') + ' Undo available.' : (name ? 'The backup owner is now ' + personName(name) + '.' : 'The checklist has no backup owner now.') + ' Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+      return obApplied(res, id, adding ? '' : undefined);
+    }
+    if (s.kind === 'questions') {
+      if (id !== 'ob-q-text') return;
+      return obApplied(builderEdit({ op: 'questions', text: value }, id), id, null);
+    }
+    if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step') {
       var st = o.steps.filter(function (x) { return x.key === s.key; })[0], mk = id === 'ob-mark' ? (value === 'must' ? '!' : value === 'planned' ? '~' : ' ') : null;
       var set = id === 'ob-text' ? { text: value, reid: !!(st && fresh(st.id)) } : mk ? { mark: mk } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
@@ -2946,6 +2972,24 @@
     }
     if (res) { state.focus = refocus; render(); }
   }
+  /* After a box's value was applied (or was already what the draft says), the box shows exactly what the draft holds, so
+     nothing it shows differs from the draft without being pending. clear: '' empties an Add box; null takes the draft's;
+     undefined leaves the control alone (a choice, drawn from the draft). */
+  function obApplied(res, id, clear) {
+    if (!res) return;
+    state.planFormReset = true; state.focus = '#' + id; render();
+    var el = clear === undefined ? null : document.getElementById(id), want = clear != null ? clear : fieldApplied(id);
+    if (el && el.value !== want) el.value = want;
+    if (state.obPendingField === id) dropPending();
+  }
+  /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
+  function obSelWhole(kind, focus) {
+    var p = currentProcess(); if (!p) return;
+    obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obPlace = null; state.planFormReset = true;
+    state.focus = focus === 'ob-add-role' || focus === 'ob-add-ctx' ? '#' + focus : kind === 'details' ? '[data-act="ob-sel-details"]' : 'ob-q-text';
+    render();
+  }
+  function personName(id) { var x = (ctx.data.people || []).filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   /* Dragging a step or a part: the drop lines take no room, so nothing moves while aiming. The line nearest the pointer that
      can take it lights up and says where it will land. The keyboard does the same with Alt+Up / Alt+Down (steps) or by
      choosing a part and the arrow keys, and the side form has Move up / Move down. */
@@ -3319,7 +3363,7 @@
     if (histWrite(false, c.hash, H.pos, c.f)) H.cur = { n: H.pos, hash: c.hash, f: c.f };
   }
   function refuseFor(dirty) {
-    say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
+    say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
@@ -3758,7 +3802,29 @@
     'ob-place-cancel': function () { cancelPlacing(); },
     'ob-part-clear': function () { state.obQ = ''; state.focus = state.overlay && state.overlay.obParts ? null : 'ob-part-q'; if (state.overlay) state.overlayFocus = '#ob-part-q2'; render(); },
     'ob-parts-open': function () { var p = currentProcess(); if (!p) return; state.overlayFocus = '#ob-part-q2'; openOverlay({ obParts: true, html: function () { return V.obPartsSheet(ctx, currentProcess() || p); } }); },
-    'ob-ask': function (id) { var s = state.obSel; if (!s) return; state.obAsk = { kind: id === 'track' ? 'track' : 'phase', key: s.key, track: s.track }; state.focus = 'ob-ask-go'; render(); },
+    'ob-ask': function (id) {
+      var s = state.obSel; if (!s) return;
+      if (id === 'questions') { if (s.kind !== 'questions') return; state.obAsk = { kind: 'questions', key: s.key }; }
+      else if (isWhole(s)) return;
+      else state.obAsk = { kind: id === 'track' ? 'track' : 'phase', key: s.key, track: s.track };
+      state.focus = 'ob-ask-go'; render();
+    },
+    'ob-q-remove': function () {
+      var s = state.obSel, a = state.obAsk; if (!s || s.kind !== 'questions' || !a || a.kind !== 'questions') return;
+      var res = builderEdit({ op: 'removeQuestions' }, null, 'removed the Questions section'); if (!res) return;
+      state.obSel = null; state.obAsk = null;
+      sayUndo('Removed the Questions section.' + (res.later ? ' Flightdeck now reads the ' + (res.later === 1 ? 'phase' : res.later + ' phases') + ' after it: see Checks.' : ''));
+      state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
+    },
+    'ob-sel-details': function (id, b) { obSelWhole('details', b && b.dataset && b.dataset.focus); },
+    'ob-sel-questions': function () { obSelWhole('questions'); },
+    'ob-meta-add': function (key) { if (key !== 'roles' && key !== 'context') return; var bid = key === 'roles' ? 'ob-add-role' : 'ob-add-ctx', v = val(bid); if (!String(v).trim()) { state.fieldErr = { id: 'ob', field: bid, msg: 'Type a name first.' }; state.focus = '#' + bid; render(); return; } builderField(bid, v); },
+    'ob-meta-del': function (id, b) {
+      var key = b && b.dataset && b.dataset.key, s = state.obSel; if ((key !== 'roles' && key !== 'context') || !s || s.kind !== 'details') return;
+      var bid = key === 'roles' ? 'ob-add-role' : 'ob-add-ctx', mark = key === 'roles' ? '@' : '^';
+      var res = builderEdit({ op: 'meta', key: key, set: { remove: String(id) } }, bid); if (!res || res.same) return;
+      sayUndo('Removed ' + mark + id + '.'); state.focus = '#' + bid; render();
+    },
     'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
     'ob-del-track': function (how) {
       var s = state.obSel, p = currentProcess(); if (!s || s.kind !== 'track' || !p) return;
@@ -3782,9 +3848,9 @@
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
-      state.focus = !s ? 'ed-h' : s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
+      state.focus = !s ? 'ed-h' : selFocus(s);
       render();
     },
     'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
@@ -4739,9 +4805,9 @@
     }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, true); scheduleRender(); }
     /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
-    if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+)$/.test(e.target.id || '') && state.processId) {
+    if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx)$/.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
-      var differs = norm(e.target.value) !== norm(fieldApplied(e.target.id)), was = !!state.obPending;
+      var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) dropPending();
       if (was !== !!state.obPending) scheduleRender();
     }
@@ -4800,7 +4866,7 @@
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
@@ -4958,7 +5024,7 @@
     var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
     if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
-      say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first (Enter applies it), then go there.' : 'Finish or cancel this first.', 'warn');
+      say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
       state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
     }
     if (state.overlay) closeOverlay();

@@ -1514,6 +1514,27 @@ rule('Preview keeps lanes as labeled groups, and keeps each step\'s labels and i
   assert.ok(/<div class="g"><span class="ic"[^>]*>.*?<\/span><span class="pv-gate-copy">Gate: Deployed · approves <code>\^commit<\/code> running in \^environment<\/span><\/div>/.test(html), 'the gate as one sentence');
 });
 
+rule('Draft editor: Checklist details, a step\'s note and the Questions panel escape everything from the files', () => {
+  const { ctx, state } = partsSetup();
+  const evil = '"><img src=x onerror=alert(1)>';
+  ctx.data.people = [{ id: 'person-a', name: '<b>A</b>', initials: 'A' }, { id: evil, name: evil, initials: 'X' }, { id: 'constructor', name: 'C', initials: 'C' }];
+  state.editor.text = ['---', 'process: release', 'title: T', 'owner: ' + evil, 'roles: <i>r</i>', 'context: </textarea><svg>', '---', '',
+    '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', '  > </textarea><script>alert(1)</script>', '',
+    '## Questions', '</textarea><script>q()</script>', ''].join('\n');
+  state.insTab = 'selected';
+  const views = [];
+  state.obSel = { pid: 'release', kind: 'details', key: ':details' }; views.push(V.process(ctx));
+  state.obSel = { pid: 'release', kind: 'step', key: 'one' }; views.push(V.process(ctx));
+  state.obSel = { pid: 'release', kind: 'questions', key: ':questions' }; state.obAsk = { kind: 'questions', key: ':questions' }; views.push(V.process(ctx));
+  views.forEach((html, i) => {
+    assert.ok(!/<img src=x|<script>|<svg>|<i>r<\/i>|<b>A<\/b>/.test(html), 'view ' + i + ' has no markup from the files');
+    assert.strictEqual((html.match(/<\/textarea>/g) || []).length, (html.match(/<textarea/g) || []).length, 'view ' + i + ': every textarea closes once');
+  });
+  assert.ok(/<option value="person-a">&lt;b&gt;A&lt;\/b&gt;<\/option>/.test(views[0]) && !/<option value="constructor"/.test(views[0]), 'people: escaped, reserved IDs not offered');
+  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000">\n&lt;\/textarea&gt;&lt;script&gt;/.test(views[1]));
+  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000">\n&lt;\/textarea&gt;&lt;script&gt;q\(\)/.test(views[2]) && /data-act="ob-q-remove" id="ob-ask-go">Remove section<\/button>/.test(views[2]));
+});
+
 rule('Draft editor: empty and nothing-selected states say what to do next', () => {
   const { ctx, state } = partsSetup();
   state.insTab = 'selected';
