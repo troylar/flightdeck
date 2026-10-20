@@ -8,7 +8,7 @@ notes and the contract baselines (src/baselines.json) are inlined. Also regenera
 import base64, datetime, json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent
-CORE = ["core/util.js", "core/envelope.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/run.js", "core/corrections.js", "core/followups.js", "core/insights.js", "core/signature.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/people.js", "core/health.js", "core/connection.js", "core/setup.js", "core/search.js", "core/sha256.js", "core/zip.js", "core/evidence.js", "core/plans.js", "core/requests.js", "core/appjson.js", "core/proposals.js"]
+CORE = ["core/util.js", "core/envelope.js", "core/types.js", "core/jira.js", "core/map.js", "core/outline.js", "core/timeline.js", "core/publish.js", "core/pins.js", "core/run.js", "core/corrections.js", "core/followups.js", "core/insights.js", "core/signature.js", "core/skills.js", "core/attach.js", "core/contract.js", "core/people.js", "core/health.js", "core/connection.js", "core/setup.js", "core/search.js", "core/sha256.js", "core/zip.js", "core/evidence.js", "core/plans.js", "core/requests.js", "core/appjson.js", "core/proposals.js"]
 # The whole of storage/repo.js, once, in its own block between core and app: `flightdeck export` runs core and storage from
 # this file, in node:vm, without the screens. fs.js (the browser's folder access) stays with the app.
 STORAGE = ["storage/repo.js"]

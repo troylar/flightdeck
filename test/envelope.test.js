@@ -27,12 +27,13 @@ rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen 
   E.FROZEN.forEach(f => assert.ok(E.FEATURE.test(f)));
 });
 
-/* Slice 2, part 1: phase and gate notes and screenshots. Only these are registered; every other 2.0 feature stays refused (review #12). */
-const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'];
-rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know phase-notes, phase-shots and gate-shots, nothing else does', () => {
-  const want = { 'flightdeck-checklist': { 2: PART1 }, 'preflight-publication': { 2: PART1 }, 'preflight-run': { 3: PART1 } };
+/* Slice 2, part 1: phase and gate notes and screenshots; part 2: pins. Only these are registered; every other 2.0 feature stays
+   refused (review #12). */
+const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']);
+rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know the notes, screenshots and pins features, nothing else does', () => {
+  const want = { 'flightdeck-checklist': { 2: PART2 }, 'preflight-publication': { 2: PART2 }, 'preflight-run': { 3: PART2 } };
   Object.keys(E.FAMILIES).forEach(f => Object.keys(E.FAMILIES[f].majors).forEach(m => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[m]), (want[f] || {})[m] || [], f + '/' + m)));
-  ['typed-details', 'typed-evidence', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions'].forEach(x => {
+  ['typed-details', 'typed-evidence', 'staged', 'test-run', 'extensions'].forEach(x => {
     no('preflight-publication', { format: 'preflight-publication/2', features: [x] }, 'newer', '2.0');
     no('preflight-run', { format: 'preflight-run/3', features: [x] }, 'newer', '2.0');
   });
@@ -70,12 +71,12 @@ rule('Legacy spellings are the envelope: every 1.x record reads as its family\'s
 rule('An unknown major is refused as newer, naming the version the 2.0 contract gives it', () => {
   no('preflight-publication', { format: 'preflight-publication/3' }, 'newer', '');
   no('preflight-run', { format: 'preflight-run/4' }, 'newer', '');
-  no('flightdeck-plan', { format: 'flightdeck-plan/2' }, 'newer', '2.0');
-  no('flightdeck-plan-status', { format: 'flightdeck-plan-status/2' }, 'newer', '2.0');
+  no('flightdeck-plan', { format: 'flightdeck-plan/3' }, 'newer', '');
+  no('flightdeck-plan-status', { format: 'flightdeck-plan-status/3' }, 'newer', '');
   no('flightdeck-validation', { format: 'flightdeck-validation/2' }, 'newer', '2.0');
   no('flightdeck-step-type', { format: 'flightdeck-step-type/2' }, 'newer', '2.0');
   no('flightdeck-types', { version: 3 }, 'newer', '2.0');
-  no('flightdeck-skill', { format: 'flightdeck-skill/2' }, 'newer', '2.0');
+  no('flightdeck-skill', { format: 'flightdeck-skill/3' }, 'newer', '');
   ['flightdeck-stage-decision', 'flightdeck-extension', 'flightdeck-report', 'flightdeck-report-decision'].forEach(f => no(f, { format: f + '/1' }, 'newer', '2.0'));
   no('flightdeck-followup-decision', { kind: 'followup-decision', fv: 2 }, 'newer', '');
   no('flightdeck-correction-decision', { kind: 'correction-decision', dv: 3 }, 'newer', '');
@@ -84,13 +85,13 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   no('flightdeck-people', { format: 'flightdeck-people/2', people: [] }, 'newer');
   no('flightdeck-installed', { format: 'flightdeck-installed/2' }, 'newer');
   assert.strictEqual(E.judge('preflight-run', { format: 'preflight-run/3', features: ['typed-details'] }).why, 'uses typed-details, which this copy doesn\'t understand. Needs Flightdeck 2.0.');
-  assert.strictEqual(E.judge('flightdeck-plan', { format: 'flightdeck-plan/2' }).why, 'was made with a newer Flightdeck (flightdeck-plan/2). Needs Flightdeck 2.0.');
+  assert.strictEqual(E.judge('flightdeck-validation', { format: 'flightdeck-validation/2' }).why, 'was made with a newer Flightdeck (flightdeck-validation/2). Needs Flightdeck 2.0.');
 });
 
 rule('The writer\'s own app version names the version needed (2.1 reading as 2.1), never a version older than 2.0', () => {
   no('preflight-run', { format: 'preflight-run/4', app: '2.1.3' }, 'newer', '2.1');
   no('preflight-run', { format: 'preflight-run/4', app: '1.9.0' }, 'newer', '');
-  no('flightdeck-plan', { format: 'flightdeck-plan/2', app: 'not a version' }, 'newer', '2.0');
+  no('flightdeck-validation', { format: 'flightdeck-validation/2', app: 'not a version' }, 'newer', '2.0');
 });
 
 rule('An unknown feature is refused even when the major is known', () => {
@@ -188,12 +189,13 @@ rule('The committed 2.0 samples and probes are exactly what tools/v2-samples.js 
   Object.keys(want).forEach(p => assert.strictEqual(have[p], want[p], p));
 });
 
-rule('Every 2.0 sample is refused by its family\'s verdict in this copy, and every probe too', () => {
+/* What slice 2 part 2 reads: plan/2 and its decision, an exact skill registration, and the explicit 2.0 run on a /1 version. */
+const PART2_READS = ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skill-registrations/release-notes/sk-aaaa1111.1.w-twozero.json', 'runs/backup/run-e/run.json'];
+rule('Every 2.0 sample this slice doesn\'t build is refused by its family\'s verdict in this copy, every probe too, and the ones it builds are read', () => {
   const t = S.tree('folder');
-  Object.keys(t).filter(p => /\.json$/.test(p) && !/types\.json$|replaced-|presence\//.test(p) && !/^runs\/backup\/run-a\//.test(p)).forEach(p => {
+  PART2_READS.forEach(p => { const fam = E.familyOfPath(p), o = JSON.parse(t[p]); assert.ok(E.judge(fam, o).ok, p); if (fam === 'preflight-run') assert.ok(!PF.run.sanitize(o)._unrunnable, p); });
+  Object.keys(t).filter(p => /\.json$/.test(p) && !/types\.json$|replaced-|presence\//.test(p) && !/^runs\/backup\/run-a\//.test(p) && PART2_READS.indexOf(p) < 0).forEach(p => {
     const fam = E.familyOfPath(p), o = JSON.parse(t[p]);
-    /* run-e (an explicit 2.0 run on a /1 version, slice 2 part 2) lists no feature: its run/3 major is known now, and R.sanitize
-       refuses it by name for the fields this copy doesn't know yet (migrations). */
     const v = fam === 'flightdeck-skill' && o.implements === 'moved' ? { ok: false } : fam === 'preflight-run' && E.judge(fam, o).ok ? { ok: (PF.run.sanitize(o) || {})._needs == null } : E.judge(fam, o);
     assert.ok(!v.ok, p + ' (' + fam + ') must be refused');
   });
@@ -369,8 +371,9 @@ rule('R.create writes preflight-run/3 on a /2 version (features, app, typesHash,
 rule('run/3 is read in full only when everything in it is known: an unknown field, a 2.0 feature this copy doesn\'t have, or an odd payload lists it by name only', () => {
   const two = pubOf(build(DRAFT2)), r3 = JSON.parse(JSON.stringify(R.create(two, { by: 'person-avery', session: 'w', now: '2026-10-20T09:00:00.000Z', app: '2.0.0' })));
   const nameOnly = (o) => { const x = R.sanitize(o); assert.ok(x && x._unrunnable && !Object.keys(x.steps).length && x._needs != null, JSON.stringify(x && x._unrunnable)); };
-  nameOnly(Object.assign({}, r3, { migrations: [] }));
-  nameOnly(Object.assign({}, r3, { pins: { children: {} } }));
+  nameOnly(Object.assign({}, r3, { migrations: [{ path: 'details.ticket' }] }));
+  nameOnly(Object.assign({}, r3, { pins: { children: { a: {} } } }));
+  nameOnly(Object.assign({}, r3, { pins: { reports: {} } }));
   nameOnly(Object.assign({}, r3, { features: ['phase-notes', 'typed-details'] }));
   nameOnly(Object.assign({}, r3, { payload: { map: 'x' } }));
   nameOnly(Object.assign({}, r3, { payload: Object.assign({}, r3.payload, { pins: { children: { a: {} }, skills: {} } }) }));

@@ -101,6 +101,7 @@ A skill can live anywhere (a repo, a shared folder, a local path). `location` is
 - Build only from a version that's signed off (`validations/`), and follow the published checklist, not the draft.
 - On an update, bump the skill's own `version` and set `implements` to the new process version. Never edit `validations/`; sign-offs are people's.
 - Use `/flightdeck-skill-brief <process or skill>` to get the brief.
+- For a version made with Flightdeck 2.0, the brief says so: register the skill with `flightdeck skill register <folder> --from <file>` instead of writing `skills/<name>.json`. Never write or edit `skill-registrations/` by hand; the command is its only writer, and a hand-written file can't be matched.
 
 ## Planning a run
 

@@ -15,6 +15,7 @@ screenshots), so "complete" here means the app will accept the version too.
 """
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -54,6 +55,25 @@ def fnv(units):
 def text_hash(text):
     data = text.encode("utf-16-le", "surrogatepass")
     return fnv(int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2))
+
+
+def _no_constant(name):
+    """JSON.parse refuses NaN, Infinity and -Infinity; so does this."""
+    raise ValueError("not JSON: " + name)
+
+
+def _f(v):
+    """A number as a double, the way JavaScript holds it: too big is infinite, never an error."""
+    try:
+        return float(v)
+    except OverflowError:
+        return float("inf") if v > 0 else float("-inf")
+
+
+def _jsint(digits):
+    """A string of digits as JavaScript's +digits reads it: a double (huge is infinite), never Python's unbounded int."""
+    f = float(digits)
+    return int(f) if math.isfinite(f) and f.is_integer() and abs(f) < 2 ** 53 else f
 
 
 def js_number(x):
@@ -99,7 +119,7 @@ def js_json(v):
     if v is None:
         return "null"
     if isinstance(v, (int, float)):
-        return js_number(float(v))
+        return js_number(_f(v))
     if isinstance(v, str):
         return js_string(v)
     if isinstance(v, list):
@@ -113,6 +133,7 @@ def js_json(v):
 PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
+PINS = {"run.process": {"version": {"kind": "pin"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
 COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
@@ -157,7 +178,7 @@ def js_str(v):
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, (int, float)):
-        return js_number(float(v))
+        return js_number(_f(v))
     if isinstance(v, list):
         return ",".join(js_str(x) for x in v)
     if isinstance(v, dict):
@@ -254,7 +275,7 @@ def parse_map(md):
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
                 rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"type": typ, "text": rest, "fields": {}, "shots": []}
+                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": []}
                 steps.append(step)
             i += 1
             continue
@@ -320,6 +341,9 @@ def field_errors(type_def, fields):
         d = own.get(f) if isinstance(own, dict) and f in own else None
         if not isinstance(d, (dict, list)):
             d = COMMON.get(f)
+        # The 2.0 pins (PF.types.pinDef): version: on a built-in {run.process}, skillVersion: on a built-in {run.skill}.
+        if d is None and isinstance(type_def, dict) and not type_def.get("custom"):
+            d = PINS.get(type_def.get("id") if isinstance(type_def.get("id"), str) else "", {}).get(f)
         if not isinstance(d, dict):
             if d is None:
                 errors.append("has a field \"%s\" that {%s} doesn't use." % (f, tid))
@@ -334,6 +358,10 @@ def field_errors(type_def, fields):
             errors.append("\"%s\" should be a time like 15:00." % f)
         if kind == "duration" and f == "after" and not js_duration(v):
             errors.append("\"after\" should be a duration like 2h or 30m.")
+        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip()):
+            errors.append("\"version\" should be a version number, like 4.")
+        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip()):
+            errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "list" and len(js_list(v)) < 2:
             errors.append("\"%s\" needs at least two choices, separated by commas." % f)
         if kind == "require":
@@ -422,10 +450,11 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["plan"]},
-    "flightdeck-plan-status": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -506,7 +535,7 @@ def newer_why(info, needs):
     if not needs:
         return NEWER
     v = info.get("version")
-    label = "v%d" % int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else "This version"
+    label = "v" + js_number(js_num(v)) if js_num(v) is not None else "This version"
     return label + " needs Flightdeck " + needs + ". This copy shows it but won't run it. Open the team folder's own flightdeck.html."
 
 
@@ -518,8 +547,57 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+HASH8 = re.compile(r"^[0-9a-f]{8}$")
+PIN_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$", re.I)
+
+
+def child_pin_ok(p):
+    """PF.pins.childOk: { process, version, folder, mapHash, typesHash }, the folder numbered as the version."""
+    if not isinstance(p, dict) or set(p) - {"process", "version", "folder", "mapHash", "typesHash"}:
+        return False
+    v, f = p.get("version"), p.get("folder")
+    m = re.match(r"^v(\d+)-[a-z0-9]+$", f) if isinstance(f, str) else None
+    return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}$", p["process"])) and _whole(v)
+            and 1 <= js_num(v) <= 9007199254740991 and bool(m) and float(m.group(1)) == js_num(v) and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
+            and isinstance(p.get("typesHash"), str) and bool(HASH8.match(p["typesHash"])))
+
+
+def skill_pin_ok(p):
+    if not isinstance(p, dict) or set(p) - {"name", "version"}:
+        return False
+    n, v = p.get("name"), p.get("version")
+    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(r"^\S{1,40}$", v))
+
+
+def pins_ok(pins):
+    """PF.pins.shapeOk: { children: { <step>: pin }, skills: { <step>: { name, version } } }."""
+    if not isinstance(pins, dict) or set(pins) - {"children", "skills"}:
+        return False
+    c, k = pins.get("children", {}), pins.get("skills", {})
+    if not isinstance(c, dict) or not isinstance(k, dict):
+        return False
+    return all(PIN_STEP.match(s) and child_pin_ok(p) for s, p in c.items()) and all(PIN_STEP.match(s) and skill_pin_ok(p) for s, p in k.items())
+
+
+def pins_problem(info, parsed):
+    """PF.publish's pinsProblem: a /2 version's pins must be exactly what its version: and skillVersion: lines say."""
+    pins = info["payload"]["pins"]
+    want, have = {"children": {}, "skills": {}}, {"children": {}, "skills": {}}
+    for st in parsed["steps"]:
+        f = st["fields"]
+        if st["type"] == "run.process" and "version" in f:
+            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip()) if re.match(r"^\d+$", f["version"].strip()) else f["version"]}
+        if st["type"] == "run.skill" and "skillVersion" in f:
+            want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(), "version": f["skillVersion"].strip()}
+    for k, p in pins.get("children", {}).items():
+        have["children"][k] = {"process": p.get("process"), "version": p.get("version")}
+    for k, p in pins.get("skills", {}).items():
+        have["skills"][k] = p
+    return "" if have == want else "Its pins don't match its checklist. Edited by hand."
+
+
 def payload_ok(info):
-    """Whether a /2 version's payload is one this copy checks (PF.publish: no pins or extensions yet)."""
+    """Whether a /2 version's payload is one this copy checks (PF.publish: no extensions yet)."""
     p = info.get("payload")
     if not isinstance(p, dict) or set(p.keys()) - {"map", "types", "images", "extensions", "pins"}:
         return False
@@ -529,7 +607,7 @@ def payload_ok(info):
         return False
     if not all(isinstance(v, str) and HEX64.match(v) for v in p["images"].values()) or p["extensions"]:
         return False
-    return all(k in ("children", "skills") and isinstance(v, dict) and not v for k, v in p["pins"].items())
+    return pins_ok(p["pins"])
 
 
 def payload_needs(info):
@@ -542,7 +620,7 @@ def check_publication(folder, name):
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
-        info = json.loads(files["publication.json"])
+        info = json.loads(files["publication.json"], parse_constant=_no_constant)
     except ValueError:
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
@@ -569,7 +647,7 @@ def check_publication(folder, name):
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
     try:
-        types = json.loads(files["types.json"])
+        types = json.loads(files["types.json"], parse_constant=_no_constant)
     except ValueError:
         return "damaged", "types.json is unreadable", info
     if not isinstance(types, dict):
@@ -581,6 +659,10 @@ def check_publication(folder, name):
         why = NEWER + " A step type in it can't be read."
     if why:
         return "unusable", why, info
+    if two:
+        bad = pins_problem(info, parse_map(files["map.md"]))
+        if bad:
+            return "unusable", bad, info
     listed = info.get("images") if isinstance(info.get("images"), dict) else {}
     unlisted = [src for src in shot_sources(parse_map(files["map.md"])) if src not in listed]
     if unlisted:
@@ -596,6 +678,277 @@ def check_publication(folder, name):
     return "complete", "", info
 
 
+# Skills: the one verdict for a skill name (PF.skills.resolve), ported. test/skills-parity.test.js runs a generated matrix of
+# legacy files and revisions through the app, flightdeck skill register and this checker, and fails on any difference.
+REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json$")
+STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "name-mismatch", "revision-refused", "revisions-unlisted", "review"]
+MAX_SKILLS = 500
+
+
+def _str(v, n):
+    return v.strip()[:n] if isinstance(v, str) else ""
+
+
+def js_num(v):
+    """A JSON number as JavaScript holds it (a finite double), or None: not a number, a bool, NaN, or out of range."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    try:
+        f = float(v)
+    except OverflowError:
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _whole(v):
+    f = js_num(v)
+    return f is not None and f.is_integer()
+
+
+def _newer_text(v):
+    return "made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")
+
+
+def check_registration(rel, o, digest):
+    """PF.skills.checkV2: {"name", "id", "rev", "sha"} or {"why"}."""
+    if not isinstance(o, dict):
+        return {"why": "must be a JSON object"}
+    v = judge("flightdeck-skill", o)
+    if not v["ok"]:
+        return {"why": _newer_text(v) if v["kind"] == "newer" else "isn't a skill registration this copy reads"}
+    if v["major"] != 2:
+        return {"why": "isn't a Flightdeck 2.0 registration (format flightdeck-skill/2). Register skills with flightdeck skill register."}
+    m, name, imp, errors, mismatch = REG_PATH.match(rel), _str(o.get("name"), 80), o.get("implements"), [], False
+    if not m:
+        errors.append("its file name isn't skill-registrations/<name>/<id>.<rev>.<window>.json")
+    else:
+        if m.group(1) != name:
+            errors.append("it's in the folder for " + m.group(1))
+            mismatch = True
+        if m.group(2) != o.get("id") or not _whole(o.get("rev")) or int(m.group(3)) != o.get("rev"):
+            errors.append("its file name doesn't say its id and revision")
+            mismatch = mismatch or m.group(2) != o.get("id")
+    if not name:
+        errors.append('needs a "name"')
+    if not isinstance(o.get("id"), str) or not re.match(r"^sk-[a-z0-9]{8}$", o["id"]):
+        errors.append('"id" must be sk- and 8 letters or numbers')
+    rev, seen = o.get("rev"), o.get("seen")
+    if not _whole(rev) or rev < 1 or rev > 999999:
+        errors.append('"rev" must be a revision number from 1')
+    if not (seen is None or (_whole(seen) and seen >= 1 and _whole(rev) and seen < rev)):
+        errors.append('"seen" must be the revision it replaced, or null')
+    pin = None
+    if isinstance(imp, dict) and not set(imp) - {"process", "folder", "mapHash", "typesHash"} and isinstance(imp.get("folder"), str):
+        n = re.match(r"^v(\d+)-", imp["folder"])
+        pin = dict(imp, version=_jsint(n.group(1))) if n else None
+    if not pin or not child_pin_ok(pin):
+        errors.append('"implements" must name the exact version: { process, folder, mapHash, typesHash }')
+    st = o.get("steps")
+    if st is not None:
+        ok = isinstance(st, list) and all(isinstance(x, str) for x in st)
+        steps = [x.strip() for x in st if isinstance(x, str) and x.strip()] if isinstance(st, list) else []
+        if not ok or not steps or len(steps) != len(st) or len(steps) > 200 or not all(STEP_ID.match(x) for x in steps):
+            errors.append('"steps" must be a list of step IDs, or left out for the whole process')
+    if errors:
+        out = {"why": "; ".join(errors)}
+        if mismatch:
+            out["mismatch"] = True
+            if name:
+                out["named"] = name
+        return out
+    return {"name": name, "id": o["id"], "rev": int(rev), "sha": digest}
+
+
+def check_legacy(o, file):
+    """PF.skills.check, as far as matching goes: {"tombstone"}, {"ok", "name"} or {"why"}."""
+    if not isinstance(o, dict):
+        return {"why": "must be a JSON object"}
+    v = judge("flightdeck-skill", o)
+    if not v["ok"]:
+        return {"why": _newer_text(v) if v["kind"] == "newer" else "isn't a skill file this copy reads"}
+    if v["major"] == 2:
+        return {"why": "A Flightdeck 2.0 registration belongs in skill-registrations/. Register it with flightdeck skill register."}
+    if o.get("implements") == "moved":
+        return {"tombstone": True, "name": _str(o.get("name"), 80)}
+    name, errors = _str(o.get("name"), 80), []
+    if not name:
+        errors.append('needs a "name"')
+    if not re.match(r"^([a-z0-9][a-z0-9-]*)@v?(\d+)$", _str(o.get("implements"), 80), re.I):
+        errors.append('"implements" must be <process>@<version>, like release@4')
+    st = o.get("steps")
+    if st is not None:
+        lst = [x for x in st if isinstance(x, str)] if isinstance(st, list) else st.split(",") if isinstance(st, str) else []
+        steps = [x.strip() for x in lst if x.strip()]
+        if (not isinstance(st, (list, str))) or (isinstance(st, list) and len(lst) != len(st)) or not steps or not all(STEP_ID.match(x) for x in steps):
+            errors.append('"steps" must be a list of step IDs, or left out for the whole process')
+        if len(steps) > 200:
+            errors.append('"steps" lists more than 200 steps')
+    if errors:
+        return {"why": "; ".join(errors), "name": name or file[:-5]}
+    return {"ok": True, "name": name or file[:-5]}
+
+
+def _legacy_file(x):
+    """The name a legacy file's file name says (skills/<name>.json), or "" for a stand-in."""
+    if x.get("unlisted"):
+        return ""
+    f = x.get("file") or ""
+    f = f[len("skills/"):] if f.startswith("skills/") else f
+    return f[:-5] if f.lower().endswith(".json") else f
+
+
+def _legacy_recorded(x):
+    """The name a readable legacy file or pointer records, or ""."""
+    return (x.get("name") or "") if (x.get("tombstone") or x.get("ok")) else ""
+
+
+def resolve_skill(name, legacy, revs):
+    """PF.skills.resolve: the one verdict for a skill name."""
+    kinds, reasons = [], []
+
+    def add(k, why):
+        if k not in kinds:
+            kinds.append(k)
+        reasons.append(why)
+    valid = [r for r in revs if "why" not in r]
+    unl = [r for r in revs if "why" in r and r.get("unlisted")]
+    mis = [r for r in revs if "why" in r and not r.get("unlisted") and r.get("mismatch")]
+    bad = [r for r in revs if "why" in r and not r.get("unlisted") and not r.get("mismatch")]
+    misnamed = [x for x in legacy if _legacy_recorded(x) and _legacy_file(x) and _legacy_recorded(x) != _legacy_file(x) and _legacy_recorded(x) != name]
+    for x in misnamed:
+        add("name-mismatch", "skills/" + _legacy_file(x) + ".json records the skill " + _legacy_recorded(x) + ", not " + _legacy_file(x) + ".")
+    if mis:
+        add("name-mismatch", "A revision filed for " + name + " doesn't say the name or id its file says: " + "; ".join(r["file"] + ": " + r["why"] for r in mis) + ".")
+    tombs = [x for x in legacy if x.get("tombstone") and x not in misnamed]
+    lok = [x for x in legacy if x.get("ok") and x not in misnamed]
+    for x in legacy:
+        if not x.get("tombstone") and not x.get("ok"):
+            add("legacy-unreadable" if x.get("unreadable") else "legacy-refused", x["file"] + ": " + x["why"])
+    if unl:
+        add("revisions-unlisted", "Not every revision of " + name + " could be listed: " + "; ".join(r["why"] for r in unl) + " Until they all list, no revision of it, and no legacy file, is current.")
+    if bad:
+        add("revision-refused", "A revision of " + name + " can't be read here: " + "; ".join(r["file"] + ": " + r["why"] for r in bad) + ". Resolve it first; until then no revision is current.")
+    top = None
+    if valid:
+        hi = max(r["rev"] for r in valid)
+        at = sorted((r for r in valid if r["rev"] == hi), key=lambda r: r["file"])
+        top = at[0]
+        if len({r["sha"] for r in at}) > 1:
+            add("review", "Needs review: two registrations of " + name + " at revision " + str(hi) + ".")
+    if valid and lok:
+        add("two", "Two registrations for " + name + "; keep one.")
+    if not valid and tombs:
+        add("arriving", name + " moved to skill-registrations/" + name + "/, and its registration is still arriving. Can't be matched yet.")
+    status = "absent" if not legacy and not revs else "unmatched" if kinds else "current"
+    source = None if status != "current" else "registration" if top else "legacy"
+    return {"name": name, "status": status, "source": source, "rev": top["rev"] if source == "registration" else None,
+            "kinds": kinds, "blocks": any(k in SKILL_BLOCKS for k in kinds), "why": " ".join(reasons), "file": top["file"] if top else None}
+
+
+def _read_json(path):
+    """(object, None), or (None, why) for a file that can't be read or isn't JSON; unreadable says which."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None, "couldn't be read", True, b""
+    try:
+        return json.loads(data.decode("utf-8"), parse_constant=_no_constant), None, False, data
+    except (UnicodeDecodeError, ValueError):
+        return None, "isn't valid JSON", False, data
+
+
+def _list(path):
+    """(names, None), ([], None) for a folder that isn't there, or ([], why) for one that can't be listed: never empty."""
+    if not os.path.lexists(path):
+        return [], None
+    if os.path.islink(path):
+        return [], "is a link, which Flightdeck doesn't follow."
+    try:
+        return sorted(os.listdir(path)), None
+    except OSError as e:
+        return [], "couldn't be listed (" + (e.strerror or str(e)) + ")."
+
+
+def skill_registrations(root):
+    """Every skill name in skills/ and skill-registrations/, through resolve_skill, as the app matches them. What a listing
+    can't show (a folder that can't be listed, a link, files past the first 500) holds the names it would name (PF.skills.held)."""
+    legacy, revs, names = {}, {}, []
+
+    def slot(n):
+        if n not in names:
+            names.append(n)
+    sdir = os.path.join(root, "skills")
+    found, legacy_unlisted = _list(sdir)
+    if legacy_unlisted:
+        legacy_unlisted = "skills/ " + legacy_unlisted
+    files = [f for f in found if f.lower().endswith(".json") and os.path.isfile(os.path.join(sdir, f))]
+    dropped = files[MAX_SKILLS:]
+    for f in files[:MAX_SKILLS]:
+        o, why, unreadable, _ = _read_json(os.path.join(sdir, f))
+        x = {"why": why, "unreadable": unreadable} if why else check_legacy(o, f)
+        x["file"] = "skills/" + f
+        # A file speaks for the name it records and the one its file name says (PF.skills.legacyFor).
+        for n in dict.fromkeys([x.get("name") or f[:-5], f[:-5]]):
+            legacy.setdefault(n, []).append(x)
+            slot(n)
+    rdir = os.path.join(root, "skill-registrations")
+    marks, paths = {}, []
+
+    def mark(n, why):
+        marks.setdefault(n, []).append({"why": why, "unlisted": True, "file": "skill-registrations/" + n + "/"})
+    found, regs_unlisted = _list(rdir)
+    if regs_unlisted:
+        regs_unlisted = "skill-registrations/ " + regs_unlisted
+    for name in found:
+        ndir = os.path.join(rdir, name)
+        if os.path.islink(ndir):
+            mark(name, "skill-registrations/" + name + " is a link, which Flightdeck doesn't follow.")
+            continue
+        if not os.path.isdir(ndir):
+            continue
+        inside, why = _list(ndir)
+        if why:
+            mark(name, "skill-registrations/" + name + "/ " + why)
+        for f in inside:
+            if not f.lower().endswith(".json"):
+                continue
+            if os.path.islink(os.path.join(ndir, f)):
+                mark(name, "skill-registrations/" + name + "/" + f + " is a link, which Flightdeck doesn't follow.")
+            elif os.path.isfile(os.path.join(ndir, f)):
+                paths.append("skill-registrations/" + name + "/" + f)
+    paths.sort()
+    for rel in paths[MAX_SKILLS:]:
+        n = rel.split("/")[1]
+        if not any(m["why"].endswith("a copy reads.") for m in marks.get(n, [])):
+            mark(n, "skill-registrations/" + n + "/ has files past the %d registrations a copy reads." % MAX_SKILLS)
+    for rel in paths[:MAX_SKILLS]:
+        name = rel.split("/")[1]
+        o, why, _, data = _read_json(os.path.join(root, *rel.split("/")))
+        got = {"why": why} if why else check_registration(rel, o, sha(data))
+        got["file"] = rel
+        for n in dict.fromkeys(x for x in [got.get("name") or name, name, got.get("named")] if x):
+            revs.setdefault(n, []).append(got)
+            slot(n)
+    for n, ms in marks.items():
+        revs.setdefault(n, []).extend(ms)
+        slot(n)
+    for f in dropped:
+        slot(f[:-5])
+    out = []
+    for n in names:
+        L, V = list(legacy.get(n, [])), list(revs.get(n, []))
+        if legacy_unlisted:
+            L.append({"why": legacy_unlisted, "unreadable": True, "file": n + ".json"})
+        elif n + ".json" in dropped:
+            L.append({"why": "skills/" + n + ".json wasn't read: skills/ holds more files than a copy reads", "unreadable": True, "file": n + ".json"})
+        if regs_unlisted:
+            V.append({"why": regs_unlisted, "unlisted": True, "file": "skill-registrations/" + n + "/"})
+        out.append(resolve_skill(n, L, V))
+    return out
+
+
 def team_files(root):
     """Basic checks of step-types/ and jira/workflows.json. Flightdeck's process page shows its full verdict."""
     problems, types = [], []
@@ -605,7 +958,7 @@ def team_files(root):
             continue
         try:
             with open(os.path.join(sdir, name), encoding="utf-8") as f:
-                d = json.load(f)
+                d = json.load(f, parse_constant=_no_constant)
         except (OSError, ValueError):
             problems.append({"file": "step-types/" + name, "problem": "isn't valid JSON"})
             continue
@@ -623,7 +976,7 @@ def team_files(root):
     if os.path.isfile(wf):
         try:
             with open(wf, encoding="utf-8") as f:
-                w = json.load(f)
+                w = json.load(f, parse_constant=_no_constant)
             workflows = sorted(w) if isinstance(w, dict) else []
             for t, v in (w.items() if isinstance(w, dict) else []):
                 if not isinstance(v, dict) or not isinstance(v.get("statuses"), list) or not v["statuses"]:
@@ -665,7 +1018,7 @@ def main():
         text = read_text(os.path.join(prop_dir, name)) if name.endswith(".json") else None
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
-            obj = json.loads(text, parse_int=float) if text else None
+            obj = json.loads(text, parse_int=float, parse_constant=_no_constant) if text else None
         except ValueError:
             obj = None
         if not isinstance(obj, dict):
@@ -684,7 +1037,8 @@ def main():
         if fam == "flightdeck-plan" and isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
             plain = {k: v for k, v in obj.items() if not k.startswith("_")}
             plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
-        elif fam == "flightdeck-plan-status":
+        elif fam == "flightdeck-plan-status" and obj.get("status") != "retargeted":
+            # A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision.
             decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same
@@ -720,7 +1074,7 @@ def main():
                 copies = [n for n in names if re.match(r"^run.*\.json$", n, re.I) and n != "run.json"]
                 # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
                 try:
-                    lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}").get("lineage") or []
+                    lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
                 except ValueError:
                     lineage = []
                 for n in names:
@@ -734,6 +1088,7 @@ def main():
                     out.setdefault("receipts", []).append({"run": proc + "/" + rid, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
 
     out["teamFiles"] = team_files(root)
+    out["skills"] = skill_registrations(root)
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
 

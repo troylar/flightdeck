@@ -30,6 +30,23 @@ PF.publish = (function () {
        keeps running a version that needs nothing new. */
     var feats = features(map), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
     var images = opts.images || {}, bytes = opts.imageBytes || {};
+    /* Pins (2.0): version: N on a linked step resolves now to the one usable version numbered N (opts.childProcs: each
+       linked process as listed, { latest, all, clashes, broken }); skillVersion: names the skill version the step expects.
+       Both are frozen in the payload, so every run of this version follows them. */
+    var pins = { children: {}, skills: {} }, pinBlockers = [];
+    M.steps(map).forEach(function (x) {
+      var s = x.step, label = 'Step "' + s.text.slice(0, 40) + '"';
+      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) {
+        var cp = opts.childProcs && Object.prototype.hasOwnProperty.call(opts.childProcs, s.fields.process) ? opts.childProcs[s.fields.process] : null;
+        var got = PF.pins.atVersion(cp, s.fields.process || '?', +s.fields.version);
+        if (got.why) pinBlockers.push(label + ': version: ' + s.fields.version + ' can\'t be pinned: ' + got.why + '.'); else pins.children[s.id] = got.pin;
+      }
+      if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) {
+        if (!String(s.fields.skill || '').trim()) pinBlockers.push(label + ': skillVersion: needs the skill it names (skill:).');
+        else pins.skills[s.id] = { name: String(s.fields.skill).trim(), version: String(s.fields.skillVersion).trim() };
+      }
+    });
+    if (pinBlockers.length) return { blockers: pinBlockers };
     if (feats.length) {
       var missing = Object.keys(images).filter(function (src) { return !bytes[src]; });
       if (missing.length) return { blockers: ['Screenshot ' + missing[0] + ' hasn\'t been read yet. Try publishing again.'] };
@@ -48,7 +65,7 @@ PF.publish = (function () {
     if (feats.length) {
       var imgBytes = {};
       Object.keys(images).forEach(function (src) { imgBytes[src] = bytes[src]; });
-      info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes });
+      info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes, pins: pins });
     }
     /* The corrections this version includes, from PF.corrections.forPublish. Older copies ignore the field (verify reads only
        what it checks), so a version that has it runs everywhere a version without it does. */
@@ -84,19 +101,41 @@ PF.publish = (function () {
   /* The 2.0 features a checklist uses (PF.map.features), which decide its version's format. */
   function features(map) { return M.features(map); }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate' };
+  var FEATURE_NAMES = { 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)' };
   function needs(map) {
     var f = features(map); if (!f.length) return null;
     return { features: f, names: f.map(function (x) { return FEATURE_NAMES[x] || x; }) };
   }
 
   function sha(data) { return PF.sha256.create().update(data).digest(); }
-  /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes } }. Slots
-     for extensions and pins exist and stay empty until the slices that write them. */
+  /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes },
+     pins: { children, skills } } (pins as publish resolved them). The extensions slot stays empty until slice 5. */
   function payload(files) {
-    var images = {}, src = (files && files.images) || {};
+    var images = {}, src = (files && files.images) || {}, pins = files && files.pins ? JSON.parse(JSON.stringify(files.pins)) : {};
     Object.keys(src).forEach(function (p) { images[p] = sha(src[p]); });
-    return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: {}, skills: {} } };
+    return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: pins.children || {}, skills: pins.skills || {} } };
+  }
+  /* Canonical JSON: keys sorted at every level, no spaces. The one way two payloads (or two pins) are compared or hashed, so
+     the order a writer happened to use never matters. */
+  function canonical(v) {
+    if (Array.isArray(v)) return '[' + v.map(canonical).join(',') + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + canonical(v[k]); }).join(',') + '}';
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function payloadHash(p) { return sha(canonical(p)); }
+  /* The pins a checklist's own lines ask for, as publish records them by step: what a /2 version's payload pins must match. */
+  function pinsProblem(info, map) {
+    var p = info.payload && info.payload.pins, want = { children: Object.create(null), skills: Object.create(null) };
+    if (!p) return '';
+    M.steps(map).forEach(function (x) {
+      var s = x.step;
+      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) want.children[s.id] = { process: s.fields.process, version: +s.fields.version };
+      if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) want.skills[s.id] = { name: String(s.fields.skill || '').trim(), version: String(s.fields.skillVersion).trim() };
+    });
+    var have = { children: Object.create(null), skills: Object.create(null) };
+    Object.keys(p.children).forEach(function (k) { have.children[k] = { process: p.children[k].process, version: p.children[k].version }; });
+    Object.keys(p.skills).forEach(function (k) { have.skills[k] = p.skills[k]; });
+    return canonical(have) === canonical(want) ? '' : 'Its pins don\'t match its checklist. Edited by hand.';
   }
   /* The payload of any readable version: a /2 version's own, or the one a /1 version implies from its fingerprints. */
   function payloadOf(info) {
@@ -116,7 +155,7 @@ PF.publish = (function () {
     if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return false;
     if (!HEX64.test(p.map) || !HEX64.test(p.types) || Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return false;
     if (Object.keys(p.extensions).length) return false;
-    return Object.keys(p.pins).every(function (k) { return (k === 'children' || k === 'skills') && isObj(p.pins[k]) && !Object.keys(p.pins[k]).length; });
+    return isObj(p.pins.children) && isObj(p.pins.skills) && PF.pins.shapeOk(p.pins);
   }
   /* The SHA-256 of a version's checklist and step types from their exact bytes ({ 'map.md': bytes, 'types.json': bytes }),
      for verify. The one way a /2 version's files are hashed: it takes bytes only, because a reader's text can drop a
@@ -165,6 +204,8 @@ PF.publish = (function () {
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
     var bad = unrunnable(files['map.md'], types);
     if (bad) return { ok: false, why: bad, info: info, unusable: true };
+    var pinsBad = info.format === FORMAT2 ? pinsProblem(info, M.parse(files['map.md'])) : '';
+    if (pinsBad) return { ok: false, why: pinsBad, info: info, unusable: true };
     /* Every screenshot the checklist shows is part of the version: listed in its record (every 1.x copy lists each one it
        copies) and, for /2, in its payload (which must list the same ones). One that isn't could change unchecked. */
     var listed = isObj(info.images) ? info.images : {}, unlisted = M.shotSources(M.parse(files['map.md'])).filter(function (src) { return !Object.prototype.hasOwnProperty.call(listed, src); });
@@ -231,5 +272,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

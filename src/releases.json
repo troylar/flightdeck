@@ -31,6 +31,42 @@
         "area": "Publishing",
         "title": "The publish panel says when a version needs Flightdeck 2.0",
         "now": "When a checklist uses something new in 2.0, the publish panel names it and says what that means: teammates on Flightdeck 1.21 or earlier see the version but can't run it. A checklist that uses nothing new publishes as before, and every teammate runs it."
+      },
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Run an exact version of another checklist",
+        "now": "A {run.process} step can say version: N, and a run made with Flightdeck 2.0 follows the version it started with for every linked run, even after a newer one is published. If that version can't be used, the step says why instead of starting another one.",
+        "before": "A linked run always started on the latest version.",
+        "where": "Checklists and the run screen"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Continue an older run with Flightdeck 2.0",
+        "now": "When a run made before 2.0 reaches a step whose linked checklist needs Flightdeck 2.0, it offers Start it as a Flightdeck 2.0 run. The old step is marked Continued in run <key>, which teammates on older copies read too.",
+        "before": "An older run could start a linked run older copies couldn't open."
+      },
+      {
+        "kind": "new",
+        "area": "Plans",
+        "title": "Plans that start on an exact version",
+        "now": "A plan for a version made with Flightdeck 2.0 starts on that version and nothing else. If it can't be used, the plan asks, and Start on vN instead switches it on purpose.",
+        "before": "A plan fell back to the latest version by itself."
+      },
+      {
+        "kind": "new",
+        "area": "Skills",
+        "title": "Register skills with flightdeck skill register",
+        "now": "flightdeck skill register writes the skill's registration for a version made with Flightdeck 2.0, and a {run.skill} step can say skillVersion: to expect one. Checking the step records which registration was current, with a warning if it isn't the expected one.",
+        "before": "Skills were registered by hand in skills/<name>.json."
+      },
+      {
+        "kind": "improved",
+        "area": "Evidence",
+        "title": "Evidence checks pins and the published payload",
+        "now": "Evidence for a run made with Flightdeck 2.0 checks that its version's pins and payload match what was published, and step fingerprints include the version each step runs.",
+        "before": "Pins weren't part of the evidence."
       }
     ]
   },

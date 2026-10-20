@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 python3 build.py
 node test/rules.test.js
 node test/envelope.test.js
+node test/pins.test.js
 node test/insights.test.js
 node test/outline.test.js
 node test/timeline.test.js
@@ -19,6 +20,8 @@ node test/shots-app.test.js
 node test/compat.test.js
 node test/compat-bridge.test.js
 node test/compat-formats.test.js
+node test/compat-pins.test.js
+node test/skills-parity.test.js
 node test/build.test.js
 node test/readers.test.js
 node test/cli.test.js

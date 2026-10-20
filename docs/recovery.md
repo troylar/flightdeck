@@ -256,3 +256,43 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 **What it means:** some computers still run an older copy. Copies from 1.11.1 on refuse files they can't read and show them by name. Copies older than 1.11.1 (1.10.0 and 1.11.0) can't tell: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as if they could run it.
 
 **What to do:** move every computer to the newest Flightdeck in the team folder before anyone records on a Flightdeck 2.0 version (see [Updating Flightdeck](updating.md)). If an older window said it couldn't save, re-enter that change (see [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save)).
+
+## A skill can't be matched
+
+**What you see:** on a process page or Home, a skill marked "can't be matched", with one of these:
+
+- "Two registrations for release-notes; keep one (skills/release-notes.json and skill-registrations/release-notes/…)."
+- "Needs review: two registrations of release-notes at revision 3 (…). Keep one, then register it again."
+- "A revision of release-notes can't be read here: … Resolve it first; until then no revision is current."
+- "release-notes moved to skill-registrations/release-notes/, and its registration is still arriving. Can't be matched yet."
+- "Can't be matched: built from release v4 (v4-abcd1234), which isn't in this folder." (or: another folder has that number, two folders do, its files don't match what was pinned, or it can't be used here).
+
+**What it means:** Flightdeck 2.0 matches a skill to the exact version it was built from, never to a number and never to the latest. When it can't tell which registration is the skill's, or the version it names isn't the one in the folder, it says so instead of guessing. Nothing about the skill itself changed.
+
+**What to do:**
+
+- **Two registrations:** a skill registered with `flightdeck skill register` replaces its old `skills/<name>.json` with a pointer. If the old file came back (a OneDrive copy, a restore), delete it, or register the skill again, which turns it back into a pointer.
+- **A revision can't be read here:** a revision made with a newer Flightdeck, or a damaged or misnamed file, is in `skill-registrations/<name>/`. If it says a newer Flightdeck, update Flightdeck; otherwise delete or fix that file. `flightdeck skill register` refuses until then, so it never registers past it.
+- **Not every revision could be listed:** `skills/`, `skill-registrations/` or `skill-registrations/<name>/` can't be listed (a permissions error, a link, or a folder still syncing), or holds more registrations than a copy reads. Fix the folder's permissions or let it finish syncing, and remove registrations nobody uses. Until it lists in full, no revision of the skill is current and `flightdeck skill register` refuses.
+- **Name mismatch:** `skills/<name>.json` records another skill's name, or a file in `skill-registrations/<name>/` says another name or id than its folder or file name. Rename the file to the name it records (or fix the name inside it). Until then `flightdeck skill register` refuses, so it never replaces another skill's file.
+- **Needs review:** two computers registered the skill at the same time. Compare the two files in `skill-registrations/<name>/`, delete the wrong one, then register again so the current revision is clear.
+- **Still arriving:** wait for OneDrive to finish syncing `skill-registrations/`. If it never arrives, register the skill again.
+- **The version isn't there:** if the version folder is still syncing, wait. If it was deleted or replaced, rebuild or check the skill against a version in the folder and register it again with that version's folder.
+
+**What not to do:** don't write or edit files in `skill-registrations/` by hand, and don't change a pointer in `skills/` back to a version number: older copies of Flightdeck would then match it to whatever has that number. `flightdeck skill register` is the only way to write a registration.
+
+## A plan or a linked run won't start on its version
+
+**What you see:** "This plan starts on Release v3 (v3-…), which can't be used here: …. It won't start on another version by itself." on a planned run, or "This step runs Check in code v4, which can't be used here: …" on a step that starts another process.
+
+**What it means:** the plan, or the version of the checklist, names one exact version, and that version folder is missing, replaced by another folder with the same number, published twice under that number, or damaged. Flightdeck 2.0 never quietly starts the latest instead.
+
+**What to do:** if the folder is still syncing, wait and refresh. For a plan, if the version is really gone, choose **Start on v6 instead**: that switch is recorded in the team folder, and the plan then starts on that version on every computer. For a linked step, publish a new version of the checklist whose `version:` names a version that's in the folder, or start a new run. If two folders have the same number, delete the one that's wrong (see [A file can't be read](#a-file-cant-be-read)).
+
+## A step says "Continued in run"
+
+**What you see:** a step that starts another process is Blocked, "Continued in run release/…", in a run made with an older Flightdeck, and Reopen says it continues in that run.
+
+**What it means:** the other process's newest version needs Flightdeck 2.0, which a run made with Flightdeck 1.x can't follow. Someone chose **Start it as a Flightdeck 2.0 run**: a new run of the same version, with the same details and roles and no answers, which starts the other process on its exact version. The old run stays as it was, readable by every copy.
+
+**What to do:** carry on in the new run. End the old one when you're ready (Cancelled, with a note pointing to the new run, is usual).

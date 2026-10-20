@@ -9,9 +9,11 @@ const ROOT = path.join(__dirname, '..');
 /* The checked readers: a value that reaches one of these first is judged before it's read. */
 const CLEANERS = ['R.sanitize', 'R.cleanCopy', 'R.cleanArchive', 'R.isPlaceholder', 'R.repairs', 'R.unexplained', 'PF.run.sanitize', 'PF.people.clean', 'PF.people.verdict', 'P.verify',
   'PF.publish.verify', 'cleanDecision', 'F.verdict', 'PF.followups.verdict', 'PF.corrections.verdict', 'PP.check', 'PP.cleanRecord', 'PF.proposals.cleanRecord', 'PP.cleanPresence', 'CN.clean',
-  'TL.cleanEntry', 'PF.types.checkCustom', 'PF.skills.check', 'PF.jira.check', 'PF.contract.cleanInstalled', 'PF.plans.clean', 'PF.skills.cleanValidation', 'cleanNote', 'E.notesFile', 'P.newerOf', 'U.drift', 'fuDrift', 'ok', 'noteOf'];
+  'TL.cleanEntry', 'PF.types.checkCustom', 'PF.skills.check', 'PF.skills.checkV2', 'PF.skills.registration', 'PF.jira.check', 'PF.contract.cleanInstalled', 'PF.plans.clean', 'PF.skills.cleanValidation', 'cleanNote', 'E.notesFile', 'P.newerOf', 'U.drift', 'fuDrift', 'ok', 'noteOf'];
 /* Raw consumers, by a piece of the line, with why they may read what they parse. */
 const RAW = [
+  { file: 'bin/flightdeck.js', has: "o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input.buf));", why: 'skill register reads the name and process only to choose which files to load; PF.skills.registration checks the whole input before anything is written' },
+  { file: 'src/core/run.js', has: 'snapshot: JSON.parse(text)', why: 'a copy of a skill snapshot this function just checked and wrote out itself (at most 2 KB), not a file' },
   { file: 'src/storage/repo.js', has: "var o = json(text); if (!o || typeof o !== 'object') return '\\u0000' + text;", why: 'compares two saves of one run by their bytes, never reads a field for meaning' },
   { file: 'src/storage/repo.js', has: 'types: json(tj)', why: 'a copy of a run\'s types this window already sanitized (intern), not a file' },
   { file: 'src/storage/repo.js', has: "readJson(fs, 'runs/' + i.name)", why: 'v0.1 runs (preflight-run/1): the legacy lister checks the format before reading a field' },
@@ -48,7 +50,8 @@ const RAW = [
   { file: 'src/core/publish.js', has: "info = files['publication.json'] ? JSON.parse(", why: 'P.verify itself: shape, then the envelope, before any other field' },
   { file: 'src/core/publish.js', has: "types = JSON.parse(files['types.json'])", why: 'P.verify itself: types go through T.understood' },
   { file: 'src/core/evidence.js', has: 'var n = json(l);', why: 'E.notesFile: lines kept as written for the pack page, each note then through cleanNote' },
-  { file: 'src/core/evidence.js', has: 'json(types)', why: 'Evidence compares step types as data (canonical), never by meaning' }
+  { file: 'src/core/evidence.js', has: 'json(types)', why: 'Evidence compares step types as data (canonical), never by meaning' },
+  { file: 'src/core/evidence.js', has: 'json(info)', why: 'Evidence compares a run/3 payload and pins as data (P.payloadHash, canonical); the version itself is checked by P.verify in the same pack' }
 ];
 /* Every JavaScript file in src/ and bin/: a new reader anywhere is in scope. */
 function files() {

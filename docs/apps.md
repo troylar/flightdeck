@@ -140,6 +140,8 @@ Each step: `id` (stable across versions; keep these in your app's settings), `te
 
 Each planned run: `id`, `process`, `title`, `version`, `when`, `by`, `created`, `note`, `details`, `roles` (role to person ID), `status` (`pending`, `accepted`, `declined`, `conflicting` when two decisions disagree, including a plan started twice from two computers, `changed` when the plan was edited after a decision) `run` (the started run's key, once accepted), `copies` (how many files hold this plan: OneDrive keeps both when two computers write it while disconnected; copies that say the same thing are listed once), `copiesDiffer` (`true` when those copies say different things: each is listed, and the app starts neither until a person deletes one), `requestedBy` (`name` and `version` of the tool that asked for it with `flightdeck plan request`, by its own account, or `null` for a plan a person or an assistant wrote), `startsOn` (`version` and `folder` a person starting it now gets, as the app picks it, or `null` when the process has no usable version) and `versionMissing` (`true` when the plan names a version the folder doesn't have, so the app would start it on the latest instead). When any of the process's versions couldn't be read, both are `null`: unknown, never claimed missing. A `version` that isn't a version number (like `v3` or `1.5`) makes the plan `malformed`.
 
+A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `format` instead of `kind`, and `pin: { folder, version, mapHash, typesHash }` instead of `version`) and the decisions on it (`flightdeck-plan-status/2`, which adds `retargeted` with `to: { folder, version }`, a person's explicit "Start on v6 instead") are named as problems, `newer`, with contract 1: it shows only what Flightdeck 1.x reads. Such a plan never starts on anything but its own folder or the one a person switched it to; a missing folder, another folder with the same number, or two folders with that number make the app ask.
+
 ### run
 
 `{ "run": {...} }`: everything a run has in `runs`, plus:
@@ -339,3 +341,29 @@ Exit codes: `0` written or proposed; `1` usage, `missing-base`, `too-big` or `fa
 **What it may write:** only `maps/drafts/<process>.md` (a direct save), `proposed/<process>/<operation>.json`, `history/drafts/<process>/agent-<operation>.jsonl`, and, when a direct save continued from your own pending proposal, one decision `proposed/<process>/<that proposal>.<operation>.<rev>.json` with `status` `replaced`, so it isn't offered again, never through a link and never outside the folder. It never writes or deletes anything in `presence/`, and never changes a proposal, attempt or decision once written.
 
 **Known limits.** Who has a draft open is what this computer's copy of the folder shows: another computer's editor may arrive late (seconds to minutes over OneDrive), and a tab in the background may stop saying it's there. A shared folder has no atomic compare-and-swap, so a hand edit, an older copy of Flightdeck or a direct file write that lands between the final compare and the write can still be replaced, exactly as in 1.18. A proposal is never lost. Flightdeck 1.19 doesn't merge: a proposal applies only when it starts from the draft exactly as it is. "Within a few seconds" holds on one computer (the editor looks every 2 seconds); across computers it adds OneDrive's sync time, which has no bound. Two computers with the same draft open can each apply the same proposal once before their files sync (it then shows **Applied twice**); to take back an assistant's change in that case, use **Decline** on the process page rather than Undo in the editor.
+
+## Registering a skill (for AI assistants)
+
+Flightdeck 2.0 matches a skill to the exact version it was built from. Registrations live in `skill-registrations/<name>/`, one file per revision, and the command below is the only thing that writes them. Never write a file in `skill-registrations/` by hand.
+
+```
+flightdeck skill register <team folder> --from <registration.json | -> [--json]
+```
+
+The registration is a JSON object of at most 64 KB:
+
+```json
+{ "name": "release-notes", "version": "1.2.0", "location": "https://example.com/skills/release-notes",
+  "implements": { "process": "release", "folder": "v4-abcd1234" },
+  "steps": ["merge", "jenkins"], "description": "Writes the release notes." }
+```
+
+`implements.folder` is the published version folder the skill follows (`publications/<process>/<folder>/`). `steps` (step IDs) is optional: leave it out for the whole process. `description`, `group`, `tags` and `by` are optional too.
+
+**What it checks first, writing nothing if any fails (exit 1):** the fields above; that the folder is a usable version of that process, the only one with its number ("Can't be matched: release v4-abcd1234 …" says which of these it isn't); that every step in `steps` is in that version; that the skill doesn't already have two registrations at the same revision (keep one, then register again); that every revision filed under the skill can be read here (one made with a newer Flightdeck, damaged or misnamed is resolved first: update Flightdeck, or remove that file), and listed: `skills/`, `skill-registrations/` and the skill's own folder must list (a permissions error or a link is refused, never read as empty), and a skill whose files are past the 500 registrations a copy reads is refused too; that no file speaks for the skill under another name (a `skills/<name>.json` that records another skill's name, or a revision whose recorded name or id isn't its folder's or file's: rename or fix it first); and that an existing `skills/<name>.json` is one this copy understands (a skill file of today's shape, or a pointer). A newer, damaged or unreadable `skills/<name>.json` is never replaced.
+
+**What it writes:** one new file, `skill-registrations/<name>/<id>.<rev>.<window>.json` (`flightdeck-skill/2`), created once and never over another file, then read back with the same reader the app uses. The first registration of a name gets a new `id` (`sk-` and 8 letters or numbers) and revision 1; each later one keeps the `id` and adds 1 (`seen` says which revision it replaced). The exact version is recorded with its fingerprints (`mapHash`, `typesHash`). If the skill also has an older registration in `skills/<name>.json`, that file becomes a pointer, `{ "name", "implements": "moved", "movedTo", "id" }`, so older copies of Flightdeck refuse to match it instead of reading a version number.
+
+Prints (with `--json`) `{ contract: "flightdeck-skill/1", app, registered: { path, name, version, id, rev, implements, sha }, tombstone }` (`tombstone`: the `skills/` file it replaced, or null), or `{ contract, app, error: { kind, why } }` with `kind` `usage`, `invalid` or `failed`. Exit codes: `0` registered; `1` anything else. Without `--json` it says the same in a sentence.
+
+**How the app reads registrations.** The current registration of a skill is its highest revision. Two different files at that revision are **Needs review**; a revision this copy can't read (newer, damaged, misnamed), or a folder it can't list in full, holds the whole skill, so no lower revision is ever current past it; a registration beside an older `skills/<name>.json` of the same name is "Two registrations for <name>; keep one"; a pointer whose registration hasn't arrived yet waits. None of these, and no registration whose version is missing, replaced or unusable, is ever shown as current: each says it can't be matched, and why.

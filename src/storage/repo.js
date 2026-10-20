@@ -627,9 +627,10 @@ PF.repo = (function () {
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
-    var top = {};
-    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && i.kind === 'dir') top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
-      loadSkills(fs),
+    var top = Object.create(null);
+    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
+      /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
+      loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }),
@@ -647,8 +648,10 @@ PF.repo = (function () {
       var refused = (r[6].refused || []).slice();
       r[9] = r[9].map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok && c.kind === 'newer') refused.push(PF.envelope.refusal('validations/' + v._file, 'flightdeck-validation', c)); return c.ok ? c.rec : null; }).filter(Boolean);
       r[10].concat(r[11]).forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, u.dir === 'followups' ? 'flightdeck-followup-decision' : u.dir === 'suggestions' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', u)); });
-      r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal('skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
+      r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
+      /* skills/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part that failed. */
+      if (r[5] && r[5].unlisted && !('skills' in failed)) failed.skills = r[5].unlisted;
       var plans = groupPlans(r[6].plans, r[6].statuses);
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
@@ -859,22 +862,73 @@ PF.repo = (function () {
   /* Past these, the first files by name are read and the rest are counted (Folder health reports them), never silently cut. */
   var MAX_TYPES = 100, MAX_SKILLS = 500;
   /* Skill registrations, one file at a time: a file that can't be read, isn't JSON or isn't an object is listed with why. */
-  function loadSkills(fs) {
-    var skipped = 0;
-    return fs.list('skills').then(function (items) {
+  /* Legacy registrations (skills/) and, for this copy's own reading, the exact 2.0 ones (skill-registrations/<name>/, each with
+     the SHA-256 of its bytes), merged into one entry per skill (PF.skills.merge). Reading for other apps with contract 1 keeps
+     1.18's scope: registrations aren't discovered (legacy only). */
+  function loadSkills(fs, legacyOnly, noRegs) {
+    /* For this copy's own reading, a skills/ that can't be listed is unreadable for every name (PF.skills.held), never empty.
+       Reading for other apps (contract 1) keeps 1.18's failure. */
+    var legacy = legacyOnly ? loadLegacySkills(fs) : loadLegacySkills(fs).then(null, function (e) { var l = []; l.skipped = 0; l.unlisted = 'skills/ ' + listWhy(e) + '.'; return l; });
+    return Promise.all([legacy, legacyOnly || noRegs ? Promise.resolve([]) : loadRegistrations(fs)]).then(function (r) {
+      if (legacyOnly) return r[0];
+      var out = PF.skills.merge(r[0], r[1]); out.skipped = r[0].skipped + (r[1].skipped || 0);
+      if (r[0].unlisted) out.unlisted = r[0].unlisted;
+      return out;
+    });
+  }
+  function listWhy(e) { return 'couldn\'t be listed (' + (e && (e.code || e.message) || String(e)) + ')'; }
+  /* Every revision in skill-registrations/ (the first MAX_SKILLS by path). What can't be listed is never left out: the folder
+     itself (list.unlisted), a name's folder, a link (Flightdeck doesn't follow them) or a name whose files are past the limit is
+     an entry { unlisted: true } for that name, which holds it (PF.skills.resolve). opts.name: only that name's folder (reading
+     back what flightdeck skill register wrote). */
+  function loadRegistrations(fs, opts) {
+    var skipped = 0, marks = [], whole = null, only = opts && opts.name;
+    var mark = function (name, why) { marks.push({ skill: null, errors: [why], file: 'skill-registrations/' + name + '/', unlisted: true }); };
+    var list = function (p) { return Promise.resolve().then(function () { return fs.list(p); }); };
+    return list('skill-registrations').then(function (names) {
+      var all = (names || []).filter(function (i) { return !only || i.name === only; });
+      all.filter(function (i) { return i.kind === 'link'; }).forEach(function (i) { mark(i.name, 'skill-registrations/' + i.name + ' is a link, which Flightdeck doesn\'t follow.'); });
+      var dirs = all.filter(function (i) { return i.kind === 'dir'; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+      return Promise.all(dirs.map(function (d) {
+        return list('skill-registrations/' + d.name).then(function (items) {
+          var json = (items || []).filter(function (i) { return /\.json$/i.test(i.name); });
+          json.filter(function (i) { return i.kind === 'link'; }).forEach(function (i) { mark(d.name, 'skill-registrations/' + d.name + '/' + i.name + ' is a link, which Flightdeck doesn\'t follow.'); });
+          return json.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return 'skill-registrations/' + d.name + '/' + i.name; });
+        }, function (e) { mark(d.name, 'skill-registrations/' + d.name + '/ ' + listWhy(e) + '.'); return []; });
+      }));
+    }, function (e) { whole = 'skill-registrations/ ' + listWhy(e) + '.'; return []; }).then(function (lists) {
+      var paths = [].concat.apply([], lists).sort();
+      skipped = Math.max(0, paths.length - MAX_SKILLS);
+      var cut = Object.create(null);
+      paths.slice(MAX_SKILLS).forEach(function (p) { var n = p.split('/')[1]; if (!cut[n]) { cut[n] = true; mark(n, 'skill-registrations/' + n + '/ has files past the ' + MAX_SKILLS + ' registrations a copy reads.'); } });
+      return Promise.all(paths.slice(0, MAX_SKILLS).map(function (path) {
+        var bad = function (why) { return { skill: null, errors: [path + ': ' + why], file: path }; };
+        return Promise.all([fs.read(path), fs.blob(path).then(function (b) { return b ? bytesOf(b) : null; }, function () { return null; })]).then(function (got) {
+          var f = got[0];
+          if (!f || !got[1]) return bad('couldn\'t be read');
+          var o = json(f.text);
+          if (o === undefined) return bad('isn\'t valid JSON');
+          try { return PF.skills.checkV2(o, path, PF.sha256.hex(got[1])); } catch (e) { return bad('couldn\'t be read as a skill registration'); }
+        }, function () { return bad('couldn\'t be read'); });
+      }));
+    }).then(function (list) { list = list.concat(marks); list.skipped = skipped; if (whole) list.unlisted = whole; return list; });
+  }
+  function loadLegacySkills(fs) {
+    var skipped = 0, dropped = [];
+    return Promise.resolve().then(function () { return fs.list('skills'); }).then(function (items) {
       var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-      skipped = Math.max(0, files.length - MAX_SKILLS);
+      skipped = Math.max(0, files.length - MAX_SKILLS); dropped = files.slice(MAX_SKILLS).map(function (i) { return i.name; });
       return Promise.all(files.slice(0, MAX_SKILLS).map(function (i) {
         var bad = function (why) { return { skill: null, errors: ['skills/' + i.name + ': ' + why], file: i.name }; };
         return fs.read('skills/' + i.name).then(function (f) {
-          if (!f) return bad('couldn\'t be read');
+          if (!f) return Object.assign(bad('couldn\'t be read'), { unreadable: true });
           var o = json(f.text);
           if (o === undefined) return bad('isn\'t valid JSON');
           if (!o || typeof o !== 'object' || Array.isArray(o)) return bad('must be a JSON object');
           try { var c = PF.skills.check(o, i.name); c.file = i.name; return c; } catch (e) { return bad('couldn\'t be read as a skill registration'); }
-        }, function () { return bad('couldn\'t be read'); });
+        }, function () { return Object.assign(bad('couldn\'t be read'), { unreadable: true }); });
       }));
-    }).then(function (list) { list.skipped = skipped; return list; });
+    }).then(function (list) { list.skipped = skipped; if (dropped.length) list.dropped = dropped; return list; });
   }
   /* The team's Jira workflows: jira/workflows.json (see core/jira.js). Missing is fine; a broken file is reported. */
   function loadWorkflows(fs) {
@@ -1087,7 +1141,35 @@ PF.repo = (function () {
   }
 
   /* Write the map and types first and the publication record last, so a half-synced publication is never mistaken for a complete one. */
+  /* The processes a draft pins with version: (2.0), read from the folder as the app lists them ({ latest, all, clashes,
+     broken }), so publish.build resolves each pin to exactly one usable folder. */
+  function childProcsFor(fs, parsed) {
+    var names = [];
+    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.version != null && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
+    var out = Object.create(null);
+    return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
+  }
+  /* One process's versions, as the app lists them ({ latest, all, clashes, broken }), or null when none is there. One whose
+     folder can't be listed is { unlisted: why } with no versions, which every pin lookup refuses with that reason. */
+  function readProcess(fs, name) {
+    if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(name)) return Promise.resolve(null);
+    var unlisted = null;
+    return Promise.resolve().then(function () { return fs.list('publications/' + name); }).then(function (vers) {
+      return Promise.all((vers || []).filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, name, v.name); }));
+    }, function (e) { unlisted = 'publications/' + name + '/ ' + listWhy(e); return []; }).then(function (pubs) {
+      if (unlisted) return { latest: null, all: [], clashes: [], broken: [], unlisted: unlisted };
+      if (!pubs.length) return null;
+      var i = P.index(pubs);
+      return { latest: i.latest, all: i.all, clashes: i.clashes, broken: pubs.filter(function (x) { return !x.ok; }) };
+    });
+  }
   function publish(fs, draftMd, opts) {
+    return childProcsFor(fs, PF.map.parse(draftMd)).then(function (kids) {
+      if (Object.keys(kids).length) opts = Object.assign({}, opts, { childProcs: Object.assign({}, kids, opts.childProcs || {}) });
+      return publishWith(fs, draftMd, opts);
+    });
+  }
+  function publishWith(fs, draftMd, opts) {
     var built = P.build(draftMd, opts);
     if (built.blockers) return Promise.resolve(built);
     var parsed = PF.map.parse(draftMd), process = parsed.meta.process, base = 'publications/' + process + '/' + built.folder + '/';
@@ -1185,8 +1267,9 @@ PF.repo = (function () {
     if (!/^plan-[a-z0-9-]{1,100}$/.test(plan.id)) return Promise.reject(new Error('A plan ID is plan- followed by lowercase letters, numbers and dashes.'));
     return saveChecked(fs, 'proposals/' + plan.id + '.json', JSON.stringify(plan, null, 2) + '\n', null, opts);
   }
-  function recordPlanStatus(fs, plan, session, status, runId, by) {
-    var rec = { kind: 'status', proposal: plan.id, proposalHash: plan._hash, status: status, run: runId || null, by: by, at: new Date().toISOString() };
+  /* to: for a plan/2 switched to another version (status retargeted), the exact version folder { folder, version }. */
+  function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
+    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app);
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
   }
 
@@ -1539,7 +1622,13 @@ PF.repo = (function () {
       var alike = g.every(function (p) { return PF.requests.same(p, g[0]); }), files = g.map(function (p) { return p._file; }), allHashes = g.map(function (p) { return p._hash; });
       (alike ? [g[0]] : g).forEach(function (p) {
         var hashes = alike ? g.map(function (x) { return x._hash; }) : [p._hash];
-        var mine = statuses.filter(function (s) { return s.proposal === p.id; });
+        var all = statuses.filter(function (s) { return s.proposal === p.id; });
+        /* A plan/2 switched to another version by a person (plan-status/2, retargeted) for this exact plan: the switch, not a
+           decision. Switches that name different versions ask again. */
+        var moves = all.filter(function (s) { return s.status === 'retargeted' && hashes.indexOf(s.proposalHash) >= 0 && s.to && typeof s.to.folder === 'string'; }), mine = all.filter(function (s) { return s.status !== 'retargeted'; });
+        var to = moves.map(function (s) { return s.to.folder; }).filter(function (f, i, a) { return a.indexOf(f) === i; }).sort();
+        p._retarget = to.length === 1 ? moves.sort(function (a, b) { return String(a.at) < String(b.at) ? 1 : -1; })[0] : null;
+        p._retargetClash = to.length > 1 ? to : null;
         var match = mine.filter(function (s) { return hashes.indexOf(s.proposalHash) >= 0; });
         /* Starts count across every copy of the plan, whatever each copy says: two copies that differ, each started on its own
            computer, are one request started twice. */
@@ -1563,9 +1652,14 @@ PF.repo = (function () {
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only).then(function (props) {
       var plans = [], statuses = [];
       props.forEach(function (p) {
-        var v = PF.plans.clean(p, p._file), path = 'proposals/' + p._file;
-        if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); if (v.kind === 'newer') refused.push(PF.envelope.refusal(path, PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan', v)); return; }
-        if (v.why) { if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; } }
+        var v = PF.plans.clean(p, p._file, !!bad), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
+        if (v.why) {
+          if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; }
+          /* A plan/2 or plan-status/2 that isn't in its format, and any decision that isn't one (a switch without its version
+             among them), is refused with its reason and never kept. A 1.x plan keeps what every 1.x copy did with it. */
+          if (PF.plans.isExact(p) || v.kind === 'status') { refused.push(PF.envelope.refusal(path, fam, { kind: 'malformed', why: v.why })); return; }
+        }
         if (v.kind === 'status') statuses.push(p);
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
@@ -2229,5 +2323,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

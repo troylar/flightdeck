@@ -169,7 +169,12 @@ PF.types = (function () {
       record: (def.record || []).map(function (d) { var c = { name: d.name, label: d.label, kind: d.kind }; if (d.options) c.options = d.options.map(String); if (d.long) c.long = true; return c; }) };
   }
   var ICONS_OK = ['check', 'chat', 'people', 'fork', 'doc', 'hourglass', 'cursor', 'gear', 'merge', 'ticket', 'terminal', 'script', 'spark', 'pipeline', 'nest'];
-  function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name); }
+  /* Pins (2.0): version: on a {run.process} step and skillVersion: on a {run.skill} step. Map lines only, never a field of the
+     built-in type (its frozen definition, and so every version that uses it, stays as 1.x copies know it), never changed
+     during a run; a 1.x copy refuses them as fields its type doesn't have, so a checklist with them can't publish there. */
+  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
+  function pinDef(type, name) { return type && typeof type.id === 'string' && !type.custom && Object.prototype.hasOwnProperty.call(PINS, type.id) ? own(PINS[type.id], name) : undefined; }
+  function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name) || pinDef(type, name); }
   function matches(cond, fields) { return Object.keys(cond).every(function (k) { return String(fields[k] || '').toLowerCase() === cond[k]; }); }
   function options(def, fields) {
     if (def.optionsFrom) return String(fields[def.optionsFrom] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
@@ -193,6 +198,8 @@ PF.types = (function () {
       if (d.kind === 'choice' && !hasOption(d, fields, fields[f])) errors.push('"' + f + '" should be one of: ' + options(d, fields).join(', ') + '.');
       if (d.kind === 'time' && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(fields[f]).trim())) errors.push('"' + f + '" should be a time like 15:00.');
       if (d.kind === 'duration' && f === 'after' && PF.util.duration(fields[f]) == null) errors.push('"after" should be a duration like 2h or 30m.');
+      if (d.kind === 'pin' && f === 'version' && !/^[1-9]\d{0,5}$/.test(String(fields[f]).trim())) errors.push('"version" should be a version number, like 4.');
+      if (d.kind === 'pin' && f === 'skillVersion' && !/^[\w.+-]{1,40}$/.test(String(fields[f]).trim())) errors.push('"skillVersion" should be the skill\'s version, like 1.2.0.');
       if (d.kind === 'list' && list(fields[f]).length < 2) errors.push('"' + f + '" needs at least two choices, separated by commas.');
       if (d.kind === 'require') {
         var names = ((type.record) || []).map(function (r) { return r.name; });

@@ -4,11 +4,15 @@
 
    The 1.21 bridge knows every 1.x format and the names of the 2.0 ones (FROZEN), only to refuse those precisely ("Needs
    Flightdeck 2.0"). Each 2.0 slice registers only the features it implements (review #12): slice 2 part 1 registers phase
-   and gate notes and screenshots (PART1), in checklist/2, publication/2 and run/3; every other 2.0 feature stays refused. */
+   and gate notes and screenshots (PART1), part 2 pins (PART2: pinned-children, pinned-skills), in checklist/2, publication/2
+   and run/3, with plan/2 and its status for exact-folder plans and skill/2 for exact skill registrations; every other 2.0
+   feature stays refused. */
 PF.envelope = (function () {
   'use strict';
   /* The features this copy builds, so the only ones it reads or writes. */
   var PART1 = ['phase-notes', 'phase-shots', 'gate-shots'];
+  /* Slice 2 part 2: pins. version: on a linked step and skillVersion: on a skill step (and run/3's own pins). */
+  var PART2 = PART1.concat(['pinned-children', 'pinned-skills']);
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
 
   /* Every family, with the majors this copy reads and the features it knows in each, its legacy spelling, and whether this
@@ -16,14 +20,14 @@ PF.envelope = (function () {
        legacy.kind: the kind field that marks the family; legacy.field: the field that holds the major (missing = legacyMajor);
        unmarked: a file with no marker at all is major 1 (step types, people.json, skills, types.json entries). */
   var FAMILIES = {
-    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART1 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
-    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART1 }, rewrite: false, future: { 2: '2.0' } },
-    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART1 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
+    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART2 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
+    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART2 }, rewrite: false, future: { 2: '2.0' } },
+    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART2 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
     'flightdeck-step-type': { files: 'step-types/*.json', majors: { 1: [] }, rewrite: true, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0' } },
-    'flightdeck-plan': { files: 'proposals/plan-*.json', majors: { 1: [] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0' } },
-    'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0' } },
+    'flightdeck-plan': { files: 'proposals/plan-*.json', majors: { 1: [], 2: [] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0' } },
+    'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [], 2: [] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-validation': { files: 'validations/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['validation'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-followup-decision': { files: 'followups/<p>/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['followup-decision'], field: 'fv' }, legacyMajor: 1 },
     /* dv 0 (missing) and 1 are decisions from before results were recorded; 2 is today's. */
@@ -33,7 +37,7 @@ PF.envelope = (function () {
     'flightdeck-presence': { files: 'presence/*.json', majors: { 1: [] }, rewrite: true, legacy: { kinds: ['presence'], field: 'pv' } },
     'flightdeck-connection': { files: 'connection/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['connection-probe', 'connection-ack'], field: 'cv' } },
     'flightdeck-people': { files: 'people.json', majors: { 1: [] }, rewrite: true, unmarked: true },
-    'flightdeck-skill': { files: 'skills/*.json (number pins); skill-registrations/<name>/*.json (exact pins, 2.0)', majors: { 1: [] }, rewrite: false, unmarked: true, future: { 2: '2.0' } },
+    'flightdeck-skill': { files: 'skills/*.json (number pins); skill-registrations/<name>/*.json (exact pins, 2.0)', majors: { 1: [], 2: [] }, rewrite: false, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-editor-history': { files: 'history/drafts/**, history/step-types/** lines', majors: { 1: [] }, rewrite: false, legacy: { field: 'v' } },
     'flightdeck-installed': { files: '.flightdeck/installed.json', majors: { 1: [] }, rewrite: true },
     'flightdeck-stage-decision': { files: 'staged/<p>/decisions/*.json', majors: {}, rewrite: false, future: { 1: '2.0' } },
@@ -173,6 +177,6 @@ PF.envelope = (function () {
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
   function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
-  return { FAMILIES: FAMILIES, FROZEN: FROZEN, PART1: PART1, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
+  return { FAMILIES: FAMILIES, FROZEN: FROZEN, PART1: PART1, PART2: PART2, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
     txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();

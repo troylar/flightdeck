@@ -8,6 +8,9 @@ PF.run = (function () {
   function create(pub, o) {
     /* Only a version this copy fully understands can start a run; P.verify already sets the others aside. */
     var two = !!pub.info && pub.info.format === PF.publish.FORMAT2;
+    /* o.explicit: a person chose a Flightdeck 2.0 run on a /1 version (R2-4), the one case a /1 version gets a run/3: a run/2
+       parent's linked child needs it (see continuation). */
+    var explicit = !two && !!o.explicit;
     var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT && !two ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
     var map = pub.map, details = {}, roles = {};
@@ -36,9 +39,33 @@ PF.run = (function () {
       if (env.app) head.app = env.app;
       r = order3(Object.assign(head, r, { format: head.format, typesHash: pub.info.typesHash, payload: JSON.parse(JSON.stringify(pub.info.payload)) }));
     }
-    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); }
+    if (explicit) r = order3(Object.assign({ format: FORMAT3, features: [] }, PF.envelope.semver(o.app) ? { app: o.app } : {}, r, { format: FORMAT3, typesHash: pub.info.typesHash }));
+    /* Pins (2.0): a run/3 follows one fixed set of children, pinned now: the version's own (version: on the step), then the
+       ones the caller resolved at the latest (PF.pins.atStart). A run/2 records none; its format is frozen. */
+    if (two || explicit) {
+      var kids = {}, own2 = two && pub.info.payload && pub.info.payload.pins ? pub.info.payload.pins.children || {} : {};
+      Object.keys(o.pins || {}).forEach(function (k) { if (STEP_ID.test(k) && PF.pins.childOk(o.pins[k])) kids[k] = JSON.parse(JSON.stringify(o.pins[k])); });
+      Object.keys(own2).forEach(function (k) { if (STEP_ID.test(k)) kids[k] = JSON.parse(JSON.stringify(own2[k])); });
+      if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
+    }
+    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && typeof o.parent.folder === 'string' && o.parent.folder) r.parent.folder = o.parent.folder; }
     addLog(r, o.by, o.now, 'Started the run');
     return r;
+  }
+
+  /* A pin's step ID (never __proto__ or another key an object treats specially). */
+  var STEP_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
+  /* A must-understand feature a run/3 now uses, kept in the frozen order. */
+  function addFeature(r, f) { var list = (r.features || []).concat([f]); r.features = PF.envelope.FROZEN.filter(function (x) { return list.indexOf(x) >= 0; }); }
+  /* run/3's pins and migrations sit right before its steps, as in the frozen samples. */
+  function withPins(r) {
+    var out = {};
+    Object.keys(r).forEach(function (k) {
+      if (k === 'pins' || k === 'migrations') return;
+      if (k === 'steps') { if (r.pins) out.pins = r.pins; if (r.migrations) out.migrations = r.migrations; }
+      out[k] = r[k];
+    });
+    return out;
   }
 
   /* A run's checklist, parsed once for every run that shares it: keyed by version folder and fingerprint, and used only
@@ -221,7 +248,8 @@ PF.run = (function () {
   function answer(r, id, rec) {
     if (rec.s === 'blocked' || rec.s === 'recheck' || rec.s === 'na') mark(r, id, rec.s);
     var prev = r.steps[id] || {}, history = (prev.history || []).slice();
-    if (prev.s && prev.s !== 'open') history.push({ s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values });
+    /* A run/3 skill step's earlier answer keeps the registration it observed (skill), so a re-check never loses it. */
+    if (prev.s && prev.s !== 'open') history.push(prev.skill ? { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values, skill: prev.skill } : { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values });
     /* Anything leaving run.json for the archive leaves its mark behind, so readiness never depends on how much history is kept. */
     if (prev.s === 'blocked' || prev.s === 'recheck' || prev.s === 'na') mark(r, id, prev.s);
     if (prev.differently) mark(r, id, 'differently');
@@ -246,12 +274,44 @@ PF.run = (function () {
       throw new Error(childCurrent(r, x.step, cur) ? 'This step is checked when its ' + cur.child.process + ' run completes.' : 'Its ' + cur.child.process + ' run was for different details. Start a new one; this step is checked when it completes.');
     }
     if (values && values._child) { values = Object.assign({}, values); delete values._child; }
+    /* A skill step in a run/3 keeps the registration as observed when it was checked (PF.skills.observed). It doesn't prove
+       which skill ran. A run/2 records nothing new: its format is frozen. */
+    var seen = values && values._skill;
+    if (values && '_skill' in values) { values = Object.assign({}, values); delete values._skill; }
     var chk = checkEvidence(r, x.step, null, Object.assign({}, prev || {}, values || {}));
     if (chk.error) throw new Error(chk.error);
     if (Object.keys(chk.values).length) rec.values = chk.values;
+    if (seen && r.format === FORMAT3 && x.step.type === 'run.skill' && cleanSkill(seen)) { rec.skill = cleanSkill(seen); addFeature(r, 'pinned-skills'); }
     answer(r, id, rec);
     applySets(r, map, x.step, who, now);
     return x;
+  }
+  /* A step's registration snapshot: { id, rev, sha, snapshot } with a snapshot of at most 2 KB, or null. Its rev is a whole
+     number from 1 to 999999, as a registration's is: anything else (Infinity from 1e999) couldn't be saved as it was read. */
+  function cleanSkill(s) {
+    if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(s.id) || typeof s.rev !== 'number' || !isFinite(s.rev) || s.rev < 1 || s.rev > 999999 || Math.floor(s.rev) !== s.rev || typeof s.sha !== 'string' || !/^[0-9a-f]{64}$/.test(s.sha)) return null;
+    var snap = s.snapshot, text = snapOk(snap) ? JSON.stringify(snap) : '';
+    if (!text || text.length > 2048) return null;
+    return { id: s.id, rev: s.rev, sha: s.sha, snapshot: JSON.parse(text) };
+  }
+  /* A registration's snapshot exactly as PF.skills.observed writes it: name and version text, and only text where it has more
+     (the exact pin, step IDs, location, description). Anything else isn't one this copy wrote, so the run is read-only. */
+  function snapOk(n) {
+    var obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); }, txt = function (v, max) { return typeof v === 'string' && v.length <= max; };
+    if (!obj(n) || Object.keys(n).some(function (k) { return ['name', 'version', 'implements', 'steps', 'location', 'description'].indexOf(k) < 0; })) return false;
+    if (!txt(n.name, 80) || !n.name || !txt(n.version, 40)) return false;
+    if (n.implements !== undefined && !(obj(n.implements) && Object.keys(n.implements).every(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) >= 0 && (n.implements[k] == null || txt(n.implements[k], 80)); }))) return false;
+    if (n.steps !== undefined && !(Array.isArray(n.steps) && n.steps.length <= 200 && n.steps.every(function (x) { return txt(x, 60); }))) return false;
+    if (n.location !== undefined && !txt(n.location, 500)) return false;
+    if (n.description !== undefined && !txt(n.description, 300)) return false;
+    return true;
+  }
+  /* What a {run.skill} step expects (skillVersion:) against the registration the team folder holds now, or '' (a warning,
+     never a block). */
+  function skillWarning(r, step, reg) {
+    var want = String(fieldsOf(r, step).skillVersion || '').trim();
+    if (!want || !reg) return '';
+    return reg.version === want ? '' : 'This step expects ' + (reg.name || fieldsOf(r, step).skill) + ' ' + want + '. The team folder registers ' + (reg.version || 'no version') + '.';
   }
   /* Fill in or correct a step's values for this run as they become known: map fields (a Jenkins parameter, the issue)
      and evidence (a PR link) before or after the step is checked. Clarifying never sends anything back for a re-check, but it's logged. */
@@ -320,6 +380,8 @@ PF.run = (function () {
   function clear(r, map, id, who, now) {
     var x = guardStep(r, map, id), prev = r.steps[id];
     if (!prev || prev.s === 'open') return x;
+    /* A run/2 step continued in a 2.0 run stays blocked here: reopening it would start the child this run can't follow. */
+    if (r.format !== FORMAT3 && prev.s === 'blocked' && /^Continued in run /.test(prev.reason || '')) throw new Error('This step ' + prev.reason.charAt(0).toLowerCase() + prev.reason.slice(1) + ', made with Flightdeck 2.0. Open that run, or start it as a Flightdeck 2.0 run again.');
     answer(r, id, { s: 'open' });
     if (prev.s === 'blocked') addLog(r, who, now, 'Unblocked "' + x.step.text + '"');
     return x;
@@ -406,18 +468,28 @@ PF.run = (function () {
   /* ---------- Recording ---------- */
   /* Handing off names the exact revision being passed on (the one this save writes). The new recorder can pick up only once
      that revision has reached their computer, so nobody records on top of a copy that's still syncing. */
-  function handOff(r, toPerson, who, now) {
+  /* links: the child runs this run's steps link to (legacyLinks). A run/2 parent linked to a run/3 child can't change hands
+     in 2.0: the next recorder could be an older copy, which would read the child by name only and settle the step from its
+     outcome alone (review #1). */
+  function refuseLegacy(links) {
+    var bad = (links || []).filter(function (l) { return l && l.legacy; })[0];
+    if (bad) throw new Error(LEGACY_LINK.replace('<step>', bad.text || bad.step));
+  }
+  function handOff(r, toPerson, who, now, links) {
+    refuseLegacy(links);
     r.recorder = { person: toPerson, session: null, handoff: { from: who, rev: (r.rev || 0) + 1, at: now } };
     addLog(r, who, now, 'Handed recording to ' + toPerson);
   }
   function waitingForHandoff(r) { var h = r.recorder.handoff; return !!h && (r.rev || 0) < h.rev; }
-  function pickUp(r, person, session, now) {
+  function pickUp(r, person, session, now, links) {
+    refuseLegacy(links);
     if (waitingForHandoff(r)) throw new Error('The handed-over copy hasn\'t reached this computer yet. OneDrive is still syncing it; try again in a moment.');
     r.recorder = { person: person, session: session };
     addLog(r, person, now, 'Picked up recording at revision ' + (r.rev || 0));
   }
   /* For emergencies. The other computer may still have changes OneDrive hasn't delivered; if it does, they arrive as a conflict copy to review. */
-  function takeOver(r, person, session, now) {
+  function takeOver(r, person, session, now, links) {
+    refuseLegacy(links);
     var from = r.recorder.person;
     r.recorder = { person: person, session: session };
     addLog(r, person, now, 'Took over recording from ' + from + ' at revision ' + (r.rev || 0));
@@ -565,20 +637,45 @@ PF.run = (function () {
   }
 
   /* ---------- Nested processes: a run.process step starts a linked child run ---------- */
-  function linkChild(r, map, stepId, child, who, now) {
+  /* opts (run/3): { run: the child run itself, procOf, findRun }, so the pin is judged by PF.pins.childMatch. */
+  function linkChild(r, map, stepId, child, who, now, opts) {
     /* Linking records a run that already exists, so it's allowed while paused; starting one (in the app) isn't. */
     var x = M.findStep(map, stepId);
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
     if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
-    if (a.child && childCurrent(r, x.step, a) && !a.child.failed) throw new Error('This step already started a run.');
+    var o = opts || {}, pinNow = childPin(r, stepId);
+    /* A link whose run is here and fails the pin doesn't hold the step: a new run on the pin replaces it. One not visible yet
+       (still syncing) still holds it. */
+    var had = pinNow && a.child && typeof o.findRun === 'function' ? o.findRun(a.child.process + '/' + a.child.id) : null, offPin = !!had && !!PF.pins.childMatch(pinNow, had, o.procOf);
+    if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin) throw new Error('This step already started a run.');
+    /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
+    if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
+    /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
+    /* With no pin yet (the child process wasn't published when the run started), the step is pinned to the adopted run's
+       verified version (PF.pins.pinOfRun); one that can't be verified is refused. */
+    if (r.format === FORMAT3) {
+      var use = pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null);
+      if (!use) { var po = PF.pins.pinOfRun(o.run, o.procOf); if (!po.pin) throw new Error(po.why); use = po.pin; child = Object.assign({}, child, { pin: use }); }
+      var pm = PF.pins.childMatch(use, o.run, o.procOf); if (pm) throw new Error(pm);
+    }
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
       if (a.s !== 'open') { answer(r, stepId, { s: 'open' }); a = r.steps[stepId]; }
     }
     a.child = { process: child.process, id: child.id, inputs: child.inputs && typeof child.inputs === 'object' ? Object.assign({}, child.inputs) : childInputs(r, x.step) };
+    /* run/3: the exact version the child runs, and the pin it follows (taken now when the child process wasn't published
+       when this run started). */
+    if (r.format === FORMAT3) {
+      if (typeof child.folder === 'string' && child.folder) a.child.folder = child.folder;
+      if (child.pin && PF.pins.childOk(child.pin) && !(r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId))) {
+        r.pins = r.pins || { children: {} }; r.pins.children = r.pins.children || {};
+        r.pins.children[stepId] = JSON.parse(JSON.stringify(child.pin)); addFeature(r, 'pinned-children');
+        var re = withPins(r); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+      }
+    }
     addLog(r, who, now, 'Started a ' + child.process + ' run for "' + x.step.text + '"');
   }
   /* The run details a child run was started for: the step's ^details and what it carries. If any change, the child no longer counts. */
@@ -615,8 +712,17 @@ PF.run = (function () {
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
   /* What the linked child means for its step: done only if it completed with the same values it was started with; blocked
      (and marked failed, so a new child can replace it) if it ended any other way or its carried values were changed. */
-  function childVerdict(r, step, a, child) {
+  /* The one verdict on whether this child run can stand for the step at all, whatever its details: '' or why not. A run/2
+     parent never takes a child made with Flightdeck 2.0 (it offers a 2.0 run instead); a run/3 takes only a run on its pin
+     (PF.pins.childMatch). Settlement (childVerdict, settleChild) and the step on screen both ask this, so they can't disagree. */
+  function childHeld(r, stepId, child, procOf) {
+    if (!child) return '';
+    if (r.format !== FORMAT3) return isTwo(child) ? LEGACY_CHILD : '';
+    return PF.pins.childMatch(childPin(r, stepId), child, procOf);
+  }
+  function childVerdict(r, step, a, child, procOf) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
+    if (childHeld(r, step.id, child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
@@ -625,11 +731,12 @@ PF.run = (function () {
     return { s: 'done' };
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
-  function settleChild(r, map, id, child, who, now) {
+  function settleChild(r, map, id, child, who, now, procOf) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
+    var held = childHeld(r, id, child, procOf); if (held) throw new Error(held);
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
-    var v = childVerdict(r, x.step, a, child);
+    var v = childVerdict(r, x.step, a, child, procOf);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
     if (v.s === 'done') done(r, map, id, who, now, { _child: child.id });
     else if (a.s === 'blocked') { a.child.failed = true; addLog(r, who, now, v.reason + '; a new run can replace it'); }
@@ -641,6 +748,42 @@ PF.run = (function () {
     if (!child || !child.ended) return null;
     return child.ended.outcome === 'Completed' ? 'done' : 'blocked';
   }
+
+  /* The pin a run/3's {run.process} step follows, or null. */
+  function childPin(r, stepId) { return r && r.format === FORMAT3 && r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId) ? r.pins.children[stepId] : null; }
+  /* The one child-pin verdict (PF.pins.childMatch) for a run/3's step: '' or why the child can't stand for it. */
+  function childPinProblem(r, stepId, c, procOf) { return r && r.format === FORMAT3 ? PF.pins.childMatch(childPin(r, stepId), c, procOf) : ''; }
+  /* A child run made with Flightdeck 2.0 (run/3), or one this copy reads by name only: a run/2 parent never follows it. */
+  function isTwo(child) { return !!child && (child.format === FORMAT3 || (!!child._unrunnable && child._needs != null)); }
+  var LEGACY_CHILD = 'That run was made with Flightdeck 2.0, which an older Flightdeck recording this run would read by name only. Start it as a Flightdeck 2.0 run instead.';
+  var LEGACY_LINK = '"<step>" is linked to a run made with Flightdeck 2.0, which an older Flightdeck would read by name only. Start it as a Flightdeck 2.0 run first.';
+  /* The steps of a run/2 parent linked to a run/3 child (never written by 2.0; a hand-made link): [{ step, text, child, legacy }].
+     findRun(key): a loaded run by process/id. */
+  function legacyLinks(r, findRun) {
+    if (!r || r.format === FORMAT3) return [];
+    var map = mapOf(r), out = [];
+    Object.keys(r.steps || {}).forEach(function (sid) {
+      var a = r.steps[sid], c = a && a.child && findRun(a.child.process + '/' + a.child.id), x = map && M.findStep(map, sid);
+      if (c && isTwo(c) && a.s !== 'done' && a.s !== 'na') out.push({ step: sid, text: x ? x.step.text : sid, child: c, legacy: true });
+    });
+    return out;
+  }
+  /* "Start it as a Flightdeck 2.0 run" (review #1, R2-4): a run/3 on the same /1 version as a run/2 parent whose linked child
+     needs Flightdeck 2.0, chosen by a person. Its details and roles are copied (like Plan another like this), its answers
+     aren't; its children are pinned now (o.pins, from PF.pins.atStart). pub: the old run's own version. */
+  function continuation(old, pub, o) {
+    if (old.format === FORMAT3) throw new Error('This run was already made with Flightdeck 2.0.');
+    if (!pub || !pub.info || pub.info.folder !== old.folder) throw new Error('The new run must use the same version as this one (v' + old.version + ').');
+    var details = {}, roles = {};
+    Object.keys(old.details || {}).forEach(function (k) { details[k] = old.details[k]; });
+    Object.keys(old.roles || {}).forEach(function (k) { roles[k] = old.roles[k]; });
+    var title = String(old.title || pub.map.meta.title).replace(/ \(continued\)$/, '').slice(0, 88) + ' (continued)';
+    var n = create(pub, { id: o.id, title: title, details: details, roles: roles, by: o.by, session: o.session, now: o.now, tz: o.tz, workflows: o.workflows, app: o.app, explicit: true, pins: o.pins });
+    addLog(n, o.by, o.now, 'Continued from run ' + old.process + '/' + old.id + ', made with an older Flightdeck');
+    return n;
+  }
+  /* The old parent's step, once its continuation is saved: Blocked, "Continued in run <key>", an answer every copy reads. */
+  function continued(old, map, stepId, n, who, now) { return block(old, map, stepId, 'Continued in run ' + n.process + '/' + n.id, who, now); }
 
   /* ---------- Across runs: rotation history, and the Flight plan's analytics (an adapter over PF.insights) ---------- */
   function rotation(runs, processId) {
@@ -787,7 +930,8 @@ PF.run = (function () {
   function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
 
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
-  var STEP_STATES = { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }, GATE_STATES = { passed: 1, waived: 1, failed: 1, review: 1 };
+  /* Without a prototype, so a state named like an inherited property (constructor, toString) is never a state. */
+  var STEP_STATES = Object.assign(Object.create(null), { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }), GATE_STATES = Object.assign(Object.create(null), { passed: 1, waived: 1, failed: 1, review: 1 });
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
   function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }
@@ -805,7 +949,9 @@ PF.run = (function () {
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
-  KNOWN.run3 = KNOWN.run + ' features app typesHash payload';
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations';
+  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
   /* Why a run/3 can't be read in full here, or '': a top-level field this copy doesn't know, or a payload it can't check (a pin
@@ -814,15 +960,26 @@ PF.run = (function () {
     var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run3, f) && f[0] !== '_'; })[0];
     if (extra != null) return 'The run has "' + String(extra).slice(0, 40) + '".';
     var p = o.payload, obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); };
-    if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
-    if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
-    if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
-    if (Object.keys(p.extensions).length || Object.keys(p.pins).some(function (k) { return (k !== 'children' && k !== 'skills') || !obj(p.pins[k]) || Object.keys(p.pins[k]).length; })) return 'It pins other versions or holds extensions.';
+    /* Every run/3 says its features and its types fingerprint; one without is no run/3 this copy wrote. */
+    if (!Array.isArray(o.features) || !(typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash))) return 'It doesn\'t say its features and step types as a 2.0 run does.';
+    /* A run/3 on a /1 version (an explicit 2.0 run) has no payload: its version's is implied. */
+    if (p != null) {
+      if (!obj(p) || !(typeof p.map === 'string' && HEX64.test(p.map)) || !(typeof p.types === 'string' && HEX64.test(p.types)) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p.images).some(function (k) { return !(typeof p.images[k] === 'string' && HEX64.test(p.images[k])); })) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p.extensions).length) return 'It holds extensions.';
+      if (!PF.pins.shapeOk(p.pins)) return 'It pins versions in a way this copy doesn\'t read.';
+    }
+    /* Its own pins: children only, each a pin this copy reads. */
+    if (o.pins != null && (!obj(o.pins) || Object.keys(o.pins).some(function (k) { return k !== 'children'; }) || !PF.pins.shapeOk({ children: o.pins.children || {} }))) return 'It pins versions in a way this copy doesn\'t read.';
+    /* Migration records belong to typed data (a later slice): an empty list says there are none. */
+    if (o.migrations != null && !(Array.isArray(o.migrations) && !o.migrations.length)) return 'It has migration records.';
     return '';
   }
   /* The Flightdeck a run/3 this copy can't fully read needs: its writer's own version when that's 2.0 or later, else 2.0. */
   function needs3(o) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof o.app === 'string' ? o.app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
   var MARKS = { blocked: 1, recheck: 1, na: 1, differently: 1 };
+  function folderOk(f) { return typeof f === 'string' && !!PF.publish.versionOf(f); }
   function newer(o) {
     var why = '';
     function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
@@ -835,12 +992,23 @@ PF.run = (function () {
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
-    look(o, o.format === FORMAT3 ? 'run3' : 'run', 'The run');
+    var three = o.format === FORMAT3;
+    look(o, three ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
     look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
     look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
-    look(o.parent, 'parent', 'Its parent run'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
+    look(o.parent, three ? 'parent3' : 'parent', 'Its parent run');
+    /* run/3's own fields are kept exactly as written or the run is read-only: sanitize never drops or rewrites one (a version
+       folder that isn't one, an app that isn't a version, features out of their frozen order). */
+    if (three) {
+      if (!why && obj(o.parent) && o.parent.folder !== undefined && !folderOk(o.parent.folder)) why = 'Its parent run\'s version isn\'t a version folder.';
+      if (!why && o.app !== undefined && !(typeof o.app === 'string' && o.app.length <= 40 && /^\d+\.\d+\.\d+/.test(o.app))) why = 'The version of Flightdeck that wrote it isn\'t a version.';
+      ['features', 'app', 'typesHash', 'payload', 'pins', 'migrations'].forEach(function (k) { if (!why && o[k] === null) why = 'Its "' + k + '" is empty.'; });
+      if (!why && obj(o.pins) && !(obj(o.pins.children) && Object.keys(o.pins.children).length)) why = 'Its pins name no linked runs.';
+      if (!why && Array.isArray(o.features) && JSON.stringify(PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; })) !== JSON.stringify(o.features)) why = 'Its features aren\'t listed as this copy writes them.';
+    }
+    if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
     text(o.details, 'A run detail'); text(o.roles, 'A role');
     if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"'); });
@@ -856,10 +1024,12 @@ PF.run = (function () {
     if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k], w = 'Step "' + k.slice(0, 60) + '"';
       if (!obj(a)) return;
-      look(a, 'step', w); state(STEP_STATES, a.s, w + '\'s state');
-      look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, 'child', w);
+      look(a, three ? 'step3' : 'step', w); state(STEP_STATES, a.s, w + '\'s state');
+      look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
+      if (three && !why && obj(a.child) && a.child.folder !== undefined && !folderOk(a.child.folder)) why = w + '\'s linked run\'s version isn\'t a version folder.';
+      if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
-      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, 'history', w + '\'s history'); if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
+      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
@@ -1092,7 +1262,7 @@ PF.run = (function () {
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
     if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
     if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
-    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); }
+    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
     var ho = o.recorder.handoff;
     if (ho && typeof ho === 'object' && !r.recorder.session) r.recorder.handoff = { from: str(ho.from, 80), rev: Math.max(0, parseInt(ho.rev, 10) || 0), at: isoOrNull(ho.at) };
     (Array.isArray(o.followUps) ? o.followUps.slice(0, 100) : []).forEach(function (f) {
@@ -1109,8 +1279,9 @@ PF.run = (function () {
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
       if (a.values) c.values = values(a.values);
-      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; }
-      if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined }; });
+      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; }
+      if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
+      if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
       r.steps[k] = c;
     });
     Object.keys(o.gates).forEach(function (k) {
@@ -1133,8 +1304,10 @@ PF.run = (function () {
       if (Array.isArray(o.features)) r.features = PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; });
       if (typeof o.app === 'string' && /^\d+\.\d+\.\d+/.test(o.app)) r.app = o.app.slice(0, 40);
       r.typesHash = str(o.typesHash, 16);
-      r.payload = JSON.parse(JSON.stringify(o.payload));
-      r = order3(r);
+      if (o.payload != null) r.payload = JSON.parse(JSON.stringify(o.payload));
+      if (o.pins && o.pins.children && Object.keys(o.pins.children).length) r.pins = { children: JSON.parse(JSON.stringify(o.pins.children)) };
+      if (Array.isArray(o.migrations)) r.migrations = [];
+      r = withPins(order3(r));
     }
     return r;
   }
@@ -1142,9 +1315,9 @@ PF.run = (function () {
   return {
     FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
-    handOff: handOff, pickUp: pickUp, takeOver: takeOver, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
+    handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
   };
 })();

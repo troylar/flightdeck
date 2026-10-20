@@ -179,6 +179,18 @@ PF.evidence = (function () {
       if (shot) add('publication', 'The version is complete and checks out', false, shot);
       else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable || v.needsBytes ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
     }
+    /* A run/3 keeps its version's payload (pins included) and the pins it started with: both checked by the one canonical
+       hash every reader uses (PF.publish.payloadHash), never by key order. */
+    var vi = info == null ? undefined : json(info);
+    if (raw.format === PF.run.FORMAT3 && raw.payload) {
+      if (!vi || typeof vi !== 'object' || !vi.payload) add('payload', 'The run\'s copy of the version\'s payload matches it, pins included', null, 'The version\'s payload couldn\'t be read, so this can\'t be checked.');
+      else { var sp = PF.publish.payloadHash(raw.payload) === PF.publish.payloadHash(vi.payload); add('payload', 'The run\'s copy of the version\'s payload matches it, pins included', sp, sp ? 'Compared as data.' : 'They differ.'); }
+    }
+    if (raw.format === PF.run.FORMAT3 && vi && vi.payload && vi.payload.pins && vi.payload.pins.children && Object.keys(vi.payload.pins.children).length) {
+      var fixed = vi.payload.pins.children, mine = raw.pins && raw.pins.children && typeof raw.pins.children === 'object' ? raw.pins.children : {};
+      var off = Object.keys(fixed).filter(function (k) { return !Object.prototype.hasOwnProperty.call(mine, k) || canonical(mine[k]) !== canonical(fixed[k]); });
+      add('pins', 'The linked runs the version pins are the ones the run started with', !off.length, off.length ? 'Pinned differently: ' + off.join(', ') + '.' : 'Every pin the version sets is the run\'s.');
+    }
     return out;
   }
 

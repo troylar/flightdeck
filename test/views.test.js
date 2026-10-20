@@ -2409,4 +2409,188 @@ rule('Flight plan: a phase\'s note and screenshots and a gate\'s note get a mark
   state.x = 1;
 });
 
+
+/* ---------- 2.0 pins and skills: every value from a file is escaped (review round 5) ---------- */
+const HOSTILE = '<img src=x onerror=alert(1)>"><svg onload=1>javascript:alert(\'x\')';
+const HOSTILE1 = '<img/src=x/onerror=alert(1)>"><svg/onload=1>';
+/* No markup from a value: none of its img or svg elements (the app's own icons are svg), and no tag with an onerror or onload attribute once its quoted attribute
+   values (escaped, so they can't end early) are set aside. */
+function inert(html, what) {
+  assert.ok(!/<(img|svg)[\s/]+(src=x|onload)/i.test(html), what + ': a value\'s img or svg element got through: ' + (html.match(/.{0,80}<(img|svg)[\s/]+(src=x|onload).{0,80}/i) || [''])[0]);
+  (html.match(/<[a-z][^>]*>/gi) || []).forEach((tag) => {
+    const bare = tag.replace(/"[^"]*"/g, '""');
+    assert.ok(!/\son(error|load)\b/i.test(bare) && !/'/.test(bare), what + ': an attribute broke out: ' + tag);
+  });
+  assert.ok(!/href="javascript:/i.test(html), what + ': a javascript: link');
+}
+rule('Pins and skills screens escape every value from a file: a pin mismatch, Start it as a Flightdeck 2.0 run, Continued in run, Link it, can\'t be matched, a plan that asks or switches', () => {
+  // A run/3 parent pinned to a check-in version, whose linked child run says a hostile folder, title and version.
+  const pin = { process: 'check-in', version: 1, folder: 'v1-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' };
+  const { ctx, state, r } = setup();
+  const pub = ctx.data.processes[0].index.latest;
+  const three = JSON.parse(JSON.stringify(R.create(pub, { title: HOSTILE, details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, explicit: true, app: '2.0.0', pins: { notes: pin } })));
+  three._notes = []; three._conflicts = [];
+  const kid = { process: 'check-in', id: 'k1', title: HOSTILE, folder: HOSTILE, version: HOSTILE, format: 'preflight-run/2', state: 'running', created: NOW, steps: {}, gates: {}, details: {}, log: [], parent: { process: 'release', id: three.id, step: 'notes', inputs: {} } };
+  three.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: {}, folder: HOSTILE } };
+  const pubOf = { latest: pub, all: [pub], clashes: [], broken: [] };
+  ctx.run = () => three; ctx.data.runs = [three, kid]; ctx.findRun = (k) => k === 'check-in/k1' ? kid : null; ctx.procOf = () => pubOf;
+  state.unfold = { notes: true }; state.sel = 'notes';
+  let html = V.run(ctx);
+  assert.ok(/That check-in run is on /.test(html), 'set-up: the pin mismatch is shown, with the child\'s folder: ' + (html.match(/Child run:[^]{0,300}/) || [''])[0]);
+  inert(html, 'pin mismatch');
+  // A run/2 parent whose child is a 2.0 run: "Start it as a Flightdeck 2.0 run", from the child's own title and version.
+  const two = JSON.parse(JSON.stringify(r)); two.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: { changed: 'x' } } };
+  const kid3 = Object.assign({}, kid, { format: 'preflight-run/3' });
+  ctx.run = () => two; ctx.data.runs = [two]; ctx.findRun = (k) => k === 'check-in/k1' ? kid3 : null; ctx.procOf = null; ctx.latestPub = () => null;
+  html = V.run(ctx);
+  assert.ok(/Start it as a Flightdeck 2\.0 run/.test(html), 'set-up: the offer is shown');
+  inert(html, 'Start it as a Flightdeck 2.0 run');
+  // The same offer for an existing link, made by an older copy, to a 2.0 child with the details it was started for.
+  two.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: R.childDetails(two, PF.map.findStep(R.mapOf(two), 'notes').step, Object.keys(two.details)) } };
+  html = V.run(ctx);
+  assert.ok(/data-act="continue-two"/.test(html), 'set-up: the offer for a current legacy link');
+  inert(html, 'a current legacy link to a 2.0 child');
+  // Continued in run, with a hostile run key that a found run makes into a button.
+  two.steps.notes = { s: 'blocked', by: 'person-casey', at: NOW, reason: 'Continued in run ' + HOSTILE1 };
+  ctx.findRun = () => kid;
+  html = V.run(ctx);
+  assert.ok(/made with Flightdeck 2\.0/.test(html), 'set-up: continued');
+  inert(html, 'Continued in run');
+  // An orphan child offered with Link it: its title, process and ID.
+  const inputs = R.childDetails(two, PF.map.findStep(R.mapOf(two), 'notes').step, Object.keys(two.details));
+  const orphan = Object.assign({}, kid, { id: HOSTILE1, title: HOSTILE, parent: { process: 'release', id: two.id, step: 'notes', inputs } });
+  two.steps.notes = { s: 'open' };
+  ctx.data.runs = [two, orphan]; ctx.findRun = () => null; ctx.latestPub = () => pub;
+  html = V.run(ctx);
+  assert.ok(/data-act="link-child"/.test(html), 'set-up: Link it is offered');
+  inert(html, 'Link it');
+  // A {run.skill} step: what was registered when it was checked, and the warning when the folder registers another version.
+  const sb = P.build('---\nprocess: hostile\ntitle: Hostile\n---\n## One {#one}\n- [ ] {run.skill} Write the notes {#write}\n  skill: notes\n  skillVersion: 1.0.0\n', { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'viewhost' });
+  assert.ok(!sb.blockers, JSON.stringify(sb.blockers));
+  const spub = P.verify(sb.folder, sb.files, exactOf(PF, sb.files));
+  const sr = JSON.parse(JSON.stringify(R.create(spub, { title: HOSTILE, by: 'person-casey', session: 'me', now: NOW, explicit: true, app: '2.0.0' })));
+  sr.steps.write = { s: 'done', by: 'person-casey', at: NOW, skill: { id: 'sk-abcd1234', rev: 1, sha: 'a'.repeat(64), snapshot: { name: HOSTILE, version: '<svg/onload=1>"' } }, history: [{ s: 'open', by: 'person-casey', at: NOW, skill: { id: 'sk-abcd1234', rev: 1, sha: 'a'.repeat(64), snapshot: { name: HOSTILE, version: '"><img src=x>' } } }] };
+  const srun = R.sanitize(sr);
+  assert.ok(srun && !srun._unrunnable && srun.steps.write.skill, 'set-up: the observed registration is kept: ' + (srun && srun._unrunnable));
+  srun._notes = []; srun._conflicts = [];
+  ctx.run = () => srun; ctx.data.runs = [srun]; ctx.data.skills = [{ skill: { name: 'notes', version: HOSTILE, location: HOSTILE, file: HOSTILE }, errors: [] }];
+  state.sel = 'write'; state.unfold = { write: true };
+  html = V.run(ctx);
+  assert.ok(/Registered as &lt;img/.test(html) && /The team folder registers &lt;img/.test(html), 'set-up: the observed registration and the warning are shown');
+  inert(html, 'observed skill');
+  inert(V.receipt(ctx), 'observed skill receipt');
+  ctx.data.skills = []; state.sel = null; state.unfold = {};
+  // Skills: a registration that can't be matched, with hostile fields everywhere, in the list and on its page.
+  const sk = { name: HOSTILE, version: HOSTILE, location: 'javascript:alert(1)', description: HOSTILE, process: HOSTILE, implements: HOSTILE, steps: [HOSTILE1], group: [HOSTILE], tags: [HOSTILE], updated: HOSTILE, file: HOSTILE };
+  const status = { s: 'unmatched', text: 'Can\'t be matched: ' + HOSTILE + ' (skill-registrations/' + HOSTILE + '/)' };
+  const latest = Object.assign({}, pub, { info: Object.assign({}, pub.info, { version: HOSTILE, folder: HOSTILE }) });
+  const proc = { id: 'release', title: HOSTILE, category: HOSTILE, group: [], tags: [], latest, all: [latest], clashes: [], broken: [], draft: null, skills: [{ skill: sk, errors: [HOSTILE], status }], staleSkills: 0 };
+  ctx.processes = () => [proc];
+  ctx.orphanSkills = () => [{ skill: Object.assign({}, sk, { file: 'orphan-' + HOSTILE }), errors: [HOSTILE], status }];
+  ctx.data.runs = []; state.view = 'skills';
+  html = V.skillsPage(ctx);
+  assert.ok(/can&#39;t be matched|can't be matched/.test(html), 'set-up: listed as can\'t be matched');
+  inert(html, 'skills list');
+  inert(V.home(ctx), 'home');
+  state.view = 'skill'; state.skillFile = HOSTILE;
+  html = V.skill(ctx);
+  assert.ok(/Can&#39;t be matched/.test(html), 'set-up: the skill page');
+  inert(html, 'skill page');
+  state.skillFile = 'orphan-' + HOSTILE;
+  inert(V.skill(ctx), 'unmatched skill page');
+  // A plan/2 whose pinned version can't be used asks; one whose version is older offers the switch.
+  const plan = { format: 'flightdeck-plan/2', id: HOSTILE1, process: 'release', version: 1, title: HOSTILE, details: { ticket: HOSTILE }, roles: {}, by: HOSTILE, _hash: 'h1', pin: { process: 'release', version: HOSTILE, folder: 'v9-zzzzzzzz' } };
+  ctx.data.plans = [plan]; ctx.suggestRole = () => null;
+  state.view = 'start'; state.processId = 'release'; state.planId = HOSTILE1;
+  proc.title = 'Release';
+  html = V.start(ctx);
+  assert.ok(/won&#39;t start on another version by itself|won't start on another version by itself/.test(html), 'set-up: the plan asks: ' + html.slice(0, 600));
+  inert(html, 'plan asks');
+  plan.pin = { process: 'release', version: 1, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash };
+  const newer = Object.assign({}, pub, { info: Object.assign({}, pub.info, { version: 2, folder: 'v2-' + 'zzzzzzzz' }) });
+  proc.latest = newer; proc.all = [newer, pub]; newer.info.version = HOSTILE;
+  html = V.start(ctx);
+  assert.ok(/data-act="plan-retarget"[^>]*>Start on v&lt;img/.test(html), 'set-up: the switch is offered: ' + (html.match(/plan-retarget[^]{0,200}/) || [''])[0]);
+  inert(html, 'plan switch');
+});
+
+
+/* ---------- 2.0 run fields, fuzzed (review rounds 6 and 7) ---------- */
+rule('Every run/3 field 2.0 added, set to a wrong type or a number JavaScript can\'t hold, either makes the run read-only (a save refuses, with nothing written) or round-trips exactly through a save after an unrelated edit, and the run, every step, the receipt and the evidence checks render without throwing or unescaped markup', async () => {
+  const { ctx, state } = setup();
+  const folder = new PF.fs.MemoryFS('fuzz3:' + Math.random(), null);
+  await folder.write('people.json', JSON.stringify(people));
+  await PF.repo.publish(folder, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  const pub = (await PF.repo.loadAll(folder)).processes[0].index.latest, seed = Object.fromEntries(Object.keys(folder.files).map(k => [k, folder.files[k].t]));
+  ctx.data.processes = [{ process: 'release', pubs: [pub], index: { latest: pub } }];
+  const map = R.mapOf(R.create(pub, { by: 'a', session: 'me', now: NOW }));
+  const ids = PF.map.steps(map).map(x => x.step.id), skillStep = ids.find(id => id !== 'notes');
+  const pin = { process: 'check-in', version: 1, folder: 'v1-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' };
+  const seen = { id: 'sk-abcd1234', rev: 2, sha: 'a'.repeat(64), snapshot: { name: 'release-notes', version: '1.2.0', implements: { process: 'release', folder: 'v1-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' }, steps: [skillStep], location: 'https://example.com/x', description: 'Writes notes' } };
+  const base = JSON.parse(JSON.stringify(R.create(pub, { title: 'Fuzz', details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, explicit: true, app: '2.0.0', pins: { notes: pin }, id: 'fuzz1' })));
+  base.steps[skillStep] = { s: 'done', by: 'person-casey', at: NOW, skill: seen, history: [{ s: 'open', by: 'person-casey', at: NOW, skill: seen }] };
+  base.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: { ticket: 'ABC-1' }, folder: 'v1-abcd1234' } };
+  base.parent = { process: 'release', id: 'p1', step: 'notes', inputs: { ticket: 'ABC-1' }, folder: 'v1-abcd1234' };
+  const ok = R.sanitize(JSON.parse(JSON.stringify(base)));
+  assert.ok(ok && !ok._unrunnable && ok.steps[skillStep].skill && ok.steps.notes.child.folder === 'v1-abcd1234' && ok.parent.folder === 'v1-abcd1234', 'set-up: the base run reads back writable, in full: ' + (ok && ok._unrunnable));
+  const S = 'steps.' + skillStep + '.skill', H = 'steps.' + skillStep + '.history.0.skill';
+  const paths = [S, S + '.id', S + '.rev', S + '.sha', S + '.snapshot', S + '.snapshot.name', S + '.snapshot.version', S + '.snapshot.implements', S + '.snapshot.implements.folder',
+    S + '.snapshot.steps', S + '.snapshot.steps.0', S + '.snapshot.location', S + '.snapshot.description', S + '.snapshot.extra',
+    H, H + '.rev', H + '.snapshot', H + '.snapshot.name', H + '.snapshot.version', H + '.snapshot.steps',
+    'pins', 'pins.children', 'pins.children.notes', 'pins.children.notes.folder', 'pins.children.notes.version', 'pins.children.notes.mapHash', 'pins.children.notes.process',
+    'steps.notes.child.folder', 'parent.folder', 'payload', 'payload.pins', 'payload.pins.children', 'payload.map', 'payload.images', 'features', 'typesHash', 'app', 'migrations'];
+  const MARK = 'ZQXMARK';
+  // A number JavaScript can't hold exactly is written into the file as text: JSON.stringify could never write it.
+  const NUM = (t) => ({ __num: t });
+  const BAD = [['toString-null', { toString: null, valueOf: null, v: MARK }], ['array', [MARK]], ['number', 42], ['null', null], ['huge', MARK + 'x'.repeat(200000)], ['nested', { a: { b: [MARK, { c: MARK }] } }], ['markup', '<img src=x onerror=alert(1)>' + MARK],
+    ['1e999', NUM('1e999')], ['-1e999', NUM('-1e999')], ['2^53+1', NUM('9007199254740993')], ['NaN text', 'NaN'], ['Infinity text', 'Infinity'], ['-0 text', '-0']];
+  const set = (o, p, v) => { const ks = p.split('.'); let x = o; for (let i = 0; i < ks.length - 1; i++) { if (x[ks[i]] == null || typeof x[ks[i]] !== 'object') x[ks[i]] = /^\d+$/.test(ks[i + 1]) ? [] : {}; x = x[ks[i]]; } x[ks[ks.length - 1]] = v; };
+  const at = (o, p) => p.split('.').reduce((x, k) => x == null ? undefined : x[k], o);
+  const fileOf = (raw) => JSON.stringify(raw, null, 2).replace(/\{\s*"__num": "([^"]+)"\s*\}/g, '$1');
+  let n = 0, readOnly = 0, kept = 0;
+  for (const p of paths) for (const [label, v] of BAD) {
+    const what = p + ' = ' + label, raw = JSON.parse(JSON.stringify(base));
+    set(raw, p, v);
+    const text = fileOf(raw);
+    let r;
+    try { r = R.sanitize(JSON.parse(text)); } catch (e) { assert.fail(what + ': sanitize threw ' + e.message); }
+    // In a folder: loaded, edited elsewhere (a log line), saved.
+    const m = new PF.fs.MemoryFS('fuzz3:' + Math.random(), null), runPath = 'runs/release/fuzz1/run.json';
+    m.reset(Object.assign({}, seed, { [runPath]: text }));
+    const loaded = await PF.repo.loadRun(m, 'release', 'fuzz1');
+    if (!loaded || loaded._unrunnable) {
+      assert.ok(!r || r._unrunnable, what + ': sanitize and the folder agree it\'s read-only');
+      if (loaded) {
+        const before = JSON.stringify(Object.keys(m.files).sort().map(k => [k, m.files[k].t]));
+        R.log(loaded, 'person-casey', NOW, 'An unrelated edit');
+        await assert.rejects(() => PF.repo.saveRun(m, loaded, 'me'), what + ': a save refuses');
+        assert.strictEqual(JSON.stringify(Object.keys(m.files).sort().map(k => [k, m.files[k].t])), before, what + ': nothing was written');
+      }
+      readOnly++;
+    } else {
+      assert.ok(!(v && v.__num), what + ': a number JavaScript can\'t hold exactly never leaves the run writable');
+      R.log(loaded, 'person-casey', NOW, 'An unrelated edit');
+      await PF.repo.saveRun(m, loaded, 'me');
+      const saved = JSON.parse(m.files[runPath].t);
+      assert.strictEqual(JSON.stringify(at(saved, p)), JSON.stringify(at(raw, p)), what + ': kept exactly through a save, not dropped or changed');
+      kept++;
+    }
+    if (!r) { n++; continue; }
+    r._notes = []; r._conflicts = [];
+    ctx.run = () => r; ctx.data.runs = [r]; ctx.findRun = () => null;
+    for (const id of [null].concat(r._unrunnable && !Object.keys(r.steps || {}).length ? [] : ids)) {
+      state.sel = id; state.unfold = id ? { [id]: true } : {};
+      let html;
+      try { html = V.run(ctx); } catch (e) { assert.fail(what + ', step ' + id + ': the run view threw ' + e.message); }
+      inert(html, what + ', step ' + id);
+    }
+    state.sel = null;
+    try { inert(V.receipt(ctx), what + ': receipt'); } catch (e) { if (e instanceof assert.AssertionError) throw e; assert.fail(what + ': the receipt threw ' + e.message); }
+    try { PF.evidence.checks(JSON.parse(text), pub.files || {}, null); } catch (e) { assert.fail(what + ': the evidence checks threw ' + e.message); }
+    n++;
+  }
+  assert.strictEqual(n, paths.length * BAD.length);
+  assert.ok(readOnly > 0 && kept > 0, readOnly + ' read-only, ' + kept + ' kept');
+});
+
 run();

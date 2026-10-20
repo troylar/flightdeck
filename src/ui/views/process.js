@@ -404,6 +404,15 @@
   }
 
   /* The exact publication a person switched this plan to, if it was in this folder, on this plan, as it reads now. */
+  /* A plan/2 whose version can't be used: say which and why, and offer only an explicit switch to the latest. */
+  function exactAsk(ctx, p, plan, pick) {
+    var title = p.latest && p.latest.map ? p.latest.map.meta.title : p.title, to = plan._retarget ? plan._retarget.to : plan.pin;
+    var h = '<div class="runhead"><div><div class="eyebrow">' + esc(title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1>Start a run</h1></div></div>';
+    h += '<div class="notice bad" role="alert"><span>This plan starts on ' + esc(title) + ' v' + esc(to.version) + ' (' + esc(to.folder) + '), which can\'t be used here: ' + esc(pick.ask) + '. It won\'t start on another version by itself.</span>' +
+      '<span class="row">' + (p.latest ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(p.latest.info.folder) + '">Start on v' + esc(p.latest.info.version) + ' instead</button>' : '') +
+      '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button><button class="mini" type="button" data-act="home">Back</button></span></div>';
+    return h;
+  }
   function planChoice(ctx, plan) {
     var c = ctx.state.planPick;
     return c && plan && c.plan === plan.id && c.hash === plan._hash && c.key === ctx.fsKey ? c.folder : null;
@@ -415,8 +424,10 @@
     var planning = st.planning && st.planning.process === st.processId ? st.planning : null;
     var plan = !planning && st.planId ? ctx.data.plans.filter(function (x) { return x.id === st.planId; })[0] : null;
     if (!p || !p.latest) return notices(ctx) + '<div class="panel">There\'s no published version of this process to run. <button class="mini" data-act="home">Back</button></div>';
-    /* A plan starts on the version it was planned on, or the exact one the person switched to; see PF.publish.forPlan. */
-    var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.publish.forPlan(p, plan.version, chosen) : { pub: p.latest };
+    /* A plan starts on the version it was planned on, or the exact one the person switched to; see PF.plans.pick. A plan/2
+       whose pinned version can't be used asks, and never starts on another version by itself. */
+    var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.plans.pick(p, plan, chosen) : { pub: p.latest };
+    if (plan && pick.exact && !pick.pub) return notices(ctx) + exactAsk(ctx, p, plan, pick);
     var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
     var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1>' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
@@ -426,7 +437,8 @@
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
-      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + pub.info.version + '. v' + latest.info.version + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button><button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + latest.info.version + '</button></span></div>';
+      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
+        (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
     } else if (plan && pick.missing) {
       /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */
