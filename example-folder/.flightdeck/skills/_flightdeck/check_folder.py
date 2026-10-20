@@ -176,6 +176,16 @@ def tokens(s, ch):
     return out, rest.strip()
 
 
+def shot_sources(parsed):
+    """Every screenshot a checklist shows, once each: steps', phases' and gates' (PF.map.shotSources in the app)."""
+    out = []
+    for x in parsed["steps"] + parsed["phases"] + [p["gate"] for p in parsed["phases"] if p.get("gate")]:
+        for src in x.get("shots") or []:
+            if src not in out:
+                out.append(src)
+    return out
+
+
 def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
@@ -562,6 +572,10 @@ def check_publication(folder, name):
         why = NEWER + " A step type in it can't be read."
     if why:
         return "unusable", why, info
+    listed = info.get("images") if isinstance(info.get("images"), dict) else {}
+    unlisted = [src for src in shot_sources(parse_map(files["map.md"])) if src not in listed]
+    if unlisted:
+        return "unusable", "A screenshot it shows isn't in its publication record (%s). Edited by hand." % unlisted[0], info
     for src, want in (info.get("images") or {}).items():
         path = os.path.join(folder, *src.split("/"))
         if not os.path.isfile(path):

@@ -146,6 +146,10 @@ PF.publish = (function () {
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
     var bad = unrunnable(files['map.md'], types);
     if (bad) return { ok: false, why: bad, info: info, unusable: true };
+    /* Every screenshot the checklist shows is part of the version: listed in its record (every 1.x copy lists each one it
+       copies) and, for /2, in its payload (which must list the same ones). One that isn't could change unchecked. */
+    var listed = isObj(info.images) ? info.images : {}, unlisted = M.shotSources(M.parse(files['map.md'])).filter(function (src) { return !Object.prototype.hasOwnProperty.call(listed, src); });
+    if (unlisted.length) return { ok: false, why: 'A screenshot it shows isn\'t in its publication record (' + unlisted[0] + '). Edited by hand.', info: info, unusable: true };
     return { ok: true, info: info, map: M.parse(files['map.md']), md: files['map.md'], types: types };
   }
 

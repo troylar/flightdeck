@@ -349,4 +349,19 @@ rule('run/3 is read in full only when everything in it is known: an unknown fiel
   assert.throws(() => R.create(Object.assign({}, two, { info: Object.assign({}, two.info, { features: ['typed-details'] }) }), { by: 'a', session: 'w', now: '2026-10-20T09:00:00.000Z' }));
 });
 
+rule('Every screenshot a checklist shows (a step\'s, a phase\'s or a gate\'s) must be in its publication record and payload: one taken out of both manifests makes the version unusable, /1 and /2 alike', () => {
+  const b = build(DRAFT2), info = JSON.parse(b.files['publication.json']);
+  const drop = (i, src) => { delete i.images[src]; if (i.payload) delete i.payload.images[src]; return i; };
+  for (const src of ['images/scratch.png', 'images/counts.png']) {
+    const v = P.verify(b.folder, Object.assign({}, b.files, { 'publication.json': JSON.stringify(drop(JSON.parse(JSON.stringify(info)), src)) }));
+    assert.ok(!v.ok && v.unusable && /isn't in its publication record/.test(v.why), src + ': ' + v.why);
+  }
+  const one = build(DRAFT1.replace('- [!] {confirm} Read the restore runbook @lead {#read}\n', '- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook](images/scratch.png)\n'));
+  const i1 = JSON.parse(one.files['publication.json']);
+  assert.strictEqual(i1.format, 'preflight-publication/1');
+  assert.ok(P.verify(one.folder, one.files).ok, 'as published, it is fine');
+  const v1 = P.verify(one.folder, Object.assign({}, one.files, { 'publication.json': JSON.stringify(drop(i1, 'images/scratch.png')) }));
+  assert.ok(!v1.ok && v1.unusable, 'a /1 version too: ' + v1.why);
+});
+
 run();
