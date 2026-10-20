@@ -42,6 +42,14 @@
       {
         "kind": "improved",
         "area": "Checklist editor",
+        "title": "Add screenshots to a step in the builder",
+        "before": "To show a screenshot with a step, you copied the image into images/ yourself and typed its line in Markdown.",
+        "now": "Select a step and add screenshots in its form: choose files, drop them there, or paste one. Each needs a caption, which is also what screen readers say. Edit captions, move screenshots up or down, or remove one from the draft; the image file stays in the folder. Undo takes back any of it, and nothing is saved until you save the draft.",
+        "where": "Edit on a process page, then select a step"
+      },
+      {
+        "kind": "improved",
+        "area": "Checklist editor",
         "title": "Undo a newer draft that arrived",
         "before": "When a newer draft arrived while you had nothing unsaved, the editor took it and your earlier changes couldn't be undone.",
         "now": "A newer draft arrives as one change you can undo, and the changes before it can still be undone."

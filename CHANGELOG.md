@@ -29,6 +29,7 @@ Edit a checklist with your AI assistant at the same time.
 
 ### Improved
 
+- **Add screenshots to a step in the builder** (Checklist editor). Select a step and add screenshots in its form: choose files, drop them there, or paste one. Each needs a caption, which is also what screen readers say. Edit captions, move screenshots up or down, or remove one from the draft; the image file stays in the folder. Undo takes back any of it, and nothing is saved until you save the draft. *Where:* Edit on a process page, then select a step
 - **Undo a newer draft that arrived** (Checklist editor). A newer draft arrives as one change you can undo, and the changes before it can still be undone.
 - **Saves check the exact text** (Checklist editor). Saving a draft checks that the file is still exactly the text you started from, right before writing, not only a short fingerprint of it.
 
