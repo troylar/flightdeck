@@ -15,6 +15,7 @@ screenshots), so "complete" here means the app will accept the version too.
 """
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -54,6 +55,25 @@ def fnv(units):
 def text_hash(text):
     data = text.encode("utf-16-le", "surrogatepass")
     return fnv(int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2))
+
+
+def _no_constant(name):
+    """JSON.parse refuses NaN, Infinity and -Infinity; so does this."""
+    raise ValueError("not JSON: " + name)
+
+
+def _f(v):
+    """A number as a double, the way JavaScript holds it: too big is infinite, never an error."""
+    try:
+        return float(v)
+    except OverflowError:
+        return float("inf") if v > 0 else float("-inf")
+
+
+def _jsint(digits):
+    """A string of digits as JavaScript's +digits reads it: a double (huge is infinite), never Python's unbounded int."""
+    f = float(digits)
+    return int(f) if math.isfinite(f) and f.is_integer() and abs(f) < 2 ** 53 else f
 
 
 def js_number(x):
@@ -99,7 +119,7 @@ def js_json(v):
     if v is None:
         return "null"
     if isinstance(v, (int, float)):
-        return js_number(float(v))
+        return js_number(_f(v))
     if isinstance(v, str):
         return js_string(v)
     if isinstance(v, list):
@@ -158,7 +178,7 @@ def js_str(v):
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, (int, float)):
-        return js_number(float(v))
+        return js_number(_f(v))
     if isinstance(v, list):
         return ",".join(js_str(x) for x in v)
     if isinstance(v, dict):
@@ -515,7 +535,7 @@ def newer_why(info, needs):
     if not needs:
         return NEWER
     v = info.get("version")
-    label = "v%d" % int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else "This version"
+    label = "v" + js_number(js_num(v)) if js_num(v) is not None else "This version"
     return label + " needs Flightdeck " + needs + ". This copy shows it but won't run it. Open the team folder's own flightdeck.html."
 
 
@@ -537,8 +557,8 @@ def child_pin_ok(p):
         return False
     v, f = p.get("version"), p.get("folder")
     m = re.match(r"^v(\d+)-[a-z0-9]+$", f) if isinstance(f, str) else None
-    return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}$", p["process"])) and isinstance(v, (int, float)) and not isinstance(v, bool)
-            and v >= 1 and int(v) == v and bool(m) and int(m.group(1)) == v and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
+    return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}$", p["process"])) and _whole(v)
+            and v >= 1 and bool(m) and float(m.group(1)) == js_num(v) and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
             and isinstance(p.get("typesHash"), str) and bool(HASH8.match(p["typesHash"])))
 
 
@@ -566,7 +586,7 @@ def pins_problem(info, parsed):
     for st in parsed["steps"]:
         f = st["fields"]
         if st["type"] == "run.process" and "version" in f:
-            want["children"][st["id"]] = {"process": f.get("process"), "version": int(f["version"]) if re.match(r"^\d+$", f["version"].strip()) else f["version"]}
+            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip()) if re.match(r"^\d+$", f["version"].strip()) else f["version"]}
         if st["type"] == "run.skill" and "skillVersion" in f:
             want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(), "version": f["skillVersion"].strip()}
     for k, p in pins.get("children", {}).items():
@@ -600,7 +620,7 @@ def check_publication(folder, name):
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
-        info = json.loads(files["publication.json"])
+        info = json.loads(files["publication.json"], parse_constant=_no_constant)
     except ValueError:
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
@@ -627,7 +647,7 @@ def check_publication(folder, name):
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
     try:
-        types = json.loads(files["types.json"])
+        types = json.loads(files["types.json"], parse_constant=_no_constant)
     except ValueError:
         return "damaged", "types.json is unreadable", info
     if not isinstance(types, dict):
@@ -669,8 +689,20 @@ def _str(v, n):
     return v.strip()[:n] if isinstance(v, str) else ""
 
 
+def js_num(v):
+    """A JSON number as JavaScript holds it (a finite double), or None: not a number, a bool, NaN, or out of range."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    try:
+        f = float(v)
+    except OverflowError:
+        return None
+    return f if math.isfinite(f) else None
+
+
 def _whole(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and int(v) == v
+    f = js_num(v)
+    return f is not None and f.is_integer()
 
 
 def _newer_text(v):
@@ -706,7 +738,7 @@ def check_registration(rel, o, digest):
     pin = None
     if isinstance(imp, dict) and not set(imp) - {"process", "folder", "mapHash", "typesHash"} and isinstance(imp.get("folder"), str):
         n = re.match(r"^v(\d+)-", imp["folder"])
-        pin = dict(imp, version=int(n.group(1))) if n else None
+        pin = dict(imp, version=_jsint(n.group(1))) if n else None
     if not pin or not child_pin_ok(pin):
         errors.append('"implements" must name the exact version: { process, folder, mapHash, typesHash }')
     st = o.get("steps")
@@ -789,7 +821,7 @@ def _read_json(path):
     except OSError:
         return None, "couldn't be read", True, b""
     try:
-        return json.loads(data.decode("utf-8")), None, False, data
+        return json.loads(data.decode("utf-8"), parse_constant=_no_constant), None, False, data
     except (UnicodeDecodeError, ValueError):
         return None, "isn't valid JSON", False, data
 
@@ -836,7 +868,7 @@ def team_files(root):
             continue
         try:
             with open(os.path.join(sdir, name), encoding="utf-8") as f:
-                d = json.load(f)
+                d = json.load(f, parse_constant=_no_constant)
         except (OSError, ValueError):
             problems.append({"file": "step-types/" + name, "problem": "isn't valid JSON"})
             continue
@@ -854,7 +886,7 @@ def team_files(root):
     if os.path.isfile(wf):
         try:
             with open(wf, encoding="utf-8") as f:
-                w = json.load(f)
+                w = json.load(f, parse_constant=_no_constant)
             workflows = sorted(w) if isinstance(w, dict) else []
             for t, v in (w.items() if isinstance(w, dict) else []):
                 if not isinstance(v, dict) or not isinstance(v.get("statuses"), list) or not v["statuses"]:
@@ -896,7 +928,7 @@ def main():
         text = read_text(os.path.join(prop_dir, name)) if name.endswith(".json") else None
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
-            obj = json.loads(text, parse_int=float) if text else None
+            obj = json.loads(text, parse_int=float, parse_constant=_no_constant) if text else None
         except ValueError:
             obj = None
         if not isinstance(obj, dict):
@@ -952,7 +984,7 @@ def main():
                 copies = [n for n in names if re.match(r"^run.*\.json$", n, re.I) and n != "run.json"]
                 # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
                 try:
-                    lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}").get("lineage") or []
+                    lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
                 except ValueError:
                     lineage = []
                 for n in names:

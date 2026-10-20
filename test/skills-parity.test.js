@@ -30,6 +30,9 @@ function tree(dir) { const out = {}; (function walk(d, rel) { fs.readdirSync(d, 
 
 const LEGACY = ['absent', 'valid', 'tombstone', 'newer', 'malformed', 'unreadable'];
 const REVS = ['none', 'valid', 'two', 'newer', 'malformed', 'seen', 'steps'];
+/* Revision numbers JavaScript refuses, written into the file as raw JSON: Python must refuse each the same way, never crash. */
+const BADNUM = { 'rev-huge': ['rev', '1e999'], 'rev-neg': ['rev', '-1'], 'rev-frac': ['rev', '1.5'], 'rev-str': ['rev', '"1"'], 'rev-bool': ['rev', 'true'], 'seen-huge': ['seen', '1e999'] };
+REVS.push(...Object.keys(BADNUM));
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 
 rule('Every consumer gives the same skill verdict for every legacy file × revisions cell, and flightdeck skill register refuses (writing nothing) exactly when the verdict blocks it', async () => {
@@ -61,6 +64,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
         if (r === 'malformed') await two(Object.assign({}, g.rec, { rev: 2, seen: 1, implements: 'verify@1' }));
         if (r === 'seen') await two(Object.assign({}, g.rec, { rev: 2, seen: 2 }));
         if (r === 'steps') await two(Object.assign({}, g.rec, { rev: 2, seen: 1, steps: [] }));
+        if (BADNUM[r]) { const [f, raw] = BADNUM[r], o = Object.assign({}, g.rec, { rev: 2, seen: 1 }); o[f] = '@@'; await d.write(g.path.replace('.1.w-one.json', '.2.w-two.json'), JSON.stringify(o, null, 2).replace('"@@"', raw) + '\n'); }
       }
       const lf = 'skills/' + name + '.json';
       if (l === 'valid' || l === 'unreadable') await d.write(lf, JSON.stringify({ name, version: '0.9.0', location: 'there', implements: 'verify@1' }));
@@ -93,7 +97,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     }
     // The rules, spot-checked: a refused revision or an unreadable, newer or malformed legacy file holds the whole name.
     const st = (n) => seen[n] && seen[n].status;
-    ['newer', 'malformed', 'seen', 'steps'].forEach(r => LEGACY.forEach(l => { if (seen['s-' + l + '-' + r]) assert.strictEqual(st('s-' + l + '-' + r), 'unmatched', l + '/' + r); }));
+    ['newer', 'malformed', 'seen', 'steps'].concat(Object.keys(BADNUM)).forEach(r => LEGACY.forEach(l => { if (seen['s-' + l + '-' + r]) assert.strictEqual(st('s-' + l + '-' + r), 'unmatched', l + '/' + r); }));
     ['newer', 'malformed'].concat(ROOT_USER ? [] : ['unreadable']).forEach(l => REVS.forEach(r => assert.strictEqual(st('s-' + l + '-' + r), 'unmatched', l + '/' + r)));
     assert.deepStrictEqual(seen['s-absent-valid'], { status: 'current', source: 'registration', rev: 1, blocks: false, kinds: [] });
     assert.deepStrictEqual(seen['s-tombstone-valid'], { status: 'current', source: 'registration', rev: 1, blocks: false, kinds: [] });
