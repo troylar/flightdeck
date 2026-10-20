@@ -2515,14 +2515,19 @@ rule('Pins and skills screens escape every value from a file: a pin mismatch, St
 });
 
 
-/* ---------- 2.0 run fields, fuzzed (review round 6) ---------- */
-rule('Every run/3 field 2.0 added, set to a wrong type, either reads back valid or makes the run read-only, and the run, every step, the receipt and the evidence checks render without throwing or unescaped markup', () => {
+/* ---------- 2.0 run fields, fuzzed (review rounds 6 and 7) ---------- */
+rule('Every run/3 field 2.0 added, set to a wrong type or a number JavaScript can\'t hold, either makes the run read-only (a save refuses, with nothing written) or round-trips exactly through a save after an unrelated edit, and the run, every step, the receipt and the evidence checks render without throwing or unescaped markup', async () => {
   const { ctx, state } = setup();
-  const pub = ctx.data.processes[0].index.latest, map = R.mapOf(R.create(pub, { by: 'a', session: 'me', now: NOW }));
+  const folder = new PF.fs.MemoryFS('fuzz3:' + Math.random(), null);
+  await folder.write('people.json', JSON.stringify(people));
+  await PF.repo.publish(folder, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  const pub = (await PF.repo.loadAll(folder)).processes[0].index.latest, seed = Object.fromEntries(Object.keys(folder.files).map(k => [k, folder.files[k].t]));
+  ctx.data.processes = [{ process: 'release', pubs: [pub], index: { latest: pub } }];
+  const map = R.mapOf(R.create(pub, { by: 'a', session: 'me', now: NOW }));
   const ids = PF.map.steps(map).map(x => x.step.id), skillStep = ids.find(id => id !== 'notes');
   const pin = { process: 'check-in', version: 1, folder: 'v1-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' };
   const seen = { id: 'sk-abcd1234', rev: 2, sha: 'a'.repeat(64), snapshot: { name: 'release-notes', version: '1.2.0', implements: { process: 'release', folder: 'v1-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' }, steps: [skillStep], location: 'https://example.com/x', description: 'Writes notes' } };
-  const base = JSON.parse(JSON.stringify(R.create(pub, { title: 'Fuzz', details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, explicit: true, app: '2.0.0', pins: { notes: pin } })));
+  const base = JSON.parse(JSON.stringify(R.create(pub, { title: 'Fuzz', details: { ticket: 'ABC-1', commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, explicit: true, app: '2.0.0', pins: { notes: pin }, id: 'fuzz1' })));
   base.steps[skillStep] = { s: 'done', by: 'person-casey', at: NOW, skill: seen, history: [{ s: 'open', by: 'person-casey', at: NOW, skill: seen }] };
   base.steps.notes = { s: 'open', child: { process: 'check-in', id: 'k1', inputs: { ticket: 'ABC-1' }, folder: 'v1-abcd1234' } };
   base.parent = { process: 'release', id: 'p1', step: 'notes', inputs: { ticket: 'ABC-1' }, folder: 'v1-abcd1234' };
@@ -2531,27 +2536,46 @@ rule('Every run/3 field 2.0 added, set to a wrong type, either reads back valid 
   const S = 'steps.' + skillStep + '.skill', H = 'steps.' + skillStep + '.history.0.skill';
   const paths = [S, S + '.id', S + '.rev', S + '.sha', S + '.snapshot', S + '.snapshot.name', S + '.snapshot.version', S + '.snapshot.implements', S + '.snapshot.implements.folder',
     S + '.snapshot.steps', S + '.snapshot.steps.0', S + '.snapshot.location', S + '.snapshot.description', S + '.snapshot.extra',
-    H, H + '.snapshot', H + '.snapshot.name', H + '.snapshot.version', H + '.snapshot.steps',
+    H, H + '.rev', H + '.snapshot', H + '.snapshot.name', H + '.snapshot.version', H + '.snapshot.steps',
     'pins', 'pins.children', 'pins.children.notes', 'pins.children.notes.folder', 'pins.children.notes.version', 'pins.children.notes.mapHash', 'pins.children.notes.process',
     'steps.notes.child.folder', 'parent.folder', 'payload', 'payload.pins', 'payload.pins.children', 'payload.map', 'payload.images', 'features', 'typesHash', 'app', 'migrations'];
   const MARK = 'ZQXMARK';
-  const BAD = [['toString-null', { toString: null, valueOf: null, v: MARK }], ['array', [MARK]], ['number', 42], ['null', null], ['huge', MARK + 'x'.repeat(200000)], ['nested', { a: { b: [MARK, { c: MARK }] } }], ['markup', '<img src=x onerror=alert(1)>' + MARK]];
+  // A number JavaScript can't hold exactly is written into the file as text: JSON.stringify could never write it.
+  const NUM = (t) => ({ __num: t });
+  const BAD = [['toString-null', { toString: null, valueOf: null, v: MARK }], ['array', [MARK]], ['number', 42], ['null', null], ['huge', MARK + 'x'.repeat(200000)], ['nested', { a: { b: [MARK, { c: MARK }] } }], ['markup', '<img src=x onerror=alert(1)>' + MARK],
+    ['1e999', NUM('1e999')], ['-1e999', NUM('-1e999')], ['2^53+1', NUM('9007199254740993')], ['NaN text', 'NaN'], ['Infinity text', 'Infinity'], ['-0 text', '-0']];
   const set = (o, p, v) => { const ks = p.split('.'); let x = o; for (let i = 0; i < ks.length - 1; i++) { if (x[ks[i]] == null || typeof x[ks[i]] !== 'object') x[ks[i]] = /^\d+$/.test(ks[i + 1]) ? [] : {}; x = x[ks[i]]; } x[ks[ks.length - 1]] = v; };
-  let n = 0;
+  const at = (o, p) => p.split('.').reduce((x, k) => x == null ? undefined : x[k], o);
+  const fileOf = (raw) => JSON.stringify(raw, null, 2).replace(/\{\s*"__num": "([^"]+)"\s*\}/g, '$1');
+  let n = 0, readOnly = 0, kept = 0;
   for (const p of paths) for (const [label, v] of BAD) {
     const what = p + ' = ' + label, raw = JSON.parse(JSON.stringify(base));
     set(raw, p, v);
+    const text = fileOf(raw);
     let r;
-    try { r = R.sanitize(JSON.parse(JSON.stringify(raw))); } catch (e) { assert.fail(what + ': sanitize threw ' + e.message); }
-    if (!r) { n++; continue; }
-    // Writable: nothing of a wrong-typed or oversized value is kept (text of the right type is, escaped where shown), and it
-    // reads back the same.
-    if (!r._unrunnable) {
-      const was = p.split('.').reduce((x, k) => x == null ? undefined : x[k], base);
-      const sameType = was !== undefined && Array.isArray(v) === Array.isArray(was) && typeof v === typeof was && (v === null) === (was === null);
-      if (label !== 'markup' && !(sameType && label !== 'huge')) assert.ok(JSON.stringify(r).indexOf(MARK) < 0, what + ': kept in a writable run');
-      assert.deepStrictEqual(JSON.parse(JSON.stringify(R.sanitize(JSON.parse(JSON.stringify(r))))), JSON.parse(JSON.stringify(r)), what + ': reads back the same');
+    try { r = R.sanitize(JSON.parse(text)); } catch (e) { assert.fail(what + ': sanitize threw ' + e.message); }
+    // In a folder: loaded, edited elsewhere (a log line), saved.
+    const m = new PF.fs.MemoryFS('fuzz3:' + Math.random(), null), runPath = 'runs/release/fuzz1/run.json';
+    m.reset(Object.assign({}, seed, { [runPath]: text }));
+    const loaded = await PF.repo.loadRun(m, 'release', 'fuzz1');
+    if (!loaded || loaded._unrunnable) {
+      assert.ok(!r || r._unrunnable, what + ': sanitize and the folder agree it\'s read-only');
+      if (loaded) {
+        const before = JSON.stringify(Object.keys(m.files).sort().map(k => [k, m.files[k].t]));
+        R.log(loaded, 'person-casey', NOW, 'An unrelated edit');
+        await assert.rejects(() => PF.repo.saveRun(m, loaded, 'me'), what + ': a save refuses');
+        assert.strictEqual(JSON.stringify(Object.keys(m.files).sort().map(k => [k, m.files[k].t])), before, what + ': nothing was written');
+      }
+      readOnly++;
+    } else {
+      assert.ok(!(v && v.__num), what + ': a number JavaScript can\'t hold exactly never leaves the run writable');
+      R.log(loaded, 'person-casey', NOW, 'An unrelated edit');
+      await PF.repo.saveRun(m, loaded, 'me');
+      const saved = JSON.parse(m.files[runPath].t);
+      assert.strictEqual(JSON.stringify(at(saved, p)), JSON.stringify(at(raw, p)), what + ': kept exactly through a save, not dropped or changed');
+      kept++;
     }
+    if (!r) { n++; continue; }
     r._notes = []; r._conflicts = [];
     ctx.run = () => r; ctx.data.runs = [r]; ctx.findRun = () => null;
     for (const id of [null].concat(r._unrunnable && !Object.keys(r.steps || {}).length ? [] : ids)) {
@@ -2562,10 +2586,11 @@ rule('Every run/3 field 2.0 added, set to a wrong type, either reads back valid 
     }
     state.sel = null;
     try { inert(V.receipt(ctx), what + ': receipt'); } catch (e) { if (e instanceof assert.AssertionError) throw e; assert.fail(what + ': the receipt threw ' + e.message); }
-    try { PF.evidence.checks(JSON.parse(JSON.stringify(raw)), pub.files || {}, null); } catch (e) { assert.fail(what + ': the evidence checks threw ' + e.message); }
+    try { PF.evidence.checks(JSON.parse(text), pub.files || {}, null); } catch (e) { assert.fail(what + ': the evidence checks threw ' + e.message); }
     n++;
   }
   assert.strictEqual(n, paths.length * BAD.length);
+  assert.ok(readOnly > 0 && kept > 0, readOnly + ' read-only, ' + kept + ' kept');
 });
 
 run();

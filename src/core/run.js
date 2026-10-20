@@ -286,9 +286,10 @@ PF.run = (function () {
     applySets(r, map, x.step, who, now);
     return x;
   }
-  /* A step's registration snapshot: { id, rev, sha, snapshot } with a snapshot of at most 2 KB, or null. */
+  /* A step's registration snapshot: { id, rev, sha, snapshot } with a snapshot of at most 2 KB, or null. Its rev is a whole
+     number from 1 to 999999, as a registration's is: anything else (Infinity from 1e999) couldn't be saved as it was read. */
   function cleanSkill(s) {
-    if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(s.id) || typeof s.rev !== 'number' || s.rev < 1 || Math.floor(s.rev) !== s.rev || typeof s.sha !== 'string' || !/^[0-9a-f]{64}$/.test(s.sha)) return null;
+    if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(s.id) || typeof s.rev !== 'number' || !isFinite(s.rev) || s.rev < 1 || s.rev > 999999 || Math.floor(s.rev) !== s.rev || typeof s.sha !== 'string' || !/^[0-9a-f]{64}$/.test(s.sha)) return null;
     var snap = s.snapshot, text = snapOk(snap) ? JSON.stringify(snap) : '';
     if (!text || text.length > 2048) return null;
     return { id: s.id, rev: s.rev, sha: s.sha, snapshot: JSON.parse(text) };
@@ -978,6 +979,7 @@ PF.run = (function () {
   /* The Flightdeck a run/3 this copy can't fully read needs: its writer's own version when that's 2.0 or later, else 2.0. */
   function needs3(o) { var m = /^(\d+)\.(\d+)\.\d+/.exec(typeof o.app === 'string' ? o.app : ''); return m && +m[1] >= 2 ? m[1] + '.' + m[2] : '2.0'; }
   var MARKS = { blocked: 1, recheck: 1, na: 1, differently: 1 };
+  function folderOk(f) { return typeof f === 'string' && !!PF.publish.versionOf(f); }
   function newer(o) {
     var why = '';
     function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
@@ -997,6 +999,15 @@ PF.run = (function () {
     look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
     look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
     look(o.parent, three ? 'parent3' : 'parent', 'Its parent run');
+    /* run/3's own fields are kept exactly as written or the run is read-only: sanitize never drops or rewrites one (a version
+       folder that isn't one, an app that isn't a version, features out of their frozen order). */
+    if (three) {
+      if (!why && obj(o.parent) && o.parent.folder !== undefined && !folderOk(o.parent.folder)) why = 'Its parent run\'s version isn\'t a version folder.';
+      if (!why && o.app !== undefined && !(typeof o.app === 'string' && o.app.length <= 40 && /^\d+\.\d+\.\d+/.test(o.app))) why = 'The version of Flightdeck that wrote it isn\'t a version.';
+      ['features', 'app', 'typesHash', 'payload', 'pins', 'migrations'].forEach(function (k) { if (!why && o[k] === null) why = 'Its "' + k + '" is empty.'; });
+      if (!why && obj(o.pins) && !(obj(o.pins.children) && Object.keys(o.pins.children).length)) why = 'Its pins name no linked runs.';
+      if (!why && Array.isArray(o.features) && JSON.stringify(PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; })) !== JSON.stringify(o.features)) why = 'Its features aren\'t listed as this copy writes them.';
+    }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
     text(o.details, 'A run detail'); text(o.roles, 'A role');
@@ -1015,9 +1026,10 @@ PF.run = (function () {
       if (!obj(a)) return;
       look(a, three ? 'step3' : 'step', w); state(STEP_STATES, a.s, w + '\'s state');
       look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
-      if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill != null && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
+      if (three && !why && obj(a.child) && a.child.folder !== undefined && !folderOk(a.child.folder)) why = w + '\'s linked run\'s version isn\'t a version folder.';
+      if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
-      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill != null && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
+      if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
@@ -1250,7 +1262,7 @@ PF.run = (function () {
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
     if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
     if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
-    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && typeof o.parent.folder === 'string' && PF.publish.versionOf(o.parent.folder)) r.parent.folder = o.parent.folder; }
+    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
     var ho = o.recorder.handoff;
     if (ho && typeof ho === 'object' && !r.recorder.session) r.recorder.handoff = { from: str(ho.from, 80), rev: Math.max(0, parseInt(ho.rev, 10) || 0), at: isoOrNull(ho.at) };
     (Array.isArray(o.followUps) ? o.followUps.slice(0, 100) : []).forEach(function (f) {
@@ -1267,7 +1279,7 @@ PF.run = (function () {
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
       if (a.values) c.values = values(a.values);
-      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && typeof a.child.folder === 'string' && PF.publish.versionOf(a.child.folder)) c.child.folder = a.child.folder; }
+      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
       if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
       r.steps[k] = c;

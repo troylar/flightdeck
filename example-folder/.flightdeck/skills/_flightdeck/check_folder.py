@@ -558,7 +558,7 @@ def child_pin_ok(p):
     v, f = p.get("version"), p.get("folder")
     m = re.match(r"^v(\d+)-[a-z0-9]+$", f) if isinstance(f, str) else None
     return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}$", p["process"])) and _whole(v)
-            and v >= 1 and bool(m) and float(m.group(1)) == js_num(v) and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
+            and 1 <= js_num(v) <= 9007199254740991 and bool(m) and float(m.group(1)) == js_num(v) and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
             and isinstance(p.get("typesHash"), str) and bool(HASH8.match(p["typesHash"])))
 
 

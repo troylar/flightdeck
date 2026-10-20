@@ -436,6 +436,18 @@ rule('Fuzz: every plan/2 and plan-status/2 sample with a field removed, wrong-ty
   assert.ok(n > 150 && bad > 80, n + ' variants, ' + bad + ' bad');
 });
 
+rule('A child pin is a version JavaScript holds exactly: 1e999, -1e999 and 2^53+1 (with a folder numbered to match) are refused in the app and the folder check alike, never read as a number that saves differently', () => {
+  const PY = require('child_process').spawnSync;
+  const check = require('path').join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck');
+  for (const n of ['1e999', '-1e999', '9007199254740993']) {
+    const text = '{"process":"verify","version":' + n + ',"folder":"v' + n.replace(/^-/, '') + '-abcd1234","mapHash":"aaaaaaaa","typesHash":"bbbbbbbb"}';
+    assert.strictEqual(PF.pins.childOk(JSON.parse(text)), false, n + ': the app refuses it');
+    const py = PY('python3', ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(c.child_pin_ok(json.loads(sys.argv[2])))', check, text], { encoding: 'utf8' });
+    assert.strictEqual(py.stdout.trim(), 'False', n + ': the folder check refuses it: ' + py.stderr);
+  }
+  assert.strictEqual(PF.pins.childOk({ process: 'verify', version: 9007199254740991, folder: 'v9007199254740991-abcd1234', mapHash: 'aaaaaaaa', typesHash: 'bbbbbbbb' }), true, 'the largest whole number JavaScript holds exactly is still a version');
+});
+
 /* ---------- Signatures ---------- */
 rule('PF.signature: a step\'s signature includes its resolved pin (child or skill), and the process signature hashes the pins as canonical JSON; correction identity is unchanged', () => {
   const kids = childProc(['Check in code', 'Check in code']), cp = { verify: proc(kids) };

@@ -21,7 +21,7 @@ PF.pins = (function () {
   /* Shapes: a child pin, a skill pin ({ name, version }), and the payload's pins slot. */
   function childOk(p) {
     return isObj(p) && Object.keys(p).every(function (k) { return ['process', 'version', 'folder', 'mapHash', 'typesHash'].indexOf(k) >= 0; }) &&
-      typeof p.process === 'string' && PROC.test(p.process) && typeof p.version === 'number' && p.version >= 1 && Math.floor(p.version) === p.version &&
+      typeof p.process === 'string' && PROC.test(p.process) && typeof p.version === 'number' && isFinite(p.version) && p.version >= 1 && p.version <= 9007199254740991 && Math.floor(p.version) === p.version &&
       typeof p.folder === 'string' && PF.publish.versionOf(p.folder) === p.version && typeof p.mapHash === 'string' && HASH8.test(p.mapHash) && typeof p.typesHash === 'string' && HASH8.test(p.typesHash);
   }
   function skillOk(p) {
