@@ -660,4 +660,87 @@ rule('Decisions from both computers with the same decisionRev show as Decided tw
   assert.strictEqual(st.auto, false);
 });
 
+/* REQUEST (1.20): a request is a plan in proposals/, so its copies and its starts travel like any plan's. */
+function requested(d, at, edit) {
+  const RQ = PF.requests, pub = d.processes[0].index.latest, x = RQ.clean({ process: 'release', title: 'Backup check · November', details: { ticket: 'ABC-9' }, producer: { name: 'ci-check', version: '1.4.0' } }, 'nov');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(x.errors)), []);
+  const plan = RQ.build(x.intent, pub, at);
+  if (edit) edit(plan);
+  return { id: plan.id, text: RQ.text(plan) };
+}
+
+rule('REQUEST: two disconnected computers request one key: both files arrive; the same request shows once, arrived twice', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a);
+  const ra = requested(d, '2026-10-17T21:00:00.000Z'), rb = requested(d, '2026-10-17T21:05:00.000Z');
+  await a.write('proposals/' + ra.id + '.json', ra.text); await b.write('proposals/' + rb.id + '.json', rb.text);
+  a.sync(); b.sync(); a.sync();
+  assert.deepStrictEqual(Object.keys(a.files).filter(p => p.indexOf('proposals/req-') === 0).sort(), ['proposals/' + ra.id + '-BLAKE.json', 'proposals/' + ra.id + '.json'], 'OneDrive kept both');
+  for (const c of [a, b]) {
+    const all = await repo.loadAll(c), plans = all.plans.filter(p => p.id === ra.id);
+    assert.strictEqual(plans.length, 1, 'shown once');
+    assert.strictEqual(plans[0]._copies, 2); assert.strictEqual(plans[0]._copiesDiffer, false);
+    assert.strictEqual(plans[0]._file, ra.id + '.json', 'the file under its own name');
+    const out = PF.appjson.runs([], plans, PF.appjson.names(people), all.processes).planned;
+    same(out.map(x => [x.id, x.copies, x.copiesDiffer, x.status]), [[ra.id, 2, false, 'pending']]);
+  }
+});
+
+rule('REQUEST: two disconnected copies that say different things are both shown, flagged, and neither counts as decided', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a);
+  const ra = requested(d, NOW), rb = requested(d, NOW, p => { p.title = 'Something else'; });
+  await a.write('proposals/' + ra.id + '.json', ra.text); await b.write('proposals/' + rb.id + '.json', rb.text);
+  a.sync(); b.sync(); a.sync();
+  const plans = (await repo.loadAll(b)).plans.filter(p => p.id === ra.id);
+  same(plans.map(p => [p._file, p._copies, p._copiesDiffer]), [[ra.id + '.json', 2, true], [ra.id + '-BLAKE.json', 2, true]]);
+});
+
+rule('REQUEST: one plan started on two computers while OneDrive was paused shows as conflicting, never as one started run', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a), ra = requested(d, NOW);
+  await a.write('proposals/' + ra.id + '.json', ra.text); a.sync(); b.sync();
+  const pa = (await repo.loadAll(a)).plans.filter(p => p.id === ra.id)[0], pb = (await repo.loadAll(b)).plans.filter(p => p.id === ra.id)[0];
+  await repo.recordPlanStatus(a, pa, 'wa', 'accepted', 'runa', 'person-casey');
+  await repo.recordPlanStatus(b, pb, 'wb', 'accepted', 'runb', 'person-blake');
+  a.sync(); b.sync(); a.sync();
+  for (const c of [a, b]) {
+    const p = (await repo.loadAll(c)).plans.filter(x => x.id === ra.id)[0];
+    assert.strictEqual(p._conflicting, true, 'two accepted decisions naming different runs disagree');
+    assert.strictEqual(p._status, null);
+    assert.strictEqual(PF.appjson.runs([], [p], PF.appjson.names(people), []).planned[0].status, 'conflicting');
+  }
+  // A start recorded against either copy of the same request counts for it.
+  const { a: a2, b: b2 } = await twoComputers(), d2 = await repo.loadAll(a2), r1 = requested(d2, NOW), r2 = requested(d2, '2026-10-17T21:09:00.000Z');
+  await a2.write('proposals/' + r1.id + '.json', r1.text); await b2.write('proposals/' + r2.id + '.json', r2.text);
+  const pb2 = (await repo.loadAll(b2)).plans.filter(x => x.id === r2.id)[0];
+  await repo.recordPlanStatus(b2, pb2, 'wb', 'accepted', 'runb', 'person-blake');
+  a2.sync(); b2.sync(); a2.sync();
+  const p2 = (await repo.loadAll(a2)).plans.filter(x => x.id === r1.id);
+  assert.strictEqual(p2.length, 1);
+  assert.ok(p2[0]._status && p2[0]._status.run === 'runb', 'started once, from the copy B had');
+});
+
+rule('REQUEST review: copies whose details differ only in a name starting with _ are different copies, never one startable plan', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a);
+  const ra = requested(d, NOW, p => { p.details = { _site: 'east' }; }), rb = requested(d, NOW, p => { p.details = { _site: 'west' }; });
+  await a.write('proposals/' + ra.id + '.json', ra.text); await b.write('proposals/' + rb.id + '.json', rb.text);
+  a.sync(); b.sync(); a.sync();
+  const plans = (await repo.loadAll(a)).plans.filter(p => p.id === ra.id);
+  same(plans.map(p => [p._copies, p._copiesDiffer]), [[2, true], [2, true]]);
+  assert.strictEqual(PF.requests.same({ id: 'x', roles: { _qa: 'p1' }, _file: 'a' }, { id: 'x', roles: { _qa: 'p2' }, _file: 'b' }), false);
+});
+
+rule('REQUEST review: two different copies of one request, each started on its own computer, show as a double start', async () => {
+  const { a, b } = await twoComputers(), d = await repo.loadAll(a);
+  const ra = requested(d, NOW), rb = requested(d, NOW, p => { p.title = 'Something else'; });
+  await a.write('proposals/' + ra.id + '.json', ra.text); await b.write('proposals/' + rb.id + '.json', rb.text);
+  const pa = (await repo.loadAll(a)).plans.filter(p => p.id === ra.id)[0], pb = (await repo.loadAll(b)).plans.filter(p => p.id === rb.id)[0];
+  await repo.recordPlanStatus(a, pa, 'wa', 'accepted', 'runa', 'person-casey');
+  await repo.recordPlanStatus(b, pb, 'wb', 'accepted', 'runb', 'person-blake');
+  a.sync(); b.sync(); a.sync();
+  for (const c of [a, b]) {
+    const plans = (await repo.loadAll(c)).plans.filter(x => x.id === ra.id);
+    assert.strictEqual(plans.length, 2);
+    assert.ok(plans.every(p => p._conflicting && !p._status), 'both shown, as conflicting');
+  }
+});
+
 run();

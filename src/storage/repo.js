@@ -527,9 +527,9 @@ PF.repo = (function () {
 
   /* bad (reading for other apps): each file that won't read, parse or check is named there, and the rest still load.
      Without it, as the app reads: what doesn't parse or check is left out, and a file that won't read fails the part. */
-  function loadJsonDir(fs, dir, ok, bad) {
+  function loadJsonDir(fs, dir, ok, bad, only) {
     return fs.list(dir).then(function (items) {
-      return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) {
+      return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return readJson(fs, path).then(function (o) { if (o && ok(o)) { o._file = i.name; return o; } return null; });
         return fs.read(path).then(function (f) {
@@ -603,14 +603,14 @@ PF.repo = (function () {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
     cache.clockFn = opts.clock || elapsed;
     var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
-    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], [], { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, []];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, []];
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
     var top = {};
     return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && i.kind === 'dir') top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       loadSkills(fs),
-      loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }, malformed),
+      readPlans(fs, malformed),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' && typeof o.process === 'string' && typeof o.folder === 'string' && typeof o.by === 'string' && typeof o.at === 'string'; }),
       loadCorrectionDecisions(fs, cache, sched),
@@ -625,25 +625,7 @@ PF.repo = (function () {
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
       /* Sign-offs are read as plain strings and numbers only, so odd values in a file can't break a page. */
       r[9] = r[9].map(function (v) { var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file }; if (v.as === 'backup') o.as = 'backup'; return o; });
-      var props = r[6], statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
-      if (malformed) {
-        props.forEach(function (p) {
-          var bad = p.kind === 'plan' ? planWhy(p) : statusWhy(p);
-          if (bad) malformed.push({ path: 'proposals/' + p._file, kind: 'malformed', why: bad });
-        });
-        /* Reading for other apps shows only plans and decisions in the format; the rest are named above. */
-        statuses = statuses.filter(function (x) { return !statusWhy(x); }); plans = plans.filter(function (x) { return !planWhy(x); });
-      }
-      /* A decision counts only for the exact plan it was made on; if the plan changed afterwards, it's pending again. */
-      plans.forEach(function (p) {
-        p._hash = U.hash(JSON.stringify(stripMeta(p)));
-        var mine = statuses.filter(function (s) { return s.proposal === p.id; });
-        /* Decisions that disagree (one accepted, one declined) leave the plan undecided rather than picking one. */
-        var match = mine.filter(function (s) { return s.proposalHash === p._hash; });
-        p._conflicting = match.some(function (s) { return s.status !== match[0].status; });
-        p._status = match.length && !p._conflicting ? match[0] : null;
-        p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
-      });
+      var plans = groupPlans(r[6].plans, r[6].statuses);
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
         var x = reads[k]; if (!x) return;
@@ -1488,6 +1470,52 @@ PF.repo = (function () {
      A raw, read-only collector, separate from display loading. It never calls loadRun or readRun: those can delete a save
      receipt already in run.json's lineage and build display objects. It sees the folder only through readOnly(), which has
      list, read, stat and blob and throws on anything that would change a file, in the app and in the command line alike. */
+  /* Plans and their decisions. One plan can be in two files: OneDrive keeps both when two computers wrote it while
+     disconnected (a request from another app, made on each). Copies that say the same thing (PF.requests.same: equal apart
+     from when each was written) are one plan, shown once from the file under its own name (_copies says how many files);
+     copies that differ are each shown, flagged (_copiesDiffer, _files), and the app starts neither until a person deletes one.
+     A decision counts only for the exact plan it was made on (any copy of it); if the plan changed afterwards, it's pending
+     again. Decisions that disagree (one accepted and one declined, or two starts naming different runs, on any of its copies)
+     leave the plan undecided rather than picking one, so a plan started on two computers is shown, never hidden. */
+  function groupPlans(plans, statuses) {
+    var byId = Object.create(null), order = [], out = [];
+    plans.forEach(function (p) { p._hash = U.hash(JSON.stringify(stripMeta(p))); if (!byId[p.id]) { byId[p.id] = []; order.push(p.id); } byId[p.id].push(p); });
+    order.forEach(function (id) {
+      var own = id + '.json', g = byId[id].sort(function (a, b) { var ca = a._file === own ? 0 : 1, cb = b._file === own ? 0 : 1; return ca - cb || (String(a._file) < String(b._file) ? -1 : String(a._file) > String(b._file) ? 1 : 0); });
+      var alike = g.every(function (p) { return PF.requests.same(p, g[0]); }), files = g.map(function (p) { return p._file; }), allHashes = g.map(function (p) { return p._hash; });
+      (alike ? [g[0]] : g).forEach(function (p) {
+        var hashes = alike ? g.map(function (x) { return x._hash; }) : [p._hash];
+        var mine = statuses.filter(function (s) { return s.proposal === p.id; });
+        var match = mine.filter(function (s) { return hashes.indexOf(s.proposalHash) >= 0; });
+        /* Starts count across every copy of the plan, whatever each copy says: two copies that differ, each started on its own
+           computer, are one request started twice. */
+        var started = mine.filter(function (s) { return s.status === 'accepted' && allHashes.indexOf(s.proposalHash) >= 0; });
+        p._conflicting = match.some(function (s) { return s.status !== match[0].status; }) || started.some(function (s) { return (s.run || null) !== (started[0].run || null); });
+        p._status = match.length && !p._conflicting ? match[0] : null;
+        p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
+        p._copies = g.length; p._copiesDiffer = !alike; p._files = files;
+        out.push(p);
+      });
+    });
+    return out;
+  }
+  /* Planned runs and their decisions in proposals/, ungrouped: { plans, statuses }. With bad (reading for other apps, and
+     flightdeck plan request, which reads them with this same code), every file not in the format is named there, by file,
+     and left out. only(name): just those files (plan request reads its own request's). */
+  function readPlans(fs, bad, only) {
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status'; }, bad, only).then(function (props) {
+      var statuses = props.filter(function (p) { return p.kind === 'status'; }), plans = props.filter(function (p) { return p.kind === 'plan' && typeof p.id === 'string' && typeof p.process === 'string'; });
+      if (bad) {
+        props.forEach(function (p) {
+          var w = p.kind === 'plan' ? planWhy(p) : statusWhy(p);
+          if (w) bad.push({ path: 'proposals/' + p._file, kind: 'malformed', why: w });
+        });
+        /* Only plans and decisions in the format are used; the rest are named above. */
+        statuses = statuses.filter(function (x) { return !statusWhy(x); }); plans = plans.filter(function (x) { return !planWhy(x); });
+      }
+      return { plans: plans, statuses: statuses };
+    });
+  }
   /* Reading for other apps: what's wrong with a plan or a plan decision, or '' when it's in the format. */
   function textOr(v) { return v == null || typeof v === 'string'; }
   function plainOf(v, ok) {
@@ -2147,5 +2175,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

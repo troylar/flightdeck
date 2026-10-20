@@ -413,8 +413,12 @@
     var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.publish.forPlan(p, plan.version, chosen) : { pub: p.latest };
     var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
     var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · planned by ' + esc(plan.by ? nameOf(ctx, plan.by) : 'an AI assistant') : '') + '</div><h1>' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
-    if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: one accepted it and one declined it. Someone may have started it already; check Runs before you start it again.</span></div>';
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1>' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
+    var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
+    if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
+    if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
+    else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
+    if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + pub.info.version + '. v' + latest.info.version + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button><button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + latest.info.version + '</button></span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
@@ -453,7 +457,7 @@
       h += '</div><p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
     if (planning) return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>Save the plan</button><span class="small">It waits under Runs until someone starts it.</span><button class="mini" type="button" data-act="cancel-plan">Cancel</button></div></form>';
-    h += '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +
+    h += '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me && !(plan && plan._copiesDiffer) ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +
       (plan ? '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button>' : '') + '</div></form>';
     return h;
   }

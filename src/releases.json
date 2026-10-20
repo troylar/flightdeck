@@ -1,5 +1,33 @@
 [
   {
+    "version": "1.20.0",
+    "date": "2026-10-20",
+    "headline": "Let another app ask for a run",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Ask for a run from another app: flightdeck plan request",
+        "now": "A script or another app can ask for a run with flightdeck plan request and a key, such as the month. It shows under Runs as a planned run. A person starts it, changes it or declines it; nothing starts by itself. Asking again with the same key and the same request changes nothing, and the same key with other details is refused.",
+        "where": "The flightdeck command, then Runs"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "See which tool asked for a planned run",
+        "now": "A planned run another app asked for says \"requested by\" the tool, by its own account. The name is what the file says, so Flightdeck reminds you it can't confirm who wrote it.",
+        "where": "Runs, Home and the start form"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Copies of a planned run and double starts are shown",
+        "before": "When OneDrive kept two copies of a planned run, it showed twice. A plan started on two computers at once showed as started once.",
+        "now": "Copies that say the same thing show once, marked as arrived twice. Copies that differ are both flagged and can't be started until someone deletes the wrong one. A plan started twice shows that its decisions disagree, so you can check Runs."
+      }
+    ]
+  },
+  {
     "version": "1.19.0",
     "date": "2026-10-19",
     "headline": "Edit a checklist with your AI assistant at the same time",

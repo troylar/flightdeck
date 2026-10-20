@@ -18,6 +18,7 @@ node test/shots-app.test.js
 node test/compat.test.js
 node test/build.test.js
 node test/cli.test.js
+node test/old-bundles.test.js
 node test/evidence.test.js
 node test/perf.test.js
 node -e "
