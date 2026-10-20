@@ -11,6 +11,10 @@ Other apps can read checklists, runs, what's waiting and follow-ups as JSON.
 - **Read checklists and runs as JSON** (Command line). Scripts and other apps can read the team folder as a teammate would: flightdeck processes, process, runs, run, next and followups, with --json. They show checklists, runs, what's waiting and on whom, and follow-ups. They only read and never change the folder. Anything they couldn't read is named file by file, with exit code 4. People-directory email fields are omitted. *Where:* flightdeck run <team folder> <process>/<run id> --json, and docs/apps.md
 - **Copy a run's key** (Runs). Copy run key copies the key other apps use to read a run, like backup-check/k3m9p2q8. *Where:* A run's More menu
 
+### Improved
+
+- **See each phase's steps in the flight plan** (Flight plan). Each phase lists its steps: the type, the text, must-dos, who does it, the skill that covers it, lanes side by side, and the gate last. Choose a step to open it in the checklist. Show all steps or Hide all steps opens or closes every phase. Phases start open when the checklist has 40 steps or fewer. Your choice is kept for each process in this browser. *Where:* A process page, Flight plan
+
 ## 1.17.0 · Oct 19, 2026
 
 Search everything with Ctrl+K, and big team folders open and refresh faster, show 50 runs at a time, and warn when refreshing is slow.
