@@ -130,6 +130,24 @@ PF.pins = (function () {
     return '';
   }
 
+  /* The pin a run/3 step takes from a child run it adopts when it has none yet (its child process wasn't published when the
+     run started): that run's version as this folder holds it, verified as childMatch verifies any child (PF.pins.find: present,
+     the only one with its number, usable; and the run matching it). { pin } or { why }: one that can't be verified is refused,
+     never pinned from the run's own say. */
+  function pinOfRun(c, procOf) {
+    var name = isObj(c) && typeof c.process === 'string' ? c.process : 'child';
+    var no = function (why) { return { why: 'That ' + name + ' run can\'t be linked: ' + why + ', so this step can\'t be pinned to its version.' }; };
+    if (!isObj(c)) return no('it isn\'t visible here');
+    if (typeof c.folder !== 'string' || !PF.publish.versionOf(c.folder)) return no('it doesn\'t say its version');
+    if (typeof procOf !== 'function') return no('its version can\'t be checked: the versions in this folder aren\'t known here');
+    var got = find(procOf(c.process), { process: c.process, folder: c.folder });
+    if (!got.pub) return no('its version (' + c.folder + ') can\'t be verified: ' + lower(got.why));
+    var pin = of(got.pub, c.process);
+    if (!childOk(pin)) return no('its version (' + c.folder + ') can\'t be verified: its publication record doesn\'t name its fingerprints');
+    var bad = childMatch(pin, c, procOf);
+    return bad ? { why: bad } : { pin: pin };
+  }
+
   /* The version a plan/2 starts on: its pin, or the one a person retargeted it to (a plan/2 status, retargeted). Never the
      latest by itself: { pub, older, retargeted } or { pub: null, ask: why }. */
   function forPlan(proc, plan, retarget) {
@@ -141,5 +159,5 @@ PF.pins = (function () {
     return { pub: got.pub, older: !!latest && latest.info.folder !== got.pub.info.folder, retargeted: !!retarget };
   }
 
-  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, childMatch: childMatch, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
+  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, childMatch: childMatch, pinOfRun: pinOfRun, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
 })();

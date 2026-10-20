@@ -6125,6 +6125,40 @@ rule('Pins: a step whose linked run fails its pin shows "Start a new … run", a
   assert.ok(link && link.id === c.id && link.folder === v2folder, 'and linked: ' + JSON.stringify(link));
 });
 
+rule('Pins: Link it on an orphan child, for a step with no pin yet, pins the step to the orphan\'s version; after a newer version and a changed detail, the next child still starts on that pin', async () => {
+  const { app, n, v2folder } = await pinnedRelease();
+  const runPath = 'runs/release/' + n.id + '/run.json';
+  app.click('start-child', 'notes'); await app.tick(120);
+  const k = JSON.parse(app.fs.files['runs/check-in/' + JSON.parse(app.fs.files[runPath].t).steps.notes.child.id + '/run.json'].t);
+  // The parent as it would be had check-in not been published when it started: no pin for the step, and no link.
+  const p = JSON.parse(app.fs.files[runPath].t); delete p.pins; p.features = (p.features || []).filter(f => f !== 'pinned-children'); delete p.steps.notes;
+  await app.fs.write(runPath, JSON.stringify(p, null, 2));
+  const d = await app.PF.repo.loadAll(app.fs), ci = d.processes.find(x => x.process === 'check-in'), v2 = ci.index.all.find(x => x.info.folder === v2folder);
+  const o = app.PF.run.create(v2, { id: 'orphan2', title: 'Check in, recovered', details: k.details, roles: k.roles, by: 'person-casey', session: 'w-other', now: new Date(Date.now() + 60000).toISOString(), parent: k.parent, app: '2.0.0', pins: {} });
+  await app.PF.repo.saveRun(app.fs, o, 'w-other');
+  app.click('refresh'); await app.tick(80);
+  app.click('open-run', 'release/' + n.id); await app.tick(40);
+  app.click('select', 'notes'); await app.tick();
+  assert.ok(/data-act="link-child" data-id="notes" data-child="check-in\/orphan2"/.test(app.html()), 'Link it is offered for the orphan');
+  app.click('link-child', 'notes', { child: 'check-in/orphan2' }); await app.tick(80);
+  const after = JSON.parse(app.fs.files[runPath].t);
+  assert.ok(after.steps.notes && after.steps.notes.child && after.steps.notes.child.id === 'orphan2', 'linked: ' + JSON.stringify(after.steps.notes));
+  assert.ok(after.pins && after.pins.children && after.pins.children.notes && after.pins.children.notes.folder === v2folder, 'pinned to the orphan\'s version: ' + JSON.stringify(after.pins));
+  assert.strictEqual(after.pins.children.notes.mapHash, v2.info.mapHash); assert.strictEqual(after.pins.children.notes.typesHash, v2.info.typesHash);
+  // check-in v3 is published, and a detail the child carries changes: the next child starts on the pin, not on v3.
+  const v3 = await app.PF.repo.publish(app.fs, v2.md.replace(/\n## ([^\n]+)\n/, '\n## $1\n  > And the staging server.\n'), { people: d.people, customTypes: d.stepTypes.types, workflows: {}, by: 'person-avery', changes: 'v3', existing: ci.index.all.map(x => x.info), now: new Date().toISOString(), app: '2.0.0' });
+  assert.ok(v3 && !v3.blockers && v3.folder !== v2folder, 'set-up: v3 published');
+  app.click('refresh'); await app.tick(80);
+  app.click('open-run', 'release/' + n.id); await app.tick(40);
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'beef456'); app.click('save-edit'); await app.tick(60);
+  app.click('select', 'notes'); await app.tick();
+  const kids = () => app.files('runs/check-in/').filter(x => /\/run\.json$/.test(x)), before = kids();
+  app.click('start-child', 'notes'); await app.tick(160);
+  const made = kids().filter(x => before.indexOf(x) < 0);
+  assert.strictEqual(made.length, 1, 'one new child: ' + app.html().match(/class="msg[^"]*"[^>]*>[^<]*/g));
+  assert.strictEqual(JSON.parse(app.fs.files[made[0]].t).folder, v2folder, 'on the pinned version, not v3');
+});
+
 rule('Pins: a plan switch waiting behind another write is dropped, and says so, if the folder or the person changes first; it never lands in another folder', async () => {
   for (const change of ['folder', 'person']) {
     const app = boot(); await app.tick(60);

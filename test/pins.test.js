@@ -550,6 +550,32 @@ rule('One child-pin verdict judges a run/2 child by its verified publication: sa
   assert.ok(PF.pins.childMatch(pin, ok, () => gone), 'another folder with that number');
 });
 
+rule('Linking an orphan to a run/3 step with no pin yet pins the step to the orphan\'s verified publication, and refuses, with why, when that publication can\'t be verified', () => {
+  const kids = childProc(['A', 'B']), parent = linked(kids, []), inputs = { ticket: 'ABC-1' };
+  // The child process wasn't published when the parent started: no pin for the step.
+  const start = () => plain(R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: inputs, explicit: true, pins: PF.pins.atStart(parent.map, null, () => null) }));
+  assert.strictEqual(start().format, 'preflight-run/3', 'set-up: a run/3');
+  const r = start(), map = R.mapOf(r);
+  assert.ok(!(r.pins && r.pins.children && r.pins.children.verify), 'set-up: no pin yet');
+  const kid = (pub, id) => plain(R.create(pub, { id, by: 'a', session: 'w', now: AT, details: inputs, parent: { process: 'backup', id: r.id, step: 'verify', inputs, folder: r.folder } }));
+  const v1 = kid(kids[0], 'kid1'), procs = { verify: proc(kids) }, procOf = (id) => procs[id] || null;
+  const linkOf = (c) => ({ process: c.process, id: c.id, inputs, folder: c.folder, format: c.format });
+  // Link it, with no pin passed: the pin comes from the orphan's version, as the folder holds it.
+  R.linkChild(r, map, 'verify', linkOf(v1), 'person-avery', AT, { run: v1, procOf, findRun: () => null });
+  assert.deepStrictEqual(plain(r.pins.children.verify), plain(PF.pins.of(kids[0], 'verify')), 'pinned to v1, the orphan\'s version');
+  assert.ok(r.features.indexOf('pinned-children') >= 0);
+  // The next child goes to the pin, not the latest.
+  assert.strictEqual(PF.pins.childTarget(r, M.findStep(map, 'verify').step, procOf).pub.info.folder, kids[0].info.folder);
+  // Can't be verified: refused with why, and nothing linked or pinned.
+  const refuse = (c, o, re) => { const x = start(); assert.throws(() => R.linkChild(x, map, 'verify', linkOf(c), 'person-avery', AT, o), re); assert.ok(!(x.steps.verify && x.steps.verify.child) && !(x.pins && x.pins.children && x.pins.children.verify), 'nothing linked or pinned'); };
+  refuse(v1, { run: v1, procOf: () => null, findRun: () => null }, /isn't published|can't be (checked|verified)/);
+  refuse(v1, { run: v1, findRun: () => null }, /can't be (checked|verified)|aren't known/);
+  refuse(v1, undefined, /can't be (checked|verified)|isn't visible|aren't known/);
+  const clash = proc([kids[0], childProc(['A'])[0], kids[1]]);
+  refuse(v1, { run: v1, procOf: () => clash, findRun: () => null }, /two versions are numbered/);
+  refuse(Object.assign(plain(v1), { mapHash: 'ffffffff' }), { run: Object.assign(plain(v1), { mapHash: 'ffffffff' }), procOf, findRun: () => null }, /checklist/);
+});
+
 rule('Rechecking a {run.skill} step keeps the registration it observed in the step\'s history, through sanitize and the archive', () => {
   const kids = childProc(['A']), md = PARENT(['  version: 1']).replace('Write the report {#report}', 'Write the report for ^ticket {#report}');
   const parent = publish(md, { childProcs: { verify: proc(kids) } });

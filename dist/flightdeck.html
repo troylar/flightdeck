@@ -4548,6 +4548,24 @@ PF.pins = (function () {
     return '';
   }
 
+  /* The pin a run/3 step takes from a child run it adopts when it has none yet (its child process wasn't published when the
+     run started): that run's version as this folder holds it, verified as childMatch verifies any child (PF.pins.find: present,
+     the only one with its number, usable; and the run matching it). { pin } or { why }: one that can't be verified is refused,
+     never pinned from the run's own say. */
+  function pinOfRun(c, procOf) {
+    var name = isObj(c) && typeof c.process === 'string' ? c.process : 'child';
+    var no = function (why) { return { why: 'That ' + name + ' run can\'t be linked: ' + why + ', so this step can\'t be pinned to its version.' }; };
+    if (!isObj(c)) return no('it isn\'t visible here');
+    if (typeof c.folder !== 'string' || !PF.publish.versionOf(c.folder)) return no('it doesn\'t say its version');
+    if (typeof procOf !== 'function') return no('its version can\'t be checked: the versions in this folder aren\'t known here');
+    var got = find(procOf(c.process), { process: c.process, folder: c.folder });
+    if (!got.pub) return no('its version (' + c.folder + ') can\'t be verified: ' + lower(got.why));
+    var pin = of(got.pub, c.process);
+    if (!childOk(pin)) return no('its version (' + c.folder + ') can\'t be verified: its publication record doesn\'t name its fingerprints');
+    var bad = childMatch(pin, c, procOf);
+    return bad ? { why: bad } : { pin: pin };
+  }
+
   /* The version a plan/2 starts on: its pin, or the one a person retargeted it to (a plan/2 status, retargeted). Never the
      latest by itself: { pub, older, retargeted } or { pub: null, ask: why }. */
   function forPlan(proc, plan, retarget) {
@@ -4559,7 +4577,7 @@ PF.pins = (function () {
     return { pub: got.pub, older: !!latest && latest.info.folder !== got.pub.info.folder, retargeted: !!retarget };
   }
 
-  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, childMatch: childMatch, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
+  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, childMatch: childMatch, pinOfRun: pinOfRun, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
 })();
 
 /* Runs: one execution of one published map. Pure functions over a plain run object (saved as run.json). */
@@ -5202,7 +5220,13 @@ PF.run = (function () {
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
-    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), o.run, o.procOf); if (pm) throw new Error(pm); }
+    /* With no pin yet (the child process wasn't published when the run started), the step is pinned to the adopted run's
+       verified version (PF.pins.pinOfRun); one that can't be verified is refused. */
+    if (r.format === FORMAT3) {
+      var use = pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null);
+      if (!use) { var po = PF.pins.pinOfRun(o.run, o.procOf); if (!po.pin) throw new Error(po.why); use = po.pin; child = Object.assign({}, child, { pin: use }); }
+      var pm = PF.pins.childMatch(use, o.run, o.procOf); if (pm) throw new Error(pm);
+    }
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */

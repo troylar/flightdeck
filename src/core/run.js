@@ -638,7 +638,13 @@ PF.run = (function () {
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
-    if (r.format === FORMAT3) { var pm = PF.pins.childMatch(pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null), o.run, o.procOf); if (pm) throw new Error(pm); }
+    /* With no pin yet (the child process wasn't published when the run started), the step is pinned to the adopted run's
+       verified version (PF.pins.pinOfRun); one that can't be verified is refused. */
+    if (r.format === FORMAT3) {
+      var use = pinNow || (child.pin && PF.pins.childOk(child.pin) ? child.pin : null);
+      if (!use) { var po = PF.pins.pinOfRun(o.run, o.procOf); if (!po.pin) throw new Error(po.why); use = po.pin; child = Object.assign({}, child, { pin: use }); }
+      var pm = PF.pins.childMatch(use, o.run, o.procOf); if (pm) throw new Error(pm);
+    }
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
