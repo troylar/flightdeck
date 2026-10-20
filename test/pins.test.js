@@ -136,6 +136,10 @@ rule('A run/3 without version: pins the latest child when it starts; a later chi
   assert.strictEqual(r.steps.verify.child.folder, kids[0].info.folder);
   const back = R.sanitize(plain(r));
   assert.ok(!back._unrunnable, back._unrunnable); assert.strictEqual(back.steps.verify.child.folder, kids[0].info.folder);
+  // Changed child details: the linked child no longer counts, and a new one starts on the same pin, never the latest.
+  R.setDetail(r, R.mapOf(r), 'ticket', 'ABC-2', 'person-avery', AT);
+  assert.ok(!R.childCurrent(r, step, r.steps.verify), 'the child was for other details');
+  assert.strictEqual(PF.pins.childTarget(r, step, (id) => procs[id] || null).pub.info.folder, kids[0].info.folder, 'Start again: the pin');
 });
 
 rule('A pinned child that can\'t be used refuses the start in the plan\'s words, and never falls back: missing folder, another folder with the same number, a clash, changed files', () => {

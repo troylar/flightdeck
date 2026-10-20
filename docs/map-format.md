@@ -105,6 +105,8 @@ A checklist that uses nothing on this list publishes as before, and every teamma
 - A note on a phase (`  > text` under a phase heading).
 - Screenshots on a phase (`  ![caption](images/…)` under a phase heading).
 - Screenshots on a gate.
+- `version:` on a `{run.process}` step (see Nested processes).
+- `skillVersion:` on a `{run.skill}` step (see Skill versions).
 
 A gate's note isn't on this list: every copy since 1.10 publishes it, and 2.0 shows it for every version.
 
@@ -158,6 +160,30 @@ A `{run.process}` step starts a linked run of another published process:
 ```
 
 `carry:` lists the run details passed to the child (all matching details if it's left out). The step is checked only by its child run: done when the child completes with the details it was started for, and blocked if it ends any other way (a new child can then replace it). It can't be ticked by hand; a step that isn't must-do can still be marked N/A. If a carried detail changes, the step goes back for a re-check and needs a new child run.
+
+Add `version:` to run one exact version of the other process (Needs Flightdeck 2.0):
+
+```markdown
+- [ ] {run.process} Check in the release notes for this commit @release-lead {#notes}
+  process: check-in
+  version: 4
+```
+
+Publishing resolves `version: 4` to the one published folder numbered 4 and records it in the version. It stops the publish, saying why, when there's no v4 of that process in the folder, two folders are numbered 4, or v4 can't be used. Every run of the version starts its child on exactly that folder. If the folder is later missing or replaced, the step refuses to start the child: "This step runs Check in code v4, which can't be used here: …". It never falls back to the latest.
+
+Without `version:`, a run made with Flightdeck 2.0 pins each linked process when it starts, at its latest version then, so a version published during the run doesn't change what it runs. A run made with Flightdeck 1.x follows the latest, as it always has, but never starts or adopts a child on a version only Flightdeck 2.0 runs. It offers **Start it as a Flightdeck 2.0 run** instead: a new run of the same version with the same details and roles and no answers, and the old step is marked Blocked, "Continued in run …".
+
+## Skill versions
+
+Add `skillVersion:` to a `{run.skill}` step to say which version of the skill it expects (Needs Flightdeck 2.0):
+
+```markdown
+- [ ] {run.skill} Write the release notes @release-lead {#write}
+  skill: release-notes
+  skillVersion: 1.2.0
+```
+
+When the step is checked in a run made with Flightdeck 2.0, the run records the skill's registration as it was then: "Registered as release-notes 1.2.0 when this step was checked". If the team folder registers another version, the step shows a warning ("This step expects release-notes 1.2.0. The team folder registers 1.3.0.") and can still be checked.
 
 ## Team step types
 
