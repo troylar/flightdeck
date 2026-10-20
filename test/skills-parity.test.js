@@ -28,13 +28,15 @@ class DiskFS {
 function python() { for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (e) { /* try next */ } } return null; }
 function tree(dir) { const out = {}; (function walk(d, rel) { let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (err) { out[rel + '/'] = '(unlisted)'; return; } ents.forEach(e => { const p = path.join(d, e.name), r = rel ? rel + '/' + e.name : e.name; if (e.isDirectory()) walk(p, r); else { try { out[r] = fs.readFileSync(p).toString('base64'); } catch (err) { out[r] = '(unreadable)'; } } }); })(dir, ''); return out; }
 
-const LEGACY = ['absent', 'valid', 'tombstone', 'newer', 'malformed', 'unreadable'];
+const LEGACY = ['absent', 'valid', 'tombstone', 'newer', 'malformed', 'unreadable', 'misnamed'];
 const REVS = ['none', 'valid', 'two', 'newer', 'malformed', 'seen', 'steps'];
 /* Revision numbers JavaScript refuses, written into the file as raw JSON: Python must refuse each the same way, never crash. */
 const BADNUM = { 'rev-huge': ['rev', '1e999'], 'rev-neg': ['rev', '-1'], 'rev-frac': ['rev', '1.5'], 'rev-str': ['rev', '"1"'], 'rev-bool': ['rev', 'true'], 'seen-huge': ['seen', '1e999'] };
 REVS.push(...Object.keys(BADNUM));
 /* A name's folder that can't be listed (chmod 000 on skill-registrations/<name>/). */
 REVS.push('unlisted');
+/* A revision whose recorded name isn't its folder's, or whose id isn't its file name's. */
+REVS.push('misnamed', 'misid');
 /* Skill names that are also properties every JavaScript object inherits. __proto__ isn't a name flightdeck skill register
    takes, but a legacy file can still say it. */
 const PROTO = ['constructor', 'toString', 'hasOwnProperty', 'valueOf'];
@@ -74,6 +76,8 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
         if (r === 'malformed') await two(Object.assign({}, g.rec, { rev: 2, seen: 1, implements: 'verify@1' }));
         if (r === 'seen') await two(Object.assign({}, g.rec, { rev: 2, seen: 2 }));
         if (r === 'steps') await two(Object.assign({}, g.rec, { rev: 2, seen: 1, steps: [] }));
+        if (r === 'misnamed') await two(Object.assign({}, g.rec, { rev: 2, seen: 1, name: 'other-' + name }));
+        if (r === 'misid') await two(Object.assign({}, g.rec, { rev: 2, seen: 1, id: 'sk-zzzzzzzz' }));
         if (BADNUM[r]) { const [f, raw] = BADNUM[r], o = Object.assign({}, g.rec, { rev: 2, seen: 1 }); o[f] = '@@'; await d.write(g.path.replace('.1.w-one.json', '.2.w-two.json'), JSON.stringify(o, null, 2).replace('"@@"', raw) + '\n'); }
       }
       const lf = 'skills/' + name + '.json';
@@ -81,6 +85,8 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
       if (l === 'tombstone') await d.write(lf, JSON.stringify({ name, implements: 'moved', movedTo: 'skill-registrations/' + name + '/', id: rec ? rec.id : 'sk-zzzzzzzz' }));
       if (l === 'newer') await d.write(lf, JSON.stringify({ format: 'flightdeck-skill/3', name, version: '9.0.0', location: 'x', implements: { process: 'verify' } }));
       if (l === 'malformed') await d.write(lf, JSON.stringify({ name, version: '0.9.0' }));
+      // A valid file that records another skill's name: registering this name must never replace it.
+      if (l === 'misnamed') await d.write(lf, JSON.stringify({ name: 'other-' + name, version: '0.9.0', location: 'there', implements: 'verify@1' }));
       if (l === 'unreadable') { fs.chmodSync(d.p(lf), 0o000); locked.push(d.p(lf)); }
     }
     /* Truncation: a copy reads the first 500 registration files by path and no more. z-a-part's revision 1 is the 500th and
@@ -104,7 +110,7 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     const pick = (x) => x ? { status: x.status, source: x.source || null, rev: x.rev == null ? null : x.rev, blocks: !!x.blocks, kinds: Array.from(x.kinds || []).sort() } : { status: 'absent', source: null, rev: null, blocks: false, kinds: [] };
     // The app.
     const app = await repo.loadAll(d, { deep: true });
-    const appSays = (n) => { const e = app.skills.filter(x => x.verdict && x.verdict.name === n); return pick(e.length ? e[0].verdict : null); };
+    const appSays = (n) => pick(app.skills.verdicts[n] || null);
     // The checker.
     const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
     const pySays = (n) => pick((out.skills || []).find(s => s.name === n));
@@ -126,8 +132,10 @@ rule('Every consumer gives the same skill verdict for every legacy file × revis
     }
     // The rules, spot-checked: a refused revision or an unreadable, newer or malformed legacy file holds the whole name.
     const st = (n) => seen[n] && seen[n].status;
-    ['newer', 'malformed', 'seen', 'steps'].concat(Object.keys(BADNUM)).forEach(r => LEGACY.forEach(l => { if (seen['s-' + l + '-' + r]) assert.strictEqual(st('s-' + l + '-' + r), 'unmatched', l + '/' + r); }));
+    ['newer', 'malformed', 'seen', 'steps', 'misnamed', 'misid'].concat(Object.keys(BADNUM)).forEach(r => LEGACY.forEach(l => { if (seen['s-' + l + '-' + r]) assert.strictEqual(st('s-' + l + '-' + r), 'unmatched', l + '/' + r); }));
     ['newer', 'malformed'].concat(ROOT_USER ? [] : ['unreadable']).forEach(l => REVS.forEach(r => assert.strictEqual(st('s-' + l + '-' + r), 'unmatched', l + '/' + r)));
+    REVS.forEach(r => { const x = seen['s-misnamed-' + r]; assert.ok(x && x.status === 'unmatched' && x.blocks && x.kinds.indexOf('name-mismatch') >= 0, 'misnamed/' + r + ': ' + JSON.stringify(x)); });
+    ['misnamed', 'misid'].forEach(r => LEGACY.forEach(l => { const x = seen['s-' + l + '-' + r]; if (x) assert.ok(x.blocks && x.kinds.indexOf('name-mismatch') >= 0, l + '/' + r + ': ' + JSON.stringify(x)); }));
     assert.deepStrictEqual(seen['s-absent-valid'], { status: 'current', source: 'registration', rev: 1, blocks: false, kinds: [] });
     assert.deepStrictEqual(seen['s-tombstone-valid'], { status: 'current', source: 'registration', rev: 1, blocks: false, kinds: [] });
     assert.deepStrictEqual(seen['s-valid-none'], { status: 'current', source: 'legacy', rev: null, blocks: false, kinds: [] });

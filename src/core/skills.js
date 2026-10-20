@@ -62,11 +62,11 @@ PF.skills = (function () {
     var env = PF.envelope.judge('flightdeck-skill', o);
     if (!env.ok) return { skill: null, errors: [label + ': ' + (env.kind === 'newer' ? 'made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why)], newer: env.kind === 'newer', needs: env.needs || '', file: path };
     if (env.major !== 2) return { skill: null, errors: [label + ': isn\'t a Flightdeck 2.0 registration (format flightdeck-skill/2). Register skills with flightdeck skill register.'], file: path };
-    var m = REG_PATH.exec(path || ''), name = str(o.name, 80), imp = o.implements;
+    var m = REG_PATH.exec(path || ''), name = str(o.name, 80), imp = o.implements, mismatch = false;
     if (!m) errors.push('its file name isn\'t skill-registrations/<name>/<id>.<rev>.<window>.json');
     else {
-      if (m[1] !== name) errors.push('it\'s in the folder for ' + m[1] + ', not ' + (name || 'its own name'));
-      if (m[2] !== o.id || +m[3] !== o.rev) errors.push('its file name doesn\'t say its id and revision (' + m[2] + '.' + m[3] + ')');
+      if (m[1] !== name) { errors.push('it\'s in the folder for ' + m[1] + ', not ' + (name || 'its own name')); mismatch = true; }
+      if (m[2] !== o.id || +m[3] !== o.rev) { errors.push('its file name doesn\'t say its id and revision (' + m[2] + '.' + m[3] + ')'); if (m[2] !== o.id) mismatch = true; }
     }
     if (!name) errors.push('needs a "name"');
     if (typeof o.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(o.id)) errors.push('"id" must be sk- and 8 letters or numbers');
@@ -76,7 +76,7 @@ PF.skills = (function () {
     if (!exact || !PF.pins.childOk(exact) || Object.keys(imp).some(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) < 0; })) { errors.push('"implements" must name the exact version: { process, folder, mapHash, typesHash }'); exact = null; }
     var steps = o.steps == null ? null : list(o.steps).map(function (x) { return x.trim(); }).filter(Boolean);
     if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
-    if (errors.length) return { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path };
+    if (errors.length) { var refused = { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path }; if (mismatch) { refused.mismatch = true; if (name) refused.named = name; } return refused; }
     var skill = {
       name: name, version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300), process: exact.process, implements: exact.version, steps: steps,
       group: groupPath(o.group), tags: tags(o.tags), updated: str(o.updated, 40), by: str(o.by, 80), file: path,
@@ -92,7 +92,17 @@ PF.skills = (function () {
   /* What a verdict holds back from flightdeck skill register: anything it can't read, or two revisions at one rev. "Two
      registrations" (a legacy file beside revisions) and a pointer still waiting for its registration don't: registering is
      how a person resolves them. */
-  var BLOCKS = ['legacy-unreadable', 'legacy-refused', 'revision-refused', 'revisions-unlisted', 'review'];
+  var BLOCKS = ['legacy-unreadable', 'legacy-refused', 'name-mismatch', 'revision-refused', 'revisions-unlisted', 'review'];
+  /* The names a file speaks for: a legacy file, the one it records and the one its file name says; a revision, the one it
+     records and the folder it's in. A file whose two disagree holds both names (name-mismatch), so registering one never
+     replaces a file that records another. */
+  function fileName(x) { return String(x && x.file || '').replace(/^skills\//, '').replace(/\.json$/i, ''); }
+  function recorded(x) { return x ? (x.tombstone ? x.name : x.skill && !(x.errors || []).length ? x.skill.name : '') || '' : ''; }
+  function legacyNames(x) { var out = [], r = recorded(x), f = fileName(x); [x && x.skill ? x.skill.name : '', r, f].forEach(function (n) { if (n && out.indexOf(n) < 0) out.push(n); }); if (x && x.tombstone && x.name && out.indexOf(x.name) < 0) out.push(x.name); return out; }
+  function revisionNames(x) { var out = [], d = REG_DIR.exec(x && x.file || ''); [x && x.skill ? x.skill.name : '', d ? d[1] : '', x && x.named || ''].forEach(function (n) { if (n && out.indexOf(n) < 0) out.push(n); }); return out; }
+  /* A name's inputs to resolve, from what the readers returned, the same for the app (merge) and flightdeck skill register. */
+  function legacyFor(legacy, name) { return (legacy || []).filter(function (x) { return legacyNames(x).indexOf(name) >= 0; }); }
+  function revisionsFor(regs, name) { return (regs || []).filter(function (x) { return revisionNames(x).indexOf(name) >= 0; }); }
   /* What a listing couldn't show for a name, as entries resolve reads: skills/ that couldn't be listed or whose file for the
      name was past the files a copy reads (legacy, unreadable), and skill-registrations/ that couldn't be listed (revs,
      unlisted). The readers mark the lists (legacy.unlisted, legacy.dropped, regs.unlisted); a name's own folder that couldn't
@@ -114,8 +124,13 @@ PF.skills = (function () {
     legacy = legacy || []; revs = revs || [];
     var kinds = [], reasons = [];
     function add(k, why) { if (kinds.indexOf(k) < 0) kinds.push(k); reasons.push(why); }
-    var valid = revs.filter(function (x) { return x && x.skill; }), unl = revs.filter(function (x) { return x && !x.skill && x.unlisted; }), bad = revs.filter(function (x) { return !x || (!x.skill && !x.unlisted); });
-    var tombs = legacy.filter(function (x) { return x.tombstone; }), lok = legacy.filter(function (x) { return !x.tombstone && x.skill && !(x.errors || []).length; });
+    var valid = revs.filter(function (x) { return x && x.skill; }), unl = revs.filter(function (x) { return x && !x.skill && x.unlisted; }), mis = revs.filter(function (x) { return x && !x.skill && !x.unlisted && x.mismatch; }), bad = revs.filter(function (x) { return !x || (!x.skill && !x.unlisted && !x.mismatch); });
+    if (mis.length) add('name-mismatch', 'A revision filed for ' + name + ' doesn\'t say the name or id its file says: ' + refusedWhy(mis) + ' Remove or fix it; until then no revision of it is current.');
+    /* A legacy file here only for its file name, which records another skill: 1.x allowed that, and it still counts for the
+       name it records; for this name it's a mismatch, so registering this name never replaces it. */
+    var misnamed = legacy.filter(function (x) { var r = recorded(x), f = x.unlisted ? '' : fileName(x); return r && f && r !== f && r !== name; });
+    misnamed.forEach(function (x) { add('name-mismatch', 'skills/' + fileName(x) + '.json records the skill ' + recorded(x) + ', not ' + fileName(x) + '. Rename the file or fix its name; until then neither name is current, and nothing replaces it.'); });
+    var tombs = legacy.filter(function (x) { return x.tombstone && misnamed.indexOf(x) < 0; }), lok = legacy.filter(function (x) { return !x.tombstone && x.skill && !(x.errors || []).length && misnamed.indexOf(x) < 0; });
     legacy.filter(function (x) { return !x.tombstone && (!x.skill || (x.errors || []).length); }).forEach(function (x) {
       add(x.unreadable ? 'legacy-unreadable' : 'legacy-refused', (x.errors || []).join('; ') || 'skills/' + (x.file || name + '.json') + ': couldn\'t be read');
     });
@@ -142,22 +157,27 @@ PF.skills = (function () {
     var names = [], seen = Object.create(null), byL = Object.create(null), byR = Object.create(null), out = [];
     function slot(n) { if (!seen[n]) { seen[n] = true; names.push(n); } }
     (regs || []).forEach(function (x) {
-      var d = REG_DIR.exec(x.file || ''), n = x.skill ? x.skill.name : d ? d[1] : '';
-      if (!n) { out.push(x); return; }
-      (byR[n] = byR[n] || []).push(x); slot(n);
+      var ns = revisionNames(x);
+      if (!ns.length) { out.push(x); return; }
+      ns.forEach(function (n) { (byR[n] = byR[n] || []).push(x); slot(n); });
     });
     (legacy || []).forEach(function (x) {
-      var n = x.tombstone ? x.name : x.skill ? x.skill.name : String(x.file || '').replace(/\.json$/i, '');
-      if (!n) { out.push(x); return; }
-      (byL[n] = byL[n] || []).push(x); slot(n);
+      var ns = legacyNames(x);
+      if (!ns.length) { out.push(x); return; }
+      ns.forEach(function (n) { (byL[n] = byL[n] || []).push(x); slot(n); });
     });
     /* A legacy file past the files a copy reads still names its skill, which it holds. */
     ((legacy && legacy.dropped) || []).forEach(function (f) { slot(String(f).replace(/\.json$/i, '')); });
     /* A folder that couldn't be listed is shown, and holds every name the other one names. */
     if (legacy && legacy.unlisted) out.push({ skill: null, errors: [legacy.unlisted], file: 'skills/' });
     if (regs && regs.unlisted) out.push({ skill: null, errors: [regs.unlisted], file: 'skill-registrations/' });
+    var verdicts = Object.create(null);
     names.forEach(function (n) {
       var h = held(legacy, regs, n), L = (byL[n] || []).concat(h.legacy), V = (byR[n] || []).concat(h.revs), v = resolve(n, L, V), verdict = verdictOf(v);
+      verdicts[n] = verdict;
+      /* A name only a file name says, for a file recording another skill: it has a verdict (flightdeck skill register refuses
+         it) but no entry of its own; the file is listed under the name it records, as every 1.x copy lists it. */
+      if (!V.length && L.length && L.every(function (x) { var r = recorded(x); return r && r !== n; })) return;
       if (!V.length && !L.some(function (x) { return x.tombstone; })) {
         L.forEach(function (x) {
           var e = Object.assign({}, x, { verdict: verdict });
@@ -171,6 +191,7 @@ PF.skills = (function () {
       out.push({ skill: v.top ? v.top.skill : v.legacy ? v.legacy.skill : null, errors: v.reasons.slice(), file: at.file, unmatched: true, review: v.kinds.indexOf('review') >= 0,
         refused: v.kinds.indexOf('revision-refused') >= 0, refusedWhy: v.refusedWhy, name: n, revisions: V.length, verdict: verdict });
     });
+    out.verdicts = verdicts;
     return out;
   }
   function refusedWhy(list) { return list.map(function (x) { return (x && x.errors || []).join('; ') || ((x && x.file) + ': can\'t be read'); }).join('; ') + (/[.!?]$/.test((list[list.length - 1] && list[list.length - 1].errors || []).join('')) ? '' : '.'); }
@@ -464,5 +485,5 @@ PF.skills = (function () {
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
-  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

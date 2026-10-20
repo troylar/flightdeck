@@ -1149,7 +1149,11 @@ async function skillMain(argv) {
      whose file for the name is past the files a copy reads, stands in for the file read here. */
   const listed = okName ? await PF.repo.loadLegacySkills(rfs).then(null, (e) => Object.assign([], { unlisted: 'skills/ couldn\'t be listed (' + (e && (e.code || e.message)) + ').' })) : [];
   const held = okName ? PF.skills.held(listed, regs, name) : { legacy: [], revs: [] };
-  const verdict = okName ? PF.skills.resolve(name, held.legacy.length ? held.legacy : legacy ? [legacy] : [], regs.filter((x) => (x.skill && x.skill.name === name) || (x.file || '').indexOf('skill-registrations/' + name + '/') === 0).concat(held.revs)) : null;
+  /* Every file that speaks for the name, as the app groups them (PF.skills.legacyFor, revisionsFor): its own file, and any
+     that records it under another file name. The file read above is in that list, so one recording another name holds it. */
+  const others = PF.skills.legacyFor(listed, name).filter((x) => (x.file || '').toLowerCase() !== (name + '.json').toLowerCase());
+  const legacyIn = held.legacy.length ? held.legacy : others.concat(legacy ? [legacy] : []);
+  const verdict = okName ? PF.skills.resolve(name, legacyIn, PF.skills.revisionsFor(regs, name).concat(held.revs)) : null;
   const said = verdict ? { name: verdict.name, status: verdict.status, source: verdict.source, rev: verdict.rev, kinds: verdict.kinds, blocks: verdict.blocks } : null;
   const no = (kind, why) => out({ verdict: said, error: { kind, why } }, EXIT.error);
   if (verdict && verdict.blocks) return no('invalid', 'Can\'t register ' + name + ': ' + verdict.reasons.join(' ') + ' Nothing was written.');

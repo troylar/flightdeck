@@ -682,7 +682,7 @@ def check_publication(folder, name):
 # legacy files and revisions through the app, flightdeck skill register and this checker, and fails on any difference.
 REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json$")
 STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
-SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "revision-refused", "revisions-unlisted", "review"]
+SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "name-mismatch", "revision-refused", "revisions-unlisted", "review"]
 MAX_SKILLS = 500
 
 
@@ -719,14 +719,16 @@ def check_registration(rel, o, digest):
         return {"why": _newer_text(v) if v["kind"] == "newer" else "isn't a skill registration this copy reads"}
     if v["major"] != 2:
         return {"why": "isn't a Flightdeck 2.0 registration (format flightdeck-skill/2). Register skills with flightdeck skill register."}
-    m, name, imp, errors = REG_PATH.match(rel), _str(o.get("name"), 80), o.get("implements"), []
+    m, name, imp, errors, mismatch = REG_PATH.match(rel), _str(o.get("name"), 80), o.get("implements"), [], False
     if not m:
         errors.append("its file name isn't skill-registrations/<name>/<id>.<rev>.<window>.json")
     else:
         if m.group(1) != name:
             errors.append("it's in the folder for " + m.group(1))
+            mismatch = True
         if m.group(2) != o.get("id") or not _whole(o.get("rev")) or int(m.group(3)) != o.get("rev"):
             errors.append("its file name doesn't say its id and revision")
+            mismatch = mismatch or m.group(2) != o.get("id")
     if not name:
         errors.append('needs a "name"')
     if not isinstance(o.get("id"), str) or not re.match(r"^sk-[a-z0-9]{8}$", o["id"]):
@@ -749,7 +751,12 @@ def check_registration(rel, o, digest):
         if not ok or not steps or len(steps) != len(st) or len(steps) > 200 or not all(STEP_ID.match(x) for x in steps):
             errors.append('"steps" must be a list of step IDs, or left out for the whole process')
     if errors:
-        return {"why": "; ".join(errors)}
+        out = {"why": "; ".join(errors)}
+        if mismatch:
+            out["mismatch"] = True
+            if name:
+                out["named"] = name
+        return out
     return {"name": name, "id": o["id"], "rev": int(rev), "sha": digest}
 
 
@@ -782,6 +789,20 @@ def check_legacy(o, file):
     return {"ok": True, "name": name or file[:-5]}
 
 
+def _legacy_file(x):
+    """The name a legacy file's file name says (skills/<name>.json), or "" for a stand-in."""
+    if x.get("unlisted"):
+        return ""
+    f = x.get("file") or ""
+    f = f[len("skills/"):] if f.startswith("skills/") else f
+    return f[:-5] if f.lower().endswith(".json") else f
+
+
+def _legacy_recorded(x):
+    """The name a readable legacy file or pointer records, or ""."""
+    return (x.get("name") or "") if (x.get("tombstone") or x.get("ok")) else ""
+
+
 def resolve_skill(name, legacy, revs):
     """PF.skills.resolve: the one verdict for a skill name."""
     kinds, reasons = [], []
@@ -791,8 +812,16 @@ def resolve_skill(name, legacy, revs):
             kinds.append(k)
         reasons.append(why)
     valid = [r for r in revs if "why" not in r]
-    unl, bad = [r for r in revs if "why" in r and r.get("unlisted")], [r for r in revs if "why" in r and not r.get("unlisted")]
-    tombs, lok = [x for x in legacy if x.get("tombstone")], [x for x in legacy if x.get("ok")]
+    unl = [r for r in revs if "why" in r and r.get("unlisted")]
+    mis = [r for r in revs if "why" in r and not r.get("unlisted") and r.get("mismatch")]
+    bad = [r for r in revs if "why" in r and not r.get("unlisted") and not r.get("mismatch")]
+    misnamed = [x for x in legacy if _legacy_recorded(x) and _legacy_file(x) and _legacy_recorded(x) != _legacy_file(x) and _legacy_recorded(x) != name]
+    for x in misnamed:
+        add("name-mismatch", "skills/" + _legacy_file(x) + ".json records the skill " + _legacy_recorded(x) + ", not " + _legacy_file(x) + ".")
+    if mis:
+        add("name-mismatch", "A revision filed for " + name + " doesn't say the name or id its file says: " + "; ".join(r["file"] + ": " + r["why"] for r in mis) + ".")
+    tombs = [x for x in legacy if x.get("tombstone") and x not in misnamed]
+    lok = [x for x in legacy if x.get("ok") and x not in misnamed]
     for x in legacy:
         if not x.get("tombstone") and not x.get("ok"):
             add("legacy-unreadable" if x.get("unreadable") else "legacy-refused", x["file"] + ": " + x["why"])
@@ -860,9 +889,10 @@ def skill_registrations(root):
         o, why, unreadable, _ = _read_json(os.path.join(sdir, f))
         x = {"why": why, "unreadable": unreadable} if why else check_legacy(o, f)
         x["file"] = "skills/" + f
-        n = x.get("name") or f[:-5]
-        legacy.setdefault(n, []).append(x)
-        slot(n)
+        # A file speaks for the name it records and the one its file name says (PF.skills.legacyFor).
+        for n in dict.fromkeys([x.get("name") or f[:-5], f[:-5]]):
+            legacy.setdefault(n, []).append(x)
+            slot(n)
     rdir = os.path.join(root, "skill-registrations")
     marks, paths = {}, []
 
@@ -898,9 +928,9 @@ def skill_registrations(root):
         o, why, _, data = _read_json(os.path.join(root, *rel.split("/")))
         got = {"why": why} if why else check_registration(rel, o, sha(data))
         got["file"] = rel
-        n = got.get("name") or name
-        revs.setdefault(n, []).append(got)
-        slot(n)
+        for n in dict.fromkeys(x for x in [got.get("name") or name, name, got.get("named")] if x):
+            revs.setdefault(n, []).append(got)
+            slot(n)
     for n, ms in marks.items():
         revs.setdefault(n, []).extend(ms)
         slot(n)
