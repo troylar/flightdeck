@@ -2022,11 +2022,15 @@ PF.util = (function () {
 
    The 1.21 bridge knows every 1.x format and the names of the 2.0 ones (FROZEN), only to refuse those precisely ("Needs
    Flightdeck 2.0"). Each 2.0 slice registers only the features it implements (review #12): slice 2 part 1 registers phase
-   and gate notes and screenshots (PART1), in checklist/2, publication/2 and run/3; every other 2.0 feature stays refused. */
+   and gate notes and screenshots (PART1), part 2 pins (PART2: pinned-children, pinned-skills), in checklist/2, publication/2
+   and run/3, with plan/2 and its status for exact-folder plans and skill/2 for exact skill registrations; every other 2.0
+   feature stays refused. */
 PF.envelope = (function () {
   'use strict';
   /* The features this copy builds, so the only ones it reads or writes. */
   var PART1 = ['phase-notes', 'phase-shots', 'gate-shots'];
+  /* Slice 2 part 2: pins. version: on a linked step and skillVersion: on a skill step (and run/3's own pins). */
+  var PART2 = PART1.concat(['pinned-children', 'pinned-skills']);
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
 
   /* Every family, with the majors this copy reads and the features it knows in each, its legacy spelling, and whether this
@@ -2034,14 +2038,14 @@ PF.envelope = (function () {
        legacy.kind: the kind field that marks the family; legacy.field: the field that holds the major (missing = legacyMajor);
        unmarked: a file with no marker at all is major 1 (step types, people.json, skills, types.json entries). */
   var FAMILIES = {
-    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART1 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
-    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART1 }, rewrite: false, future: { 2: '2.0' } },
-    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART1 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
+    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART2 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
+    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART2 }, rewrite: false, future: { 2: '2.0' } },
+    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART2 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
     'flightdeck-step-type': { files: 'step-types/*.json', majors: { 1: [] }, rewrite: true, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0' } },
-    'flightdeck-plan': { files: 'proposals/plan-*.json', majors: { 1: [] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0' } },
-    'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0' } },
+    'flightdeck-plan': { files: 'proposals/plan-*.json', majors: { 1: [], 2: [] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0' } },
+    'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [], 2: [] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-validation': { files: 'validations/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['validation'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-followup-decision': { files: 'followups/<p>/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['followup-decision'], field: 'fv' }, legacyMajor: 1 },
     /* dv 0 (missing) and 1 are decisions from before results were recorded; 2 is today's. */
@@ -2051,7 +2055,7 @@ PF.envelope = (function () {
     'flightdeck-presence': { files: 'presence/*.json', majors: { 1: [] }, rewrite: true, legacy: { kinds: ['presence'], field: 'pv' } },
     'flightdeck-connection': { files: 'connection/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['connection-probe', 'connection-ack'], field: 'cv' } },
     'flightdeck-people': { files: 'people.json', majors: { 1: [] }, rewrite: true, unmarked: true },
-    'flightdeck-skill': { files: 'skills/*.json (number pins); skill-registrations/<name>/*.json (exact pins, 2.0)', majors: { 1: [] }, rewrite: false, unmarked: true, future: { 2: '2.0' } },
+    'flightdeck-skill': { files: 'skills/*.json (number pins); skill-registrations/<name>/*.json (exact pins, 2.0)', majors: { 1: [], 2: [] }, rewrite: false, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-editor-history': { files: 'history/drafts/**, history/step-types/** lines', majors: { 1: [] }, rewrite: false, legacy: { field: 'v' } },
     'flightdeck-installed': { files: '.flightdeck/installed.json', majors: { 1: [] }, rewrite: true },
     'flightdeck-stage-decision': { files: 'staged/<p>/decisions/*.json', majors: {}, rewrite: false, future: { 1: '2.0' } },
@@ -2191,7 +2195,7 @@ PF.envelope = (function () {
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
   function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
-  return { FAMILIES: FAMILIES, FROZEN: FROZEN, PART1: PART1, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
+  return { FAMILIES: FAMILIES, FROZEN: FROZEN, PART1: PART1, PART2: PART2, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
     txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();
 
@@ -2366,7 +2370,12 @@ PF.types = (function () {
       record: (def.record || []).map(function (d) { var c = { name: d.name, label: d.label, kind: d.kind }; if (d.options) c.options = d.options.map(String); if (d.long) c.long = true; return c; }) };
   }
   var ICONS_OK = ['check', 'chat', 'people', 'fork', 'doc', 'hourglass', 'cursor', 'gear', 'merge', 'ticket', 'terminal', 'script', 'spark', 'pipeline', 'nest'];
-  function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name); }
+  /* Pins (2.0): version: on a {run.process} step and skillVersion: on a {run.skill} step. Map lines only, never a field of the
+     built-in type (its frozen definition, and so every version that uses it, stays as 1.x copies know it), never changed
+     during a run; a 1.x copy refuses them as fields its type doesn't have, so a checklist with them can't publish there. */
+  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
+  function pinDef(type, name) { return type && typeof type.id === 'string' && !type.custom && Object.prototype.hasOwnProperty.call(PINS, type.id) ? own(PINS[type.id], name) : undefined; }
+  function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name) || pinDef(type, name); }
   function matches(cond, fields) { return Object.keys(cond).every(function (k) { return String(fields[k] || '').toLowerCase() === cond[k]; }); }
   function options(def, fields) {
     if (def.optionsFrom) return String(fields[def.optionsFrom] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
@@ -2390,6 +2399,8 @@ PF.types = (function () {
       if (d.kind === 'choice' && !hasOption(d, fields, fields[f])) errors.push('"' + f + '" should be one of: ' + options(d, fields).join(', ') + '.');
       if (d.kind === 'time' && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(fields[f]).trim())) errors.push('"' + f + '" should be a time like 15:00.');
       if (d.kind === 'duration' && f === 'after' && PF.util.duration(fields[f]) == null) errors.push('"after" should be a duration like 2h or 30m.');
+      if (d.kind === 'pin' && f === 'version' && !/^[1-9]\d{0,5}$/.test(String(fields[f]).trim())) errors.push('"version" should be a version number, like 4.');
+      if (d.kind === 'pin' && f === 'skillVersion' && !/^[\w.+-]{1,40}$/.test(String(fields[f]).trim())) errors.push('"skillVersion" should be the skill\'s version, like 1.2.0.');
       if (d.kind === 'list' && list(fields[f]).length < 2) errors.push('"' + f + '" needs at least two choices, separated by commas.');
       if (d.kind === 'require') {
         var names = ((type.record) || []).map(function (r) { return r.name; });
@@ -2828,10 +2839,16 @@ PF.map = (function () {
     return out;
   }
   /* The 2.0 features a checklist's own lines use, in the frozen order: what makes its version preflight-publication/2. A gate
-     note isn't one (every copy since 1.10 publishes it). */
+     note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
+     not a feature. */
   function features(map) {
-    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false };
+    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     (map.phases || []).forEach(function (p) {
+      /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
+      p.steps.forEach(function (s) {
+        if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;
+        if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
+      });
       if (p.note || p.noted) has['phase-notes'] = true;
       if (p.shots && p.shots.length) has['phase-shots'] = true;
       if (p.gate && p.gate.shots && p.gate.shots.length) has['gate-shots'] = true;
@@ -4154,6 +4171,23 @@ PF.publish = (function () {
        keeps running a version that needs nothing new. */
     var feats = features(map), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
     var images = opts.images || {}, bytes = opts.imageBytes || {};
+    /* Pins (2.0): version: N on a linked step resolves now to the one usable version numbered N (opts.childProcs: each
+       linked process as listed, { latest, all, clashes, broken }); skillVersion: names the skill version the step expects.
+       Both are frozen in the payload, so every run of this version follows them. */
+    var pins = { children: {}, skills: {} }, pinBlockers = [];
+    M.steps(map).forEach(function (x) {
+      var s = x.step, label = 'Step "' + s.text.slice(0, 40) + '"';
+      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) {
+        var cp = opts.childProcs && Object.prototype.hasOwnProperty.call(opts.childProcs, s.fields.process) ? opts.childProcs[s.fields.process] : null;
+        var got = PF.pins.atVersion(cp, s.fields.process || '?', +s.fields.version);
+        if (got.why) pinBlockers.push(label + ': version: ' + s.fields.version + ' can\'t be pinned: ' + got.why + '.'); else pins.children[s.id] = got.pin;
+      }
+      if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) {
+        if (!String(s.fields.skill || '').trim()) pinBlockers.push(label + ': skillVersion: needs the skill it names (skill:).');
+        else pins.skills[s.id] = { name: String(s.fields.skill).trim(), version: String(s.fields.skillVersion).trim() };
+      }
+    });
+    if (pinBlockers.length) return { blockers: pinBlockers };
     if (feats.length) {
       var missing = Object.keys(images).filter(function (src) { return !bytes[src]; });
       if (missing.length) return { blockers: ['Screenshot ' + missing[0] + ' hasn\'t been read yet. Try publishing again.'] };
@@ -4172,7 +4206,7 @@ PF.publish = (function () {
     if (feats.length) {
       var imgBytes = {};
       Object.keys(images).forEach(function (src) { imgBytes[src] = bytes[src]; });
-      info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes });
+      info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes, pins: pins });
     }
     /* The corrections this version includes, from PF.corrections.forPublish. Older copies ignore the field (verify reads only
        what it checks), so a version that has it runs everywhere a version without it does. */
@@ -4208,19 +4242,41 @@ PF.publish = (function () {
   /* The 2.0 features a checklist uses (PF.map.features), which decide its version's format. */
   function features(map) { return M.features(map); }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate' };
+  var FEATURE_NAMES = { 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)' };
   function needs(map) {
     var f = features(map); if (!f.length) return null;
     return { features: f, names: f.map(function (x) { return FEATURE_NAMES[x] || x; }) };
   }
 
   function sha(data) { return PF.sha256.create().update(data).digest(); }
-  /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes } }. Slots
-     for extensions and pins exist and stay empty until the slices that write them. */
+  /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes },
+     pins: { children, skills } } (pins as publish resolved them). The extensions slot stays empty until slice 5. */
   function payload(files) {
-    var images = {}, src = (files && files.images) || {};
+    var images = {}, src = (files && files.images) || {}, pins = files && files.pins ? JSON.parse(JSON.stringify(files.pins)) : {};
     Object.keys(src).forEach(function (p) { images[p] = sha(src[p]); });
-    return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: {}, skills: {} } };
+    return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: pins.children || {}, skills: pins.skills || {} } };
+  }
+  /* Canonical JSON: keys sorted at every level, no spaces. The one way two payloads (or two pins) are compared or hashed, so
+     the order a writer happened to use never matters. */
+  function canonical(v) {
+    if (Array.isArray(v)) return '[' + v.map(canonical).join(',') + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + canonical(v[k]); }).join(',') + '}';
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function payloadHash(p) { return sha(canonical(p)); }
+  /* The pins a checklist's own lines ask for, as publish records them by step: what a /2 version's payload pins must match. */
+  function pinsProblem(info, map) {
+    var p = info.payload && info.payload.pins, want = { children: {}, skills: {} };
+    if (!p) return '';
+    M.steps(map).forEach(function (x) {
+      var s = x.step;
+      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) want.children[s.id] = { process: s.fields.process, version: +s.fields.version };
+      if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) want.skills[s.id] = { name: String(s.fields.skill || '').trim(), version: String(s.fields.skillVersion).trim() };
+    });
+    var have = { children: {}, skills: {} };
+    Object.keys(p.children).forEach(function (k) { have.children[k] = { process: p.children[k].process, version: p.children[k].version }; });
+    Object.keys(p.skills).forEach(function (k) { have.skills[k] = p.skills[k]; });
+    return canonical(have) === canonical(want) ? '' : 'Its pins don\'t match its checklist. Edited by hand.';
   }
   /* The payload of any readable version: a /2 version's own, or the one a /1 version implies from its fingerprints. */
   function payloadOf(info) {
@@ -4240,7 +4296,7 @@ PF.publish = (function () {
     if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return false;
     if (!HEX64.test(p.map) || !HEX64.test(p.types) || Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return false;
     if (Object.keys(p.extensions).length) return false;
-    return Object.keys(p.pins).every(function (k) { return (k === 'children' || k === 'skills') && isObj(p.pins[k]) && !Object.keys(p.pins[k]).length; });
+    return isObj(p.pins.children) && isObj(p.pins.skills) && PF.pins.shapeOk(p.pins);
   }
   /* The SHA-256 of a version's checklist and step types from their exact bytes ({ 'map.md': bytes, 'types.json': bytes }),
      for verify. The one way a /2 version's files are hashed: it takes bytes only, because a reader's text can drop a
@@ -4289,6 +4345,8 @@ PF.publish = (function () {
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
     var bad = unrunnable(files['map.md'], types);
     if (bad) return { ok: false, why: bad, info: info, unusable: true };
+    var pinsBad = info.format === FORMAT2 ? pinsProblem(info, M.parse(files['map.md'])) : '';
+    if (pinsBad) return { ok: false, why: pinsBad, info: info, unusable: true };
     /* Every screenshot the checklist shows is part of the version: listed in its record (every 1.x copy lists each one it
        copies) and, for /2, in its payload (which must list the same ones). One that isn't could change unchecked. */
     var listed = isObj(info.images) ? info.images : {}, unlisted = M.shotSources(M.parse(files['map.md'])).filter(function (src) { return !Object.prototype.hasOwnProperty.call(listed, src); });
@@ -4355,7 +4413,128 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+})();
+
+/* Pins (2.0, slice 2): the exact versions a run, a linked run, a plan or a skill follows. A pin names a version folder and
+   its fingerprints ({ process, version, folder, mapHash, typesHash }). A pin that can't be used is refused with a reason and
+   never falls back to the latest: a missing folder, another folder with the same number, two folders with that number, or
+   files that don't match what was pinned (docs/design.md section 28). Pure: callers pass what the folder holds.
+
+   proc: a process as the app and readers list it: { latest, all (usable versions), clashes (numbers), broken (versions that
+   can't be used here, with why) }. */
+PF.pins = (function () {
+  'use strict';
+  var HASH8 = /^[0-9a-f]{8}$/, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PROC = /^[a-z0-9][a-z0-9-]{0,59}$/;
+  function own(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
+  function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function folderOf(x) { return x && (x.info ? x.info.folder : x.folder); }
+  function numberOf(x) { var f = folderOf(x); return f ? PF.publish.versionOf(f) : null; }
+
+  /* A pin to a version, as the payload, a run and a plan record it. */
+  function of(pub, process) {
+    var i = pub.info;
+    return { process: process || i.process || (pub.map && pub.map.meta.process), version: i.version, folder: i.folder, mapHash: i.mapHash, typesHash: i.typesHash };
+  }
+  /* Shapes: a child pin, a skill pin ({ name, version }), and the payload's pins slot. */
+  function childOk(p) {
+    return isObj(p) && Object.keys(p).every(function (k) { return ['process', 'version', 'folder', 'mapHash', 'typesHash'].indexOf(k) >= 0; }) &&
+      typeof p.process === 'string' && PROC.test(p.process) && typeof p.version === 'number' && p.version >= 1 && Math.floor(p.version) === p.version &&
+      typeof p.folder === 'string' && PF.publish.versionOf(p.folder) === p.version && HASH8.test(p.mapHash) && HASH8.test(p.typesHash);
+  }
+  function skillOk(p) {
+    return isObj(p) && Object.keys(p).every(function (k) { return k === 'name' || k === 'version'; }) && typeof p.name === 'string' && p.name.length >= 1 && p.name.length <= 80 && p.name.trim() === p.name && !/[\u0000-\u001f]/.test(p.name) && typeof p.version === 'string' && /^\S{1,40}$/.test(p.version);
+  }
+  function shapeOk(pins) {
+    if (!isObj(pins) || Object.keys(pins).some(function (k) { return k !== 'children' && k !== 'skills'; })) return false;
+    var c = own(pins, 'children') ? pins.children : {}, s = own(pins, 'skills') ? pins.skills : {};
+    if (!isObj(c) || !isObj(s)) return false;
+    return Object.keys(c).every(function (k) { return STEP.test(k) && childOk(c[k]); }) && Object.keys(s).every(function (k) { return STEP.test(k) && skillOk(s[k]); });
+  }
+  function lower(s) { s = String(s || '').replace(/\.\s*$/, ''); return s.charAt(0).toLowerCase() + s.slice(1); }
+
+  /* Every version of a process with that number, usable here or not. */
+  function numbered(proc, n) {
+    var out = [];
+    (proc.all || []).concat(proc.broken || []).forEach(function (x) { if (numberOf(x) === n && out.indexOf(x) < 0) out.push(x); });
+    return out;
+  }
+  /* version: N on a {run.process} step, at publish: the one version numbered N, or why it can't be pinned. */
+  function atVersion(proc, process, n) {
+    if (!proc) return { why: '"' + process + '" isn\'t published in this folder' };
+    var all = numbered(proc, n);
+    if (!all.length) return { why: process + ' v' + n + ' isn\'t in this folder' };
+    if (all.length > 1) return { why: 'two versions are numbered ' + process + ' v' + n + ' here (' + all.map(folderOf).sort().join(', ') + '); a person has to choose one' };
+    if (!all[0].ok) return { why: process + ' v' + n + ' can\'t be used here: ' + lower(all[0].why) };
+    return { pub: all[0], pin: of(all[0], process) };
+  }
+  /* The exact version a pin names, or why it can't be used. Nothing else stands in for it. */
+  function find(proc, pin) {
+    if (!proc) return { why: 'its checklist isn\'t published in this folder' };
+    var n = PF.publish.versionOf(pin.folder), all = numbered(proc, n), mine = all.filter(function (x) { return folderOf(x) === pin.folder; })[0];
+    var others = all.filter(function (x) { return x !== mine; });
+    if (!mine) return { why: others.length ? 'this folder\'s v' + n + ' is a different version (' + others.map(folderOf).sort().join(', ') + '), not ' + pin.folder : pin.folder + ' isn\'t in this folder', missing: true };
+    if (others.length) return { why: 'two versions are numbered v' + n + ' here (' + all.map(folderOf).sort().join(', ') + '); a person has to choose one', clash: true };
+    if (!mine.ok) return { why: lower(mine.why) };
+    if ((pin.mapHash && mine.info.mapHash !== pin.mapHash) || (pin.typesHash && mine.info.typesHash !== pin.typesHash)) return { why: 'its files don\'t match what was pinned (' + pin.folder + ')', mismatch: true };
+    return { pub: mine };
+  }
+
+  function titleOf(proc, pin) { var p = proc && proc.latest; return p && p.map && p.map.meta.title ? p.map.meta.title : pin.process; }
+  /* Words for a pinned child, on the step: "Runs Check in code v4 (set when this run started)." */
+  function words(pin, title, fromPayload) { return 'Runs ' + (title || pin.process) + ' v' + pin.version + ' (set when ' + (fromPayload ? 'this version was published' : 'this run started') + ').'; }
+  function unusable(title, pin, why) { return 'This step runs ' + (title || pin.process) + ' v' + pin.version + ', which can\'t be used here: ' + why + '.'; }
+
+  /* The children a run/3 follows, pinned when it starts: the version's own pins (version: on the step), and for every other
+     {run.process} step, the latest usable version of its process now. procOf(id): the listed process, or null. */
+  function atStart(map, payloadPins, procOf) {
+    var out = {}, fixed = payloadPins && isObj(payloadPins.children) ? payloadPins.children : {};
+    PF.map.steps(map).forEach(function (x) {
+      var s = x.step;
+      if (s.type !== 'run.process' || !s.fields.process) return;
+      if (own(fixed, s.id)) { out[s.id] = JSON.parse(JSON.stringify(fixed[s.id])); return; }
+      var proc = procOf(s.fields.process);
+      if (proc && proc.latest) out[s.id] = of(proc.latest, s.fields.process);
+    });
+    return out;
+  }
+
+  /* The version a {run.process} step's child starts on, for its parent run r (PF.run): { pub, pin, first } or { why } and, for
+     a run/2 parent whose child would be a /2 version, { legacy: true, why, pub } (it offers a 2.0 run instead).
+     run/3: its pin, and only its pin (pinned now, first: true, if the child wasn't published when the run started).
+     run/2: the latest, as every 1.x copy does, but never a /2 version (review #1). */
+  function childTarget(r, step, procOf) {
+    var f = PF.run.fieldsOf(r, step), name = f.process || '', proc = name ? procOf(name) : null;
+    if (r.format === PF.run.FORMAT3) {
+      var pin = r.pins && isObj(r.pins.children) && own(r.pins.children, step.id) ? r.pins.children[step.id] : null;
+      if (!pin) {
+        if (!proc || !proc.latest) return { why: '"' + name + '" isn\'t published in this folder yet.' };
+        return { pub: proc.latest, pin: of(proc.latest, name), first: true };
+      }
+      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no process') + ', not ' + pin.process) };
+      var got = find(proc, pin);
+      if (!got.pub) return { why: unusable(titleOf(proc, pin), pin, got.why) };
+      return { pub: got.pub, pin: pin };
+    }
+    if (!proc || !proc.latest) return { why: '"' + name + '" isn\'t published in this folder yet.' };
+    if (proc.latest.info.format === PF.publish.FORMAT2) return { legacy: true, pub: proc.latest, why: legacyWhy(proc.latest, r) };
+    return { pub: proc.latest };
+  }
+  /* Why a run/2 parent can't start or adopt this child, in the plan's words. */
+  function legacyWhy(childPub, r) { return (childPub.map.meta.title || childPub.info.process) + ' v' + childPub.info.version + ' needs a run made with Flightdeck 2.0. Start a new run of this checklist on v' + r.version + ' to use it.'; }
+
+  /* The version a plan/2 starts on: its pin, or the one a person retargeted it to (a plan/2 status, retargeted). Never the
+     latest by itself: { pub, older, retargeted } or { pub: null, ask: why }. */
+  function forPlan(proc, plan, retarget) {
+    var to = retarget && isObj(retarget.to) && typeof retarget.to.folder === 'string' ? { process: plan.process, folder: retarget.to.folder } : plan.pin;
+    if (!isObj(to) || typeof to.folder !== 'string' || !PF.publish.versionOf(to.folder)) return { pub: null, ask: 'it doesn\'t say which version to start on' };
+    var got = find(proc, to);
+    if (!got.pub) return { pub: null, ask: got.why, retargeted: !!retarget };
+    var latest = proc && proc.latest;
+    return { pub: got.pub, older: !!latest && latest.info.folder !== got.pub.info.folder, retargeted: !!retarget };
+  }
+
+  return { of: of, childOk: childOk, skillOk: skillOk, shapeOk: shapeOk, atVersion: atVersion, find: find, atStart: atStart, childTarget: childTarget, legacyWhy: legacyWhy, forPlan: forPlan, words: words, unusable: unusable };
 })();
 
 /* Runs: one execution of one published map. Pure functions over a plain run object (saved as run.json). */
@@ -4368,6 +4547,9 @@ PF.run = (function () {
   function create(pub, o) {
     /* Only a version this copy fully understands can start a run; P.verify already sets the others aside. */
     var two = !!pub.info && pub.info.format === PF.publish.FORMAT2;
+    /* o.explicit: a person chose a Flightdeck 2.0 run on a /1 version (R2-4), the one case a /1 version gets a run/3: a run/2
+       parent's linked child needs it (see continuation). */
+    var explicit = !two && !!o.explicit;
     var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT && !two ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
     var map = pub.map, details = {}, roles = {};
@@ -4396,9 +4578,31 @@ PF.run = (function () {
       if (env.app) head.app = env.app;
       r = order3(Object.assign(head, r, { format: head.format, typesHash: pub.info.typesHash, payload: JSON.parse(JSON.stringify(pub.info.payload)) }));
     }
+    if (explicit) r = order3(Object.assign({ format: FORMAT3, features: [] }, PF.envelope.semver(o.app) ? { app: o.app } : {}, r, { format: FORMAT3, typesHash: pub.info.typesHash }));
+    /* Pins (2.0): a run/3 follows one fixed set of children, pinned now: the version's own (version: on the step), then the
+       ones the caller resolved at the latest (PF.pins.atStart). A run/2 records none; its format is frozen. */
+    if (two || explicit) {
+      var kids = {}, own2 = two && pub.info.payload && pub.info.payload.pins ? pub.info.payload.pins.children || {} : {};
+      Object.keys(o.pins || {}).forEach(function (k) { if (PF.pins.childOk(o.pins[k])) kids[k] = JSON.parse(JSON.stringify(o.pins[k])); });
+      Object.keys(own2).forEach(function (k) { kids[k] = JSON.parse(JSON.stringify(own2[k])); });
+      if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
+    }
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); }
     addLog(r, o.by, o.now, 'Started the run');
     return r;
+  }
+
+  /* A must-understand feature a run/3 now uses, kept in the frozen order. */
+  function addFeature(r, f) { var list = (r.features || []).concat([f]); r.features = PF.envelope.FROZEN.filter(function (x) { return list.indexOf(x) >= 0; }); }
+  /* run/3's pins and migrations sit right before its steps, as in the frozen samples. */
+  function withPins(r) {
+    var out = {};
+    Object.keys(r).forEach(function (k) {
+      if (k === 'pins' || k === 'migrations') return;
+      if (k === 'steps') { if (r.pins) out.pins = r.pins; if (r.migrations) out.migrations = r.migrations; }
+      out[k] = r[k];
+    });
+    return out;
   }
 
   /* A run's checklist, parsed once for every run that shares it: keyed by version folder and fingerprint, and used only
@@ -4606,12 +4810,31 @@ PF.run = (function () {
       throw new Error(childCurrent(r, x.step, cur) ? 'This step is checked when its ' + cur.child.process + ' run completes.' : 'Its ' + cur.child.process + ' run was for different details. Start a new one; this step is checked when it completes.');
     }
     if (values && values._child) { values = Object.assign({}, values); delete values._child; }
+    /* A skill step in a run/3 keeps the registration as observed when it was checked (PF.skills.observed). It doesn't prove
+       which skill ran. A run/2 records nothing new: its format is frozen. */
+    var seen = values && values._skill;
+    if (values && '_skill' in values) { values = Object.assign({}, values); delete values._skill; }
     var chk = checkEvidence(r, x.step, null, Object.assign({}, prev || {}, values || {}));
     if (chk.error) throw new Error(chk.error);
     if (Object.keys(chk.values).length) rec.values = chk.values;
+    if (seen && r.format === FORMAT3 && x.step.type === 'run.skill' && cleanSkill(seen)) { rec.skill = cleanSkill(seen); addFeature(r, 'pinned-skills'); }
     answer(r, id, rec);
     applySets(r, map, x.step, who, now);
     return x;
+  }
+  /* A step's registration snapshot: { id, rev, sha, snapshot } with a snapshot of at most 2 KB, or null. */
+  function cleanSkill(s) {
+    if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(s.id) || typeof s.rev !== 'number' || s.rev < 1 || Math.floor(s.rev) !== s.rev || typeof s.sha !== 'string' || !/^[0-9a-f]{64}$/.test(s.sha)) return null;
+    var snap = s.snapshot && typeof s.snapshot === 'object' && !Array.isArray(s.snapshot) ? s.snapshot : null, text = snap ? JSON.stringify(snap) : '';
+    if (!snap || text.length > 2048) return null;
+    return { id: s.id, rev: s.rev, sha: s.sha, snapshot: JSON.parse(text) };
+  }
+  /* What a {run.skill} step expects (skillVersion:) against the registration the team folder holds now, or '' (a warning,
+     never a block). */
+  function skillWarning(r, step, reg) {
+    var want = String(fieldsOf(r, step).skillVersion || '').trim();
+    if (!want || !reg) return '';
+    return reg.version === want ? '' : 'This step expects ' + (reg.name || fieldsOf(r, step).skill) + ' ' + want + '. The team folder registers ' + (reg.version || 'no version') + '.';
   }
   /* Fill in or correct a step's values for this run as they become known: map fields (a Jenkins parameter, the issue)
      and evidence (a PR link) before or after the step is checked. Clarifying never sends anything back for a re-check, but it's logged. */
@@ -4766,18 +4989,28 @@ PF.run = (function () {
   /* ---------- Recording ---------- */
   /* Handing off names the exact revision being passed on (the one this save writes). The new recorder can pick up only once
      that revision has reached their computer, so nobody records on top of a copy that's still syncing. */
-  function handOff(r, toPerson, who, now) {
+  /* links: the child runs this run's steps link to (legacyLinks). A run/2 parent linked to a run/3 child can't change hands
+     in 2.0: the next recorder could be an older copy, which would read the child by name only and settle the step from its
+     outcome alone (review #1). */
+  function refuseLegacy(links) {
+    var bad = (links || []).filter(function (l) { return l && l.legacy; })[0];
+    if (bad) throw new Error(LEGACY_LINK.replace('<step>', bad.text || bad.step));
+  }
+  function handOff(r, toPerson, who, now, links) {
+    refuseLegacy(links);
     r.recorder = { person: toPerson, session: null, handoff: { from: who, rev: (r.rev || 0) + 1, at: now } };
     addLog(r, who, now, 'Handed recording to ' + toPerson);
   }
   function waitingForHandoff(r) { var h = r.recorder.handoff; return !!h && (r.rev || 0) < h.rev; }
-  function pickUp(r, person, session, now) {
+  function pickUp(r, person, session, now, links) {
+    refuseLegacy(links);
     if (waitingForHandoff(r)) throw new Error('The handed-over copy hasn\'t reached this computer yet. OneDrive is still syncing it; try again in a moment.');
     r.recorder = { person: person, session: session };
     addLog(r, person, now, 'Picked up recording at revision ' + (r.rev || 0));
   }
   /* For emergencies. The other computer may still have changes OneDrive hasn't delivered; if it does, they arrive as a conflict copy to review. */
-  function takeOver(r, person, session, now) {
+  function takeOver(r, person, session, now, links) {
+    refuseLegacy(links);
     var from = r.recorder.person;
     r.recorder = { person: person, session: session };
     addLog(r, person, now, 'Took over recording from ' + from + ' at revision ' + (r.rev || 0));
@@ -4933,12 +5166,24 @@ PF.run = (function () {
     if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
     if (a.child && childCurrent(r, x.step, a) && !a.child.failed) throw new Error('This step already started a run.');
+    /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
+    if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     if (a.child) {
       addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
       if (a.s !== 'open') { answer(r, stepId, { s: 'open' }); a = r.steps[stepId]; }
     }
     a.child = { process: child.process, id: child.id, inputs: child.inputs && typeof child.inputs === 'object' ? Object.assign({}, child.inputs) : childInputs(r, x.step) };
+    /* run/3: the exact version the child runs, and the pin it follows (taken now when the child process wasn't published
+       when this run started). */
+    if (r.format === FORMAT3) {
+      if (typeof child.folder === 'string' && child.folder) a.child.folder = child.folder;
+      if (child.pin && PF.pins.childOk(child.pin) && !(r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId))) {
+        r.pins = r.pins || { children: {} }; r.pins.children = r.pins.children || {};
+        r.pins.children[stepId] = JSON.parse(JSON.stringify(child.pin)); addFeature(r, 'pinned-children');
+        var re = withPins(r); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+      }
+    }
     addLog(r, who, now, 'Started a ' + child.process + ' run for "' + x.step.text + '"');
   }
   /* The run details a child run was started for: the step's ^details and what it carries. If any change, the child no longer counts. */
@@ -4977,6 +5222,7 @@ PF.run = (function () {
      (and marked failed, so a new child can replace it) if it ended any other way or its carried values were changed. */
   function childVerdict(r, step, a, child) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
+    if (r.format !== FORMAT3 && isTwo(child)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
@@ -4988,6 +5234,7 @@ PF.run = (function () {
   function settleChild(r, map, id, child, who, now) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
+    if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
     var v = childVerdict(r, x.step, a, child);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
@@ -5001,6 +5248,38 @@ PF.run = (function () {
     if (!child || !child.ended) return null;
     return child.ended.outcome === 'Completed' ? 'done' : 'blocked';
   }
+
+  /* A child run made with Flightdeck 2.0 (run/3), or one this copy reads by name only: a run/2 parent never follows it. */
+  function isTwo(child) { return !!child && (child.format === FORMAT3 || (!!child._unrunnable && child._needs != null)); }
+  var LEGACY_CHILD = 'That run was made with Flightdeck 2.0, which an older Flightdeck recording this run would read by name only. Start it as a Flightdeck 2.0 run instead.';
+  var LEGACY_LINK = '"<step>" is linked to a run made with Flightdeck 2.0, which an older Flightdeck would read by name only. Start it as a Flightdeck 2.0 run first.';
+  /* The steps of a run/2 parent linked to a run/3 child (never written by 2.0; a hand-made link): [{ step, text, child, legacy }].
+     findRun(key): a loaded run by process/id. */
+  function legacyLinks(r, findRun) {
+    if (!r || r.format === FORMAT3) return [];
+    var map = mapOf(r), out = [];
+    Object.keys(r.steps || {}).forEach(function (sid) {
+      var a = r.steps[sid], c = a && a.child && findRun(a.child.process + '/' + a.child.id), x = map && M.findStep(map, sid);
+      if (c && isTwo(c) && a.s !== 'done' && a.s !== 'na') out.push({ step: sid, text: x ? x.step.text : sid, child: c, legacy: true });
+    });
+    return out;
+  }
+  /* "Start it as a Flightdeck 2.0 run" (review #1, R2-4): a run/3 on the same /1 version as a run/2 parent whose linked child
+     needs Flightdeck 2.0, chosen by a person. Its details and roles are copied (like Plan another like this), its answers
+     aren't; its children are pinned now (o.pins, from PF.pins.atStart). pub: the old run's own version. */
+  function continuation(old, pub, o) {
+    if (old.format === FORMAT3) throw new Error('This run was already made with Flightdeck 2.0.');
+    if (!pub || !pub.info || pub.info.folder !== old.folder) throw new Error('The new run must use the same version as this one (v' + old.version + ').');
+    var details = {}, roles = {};
+    Object.keys(old.details || {}).forEach(function (k) { details[k] = old.details[k]; });
+    Object.keys(old.roles || {}).forEach(function (k) { roles[k] = old.roles[k]; });
+    var title = String(old.title || pub.map.meta.title).replace(/ \(continued\)$/, '').slice(0, 88) + ' (continued)';
+    var n = create(pub, { id: o.id, title: title, details: details, roles: roles, by: o.by, session: o.session, now: o.now, tz: o.tz, workflows: o.workflows, app: o.app, explicit: true, pins: o.pins });
+    addLog(n, o.by, o.now, 'Continued from run ' + old.process + '/' + old.id + ', made with an older Flightdeck');
+    return n;
+  }
+  /* The old parent's step, once its continuation is saved: Blocked, "Continued in run <key>", an answer every copy reads. */
+  function continued(old, map, stepId, n, who, now) { return block(old, map, stepId, 'Continued in run ' + n.process + '/' + n.id, who, now); }
 
   /* ---------- Across runs: rotation history, and the Flight plan's analytics (an adapter over PF.insights) ---------- */
   function rotation(runs, processId) {
@@ -5165,7 +5444,9 @@ PF.run = (function () {
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
-  KNOWN.run3 = KNOWN.run + ' features app typesHash payload';
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations';
+  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.child3 = KNOWN.child + ' folder'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
   /* Why a run/3 can't be read in full here, or '': a top-level field this copy doesn't know, or a payload it can't check (a pin
@@ -5174,10 +5455,20 @@ PF.run = (function () {
     var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run3, f) && f[0] !== '_'; })[0];
     if (extra != null) return 'The run has "' + String(extra).slice(0, 40) + '".';
     var p = o.payload, obj = function (v) { return !!v && typeof v === 'object' && !Array.isArray(v); };
-    if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
-    if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
-    if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
-    if (Object.keys(p.extensions).length || Object.keys(p.pins).some(function (k) { return (k !== 'children' && k !== 'skills') || !obj(p.pins[k]) || Object.keys(p.pins[k]).length; })) return 'It pins other versions or holds extensions.';
+    /* Every run/3 says its features and its types fingerprint; one without is no run/3 this copy wrote. */
+    if (!Array.isArray(o.features) || !/^[0-9a-f]{8}$/.test(o.typesHash)) return 'It doesn\'t say its features and step types as a 2.0 run does.';
+    /* A run/3 on a /1 version (an explicit 2.0 run) has no payload: its version's is implied. */
+    if (p != null) {
+      if (!obj(p) || !HEX64.test(p.map) || !HEX64.test(p.types) || !obj(p.images) || !obj(p.extensions) || !obj(p.pins)) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p).some(function (k) { return ['map', 'types', 'images', 'extensions', 'pins'].indexOf(k) < 0; })) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p.images).some(function (k) { return !HEX64.test(p.images[k]); })) return 'Its payload isn\'t one this copy reads.';
+      if (Object.keys(p.extensions).length) return 'It holds extensions.';
+      if (!PF.pins.shapeOk(p.pins)) return 'It pins versions in a way this copy doesn\'t read.';
+    }
+    /* Its own pins: children only, each a pin this copy reads. */
+    if (o.pins != null && (!obj(o.pins) || Object.keys(o.pins).some(function (k) { return k !== 'children'; }) || !PF.pins.shapeOk({ children: o.pins.children || {} }))) return 'It pins versions in a way this copy doesn\'t read.';
+    /* Migration records belong to typed data (a later slice): an empty list says there are none. */
+    if (o.migrations != null && !(Array.isArray(o.migrations) && !o.migrations.length)) return 'It has migration records.';
     return '';
   }
   /* The Flightdeck a run/3 this copy can't fully read needs: its writer's own version when that's 2.0 or later, else 2.0. */
@@ -5195,12 +5486,14 @@ PF.run = (function () {
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
-    look(o, o.format === FORMAT3 ? 'run3' : 'run', 'The run');
+    var three = o.format === FORMAT3;
+    look(o, three ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
     look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
     look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
-    look(o.parent, 'parent', 'Its parent run'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
+    look(o.parent, three ? 'parent3' : 'parent', 'Its parent run');
+    if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
     text(o.details, 'A run detail'); text(o.roles, 'A role');
     if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"'); });
@@ -5216,8 +5509,9 @@ PF.run = (function () {
     if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k], w = 'Step "' + k.slice(0, 60) + '"';
       if (!obj(a)) return;
-      look(a, 'step', w); state(STEP_STATES, a.s, w + '\'s state');
-      look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, 'child', w);
+      look(a, three ? 'step3' : 'step', w); state(STEP_STATES, a.s, w + '\'s state');
+      look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
+      if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill != null && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, 'history', w + '\'s history'); if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
@@ -5452,7 +5746,7 @@ PF.run = (function () {
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
     if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
     if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
-    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); }
+    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && typeof o.parent.folder === 'string' && PF.publish.versionOf(o.parent.folder)) r.parent.folder = o.parent.folder; }
     var ho = o.recorder.handoff;
     if (ho && typeof ho === 'object' && !r.recorder.session) r.recorder.handoff = { from: str(ho.from, 80), rev: Math.max(0, parseInt(ho.rev, 10) || 0), at: isoOrNull(ho.at) };
     (Array.isArray(o.followUps) ? o.followUps.slice(0, 100) : []).forEach(function (f) {
@@ -5469,7 +5763,8 @@ PF.run = (function () {
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
       if (a.values) c.values = values(a.values);
-      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; }
+      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && typeof a.child.folder === 'string' && PF.publish.versionOf(a.child.folder)) c.child.folder = a.child.folder; }
+      if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
       if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined }; });
       r.steps[k] = c;
     });
@@ -5493,8 +5788,10 @@ PF.run = (function () {
       if (Array.isArray(o.features)) r.features = PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; });
       if (typeof o.app === 'string' && /^\d+\.\d+\.\d+/.test(o.app)) r.app = o.app.slice(0, 40);
       r.typesHash = str(o.typesHash, 16);
-      r.payload = JSON.parse(JSON.stringify(o.payload));
-      r = order3(r);
+      if (o.payload != null) r.payload = JSON.parse(JSON.stringify(o.payload));
+      if (o.pins && o.pins.children && Object.keys(o.pins.children).length) r.pins = { children: JSON.parse(JSON.stringify(o.pins.children)) };
+      if (Array.isArray(o.migrations)) r.migrations = [];
+      r = withPins(order3(r));
     }
     return r;
   }
@@ -5505,7 +5802,7 @@ PF.run = (function () {
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childVerdict: childVerdict, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
-    handOff: handOff, pickUp: pickUp, takeOver: takeOver, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
+    handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
   };
 })();
 
@@ -7107,7 +7404,9 @@ PF.skills = (function () {
        pin): never matched to a version by number, and named for what it is (docs/design.md section 28). */
     var env = PF.envelope.judge('flightdeck-skill', o), label = file || str(o.name, 80) || 'A skill file';
     if (!env.ok) return { skill: null, errors: [label + ': ' + (env.kind === 'newer' ? 'made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why)], newer: env.kind === 'newer', needs: env.needs || '' };
-    if (o.implements === 'moved') return { skill: null, errors: [label + ': Registered in skill-registrations/ for Flightdeck 2.0. This copy can\'t match it to a version.'], newer: true, needs: '2.0', tombstone: true };
+    /* An exact registration (2.0) lives wholly in skill-registrations/<name>/; in skills/ it's never read for meaning. */
+    if (env.major === 2) return { skill: null, errors: [label + ': A Flightdeck 2.0 registration belongs in skill-registrations/' + (str(o.name, 80) || '<name>') + '/. Register it with flightdeck skill register.'] };
+    if (o.implements === 'moved') return { skill: null, errors: [label + ': Registered in skill-registrations/ for Flightdeck 2.0. This copy can\'t match it to a version.'], newer: true, needs: '2.0', tombstone: true, name: str(o.name, 80), movedTo: str(o.movedTo, 200), id: str(o.id, 20) };
     var name = str(o.name, 80), imp = /^([a-z0-9][a-z0-9-]*)@v?(\d+)$/i.exec(str(o.implements, 80));
     if (!name) errors.push('needs a "name"');
     if (!imp) errors.push('"implements" must be <process>@<version>, like release@4');
@@ -7124,6 +7423,89 @@ PF.skills = (function () {
   /* "Engineering / Releases" → ["Engineering", "Releases"]; tags lowercase, no duplicates. */
   function groupPath(v) { return (typeof v === 'string' ? v : Array.isArray(v) ? list(v).join('/') : '').split('/').map(function (x) { return x.trim().slice(0, 60); }).filter(Boolean).slice(0, 6); }
   function tags(v) { var seen = Object.create(null); return list(v).map(function (t) { return t.trim().toLowerCase().slice(0, 40); }).filter(function (t) { if (!t || seen[t]) return false; seen[t] = 1; return true; }).slice(0, 20); }
+
+  /* ---------- Exact registrations (2.0): skill-registrations/<name>/<id>.<rev>.<window>.json, write-once revisions ---------- */
+  var REG_PATH = /^skill-registrations\/([^/]+)\/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([\w-]{1,40})\.json$/;
+  /* One registration file, checked: { skill, errors, file }. sha: the SHA-256 of its exact bytes, which identifies it. The
+     skill carries its exact pin (exact: { process, folder, mapHash, typesHash }), id (regId), rev and sha. */
+  function checkV2(o, path, sha) {
+    var label = path || 'A skill registration', errors = [];
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return { skill: null, errors: [label + ': must be a JSON object'], file: path };
+    var env = PF.envelope.judge('flightdeck-skill', o);
+    if (!env.ok) return { skill: null, errors: [label + ': ' + (env.kind === 'newer' ? 'made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why)], newer: env.kind === 'newer', needs: env.needs || '', file: path };
+    if (env.major !== 2) return { skill: null, errors: [label + ': isn\'t a Flightdeck 2.0 registration (format flightdeck-skill/2). Register skills with flightdeck skill register.'], file: path };
+    var m = REG_PATH.exec(path || ''), name = str(o.name, 80), imp = o.implements;
+    if (!m) errors.push('its file name isn\'t skill-registrations/<name>/<id>.<rev>.<window>.json');
+    else {
+      if (m[1] !== name) errors.push('it\'s in the folder for ' + m[1] + ', not ' + (name || 'its own name'));
+      if (m[2] !== o.id || +m[3] !== o.rev) errors.push('its file name doesn\'t say its id and revision (' + m[2] + '.' + m[3] + ')');
+    }
+    if (!name) errors.push('needs a "name"');
+    if (typeof o.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(o.id)) errors.push('"id" must be sk- and 8 letters or numbers');
+    if (typeof o.rev !== 'number' || o.rev < 1 || Math.floor(o.rev) !== o.rev || o.rev > 999999) errors.push('"rev" must be a revision number from 1');
+    if (!(o.seen === null || o.seen === undefined || (typeof o.seen === 'number' && Math.floor(o.seen) === o.seen && o.seen >= 1 && o.seen < o.rev))) errors.push('"seen" must be the revision it replaced, or null');
+    var exact = imp && typeof imp === 'object' && !Array.isArray(imp) ? { process: imp.process, version: PF.publish.versionOf(String(imp.folder)), folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash } : null;
+    if (!exact || !PF.pins.childOk(exact) || Object.keys(imp).some(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) < 0; })) { errors.push('"implements" must name the exact version: { process, folder, mapHash, typesHash }'); exact = null; }
+    var steps = o.steps == null ? null : list(o.steps).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
+    if (errors.length) return { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path };
+    var skill = {
+      name: name, version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300), process: exact.process, implements: exact.version, steps: steps,
+      group: groupPath(o.group), tags: tags(o.tags), updated: str(o.updated, 40), by: str(o.by, 80), file: path,
+      exact: { process: exact.process, folder: exact.folder, mapHash: exact.mapHash, typesHash: exact.typesHash }, regId: o.id, rev: o.rev, seen: o.seen == null ? null : o.seen, sha: typeof sha === 'string' ? sha : ''
+    };
+    return { skill: skill, errors: [], file: path };
+  }
+  /* Legacy registrations (skills/, through check) and exact ones (skill-registrations/, through checkV2) as one list, one entry
+     per skill: the current revision of each (the highest rev); two different files at that rev are Needs review. A tombstone
+     stands for its registration and goes; one whose registration hasn't arrived, or a legacy file beside a registration with
+     the same name, can't be matched (unmatched: true), never current. */
+  function merge(legacy, regs) {
+    var byName = Object.create(null), order = [], out = [];
+    (regs || []).forEach(function (x) {
+      var m = REG_PATH.exec(x.file || ''), n = x.skill ? x.skill.name : m ? m[1] : '';
+      if (!x.skill) { out.push(x); return; }
+      if (!byName[n]) { byName[n] = []; order.push(n); }
+      byName[n].push(x);
+    });
+    var current = Object.create(null);
+    order.forEach(function (n) {
+      var all = byName[n], top = Math.max.apply(null, all.map(function (x) { return x.skill.rev; })), at = all.filter(function (x) { return x.skill.rev === top; });
+      var shas = at.map(function (x) { return x.skill.sha; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      var cur = at.sort(function (a, b) { return a.file < b.file ? -1 : 1; })[0], e = { skill: cur.skill, errors: [], file: cur.file, revisions: all.length };
+      if (shas.length > 1) { e.errors.push('Needs review: two registrations of ' + n + ' at revision ' + top + ' (' + at.map(function (x) { return x.file; }).join(', ') + '). Keep one, then register it again.'); e.unmatched = true; e.review = true; }
+      current[n] = e; out.push(e);
+    });
+    (legacy || []).forEach(function (x) {
+      if (x.tombstone) {
+        if (x.name && current[x.name]) return;
+        out.push({ skill: null, errors: [(x.file || x.name) + ': ' + (x.name || 'This skill') + ' moved to skill-registrations/' + (x.name || '') + '/, and its registration is still arriving. Can\'t be matched yet.'], file: x.file, unmatched: true, name: x.name });
+        return;
+      }
+      var n = x.skill && x.skill.name;
+      if (n && current[n]) {
+        var why = 'Two registrations for ' + n + '; keep one (skills/' + (x.file || n + '.json') + ' and ' + current[n].file + ').';
+        if (current[n].errors.indexOf(why) < 0) current[n].errors.push(why);
+        current[n].unmatched = true;
+        out.push({ skill: x.skill, errors: (x.errors || []).concat([why]), file: x.file, unmatched: true });
+        return;
+      }
+      out.push(x);
+    });
+    return out;
+  }
+  /* A registration as a step records it when it's checked: { id, rev, sha, snapshot }, the snapshot cleaned and at most 2 KB. */
+  function observed(reg) {
+    if (!reg) return null;
+    var snap = { name: str(reg.name, 80), version: str(reg.version, 40) }, imp = reg.exact || reg.implements;
+    if (imp && typeof imp === 'object') snap.implements = { process: imp.process, folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash };
+    if (reg.steps) snap.steps = reg.steps.slice(0, 200);
+    if (reg.location) snap.location = str(reg.location, 500);
+    if (reg.description) snap.description = str(reg.description, 300);
+    ['description', 'location', 'steps'].forEach(function (k) { if (JSON.stringify(snap).length > 2048) delete snap[k]; });
+    return { id: reg.regId || reg.id, rev: reg.rev, sha: reg.sha, snapshot: snap };
+  }
+  function observedWords(s) { return s && s.snapshot ? 'Registered as ' + s.snapshot.name + (s.snapshot.version ? ' ' + s.snapshot.version : '') + ' when this step was checked' : ''; }
   /* A safe link for a location: https only; anything else (a path) is shown as text to copy. */
   function link(location) { return /^https:\/\/\S+$/i.test(location || '') ? location : ''; }
 
@@ -7158,17 +7540,27 @@ PF.skills = (function () {
 
   /* Where a skill stands against its process: current, behind but unaffected, needs an update, or broken. */
   /* pubs: every complete publication; latest: the one in use (the index's choice, which sets clashes aside). */
-  function status(skill, pubs, latest) {
+  /* proc: the process as listed ({ latest, all, clashes, broken }), for an exact registration's refusals. */
+  function status(skill, pubs, latest, proc) {
     var byV = Object.create(null); (pubs || []).forEach(function (p) { (byV[p.info.version] = byV[p.info.version] || []).push(p); });
-    if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
-    var bases = byV[skill.implements] || [];
-    if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
-    if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };
-    var base = bases[0];
+    var base;
+    if (skill.exact) {
+      /* An exact registration matches its own folder and fingerprints, or nothing: never a number, never the latest. */
+      var got = PF.pins.find(proc || { latest: latest, all: pubs || [], clashes: [], broken: [] }, skill.exact), at = skill.process + ' v' + skill.implements + ' (' + skill.exact.folder + ')';
+      if (!got.pub) return { s: 'unmatched', text: 'Can\'t be matched: built from ' + at + (got.missing && /isn't in this folder$/.test(got.why) ? ', which isn\'t in this folder.' : ': ' + got.why + '.') };
+      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      base = got.pub;
+    } else {
+      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      var bases = byV[skill.implements] || [];
+      if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
+      if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };
+      base = bases[0];
+    }
     var known = stepsOf(base.map);
     var unknown = (skill.steps || []).filter(function (id) { return !known[id]; });
     if (unknown.length) return { s: 'missing', text: 'It names steps v' + skill.implements + ' doesn\'t have: ' + unknown.join(', ') + '.' };
-    if (skill.implements >= latest.info.version) return { s: 'current', text: 'Built from v' + skill.implements + ', the current version.', base: base, latest: latest, changes: [] };
+    if (skill.exact ? base.info.folder === latest.info.folder : skill.implements >= latest.info.version) return { s: 'current', text: 'Built from v' + skill.implements + ', the current version.', base: base, latest: latest, changes: [] };
     var ch = changes(base, latest, skill.steps);
     if (!ch.length) return { s: 'unaffected', text: 'Built from v' + skill.implements + '. v' + latest.info.version + ' didn\'t change ' + (skill.steps ? 'its steps' : 'any step') + '; it only needs its version noted.', base: base, latest: latest, changes: [] };
     return { s: 'update', text: 'Built from v' + skill.implements + '. In v' + latest.info.version + ', ' + ch.length + ' of ' + (skill.steps ? 'its steps' : 'the steps') + ' changed.', base: base, latest: latest, changes: ch };
@@ -7336,7 +7728,7 @@ PF.skills = (function () {
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
-  return { READY_RUNS: READY_RUNS, check: check, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();
 
 /* Files attached to notes and suggested fixes: which ones are allowed, the name each gets in the run's files/ folder, and how

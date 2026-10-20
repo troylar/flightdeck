@@ -32,7 +32,9 @@ PF.skills = (function () {
        pin): never matched to a version by number, and named for what it is (docs/design.md section 28). */
     var env = PF.envelope.judge('flightdeck-skill', o), label = file || str(o.name, 80) || 'A skill file';
     if (!env.ok) return { skill: null, errors: [label + ': ' + (env.kind === 'newer' ? 'made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why)], newer: env.kind === 'newer', needs: env.needs || '' };
-    if (o.implements === 'moved') return { skill: null, errors: [label + ': Registered in skill-registrations/ for Flightdeck 2.0. This copy can\'t match it to a version.'], newer: true, needs: '2.0', tombstone: true };
+    /* An exact registration (2.0) lives wholly in skill-registrations/<name>/; in skills/ it's never read for meaning. */
+    if (env.major === 2) return { skill: null, errors: [label + ': A Flightdeck 2.0 registration belongs in skill-registrations/' + (str(o.name, 80) || '<name>') + '/. Register it with flightdeck skill register.'] };
+    if (o.implements === 'moved') return { skill: null, errors: [label + ': Registered in skill-registrations/ for Flightdeck 2.0. This copy can\'t match it to a version.'], newer: true, needs: '2.0', tombstone: true, name: str(o.name, 80), movedTo: str(o.movedTo, 200), id: str(o.id, 20) };
     var name = str(o.name, 80), imp = /^([a-z0-9][a-z0-9-]*)@v?(\d+)$/i.exec(str(o.implements, 80));
     if (!name) errors.push('needs a "name"');
     if (!imp) errors.push('"implements" must be <process>@<version>, like release@4');
@@ -49,6 +51,89 @@ PF.skills = (function () {
   /* "Engineering / Releases" → ["Engineering", "Releases"]; tags lowercase, no duplicates. */
   function groupPath(v) { return (typeof v === 'string' ? v : Array.isArray(v) ? list(v).join('/') : '').split('/').map(function (x) { return x.trim().slice(0, 60); }).filter(Boolean).slice(0, 6); }
   function tags(v) { var seen = Object.create(null); return list(v).map(function (t) { return t.trim().toLowerCase().slice(0, 40); }).filter(function (t) { if (!t || seen[t]) return false; seen[t] = 1; return true; }).slice(0, 20); }
+
+  /* ---------- Exact registrations (2.0): skill-registrations/<name>/<id>.<rev>.<window>.json, write-once revisions ---------- */
+  var REG_PATH = /^skill-registrations\/([^/]+)\/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([\w-]{1,40})\.json$/;
+  /* One registration file, checked: { skill, errors, file }. sha: the SHA-256 of its exact bytes, which identifies it. The
+     skill carries its exact pin (exact: { process, folder, mapHash, typesHash }), id (regId), rev and sha. */
+  function checkV2(o, path, sha) {
+    var label = path || 'A skill registration', errors = [];
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return { skill: null, errors: [label + ': must be a JSON object'], file: path };
+    var env = PF.envelope.judge('flightdeck-skill', o);
+    if (!env.ok) return { skill: null, errors: [label + ': ' + (env.kind === 'newer' ? 'made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why)], newer: env.kind === 'newer', needs: env.needs || '', file: path };
+    if (env.major !== 2) return { skill: null, errors: [label + ': isn\'t a Flightdeck 2.0 registration (format flightdeck-skill/2). Register skills with flightdeck skill register.'], file: path };
+    var m = REG_PATH.exec(path || ''), name = str(o.name, 80), imp = o.implements;
+    if (!m) errors.push('its file name isn\'t skill-registrations/<name>/<id>.<rev>.<window>.json');
+    else {
+      if (m[1] !== name) errors.push('it\'s in the folder for ' + m[1] + ', not ' + (name || 'its own name'));
+      if (m[2] !== o.id || +m[3] !== o.rev) errors.push('its file name doesn\'t say its id and revision (' + m[2] + '.' + m[3] + ')');
+    }
+    if (!name) errors.push('needs a "name"');
+    if (typeof o.id !== 'string' || !/^sk-[a-z0-9]{8}$/.test(o.id)) errors.push('"id" must be sk- and 8 letters or numbers');
+    if (typeof o.rev !== 'number' || o.rev < 1 || Math.floor(o.rev) !== o.rev || o.rev > 999999) errors.push('"rev" must be a revision number from 1');
+    if (!(o.seen === null || o.seen === undefined || (typeof o.seen === 'number' && Math.floor(o.seen) === o.seen && o.seen >= 1 && o.seen < o.rev))) errors.push('"seen" must be the revision it replaced, or null');
+    var exact = imp && typeof imp === 'object' && !Array.isArray(imp) ? { process: imp.process, version: PF.publish.versionOf(String(imp.folder)), folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash } : null;
+    if (!exact || !PF.pins.childOk(exact) || Object.keys(imp).some(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) < 0; })) { errors.push('"implements" must name the exact version: { process, folder, mapHash, typesHash }'); exact = null; }
+    var steps = o.steps == null ? null : list(o.steps).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
+    if (errors.length) return { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path };
+    var skill = {
+      name: name, version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300), process: exact.process, implements: exact.version, steps: steps,
+      group: groupPath(o.group), tags: tags(o.tags), updated: str(o.updated, 40), by: str(o.by, 80), file: path,
+      exact: { process: exact.process, folder: exact.folder, mapHash: exact.mapHash, typesHash: exact.typesHash }, regId: o.id, rev: o.rev, seen: o.seen == null ? null : o.seen, sha: typeof sha === 'string' ? sha : ''
+    };
+    return { skill: skill, errors: [], file: path };
+  }
+  /* Legacy registrations (skills/, through check) and exact ones (skill-registrations/, through checkV2) as one list, one entry
+     per skill: the current revision of each (the highest rev); two different files at that rev are Needs review. A tombstone
+     stands for its registration and goes; one whose registration hasn't arrived, or a legacy file beside a registration with
+     the same name, can't be matched (unmatched: true), never current. */
+  function merge(legacy, regs) {
+    var byName = Object.create(null), order = [], out = [];
+    (regs || []).forEach(function (x) {
+      var m = REG_PATH.exec(x.file || ''), n = x.skill ? x.skill.name : m ? m[1] : '';
+      if (!x.skill) { out.push(x); return; }
+      if (!byName[n]) { byName[n] = []; order.push(n); }
+      byName[n].push(x);
+    });
+    var current = Object.create(null);
+    order.forEach(function (n) {
+      var all = byName[n], top = Math.max.apply(null, all.map(function (x) { return x.skill.rev; })), at = all.filter(function (x) { return x.skill.rev === top; });
+      var shas = at.map(function (x) { return x.skill.sha; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      var cur = at.sort(function (a, b) { return a.file < b.file ? -1 : 1; })[0], e = { skill: cur.skill, errors: [], file: cur.file, revisions: all.length };
+      if (shas.length > 1) { e.errors.push('Needs review: two registrations of ' + n + ' at revision ' + top + ' (' + at.map(function (x) { return x.file; }).join(', ') + '). Keep one, then register it again.'); e.unmatched = true; e.review = true; }
+      current[n] = e; out.push(e);
+    });
+    (legacy || []).forEach(function (x) {
+      if (x.tombstone) {
+        if (x.name && current[x.name]) return;
+        out.push({ skill: null, errors: [(x.file || x.name) + ': ' + (x.name || 'This skill') + ' moved to skill-registrations/' + (x.name || '') + '/, and its registration is still arriving. Can\'t be matched yet.'], file: x.file, unmatched: true, name: x.name });
+        return;
+      }
+      var n = x.skill && x.skill.name;
+      if (n && current[n]) {
+        var why = 'Two registrations for ' + n + '; keep one (skills/' + (x.file || n + '.json') + ' and ' + current[n].file + ').';
+        if (current[n].errors.indexOf(why) < 0) current[n].errors.push(why);
+        current[n].unmatched = true;
+        out.push({ skill: x.skill, errors: (x.errors || []).concat([why]), file: x.file, unmatched: true });
+        return;
+      }
+      out.push(x);
+    });
+    return out;
+  }
+  /* A registration as a step records it when it's checked: { id, rev, sha, snapshot }, the snapshot cleaned and at most 2 KB. */
+  function observed(reg) {
+    if (!reg) return null;
+    var snap = { name: str(reg.name, 80), version: str(reg.version, 40) }, imp = reg.exact || reg.implements;
+    if (imp && typeof imp === 'object') snap.implements = { process: imp.process, folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash };
+    if (reg.steps) snap.steps = reg.steps.slice(0, 200);
+    if (reg.location) snap.location = str(reg.location, 500);
+    if (reg.description) snap.description = str(reg.description, 300);
+    ['description', 'location', 'steps'].forEach(function (k) { if (JSON.stringify(snap).length > 2048) delete snap[k]; });
+    return { id: reg.regId || reg.id, rev: reg.rev, sha: reg.sha, snapshot: snap };
+  }
+  function observedWords(s) { return s && s.snapshot ? 'Registered as ' + s.snapshot.name + (s.snapshot.version ? ' ' + s.snapshot.version : '') + ' when this step was checked' : ''; }
   /* A safe link for a location: https only; anything else (a path) is shown as text to copy. */
   function link(location) { return /^https:\/\/\S+$/i.test(location || '') ? location : ''; }
 
@@ -83,17 +168,27 @@ PF.skills = (function () {
 
   /* Where a skill stands against its process: current, behind but unaffected, needs an update, or broken. */
   /* pubs: every complete publication; latest: the one in use (the index's choice, which sets clashes aside). */
-  function status(skill, pubs, latest) {
+  /* proc: the process as listed ({ latest, all, clashes, broken }), for an exact registration's refusals. */
+  function status(skill, pubs, latest, proc) {
     var byV = Object.create(null); (pubs || []).forEach(function (p) { (byV[p.info.version] = byV[p.info.version] || []).push(p); });
-    if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
-    var bases = byV[skill.implements] || [];
-    if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
-    if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };
-    var base = bases[0];
+    var base;
+    if (skill.exact) {
+      /* An exact registration matches its own folder and fingerprints, or nothing: never a number, never the latest. */
+      var got = PF.pins.find(proc || { latest: latest, all: pubs || [], clashes: [], broken: [] }, skill.exact), at = skill.process + ' v' + skill.implements + ' (' + skill.exact.folder + ')';
+      if (!got.pub) return { s: 'unmatched', text: 'Can\'t be matched: built from ' + at + (got.missing && /isn't in this folder$/.test(got.why) ? ', which isn\'t in this folder.' : ': ' + got.why + '.') };
+      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      base = got.pub;
+    } else {
+      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      var bases = byV[skill.implements] || [];
+      if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
+      if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };
+      base = bases[0];
+    }
     var known = stepsOf(base.map);
     var unknown = (skill.steps || []).filter(function (id) { return !known[id]; });
     if (unknown.length) return { s: 'missing', text: 'It names steps v' + skill.implements + ' doesn\'t have: ' + unknown.join(', ') + '.' };
-    if (skill.implements >= latest.info.version) return { s: 'current', text: 'Built from v' + skill.implements + ', the current version.', base: base, latest: latest, changes: [] };
+    if (skill.exact ? base.info.folder === latest.info.folder : skill.implements >= latest.info.version) return { s: 'current', text: 'Built from v' + skill.implements + ', the current version.', base: base, latest: latest, changes: [] };
     var ch = changes(base, latest, skill.steps);
     if (!ch.length) return { s: 'unaffected', text: 'Built from v' + skill.implements + '. v' + latest.info.version + ' didn\'t change ' + (skill.steps ? 'its steps' : 'any step') + '; it only needs its version noted.', base: base, latest: latest, changes: [] };
     return { s: 'update', text: 'Built from v' + skill.implements + '. In v' + latest.info.version + ', ' + ch.length + ' of ' + (skill.steps ? 'its steps' : 'the steps') + ' changed.', base: base, latest: latest, changes: ch };
@@ -261,5 +356,5 @@ PF.skills = (function () {
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
-  return { READY_RUNS: READY_RUNS, check: check, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

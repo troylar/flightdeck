@@ -226,10 +226,16 @@ PF.map = (function () {
     return out;
   }
   /* The 2.0 features a checklist's own lines use, in the frozen order: what makes its version preflight-publication/2. A gate
-     note isn't one (every copy since 1.10 publishes it). */
+     note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
+     not a feature. */
   function features(map) {
-    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false };
+    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     (map.phases || []).forEach(function (p) {
+      /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
+      p.steps.forEach(function (s) {
+        if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;
+        if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
+      });
       if (p.note || p.noted) has['phase-notes'] = true;
       if (p.shots && p.shots.length) has['phase-shots'] = true;
       if (p.gate && p.gate.shots && p.gate.shots.length) has['gate-shots'] = true;
