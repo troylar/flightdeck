@@ -3283,7 +3283,7 @@
     harvest();
     var es = PF.nav.entry(ev ? ev.state : null);
     /* A restore in progress: every move is swallowed until the browser is back on the drawn entry. */
-    if (H.restoring) { if (es) H.pos = es.n; if (es && es.n === H.restoring.n) { clearTimeout(H.restoring.timer); H.restoring = null; } return; }
+    if (H.restoring) { if (es) H.pos = es.n; if (es && es.n === H.restoring.n) { clearTimeout(H.restoring.timer); H.restoring = null; scheduleSync(); } return; }
     popAt(es);
   }
   function popAt(es) {
@@ -3304,7 +3304,7 @@
   function restoreTimedOut() {
     H.restoring = null;
     var es = null; try { es = PF.nav.entry(HIST.state); } catch (e) { es = null; }
-    if (es && es.n === H.cur.n) { H.pos = es.n; return; }
+    if (es && es.n === H.cur.n) { H.pos = es.n; scheduleSync(); return; }
     popAt(es);
   }
   /* After a refusal the screen never moved: put the browser back on the drawn entry without touching the entries after it,

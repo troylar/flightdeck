@@ -6343,6 +6343,20 @@ rule('Back and Forward: Back to a draft removed from the folder while it had uns
   assert.ok(/This draft was removed from the folder/.test(app.html()) && /EDITED-LINE/.test(app.html()), app.live());
 });
 
+rule('Back and Forward: a click while Back puts the address bar back after closing a dialog still gets its own entry', async () => {
+  const app = await navBoot();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  app.key('?'); await app.tick();
+  app.back(); await new Promise(r => setTimeout(r, 0)); app.holdPops();
+  app.click('nav', 'skills'); await app.tick();
+  app.releasePops(); await app.settle();
+  assert.strictEqual(app.hash(), '#/skills');
+  assert.deepStrictEqual(hashes(app), ['#/', '#/runs', '#/settings', '#/skills']);
+  await back(app);
+  assert.strictEqual(app.hash(), '#/settings'); numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
 rule('Back and Forward: overlapping moves never reload, never reuse a number, and end on the drawn entry', async () => {
   const app = await navBoot({ localStore: {} });
   app.click('open-process', 'release'); await app.tick();
