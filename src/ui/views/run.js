@@ -111,6 +111,17 @@
     return '<div class="childbox">' + I('nest') + (pub ? '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(r, s, pub)) + '. This step is checked when it completes.</span>' : '<span class="small">"' + esc(proc || '?') + '" isn\'t published in this folder yet.</span>') + '</div>';
   }
 
+  /* A phase's note and screenshots (2.0) at the top of the phase, folded with its steps once it's done. Thumbnails load
+     when they scroll into view, as a step's do. */
+  function shotsHtml(ctx, act, id, list) {
+    return list.length ? '<div class="thumbs shots">' + list.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="' + act + '" data-id="' + esc(id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption></figure>'; }).join('') + '</div>' : '';
+  }
+  function phaseNote(ctx, p) {
+    var shots = p.shots || [];
+    if (!p.note && !shots.length) return '';
+    return '<div class="ph-note">' + (p.note ? '<div class="note">' + U.mdBlock(p.note) + '</div>' : '') + shotsHtml(ctx, 'zoom-phase', p.id, shots) + '</div>';
+  }
+
   /* The approval a gate recorded, as one sentence: who, when, and the exact details it was for. */
   function gateReceipt(ctx, rec2, st) {
     if (!rec2 || !rec2.by) return '';
@@ -126,6 +137,9 @@
     if (owner) h += '<div class="small">Owner: ' + esc(nameOf(ctx, owner)) + '</div>';
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';
     if (rec2 && rec2.by && (st === 'passed' || st === 'waived' || st === 'failed' || st === 'review')) h += '<div class="small g-rec">' + gateReceipt(ctx, rec2, st) + '</div>';
+    /* The gate's note, for every version (every copy since 1.10 publishes it), and its screenshots (2.0), above Pass the gate. */
+    if (g.note) h += '<div class="note g-note">' + U.mdBlock(g.note) + '</div>';
+    h += shotsHtml(ctx, 'zoom-gate', g.id, g.shots || []);
     h += '</div><div class="row">';
     if (rec && r.state === 'running' && !r.paused) {
       if (s.pick && s.pick.id === g.id && s.pick.kind === 'pass') h += '<span class="q"><b>' + (approves ? 'Approve ' + U.mdInline(approves) + '?' : 'Pass "' + esc(g.title) + '"?') + '</b></span><button class="btn go" data-act="pass" data-id="' + pi + '">Yes, pass it</button><button class="mini" data-act="unpick">Cancel</button>';
@@ -732,6 +746,7 @@
         (p.mode ? '<span class="mode">' + p.mode + '</span>' : '') +  (hint && !folded ? '<span class="mode-hint">' + hint + '</span>' : '') + '</div>';
       if (folded) deck += '<div class="folded"><span>' + (locked ? info.total + ' step' + (info.total === 1 ? '' : 's') + ', after the gate above' : tally(r, p)) + '</span><button class="mini" data-act="unfold" data-id="' + esc(p.id) + '" aria-expanded="false" aria-controls="phase-' + esc(p.id) + '">' + (locked ? 'Preview steps' : 'Show steps') + '</button></div>';
       else {
+        deck += phaseNote(ctx, p);
         if ((done || locked) && s.unfold[p.id]) deck += '<div class="folded"><span>' + (locked ? 'A preview: these open after the gate above.' : tally(r, p)) + '</span><button class="mini" data-act="fold" data-id="' + esc(p.id) + '" aria-expanded="true" aria-controls="phase-' + esc(p.id) + '">Hide steps</button></div>';
         deck += stepsHtml(ctx, r, p, row(p, pi, open));
       }

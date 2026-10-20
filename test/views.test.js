@@ -2359,4 +2359,53 @@ rule('Requests: a requested plan names its tool as a claim on Runs, on Home and 
   assert.ok(/id="start-submit"[^>]*disabled/.test(html) && /-LAPTOP\.json/.test(html) && /delete the wrong one/.test(html), html);
 });
 
+/* ---------- 2.0: phase and gate notes and screenshots in runs (and gate notes for every version, D15) ---------- */
+const NOTED = ['---', 'process: backup', 'title: Backup check', 'owner: person-avery', 'roles: lead', '---', '', '## Prepare {#prep}', '  > Use the **scratch** server. <script>bad()</script>', '  ![The <b>scratch</b> server](images/b/scratch.png)',
+  '- [ ] {confirm} Read the runbook @lead {#read}', '', '## Gate: Restored {#restored}', '  > The restored copy opens.', '  ![Row counts](images/b/counts.png)', '', '## Close {#close}', '- [ ] {confirm} File the report @lead {#file}', ''].join('\n');
+function notedRun(md) {
+  const images = {}, imageBytes = {};
+  ['images/b/scratch.png', 'images/b/counts.png'].forEach((src, k) => { if (md.indexOf(src) >= 0) { images[src] = PF.util.hash(String.fromCharCode(k + 1)); imageBytes[src] = new Uint8Array([k + 1]); } });
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, rand: 'note0001', app: '2.0.0', images, imageBytes });
+  const pub = P.verify(b.folder, b.files); assert.ok(pub.ok, pub.why);
+  const { ctx, state } = setup(), r = R.create(pub, { title: 'Backup', roles: { lead: 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id: 'run9' });
+  r._notes = []; r._conflicts = []; ctx.run = () => r; ctx.data.runs = [r];
+  ctx.img = (src, cap) => '<img data-src="' + src + '" alt="' + PF.util.esc(cap) + '">';
+  return { r, ctx, state, pub };
+}
+rule('Run screen: a phase\'s note and screenshots show at the top of the phase, escaped, and fold away with the phase once it\'s done', () => {
+  const { r, ctx, state } = notedRun(NOTED);
+  assert.strictEqual(r.format, 'preflight-run/3', 'set-up: a 2.0 run');
+  let html = V.run(ctx);
+  const ph = html.slice(html.indexOf('<section class="phase" id="phase-prep"'), html.indexOf('<section class="phase" id="phase-close"'));
+  assert.ok(/class="ph-note"/.test(ph) && /<strong>scratch<\/strong>/.test(ph), 'the note, as Markdown');
+  assert.ok(!/<script>bad/.test(html) && !/<b>scratch<\/b>/.test(html), 'nothing raw');
+  assert.ok(/data-act="zoom-phase" data-id="prep" data-i="0" aria-label="Expand: The &lt;b&gt;scratch&lt;\/b&gt; server"/.test(ph), 'a thumbnail that opens larger, labeled by its caption');
+  assert.ok(ph.indexOf('class="ph-note"') < ph.indexOf('data-id="read"'), 'above the steps');
+  R.done(r, R.mapOf(r), 'read', 'person-casey', NOW, {}); R.pass(r, R.mapOf(r), 0, 'person-casey', NOW);
+  state.unfold = {};
+  html = V.run(ctx);
+  const done = html.slice(html.indexOf('<section class="phase" id="phase-prep"'), html.indexOf('<section class="phase" id="phase-close"'));
+  assert.ok(!/class="ph-note"/.test(done), 'folded with the phase once it\'s done');
+  state.unfold = { prep: true };
+  assert.ok(/class="ph-note"/.test(V.run(ctx)), 'Show steps shows it again');
+});
+rule('Run screen: a gate\'s note shows above Pass the gate for every version, a 1.x version included, and a 2.0 gate\'s screenshots with it', () => {
+  const { ctx } = notedRun(NOTED);
+  let html = V.run(ctx), g = html.slice(html.indexOf('id="gate-restored"'));
+  assert.ok(/class="note g-note"/.test(g) && /The restored copy opens\./.test(g));
+  assert.ok(g.indexOf('g-note') < g.indexOf('Pass the gate'), 'above Pass the gate');
+  assert.ok(/data-act="zoom-gate" data-id="restored" data-i="0"/.test(g), 'the gate\'s screenshot');
+  const one = notedRun(NOTED.replace('  > Use the **scratch** server. <script>bad()</script>\n  ![The <b>scratch</b> server](images/b/scratch.png)\n', '').replace('  ![Row counts](images/b/counts.png)\n', ''));
+  assert.strictEqual(one.pub.info.format, 'preflight-publication/1'); assert.strictEqual(one.r.format, 'preflight-run/2');
+  g = V.run(one.ctx); g = g.slice(g.indexOf('id="gate-restored"'));
+  assert.ok(/class="note g-note"/.test(g) && /The restored copy opens\./.test(g), 'a /1 version\'s gate note shows too (D15)');
+});
+rule('Flight plan: a phase\'s note and screenshots and a gate\'s note get a marker, in words', () => {
+  const { ctx, state } = flightSetup(), map = PF.map.parse(NOTED);
+  const html = V.flightPlan(ctx, { id: 'backup', title: 'Backup check', skills: [] }, map, null);
+  assert.ok(/<b>Phase note<\/b> a note and 1 screenshot at the start of this phase/.test(html), html.slice(0, 400));
+  assert.ok(/<b>Gate note<\/b> a note and 1 screenshot at the gate/.test(html));
+  state.x = 1;
+});
+
 run();
