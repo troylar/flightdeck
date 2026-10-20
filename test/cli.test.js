@@ -2213,7 +2213,7 @@ rule('SKILL: skill register refuses what can\'t be matched exactly, and writes n
   assert.strictEqual(ok.code, 0, ok.out + ok.err);
   const p = path.join(dir, ...ok.json.registered.path.split('/')), twin = p.replace(/\.cli-[0-9a-f]{8}\.json$/, '.cli-ffffffff.json');
   fs.writeFileSync(twin, fs.readFileSync(p, 'utf8').replace('"1.0.0"', '"1.0.1"'));
-  no(input, /Two registrations for deploy are at the same revision/);
+  no(input, /Needs review: two registrations of deploy at revision 1/);
   assert.strictEqual(regsIn(dir, 'deploy').length, 2);
   const u = readCli('skill', 'register', dir, '--json'); assert.ok(u.code === 1 && /--from/.test(u.json.error.why));
 });

@@ -21,6 +21,7 @@ node test/compat.test.js
 node test/compat-bridge.test.js
 node test/compat-formats.test.js
 node test/compat-pins.test.js
+node test/skills-parity.test.js
 node test/build.test.js
 node test/readers.test.js
 node test/cli.test.js

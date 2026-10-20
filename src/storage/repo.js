@@ -900,12 +900,12 @@ PF.repo = (function () {
       return Promise.all(files.slice(0, MAX_SKILLS).map(function (i) {
         var bad = function (why) { return { skill: null, errors: ['skills/' + i.name + ': ' + why], file: i.name }; };
         return fs.read('skills/' + i.name).then(function (f) {
-          if (!f) return bad('couldn\'t be read');
+          if (!f) return Object.assign(bad('couldn\'t be read'), { unreadable: true });
           var o = json(f.text);
           if (o === undefined) return bad('isn\'t valid JSON');
           if (!o || typeof o !== 'object' || Array.isArray(o)) return bad('must be a JSON object');
           try { var c = PF.skills.check(o, i.name); c.file = i.name; return c; } catch (e) { return bad('couldn\'t be read as a skill registration'); }
-        }, function () { return bad('couldn\'t be read'); });
+        }, function () { return Object.assign(bad('couldn\'t be read'), { unreadable: true }); });
       }));
     }).then(function (list) { list.skipped = skipped; return list; });
   }

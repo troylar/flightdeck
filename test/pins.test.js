@@ -294,7 +294,7 @@ rule('The current registration is the highest rev; two files at that rev are Nee
   /* A legacy registration (not a tombstone) beside one with the same name. */
   const old = SK.check({ name: 'release-notes', version: '1.0.0', implements: 'backup@1' }, 'release-notes.json'); old.file = 'release-notes.json';
   list = SK.merge([old], [cv(one)]);
-  assert.ok(list.every(x => x.unmatched && /Two registrations for release-notes; keep one/.test(x.errors.join(' '))) && list.length === 2, JSON.stringify(plain(list)));
+  assert.ok(list.every(x => x.unmatched && /Two registrations for release-notes; keep one/.test(x.errors.join(' '))) && list.length === 1, 'one entry for the name, can\'t be matched: ' + JSON.stringify(plain(list)));
 });
 
 rule('skills.status matches a registration by its exact folder and fingerprints: missing folder, another folder with that number, a mismatch and an unusable version are "can\'t be matched"; the same folder as the latest is current', () => {

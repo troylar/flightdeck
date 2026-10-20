@@ -89,45 +89,74 @@ PF.skills = (function () {
      stands for its registration and goes; one whose registration hasn't arrived, or a legacy file beside a registration with
      the same name, can't be matched (unmatched: true), never current. */
   var REG_DIR = /^skill-registrations\/([^/]+)\//;
+  /* What a verdict holds back from flightdeck skill register: anything it can't read, or two revisions at one rev. "Two
+     registrations" (a legacy file beside revisions) and a pointer still waiting for its registration don't: registering is
+     how a person resolves them. */
+  var BLOCKS = ['legacy-unreadable', 'legacy-refused', 'revision-refused', 'review'];
+  /* The one verdict for a skill name (docs/design.md section 28), shared by the app (merge), flightdeck skill register and,
+     ported, check_folder.py: from its legacy files in skills/ (check results, or { unreadable: true } for one that couldn't
+     be read) and every revision filed under skill-registrations/<name>/ (checkV2 results, refused ones included).
+     { name, status: 'current' | 'unmatched' | 'absent', source: 'registration' | 'legacy' | null, rev, kinds, reasons,
+     blocks, top (the highest revision's entry), legacy (a readable legacy entry) }. Anything this copy can't read holds the
+     whole name: no lower revision, and no legacy file, is current past it. */
+  function resolve(name, legacy, revs) {
+    legacy = legacy || []; revs = revs || [];
+    var kinds = [], reasons = [];
+    function add(k, why) { if (kinds.indexOf(k) < 0) kinds.push(k); reasons.push(why); }
+    var valid = revs.filter(function (x) { return x && x.skill; }), bad = revs.filter(function (x) { return !x || !x.skill; });
+    var tombs = legacy.filter(function (x) { return x.tombstone; }), lok = legacy.filter(function (x) { return !x.tombstone && x.skill && !(x.errors || []).length; });
+    legacy.filter(function (x) { return !x.tombstone && (!x.skill || (x.errors || []).length); }).forEach(function (x) {
+      add(x.unreadable ? 'legacy-unreadable' : 'legacy-refused', (x.errors || []).join('; ') || 'skills/' + (x.file || name + '.json') + ': couldn\'t be read');
+    });
+    if (bad.length) add('revision-refused', 'A revision of ' + name + ' can\'t be read here: ' + refusedWhy(bad) + ' Resolve it first; until then no revision is current.');
+    var top = null;
+    if (valid.length) {
+      var hi = Math.max.apply(null, valid.map(function (x) { return x.skill.rev; })), at = valid.filter(function (x) { return x.skill.rev === hi; }).sort(function (a, b) { return a.file < b.file ? -1 : a.file > b.file ? 1 : 0; });
+      top = at[0];
+      if (at.map(function (x) { return x.skill.sha; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).length > 1) add('review', 'Needs review: two registrations of ' + name + ' at revision ' + hi + ' (' + at.map(function (x) { return x.file; }).join(', ') + '). Keep one, then register it again.');
+    }
+    if (valid.length && lok.length) add('two', 'Two registrations for ' + name + '; keep one (skills/' + (lok[0].file || name + '.json') + ' and ' + top.file + ').');
+    if (!valid.length && tombs.length) add('arriving', (tombs[0].file || name + '.json') + ': ' + name + ' moved to skill-registrations/' + name + '/, and its registration is still arriving. Can\'t be matched yet.');
+    var status = !legacy.length && !revs.length ? 'absent' : kinds.length ? 'unmatched' : 'current';
+    var source = status !== 'current' ? null : top ? 'registration' : 'legacy';
+    return { name: name, status: status, source: source, rev: source === 'registration' ? top.skill.rev : null, kinds: kinds, reasons: reasons,
+      blocks: kinds.some(function (k) { return BLOCKS.indexOf(k) >= 0; }), top: top, legacy: lok[0] || null, refusedWhy: bad.length ? refusedWhy(bad) : '' };
+  }
+  function verdictOf(v) { return { name: v.name, status: v.status, source: v.source, rev: v.rev, kinds: v.kinds.slice(), blocks: v.blocks }; }
+  /* Legacy registrations (skills/, through check) and exact ones (skill-registrations/, through checkV2) as one list: every
+     name through resolve. A name with revisions or a pointer is one entry (its current registration, or can't be matched
+     with the reasons); a name with only legacy files keeps them as every 1.x copy lists them. Each entry carries its verdict. */
   function merge(legacy, regs) {
-    var byName = Object.create(null), order = [], out = [], refused = Object.create(null);
-    /* A revision this copy can't read (newer, malformed, unreadable, misnamed) may be the newest: the skill it's filed under
-       can't be matched until a person resolves it, and no lower revision stands in for it. */
+    var names = [], seen = Object.create(null), byL = Object.create(null), byR = Object.create(null), out = [];
+    function slot(n) { if (!seen[n]) { seen[n] = true; names.push(n); } }
     (regs || []).forEach(function (x) {
       var d = REG_DIR.exec(x.file || ''), n = x.skill ? x.skill.name : d ? d[1] : '';
-      if (!x.skill) { if (n) (refused[n] = refused[n] || []).push(x); else out.push(x); return; }
-      if (!byName[n]) { byName[n] = []; order.push(n); }
-      byName[n].push(x);
+      if (!n) { out.push(x); return; }
+      (byR[n] = byR[n] || []).push(x); slot(n);
     });
-    var current = Object.create(null);
-    order.forEach(function (n) {
-      var all = byName[n], top = Math.max.apply(null, all.map(function (x) { return x.skill.rev; })), at = all.filter(function (x) { return x.skill.rev === top; });
-      var shas = at.map(function (x) { return x.skill.sha; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
-      var cur = at.sort(function (a, b) { return a.file < b.file ? -1 : 1; })[0], e = { skill: cur.skill, errors: [], file: cur.file, revisions: all.length };
-      if (shas.length > 1) { e.errors.push('Needs review: two registrations of ' + n + ' at revision ' + top + ' (' + at.map(function (x) { return x.file; }).join(', ') + '). Keep one, then register it again.'); e.unmatched = true; e.review = true; }
-      if (refused[n]) { e.errors.push('A revision of ' + n + ' can\'t be read here: ' + refusedWhy(refused[n]) + ' Resolve it first; until then no revision is current.'); e.unmatched = true; e.refused = true; e.refusedWhy = refusedWhy(refused[n]); delete refused[n]; }
-      current[n] = e; out.push(e);
-    });
-    Object.keys(refused).forEach(function (n) { refused[n].forEach(function (x) { out.push(Object.assign({}, x, { unmatched: true, refused: true, refusedWhy: refusedWhy([x]), name: n })); }); });
     (legacy || []).forEach(function (x) {
-      if (x.tombstone) {
-        if (x.name && current[x.name]) return;
-        out.push({ skill: null, errors: [(x.file || x.name) + ': ' + (x.name || 'This skill') + ' moved to skill-registrations/' + (x.name || '') + '/, and its registration is still arriving. Can\'t be matched yet.'], file: x.file, unmatched: true, name: x.name });
+      var n = x.tombstone ? x.name : x.skill ? x.skill.name : String(x.file || '').replace(/\.json$/i, '');
+      if (!n) { out.push(x); return; }
+      (byL[n] = byL[n] || []).push(x); slot(n);
+    });
+    names.forEach(function (n) {
+      var L = byL[n] || [], V = byR[n] || [], v = resolve(n, L, V), verdict = verdictOf(v);
+      if (!V.length && !L.some(function (x) { return x.tombstone; })) {
+        L.forEach(function (x) {
+          var e = Object.assign({}, x, { verdict: verdict });
+          if (v.status === 'unmatched' && !(x.errors || []).length) { e.errors = v.reasons.slice(); e.unmatched = true; }
+          out.push(e);
+        });
         return;
       }
-      var n = x.skill && x.skill.name;
-      if (n && current[n]) {
-        var why = 'Two registrations for ' + n + '; keep one (skills/' + (x.file || n + '.json') + ' and ' + current[n].file + ').';
-        if (current[n].errors.indexOf(why) < 0) current[n].errors.push(why);
-        current[n].unmatched = true;
-        out.push({ skill: x.skill, errors: (x.errors || []).concat([why]), file: x.file, unmatched: true });
-        return;
-      }
-      out.push(x);
+      if (v.status === 'current') { out.push({ skill: v.top.skill, errors: [], file: v.top.file, revisions: V.length, verdict: verdict }); return; }
+      var at = v.top || v.legacy || L[0] || V[0];
+      out.push({ skill: v.top ? v.top.skill : v.legacy ? v.legacy.skill : null, errors: v.reasons.slice(), file: at.file, unmatched: true, review: v.kinds.indexOf('review') >= 0,
+        refused: v.kinds.indexOf('revision-refused') >= 0, refusedWhy: v.refusedWhy, name: n, revisions: V.length, verdict: verdict });
     });
     return out;
   }
-  function refusedWhy(list) { return list.map(function (x) { return (x.errors || []).join('; ') || (x.file + ': can\'t be read'); }).join('; ') + (/[.!?]$/.test((list[list.length - 1].errors || []).join('')) ? '' : '.'); }
+  function refusedWhy(list) { return list.map(function (x) { return (x && x.errors || []).join('; ') || ((x && x.file) + ': can\'t be read'); }).join('; ') + (/[.!?]$/.test((list[list.length - 1] && list[list.length - 1].errors || []).join('')) ? '' : '.'); }
   /* A new revision for flightdeck skill register, the only writer of skill-registrations/ (pure: the command reads and writes).
      input: what an AI assistant hands over ({ name, version, location, implements: { process, folder }, steps?, description?,
      group?, tags?, by? }); proc: that process's versions as listed; current: the skill's current entry from merge, or null.
@@ -418,5 +447,5 @@ PF.skills = (function () {
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
-  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();
