@@ -9121,6 +9121,11 @@ PF.evidence = (function () {
         var why = imageProblem(v.info, src, images[src] || null);
         if (why) shot = why; else if (why === null && !unsure) unsure = src;
       });
+      /* A /2 version's payload is over the exact bytes of its checklist and step types, as the app checks it. */
+      if (!shot && v.ok && images && v.info.format === PF.publish.FORMAT2 && v.info.payload) [['map.md', 'map'], ['types.json', 'types']].forEach(function (x) {
+        var got = images['\u0000' + x[0]];
+        if (!shot && got && got.sha256 !== v.info.payload[x[1]]) shot = x[0] + ' doesn\'t match the version\'s payload byte for byte.';
+      });
       if (shot) add('publication', 'The version is complete and checks out', false, shot);
       else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
     }
@@ -12301,7 +12306,9 @@ PF.repo = (function () {
       if (p.folder) { var pinfo = pubTexts['publication.json'] != null ? json(pubTexts['publication.json']) : null; if (pinfo && typeof pinfo === 'object' && !Array.isArray(pinfo) && !P.newerOf(pinfo) && pinfo.images && typeof pinfo.images === 'object') Object.keys(pinfo.images).forEach(function (src) {
         var path = 'publications/' + p.process + '/' + p.folder + '/' + src, x = done[path];
         if (x && !x.gone && x.sha256) pubShots[src] = { sha256: x.sha256, bytes: x.bytes ? E.join(x.bytes) : null };
-      }); }
+      });
+      /* The checklist's and step types' exact bytes, for a /2 version's payload. */
+      ['map.md', 'types.json'].forEach(function (n) { var x = done['publications/' + p.process + '/' + p.folder + '/' + n]; if (x && !x.gone && x.sha256) pubShots['\u0000' + n] = { sha256: x.sha256 }; }); }
       rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null);
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
       rc.claims = p.claims.map(function (c) {

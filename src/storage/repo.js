@@ -2061,7 +2061,9 @@ PF.repo = (function () {
       if (p.folder) { var pinfo = pubTexts['publication.json'] != null ? json(pubTexts['publication.json']) : null; if (pinfo && typeof pinfo === 'object' && !Array.isArray(pinfo) && !P.newerOf(pinfo) && pinfo.images && typeof pinfo.images === 'object') Object.keys(pinfo.images).forEach(function (src) {
         var path = 'publications/' + p.process + '/' + p.folder + '/' + src, x = done[path];
         if (x && !x.gone && x.sha256) pubShots[src] = { sha256: x.sha256, bytes: x.bytes ? E.join(x.bytes) : null };
-      }); }
+      });
+      /* The checklist's and step types' exact bytes, for a /2 version's payload. */
+      ['map.md', 'types.json'].forEach(function (n) { var x = done['publications/' + p.process + '/' + p.folder + '/' + n]; if (x && !x.gone && x.sha256) pubShots['\u0000' + n] = { sha256: x.sha256 }; }); }
       rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null);
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
       rc.claims = p.claims.map(function (c) {

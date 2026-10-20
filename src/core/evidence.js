@@ -173,6 +173,11 @@ PF.evidence = (function () {
         var why = imageProblem(v.info, src, images[src] || null);
         if (why) shot = why; else if (why === null && !unsure) unsure = src;
       });
+      /* A /2 version's payload is over the exact bytes of its checklist and step types, as the app checks it. */
+      if (!shot && v.ok && images && v.info.format === PF.publish.FORMAT2 && v.info.payload) [['map.md', 'map'], ['types.json', 'types']].forEach(function (x) {
+        var got = images['\u0000' + x[0]];
+        if (!shot && got && got.sha256 !== v.info.payload[x[1]]) shot = x[0] + ' doesn\'t match the version\'s payload byte for byte.';
+      });
       if (shot) add('publication', 'The version is complete and checks out', false, shot);
       else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
     }

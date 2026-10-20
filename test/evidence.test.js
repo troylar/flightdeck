@@ -562,6 +562,11 @@ rule('2.0: Evidence checks every screenshot in the version\'s payload: a corrupt
   const bad = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
   assert.strictEqual(check(bad).ok, false, 'a corrupted screenshot fails the check: ' + check(bad).detail);
   assert.ok(/scratch\.png/.test(check(bad).detail), check(bad).detail);
+  files[shot] = files[shot].subarray(0, files[shot].length - 1);
+  const map = 'publications/x/' + pub.info.folder + '/map.md';
+  files[map] = Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), files[map]]);
+  const bom = (await pack(new BytesFS(files), { run: 'x/run1' })).res.col;
+  assert.strictEqual(check(bom).ok, false, 'a byte-order mark in map.md fails it too (the payload is over exact bytes): ' + check(bom).detail);
 });
 
 run();
