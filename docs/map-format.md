@@ -45,6 +45,8 @@ roles: author, reviewer
 | `roles` | no | Roles people are assigned to in each run. |
 | `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it), or `team` (the default). |
 
+In the builder, **Checklist details** sets `owner`, `backup`, `roles` and `context` without editing this block. Each step's form edits its note, and the Questions section has a panel with **Remove section**.
+
 ## Phases, steps and gates
 
 | Line | Meaning |

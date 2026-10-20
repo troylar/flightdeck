@@ -9,6 +9,7 @@ Back and Forward work inside Flightdeck.
 ### New
 
 - **Back and Forward work inside Flightdeck** (Navigation). Back and Forward move between screens, runs and the receipt. Back closes an open dialog first, and never loses what you typed. *Where:* Everywhere; Alt+Left and Alt+Right work too
+- **The builder edits a checklist's details, step notes and Questions** (Builder). Checklist details, at the top of the outline, sets the owner and backup owner and adds or removes roles and run details. Each step's form has its note. The Questions section opens in a panel where you edit it, then Remove section clears it for publishing. Undo works on all of them. *Where:* Process › Edit › Builder
 
 ## 1.21.0 · Oct 20, 2026
 
