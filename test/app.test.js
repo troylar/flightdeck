@@ -4656,6 +4656,33 @@ rule('go(): a choice left as drawn never blocks; a changed one does', async () =
   assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && new RegExp('id="' + role + '"').test(app.html()), 'a changed one does');
 });
 
+/* A typed checklist published into the example folder, and its start form open. */
+async function typedStart() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
+  const md = ['---', 'process: typed', 'title: Typed', 'owner: person-avery', 'context: ticket, ok:yes-no, rows:number, env:choice(dev|test|prod|stage|qa|perf)', '---', '', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}'].join('\n');
+  const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now: new Date().toISOString(), rand: 'ty000001', app: '2.0.0' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  Object.keys(b.files).forEach(k => { app.fs.files['publications/typed/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'typed'); await app.settle();
+  assert.ok(/id="opt-detail-ok-0"/.test(app.html()) && /<select id="detail-env"/.test(app.html()), 'set-up: the typed start form');
+  return app;
+}
+
+rule('Typed values: a yes/no, a choice or a number chosen on the start form keeps Back and go() from dropping it; untouched ones never block', async () => {
+  for (const [what, act] of [['yes/no', a => a.check('opt-detail-ok-0', true)], ['choice', a => a.select('detail-env', 'prod')], ['number', a => a.set('detail-rows', '12')]]) {
+    let app = await typedStart(); act(app); await app.tick();
+    app.back(); await app.settle();
+    assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && /id="detail-ok"/.test(app.html()), what + ': Back waits');
+    app = await typedStart(); act(app); await app.tick();
+    app.click('go', '', { view: 'home' }); await app.tick();
+    assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && /id="detail-ok"/.test(app.html()), what + ': go() waits');
+  }
+  const app = await typedStart(); app.back(); await app.settle();
+  assert.ok(!/id="detail-ok"/.test(app.html()) && !/Finish or cancel this first/.test(app.html() + app.live()), 'nothing chosen: Back goes');
+});
+
 rule('go(): with nothing typed, every screen and dialog of the examples lets you go', async () => {
   const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
   const key = app.run().key;

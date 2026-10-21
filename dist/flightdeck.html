@@ -4165,6 +4165,12 @@ PF.outline = (function () {
         if (used.length) return { error: mark + name + ' is still used by ' + used[0] + (used.length > 1 ? ' and ' + (used.length - 1) + ' more' : '') + '. Take it out there first.' };
         next = cur.filter(function (x) { return x !== name; });
       }
+      var names = next;
+      /* Run details keep each entry as written (rows:number keeps its kind); only the added or removed name changes. */
+      if (key === 'context' && hits.length) {
+        var raw = /^[\w-]+:\s*(.*)$/.exec(bare(lines[hits[hits.length - 1]]))[1].split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+        next = adding ? raw.concat([name]) : raw.filter(function (e) { var at = e.indexOf(':'); return (at < 0 ? e : e.slice(0, at).trim()) !== name; });
+      }
       str = next.join(', ');
     } else {
       var v = set.value;
@@ -4187,8 +4193,10 @@ PF.outline = (function () {
        one key order. */
     var sorted = function (m) { var c = Object.create(null); Object.keys(m).sort().forEach(function (k) { c[k] = m[k]; }); return c; };
     return done(o, text, lines, function (A, B) {
-      if (kind === 'list') A.meta[key] = next;
-      else if (str) A.meta[key] = str;
+      if (kind === 'list') {
+        A.meta[key] = names;
+        if (key === 'context' && !adding && A.meta.detailTypes) delete A.meta.detailTypes[name];
+      } else if (str) A.meta[key] = str;
       else if (kept) A.meta[key] = '';
       else delete A.meta[key];
       A.meta = sorted(A.meta); B.meta = sorted(B.meta);

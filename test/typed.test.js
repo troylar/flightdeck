@@ -537,4 +537,18 @@ rule('READ/2 describes a typed process: each detail\'s type and options, each ev
   same(out.features, ['typed-details', 'typed-evidence']);
 });
 
+rule('The builder\'s Run details list adds and removes a name without dropping any other detail\'s kind', () => {
+  const O = PF.outline;
+  const md = '---\ntitle: T\ncontext: ticket, rows:number, env:choice(dev|prod), due:date\n---\n\n## Phase\n\n- [ ] Step ^ticket\n';
+  const add = O.apply(md, { op: 'meta', key: 'context', set: { add: 'commit' } });
+  assert.ok(!add.error, add.error);
+  assert.ok(add.text.indexOf('context: ticket, rows:number, env:choice(dev|prod), due:date, commit\n') >= 0, add.text);
+  const del = O.apply(add.text, { op: 'meta', key: 'context', set: { remove: 'rows' } });
+  assert.ok(!del.error, del.error);
+  assert.ok(del.text.indexOf('context: ticket, env:choice(dev|prod), due:date, commit\n') >= 0, del.text);
+  same(PF.map.parse(del.text).meta.detailTypes, { env: { kind: 'choice', options: ['dev', 'prod'] }, due: { kind: 'date' } });
+  const dup = O.apply(md, { op: 'meta', key: 'context', set: { add: 'rows' } });
+  assert.ok(dup.error && /already/.test(dup.error), 'a typed name is already listed');
+});
+
 run();
