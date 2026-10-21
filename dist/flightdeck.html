@@ -20798,7 +20798,7 @@ PF.examples = (function () {
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     /* A decline reason being typed stays with its report when the form isn't drawn (another step selected). */
-    var rp = state.repPick, rbox = rp && rp.mode === 'decline' ? document.getElementById(PF.reports.reasonId(rp.key)) : null;
+    var rp = state.repPick, rbox = rp && rp.mode === 'decline' && repBox === PF.reports.reasonId(rp.key) ? document.getElementById(repBox) : null;
     if (rbox) rp.reason = rbox.value;
     procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
@@ -20825,6 +20825,8 @@ PF.examples = (function () {
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
     patch(app, page);
     noteDrawn(page);
+    var rid = state.repPick && state.repPick.mode === 'decline' ? PF.reports.reasonId(state.repPick.key) : null;
+    repBox = rid && page.indexOf('id="' + rid + '"') >= 0 ? rid : null;
     /* Boxes drafts own (evidence, Fill in, the note) are carried by their step's draft, never from another step or form. */
     var moved = !!drawn && !(was && was.fs === drawn.fs && was.key === drawn.key && was.sel === drawn.sel && was.kind === drawn.kind);
     if (moved) drawn.ids.forEach(function (id) { delete keep[id]; });
@@ -23038,7 +23040,19 @@ PF.examples = (function () {
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
   }
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || repDirty(); }
+  /* A decline reason with text in it is unsaved work even after a redraw draws it as the box's own text, or while another
+     step is selected: leaving refuses, and its step is brought back so the box is on screen. */
+  /* The decline reason box the last render drew, if any: only that one holds typing to keep. */
+  var repBox = null;
+  function repDirty() {
+    var p = state.repPick; if (!p || p.mode !== 'decline' || state.view !== 'run') return null;
+    var id = PF.reports.reasonId(p.key), on = repBox === id, el = on ? document.getElementById(id) : null;
+    if (!String((el ? el.value : p.reason) || '').trim()) return null;
+    var r = ctx.run(), x = !on && r ? M.findStep(R.mapOf(r), p.step) : null;
+    if (x) { state.unfold[x.phase.id] = true; selectStep(p.step); state.refOpen = true; }
+    return el || { id: id };
+  }
   /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
      does, and stays; one holding typing or choices isn't closed. Returns whether there was one. */
   function navLayer() {
@@ -24477,7 +24491,7 @@ PF.examples = (function () {
     var o = repItem(id);
     if (!o.it || !ctx.recording(o.r)) return;
     var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
-    state.repPick = { key: id, mode: mode, reason: '' };
+    state.repPick = { key: id, mode: mode, reason: '', step: o.it.g.step };
     if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
     state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
     render();
@@ -25015,7 +25029,7 @@ PF.examples = (function () {
      step sheet. Returns whether it went. */
   function go(t) {
     t = t || {};
-    var pf = state.obPending && state.obPendingField, dirty = pf ? document.getElementById(pf) || { id: pf } : dirtyControl();
+    var dirty = pendingBox();
     if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');

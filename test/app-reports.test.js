@@ -579,6 +579,34 @@ rule('App: a decline reason being typed survives moving to another step and back
   assert.ok(/Wrong build, half typed/.test(app.html()), 'the reason is still there');
 });
 
+rule('App: Back and a top-bar jump refuse to drop a decline reason with text in it, even after a redraw or from another step', async () => {
+  const app = await recording();
+  const x = await plant(app);
+    app.click('nav', 'runs'); await app.tick(40);
+  app.click('open-run', app.run().key); await app.tick(40);
+  const runHash = app.hash();
+  await openStep(app, 'jenkins');
+  app.click('rep-decline', x.key); await app.tick();
+  const rid = (/<textarea id="([^"]+)"/.exec(app.html()) || [])[1];
+  app.set(rid, 'Wrong build, half typed');
+  await openStep(app, 'pods');
+  app.back(); await app.settle();
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()), 'Back says why');
+  assert.strictEqual(app.hash(), runHash, 'the address is the run again');
+  assert.ok(new RegExp('id="' + rid + '"').test(app.html()) && /Wrong build, half typed/.test(app.html()), 'its step is back on screen with the reason');
+  app.click('refresh'); await app.tick(80);
+  app.click('go', '', { view: 'runs' }); await app.tick(40);
+  assert.ok(new RegExp('id="' + rid + '"').test(app.html()), 'a jump after a redraw is refused too');
+  app.click('rep-cancel', x.key); await app.tick();
+  app.back(); await app.settle();
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'after Cancel, Back goes');
+  app.forward(); await app.settle();
+  await openStep(app, 'jenkins');
+  app.click('rep-decline', x.key); await app.tick();
+  app.back(); await app.settle();
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'an empty reason doesn\'t block');
+});
+
 rule('App: this window\'s hint records only the acceptance it made: after Discard, an older acceptance of the same report isn\'t recorded by itself', async () => {
   const app = await recording();
   const x = await plant(app);
