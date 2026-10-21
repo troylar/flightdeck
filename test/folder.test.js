@@ -520,7 +520,7 @@ for (const [what, strip] of [['with file metadata', () => {}], ['without file me
     const loaded = await repo.loadRun(fs, 'release', 'run1');
     assert.ok(!loaded._unrunnable, 'set-up: writable while the record is missing');
     // They arrive, written by a newer copy: same checklist, a frozen type from a newer type version.
-    const types = JSON.parse(typesText); types.confirm.version = PF.types.VERSION + 1;
+    const types = JSON.parse(typesText); types.confirm.version = 4;
     const tj = JSON.stringify(types, null, 2), info = JSON.parse(pubText); info.typesHash = PF.util.hash(tj);
     fs.files[base + 'types.json'] = { t: tj, m: Date.now() + 1000 }; fs.files[base + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: Date.now() + 1000 };
     const text = fs.files[runPath].t;
@@ -535,7 +535,7 @@ rule('A run carrying step types this copy can\'t read never vouches for its vers
   const fs0 = folder(), r = await started(fs0), base = 'publications/release/' + r.folder + '/', path1 = 'runs/release/run1/run.json';
   const pubText = fs0.files[base + 'publication.json'].t, typesText = fs0.files[base + 'types.json'].t;
   // A second run on the same version, saved by a newer copy with a newer version of a step type.
-  const newer = JSON.parse(typesText); newer.confirm.version = PF.types.VERSION + 1;
+  const newer = JSON.parse(typesText); newer.confirm.version = 4; // 3 is 2.0 typed evidence (test/typed.test.js)
   const r2 = JSON.parse(fs0.files[path1].t); r2.id = 'run2'; r2.title = 'Started by a newer copy'; r2.types = newer;
   await fs0.write('runs/release/run2/run.json', JSON.stringify(r2, null, 2));
   delete fs0.files[base + 'publication.json']; delete fs0.files[base + 'types.json'];

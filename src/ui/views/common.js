@@ -88,7 +88,29 @@ PF.vk = (function () {
     return h;
   }
   function tagChips(tags) { return (tags || []).length ? '<span class="tags">' + tags.map(function (t) { return '<span class="tag">#' + esc(t) + '</span>'; }).join('') + '</span>' : ''; }
-  return { person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
+  /* A typed value's box (2.0): only a value with a kind gets one; a text value keeps its plain box, so a checklist without typed
+     values looks exactly as before. Yes/no, and a choice of up to five, are radios in a fieldset whose legend is the label (its
+     id is the field's, so a form reads the checked one); more choices a select; a number a text box for decimals; a date the
+     browser's date box. attrs is trusted markup the caller built (already escaped). */
+  function typedField(id, label, def, value, attrs, cls) {
+    var Vv = PF.values, k = Vv.kindOf(def), v = typeof value === 'string' ? value : '', a = attrs ? ' ' + attrs : '', c = cls || 'field';
+    function radios(opts, shown) {
+      return '<fieldset class="' + c + ' typed" id="' + esc(id) + '"' + a + '><legend>' + esc(label) + '</legend><span class="row">' + opts.map(function (o, i) {
+        return '<label class="radio"><input type="radio" name="' + esc(id) + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + '> ' + esc(shown[i]) + '</label>';
+      }).join('') + '</span></fieldset>';
+    }
+    if (k === 'yes-no') return radios(['yes', 'no'], ['Yes', 'No']);
+    if (k === 'choice' && (def.options || []).length <= 5) return radios(def.options, def.options);
+    var lab = '<label class="' + c + '" for="' + esc(id) + '">' + esc(label);
+    if (k === 'choice') return lab + '<select id="' + esc(id) + '"' + a + '><option value="">Choose…</option>' + def.options.map(function (o) { return '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></label>';
+    if (k === 'date') return lab + '<input type="date" id="' + esc(id) + '" min="0001-01-01" max="9999-12-31" value="' + esc(Vv.isDate(v) ? v : '') + '"' + a + '></label>';
+    if (k === 'number') return lab + (def.unit ? ' <span class="small">(' + esc(def.unit) + ')</span>' : '') + '<input id="' + esc(id) + '" inputmode="decimal" maxlength="30" value="' + esc(v) + '"' + a + '></label>';
+    if (k === 'url') return lab + ' <span class="small">Starts with https://</span><input type="url" id="' + esc(id) + '" maxlength="120" placeholder="https://" value="' + esc(v) + '"' + a + '></label>';
+    return lab + '<input id="' + esc(id) + '" maxlength="120" value="' + esc(v) + '"' + a + '></label>';
+  }
+  /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
+  function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
+  return { typedField: typedField, valueText: valueText, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
 })();
 (function () {
   'use strict';

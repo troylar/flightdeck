@@ -7,7 +7,7 @@
 PF.appjson = (function () {
   'use strict';
   var R = PF.run, M = PF.map, T = PF.types, P = PF.publish, F = PF.followups;
-  var CONTRACT = 'flightdeck-read/1', VERSIONS = [1];
+  var CONTRACT = 'flightdeck-read/1', CONTRACT2 = 'flightdeck-read/2', VERSIONS = [1, 2];
   var NOTE = 'Read from the team folder just now; another computer may be a minute ahead. A passed gate means passed for those details, by that person, at that time. People-directory email fields are omitted.';
   /* Every problem is one file or folder and one of these. */
   var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished'];
@@ -56,6 +56,23 @@ PF.appjson = (function () {
     request: { request: { id: 'string', file: 'string', status: 'string', plan: opt({ id: 'string', process: 'string', version: 'number', title: 'string', details: map('string'),
       roles: map('string'), when: opt('string'), note: 'string', by: 'string', created: 'string' }), leftEmpty: ['string'], run: opt('string') } }
   };
+  /* ---- contract 2 (Flightdeck 2.0): the same commands; 2.0 versions and run/3 runs are data, and values are typed ----
+     A detail or evidence value: its kind, the stored text, the value (a string for numbers, a boolean for yes/no, null when
+     empty, waiting or not valid), whether the stored text is valid, and the latest migration record about it. */
+  var MIGRATION = { path: 'string', at: 'string', from: 'string', source: 'string', verdict: 'string', result: opt('string'), resolved: opt({ by: opt(PERSON), at: 'string', value: 'string' }), open: 'boolean' };
+  var VALUE = { type: 'string', text: 'string', value: { $or: ['string', 'boolean', 'null'] }, valid: 'boolean', migration: opt(MIGRATION) };
+  var EVIDENCE2 = extend(EVIDENCE, { type: 'string' });
+  var PIN = { process: 'string', version: 'number', folder: 'string', mapHash: 'string', typesHash: 'string' };
+  var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE) });
+  var SCHEMA2 = {
+    envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: SCHEMA.followups, request: SCHEMA.request,
+    process: extend(SCHEMA.process, { format: 'string', features: ['string'], details: [{ name: 'string', type: 'string', options: ['string'] }],
+      phases: [extend(SCHEMA.process.phases[0], { steps: [extend(SCHEMA.process.phases[0].steps[0], { evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
+    runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })] },
+    run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
+      steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2] })],
+      gates: SCHEMA.run.run.$or[0].gates, followUps: [FOLLOWUP] })) }
+  };
   function extend(a, b) { var o = {}; Object.keys(a).forEach(function (k) { o[k] = a[k]; }); Object.keys(b).forEach(function (k) { o[k] = b[k]; }); return o; }
 
   /* What's wrong with a value against a schema entry: a list of "where: what" lines, empty when it conforms. */
@@ -91,13 +108,14 @@ PF.appjson = (function () {
     return (problems || []).map(function (p) { return { path: String(p.path), kind: p.kind, why: String(p.why || '') }; })
       .sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0; });
   }
-  function envelope(app, readAt, problems, data) {
+  function contractOf(n) { return +n === 2 ? CONTRACT2 : CONTRACT; }
+  function envelope(app, readAt, problems, data, c) {
     var list = problemList(problems);
-    return { contract: CONTRACT, app: String(app || ''), readAt: String(readAt || ''), complete: list.length === 0, problems: list, note: NOTE, data: data || {} };
+    return { contract: contractOf(c), app: String(app || ''), readAt: String(readAt || ''), complete: list.length === 0, problems: list, note: NOTE, data: data || {} };
   }
   /* No data at all: kind 'failed' (exit 1), 'not-found' (exit 5), 'contract' or 'usage' (exit 1). problems: what the read
      met before it stopped, the same ledger an envelope reports (empty when nothing was read). */
-  function failure(app, kind, why, problems) { return { contract: CONTRACT, app: String(app || ''), error: { kind: kind, why: String(why) }, problems: problemList(problems) }; }
+  function failure(app, kind, why, problems, c) { return { contract: contractOf(c), app: String(app || ''), error: { kind: kind, why: String(why) }, problems: problemList(problems) }; }
 
   /* People are an ID and the name people.json gives it; nothing else from the directory, emails least of all. */
   function names(people) {
@@ -274,6 +292,71 @@ PF.appjson = (function () {
       mine: my ? { phase: { index: my.phaseIndex, id: s(mph.id), title: s(mph.title) }, step: { id: s(my.step.id), text: s(my.step.text) } } : null };
   }
 
+  /* ---- contract 2 ---- */
+  var V = PF.values, KIND_TYPE = { url: 'link', link: 'link' };
+  function typeOf(def) { var k = def ? V.kindOf(def) : 'text'; return KIND_TYPE[k] || k; }
+  function migration(m, nameOf) {
+    return { path: s(m.path), at: s(m.at), from: s(m.from), source: s(m.source), verdict: s(m.verdict), result: m.result == null ? null : s(m.result),
+      resolved: m.resolved ? { by: nameOf(m.resolved.by), at: s(m.resolved.at), value: s(m.resolved.value) } : null, open: R.isOpenMigration(m) };
+  }
+  function value(r, mp, path, text, nameOf) {
+    var def = r.format === R.FORMAT3 ? R.typedDef(r, mp, path) : null, t = s(text), mig = null;
+    (Array.isArray(r.migrations) ? r.migrations : []).forEach(function (m) { if (m && m.path === path) mig = m; });
+    var open = !!mig && R.isOpenMigration(mig), ok = !def || t === '' || V.valid(def, t);
+    return { type: typeOf(def), text: t, value: open || !ok || t === '' ? null : def ? V.json(def, t) : t, valid: ok, migration: mig ? migration(mig, nameOf) : null };
+  }
+  function details2(r, mp, nameOf) { var o = {}; Object.keys(r.details || {}).forEach(function (k) { o[k] = value(r, mp, 'details.' + k, r.details[k], nameOf); }); return o; }
+  function head2(r, out) { out.format = s(r.format); out.features = Array.isArray(r.features) ? r.features.map(s) : []; return out; }
+  function summary2(r, nameOf) { var out = summary(r, nameOf); out.details = details2(r, R.mapOf(r), nameOf); return head2(r, out); }
+  function evidence2(listIn) {
+    return (listIn || []).map(function (d) {
+      var e = evidence([d])[0]; e.type = PF.values.isNew(d.kind) || d.detailKind ? typeOf(d) : d.kind === 'url' ? 'link' : d.kind === 'choice' ? 'choice' : 'text';
+      return e;
+    });
+  }
+  function process2(proc, pub) {
+    var out = process(proc, pub);
+    out.format = s(pub.info && pub.info.format); out.features = pub.info && Array.isArray(pub.info.features) ? pub.info.features.map(s) : [];
+    out.details = [];
+    if (!pub.ok) return out;
+    var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
+    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; return { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [] }; });
+    out.phases.forEach(function (ph, pi) {
+      ph.steps.forEach(function (st, si) {
+        var x = mp.phases[pi].steps[si], t = T.get(x.type, types), list = t ? T.recordFields(t, x.fields) : [];
+        st.evidence = evidence2(list).map(function (e, i) { var d = list[i]; e.min = d.kind === 'number' && d.min != null ? s(d.min) : null; e.max = d.kind === 'number' && d.max != null ? s(d.max) : null; e.unit = d.kind === 'number' && d.unit != null ? s(d.unit) : null; return e; });
+      });
+    });
+    return out;
+  }
+  function runs2(runList, plans, nameOf, procs, unsure) {
+    var out = runs(runList, plans, nameOf, procs, unsure);
+    out.runs = (runList || []).map(function (r) { return summary2(r, nameOf); }).sort(byCreated);
+    var byId = {}; (plans || []).forEach(function (p) { byId[s(p.id)] = byId[s(p.id)] || p; });
+    out.planned.forEach(function (o) {
+      var p = byId[o.id], two = !!p && p.format === PF.plans.FORMAT2;
+      o.format = two ? s(p.format) : 'flightdeck-plan/1'; o.pin = two && p.pin ? { folder: s(p.pin.folder), version: +p.pin.version || 0 } : null;
+      /* A plan/2 starts on its pin (or the version it was switched to), never on another: no fallback to the latest. */
+      if (two && o.versionMissing !== null) {
+        var proc = (procs || []).filter(function (x) { return x.process === p.process; })[0], pick = proc && proc.index ? PF.plans.pick(proc.index, p, null) : { pub: null };
+        o.startsOn = pick.pub ? { version: pick.pub.info.version, folder: s(pick.pub.info.folder) } : null; o.versionMissing = !pick.pub;
+      }
+    });
+    return out;
+  }
+  function run2(r, items, nameOf) {
+    var mp = R.mapOf(r), out = run(r, items, nameOf).run, base = summary2(r, nameOf);
+    out.details = base.details; head2(r, out);
+    out.pins = {}; if (r.pins && r.pins.children) Object.keys(r.pins.children).forEach(function (k) { var c = r.pins.children[k]; out.pins[k] = { process: s(c.process), version: +c.version || 0, folder: s(c.folder), mapHash: s(c.mapHash), typesHash: s(c.typesHash) }; });
+    out.migrations = (r._archivedMigrations || []).concat(Array.isArray(r.migrations) ? r.migrations : []).map(function (m) { return migration(m, nameOf); });
+    out.steps.forEach(function (st) {
+      var x = M.findStep(mp, st.id), a = r.steps[st.id] || null, vals = {};
+      Object.keys((a && a.values) || {}).forEach(function (k) { vals[k] = value(r, mp, 'steps.' + st.id + '.values.' + k, a.values[k], nameOf); });
+      st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
+    });
+    return { run: out };
+  }
+
   /* What plan request prints: status requested (written now), already (in the folder; nothing written), would-request
      (--dry-run), held (nothing written: problems says what couldn't be read). p: the plan file's fields, or null. */
   function request(id, file, status, p, leftEmpty, runKey) {
@@ -283,6 +366,6 @@ PF.appjson = (function () {
     return { request: { id: s(id), file: s(file), status: s(status), plan: plain, leftEmpty: (leftEmpty || []).map(s), run: runKey || null } };
   }
 
-  return { CONTRACT: CONTRACT, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
+  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
     v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

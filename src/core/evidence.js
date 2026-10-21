@@ -242,7 +242,7 @@ PF.evidence = (function () {
       h += '<div class="card"><b>' + esc(p.title) + '</b> <span class="soft">· gate ' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + esc(g) + (gate && gate.by ? ' by ' + esc(nameOf(col, gate.by)) + ' at ' + esc(when(gate.at)) : '') + (gate && gate.reason ? ' · ' + esc(gate.reason) : '') + '</span><table><tr><th>Step</th><th>Answer</th><th>Who and when</th></tr>';
       p.steps.forEach(function (s) {
         var a = run.steps[s.id], st = a && a.s !== 'open' ? a.s : 'not checked', ev = [];
-        if (a && a.values) R.evidenceFor(run, s).list.forEach(function (d) { if (a.values[d.name]) ev.push(d.label + ': ' + a.values[d.name]); });
+        if (a && a.values) R.evidenceFor(run, s).list.forEach(function (d) { if (a.values[d.name]) ev.push(d.label + ': ' + R.shown(run, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); });
         var marks = run.marks && run.marks[s.id] ? run.marks[s.id] : [];
         h += '<tr><td>' + esc(s.text) + ' <span class="soft mono">' + esc(s.id) + '</span></td><td>' + esc(st) + (a && a.reason ? ': ' + esc(a.reason) : '') + (a && a.differently ? '<br>Done differently: ' + esc(a.differently.note) : '') +
           (ev.length ? '<br>' + ev.map(esc).join('<br>') : '') + (a && a.history && a.history.length ? '<br><span class="soft">' + a.history.length + ' earlier answer' + (a.history.length === 1 ? '' : 's') + ' kept</span>' : '') + (marks.length ? '<br><span class="soft">Ever: ' + esc(marks.join(', ')) + '</span>' : '') +
@@ -309,7 +309,8 @@ PF.evidence = (function () {
     if (rc.limited) h += '<p class="warn">' + esc(rc.limited) + ' ' + esc(LIMITED) + '</p>';
     if (r) {
       var det = Object.keys(r.details || {}).filter(function (k) { return r.details[k]; }), roles = Object.keys(r.roles || {}).filter(function (k) { return r.roles[k]; });
-      if (det.length) h += '<p>' + det.map(function (k) { return esc(k) + ': <b>' + esc(r.details[k]) + '</b>'; }).join(' · ') + '</p>';
+      var tm = r.format === R.FORMAT3 ? R.mapOf(r) : null;
+      if (det.length) h += '<p>' + det.map(function (k) { return esc(k) + ': <b>' + esc(tm ? R.shown(r, tm, 'details.' + k, r.details[k]) : r.details[k]) + '</b>'; }).join(' · ') + '</p>';
       h += '<p class="soft">Recorder: ' + esc(nameOf(col, r.recorder && r.recorder.person)) + (roles.length ? ' · ' + roles.map(function (k) { return esc(k) + ': ' + esc(nameOf(col, r.roles[k])); }).join(' · ') : '') + '</p>';
     }
     h += '<h3>Checks against the version it ran</h3><table>' + (rc.checks || []).map(function (c) { return '<tr><td>' + esc(c.what) + '</td><td class="' + (c.ok === true ? 'yes' : c.ok === false ? 'no' : 'soft') + '">' + (c.ok === true ? 'Yes' : c.ok === false ? 'No' : 'Can\'t tell') + '</td><td>' + esc(c.detail) + '</td></tr>'; }).join('') + '</table>';

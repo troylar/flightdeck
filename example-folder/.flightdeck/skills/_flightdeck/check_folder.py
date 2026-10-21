@@ -134,7 +134,7 @@ PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
 PINS = {"run.process": {"version": {"kind": "pin"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
-COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note"]},
+COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note", "number", "yes-no", "date"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
     "confirm": {"fields": {"where": {"kind": "text"}, "looks": {"kind": "text"}}, "record": []},
@@ -207,10 +207,93 @@ def shot_sources(parsed):
     return out
 
 
+# JavaScript's String.prototype.trim: its white space and line terminators, never Python's wider str.strip().
+JS_WS = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+# Unicode White_Space, which typed values trim (PF.values.trim).
+VALUE_WS = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
+
+def js_trim(s):
+    return s.strip(JS_WS)
+
+
+def js_len(s):
+    """A string's length as JavaScript counts it (UTF-16 code units)."""
+    return len(s.encode("utf-16-le", "surrogatepass")) // 2
+
+
+# Typed run details (2.0, PF.map's details()): name:kind after the name, choice options between parentheses.
+DETAIL_KINDS = {"number", "yes-no", "date", "link"}
+
+
+def detail_types(entries):
+    """(names, typed, errors) for context: entries, as the app's PF.map.parse reads them."""
+    names, typed, errors = [], {}, []
+    for e in entries:
+        at = e.find(":")
+        if at < 0:
+            names.append(e)
+            continue
+        name, spec = js_trim(e[:at]), js_trim(e[at + 1:])
+        what = "Run detail \"%s\"" % name[:60]
+        names.append(name)
+        if spec == "text":
+            errors.append("%s is text already; write just %s." % (what, name[:60]))
+            continue
+        if spec in DETAIL_KINDS:
+            typed[name] = {"kind": spec}
+            continue
+        c = re.fullmatch(r"choice\((.*)\)", spec)
+        if not c or "\n" in spec:
+            errors.append("%s: \"%s\" isn't a kind. Use number, yes-no, date, link or choice(a|b)." % (what, spec[:60]))
+            continue
+        opts, bad = c.group(1).split("|"), ""
+        for o in opts:
+            if bad:
+                break
+            if not o:
+                bad = what + ": an option is empty."
+            elif re.search(r"[,|():]", o):
+                bad = "%s: the option \"%s\" has \"%s\", which an option can't hold." % (what, o[:40], re.search(r"[,|():]", o).group(0))
+            elif o != js_trim(o):
+                bad = "%s: the option \"%s\" starts or ends with a space; remove it." % (what, o[:40])
+            elif js_len(o) > 40:
+                bad = "%s: the option \"%s…\" is longer than 40 characters; an option can be at most 40 characters." % (what, o[:40])
+        if not bad and len(opts) < 2:
+            bad = what + ": a choice needs at least two options, like choice(dev|prod)."
+        if not bad and len(opts) > 20:
+            bad = what + ": a choice can have at most 20 options."
+        if not bad:
+            seen = {}
+            for o in opts:
+                k = o.lower()
+                if k in seen:
+                    bad = "%s: %s and %s differ only in capitals; keep one." % (what, seen[k], o)
+                    break
+                seen[k] = o
+        if bad:
+            errors.append(bad)
+            continue
+        typed[name] = {"kind": "choice", "options": opts}
+    # A name listed twice when either entry has a kind is an error; bare duplicates stay allowed.
+    count, kinded = {}, set()
+    for e in entries:
+        n = e if ":" not in e else js_trim(e[:e.find(":")])
+        count[n] = count.get(n, 0) + 1
+        if ":" in e:
+            kinded.add(n)
+    for n in count:
+        if count[n] > 1 and n in kinded:
+            errors.append("Run detail \"%s\" is listed twice; list it once." % n[:60])
+            typed.pop(n, None)
+    return names, typed, errors
+
+
 def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
+    context, ctx_line = "", -1
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -218,10 +301,16 @@ def parse_map(md):
     if lines[0] and lines[0].strip() == "---":
         i = 1
         while i < len(lines) and lines[i].strip() != "---":
-            if not re.match(r"^(%s|-)+:\s*(.*)$" % W, lines[i]) and lines[i].strip():
+            kv = re.match(r"^((?:%s|-)+):\s*(.*)$" % W, lines[i])
+            if not kv and lines[i].strip():
                 err(i, "Front matter line isn't \"key: value\".")
+            elif kv and kv.group(1) == "context":
+                context, ctx_line = js_trim(kv.group(2)), i
             i += 1
         i += 1
+    names, typed, ctx_errors = detail_types([js_trim(x) for x in context.split(",") if js_trim(x)])
+    for m in ctx_errors:
+        err(ctx_line if ctx_line >= 0 else 0, m)
     while i < len(lines):
         line = lines[i]
         if not line.strip():
@@ -257,7 +346,7 @@ def parse_map(md):
                         phase["gate"] = gate
                 else:
                     pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
-                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": []}
+                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
                     phases.append(phase)
             i += 1
             continue
@@ -287,6 +376,8 @@ def parse_map(md):
                 err(i, "A note must follow a phase heading, a step or a gate.")
             elif owner is not step:
                 owner["note"] += ("\n" if owner["note"] else "") + m.group(1)
+                if owner is phase and not gate:
+                    phase["noted"] = True
             i += 1
             continue
         m = owner and re.match(r"^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$", line)
@@ -311,7 +402,77 @@ def parse_map(md):
                 continue
         err(i, "Not understood, so it was skipped: \"%s\"" % line.strip()[:60])
         i += 1
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed}
+
+
+NEW_KINDS = {"number", "yes-no", "date"}
+NUMBER_KEYS = ("min", "max", "unit")
+
+
+def is_number(s):
+    """PF.values.isNumber: an exact decimal in canonical form, at most 30 characters."""
+    return isinstance(s, str) and len(s) <= 30 and re.fullmatch(r"-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?", s) is not None
+
+
+def compare_numbers(a, b):
+    """PF.values.compare on two canonical decimals: exact, digit by digit."""
+    na, nb = a.startswith("-"), b.startswith("-")
+    if na != nb:
+        return -1 if na else 1
+    pa, pb = (a[1:] if na else a).split("."), (b[1:] if nb else b).split(".")
+    if len(pa[0]) != len(pb[0]):
+        c = -1 if len(pa[0]) < len(pb[0]) else 1
+    elif pa[0] != pb[0]:
+        c = -1 if pa[0] < pb[0] else 1
+    else:
+        fa, fb = pa[1] if len(pa) > 1 else "", pb[1] if len(pb) > 1 else ""
+        n = max(len(fa), len(fb))
+        fa, fb = fa.ljust(n, "0"), fb.ljust(n, "0")
+        c = 0 if fa == fb else -1 if fa < fb else 1
+    return -c if na else c
+
+
+def number_def_ok(d):
+    """No problems with a number definition's min, max and unit (PF.values.numberDefProblems)."""
+    for k in ("min", "max"):
+        if d.get(k) is not None and not is_number(d[k]):
+            return False
+    if is_number(d.get("min")) and is_number(d.get("max")) and compare_numbers(d["min"], d["max"]) > 0:
+        return False
+    u = d.get("unit")
+    return u is None or (isinstance(u, str) and u.strip(VALUE_WS) != "" and js_len(u) <= 20)
+
+
+def uses2(record):
+    """PF.types.uses2: evidence definitions using a kind or key only 2.0 knows."""
+    return isinstance(record, list) and any(isinstance(d, dict) and (d.get("kind") in NEW_KINDS or any(k in d for k in NUMBER_KEYS)) for d in record)
+
+
+def features(parsed, types):
+    """PF.publish.features: the 2.0 features a version's checklist and frozen step types use, in the frozen order."""
+    has = set()
+    if parsed["detailTypes"]:
+        has.add("typed-details")
+    for s in parsed["steps"]:
+        if js_trim(js_str(s["fields"].get("evidence", ""))).lower() in NEW_KINDS:
+            has.add("typed-evidence")
+        if s["type"] == "run.process" and "version" in s["fields"]:
+            has.add("pinned-children")
+        if s["type"] == "run.skill" and "skillVersion" in s["fields"]:
+            has.add("pinned-skills")
+    for p in parsed["phases"]:
+        if p["note"] or p.get("noted"):
+            has.add("phase-notes")
+        if p["shots"]:
+            has.add("phase-shots")
+        if p["gate"] and p["gate"]["shots"]:
+            has.add("gate-shots")
+    for t in {s["type"] for s in parsed["steps"] if s["type"]}:
+        d = types.get(t) if isinstance(types, dict) else None
+        v = d.get("version") if isinstance(d, dict) else None
+        if isinstance(d, dict) and ((isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3) or uses2(d.get("record"))):
+            has.add("typed-evidence")
+    return [f for f in FROZEN if f in has]
 
 
 def js_list(s):
@@ -377,9 +538,9 @@ def field_errors(type_def, fields):
 
 TYPE_KEYS = {"id", "label", "icon", "hint", "fields", "record", "version", "custom", "group", "tags"}
 FIELD_KEYS = {"label", "kind", "required", "requiredWhen", "requiredUnless", "options"}
-RECORD_KEYS = {"name", "label", "kind", "long", "optionsFrom", "options", "when"}
+RECORD_KEYS = {"name", "label", "kind", "long", "optionsFrom", "options", "when", "min", "max", "unit"}
 KNOWN_KINDS = {"text", "url", "code", "message", "list", "choice", "duration", "deadline", "require", "time", "sets"}
-RECORD_KINDS = {"text", "url", "choice"}
+RECORD_KINDS = {"text", "url", "choice", "number", "yes-no", "date"}
 
 
 def understood(d):
@@ -387,7 +548,8 @@ def understood(d):
     if not isinstance(d, dict) or not set(d) <= TYPE_KEYS:
         return False
     v = d.get("version")
-    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v > TYPES_VERSION):
+    # Version 3 (2.0): typed evidence, whose kinds and keys are read only there.
+    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v != 3)):
         return False
     fields = d.get("fields")
     if fields is not None and (not isinstance(fields, dict) or not all(
@@ -395,7 +557,10 @@ def understood(d):
         return False
     record = d.get("record")
     if record is not None and (not isinstance(record, list) or not all(
-            isinstance(r, dict) and set(r) <= RECORD_KEYS and isinstance(r.get("kind"), str) and r.get("kind") in RECORD_KINDS for r in record)):
+            isinstance(r, dict) and set(r) <= RECORD_KEYS and isinstance(r.get("kind"), str) and r.get("kind") in RECORD_KINDS
+            and (not any(k in r for k in NUMBER_KEYS) or (r.get("kind") == "number" and number_def_ok(r))) for r in record)):
+        return False
+    if uses2(record) and not (isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3):
         return False
     return True
 
@@ -450,8 +615,8 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills"]}, "future": {2: "2.0"}, "unmarked": False},
-    "flightdeck-step-type": {"majors": {1: []}, "future": {2: "2.0"}, "unmarked": True},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence"]}, "future": {2: "2.0"}, "unmarked": False},
+    "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
@@ -659,6 +824,11 @@ def check_publication(folder, name):
         why = NEWER + " A step type in it can't be read."
     if why:
         return "unusable", why, info
+    # What a version uses must be what its record lists: a /1 version holds no 2.0 feature (PF.publish.verify).
+    listed2 = info.get("features") if two and isinstance(info.get("features"), list) else []
+    unlisted2 = [f for f in features(parse_map(files["map.md"]), types) if f not in listed2]
+    if unlisted2:
+        return "unusable", "It uses %s, which its publication record doesn't list. Edited by hand." % ", ".join(unlisted2), info
     if two:
         bad = pins_problem(info, parse_map(files["map.md"]))
         if bad:

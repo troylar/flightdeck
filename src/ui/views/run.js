@@ -17,12 +17,16 @@
     var hintId = d.hint ? 'hint-' + id : '', described = [errId, hintId].filter(Boolean).join(' ');
     var lab = '<label class="small" for="' + esc(id) + '">' + esc(d.label) + esc(note || '') + '</label>' + (d.hint ? '<span class="small hint" id="' + esc(hintId) + '">' + esc(d.hint) + '</span>' : ''),
       bad = (errId ? ' aria-invalid="true"' : '') + (described ? ' aria-describedby="' + esc(described) + '"' : '');
+    /* A typed value (2.0) gets its kind's box; everything else keeps the boxes it always had. */
+    if (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) return '<span class="rf" data-draft-kept>' + K.typedField(id, d.label + (note || ''), d, value, bad.trim() + (d.kind === 'yes-no' || d.kind === 'choice' ? '' : ' data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"'), 'small') + (d.hint ? '<span class="small hint" id="' + esc(hintId) + '">' + esc(d.hint) + '</span>' : '') + '</span>';
     if (d.kind === 'choice') return '<span class="rf" data-draft-kept>' + lab + '<select id="' + esc(id) + '"' + bad + '><option value="">Choose…</option>' + (d.options || []).map(function (o) { return '<option' + (String(o).toLowerCase() === String(value || '').trim().toLowerCase() ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></span>';
     if (d.kind === 'message' || d.kind === 'code' || d.long) return '<span class="rf" data-draft-kept>' + lab + '<textarea id="' + esc(id) + '"' + bad + ' maxlength="300" rows="' + (d.long ? 3 : 2) + '">' + esc(value) + '</textarea></span>';
-    return '<span class="rf" data-draft-kept>' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.max || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url" placeholder="https://"' : '') + '></span>';
+    return '<span class="rf" data-draft-kept>' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.cap || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url" placeholder="https://"' : '') + '></span>';
   }
   /* Step text inside a button: the same escaped Markdown, without links (a link can't sit inside a button). */
   function inlineText(t) { return U.mdInline(t).replace(/<a\b[^>]*>|<\/a>/g, ''); }
+  function typedOf(d) { return PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text'); }
+  function V0(def) { return PF.values.kindOf(def) === 'choice' && (def.options || []).length <= 5; }
   function stateOf(r, s) { var a = r.steps[s.id]; return a && a.s !== 'open' ? a.s : 'open'; }
   /* The step the inspector shows: the selected one, or the one a form is open on. */
   function selOf(ctx) { var s = ctx.state; return s.sel || (s.pick && /^(record|fields|block|deadline|differently)$/.test(s.pick.kind) ? s.pick.id : null); }
@@ -246,9 +250,11 @@
   }
   /* The run's details, read-only, beside the strip; they're edited in Details. */
   function chipsLine(ctx, r) {
-    var map = R.mapOf(r), keys = map.meta.context.filter(function (f) { return r.details[f]; });
+    var map = R.mapOf(r), waiting = R.openMigrations(r).map(function (m) { return m.path; }), flag = function (f) { return (r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f)) || waiting.indexOf('details.' + f) >= 0; };
+    var keys = map.meta.context.filter(function (f) { return r.details[f] || flag(f); });
     if (!keys.length) return '';
-    return '<div class="rw-chips">' + keys.map(function (f) { return '<span class="rw-chip"><span class="k">' + esc(f) + '</span> <code>' + esc(r.details[f]) + '</code></span>'; }).join('') + '</div>';
+    /* A typed value that isn't right, or still waiting since the run started, says so here; Details says what to do. */
+    return '<div class="rw-chips">' + keys.map(function (f) { return '<span class="rw-chip"><span class="k">' + esc(f) + '</span> <code>' + esc(K.valueText(detailDef(r, map, f), r.details[f])) + '</code>' + (flag(f) ? ' <span class="small">needs filling in</span>' : '') + '</span>'; }).join('') + '</div>';
   }
 
   /* Conflict copies and copies kept in this browser, side by side with what's current, with a way to keep or delete each. */
@@ -269,10 +275,29 @@
     return h + '</div></section>';
   }
 
-  /* Details: every run detail and role, editable by the recorder as before, and where this run sits. */
+  /* A run detail's kind on a run/3 (typed-details), or null for text. */
+  function detailDef(r, map, f) { return r.format === R.FORMAT3 ? R.typedDef(r, map, 'details.' + f) : null; }
+  /* Values converted from older text when the run started (2.0 typed details): only on a run that has any, folded, with
+     archived ones from the run's history once they're loaded. */
+  function migrationsList(ctx, r, map) {
+    var arch = (ctx.state.archive[runKey(r)] || []).filter(function (y) { return y.kind === 'migration'; }), list = arch.concat(Array.isArray(r.migrations) ? r.migrations : []);
+    if (!list.length) return '';
+    var SRC = { plan: 'the plan', 'switch': 'the plan', carry: 'the parent run', request: 'the request', report: 'a report' };
+    return '<details class="small"><summary>Converted values (' + list.length + ')</summary><ul>' + list.map(function (m) {
+      var def = R.typedDef(r, map, String(m.path)), name = String(m.path).replace(/^details\./, '').replace(/^steps\.([^.]+)\.values\./, '$1 ');
+      var to = m.resolved ? 'filled in as ' + K.valueText(def, m.resolved.value) + ' by ' + nameOf(ctx, m.resolved.by) : m.result != null ? 'became ' + K.valueText(def, m.result) : R.isOpenMigration(m) ? 'waiting for someone to fill it in' : '';
+      return '<li><b>' + esc(name) + '</b>: "' + esc(String(m.from)) + '" from ' + esc(SRC[m.source] || String(m.source)) + (to ? ', ' + esc(to) : '') + '</li>';
+    }).join('') + '</ul></details>';
+  }
+  /* Details: every run detail and role, editable by the recorder as before, and where this run sits. A typed value that isn't
+     right, or one still waiting since the run started, says so beside it. */
   function details(ctx, r, map, rec) {
-    var s = ctx.state;
+    var s = ctx.state, waiting = R.openMigrations(r);
     var det = map.meta.context.map(function (f) {
+      var def = detailDef(r, map, f), bad = r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f) ? r._invalid['details.' + f].why : '';
+      var wait = waiting.filter(function (m) { return m.path === 'details.' + f; })[0], note = bad || (wait ? PF.values.ask(def, wait.from) : '');
+      if (s.edit === 'detail:' + f && rec && def) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '">' + K.typedField('edit-input', f, def, r.details[f], def.kind === 'yes-no' || V0(def) ? '' : 'data-enter="save-edit"', 'small') + '<button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button>' + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</span>';
+      if (def) return '<button class="chip' + (r.details[f] ? '' : ' empty') + (note ? ' warn' : '') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(K.valueText(def, r.details[f])) + '</span>' : 'set') + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</button>';
       if (s.edit === 'detail:' + f && rec) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '"><label class="small" for="edit-input">' + esc(f) + '</label><input id="edit-input" maxlength="120" value="' + esc(r.details[f]) + '" data-enter="save-edit"><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
       return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : 'set') + '</button>';
     }).join('');
@@ -285,7 +310,7 @@
     var h = '<section class="rw-details" id="rw-details" aria-labelledby="rw-det-h"><h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details</h2>' +
       '<p class="small">' + esc(map.meta.title) + ' · v' + esc(r.version) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + '</p>' +
       (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
-      (rec ? '<p class="small">Changing a detail sends steps that used it back for a re-check, and gates that approved it need review.</p>' : '');
+      (rec ? '<p class="small">Changing a detail sends steps that used it back for a re-check, and gates that approved it need review.</p>' : '') + migrationsList(ctx, r, map);
     if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<p class="small">' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops). ' + (pr ? '<button class="linkish" data-act="open-run" data-id="' + esc(pk) + '">Open it</button>' : '') + '</p>'; }
     return h + '</section>';
   }
@@ -543,7 +568,7 @@
       }).join('') + '</div>';
     } else if (a && a.values) {
       var vals = '';
-      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(v) + '</span>'; });
+      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
     var finishing = s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;

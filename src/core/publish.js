@@ -28,7 +28,7 @@ PF.publish = (function () {
     var typesJson = JSON.stringify(types, null, 2);
     /* Lowest sufficient format (docs/design.md section 28): /1 unless the checklist uses a 2.0 feature, so every older copy
        keeps running a version that needs nothing new. */
-    var feats = features(map), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
+    var feats = features(map, types), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
     var images = opts.images || {}, bytes = opts.imageBytes || {};
     /* Pins (2.0): version: N on a linked step resolves now to the one usable version numbered N (opts.childProcs: each
        linked process as listed, { latest, all, clashes, broken }); skillVersion: names the skill version the step expects.
@@ -98,13 +98,21 @@ PF.publish = (function () {
     return '';
   }
 
-  /* The 2.0 features a checklist uses (PF.map.features), which decide its version's format. */
-  function features(map) { return M.features(map); }
+  /* The 2.0 features a version uses, which decide its format: its checklist's own (PF.map.features), plus typed-evidence when
+     a step type it uses is defined with a 2.0 evidence kind (frozen as version 3). types: the definitions by ID, frozen or the
+     team's own; built-in types never are. */
+  function features(map, types) {
+    var f = M.features(map);
+    if (f.indexOf('typed-evidence') < 0 && M.usedTypes(map).some(function (id) { var d = types && typeof types === 'object' && Object.prototype.hasOwnProperty.call(types, id) ? types[id] : null; return !!d && typeof d === 'object' && (d.version === 3 || T.uses2(d.record)); }))
+      f = PF.envelope.FROZEN.filter(function (x) { return x === 'typed-evidence' || f.indexOf(x) >= 0; });
+    return f;
+  }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)' };
-  function needs(map) {
-    var f = features(map); if (!f.length) return null;
-    return { features: f, names: f.map(function (x) { return FEATURE_NAMES[x] || x; }) };
+  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)' };
+  function needs(map, types) {
+    var f = features(map, types); if (!f.length) return null;
+    var typed = Object.keys((map.meta && map.meta.detailTypes) || {});
+    return { features: f, names: f.map(function (x) { return x === 'typed-details' ? FEATURE_NAMES[x] + ' (' + typed.join(', ') + ')' : FEATURE_NAMES[x] || x; }) };
   }
 
   function sha(data) { return PF.sha256.create().update(data).digest(); }
@@ -204,6 +212,11 @@ PF.publish = (function () {
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
     var bad = unrunnable(files['map.md'], types);
     if (bad) return { ok: false, why: bad, info: info, unusable: true };
+    /* What it uses must be what its record says it uses: a /1 version holds no 2.0 feature, and a /2 version lists every one, so
+       no copy reads a version by a format that doesn't name what's in it. */
+    var used = features(M.parse(files['map.md']), types), listed2 = info.format === FORMAT2 && Array.isArray(info.features) ? info.features : [];
+    var unlisted2 = used.filter(function (f) { return listed2.indexOf(f) < 0; });
+    if (unlisted2.length) return { ok: false, why: 'It uses ' + unlisted2.join(', ') + ', which its publication record doesn\'t list. Edited by hand.', info: info, unusable: true };
     var pinsBad = info.format === FORMAT2 ? pinsProblem(info, M.parse(files['map.md'])) : '';
     if (pinsBad) return { ok: false, why: pinsBad, info: info, unusable: true };
     /* Every screenshot the checklist shows is part of the version: listed in its record (every 1.x copy lists each one it

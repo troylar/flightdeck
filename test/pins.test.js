@@ -699,14 +699,14 @@ rule('A registration with any revision this copy can\'t read (newer, malformed o
   assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
-rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; every later feature stays refused', () => {
-  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills'];
+rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; every later feature stays refused', () => {
+  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence'];
   ['flightdeck-checklist', 'preflight-publication'].forEach(f => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[2]), want, f));
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want);
   assert.ok(E.judge('flightdeck-plan', { format: 'flightdeck-plan/2' }).ok);
   assert.ok(E.judge('flightdeck-plan-status', { format: 'flightdeck-plan-status/2' }).ok);
   assert.ok(E.judge('flightdeck-skill', { format: 'flightdeck-skill/2' }).ok);
-  ['typed-details', 'typed-evidence', 'staged', 'test-run', 'extensions'].forEach(x => {
+  ['staged', 'test-run', 'extensions'].forEach(x => {
     assert.ok(!E.judge('preflight-publication', { format: 'preflight-publication/2', features: [x] }).ok, x);
     assert.ok(!E.judge('preflight-run', { format: 'preflight-run/3', features: [x] }).ok, x);
   });

@@ -55,12 +55,12 @@
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var map = R.mapOf(r), hl = R.headline(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
-    var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + r.details[f]; }).join(' · ');
+    var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     var body = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
       return '<div><h4><span>' + esc(p.title) + '</span><span class="pill ' + gst + '">' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + gst + '</span></h4>' + p.steps.map(function (s) {
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open';
-        var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return esc(d.label) + ': ' + esc(a.values[d.name]); }).join(' · ') : '';
+        var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return esc(d.label) + ': ' + esc(R.shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }).join(' · ') : '';
         return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + esc(s.text) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + '</span><span class="small">' + esc(a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
       }).join('') + '</div>';
     }).join('');

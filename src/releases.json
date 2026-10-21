@@ -7,6 +7,20 @@
       {
         "kind": "new",
         "area": "Checklists",
+        "title": "Numbers, yes/no, dates, choices and links",
+        "now": "A run detail can be a number, yes/no, date, choice or link (context: rows:number, due:date), and a step can ask for a number, yes/no or date as evidence. Each gets the right box and is checked as it's typed. Text from a plan or a parent run converts only when that's certain; anything else waits for a person, and nothing that uses it goes ahead. A checklist without typed values works as before.",
+        "before": "Every run detail and evidence value was text.",
+        "where": "The start form, the run's Details, evidence boxes and the step-type editor"
+      },
+      {
+        "kind": "new",
+        "area": "Reading for other apps",
+        "title": "Contract 2 reads Flightdeck 2.0 runs and versions",
+        "now": "flightdeck run, runs and process with --contract 2 read 2.0 versions and runs, with each value's kind, its stored text, a typed value and any conversion record. --contract 1 prints exactly what it did before."
+      },
+      {
+        "kind": "new",
+        "area": "Checklists",
         "title": "Notes and screenshots on phases and gates",
         "now": "A phase can have a note and screenshots right under its heading, and a gate can have screenshots under its note. Runs show them in the phase header and the gate's panel.",
         "before": "Notes and screenshots could only follow a step.",

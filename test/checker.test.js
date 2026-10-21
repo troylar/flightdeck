@@ -133,7 +133,7 @@ rule('The checker reports the same versions as unusable as the app, with the sam
     await forge(8, md.replace(/^## Before the pull request/m, '## Questions\n- Which branch?\n\n## Before the pull request')),
     await forge(9, md, t => { t.confirm = { id: 'confirm', fields: { where: null } }; }),
     await forge(10, md.replace(first, '$1\n  where: Your repository\n  require: build')),
-    await forge(12, md, t => { t.confirm.version = PF.types.VERSION + 1; }),
+    await forge(12, md, t => { t.confirm.version = 4; }), // 3 is 2.0 typed evidence; 4 is newer than any this copy reads
     await forge(13, md, t => { t.confirm.futureBehavior = 'conditional'; }),
     await forge(14, md, t => { t.confirm.fields.where.when = 'x'; }),
     await forge(15, md, t => { t.confirm.fields.where.kind = 'condition'; }),
@@ -262,17 +262,22 @@ rule('The checker\'s envelope verdict agrees with PF.envelope.judge on every 2.0
     assert.deepStrictEqual([out[i].ok, out[i].ok ? '' : out[i].kind, out[i].ok ? '' : out[i].needs], [js.ok, js.ok ? '' : js.kind, js.ok ? '' : js.needs || ''], f + ' ' + JSON.stringify(o).slice(0, 100));
   });
   assert.deepStrictEqual(JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps([c.FROZEN, c.FAMILY_NAMES]))', path.dirname(CHECKER)], { encoding: 'utf8' })), JSON.parse(JSON.stringify([PF.envelope.FROZEN, Object.keys(PF.envelope.FAMILIES)])));
-  // On a folder with every 2.0 sample: the /2 version and the 2.0 step type, in the app's words.
+  // On a folder with every 2.0 sample: since slice 3 the typed /2 version is complete and current in both, and the 2.0 step
+  // type is read; a step type from a later major is still named in the app's words.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-env-'));
   try {
-    const files = Object.assign(H.readTree(path.join(G.DIR, 'v1.18.0')), S.tree('folder')); H.writeTree(root, files);
+    const files = Object.assign(H.readTree(path.join(G.DIR, 'v1.18.0')), S.tree('folder'));
+    files['step-types/team.later.json'] = JSON.stringify(Object.assign(JSON.parse(files['step-types/team.count.json']), { id: 'team.later', format: 'flightdeck-step-type/3', app: '2.1.0' }));
+    H.writeTree(root, files);
     const res = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
     const v2 = res.publications.backup.versions.find(v => v.folder === S.PUB2);
-    const app = await repo.loadAll(new DiskFS(root));
-    assert.strictEqual(v2.why, app.processes.find(p => p.process === 'backup').pubs.find(x => x.folder === S.PUB2).why);
-    assert.strictEqual(res.publications.backup.current, 'v1-ab9ysnqh');
-    const st = JSON.stringify(res).indexOf('This step type needs Flightdeck 2.0. This copy shows it but can\'t use or change it.') >= 0;
-    assert.ok(st, 'the 2.0 step type is named: ' + JSON.stringify(res.team || res).slice(0, 400));
+    const app = await repo.loadAll(new DiskFS(root)), appV2 = app.processes.find(p => p.process === 'backup').pubs.find(x => x.folder === S.PUB2);
+    assert.ok(appV2.ok, appV2.why);
+    assert.strictEqual(v2.status, 'complete', v2.why);
+    assert.strictEqual(res.publications.backup.current, S.PUB2);
+    const st = JSON.stringify(res).indexOf('This step type needs Flightdeck 2.1. This copy shows it but can\'t use or change it.') >= 0;
+    assert.ok(st, 'the later step type is named: ' + JSON.stringify(res.teamFiles || res).slice(0, 400));
+    assert.ok(res.teamFiles.stepTypes.indexOf('team.count') >= 0, 'the 2.0 step type is read');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -443,6 +448,75 @@ rule('The checker refuses a version whose step screenshot its record (and a /2 v
       assert.strictEqual(mine.status, 'unusable', v.folder + ': ' + mine.status + ' ' + mine.why);
       assert.strictEqual(mine.why, theirs.why, v.folder + ': same words');
     }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+
+/* Slice 3: typed run details and typed evidence. Every hand-edited typed version the app refuses, the checker refuses with
+   the same words; the good one is complete for both; team step-type files are judged alike. */
+rule('The checker agrees with the app on typed run details and typed evidence: declarations, features listed, frozen definitions', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-typed-'));
+  try {
+    const d = new DiskFS(root), T = PF.types, U = PF.util, sha = (t) => require('crypto').createHash('sha256').update(t, 'utf8').digest('hex');
+    const TYPE2 = { format: 'flightdeck-step-type/2', features: ['typed-evidence'], app: '2.0.0', id: 'team.count', label: 'Count rows', icon: 'doc', hint: 'Counts the rows.', fields: {}, record: [{ name: 'rows', label: 'Rows', kind: 'number', min: '0' }, { name: 'matches', label: 'Matches', kind: 'yes-no' }] };
+    await d.write('people.json', JSON.stringify(people));
+    await d.write('step-types/team.count.json', JSON.stringify(TYPE2, null, 2));
+    await d.write('step-types/team.plain-number.json', JSON.stringify({ id: 'team.plain-number', label: 'Plain', fields: {}, record: [{ name: 'n', label: 'N', kind: 'number' }] }));
+    await d.write('step-types/team.clash.json', JSON.stringify(Object.assign({}, TYPE2, { id: 'team.clash', record: [{ name: 'env', label: 'Env', kind: 'choice', options: ['Prod', 'prod'] }] })));
+    await d.write('step-types/team.newer.json', JSON.stringify(Object.assign({}, TYPE2, { id: 'team.newer', format: 'flightdeck-step-type/3' })));
+    const md = '---\nprocess: x\ntitle: X\ncontext: ticket, rows:number, due:date, ok:yes-no, env:choice(dev|prod), runbook:link\n---\n## P {#p}\n- [ ] {team.count} Count ^rows {#count}\n- [ ] {confirm} Note the day ^due {#day}\n  evidence: date\n\n## Gate: Ready {#ready}\n  approves: ^ok\n';
+    const v = await repo.publish(d, md, { people, ...EX, customTypes: Object.assign({}, EX.customTypes, { 'team.count': T.customType(TYPE2) }), by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const base = 'publications/x/' + v.folder + '/', info = JSON.parse(fs.readFileSync(path.join(root, ...base.split('/'), 'publication.json'), 'utf8')), types0 = fs.readFileSync(path.join(root, ...base.split('/'), 'types.json'), 'utf8');
+    assert.strictEqual(info.format, 'preflight-publication/2', 'set-up');
+    /* A version as a person or an assistant would leave it: every file matches its record and payload. */
+    const forge = async (n, text, editTypes, editInfo) => {
+      const folder = 'v' + n + '-typed00' + n, dst = 'publications/x/' + folder + '/', i = JSON.parse(JSON.stringify(info)), t = JSON.parse(types0);
+      if (editTypes) editTypes(t);
+      const tj = JSON.stringify(t, null, 2);
+      Object.assign(i, { version: n, folder, mapHash: U.hash(text), typesHash: U.hash(tj) }); i.payload.map = sha(text); i.payload.types = sha(tj);
+      if (editInfo) editInfo(i);
+      await d.write(dst + 'map.md', text); await d.write(dst + 'types.json', tj); await d.write(dst + 'publication.json', JSON.stringify(i, null, 2));
+      return folder;
+    };
+    const ctx = (c) => md.replace('context: ticket, rows:number, due:date, ok:yes-no, env:choice(dev|prod), runbook:link', 'context: ' + c);
+    const bad = [
+      await forge(2, md, null, (i) => { i.features = ['typed-evidence']; }),
+      await forge(3, md, null, (i) => { i.features = ['typed-details']; }),
+      await forge(4, ctx('ticket, rows:money, due:date, ok:yes-no, env:choice(dev|prod), runbook:link')),
+      await forge(5, ctx('ticket, rows:number, rows:date, due:date, ok:yes-no, env:choice(dev|prod), runbook:link')),
+      await forge(6, ctx('ticket, rows:text, due:date, ok:yes-no, env:choice(dev|prod), runbook:link')),
+      await forge(7, ctx('ticket, rows:number, due:date, ok:yes-no, env:choice(dev|Dev), runbook:link')),
+      await forge(8, ctx('ticket, rows:number, due:date, ok:yes-no, env:choice(dev), runbook:link')),
+      await forge(9, md, (t) => { t['team.count'].version = 2; }),
+      await forge(10, md, (t) => { t['team.count'].record[0].min = 'abc'; }),
+      await forge(11, md, (t) => { t['team.count'].record[0].min = '5'; t['team.count'].record[0].max = '1'; }),
+      await forge(12, md, (t) => { t['team.count'].record[1].unit = 'rows'; }),
+      await forge(13, md, (t) => { t['team.count'].version = 4; })
+    ];
+    const good = [await forge(14, md)];
+    const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
+    const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const ver = out.publications.x;
+    for (const folder of bad) {
+      const mine = ver.versions.find(x => x.folder === folder), theirs = pubs.find(p => p.folder === folder);
+      assert.ok(!theirs.ok && theirs.unusable, folder + ': the app refuses it as unusable: ' + theirs.why);
+      assert.strictEqual(mine.status, 'unusable', folder + ': ' + mine.status + ' ' + mine.why);
+      assert.strictEqual(mine.why, theirs.why, folder + ': same reason');
+    }
+    for (const folder of good.concat([v.folder])) {
+      assert.ok(pubs.find(p => p.folder === folder).ok, folder + ' runs in the app');
+      assert.strictEqual(ver.versions.find(x => x.folder === folder).status, 'complete', folder);
+    }
+    /* Team step types (the checker's basic checks): the 2.0 file is a type it lists; a newer major is named, as the app names it. */
+    const tf = out.teamFiles;
+    assert.ok(tf.stepTypes.indexOf('team.count') >= 0, JSON.stringify(tf));
+    assert.ok(tf.problems.some(p => p.file === 'step-types/team.newer.json' && /needs a newer Flightdeck|needs Flightdeck/.test(p.problem)), JSON.stringify(tf.problems));
+    assert.ok(!tf.problems.some(p => p.file === 'step-types/team.count.json'), 'the 2.0 file is no problem');
+    const appTypes = app.stepTypes || {};
+    assert.ok(JSON.stringify(appTypes).indexOf('team.newer') >= 0, 'the app names it too');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
