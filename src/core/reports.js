@@ -361,15 +361,19 @@ PF.reports = (function () {
   /* The current decision per report identity: the highest rev; two at the same rev were made at once, so one is picked by file
      name (the same way everywhere) and the report shows Needs review until someone decides again. */
   function current(decisions) {
-    var cur = dict();
+    var cur = dict(), accepts = dict();
     (decisions || []).forEach(function (d) {
       if (!d || typeof d.key !== 'string') return;
       var c = cur[d.key];
       if (!c || d.rev > c.d.rev) cur[d.key] = { d: d, tie: false };
       else if (d.rev === c.d.rev) cur[d.key] = { d: (d._file || '') > (c.d._file || '') ? d : c.d, tie: true };
+      if (d.status === 'accepted' && d.answer) (accepts[d.key] = accepts[d.key] || dict())[acceptKey(d.sha256, d.answer.at, d.answer.by)] = true;
     });
+    /* Every acceptance in the folder, at any rev: one recorded and later declined or reopened is still recorded. */
+    Object.keys(cur).forEach(function (k) { cur[k].accepts = accepts[k] || dict(); });
     return cur;
   }
+  function acceptKey(sha, at, by) { return sha + '\n' + at + '\n' + by; }
   /* Where a report stands with the run: { state, text }. state: 'none' (not decided), 'tie', 'declined', 'open' (reopened),
      'accepted', 'changed' (evidence changed since acceptance), 'again' (the step was answered again since), 'gone' (no copy
      has the bytes that were accepted). */
@@ -454,12 +458,13 @@ PF.reports = (function () {
       })[0];
       if (!g || seen[g.key + p.sha256]) return;
       var hit = cur ? cur[g.key] : null;
-      if (hit && hit.d.status === 'accepted' && hit.d.sha256 === p.sha256 && hit.d.answer.at === l.at) return;
-      if (hit && hit.d.rev && hit.d.at > l.at) return;
+      if (hit && hit.accepts && hit.accepts[acceptKey(p.sha256, l.at, l.by)]) return;
       seen[g.key + p.sha256] = true;
       var bytes = g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ && g.sha256 === p.sha256 && !!g.report;
       var same = bytes && sameEvidence(g, r, map);
-      out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: bytes && same, why: !bytes ? 'gone' : same ? '' : 'changed' });
+      /* Another decision on it is in the folder too. Clocks can't say which came last, so it's shown, and recording this one is
+         a person's choice. */
+      out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: bytes && same, why: !bytes ? 'gone' : same ? '' : 'changed', other: hit ? hit.d : null });
     });
     return out;
   }

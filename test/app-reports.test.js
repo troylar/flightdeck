@@ -178,20 +178,21 @@ rule('App: a decision that couldn\'t be written is offered again, and writing it
   app.PF.repo.decideReport = orig;
 });
 
-rule('App: an acceptance the run records without its decision is recorded from the logged bytes only', async () => {
-  for (const changed of [false, true]) {
+rule('App: an acceptance the run records without its decision is recorded from the logged bytes only, during the run or after it ended', async () => {
+  for (const changed of [false, true, 'ended']) {
     const app = await recording();
     const x = await plant(app);
     // Another window accepted it and closed before writing the decision: the run has the answer and the log line.
     const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
     j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '1432', buildLink: 'https://ci.example.com/jobs/1432' } };
     j.log.push({ at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') });
+    if (changed === 'ended') { j.ended = { outcome: 'Completed', by: 'person-casey', at: new Date().toISOString() }; j.state = 'completed'; }
     j.rev = (j.rev || 0) + 1;
     await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
-    if (changed) await app.fs.write(x.path, x.text.replace('Built and archived.', 'Built.'));
+    if (changed === true) await app.fs.write(x.path, x.text.replace('Built and archived.', 'Built.'));
     app.click('refresh'); await app.tick(120);
     await openStep(app, 'jenkins');
-    if (changed) {
+    if (changed === true) {
       assert.ok(/isn(&#39;|')t in the folder in that form anymore/.test(app.html()), 'other bytes: said, and nothing offered');
       assert.ok(!/data-act="rep-record"/.test(app.html()));
       continue;

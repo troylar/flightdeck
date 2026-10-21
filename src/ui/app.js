@@ -4854,7 +4854,7 @@
     var e = repLoad(r), cur = repCur(), list = e ? e.list : [];
     return (repMemo[key] = { list: list, badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: !!(e && e.loading), cur: cur,
       unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r)), pending: pendingAccepts(key), readOnly: repReadOnly(r),
-      fillOpen: function (id) { return fillOpenOn(key, id); }, held: repHeld });
+      fillOpen: function (id) { return fillOpenOn(key, id); }, held: repHeld, canRecord: function () { return repCanRecord(r); } });
   }
   function reportsWaiting() {
     if (!state.me || !data.reports) return {};
@@ -4869,6 +4869,9 @@
     var files = PF.reports.unreadOn(g, data.repUnread);
     return files.length ? 'A decision on this report can\'t be read (' + files[0] + '), so nobody here knows what was decided. Decide once it can be read.' : '';
   }
+  /* Who may record an acceptance the run logs: its recorder while it runs, and once it has ended, whoever recorded or ended it
+     (as for conflict copies). A decision never changes run.json. */
+  function repCanRecord(r) { return ctx.recording(r) || ctx.canRecover(r); }
   /* Why the open run can't take an answer here, as mutateRun would say it, or ''. */
   function repReadOnly(r) { return r._unrunnable ? r._unrunnable + ' This run is read-only here.' : runUnread(r) || (state.recovering ? 'Wait until the copy is kept, then try again.' : ''); }
   function fillOpenOn(key, id) {
@@ -5005,7 +5008,7 @@
       writeAccept(mine); render(); return;
     }
     var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
-    if (!u || !u.recordable || !ctx.recording(r) || state.repSaving) return;
+    if (!u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
     if (repHeld(u.g)) { say(repHeld(u.g), 'warn'); render(); return; }
     var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();

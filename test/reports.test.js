@@ -292,6 +292,16 @@ rule('An acceptance logged in the run but never recorded is recoverable only fro
   const d = X.decision(g, g.sha256, 'accepted', 'person-avery', LATER, null, { inputs: 'match', answer: { at: LATER, by: 'person-avery', fp: X.fingerprint(r.steps.deploy.values, e.schema) } });
   const cur = X.current([X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', X.decisionName(d, 'w1')).d]);
   assert.strictEqual(X.unrecorded(r, [g], cur).length, 0);
+  // A decline with a later clock time (another computer's clock) doesn't hide the logged acceptance: clocks can't order them.
+  const dec = X.decision(g, g.sha256, 'declined', 'person-blake', '2099-01-01T00:00:00.000Z', null, { reason: 'Wrong build' });
+  const curD = X.current([X.cleanDecision(JSON.parse(JSON.stringify(dec)), 'backup-check', X.decisionName(dec, 'w2')).d]);
+  const ud = X.unrecorded(r, [g], curD, map);
+  assert.deepStrictEqual(plain(ud.map(x => [x.recordable, x.other && x.other.status])), [[true, 'declined']]);
+  // Recorded, then reopened (a later rev): the acceptance is still recorded, at any rev, so it's never offered again.
+  const reo = X.decision(g, g.sha256, 'open', 'person-avery', LATER, d, {});
+  const curR = X.current([d, reo].map((x, i) => X.cleanDecision(JSON.parse(JSON.stringify(x)), 'backup-check', X.decisionName(x, 'w' + i)).d));
+  assert.strictEqual(curR[g.key].d.status, 'open');
+  assert.strictEqual(X.unrecorded(r, [g], curR, map).length, 0);
   R.done(r, map, 'deploy', 'person-avery', '2026-10-20T12:00:00.000Z', { build: '1' });
   assert.strictEqual(X.unrecorded(r, [g], {}).length, 0);
 });
