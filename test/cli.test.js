@@ -1019,6 +1019,12 @@ rule('READ: contract 2 reads a typed run/3 and its version with typed values and
   fsx.appendFileSync(path.join(dir, 'runs', 'backup', 'run-c', 'history-w-twozero.jsonl'), '{"kind":"migration","av":1,"pa\n');
   const torn = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
   assert.ok(torn.code === 4 && torn.json.problems.some(p => p.kind === 'malformed' && /history-w-twozero\.jsonl$/.test(p.path)), 'a torn history line is named: ' + torn.out.slice(0, 600));
+  const hist = path.join(dir, 'runs', 'backup', 'run-c', 'history-w-twozero.jsonl');
+  fsx.writeFileSync(hist, '{"kind":"migration","av":1}\n{"kind":"migration","av":1,"path":"details.nope","at":null,"from":"x","source":"plan","verdict":"invalid","result":null,"resolved":null}\n');
+  const odd = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
+  assert.ok(odd.code === 4 && odd.json.problems.filter(p => p.kind === 'malformed' && /history-w-twozero\.jsonl$/.test(p.path)).length >= 1, 'an archived record in another shape is named: ' + odd.out.slice(0, 600));
+  assert.strictEqual(odd.json.data.run.migrations.length, 1, 'and never read as a migration');
+  fsx.unlinkSync(hist);
   const one = agree(readCli('run', dir, 'backup/run-c', '--json'));
   assert.ok(one.json.data.run === null && one.json.problems.some(p => p.kind === 'newer' && /run-c/.test(p.path)), 'contract 1 is unchanged: ' + one.out.slice(0, 400));
 });

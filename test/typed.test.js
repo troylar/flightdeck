@@ -551,4 +551,39 @@ rule('The builder\'s Run details list adds and removes a name without dropping a
   assert.ok(dup.error && /already/.test(dup.error), 'a typed name is already listed');
 });
 
+rule('Starting from a plan: a value the person cleared stays cleared, and a converted link longer than a run detail can hold waits for a person', () => {
+  const cleared = startT({ details: { rows: '' }, from: { source: 'plan', details: { rows: '12' } } });
+  assert.strictEqual(cleared.details.rows, '', 'cleared, not put back from the plan');
+  assert.ok(!(cleared.migrations || []).length, 'nothing from the plan became the value, so nothing is recorded');
+  const kept = startT({ details: { rows: '12' }, from: { source: 'plan', details: { rows: '12.0' } } });
+  assert.strictEqual(kept.details.rows, '12');
+  same(kept.migrations.map(m => [m.path, m.verdict, m.result]), [['details.rows', 'converted', '12']], 'the converted value as the form showed it');
+  const long = 'https://example.com/' + 'a'.repeat(110);
+  const r = startT({ details: { runbook: long }, from: { source: 'plan', details: { runbook: long } } });
+  assert.strictEqual(r.details.runbook, '', 'never stored past 120 characters');
+  same(r.migrations.map(m => [m.path, m.verdict, m.resolved]), [['details.runbook', 'invalid', null]], 'open, for a person');
+  assert.throws(() => startT({ details: { runbook: long } }), /120|long/, 'typed in by hand: refused as before');
+});
+
+rule('READ/2: a version-3 type\'s choice and link records keep 1.x checking, so the evidence entry and each value both say text', () => {
+  const t3 = Object.assign(plain(TYPE2), { record: TYPE2.record.concat([{ name: 'env', label: 'Env', kind: 'choice', options: ['dev', 'prod'] }, { name: 'doc', label: 'Doc', kind: 'url' }]) });
+  const pub = publish(TYPED_MD, { 'team.count': T.customType(t3) }).v, proc = { process: 'count', pubs: [pub], index: P.index([pub]) };
+  const ev = AJ.process2(proc, pub).phases[0].steps.find(s => s.id === 'count').evidence;
+  same(ev.map(e => [e.name, e.kind, e.type]), [['rows', 'number', 'number'], ['matches', 'yes-no', 'yes-no'], ['env', 'choice', 'text'], ['doc', 'url', 'text']]);
+  const r = R.create(pub, { title: 'C', details: {}, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-t9', app: '2.0.0' });
+  const f = JSON.parse(JSON.stringify(r)); f.steps.count = { s: 'done', by: 'person-avery', at: NOW, values: { env: 'qa', doc: 'https://x.test/a' } };
+  const back = R.sanitize(f); back._archivedMigrations = [];
+  const out = AJ.run2(back, [], nameOfT), st = out.run.steps.find(s => s.id === 'count');
+  same(st.evidence.map(e => e.type), ['number', 'yes-no', 'text', 'text']);
+  same([st.values.env.type, st.values.doc.type], ['text', 'text'], 'each value says what its entry says');
+});
+
+rule('Skills: a run detail gaining a kind is a change to a skill\'s inputs, and a new skill\'s brief says each detail\'s kind', () => {
+  const a = publish(UNTYPED_MD).v, b = publish(TYPED_MD).v;
+  const ch = PF.skills.changes(a, b).filter(c => c.change === 'context');
+  assert.strictEqual(ch.length, 1, JSON.stringify(PF.skills.changes(a, b)));
+  same(ch[0].to, ['ticket', 'rows:number', 'due:date', 'approved:yes-no', 'env:choice(dev|test|prod)', 'runbook:link']);
+  assert.ok(!PF.skills.changes(a, a).some(c => c.change === 'context'), 'an untyped one compares as before');
+});
+
 run();

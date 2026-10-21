@@ -310,7 +310,7 @@ PF.appjson = (function () {
   function summary2(r, nameOf) { var out = summary(r, nameOf); out.details = details2(r, R.mapOf(r), nameOf); return head2(r, out); }
   function evidence2(listIn) {
     return (listIn || []).map(function (d) {
-      var e = evidence([d])[0]; e.type = PF.values.isNew(d.kind) || d.detailKind ? typeOf(d) : d.kind === 'url' ? 'link' : d.kind === 'choice' ? 'choice' : 'text';
+      var e = evidence([d])[0]; e.type = (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) ? typeOf(d) : 'text';
       return e;
     });
   }

@@ -260,6 +260,15 @@ PF.skills = (function () {
   function orderOf(map, ids) { return M.steps(map).map(function (x) { return x.step.id; }).filter(function (id) { return !ids || ids.indexOf(id) >= 0; }); }
   /* How the steps a skill covers changed between two maps: [{ id, change: changed|removed|added, from, to }]. */
   /* Maps or publications (whose frozen step types count: a type gaining required evidence changes what the skill must do). */
+  /* The run details as the checklist declares them: a typed one with its kind (rows:number, env:choice(dev|prod)), so a
+     detail gaining or changing a kind is a change to what a skill receives. */
+  function contextOf(map) {
+    var meta = map && map.meta || {}, dt = meta.detailTypes || {};
+    return (meta.context || []).map(function (n) {
+      var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null;
+      return !d ? n : n + ':' + (d.kind === 'choice' ? 'choice(' + (d.options || []).join('|') + ')' : d.kind);
+    });
+  }
   function changes(from, to, ids) {
     var fromMap = from.map || from, toMap = to.map || to;
     var a = stepsOf(fromMap, from.types, from.info && from.info.images, pinsOf(from)), b = stepsOf(toMap, to.types, to.info && to.info.images, pinsOf(to)), out = [];
@@ -270,7 +279,7 @@ PF.skills = (function () {
       else if (a[id] && b[id] && a[id].sig !== b[id].sig) out.push({ id: id, change: 'changed', from: a[id].step, to: b[id].step });
     });
     /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
-    var ca = (fromMap.meta && fromMap.meta.context) || [], cb = (toMap.meta && toMap.meta.context) || [];
+    var ca = contextOf(fromMap), cb = contextOf(toMap);
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
     /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
     if (PF.signature.process(from) !== PF.signature.process(to)) {
@@ -451,7 +460,7 @@ PF.skills = (function () {
     return ['# Create a skill from ' + meta.title + ' v' + pub.info.version, '',
       'Build a skill that does ' + (ids ? 'these steps' : 'this whole process') + ' of the team\'s process "' + meta.process + '", exactly as the published checklist says.',
       registerLine(pub, ids, null), '',
-      '## Run details it receives', '', meta.context.length ? meta.context.map(function (c) { return '- ' + c; }).join('\n') : 'None.', '',
+      '## Run details it receives', '', meta.context.length ? contextOf(pub.map).map(function (c) { return '- ' + c; }).join('\n') : 'None.', '',
       '## The process, in order', '', structure(pub.map, ids, pub.types), '',
       evidenceBlock(ready, signs), '',
       '## Rules', '', '- Do only what the steps say; where a step is done by hand in a tool, have the skill stop and ask.', '- Never put secrets, tokens or customer data in the skill.'].join('\n');

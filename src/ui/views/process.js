@@ -455,7 +455,7 @@
       var g = typeof given[f] === 'string' ? given[f] : '', def = PF.run.typedDef({ snapshot: '' }, pub.map, 'details.' + f);
       if (!def) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(g) + '"></label>'; return; }
       /* A typed detail (2.0) gets its kind's box. A plan's text that doesn't convert is shown beside it, never guessed. */
-      var m = plan && g ? PF.values.migrate(def, g) : null, shown = m && (m.verdict === 'exact' || m.verdict === 'converted') ? m.result : plan ? '' : g;
+      var m = plan && g ? PF.run.migrateDetail(def, g) : null, shown = m && (m.verdict === 'exact' || m.verdict === 'converted') ? m.result : plan ? '' : g;
       h += '<div>' + K.typedField('detail-' + f, f, def, shown, 'data-detail="' + esc(f) + '"') + (m && m.verdict !== 'exact' && m.verdict !== 'converted' ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
     });
     if (later.length) h += '<p class="small" style="grid-column:1/-1">' + later.map(function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }).join('; ') + '.</p>';

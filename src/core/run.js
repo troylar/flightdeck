@@ -67,23 +67,31 @@ PF.run = (function () {
   var SOURCE_WORD = { plan: 'in the plan', 'switch': 'in the plan', carry: 'in the parent run', request: 'in the request', report: 'in the report' };
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); }
   function badValue(msg, field) { var e = new Error(msg); e.field = field; return e; }
+  /* A run detail's text from a plan or a parent run, as its kind: V.migrate, and a result longer than a run detail can hold
+     isn't one, so it waits for a person like any other that didn't convert. */
+  function migrateDetail(def, src) {
+    var m = V.migrate(def, src);
+    return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: 120 }).ok ? { verdict: 'invalid', result: null } : m;
+  }
   function startDetails(map, details, o) {
     var from = o.from && typeof o.from === 'object' && MIG_SOURCES[o.from.source] && o.from.source !== 'report' ? o.from : null, out = [];
     map.meta.context.forEach(function (f) {
       var def = detailValueDef(map, f);
       if (!def) return;
       var mine = own(o.details, f) && o.details[f] != null ? o.details[f] : '', src = from && own(from.details, f) && typeof from.details[f] === 'string' ? from.details[f] : null;
-      var untouched = src != null && src !== '' && (mine === src || mine === '');
-      var m = src != null && src !== '' ? V.migrate(def, src) : null;
+      var m = src != null && src !== '' ? migrateDetail(def, src) : null;
+      var open = !!m && (m.verdict === 'ambiguous' || m.verdict === 'invalid');
+      /* Untouched: the box still holds the plan's text, what the form showed for it, or (one that didn't convert) nothing.
+         A box the person cleared or changed is theirs. */
+      var untouched = !!m && (mine === src || (open ? mine === '' : mine === m.result));
       if (untouched) {
-        details[f] = m.verdict === 'exact' || m.verdict === 'converted' ? m.result : '';
+        details[f] = open ? '' : m.result;
       } else {
         var p = V.parse(def, mine, { max: 120 });
         if (!p.ok) throw badValue(p.why, f);
         details[f] = p.canonical;
       }
-      if (!m || m.verdict === 'exact') return;
-      var open = m.verdict === 'ambiguous' || m.verdict === 'invalid';
+      if (!m || m.verdict === 'exact' || (!open && !untouched)) return;
       out.push({ path: 'details.' + f, at: o.now, from: src.slice(0, MIG_TEXT), source: from.source, verdict: m.verdict, result: m.verdict === 'converted' ? m.result : null,
         resolved: open && !untouched && details[f] ? { by: o.by, at: o.now, value: details[f] } : null });
     });
@@ -137,17 +145,20 @@ PF.run = (function () {
     var list = o.migrations;
     if (list == null) return true;
     if (!Array.isArray(list) || list.length > MIG_MAX) return false;
+    return list.every(function (m) { return migrationOk(m, map, r); });
+  }
+  /* One migration record in its exact frozen shape, about a typed value this run's version has. Archived ones are checked
+     the same way before anything reads them. */
+  function migrationOk(m, map, r) {
     var txt = function (v) { return typeof v === 'string' && v.length <= MIG_TEXT; };
-    return list.every(function (m) {
-      if (!m || typeof m !== 'object' || Array.isArray(m) || JSON.stringify(Object.keys(m)) !== JSON.stringify(MIG_KEYS)) return false;
-      if (!txt(m.path) || !isoOrNull(m.at) || !txt(m.from) || !own(MIG_SOURCES, m.source) || !own(MIG_VERDICTS, m.verdict)) return false;
-      var def = typedDef(r, map, m.path);
-      if (!def) return false;
-      if (m.verdict === 'converted' ? !(typeof m.result === 'string' && V.valid(def, m.result)) : m.result !== null) return false;
-      if (m.resolved === null) return true;
-      var z = m.resolved;
-      return !!z && typeof z === 'object' && !Array.isArray(z) && JSON.stringify(Object.keys(z)) === '["by","at","value"]' && txt(z.by) && z.by.length <= 80 && !!isoOrNull(z.at) && typeof z.value === 'string' && V.valid(def, z.value);
-    });
+    if (!m || typeof m !== 'object' || Array.isArray(m) || JSON.stringify(Object.keys(m)) !== JSON.stringify(MIG_KEYS)) return false;
+    if (!txt(m.path) || !isoOrNull(m.at) || !txt(m.from) || !own(MIG_SOURCES, m.source) || !own(MIG_VERDICTS, m.verdict)) return false;
+    var def = typedDef(r, map, m.path);
+    if (!def) return false;
+    if (m.verdict === 'converted' ? !(typeof m.result === 'string' && V.valid(def, m.result)) : m.result !== null) return false;
+    if (m.resolved === null) return true;
+    var z = m.resolved;
+    return !!z && typeof z === 'object' && !Array.isArray(z) && JSON.stringify(Object.keys(z)) === '["by","at","value"]' && txt(z.by) && z.by.length <= 80 && !!isoOrNull(z.at) && typeof z.value === 'string' && V.valid(def, z.value);
   }
   /* Past 200 records, the oldest closed ones move to the run's history file (r._overflow); open ones never move, and neither
      do carry records (at most one per detail): a parent's settlement of this run reads them (childVerdict). */
@@ -1460,7 +1471,7 @@ PF.run = (function () {
 
   return {
     RUN_ID: RUN_ID,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

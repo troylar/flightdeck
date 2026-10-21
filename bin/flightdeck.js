@@ -795,7 +795,14 @@ async function readData(eng, adapter, req) {
         const h = await repo.loadHistory(L.fs, r).catch((e) => { L.note('runs/' + key + '/', 'unreadable', fileWhy(e && e.message || String(e))); return []; });
         take((h.refused || []).map((x) => ({ path: x.path, kind: x.kind === 'newer' ? 'newer' : 'malformed', why: x.why })));
         [...new Set(h.malformed || [])].forEach((p) => L.note(p, 'malformed', 'This file has lines that aren\'t archived records, so some of the run\'s history may be missing.'));
-        r._archivedMigrations = h.filter((x) => x.kind === 'migration').map((x) => { const m = {}; ['path', 'at', 'from', 'source', 'verdict', 'result', 'resolved'].forEach((k) => { m[k] = x[k]; }); return m; });
+        /* An archived record is read only in its exact frozen shape (kind, av, then a migration record); any other is named. */
+        const rmap = PF.run.mapOf(r), MK = ['path', 'at', 'from', 'source', 'verdict', 'result', 'resolved'];
+        r._archivedMigrations = [];
+        h.filter((x) => x.kind === 'migration').forEach((x) => {
+          const m = {}; Object.keys(x).filter((k) => k !== 'kind' && k !== 'av').forEach((k) => { m[k] = x[k]; });
+          if (Object.keys(x).slice(0, 2).join() === 'kind,av' && Object.keys(m).join() === MK.join() && PF.run.migrationOk(m, rmap, r)) r._archivedMigrations.push(m);
+          else L.note(x._file || 'runs/' + key + '/', 'malformed', 'An archived migration record isn\'t one Flightdeck can read, so some of the run\'s history may be missing.');
+        });
       }
       if (req.cmd === 'run') return done(keep, usable ? (two ? A.run2 : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
       return done(keep, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });

@@ -1056,7 +1056,9 @@ PF.repo = (function () {
         var v = R.cleanArchive(x);
         if (!v.ok) { refused.push({ path: dir + '/' + names[fi], kind: v.kind, why: v.why, needs: v.needs || '' }); return; }
         if (x.id && Object.prototype.hasOwnProperty.call(seen, x.id)) return;
-        if (x.id) seen[x.id] = 1; out.push(x);
+        if (x.id) seen[x.id] = 1;
+        Object.defineProperty(x, '_file', { value: dir + '/' + names[fi], enumerable: false });
+        out.push(x);
       }); });
       var key = function (x) { return typeof x.at === 'string' && !isNaN(Date.parse(x.at)) ? x.at : ''; };
       out.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
