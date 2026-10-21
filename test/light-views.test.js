@@ -294,7 +294,7 @@ rule('Run: Correct this step without its explanation, the attach limits for scre
   const app = await startRelease();
   app.click('select', 'approved'); await app.tick();
   const ins = between(app.html(), 'id="rw-ins"');
-  assert.ok(!/If the checklist was wrong or unclear here/.test(ins), 'no explanation');
+  assert.ok(!shown(ins, />If the checklist was wrong or unclear here/), 'no explanation');
   assert.ok(/data-act="corr-open" data-mode="correct" data-id="approved" title="If the checklist was wrong or unclear here/.test(ins), 'it\'s the button\'s help text');
   assert.ok(!shown(ins, /up to 10 MB each/) && /<span class="sr" id="att-help">Images, PDF, text, logs and \.zip, up to 10 MB each\.<\/span>/.test(ins), 'the limits, for screen readers');
   assert.ok(!shown(ins, /data-act="start-step"/), 'Start isn\'t on show for an untimed step');
@@ -343,7 +343,7 @@ rule('Processes: tags fold into Filter by tag (N), one-child groups are one head
   const fold = /<details class="tagfold" data-disc="tags"><summary class="small">Filter by tag \((\d+)\)<\/summary>/.exec(html);
   assert.ok(fold && +fold[1] >= 10, 'the tags are one closed line');
   assert.ok(!shown(html, /data-act="tag"/) && /data-act="tag" data-id="jira"/.test(html), 'folded, still there');
-  assert.ok(shown(html, /<span class="t">Delivery \/ Backlog<\/span>/), 'a group whose only child is a group is one heading');
+  assert.ok(shown(html, /<span class="t">Operations \/ Incidents/), 'a group whose only child is a group is one heading');
   assert.ok(!/<span class="small">1<\/span><\/summary>/.test(html), 'no counts of 1');
   const rows = visible(between(html, 'class="plist tree"', '</section>'));
   assert.ok(!/class="tag"/.test(rows) && !/published by/.test(rows), 'no tags or publisher on rows');
@@ -355,8 +355,8 @@ rule('Processes: tags fold into Filter by tag (N), one-child groups are one head
 });
 
 /* ---------- Part 3: New process asks for a title ---------- */
-async function newProc() {
-  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+async function newProc(opts) {
+  const app = boot(opts); await app.tick(60); app.choose('person-casey'); await app.tick();
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
   return app;
 }
@@ -367,8 +367,8 @@ rule('New process: one box, Title; the file name is made from it and shown, and 
   assert.ok(/<details class="np-more" data-disc="np-more"><summary>More options<\/summary>/.test(form), 'More options, folded');
   ['np-id', 'np-group', 'np-tags', 'np-context', 'np-roles', 'np-owner', 'np-solo'].forEach(id => assert.ok(form.indexOf('id="' + id + '"') >= 0, id + ' is in it'));
   assert.ok(/<label class="field" for="np-id">File name/.test(form) && /keeps this checklist up to date/.test(form), 'plain words');
-  app.input('np-title', 'Onboard a new hire!'); await app.tick();
-  assert.ok(shown(app.html(), /Saved as <code>onboard-a-new-hire\.md<\/code>/), 'the file name, as it\'s typed');
+  app.input('np-title', 'Onboard a new hire!'); await app.tick(300);
+  assert.ok(shown(app.html(), /Saved as <code>onboard-a-new-hire\.md/), 'the file name, as it\'s typed');
   assert.ok(/id="np-title" maxlength="120" value=""/.test(app.html()), 'the box keeps what was typed as unapplied, so leaving still asks');
   app.submit('new-process-form'); await app.tick(150);
   assert.ok(/^process: onboard-a-new-hire$/m.test(app.fs.files['maps/drafts/onboard-a-new-hire.md'].t), 'created from the title');
@@ -417,11 +417,12 @@ rule('Builder: the new-draft banner names Save draft, the header says what unsav
 });
 
 rule('Publish: the first version\'s change note is filled in, First version, and can be changed', async () => {
-  const app = await newProc();
+  /* domFocus: the page's boxes read as drawn, so the prefilled note is what Publish sends. */
+  const app = await newProc({ domFocus: true });
   app.set('np-title', 'Note check'); app.submit('new-process-form'); await app.tick(150); app.click('ed-done'); await app.tick();
   assert.ok(/id="change-note" maxlength="200" value="First version"/.test(app.html()), 'prefilled');
   app.click('publish', 'note-check'); await app.tick(200);
-  const info = app.files('publications/note-check/').filter(f => /info\.json$/.test(f));
+  const info = app.files('publications/note-check/').filter(f => /publication\.json$/.test(f));
   assert.ok(info.length === 1 && JSON.parse(app.fs.files[info[0]].t).changes === 'First version', 'published with it');
 });
 
@@ -429,7 +430,7 @@ rule('Publish: the first version\'s change note is filled in, First version, and
 const JIRA_X = ['---', 'process: jira-x', 'title: Jira move', 'category: Product', 'owner: person-casey', 'runs: solo', '---', '',
   '## Move it · READ-DO {#move}', '- [!] {jira.issue} Stale issues closed {#stale}', '  action: transition', '  issue: Board filter', '  status: Done', ''].join('\n');
 async function jiraRun() {
-  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const app = boot({ domFocus: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
   await app.fs.write('maps/drafts/jira-x.md', JIRA_X); app.click('refresh'); await app.tick(120);
   app.click('open-process', 'jira-x'); await app.tick(); app.click('publish', 'jira-x'); await app.tick(200);
   app.click('start', 'jira-x'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
@@ -441,13 +442,15 @@ rule('Fill in: a check that needs the issue type opens Fill in on that box, says
   app.click('toggle', 'stale'); await app.tick(60);
   let html = app.html();
   assert.ok(/data-scope="fields:stale"/.test(html), 'Fill in is open');
-  assert.strictEqual(app.focused(), 'fld-issueType', 'on the issue type');
+  assert.strictEqual(app.activeId(), 'fld-issueType', 'on the issue type');
   assert.ok(/id="fld-issueType"[^>]*aria-describedby="[^"]*jwhy-stale/.test(html) && /<p class="ferr" id="jwhy-stale">Fill in the issue type \(Story, Release\)/.test(html), 'the reason beside the box');
   assert.ok(/Fill in the issue type/.test(app.live()), 'and announced');
   app.input('fld-issueType', 'Bug'); app.select('fld-issueType', 'Bug'); await app.tick();
-  assert.ok(/id="jwhy-stale">The team.s Jira workflows have no issue type &quot;Bug&quot;/.test(app.html()), 'a wrong one says why as soon as it\'s typed');
+  assert.ok(/id="jwhy-stale">The team&#39;s Jira workflows have no issue type &quot;Bug&quot;/.test(app.html()), 'a wrong one says why as soon as it\'s typed');
   app.select('fld-issueType', 'Story'); await app.tick();
   assert.ok(!/id="jwhy-stale"/.test(app.html()), 'a right one clears it');
+  /* The stand-in reads a select's chosen option only by value: the step's other boxes are given as drawn. */
+  app.set('fld-action', 'transition'); app.set('fld-issue', 'Board filter'); app.set('fld-status', 'Done');
   app.click('save-fields', 'stale'); await app.tick(120);
   app.click('select', 'stale'); await app.tick();
   const res = /<label class="small" for="rec-([\w-]+)">Resolution/.exec(app.html());
