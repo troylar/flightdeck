@@ -7105,6 +7105,12 @@ rule('Back and Forward (2.0): a phase\'s note typed and not applied holds Back l
   leave(app, 'ob-ph-note', 'Line one.\nLine two.'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.ok(/\{#verify\}\r?\n  > Line one\.\r?\n  > Line two\.\r?\n/.test(releaseText(app)), 'applied as the phase\'s note: ' + releaseText(app));
+  // A value the draft normalizes (a trailing line break) shows as the draft has it, and nothing is left waiting.
+  leave(app, 'ob-ph-note', 'Line one.\nLine two.\n'); await app.tick();
+  assert.strictEqual(app.draft('ob-ph-note'), 'Line one.\nLine two.', 'the box shows the note as the draft has it');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/Apply or clear what you typed/.test(app.live()), 'Undo isn\'t held up: ' + app.live());
+  app.click('tl-redo', 'draft'); await app.tick();
   await back(app);
   assert.ok(!/id="ed-h"/.test(app.html()), 'Back goes once it is applied');
 });

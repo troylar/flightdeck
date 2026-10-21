@@ -3015,7 +3015,7 @@
     } else {
       if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', phase: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
       if (id === 'ob-ph-title') res = reid(ph && ph.id, builderEdit({ op: 'editPhase', phase: s.key, set: { title: value, reid: !!(ph && fresh(ph.id)) } }, id));
-      else if (id === 'ob-ph-note') res = builderEdit({ op: 'phaseNote', phase: s.key, note: value }, id);
+      else if (id === 'ob-ph-note') return obApplied(builderEdit({ op: 'phaseNote', phase: s.key, note: value }, id), id, null);
       else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
       else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
         /* Leaving the "name a gate" box empty adds nothing. */
