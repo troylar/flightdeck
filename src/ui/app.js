@@ -5301,7 +5301,7 @@
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
     var ncm = /^nc-(to|why)-(phase|gate)-(.+)$/.exec(e.target.id || ''), ncf = ncm && state.runKey && (state.noteCorrs || {})[ncKey(state.runKey, ncm[2], ncm[3])];
-    if (ncf) { ncf[ncm[1]] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'nc-' + ncm[2] + '-' + ncm[3]) state.fieldErr = null; }
+    if (ncf && !ncf.sending) { ncf[ncm[1]] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'nc-' + ncm[2] + '-' + ncm[3]) state.fieldErr = null; }
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */
     if (e.target.id === 'draft-editor') {
