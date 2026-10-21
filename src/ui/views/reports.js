@@ -86,12 +86,13 @@
   /* Accept, Decline and Reopen, for the recorder; disabled with the reason beside it when a report can't be accepted. */
   function actions(ctx, r, map, g, dec, id) {
     var st = ctx.state, b = bundle(ctx, r), busy0 = st.repSaving === g.key, pick = st.repPick && st.repPick.key === g.key ? st.repPick : null;
-    /* A decline reason being typed stays on screen with Cancel whatever changes under it, so it can always be left. */
-    if (pick && pick.mode === 'decline') {
+    /* A decline reason being typed (open, or kept from before) stays on screen with Cancel whatever changes under it. */
+    var draft = ctx.repDraft ? ctx.repDraft(g.key) : null;
+    if ((pick && pick.mode === 'decline') || draft != null) {
       var stop = !ctx.recording(r) ? 'You aren\'t recording this run now, so this report can\'t be declined here.' : !g.report ? 'Every copy of this report is gone, so it can\'t be declined.' : (b.held ? b.held(g) : '');
       var rid = X.reasonId(g.key), err = st.fieldErr && st.fieldErr.id === rid;
-      return '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
-        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(pick.reason || '') + '</textarea>' +
+      return '<div class="rep-confirm" role="group" data-draft-kept aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
+        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(draft || '') + '</textarea>' +
         (stop ? '<p class="small" id="' + id + '-dcwhy">' + esc(stop) + '</p>' : '') +
         '<div class="row"><button class="btn"' + (stop ? ' disabled aria-describedby="' + id + '-dcwhy"' : ' data-act="rep-decline-go" data-id="' + esc(g.key) + '"' + (busy0 ? ' disabled' : '')) + '>Decline</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
     }
@@ -126,9 +127,10 @@
     var b = bundle(ctx, r), items = onStep(ctx, r, stepId);
     if (!items.length) return '';
     var many = items.length > 1, open = ctx.state.repPick ? ctx.state.repPick.key : '';
+    var kept = function (k) { return ctx.repDraft && ctx.repDraft(k) != null; };
     return '<section class="rw-box rw-reps" aria-labelledby="ins-reps"><h3 class="rw-h3" id="ins-reps">Reports · ' + items.length + '</h3>' +
       failedNote(b) + (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      items.map(function (it, i) { return card(ctx, r, map, it, i, many && it.g.key !== open); }).join('') + '</section>';
+      items.map(function (it, i) { return card(ctx, r, map, it, i, many && it.g.key !== open && !kept(it.g.key)); }).join('') + '</section>';
   }
 
   /* The reports folder couldn't be read on the last check: what's shown is the last read, said wherever reports are. */

@@ -378,13 +378,16 @@ rule('App: a decline reason typed for one report never lands in another report\'
   const ra = field();
   app.set(ra, 'Wrong build for report A');
   app.click('rep-decline', b.key); await app.tick();
-  const rb = field();
-  assert.ok(!/Wrong build for report A/.test(app.html()), 'B\'s form starts empty');
+  const rb = [...app.html().matchAll(/<textarea id="(rep-reason-[^"]+)"/g)].map(m => m[1]).filter(x => x !== ra)[0];
+  const boxText = id => (new RegExp('<textarea id="' + id + '"[^>]*>([^<]*)<').exec(app.html()) || [])[1];
+  assert.strictEqual(boxText(rb), '', 'B\'s form starts empty');
+  assert.strictEqual(boxText(ra), 'Wrong build for report A', 'A\'s reason stays with A');
   assert.ok(ra !== rb, 'each report has its own field');
   app.click('rep-decline-go', b.key); await app.tick(60);
   assert.deepStrictEqual(decisions(app), [], 'B needs its own reason');
   app.set(rb, 'Old tag'); app.click('rep-decline-go', b.key); await app.tick(120);
   assert.deepStrictEqual(decisions(app).map(d => [d.report, d.reason]), [['efgh5678', 'Old tag']]);
+  assert.strictEqual(boxText(ra), 'Wrong build for report A', 'A\'s reason is still kept');
 });
 
 rule('App: a logged acceptance whose evidence was changed since isn\'t recorded as the report\'s', async () => {
@@ -579,35 +582,38 @@ rule('App: a decline reason being typed survives moving to another step and back
   assert.ok(/Wrong build, half typed/.test(app.html()), 'the reason is still there');
 });
 
-rule('App: Back and a top-bar jump refuse to drop a decline reason with text in it, even after a redraw or from another step', async () => {
+rule('App: Back, a top-bar click and a jump keep a decline reason as a draft; it comes back with its report until Cancel', async () => {
   const app = await recording();
   const x = await plant(app);
-    app.click('nav', 'runs'); await app.tick(40);
+  app.click('nav', 'runs'); await app.tick(40);
   app.click('open-run', app.run().key); await app.tick(40);
   const runHash = app.hash();
   await openStep(app, 'jenkins');
   app.click('rep-decline', x.key); await app.tick();
-  const rid = (/<textarea id="([^"]+)"/.exec(app.html()) || [])[1];
+  const rid = (/<textarea id="(rep-reason-[^"]+)"/.exec(app.html()) || [])[1];
+  const back = () => new RegExp('<textarea id="' + rid + '"[^>]*>Wrong build, half typed<').test(app.html());
   app.set(rid, 'Wrong build, half typed');
   await openStep(app, 'pods');
   app.back(); await app.settle();
-  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()), 'Back says why');
-  assert.strictEqual(app.hash(), runHash, 'the address is the run again');
-  assert.ok(new RegExp('id="' + rid + '"').test(app.html()) && /Wrong build, half typed/.test(app.html()), 'its step is back on screen with the reason');
-  app.click('refresh'); await app.tick(80);
-  app.click('go', '', { view: 'runs' }); await app.tick(40);
-  assert.ok(new RegExp('id="' + rid + '"').test(app.html()), 'a jump after a redraw is refused too');
-  app.click('rep-cancel', x.key); await app.tick();
-  app.back(); await app.settle();
-  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'after Cancel, Back goes');
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()) && !/Finish or cancel this first/.test(app.html() + app.live()), 'Back goes, asking nothing');
   app.forward(); await app.settle();
+  assert.strictEqual(app.hash(), runHash);
   await openStep(app, 'jenkins');
-  app.click('rep-decline', x.key); await app.tick();
-  app.back(); await app.settle();
-  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'an empty reason doesn\'t block');
+  assert.ok(back(), 'the reason is back on its report');
+  app.set(rid, 'Wrong build, half typed');
+  app.click('nav', 'runs'); await app.tick(40);
+  app.click('open-run', app.run().key); await app.tick(40); await openStep(app, 'jenkins');
+  assert.ok(back(), 'a top-bar click keeps it too');
+  app.click('go', '', { view: 'runs' }); await app.tick(40);
+  app.click('open-run', app.run().key); await app.tick(40); await openStep(app, 'jenkins');
+  assert.ok(back(), 'and a jump');
+  app.click('rep-cancel', x.key); await app.tick();
+  app.click('nav', 'runs'); await app.tick(40);
+  app.click('open-run', app.run().key); await app.tick(40); await openStep(app, 'jenkins');
+  assert.ok(!new RegExp('id="' + rid + '"').test(app.html()) && /data-act="rep-decline"/.test(app.html()), 'after Cancel nothing is kept');
 });
 
-rule('App: a decline reason being typed keeps its box and Cancel when this person stops recording, so it can always be left', async () => {
+rule('App: a decline reason being typed keeps its box and Cancel when this person stops recording', async () => {
   const app = await recording();
   const x = await plant(app);
   await openStep(app, 'jenkins');
@@ -618,11 +624,8 @@ rule('App: a decline reason being typed keeps its box and Cancel when this perso
   assert.ok(new RegExp('id="' + rid + '"').test(app.html()) && /Wrong build/.test(app.html()), 'the reason stays on screen');
   assert.ok(/data-act="rep-cancel"/.test(app.html()) && !/data-act="rep-decline-go"/.test(app.html()), 'with Cancel, and no Decline to press');
   assert.ok(/can(&#39;|')t be declined here/.test(app.html()), 'saying why');
-  app.click('go', '', { view: 'runs' }); await app.tick(40);
-  assert.ok(new RegExp('id="' + rid + '"').test(app.html()), 'leaving still asks first');
   app.click('rep-cancel', x.key); await app.tick();
-  app.click('go', '', { view: 'runs' }); await app.tick(40);
-  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'after Cancel it goes');
+  assert.ok(!new RegExp('id="' + rid + '"').test(app.html()), 'Cancel closes it');
   assert.strictEqual(decisions(app).length, 0, 'nothing was decided');
 });
 

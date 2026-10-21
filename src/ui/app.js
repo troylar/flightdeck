@@ -148,6 +148,7 @@
     /* Reports on a run (PF.reports): read for the run that's open, with where each stands. */
     reports: function (r) { return reportsOf(r); },
     reportCur: function () { return repCur(); },
+    repDraft: function (key) { return repDraft(key); },
     /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
     reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
@@ -1224,9 +1225,7 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
-    /* A decline reason being typed stays with its report when the form isn't drawn (another step selected). */
-    var rp = state.repPick, rbox = rp && rp.mode === 'decline' && repBox === PF.reports.reasonId(rp.key) ? document.getElementById(repBox) : null;
-    if (rbox) rp.reason = rbox.value;
+    repHarvest();
     procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -1252,8 +1251,7 @@
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
     patch(app, page);
     noteDrawn(page);
-    var rid = state.repPick && state.repPick.mode === 'decline' ? PF.reports.reasonId(state.repPick.key) : null;
-    repBox = rid && page.indexOf('id="' + rid + '"') >= 0 ? rid : null;
+    repNoteDrawn(page);
     /* Boxes drafts own (evidence, Fill in, the note) are carried by their step's draft, never from another step or form. */
     var moved = !!drawn && !(was && was.fs === drawn.fs && was.key === drawn.key && was.sel === drawn.sel && was.kind === drawn.kind);
     if (moved) drawn.ids.forEach(function (id) { delete keep[id]; });
@@ -3319,7 +3317,7 @@
   var corrSeq = 0;
   function corrKey(f) { return draftKey(f.key, f.step + '#' + f.mode); }
   function stashCorr() { var f = state.corrForm; if (!f) return; f._at = ++corrSeq; (state.corrDrafts = state.corrDrafts || {})[corrKey(f)] = f; state.corrForm = null; }
-  function leaveContext() { leaveFillIn(); stashCorr(); }
+  function leaveContext() { leaveFillIn(); stashCorr(); repHarvest(); }
   /* The open Fill in, kept with its folder, run and step: what's typed (harvest) and the choices that decide its fields. */
   function leaveFillIn() {
     harvest();
@@ -3467,22 +3465,9 @@
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
   }
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || repDirty(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
   /* A decline reason with text in it is unsaved work even after a redraw draws it as the box's own text, or while another
      step is selected: leaving refuses, and its step is brought back so the box is on screen. */
-  /* The decline reason box the last render drew, if any: only that one holds typing to keep. */
-  var repBox = null;
-  function repDirty() {
-    var p = state.repPick; if (!p || p.mode !== 'decline' || state.view !== 'run') return null;
-    var id = PF.reports.reasonId(p.key), on = repBox === id, el = on ? document.getElementById(id) : null;
-    if (!String((el ? el.value : p.reason) || '').trim()) return null;
-    if (on) return el || { id: id };
-    /* A report no longer on the run (or a step no longer in its map) can't draw its form again: nothing is held for it. */
-    var r = ctx.run(), x = r && repItem(p.key).it ? M.findStep(R.mapOf(r), p.step) : null;
-    if (!x) return null;
-    state.unfold[x.phase.id] = true; selectStep(p.step); state.refOpen = true;
-    return { id: id };
-  }
   /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
      does, and stays; one holding typing or choices isn't closed. Returns whether there was one. */
   function navLayer() {
@@ -4476,7 +4461,7 @@
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */
     'rep-accept': function (id) { repOpenForm(id, 'accept'); },
     'rep-decline': function (id) { repOpenForm(id, 'decline'); },
-    'rep-cancel': function (id) { state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'rep-cancel': function (id) { delete repDrafts()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
@@ -4916,12 +4901,30 @@
     var d = draftOf(key, id, false);
     return !!((state.pick && state.pick.kind === 'fields' && state.pick.id === id && state.runKey === key) || (d && (d.open || Object.keys(d.fields).length)));
   }
+  /* Decline reasons being typed, per folder and report: kept work, as a step's draft is. Leaving the run, another step or
+     another report's form keeps each one; it is drawn again with its report until Cancel or the decline is saved. */
+  var repBoxes = [], repBoxFs = null;
+  function repDrafts(fk) { var all = state.repDrafts || (state.repDrafts = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
+  function repDraft(key) { var d = repDrafts(); return typeof d[key] === 'string' ? d[key] : null; }
+  /* Only the boxes the last render drew hold typing. */
+  function repHarvest() {
+    if (!repBoxes.length) return;
+    var d = repDrafts(repBoxFs);
+    repBoxes.forEach(function (b) { var el = document.getElementById(b.id); if (el) d[b.key] = String(el.value == null ? '' : el.value); });
+  }
+  function repNoteDrawn(page) {
+    var d = repDrafts(), keys = Object.keys(d), p = state.repPick;
+    if (p && p.mode === 'decline' && keys.indexOf(p.key) < 0) keys.push(p.key);
+    repBoxFs = fsKey();
+    repBoxes = keys.map(function (k) { return { key: k, id: PF.reports.reasonId(k) }; }).filter(function (b) { return page.indexOf('id="' + b.id + '"') >= 0; });
+  }
   function repItem(id) { var r = ctx.run(), b = reportsOf(r); return { r: r, b: b, it: b ? b.list.filter(function (x) { return x.g.key === id; })[0] : null }; }
   function repOpenForm(id, mode) {
     var o = repItem(id);
     if (!o.it || !ctx.recording(o.r)) return;
     var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
-    state.repPick = { key: id, mode: mode, reason: '', step: o.it.g.step };
+    repHarvest();
+    state.repPick = { key: id, mode: mode };
     if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
     state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
     render();
@@ -5036,7 +5039,7 @@
     if (repHeld(o.it.g)) { say(repHeld(o.it.g), 'warn'); render(); return; }
     var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? val(rid) : '', rec;
     try { rec = X.decision(g, g.sha256 || (cur ? cur.d.sha256 : ''), status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
-    catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
+    catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; repDrafts()[g.key] = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();
     putDecision(dfs, rec).then(function () {
@@ -5044,6 +5047,7 @@
       /* This person decided again: an acceptance of theirs still waiting for its decision is superseded (the run's log still
          names it, so it can be recorded later as a choice). */
       var hs = hintsOf(fk); if (hs[g.key] && !hs[g.key].busy) delete hs[g.key];
+      if (status === 'declined') delete repDrafts(fk)[g.key];
       state.repSaving = null; state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
       state.focus = 'ins-reps';
