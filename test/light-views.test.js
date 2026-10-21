@@ -1,5 +1,7 @@
-// Lightness, part 2: the process page folds the owner's panels for everyone else, Home lists only what's yours, the top bar
-// keeps four sections, and Publish never publishes a draft other than the one the person sees.
+// Lightness, parts 2 and 3: the process page folds the owner's panels for everyone else, Home lists only what's yours, the top
+// bar keeps four sections, and Publish never publishes a draft other than the one the person sees. Then the run says each thing
+// once, plain words on screen (stored values unchanged), a flatter Processes list, New process asks for a title, Fill in opens
+// itself when a check needs a value, and Finish, Runs, Step types and Settings show only what has something in it.
 'use strict';
 const assert = require('assert'), fs = require('fs'), path = require('path');
 const { rule, run } = require('./harness');
@@ -240,6 +242,264 @@ rule('Top bar: the first-run welcome draws only the name and What\'s new', async
   assert.ok((top.match(/<(button|select|input)\b/g) || []).length <= 2, 'two controls at most');
   app.click('setup-mode', 'examples'); await app.tick();
   assert.ok(/class="mainnav"/.test(app.top()) && /id="me"/.test(app.top()), 'the examples get the full bar');
+});
+
+/* ---------- Part 3: the run says each thing once ---------- */
+async function startRelease(who) {
+  const app = boot(); await app.tick(60); app.choose(who || 'person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
+  return app;
+}
+const between = (html, a, b) => { const i = html.indexOf(a); return i < 0 ? '' : html.slice(i, b ? html.indexOf(b, i) : undefined); };
+
+rule('Run: the start is announced, not drawn as a notice; the keyboard is mentioned once, and More and ? still have the shortcuts', async () => {
+  const app = await startRelease(), html = app.html();
+  assert.ok(/Run started/.test(app.live()), 'announced');
+  assert.ok(!shown(html, /Run started/), 'no notice on screen');
+  assert.strictEqual((visible(html).match(/Space checks it/g) || []).length, 1, 'one keyboard hint, in Next up');
+  assert.ok(!/Space: check · N: note · B: blocked/.test(html), 'not again in the step');
+  assert.ok(!shown(html, /data-act="help"/), 'no Keyboard shortcuts button outside More');
+  assert.ok(/<details class="rw-menu"[\s\S]*?data-act="help">Keyboard shortcuts<\/button>/.test(html), 'More keeps it');
+  app.key('?'); await app.tick();
+  assert.ok(/Space or X/.test(app.overlay()), '? opens them');
+});
+
+rule('Run: the strip keeps who records, Pause, Hand off and what\'s saved; the revision moves to Details', async () => {
+  const app = await startRelease(), strip = between(app.html(), 'class="rw-strip"', 'class="fpe-alerts');
+  assert.ok(/You.re recording/.test(strip) && /data-kind="pause"/.test(strip) && /data-kind="handoff"/.test(strip) && /id="fresh"/.test(strip), 'the strip as before');
+  assert.ok(!/revision/.test(strip), 'no revision in the strip');
+  app.click('run-details'); await app.tick();
+  assert.ok(/revision \d+/.test(visible(between(app.html(), 'id="rw-details"', '</section>'))), 'in Details');
+});
+
+rule('Run: a phase says how it\'s worked in a sentence, without the DO-CONFIRM pill', async () => {
+  const app = await startRelease(), html = app.html();
+  assert.ok(!/<span class="mode">/.test(html) && !shown(html, /DO-CONFIRM|READ-DO/), 'no pill');
+  assert.ok(shown(html, /Do the work, then stop and confirm each step/), 'the sentence');
+});
+
+rule('Run: must-do rows carry a compact mark named Must do; the selected step keeps the words, and still has no N/A', async () => {
+  const app = await startRelease(), html = app.html(), deck = between(html, 'class="deck"', 'id="rw-ins"');
+  assert.ok(!/b-must/.test(deck), 'no Must do pill on rows');
+  const marks = deck.match(/<span class="mustmark" role="img" aria-label="Must do" title="Must do">/g) || [];
+  assert.ok(marks.length >= 4, 'a mark on each must-do row: ' + marks.length);
+  assert.ok(/aria-label="[^"]*, must do"/.test(deck), 'the check says it too');
+  app.click('select', 'approved'); await app.tick();
+  const ins = between(app.html(), 'id="rw-ins"');
+  assert.ok(/<span class="badge b-must">Must do<\/span>/.test(ins), 'the step keeps the words');
+  assert.ok(!/data-act="na" data-id="approved"/.test(ins), 'and N/A is still refused');
+});
+
+rule('Run: Correct this step without its explanation, the attach limits for screen readers, and Start under More for this step', async () => {
+  const app = await startRelease();
+  app.click('select', 'approved'); await app.tick();
+  const ins = between(app.html(), 'id="rw-ins"');
+  assert.ok(!/If the checklist was wrong or unclear here/.test(ins), 'no explanation');
+  assert.ok(/data-act="corr-open" data-mode="correct" data-id="approved" title="If the checklist was wrong or unclear here/.test(ins), 'it\'s the button\'s help text');
+  assert.ok(!shown(ins, /up to 10 MB each/) && /<span class="sr" id="att-help">Images, PDF, text, logs and \.zip, up to 10 MB each\.<\/span>/.test(ins), 'the limits, for screen readers');
+  assert.ok(!shown(ins, /data-act="start-step"/), 'Start isn\'t on show for an untimed step');
+  assert.ok(/<details class="rw-more" data-disc="rw-more"><summary class="small">More for this step<\/summary>[\s\S]*?data-act="start-step" data-id="approved"/.test(ins), 'it\'s under More for this step');
+  app.fire('toggle', { target: { dataset: { disc: 'rw-more' }, open: true } }); app.click('select', 'tests'); await app.tick();
+  assert.ok(shown(between(app.html(), 'id="rw-ins"'), /data-act="start-step" data-id="tests"/), 'opened, and kept open');
+});
+
+/* ---------- Part 3: plain words on screen; stored values unchanged ---------- */
+rule('Process page: phases say "Read, then do" and "Do, then confirm", and run details have no caret; skills and must-do are quiet marks', async () => {
+  const app = await releaseAs('person-morgan'), html = app.html(), cl = between(html, 'id="cl-h"', '</section>');
+  assert.ok(shown(cl, /Do, then confirm/) && shown(cl, /Read, then do/) && !shown(cl, /DO-CONFIRM|READ-DO/), 'modes in words');
+  assert.ok(/approves deploy of <b class="dname">commit<\/b> to <b class="dname">environment<\/b>/.test(cl) && !/\^/.test(visible(cl)), 'no caret');
+  assert.ok(!/b-must|b-skill/.test(cl), 'no pills');
+  assert.ok((cl.match(/class="mustmark" role="img" aria-label="Must do"/g) || []).length >= 8 && /class="pv-skill"/.test(cl), 'marks instead');
+});
+
+rule('Finish: End as Canceled on screen, while the run file keeps Cancelled; the receipt says copy it into your ticket', async () => {
+  const app = await startRelease();
+  app.click('finish'); await app.tick();
+  assert.ok(/data-act="end" data-id="Cancelled"[^>]*>End as Canceled<\/button>/.test(app.html()), 'the button');
+  const key = /data-act="copy-run-key" data-id="([^"]+)"/.exec(app.html()) || null;
+  app.click('end', 'Cancelled'); await app.tick(150);
+  const runFile = app.files('runs/release/').filter(f => /run\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(r => r.ended && r.ended.outcome === 'Cancelled');
+  assert.strictEqual(runFile.length, 1, 'stored as Cancelled');
+  const html = app.html();
+  assert.ok(shown(html, /Ended: Canceled/) && !shown(html, /Cancelled/), 'the receipt says Canceled');
+  assert.ok(shown(html, /Copy it into your ticket, or take a screenshot/), 'the receipt\'s eyebrow');
+  assert.ok(/Ended: Cancelled/.test(app.el('receipt-text').textContent || between(html, 'id="receipt-text"', '</pre>')), 'the receipt\'s text keeps the stored word');
+  void key;
+});
+
+rule('Home and Runs: each thing said once', async () => {
+  const app = boot(); await app.tick(60);
+  app.click('nav', 'home'); await app.tick();
+  assert.strictEqual((visible(app.html()).match(/Choose who you are at the top right/g) || []).length, 1, 'Home, before choosing who you are');
+  app.choose('person-casey'); await app.tick(); app.click('nav', 'runs'); await app.tick();
+  assert.ok(/<div class="small">Every run of every process\.<\/div>/.test(app.html()), 'Runs');
+});
+
+/* ---------- Part 3: a flatter Processes list ---------- */
+rule('Processes: tags fold into Filter by tag (N), one-child groups are one heading, and rows carry no tags or publisher', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick();
+  let html = app.html();
+  const fold = /<details class="tagfold" data-disc="tags"><summary class="small">Filter by tag \((\d+)\)<\/summary>/.exec(html);
+  assert.ok(fold && +fold[1] >= 10, 'the tags are one closed line');
+  assert.ok(!shown(html, /data-act="tag"/) && /data-act="tag" data-id="jira"/.test(html), 'folded, still there');
+  assert.ok(shown(html, /<span class="t">Delivery \/ Backlog<\/span>/), 'a group whose only child is a group is one heading');
+  assert.ok(!/<span class="small">1<\/span><\/summary>/.test(html), 'no counts of 1');
+  const rows = visible(between(html, 'class="plist tree"', '</section>'));
+  assert.ok(!/class="tag"/.test(rows) && !/published by/.test(rows), 'no tags or publisher on rows');
+  assert.ok(/v\d+ · last run /.test(rows), 'version and last run');
+  app.fire('toggle', { target: { dataset: { disc: 'tags' }, open: true } }); app.click('tag', 'jira'); await app.tick();
+  html = app.html();
+  assert.ok(/<details class="tagfold" data-disc="tags" open>/.test(html) && /data-id="jira" aria-pressed="true"/.test(html), 'opened, and the filter works');
+  assert.ok(/data-id="jira-cleanup"/.test(html) && !/data-act="open-process" data-id="release"/.test(html), 'filtered');
+});
+
+/* ---------- Part 3: New process asks for a title ---------- */
+async function newProc() {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
+  return app;
+}
+rule('New process: one box, Title; the file name is made from it and shown, and the rest is under More options', async () => {
+  const app = await newProc(), html = app.html(), form = between(html, 'id="new-process-form"', '</form>');
+  const boxes = visible(form).match(/<(input|select|textarea)\b[^>]*>/g) || [];
+  assert.deepStrictEqual(boxes.map(b => (/id="([^"]+)"/.exec(b) || [])[1]), ['np-title'], 'one box on show');
+  assert.ok(/<details class="np-more" data-disc="np-more"><summary>More options<\/summary>/.test(form), 'More options, folded');
+  ['np-id', 'np-group', 'np-tags', 'np-context', 'np-roles', 'np-owner', 'np-solo'].forEach(id => assert.ok(form.indexOf('id="' + id + '"') >= 0, id + ' is in it'));
+  assert.ok(/<label class="field" for="np-id">File name/.test(form) && /keeps this checklist up to date/.test(form), 'plain words');
+  app.input('np-title', 'Onboard a new hire!'); await app.tick();
+  assert.ok(shown(app.html(), /Saved as <code>onboard-a-new-hire\.md<\/code>/), 'the file name, as it\'s typed');
+  assert.ok(/id="np-title" maxlength="120" value=""/.test(app.html()), 'the box keeps what was typed as unapplied, so leaving still asks');
+  app.submit('new-process-form'); await app.tick(150);
+  assert.ok(/^process: onboard-a-new-hire$/m.test(app.fs.files['maps/drafts/onboard-a-new-hire.md'].t), 'created from the title');
+});
+
+rule('New process: a file name typed under More options wins, and a bad or taken one opens the fold with the reason', async () => {
+  let app = await newProc();
+  app.set('np-title', 'Release'); app.submit('new-process-form'); await app.tick(60);
+  assert.ok(/already a process/.test(app.html() + app.live()) && /<details class="np-more" data-disc="np-more" open>/.test(app.html()) && app.focused() === 'np-id', 'taken: More opens on the file name');
+  app = await newProc();
+  app.set('np-title', 'Bad name'); app.set('np-id', 'Bad Name'); app.submit('new-process-form'); await app.tick(60);
+  assert.ok(/lowercase letters, numbers and dashes/.test(app.html() + app.live()) && /data-disc="np-more" open/.test(app.html()), 'refused');
+  app = await newProc();
+  app.set('np-title', 'Something'); app.set('np-id', 'my-own-name'); app.submit('new-process-form'); await app.tick(150);
+  assert.ok(app.fs.files['maps/drafts/my-own-name.md'], 'the typed file name');
+});
+
+rule('New process: start from a template, then create the draft or publish v1 as it is', async () => {
+  let app = await newProc();
+  assert.deepStrictEqual([...app.html().matchAll(/data-act="np-tpl" data-id="([\w-]+)"/g)].map(m => m[1]), ['blank', 'check-in', 'weekly-review', 'assistant']);
+  app.click('np-tpl', 'weekly-review'); await app.tick();
+  app.set('np-title', 'Team weekly'); app.submit('new-process-form'); await app.tick(150);
+  const md = app.fs.files['maps/drafts/team-weekly.md'].t;
+  assert.ok(/^process: team-weekly$/m.test(md) && /^title: Team weekly$/m.test(md) && /^owner: person-casey$/m.test(md) && /Look back/.test(md), 'the template, as this process');
+  app = await newProc();
+  app.click('np-tpl', 'weekly-review'); await app.tick();
+  app.set('np-title', 'My weekly'); app.click('np-publish'); await app.tick(250);
+  assert.strictEqual(app.files('publications/my-weekly/').filter(f => /map\.md$/.test(f)).length, 1, 'published as v1');
+  assert.ok(/Published My weekly v1/.test(app.html() + app.live()) && /data-act="start" data-id="my-weekly"/.test(app.html()), 'on its page, ready to start');
+  app = await newProc();
+  app.click('np-tpl', 'assistant'); await app.tick();
+  assert.ok(/\/flightdeck-new-checklist/.test(app.html()) && /data-act="np-copy"/.test(app.html()), 'a prompt to copy');
+});
+
+/* ---------- Part 3: the builder's words; Checks counts problems only ---------- */
+rule('Builder: the new-draft banner names Save draft, the header says what unsaved means, and tips don\'t make a Checks badge', async () => {
+  const app = await newProc();
+  app.set('np-title', 'Onboard'); app.submit('new-process-form'); await app.tick(150);
+  let html = app.html();
+  assert.ok(/choose Save draft, then Done to publish it/.test(html + app.live()), 'the banner');
+  const head = between(html, 'class="fpe-head"', '</header>');
+  assert.ok(!/class="cnt/.test(head) && /aria-label="Checks: \d+ tips?"/.test(head), 'tips only: no number');
+  assert.ok(/<span class="lvl tip">Tip<\/span>/.test(html), 'the tips are still listed');
+  app.input('draft-editor', app.fs.files['maps/drafts/onboard.md'].t + '- [ ] {confirm} Another {#another}\n'); await app.tick(300);
+  assert.ok(/Unsaved: Save draft before you publish/.test(between(app.html(), 'class="fpe-head"', '</header>')), 'unsaved, said in the header');
+});
+
+rule('Publish: the first version\'s change note is filled in, First version, and can be changed', async () => {
+  const app = await newProc();
+  app.set('np-title', 'Note check'); app.submit('new-process-form'); await app.tick(150); app.click('ed-done'); await app.tick();
+  assert.ok(/id="change-note" maxlength="200" value="First version"/.test(app.html()), 'prefilled');
+  app.click('publish', 'note-check'); await app.tick(200);
+  const info = app.files('publications/note-check/').filter(f => /info\.json$/.test(f));
+  assert.ok(info.length === 1 && JSON.parse(app.fs.files[info[0]].t).changes === 'First version', 'published with it');
+});
+
+/* ---------- Part 3: Fill in opens itself when a check needs a value ---------- */
+const JIRA_X = ['---', 'process: jira-x', 'title: Jira move', 'category: Product', 'owner: person-casey', 'runs: solo', '---', '',
+  '## Move it · READ-DO {#move}', '- [!] {jira.issue} Stale issues closed {#stale}', '  action: transition', '  issue: Board filter', '  status: Done', ''].join('\n');
+async function jiraRun() {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  await app.fs.write('maps/drafts/jira-x.md', JIRA_X); app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'jira-x'); await app.tick(); app.click('publish', 'jira-x'); await app.tick(200);
+  app.click('start', 'jira-x'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
+  app.click('select', 'stale'); await app.tick();
+  return app;
+}
+rule('Fill in: a check that needs the issue type opens Fill in on that box, says why beside it, and Done then works', async () => {
+  const app = await jiraRun();
+  app.click('toggle', 'stale'); await app.tick(60);
+  let html = app.html();
+  assert.ok(/data-scope="fields:stale"/.test(html), 'Fill in is open');
+  assert.strictEqual(app.focused(), 'fld-issueType', 'on the issue type');
+  assert.ok(/id="fld-issueType"[^>]*aria-describedby="[^"]*jwhy-stale/.test(html) && /<p class="ferr" id="jwhy-stale">Fill in the issue type \(Story, Release\)/.test(html), 'the reason beside the box');
+  assert.ok(/Fill in the issue type/.test(app.live()), 'and announced');
+  app.input('fld-issueType', 'Bug'); app.select('fld-issueType', 'Bug'); await app.tick();
+  assert.ok(/id="jwhy-stale">The team.s Jira workflows have no issue type &quot;Bug&quot;/.test(app.html()), 'a wrong one says why as soon as it\'s typed');
+  app.select('fld-issueType', 'Story'); await app.tick();
+  assert.ok(!/id="jwhy-stale"/.test(app.html()), 'a right one clears it');
+  app.click('save-fields', 'stale'); await app.tick(120);
+  app.click('select', 'stale'); await app.tick();
+  const res = /<label class="small" for="rec-([\w-]+)">Resolution/.exec(app.html());
+  assert.ok(res, 'Done now asks for the Resolution');
+  app.set('rec-' + res[1], 'Done'); app.click('record', 'stale'); await app.tick(120);
+  const r = app.files('runs/jira-x/').filter(f => /run\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t))[0];
+  assert.strictEqual(r.steps.stale.s, 'done');
+  void html; html = null;
+});
+
+/* ---------- Part 3: Finish shows only what has something in it ---------- */
+rule('Finish: no follow-ups is one Add a follow-up that opens the form; no corrections is one line; the three End buttons stay', async () => {
+  const app = await startRelease();
+  app.click('finish'); await app.tick();
+  let html = app.html();
+  assert.ok(!shown(html, /id="fu-text"/) && /id="fu-text"/.test(html), 'the form is folded');
+  assert.ok(/<details class="fu-add" data-disc="fu-add"><summary class="btn">Add a follow-up<\/summary>/.test(html), 'Add a follow-up');
+  assert.ok(shown(html, /No corrections/) && !shown(html, /Nothing was done differently/), 'one line');
+  assert.deepStrictEqual([...html.matchAll(/data-act="end" data-id="([^"]+)"/g)].map(m => m[1]), ['Completed', 'Stopped early', 'Cancelled']);
+  app.fire('toggle', { target: { dataset: { disc: 'fu-add' }, open: true } }); app.set('fu-text', 'Tidy the flags'); app.click('add-followup'); await app.tick(120);
+  html = app.html();
+  assert.ok(shown(html, /Tidy the flags/), 'added');
+  assert.ok(/<details class="fu-add" data-disc="fu-add" open>/.test(html), 'and the form stays open for the next one');
+});
+
+/* ---------- Part 3: Runs, Step types and Settings fold what's rarely needed ---------- */
+rule('Runs: Export evidence is under More, finished runs show the newest 8 with the rest one click away, and cards drop the version', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick(); app.click('nav', 'runs'); await app.tick();
+  const html = app.html(), head = between(html, 'class="runhead"', 'class="panel rf"');
+  assert.ok(!shown(head, /data-act="ev-range"/) && /<details class="rw-menu" data-disc="runs-more"><summary class="mini">More<\/summary>[\s\S]*?data-act="ev-range"/.test(head), 'Export evidence under More');
+  const fin = between(html, 'Finished · ', '</section>'), n = +/Finished · (\d+)/.exec(html)[1];
+  const shownCards = (visible(fin).match(/class="card"/g) || []).length, all = (fin.match(/class="card"/g) || []).length;
+  assert.ok(n > 8 ? shownCards === 8 && all === n && /Earlier finished runs \(\d+\)/.test(fin) : shownCards === n, 'newest 8: ' + shownCards + ' of ' + n);
+  assert.ok(!/<span class="cat">[^<]* · v\d+<\/span>/.test(html), 'no version on cards');
+});
+
+rule('Step types: the built-in types fold into one line, and a type\'s {id} is inside What it asks for', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick(); app.click('nav', 'types'); await app.tick();
+  const html = app.html();
+  assert.ok(/<details class="panel fold" data-disc="types-built"><summary><h2>Built-in types · \d+<\/h2><\/summary>/.test(html), 'folded');
+  assert.ok(!shown(html, /\{confirm\}/) && /\{confirm\}/.test(html), 'the id is still there');
+  app.fire('toggle', { target: { dataset: { disc: 'types-built' }, open: true } }); app.fire('toggle', { target: { dataset: { disc: 'type:confirm' }, open: true } }); app.click('nav', 'types'); await app.tick();
+  assert.ok(shown(app.html(), /\{confirm\}/), 'opened, both stay open');
+});
+
+rule('Settings: Jira workflows and Keyboard are under More settings, unless a workflow has a problem', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick(); app.click('nav', 'settings'); await app.tick();
+  let html = app.html();
+  assert.ok(/<details class="panel fold" data-disc="set-more"><summary><h2>More settings<\/h2><\/summary>[\s\S]*?Jira workflows[\s\S]*?id="set-keys"/.test(html), 'folded');
+  await app.fs.write('jira/workflows.json', '{ "Story": 3 }'); app.click('refresh'); await app.tick(150); app.click('nav', 'settings'); await app.tick();
+  html = app.html();
+  assert.ok(shown(html, /Jira workflows/) && shown(html, /not used/), 'a problem stays on show');
 });
 
 run();
