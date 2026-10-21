@@ -4841,7 +4841,10 @@
     repCache[k] = ne;
     repo.loadRunReports(state.fs, r.process, r.id).then(function (res) {
       if (g !== gen) return;
-      ne.list = res.list.map(function (g) { return { g: g, depth: g.order ? g.order.depth : 0, note: g.order ? g.order.note : '' }; }); ne.badNames = res.badNames; ne.failed = res.failed; ne.loading = false;
+      /* A folder that couldn't be read isn't an empty one: the reports last read stay shown, with the failure named (Accept
+         and Record the decision read every copy again first, so nothing is decided from them). */
+      ne.loading = false; ne.failed = res.failed;
+      if (!res.failed) { ne.list = res.list.map(function (g) { return { g: g, depth: g.order ? g.order.depth : 0, note: g.order ? g.order.note : '' }; }); ne.badNames = res.badNames; }
       render();
     }, function (err) { if (g !== gen) return; ne.failed = err && err.message || String(err); ne.loading = false; render(); });
     return ne;

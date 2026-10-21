@@ -123,9 +123,12 @@
     if (!items.length) return '';
     var many = items.length > 1, open = ctx.state.repPick ? ctx.state.repPick.key : '';
     return '<section class="rw-box rw-reps" aria-labelledby="ins-reps"><h3 class="rw-h3" id="ins-reps">Reports · ' + items.length + '</h3>' +
-      (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
+      failedNote(b) + (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
       items.map(function (it, i) { return card(ctx, r, map, it, i, many && it.g.key !== open); }).join('') + '</section>';
   }
+
+  /* The reports folder couldn't be read on the last check: what's shown is the last read, said wherever reports are. */
+  function failedNote(b) { return b.failed ? '<div class="notice warn" role="status"><span>The reports folder couldn\'t be read on the last check: ' + esc(b.failed) + (b.list.length ? ' These are the reports as last read.' : '') + '</span></div>' : ''; }
 
   /* The run's Reports panel (rail): every report on the run in checklist order, with where each stands. */
   function panel(ctx, r, map) {
@@ -138,15 +141,16 @@
     }).join('');
     var bad = (b.badNames || []).map(function (e) { return '<li class="small">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>'; }).join('');
     return '<section class="rw-panel" id="rw-reps" aria-label="Reports"><h2 class="rw-h2">Reports</h2>' +
-      (b.failed ? '<div class="notice warn"><span>The reports folder couldn\'t be read: ' + esc(b.failed) + '</span></div>' : '') +
+      failedNote(b) +
       (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      (rows || bad ? '<ul class="replist">' + rows + bad + '</ul>' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
+      (rows || bad ? '<ul class="replist">' + rows + bad + '</ul>' : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
   }
   /* The rail button beside Follow-ups. */
   function button(ctx, r, where) {
     var n = bundle(ctx, r).list.length;
-    if (!n && !ctx.state.repOpen) return '';
-    return '<button class="mini" data-act="run-reports" data-id="' + esc(where) + '" aria-expanded="' + !!ctx.state.repOpen + '" aria-controls="rw-reps">' + I('flag') + 'Reports · ' + n + '</button>';
+    var failed = !!bundle(ctx, r).failed;
+    if (!n && !failed && !ctx.state.repOpen) return '';
+    return '<button class="mini" data-act="run-reports" data-id="' + esc(where) + '" aria-expanded="' + !!ctx.state.repOpen + '" aria-controls="rw-reps">' + I('flag') + 'Reports · ' + n + (failed ? ' · couldn\'t be read' : '') + '</button>';
   }
 
   V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;

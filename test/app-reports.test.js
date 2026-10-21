@@ -278,6 +278,27 @@ rule('App: a logged acceptance isn\'t recorded while the run couldn\'t be read o
   assert.deepStrictEqual(decisions(app), []);
 });
 
+rule('App: a reports folder that can\'t be read keeps the reports last read, and says so with the panel closed', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  assert.ok(/data-act="run-reports"[^>]*>[\s\S]{0,600}Reports · 1/.test(app.html()), 'set-up: the rail button');
+  const list = app.fs.list.bind(app.fs);
+  app.fs.list = p => p === 'reports/release' ? Promise.reject(new Error('NotReadableError')) : list(p);
+  app.click('refresh'); await app.tick(160);
+  await openStep(app, 'jenkins');
+  const h = app.html();
+  assert.ok(/Report says pass/.test(h) && h.indexOf(x.sha) >= 0, 'the report last read is still on its step');
+  assert.ok(/reports folder couldn(&#39;|')t be read on the last check/.test(h), 'the failure is named on the step');
+  assert.ok(/Reports · 1 · couldn(&#39;|')t be read/.test(h), 'and on the rail button');
+  // Nothing is decided from it: Accept reads every copy again first.
+  app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(120);
+  assert.ok(!isDone(app) && decisions(app).length === 0, 'nothing accepted');
+  app.fs.list = list;
+  app.click('refresh'); await app.tick(160);
+  assert.ok(!/couldn(&#39;|')t be read on the last check/.test(app.html()), 'readable again: the note goes');
+});
+
 rule('App: a decline reason typed for one report never lands in another report\'s form', async () => {
   const app = await recording();
   const a = await plant(app);
