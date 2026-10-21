@@ -24429,9 +24429,9 @@ PF.examples = (function () {
     });
   }
   /* Every decision on a report is written here, and the hold is checked again right before the write, in the write queue. */
-  function putDecision(dfs, rec) {
+  function putDecision(dfs, rec, guard) {
     return queued(function () {
-      var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
+      var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report }) || (guard ? guard() : '');
       if (held) return Promise.reject(new Error(held));
       return repo.decideReport(dfs, rec, WRITER);
     });
@@ -24524,19 +24524,21 @@ PF.examples = (function () {
   }
   /* Record the decision: this window's acceptance whose write failed, or (recovery) one the run's log names, built only from
      a copy with exactly the logged SHA-256, never from other bytes. */
+  /* A decision vouches for the run as it is in the folder: never while this window holds a change to it that isn't saved. */
+  function runUnsaved(r) { return r && (state.unsaved[r.id] || (state.pendingSaves || {})[r.id]) ? 'The run isn\'t saved yet. The decision is recorded once the step is saved.' : ''; }
   function recordAccept(id) {
     var o = repItem(id), r = o.r;
     if (!r) return;
     var X = PF.reports, key = r.process + '/' + r.id, ins = acceptsOf(), mine = ins[id];
     if (mine && mine.runKey === key) {
       if (mine.writing) return;
-      if (state.unsaved[r.id] || (state.pendingSaves || {})[r.id]) { say('The run isn\'t saved yet. The decision is recorded once the step is saved.', 'warn'); render(); return; }
+      if (runUnsaved(r)) { say(runUnsaved(r), 'warn'); render(); return; }
       if (!X.landed(r, mine)) { delete ins[id]; say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
       writeAccept(mine); render(); return;
     }
     var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
     if (!u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
-    if (repHeld(u.g)) { say(repHeld(u.g), 'warn'); render(); return; }
+    if (repHeld(u.g) || runUnsaved(r)) { say(repHeld(u.g) || runUnsaved(r), 'warn'); render(); return; }
     var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();
     freshGroup(dfs, u.g).then(function (g) {
@@ -24550,7 +24552,11 @@ PF.examples = (function () {
       var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
       try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
       catch (e) { say(e.message, 'warn'); render(); return; }
-      return putDecision(dfs, rec).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
+      /* Judged again inside the write queue: no unsaved change, and the run still holds exactly this answer and evidence. */
+      return putDecision(dfs, rec, function () {
+        var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+        return runUnsaved(r3) || (u3 && u3.recordable && X.fingerprint(r3.steps[g.step].values || {}, X.schemaOf(r3, x.step)) === rec.answer.fp ? '' : 'The step was answered or changed since, so this acceptance isn\'t recorded.');
+      }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
     }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */

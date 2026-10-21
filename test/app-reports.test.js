@@ -206,6 +206,30 @@ rule('App: an acceptance the run records without its decision is recorded from t
   }
 });
 
+rule('App: a logged acceptance isn\'t recorded while this window holds a change to the run that isn\'t saved', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  // Logged, decision lost, and the saved evidence was changed since (9999): not recordable.
+  const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
+  j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '9999', buildLink: 'https://ci.example.com/jobs/1432' } };
+  j.log.push({ at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') });
+  j.rev = (j.rev || 0) + 1;
+  await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  assert.ok(!/data-act="rep-record"/.test(app.html()), 'changed: nothing offered');
+  // Fill in puts the report's 1432 back, but the save fails: the folder still says 9999.
+  const orig = app.PF.repo.saveRun;
+  app.PF.repo.saveRun = function () { return Promise.reject(new Error('offline')); };
+  app.click('pick', 'jenkins', { kind: 'fields' }); await app.tick(40);
+  app.set('rec-build', '1432'); app.click('save-fields', 'jenkins'); await app.tick(120);
+  assert.strictEqual(JSON.parse(app.fs.files[app.run().path].t).steps.jenkins.values.build, '9999', 'set-up: the save failed');
+  await openStep(app, 'jenkins');
+  app.click('rep-record', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), [], 'nothing recorded for evidence that isn\'t saved');
+  app.PF.repo.saveRun = orig;
+});
+
 rule('App: a logged acceptance whose evidence was changed since isn\'t recorded as the report\'s', async () => {
   const app = await recording();
   const x = await plant(app);
@@ -295,6 +319,7 @@ rule('App: Fill in after an acceptance shows the evidence changed; Decline needs
   ds = decisions(app).sort((a, b) => a.rev - b.rev);
   assert.deepStrictEqual(ds.map(d => d.status), ['accepted', 'declined', 'open']);
   assert.strictEqual(app.fs.files[app.run().path].t, before, 'run.json untouched');
+  assert.ok(!/data-act="rep-record"/.test(app.html()) && !/decision isn(&#39;|')t in the team folder/.test(app.html()), 'the recorded acceptance is never offered again');
 });
 
 rule('App: Home tells the recorder about reports waiting, and a folder without reports reads none', async () => {
