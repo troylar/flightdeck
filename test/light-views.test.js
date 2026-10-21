@@ -431,6 +431,22 @@ rule('Plain words: a run detail inside a link\'s address is left alone; only the
   assert.strictEqual(out, '<a href="https://example.com/^commit" rel="noopener">see <b class="dname">commit</b></a> to <b class="dname">environment</b>');
 });
 
+rule('New process: two quick clicks on Publish v1 publish once and land on the page', async () => {
+  const app = await newProc();
+  app.click('np-tpl', 'weekly-review'); await app.tick();
+  app.set('np-title', 'Twice weekly'); app.click('np-publish'); app.click('np-publish'); await app.tick(300);
+  assert.strictEqual(app.files('publications/twice-weekly/').filter(f => /map\.md$/.test(f)).length, 1, 'published once');
+  assert.ok(/data-act="start" data-id="twice-weekly"/.test(app.html()), 'on its page');
+});
+
+rule('New process: a template that runs solo starts the box checked, and unchecking it leaves runs: solo out', async () => {
+  const app = await newProc();
+  app.click('np-tpl', 'weekly-review'); await app.tick();
+  assert.ok(/<input type="checkbox" id="np-solo" checked>/.test(app.html()), 'checked, as the template says');
+  app.set('np-title', 'Team review'); app.set('np-solo', false); app.submit('new-process-form'); await app.tick(150);
+  assert.ok(!/^runs: solo$/m.test(app.fs.files['maps/drafts/team-review.md'].t), 'left out');
+});
+
 /* ---------- Part 3: the builder's words; Checks counts problems only ---------- */
 rule('Builder: the new-draft banner names Save draft, the header says what unsaved means, and tips don\'t make a Checks badge', async () => {
   const app = await newProc();
@@ -465,6 +481,19 @@ async function jiraRun() {
   app.click('select', 'stale'); await app.tick();
   return app;
 }
+rule('Run: a locked gate folded to its name keeps its time badge', async () => {
+  const md = ['---', 'process: timed-x', 'title: Timed', 'category: Ops', 'owner: person-casey', 'runs: solo', '---', '',
+    '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', '', '## Second · READ-DO {#second}', '- [ ] {confirm} Two {#two}', '',
+    '## Gate: Late check {#late}', '  due: 23:59', '  > Look at the dashboards.', ''].join('\n');
+  const app = boot({ domFocus: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  await app.fs.write('maps/drafts/timed-x.md', md); app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'timed-x'); await app.tick(); app.click('publish', 'timed-x'); await app.tick(200);
+  app.click('start', 'timed-x'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
+  let gate = between(app.html(), 'id="gate-late"', '</section>');
+  assert.ok(gate && /class="badge b-time[^"]*">Due 11:59 PM/.test(gate), 'the time badge is on show');
+  assert.ok(!/Look at the dashboards/.test(gate), 'otherwise brief');
+});
+
 rule('Fill in: a check that needs the issue type opens Fill in on that box, says why beside it, and Done then works', async () => {
   const app = await jiraRun();
   app.click('toggle', 'stale'); await app.tick(60);

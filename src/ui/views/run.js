@@ -178,7 +178,7 @@
     var approves = g.approves ? R.fill(g.approves, r.details) : '';
     var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? (R.solo(r) ? 'Confirm' : 'Confirm together') : 'Gate: ' + esc(g.title)) + '</span><span class="pill ' + st + '">' + GATE_WORD[st] + '</span>' +
       (st === 'passed' && s.justPassed === g.id ? '<span class="called-stamp">Passed</span>' : '') + '</div>';
-    if (brief) return h + '</div><div class="row"></div></div>';
+    if (brief) return h + (sched ? '<div class="badges">' + schedBadge(sched) + '</div>' : '') + '</div><div class="row"></div></div>';
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
     if (owner) h += '<div class="small">Owner: ' + esc(nameOf(ctx, owner)) + '</div>';
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';

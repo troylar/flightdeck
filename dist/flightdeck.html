@@ -16445,7 +16445,7 @@ PF.vk = (function () {
     var approves = g.approves ? R.fill(g.approves, r.details) : '';
     var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? (R.solo(r) ? 'Confirm' : 'Confirm together') : 'Gate: ' + esc(g.title)) + '</span><span class="pill ' + st + '">' + GATE_WORD[st] + '</span>' +
       (st === 'passed' && s.justPassed === g.id ? '<span class="called-stamp">Passed</span>' : '') + '</div>';
-    if (brief) return h + '</div><div class="row"></div></div>';
+    if (brief) return h + (sched ? '<div class="badges">' + schedBadge(sched) + '</div>' : '') + '</div><div class="row"></div></div>';
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
     if (owner) h += '<div class="small">Owner: ' + esc(nameOf(ctx, owner)) + '</div>';
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';
@@ -23195,7 +23195,7 @@ PF.examples = (function () {
       return true;
     }
     var om = document.querySelector && document.querySelector('.rw-menu[open]');
-    if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; render(); var sm = om.querySelector && om.querySelector('summary'); if (sm) sm.focus(); return true; }
+    if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; render(); var sm = om.querySelector && om.querySelector('summary'); if (sm) sm.focus(); return true; }
     var tf = state.tfPreview && state.view === 'types';
     if (!tf && !state.obPlace && !state.obAsk && !obSheetOpen && !(sheetWasOpen && state.view === 'run')) return false;
     var dirty = pendingBox();
@@ -23386,7 +23386,7 @@ PF.examples = (function () {
     if (b.classList.contains('overlay') && e.target !== b) return;
     var act = b.dataset.act, id = b.dataset.id;
     /* Choosing something from the run's More menu closes the menu. */
-    var menu = b.closest && b.closest('.rw-menu'); if (menu) { menu.open = false; (state.disc = state.disc || {})['rw-menu'] = false; }
+    var menu = b.closest && b.closest('.rw-menu'); if (menu) { menu.open = false; (state.disc = state.disc || {})[(menu.dataset && menu.dataset.disc) || 'rw-menu'] = false; }
     var handler = ACTIONS[act];
     if (!handler) return;
     e.preventDefault();
@@ -23767,6 +23767,8 @@ PF.examples = (function () {
       var f = state.newProc = state.newProc || { token: ++npToken };
       /* The assistant's prompt replaces the boxes, so what's typed in them is kept with the form first. */
       if (document.getElementById('np-title')) { var k = newProcForm(); ['token', 'title', 'group', 'tags', 'context', 'roles', 'owner', 'solo'].forEach(function (x) { f[x] = k[x]; }); f.id = k.ownId; f.typed = null; }
+      /* A template's own "runs: solo" is where the box starts; unchecking it leaves it out. */
+      if (f.tpl !== id && id !== 'assistant') { var tb = id === 'blank' ? '' : npBase(id) || ''; f.solo = /^runs:[ \t]*solo[ \t]*$/m.test(tb.split(/^---[ \t]*$/m)[1] || ''); }
       f.tpl = id; state.focus = '[data-act="np-tpl"][data-id="' + cssEsc(id) + '"]'; render(); },
     'np-publish': function () { createProcess(true); },
     'np-copy': function () { var pre = document.getElementById('np-prompt'); if (pre) copyText(pre.textContent, pre, 'Copied. Paste it to your AI assistant.'); },
@@ -24875,23 +24877,25 @@ PF.examples = (function () {
   }
   /* A refused file name opens More options on it, with the reason. */
   function npRefuse(f, msg, box) { say(msg, 'warn'); if (box === 'np-id') (state.disc = state.disc || {})['np-more'] = true; state.focus = box; render(); }
+  function npBase(id) { var t = PF.setup.TEMPLATES.filter(function (x) { return x.id === id; })[0]; return id === 'check-in' ? EXAMPLES['maps/drafts/check-in.md'] : t && t.md; }
   /* The draft's text: the starter, or a template made this process's own (only its front-matter lines change). */
   function newProcMd(f) {
     if (f.tpl === 'blank' || !f.tpl) return V.starterMap(f);
-    var t = PF.setup.TEMPLATES.filter(function (x) { return x.id === f.tpl; })[0], base = f.tpl === 'check-in' ? EXAMPLES['maps/drafts/check-in.md'] : t && t.md;
+    var base = npBase(f.tpl);
     if (!base) return V.starterMap(f);
+    if (!f.solo) base = base.replace(/^runs:[ \t]*solo[ \t]*\r?\n/m, '');
     var set = { process: f.id, title: f.title, owner: f.owner };
     if (f.group) { set.group = f.group; set.category = f.group.split('/').pop().trim() || 'Other'; }
     if (f.tags) set.tags = f.tags; if (f.context) set.context = f.context; if (f.roles) set.roles = f.roles; if (f.solo) set.runs = 'solo';
     return M.withMeta(base, set);
   }
   function createProcess(publish) {
+    if (npBusy === gen) return;
     var f = newProcForm();
     state.newProc = Object.assign(f, { typed: null });
     if (!f.title) return npRefuse(f, 'Give the process a title.', 'np-title');
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) return npRefuse(f, 'The file name is lowercase letters, numbers and dashes, like release or code-review.', f.ownId ? 'np-id' : 'np-title');
     if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a process called "' + f.id + '". Choose another title, or another file name under More options.', 'np-id');
-    if (npBusy === gen) return;
     var md = newProcMd(f), sfs = state.fs, g = gen, mine = f.token, by = state.me;
     npBusy = gen;
     var done = function () { if (npBusy === g) npBusy = -1; };
@@ -25483,7 +25487,7 @@ PF.examples = (function () {
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})['rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
