@@ -2,8 +2,15 @@
   {
     "version": "2.0.0",
     "date": "2026-10-21",
-    "headline": "Notes and screenshots on phases and gates",
+    "headline": "Typed values, exact versions and reports from tools, in a lighter Flightdeck. Move every computer to 1.21 or later first",
     "changes": [
+      {
+        "kind": "improved",
+        "area": "Updating",
+        "title": "Before anyone uses 2.0 features, move every computer to 1.21 or later",
+        "now": "Put Flightdeck 1.21 or later on every computer that opens the team folder, then Flightdeck 2.0, before anyone uses a 2.0 feature. Copies from 1.11.1 on never change a 2.0 file, but they can't run a 2.0 version or record on a 2.0 run. Copies before 1.11.1 can't tell a 2.0 file at all. A checklist that uses nothing new publishes as before, and every teammate runs it.",
+        "where": "Folder health names older copies it saw in the last 7 days. Steps: Updating Flightdeck, Moving a team to Flightdeck 2.0"
+      },
       {
         "kind": "new",
         "area": "Checklists",
@@ -30,7 +37,7 @@
         "kind": "new",
         "area": "Corrections",
         "title": "Suggest a change to a phase's note or a gate's",
-        "now": "Anyone viewing a run can suggest new wording for a phase's note or a gate's. It is decided and applied to the draft like a step's correction. Teammates on Flightdeck 1.22 or earlier see it as a described problem.",
+        "now": "Anyone viewing a run can suggest new wording for a phase's note or a gate's. It is decided and applied to the draft like a step's correction. Teammates on Flightdeck 1.13 to 1.22 see it as a described problem.",
         "before": "Corrections could only be about a step."
       },
       {
@@ -158,6 +165,13 @@
       },
       {
         "kind": "improved",
+        "area": "Builder",
+        "title": "The parts box starts with Phase, Gate, Step and Must-do",
+        "now": "The builder's parts box shows Phase, Gate, Step and Must-do, with every other part under All parts (N). A search still shows every match, and a step type that can't be used is never folded away.",
+        "before": "Every part and step type was listed in full."
+      },
+      {
+        "kind": "improved",
         "area": "Runs",
         "title": "Fill in opens itself",
         "now": "Checking a Jira step that needs an issue type or status only Fill in holds opens that step's Fill in, puts the reason beside the box and focuses it, the way required evidence already does.",
@@ -176,6 +190,13 @@
         "title": "Lighter Runs, Step types and Settings pages",
         "now": "Runs shows the 8 newest finished runs with the rest under Earlier finished runs, Export evidence is in a More menu (still on each run's too), and cards don't repeat the version. Step types folds the built-in types, with each type's ID inside What it asks for. Settings puts Jira workflows and Keyboard under More settings, except that a Jira workflow problem keeps Jira workflows outside the fold.",
         "before": "Every finished run, every built-in type and every setting were drawn in full."
+      },
+      {
+        "kind": "improved",
+        "area": "Folder health",
+        "title": "Folder health folds what passed",
+        "now": "The checks that passed fold into one line, All clear · N checks passed. Problems are never folded.",
+        "before": "Every passing check was listed."
       },
       {
         "kind": "fixed",

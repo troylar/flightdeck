@@ -1,6 +1,6 @@
 # Flightdeck design
 
-Status: **describes Flightdeck 1.17.0** (large-folder slices 1a and 1b, search, insights and evidence export), **1.18's first slice, reading for other apps** (section 26), **1.19's first two slices, proposals and the soft lock, and live apply in the main editor** (section 27), **1.20's first slice, asking for a run from another app** (section 26), **the cross-version harness of 2.0's first slice, and the 1.21 bridge that refuses 2.0 files precisely** (section 28), **1.22's Back and Forward** (section 29). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
+Status: **describes Flightdeck 1.17.0** (large-folder slices 1a and 1b, search, insights and evidence export), **1.18's first slice, reading for other apps** (section 26), **1.19's first two slices, proposals and the soft lock, and live apply in the main editor** (section 27), **1.20's first slice, asking for a run from another app** (section 26), **the cross-version harness of 2.0's first slice, and the 1.21 bridge that refuses 2.0 files precisely** (section 28), **1.22's Back and Forward** (section 29), **2.0.0: new file formats with phase and gate notes and screenshots, exact versions (pins), typed values and READ/2, reports from tools, and the lightness pass** (sections 26 and 28; staging, test runs and data-only extensions are planned for 2.1). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
 
 ## 1. What Flightdeck is
 
@@ -317,9 +317,9 @@ Nothing is open right now. New questions go here.
 - **"Checklist", not "map" (2026-10-18):** everything people see calls a process's written-down steps a checklist (the process page, the editor, the docs, the skills for AI assistants). Internal names keep "map": code identifiers, the `maps/` folder, `map.md`, `docs/map-format.md` and the file formats, so existing team folders keep working.
 
 
-## 19. Versions and staging (planned, not built)
+## 19. Versions and staging (staging planned for 2.1)
 
-Decided 2026-10-18; **not built in 1.11**. Of this section, 1.11 shipped only the items marked built: planned and duplicated runs, suggested fixes, and step types in groups with tags. Staging, versioned step types and skills, and test runs are still planned. Nothing refers to "whatever is there now": every reference names an exact version, and every kind of thing can be tried before it's used for real.
+Decided 2026-10-18. Of this section, 1.11 shipped only the items marked built: planned and duplicated runs, suggested fixes, and step types in groups with tags. 2.0 adds exact versions for linked runs, plans and skill registrations (section 28, *Pins*). Staging, test runs and versioned step types are **not in 2.0**: the owner moved them to 2.1 on 2026-10-21, with data-only extensions, so 2.0 could ship lighter and sooner. 2.0 knows their file names only to refuse them (section 28). Nothing refers to "whatever is there now": every reference names an exact version, and every kind of thing can be tried before it's used for real.
 
 - **Planned: one lifecycle for processes, step types and skills:** Draft → Staged → Published → Retired. Anyone can stage; only the owner publishes. Step types and skill registrations gain an `owner`, as processes have.
 - **Planned: staging freezes a numbered version** (v3, marked staged). Only test runs can use it. A test run is labeled as one everywhere it shows: lists, the run screen, the receipt.
@@ -736,6 +736,10 @@ v1.19.0 and v1.20.0 are in the record and write their baseline folders; every 1a
 - **Signatures.** `PF.signature.steps` adds a step's resolved pin (child or skill) and, for a `{run.process}` step without `carry:`, the run details (implicit carry: it passes on whatever its child shares). Other steps' signatures are unchanged; correction identity never uses them. `process()` hashes extensions and pins as canonical JSON.
 - **Evidence.** A run/3's payload is compared with its version's by `P.payloadHash`, and the pins the version sets with the ones the run started with, through the same `verify` every reader uses.
 - **Tested against real old copies** (`test/compat-pins.test.js`): for every tag from 1.11.1 to 1.22.0, the pinned `/2` version is refused by name and v1 stays the latest, the plan/2 is never listed, the tombstone makes `skills.check` refuse, the run/3 continuation is name-only and can't be saved, and the old parent is fully readable with its step blocked where it continued; a run/2 parent this version wrote, with its child pending, is taken over there, handed off here and read back there.
+
+### What 2.0.0 ships, and what waits for 2.1
+
+2.0.0 registers `phase-notes`, `phase-shots`, `gate-shots`, `pinned-children`, `pinned-skills`, `typed-details` and `typed-evidence`, and reads and writes reports and report decisions (`flightdeck-report/1`, `flightdeck-report-decision/1`, section 26). Staging, test runs and data-only extensions are planned for 2.1 (owner decision 2026-10-21): `staged`, `test-run` and `extensions` stay refused like any feature this copy doesn't know, no loader lists `staged/` or `extensions/`, a stage sign-off (`flightdeck-validation/2`) isn't shown or counted, a run marked as a test run is name only, a `/2` version whose payload has an extension is unusable, and no screen or command writes or offers any of them. The frozen samples in `test/fixtures/v2/` keep their shapes so 2.1 implements exactly them.
 
 ## 29. Back and Forward (1.22.0)
 

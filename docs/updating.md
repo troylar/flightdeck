@@ -115,7 +115,7 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 1. Put Flightdeck 1.21 in the team folder and have everyone reopen it from there. Check Folder health: "Teammates are using an older Flightdeck" should be gone once every computer has answered a connection check or opened a draft with 1.21.
 2. Then put Flightdeck 2.0 in the team folder.
-3. Only then start using 2.0 features (typed run details, staging, notes on phases). A checklist that uses none of them still publishes as a version every copy from 1.11.1 on can run.
+3. Only then start using 2.0 features (notes and screenshots on phases and gates, exact versions of linked checklists and skills, typed run details and evidence, reports from tools). Staging and test runs come in 2.1. A checklist that uses none of them still publishes as a version every copy from 1.11.1 on can run.
 
 ## Rolling back
 
