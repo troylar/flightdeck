@@ -606,4 +606,15 @@ rule('A run/3 holding text longer than this copy keeps is read-only, never cut; 
   assert.ok(!(startT({ details: {}, from: { source: 'constructor', details: { due: 'x' } } }).migrations || []).length, 'a prototype name is no source');
 });
 
+rule('Fill in never drops a stored value that isn\'t valid: saving it unchanged is refused with why, and only a value of its kind (or clearing it) replaces it', () => {
+  const r = startT(), map = mapT();
+  const f = JSON.parse(JSON.stringify(r)); f.steps.day = { s: 'open', values: { evidence: '2026-02-30' } };
+  const back = R.sanitize(f);
+  assert.ok(!back._unrunnable && back._invalid && back._invalid['steps.day.values.evidence'], 'read, and named');
+  assert.throws(() => R.setFields(back, map, 'day', {}, { evidence: '2026-02-30' }, 'person-avery', NOW), /date/i);
+  assert.strictEqual(back.steps.day.values.evidence, '2026-02-30', 'kept exactly');
+  R.setFields(back, map, 'day', {}, { evidence: '2026-02-28' }, 'person-avery', NOW);
+  assert.strictEqual(back.steps.day.values.evidence, '2026-02-28');
+});
+
 run();

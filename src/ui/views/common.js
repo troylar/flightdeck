@@ -99,6 +99,9 @@ PF.vk = (function () {
         return '<label class="radio"><input type="radio" id="opt-' + esc(id) + '-' + i + '" name="' + esc(id) + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + '> ' + esc(shown[i]) + '</label>';
       }).join('') + '</span></fieldset>';
     }
+    /* A stored value that isn't one of its kind can't be shown in that kind's box: it's shown as written, in a plain box, so
+       it stays until the person changes it (saving checks it again). */
+    if (v && k !== 'text' && !Vv.valid(def, v)) return '<label class="' + c + '" for="' + esc(id) + '">' + esc(label) + '<input id="' + esc(id) + '" maxlength="300" value="' + esc(v) + '"' + a + '></label>';
     if (k === 'yes-no') return radios(['yes', 'no'], ['Yes', 'No']);
     if (k === 'choice' && (def.options || []).length <= 5) return radios(def.options, def.options);
     var lab = '<label class="' + c + '" for="' + esc(id) + '">' + esc(label);

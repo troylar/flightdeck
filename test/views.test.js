@@ -2671,4 +2671,16 @@ rule('Typed values: the run shows typed details the way people read them, names 
   assert.ok(new RegExp('id="rec-evidence" inputmode="decimal"').test(html), 'number evidence: a box for decimals');
 });
 
+rule('Typed values: a stored value that isn\'t valid for its kind is shown as written in a plain box, so saving something else never drops it', () => {
+  const K = PF.vk;
+  const date = K.typedField('fx-due', 'due', { kind: 'date' }, '2026-02-30', '');
+  assert.ok(/<input id="fx-due" maxlength="300" value="2026-02-30"/.test(date) && !/type="date"/.test(date), date);
+  const yn = K.typedField('fx-ok', 'ok', { kind: 'yes-no' }, 'maybe', '');
+  assert.ok(/<input id="fx-ok" maxlength="300" value="maybe"/.test(yn) && !/type="radio"/.test(yn), yn);
+  const ch = K.typedField('fx-env', 'env', { kind: 'choice', options: ['dev', 'prod', 'a', 'b', 'c', 'd'] }, 'qa', '');
+  assert.ok(/<input id="fx-env" maxlength="300" value="qa"/.test(ch), ch);
+  assert.ok(/type="date"[^>]*value="2026-02-28"/.test(K.typedField('fx-d', 'due', { kind: 'date' }, '2026-02-28', '')), 'a valid one gets its kind\'s box');
+  assert.ok(/type="date"[^>]*value=""/.test(K.typedField('fx-d', 'due', { kind: 'date' }, '', '')), 'an empty one too');
+});
+
 run();

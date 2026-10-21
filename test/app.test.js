@@ -538,6 +538,17 @@ rule('App: each Undo and Redo says what it undid or redid, on screen and to scre
   assert.ok(app.live() !== once && app.live().trim() === once.trim(), 'the same words again are announced again');
 });
 
+rule('Typed values: Add evidence makes a number, a yes/no or a date as chosen, never text', async () => {
+  for (const kind of ['number', 'yes-no', 'date']) {
+    const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+    app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+    app.click('tf-add', 'r', { kind }); await app.tick();
+    const k = (/data-act="tf-open" data-id="r:(k\d+)"/.exec(app.html()) || [])[1];
+    assert.ok(k, kind + ': a row');
+    assert.ok(new RegExp('<option value="' + kind + '" selected').test(app.html()), kind + ': ' + (app.html().match(/<select[^>]*-kind"[\s\S]*?<\/select>/) || [''])[0].slice(0, 400));
+  }
+});
+
 rule('App: in a step type, removing a field and undoing puts it back in place with all it had, and Cmd+Z there uses the same Undo', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
   app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();

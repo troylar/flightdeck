@@ -14481,6 +14481,9 @@ PF.vk = (function () {
         return '<label class="radio"><input type="radio" id="opt-' + esc(id) + '-' + i + '" name="' + esc(id) + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + '> ' + esc(shown[i]) + '</label>';
       }).join('') + '</span></fieldset>';
     }
+    /* A stored value that isn't one of its kind can't be shown in that kind's box: it's shown as written, in a plain box, so
+       it stays until the person changes it (saving checks it again). */
+    if (v && k !== 'text' && !Vv.valid(def, v)) return '<label class="' + c + '" for="' + esc(id) + '">' + esc(label) + '<input id="' + esc(id) + '" maxlength="300" value="' + esc(v) + '"' + a + '></label>';
     if (k === 'yes-no') return radios(['yes', 'no'], ['Yes', 'No']);
     if (k === 'choice' && (def.options || []).length <= 5) return radios(def.options, def.options);
     var lab = '<label class="' + c + '" for="' + esc(id) + '">' + esc(label);
@@ -22611,7 +22614,7 @@ PF.examples = (function () {
     },
     'tf-add': function (id, b) {
       var f = state.typeForm, d = f && f.def; if (!d) return; flushAdds(f);
-      var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice'];
+      var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice', 'number', 'yes-no', 'date'];
       var before = typeSnap(f), row = { k: V.nextRowKey(), name: '', label: '', kind: kinds.indexOf(kd) >= 0 ? kd : 'text' }; (id === 'f' ? d.fields : d.record).push(row);
       f.open = id + ':' + row.k; (state.disc = state.disc || {})['tf-add-' + id] = false;
       recordTypeForm(f, before, { kind: 'form', label: id === 'f' ? 'new field' : 'new evidence', items: [(id === 'f' ? 'field:' : 'evidence:') + row.k], selBefore: { focus: '[data-act="tf-add"][data-id="' + id + '"]' }, selAfter: { focus: '#tf-' + id + '-' + row.k + '-label' } });
