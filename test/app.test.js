@@ -6157,6 +6157,16 @@ rule('Back and Forward: a link to a run whose read failed isn\'t called gone, an
   assert.ok(!onRun(app), 'stays where it was moved to');
 });
 
+rule('Back and Forward: a link to the current version while publications couldn\'t be read waits for them, not the draft', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, hash: '#/process/release/current' });
+  const proto = app.PF.fs.MemoryFS.prototype, list = proto.list; let fail = true;
+  proto.list = function (p) { return fail && /^publications/.test(p) ? Promise.reject(new Error('NotReadableError')) : list.call(this, p); };
+  await app.tick(80); app.choose('person-casey'); await app.tick(); await app.settle();
+  assert.ok(/That version wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()), app.live());
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/current', 'the published version opens once read');
+});
+
 rule('Back and Forward: a link to a process whose draft couldn\'t be read isn\'t called gone, and opens once Refresh reads it', async () => {
   const app = await navBoot(), path = 'maps/drafts/later.md';
   await app.fs.write(path, ['---', 'process: later', 'title: Later process', '---', '', '## One · READ-DO {#one}', '- [ ] {confirm} Do it {#it}', ''].join('\n'));

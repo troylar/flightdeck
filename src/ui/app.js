@@ -3470,7 +3470,8 @@
   }
   function navFound(loc) {
     if (loc.view === 'run') return !!ctx.findRun(loc.process + '/' + loc.run);
-    if (loc.view === 'process') return processes().some(function (x) { return x.id === loc.process; }) && (!loc.version || loc.version === 'current' || (processes().filter(function (x) { return x.id === loc.process; })[0].all || []).some(function (x) { return x.folder === loc.version && x.map; }));
+    var p = loc.view === 'process' && processes().filter(function (x) { return x.id === loc.process; })[0];
+    if (p) return !loc.version || (loc.version === 'current' ? !!p.latest : (p.all || []).some(function (x) { return x.folder === loc.version && x.map; }));
     return false;
   }
   function navGone(what, loc) {
@@ -3535,7 +3536,11 @@
       return 'moved';
     }
     if (loc.tab === 'insights') { if ((p.all || []).length) ACTIONS.ptab('insights'); else ACTIONS['view-version'](null); return 'moved'; }
-    if (loc.version === 'current') { if (p.latest) { state.ptab = 'overview'; ACTIONS['back-current'](); } else ACTIONS['view-version'](null); return 'moved'; }
+    if (loc.version === 'current') {
+      if (p.latest) { state.ptab = 'overview'; ACTIONS['back-current'](); return 'moved'; }
+      /* No published version read: if publications couldn't be read, the link waits for the next read rather than the draft. */
+      ACTIONS['view-version'](null); if (navUnread(loc)) navGone('version', loc); return 'moved';
+    }
     if (loc.version) {
       var pub = (p.all || []).filter(function (x) { return x.folder === loc.version; })[0];
       if (pub && pub.map) ACTIONS['view-version'](loc.version); else { ACTIONS['view-version'](null); navGone('version', loc); }
