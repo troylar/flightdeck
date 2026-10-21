@@ -141,7 +141,7 @@ rule('1.20.0 has its own release entry, in plain words', () => {
 
 rule('1.21.0 has its own release entry, in plain words, naming no employer, product or tool', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.21.0')[0];
-  assert.ok(r && rel[rel.indexOf(r) - 1].version === '2.0.0', '1.21.0 is the release before 2.0.0');
+  assert.ok(r && rel[rel.findIndex(x => x.version === '1.22.0') + 1] === r, '1.21.0 is the release before 1.22.0');
   const text = JSON.stringify(r);
   assert.ok(/Needs Flightdeck 2\.0/.test(text) && /no longer read as if it were an older one/.test(text) && /never changes them/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour/i.test(text), 'US English');
@@ -151,8 +151,19 @@ rule('2.0.0 has its own release entry, in plain US English, naming the notes and
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
   assert.strictEqual(r.version, '2.0.0');
   const text = JSON.stringify(r);
-  assert.ok(/phase/i.test(text) && /gate/i.test(text) && /screenshot/i.test(text) && /1\.21/.test(text), text);
+  assert.ok(/phase/i.test(text) && /gate/i.test(text) && /screenshot/i.test(text) && /1\.22 or earlier/.test(text) && !/1\.21 or earlier/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
+});
+
+rule('1.22.0 has its own release entry: Back and Forward and the builder\'s details, notes and Questions, a minor with two new changes, in plain words', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.22.0')[0];
+  assert.ok(r && rel[rel.indexOf(r) - 1].version === '2.0.0', '1.22.0 is the release before 2.0.0');
+  assert.ok(r.date <= rel[0].date, '2.0.0 is dated on or after 1.22.0');
+  assert.deepStrictEqual(r.changes.map(c => c.kind), ['new', 'new']);
+  const text = JSON.stringify(r);
+  assert.ok(/Checklist details/.test(text) && /Remove section/.test(text) && /note/.test(text), 'the builder change');
+  assert.ok(/Back and Forward/.test(text) && /closes an open dialog first/.test(text) && /never loses what you typed/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|\bAI\b|assistant/i.test(text), 'US English, and no tool named');
 });
 
 run();

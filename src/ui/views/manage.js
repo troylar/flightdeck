@@ -94,7 +94,7 @@
     var hl = sl ? { line: sl.line + 1 } : sp ? { phase: sp.index } : null;
     var form = builder ? V.builderForm(ctx, p, text) : '';
     var panes = {
-      selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline to change it here.</p>' +
+      selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
       checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c) +
         '<p class="small">Saving never publishes. When it\'s ready, choose Done and publish it.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
@@ -127,7 +127,7 @@
     var st = ctx.state, f = st.newProc || {};
     var field = function (id, label, hint, val, extra) { return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + '></label>'; };
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-    return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1>Write down how something is done</h1><div class="small">This starts a draft checklist in <code>maps/drafts/</code>. Edit it here or with your AI assistant, then publish it.</div></div></div>' +
+    return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1><div class="small">This starts a draft checklist in <code>maps/drafts/</code>. Edit it here or with your AI assistant, then publish it.</div></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
       '<div class="grid2">' + field('id', 'Process ID', 'lowercase, dashes: the file name and what skills point to', f.id, ' pattern="[a-z0-9][a-z0-9-]*" required') + field('title', 'Title', '', f.title, ' required') + '</div>' +
       '<div class="grid2">' + field('group', 'Group', 'its place in the hierarchy, like Engineering / Releases', f.group) + field('tags', 'Tags', 'comma-separated', f.tags) + '</div>' +
@@ -161,7 +161,7 @@
     var st = ctx.state, team = (ctx.data.stepTypes || {}).types || {}, errs = (ctx.data.stepTypes || {}).errors || [];
     var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }).length; };
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1>Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
     if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(e.errors.join('; ')); }).join('<br>') + '</span></div>';
     var skipped = (ctx.data.stepTypes || {}).skipped || 0;
     if (skipped) h += '<div class="notice warn" role="status"><span><b>' + skipped + ' more step-type file' + (skipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 100 in <code>step-types/</code>, by name. Remove types nobody uses.</span><button class="mini" data-act="health">Folder health</button></div>';

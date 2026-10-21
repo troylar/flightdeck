@@ -45,6 +45,8 @@ roles: author, reviewer
 | `roles` | no | Roles people are assigned to in each run. |
 | `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it), or `team` (the default). |
 
+In the builder, **Checklist details** sets `owner`, `backup`, `roles` and `context` without editing this block. Each step's form edits its note, and the Questions section has a panel with **Remove section**.
+
 ## Phases, steps and gates
 
 | Line | Meaning |
@@ -100,7 +102,7 @@ A phase can have a note and screenshots too, right under its heading and before 
 
 ## Needs Flightdeck 2.0
 
-A checklist that uses nothing on this list publishes as before, and every teammate can run it. One that uses any of these publishes a version that only Flightdeck 2.0 or later runs. The publish panel names what the draft uses before you publish; teammates on Flightdeck 1.21 or earlier see the version but can't run it until they update.
+A checklist that uses nothing on this list publishes as before, and every teammate can run it. One that uses any of these publishes a version that only Flightdeck 2.0 or later runs. The publish panel names what the draft uses before you publish; teammates on Flightdeck 1.22 or earlier see the version but can't run it until they update.
 
 - A note on a phase (`  > text` under a phase heading).
 - Screenshots on a phase (`  ![caption](images/…)` under a phase heading).

@@ -1,7 +1,7 @@
 [
   {
     "version": "2.0.0",
-    "date": "2026-10-20",
+    "date": "2026-10-21",
     "headline": "Notes and screenshots on phases and gates",
     "changes": [
       {
@@ -16,7 +16,7 @@
         "kind": "new",
         "area": "Corrections",
         "title": "Suggest a change to a phase's note or a gate's",
-        "now": "Anyone viewing a run can suggest new wording for a phase's note or a gate's. It is decided and applied to the draft like a step's correction. Teammates on Flightdeck 1.21 or earlier see it as a described problem.",
+        "now": "Anyone viewing a run can suggest new wording for a phase's note or a gate's. It is decided and applied to the draft like a step's correction. Teammates on Flightdeck 1.22 or earlier see it as a described problem.",
         "before": "Corrections could only be about a step."
       },
       {
@@ -30,7 +30,7 @@
         "kind": "improved",
         "area": "Publishing",
         "title": "The publish panel says when a version needs Flightdeck 2.0",
-        "now": "When a checklist uses something new in 2.0, the publish panel names it and says what that means: teammates on Flightdeck 1.21 or earlier see the version but can't run it. A checklist that uses nothing new publishes as before, and every teammate runs it."
+        "now": "When a checklist uses something new in 2.0, the publish panel names it and says what that means: teammates on Flightdeck 1.22 or earlier see the version but can't run it. A checklist that uses nothing new publishes as before, and every teammate runs it."
       },
       {
         "kind": "new",
@@ -67,6 +67,29 @@
         "title": "Evidence checks pins and the published payload",
         "now": "Evidence for a run made with Flightdeck 2.0 checks that its version's pins and payload match what was published, and step fingerprints include the version each step runs.",
         "before": "Pins weren't part of the evidence."
+      }
+    ]
+  },
+  {
+    "version": "1.22.0",
+    "date": "2026-10-20",
+    "headline": "Back and Forward work inside Flightdeck",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Navigation",
+        "title": "Back and Forward work inside Flightdeck",
+        "before": "The browser's Back button left Flightdeck.",
+        "now": "Back and Forward move between screens, runs and the receipt. Back closes an open dialog first, and never loses what you typed.",
+        "where": "Everywhere; Alt+Left and Alt+Right work too"
+      },
+      {
+        "kind": "new",
+        "area": "Builder",
+        "title": "The builder edits a checklist's details, step notes and Questions",
+        "before": "The builder sent you to the Markdown to list roles and run details, set the owner, change a step's note, or answer and remove a Questions section.",
+        "now": "Checklist details, at the top of the outline, sets the owner and backup owner and adds or removes roles and run details. Each step's form has its note. The Questions section opens in a panel where you edit it, then Remove section clears it for publishing. Undo works on all of them.",
+        "where": "Process › Edit › Builder"
       }
     ]
   },

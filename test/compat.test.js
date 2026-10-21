@@ -620,4 +620,37 @@ eachTag('In its app, a newer flightdeck.html in the team folder is announced fro
   assert.ok(!/is in the team folder/.test(app.top()), 'an older one isn\'t');
 });
 
+/* ---------- 1.22.0: the builder edits the checklist's details, notes and Questions section ---------- */
+const BUILT = (() => {
+  const PF = H.loadMain(), O = PF.outline, step = (t, op) => { const r = O.apply(t, op); assert.ok(r && !r.error, r && r.error); return r.text; };
+  let t = ['---', 'process: built', 'title: Built in the builder', 'owner: person-casey', 'x-team: kept', '---', '',
+    '## First · READ-DO {#first}', '- [!] {confirm} One {#one}', '- [ ] {confirm} Two {#two}', '',
+    '## Questions for the owner', '- Who?', ''].join('\n');
+  t = step(t, { op: 'meta', key: 'roles', set: { add: 'lead' } });
+  t = step(t, { op: 'meta', key: 'context', set: { add: 'ticket' } });
+  t = step(t, { op: 'meta', key: 'backup', set: { value: 'person-avery' } });
+  t = step(t, { op: 'edit', step: 'one', set: { role: 'lead', on: true } });
+  t = step(t, { op: 'edit', step: 'two', set: { bind: 'ticket', on: true } });
+  t = step(t, { op: 'note', step: 'one', text: 'First line\n\n  indented > kept\n' });
+  t = step(t, { op: 'questions', text: '- Who? Casey.' });
+  t = step(t, { op: 'removeQuestions' });
+  return t;
+})();
+eachTag('reads a draft edited in the 1.22.0 builder (details, notes, Questions removed) as this version does, and finds nothing to fix', (PF, tg) => {
+  const mine = H.loadMain().map.parse(BUILT), theirs = PF.map.parse(BUILT);
+  same(theirs.meta.roles, ['lead']); same(theirs.meta.context, ['ticket']); same(theirs.meta.owner, 'person-casey');
+  if (theirs.meta.backup !== undefined || at(tg.version, '1.15.0')) same(theirs.meta.backup, 'person-avery');
+  same(theirs.errors, []); assert.ok(!theirs.questions);
+  same(PF.map.steps(theirs).map(x => [x.step.id, x.step.roles, x.step.binds, x.step.note, x.step.must]), PF.map.steps(mine).map(x => [x.step.id, x.step.roles, x.step.binds, x.step.note, x.step.must]));
+  assert.strictEqual(PF.map.findStep(theirs, 'one').step.note, 'First line\n\n  indented > kept\n');
+  same(PF.map.check(theirs, {}).blockers, []);
+}, t => t.supported);
+rule('1.22.0: a draft edited in the builder publishes as preflight-publication/1, with no features', () => {
+  const PF = H.loadMain(), b = PF.publish.build(BUILT, { by: 'person-casey', changes: 'Built', now: AT, existing: [], people: [] });
+  assert.ok(b.files, JSON.stringify(b.blockers));
+  const info = JSON.parse(b.files['publication.json']);
+  assert.strictEqual(info.format, 'preflight-publication/1'); assert.ok(!('features' in info));
+  assert.ok(!/^(format|features):/m.test(BUILT), 'the draft names no format');
+});
+
 run();
