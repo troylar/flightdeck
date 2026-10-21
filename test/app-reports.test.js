@@ -188,7 +188,7 @@ rule('App: declining a report whose acceptance decision is still waiting superse
   app.click('rep-accept-go', x.key); await app.tick(120);
   assert.deepStrictEqual(decisions(app), [], 'set-up: the decision failed');
   app.click('rep-decline', x.key); await app.tick();
-  app.set('rep-reason', 'Wrong build'); app.click('rep-decline-go', x.key); await app.tick(120);
+  app.set(app.PF.reports.reasonId(x.key), 'Wrong build'); app.click('rep-decline-go', x.key); await app.tick(120);
   assert.deepStrictEqual(decisions(app).map(d => [d.status, d.rev]), [['declined', 1]]);
   await openStep(app, 'jenkins');
   assert.ok(/Another decision on it is in the folder too \(declined by Casey[^)]*\)/.test(app.html()), 'the acceptance in the run and the decline are both shown');
@@ -248,6 +248,53 @@ rule('App: a logged acceptance isn\'t recorded while this window holds a change 
   app.click('rep-record', x.key); await app.tick(120);
   assert.deepStrictEqual(decisions(app), [], 'nothing recorded for evidence that isn\'t saved');
   app.PF.repo.saveRun = orig;
+});
+
+rule('App: a logged acceptance isn\'t recorded while the run couldn\'t be read on the last check', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
+  j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '1432', buildLink: 'https://ci.example.com/jobs/1432' } };
+  j.log.push({ at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') });
+  j.rev = (j.rev || 0) + 1;
+  await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  assert.ok(/data-act="rep-record"/.test(app.html()), 'set-up: recordable');
+  // The folder's run now says 9999, and this window's read of it fails: what it shows (1432) isn't what the folder holds.
+  const path = app.run().path;
+  j.steps.jenkins.values.build = '9999'; j.rev += 1;
+  await app.fs.write(path, JSON.stringify(j, null, 2));
+  const read = app.fs.read.bind(app.fs);
+  app.fs.read = p => p === path ? Promise.reject(new Error('NotReadableError')) : read(p);
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  app.click('rep-record', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), [], 'nothing recorded from a run that couldn\'t be read');
+  // Readable again: it's the 9999 the folder holds, so the report's evidence isn't there and nothing is offered.
+  app.fs.read = read;
+  app.click('refresh'); await app.tick(120); await openStep(app, 'jenkins');
+  app.click('rep-record', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), []);
+});
+
+rule('App: a decline reason typed for one report never lands in another report\'s form', async () => {
+  const app = await recording();
+  const a = await plant(app);
+  const b = await plant(app, { id: 'efgh5678' });
+  await openStep(app, 'jenkins');
+  const field = () => (/<textarea id="([^"]+)"/.exec(app.html()) || [])[1];
+  app.click('rep-decline', a.key); await app.tick();
+  const ra = field();
+  app.set(ra, 'Wrong build for report A');
+  app.click('rep-decline', b.key); await app.tick();
+  const rb = field();
+  assert.ok(!/Wrong build for report A/.test(app.html()), 'B\'s form starts empty');
+  assert.ok(ra !== rb, 'each report has its own field');
+  app.click('rep-decline-go', b.key); await app.tick(60);
+  assert.deepStrictEqual(decisions(app), [], 'B needs its own reason');
+  app.set(rb, 'Old tag'); app.click('rep-decline-go', b.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app).map(d => [d.report, d.reason]), [['efgh5678', 'Old tag']]);
 });
 
 rule('App: a logged acceptance whose evidence was changed since isn\'t recorded as the report\'s', async () => {
@@ -329,7 +376,7 @@ rule('App: Fill in after an acceptance shows the evidence changed; Decline needs
   app.click('rep-decline-go', x.key); await app.tick(60);
   assert.ok(/Say why it(&#39;|')s declined/.test(app.html()), 'the reason is required');
   assert.strictEqual(decisions(app).length, 1, 'nothing written without one');
-  app.set('rep-reason', 'Wrong build'); app.click('rep-decline-go', x.key); await app.tick(120);
+  app.set(app.PF.reports.reasonId(x.key), 'Wrong build'); app.click('rep-decline-go', x.key); await app.tick(120);
   let ds = decisions(app).sort((a, b) => a.rev - b.rev);
   assert.deepStrictEqual(ds.map(d => d.status), ['accepted', 'declined']);
   assert.strictEqual(ds[1].reason, 'Wrong build');

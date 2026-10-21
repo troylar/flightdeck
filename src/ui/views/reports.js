@@ -103,9 +103,9 @@
       return h;
     }
     if (pick && pick.mode === 'decline') {
-      var err = st.fieldErr && st.fieldErr.id === 'rep-reason';
-      h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, 'rep-reason') +
-        '<label class="small" for="rep-reason">Why not? The run will show this.</label><textarea id="rep-reason" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-rep-reason"' : '') + '>' + esc(pick.reason || '') + '</textarea>' +
+      var rid = X.reasonId(g.key), err = st.fieldErr && st.fieldErr.id === rid;
+      h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
+        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(pick.reason || '') + '</textarea>' +
         '<div class="row"><button class="btn" data-act="rep-decline-go" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Decline</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
       return h;
     }

@@ -4456,7 +4456,7 @@
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */
     'rep-accept': function (id) { repOpenForm(id, 'accept'); },
     'rep-decline': function (id) { repOpenForm(id, 'decline'); },
-    'rep-cancel': function (id) { state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'rep-cancel': function (id) { state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
@@ -4884,8 +4884,8 @@
     if (!o.it || !ctx.recording(o.r)) return;
     var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
     state.repPick = { key: id, mode: mode, reason: '' };
-    if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
-    state.focus = mode === 'decline' ? 'rep-reason' : 'rep-' + n + '-cf';
+    if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
+    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
     render();
   }
   /* Acceptances this window made whose decision isn't written yet, per folder (docs/design.md section 26): kept across a
@@ -4987,9 +4987,9 @@
     if (!o.it || state.repSaving) return;
     if (!ctx.recording(o.r)) { say('Only the recorder can decide on a report.', 'warn'); render(); return; }
     if (repHeld(o.it.g)) { say(repHeld(o.it.g), 'warn'); render(); return; }
-    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], reason = status === 'declined' ? val('rep-reason') : '', rec;
+    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? val(rid) : '', rec;
     try { rec = X.decision(g, g.sha256, status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
-    catch (e) { if (e.field) { if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: e.field, msg: e.message }; state.focus = e.field; } else say(e.message, 'warn'); render(); return; }
+    catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
     state.repSaving = id; render();
     putDecision(dfs, rec).then(function () {
@@ -4997,7 +4997,7 @@
          names it, so it can be recorded later as a choice). */
       var ins = acceptsOf(); if (ins[g.key] && !ins[g.key].writing) delete ins[g.key];
       if (gg !== gen) return;
-      state.repSaving = null; state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
+      state.repSaving = null; state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
       state.focus = 'ins-reps';
       return load(true);
@@ -5007,19 +5007,21 @@
      a copy with exactly the logged SHA-256, never from other bytes. */
   /* A decision vouches for the run as it is in the folder: never while this window holds a change to it that isn't saved. */
   function runUnsaved(r) { return r && (state.unsaved[r.id] || (state.pendingSaves || {})[r.id]) ? 'The run isn\'t saved yet. The decision is recorded once the step is saved.' : ''; }
+  /* ...nor while the run couldn't be read: what this window shows of it may not be what the folder holds. */
+  function runNotSure(r) { return !r ? 'The run isn\'t in the team folder as this window last read it, so no decision was recorded.' : runUnsaved(r) || repReadOnly(r); }
   function recordAccept(id) {
     var o = repItem(id), r = o.r;
     if (!r) return;
     var X = PF.reports, key = r.process + '/' + r.id, ins = acceptsOf(), mine = ins[id];
     if (mine && mine.runKey === key) {
       if (mine.writing) return;
-      if (runUnsaved(r)) { say(runUnsaved(r), 'warn'); render(); return; }
+      if (runNotSure(r)) { say(runNotSure(r), 'warn'); render(); return; }
       if (!X.landed(r, mine)) { delete ins[id]; say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
       writeAccept(mine); render(); return;
     }
     var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
     if (!u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
-    if (repHeld(u.g) || runUnsaved(r)) { say(repHeld(u.g) || runUnsaved(r), 'warn'); render(); return; }
+    if (repHeld(u.g) || runNotSure(r)) { say(repHeld(u.g) || runNotSure(r), 'warn'); render(); return; }
     var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();
     freshGroup(dfs, u.g).then(function (g) {
@@ -5036,7 +5038,7 @@
       /* Judged again inside the write queue: no unsaved change, and the run still holds exactly this answer and evidence. */
       return putDecision(dfs, rec, function () {
         var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
-        return runUnsaved(r3) || (u3 && u3.recordable && X.fingerprint(r3.steps[g.step].values || {}, X.schemaOf(r3, x.step)) === rec.answer.fp ? '' : 'The step was answered or changed since, so this acceptance isn\'t recorded.');
+        return runNotSure(r3) || (u3 && u3.recordable && X.fingerprint(r3.steps[g.step].values || {}, X.schemaOf(r3, x.step)) === rec.answer.fp ? '' : 'The step was answered or changed since, so this acceptance isn\'t recorded.');
       }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
     }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });
   }

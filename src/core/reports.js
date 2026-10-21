@@ -373,6 +373,8 @@ PF.reports = (function () {
     Object.keys(cur).forEach(function (k) { cur[k].accepts = accepts[k] || dict(); });
     return cur;
   }
+  /* The decline reason's field, one per report, so a reason typed for one report never lands in another's form. */
+  function reasonId(key) { return 'rep-reason-' + U.hash(String(key)); }
   function acceptKey(sha, at, by) { return sha + '\n' + at + '\n' + by; }
   /* An acceptance's decision waiting to be written (rec), against the folder now (hit: current()'s entry for its report;
      taken: a decision file already has rec's name, i.e. this window decided again at that rev): 'recorded' when a decision file
@@ -563,5 +565,5 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, rebase: rebase, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, rebase: rebase, reasonId: reasonId, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();
