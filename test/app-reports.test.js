@@ -629,6 +629,30 @@ rule('App: a decline reason being typed keeps its box and Cancel when this perso
   assert.strictEqual(decisions(app).length, 0, 'nothing was decided');
 });
 
+rule('App: saving a decline closes only that report\'s form; another report\'s open form keeps its draft', async () => {
+  const app = await recording();
+  const a = await plant(app);
+  const b = await plant(app, { id: 'efgh5678' });
+  await openStep(app, 'jenkins');
+  const boxText = id => (new RegExp('<textarea id="' + id + '"[^>]*>([^<]*)<').exec(app.html()) || [])[1];
+  app.click('rep-decline', a.key); await app.tick();
+  const ra = (/<textarea id="(rep-reason-[^"]+)"/.exec(app.html()) || [])[1];
+  app.set(ra, 'Still deciding on A');
+  app.click('rep-decline', b.key); await app.tick();
+  const rb = [...app.html().matchAll(/<textarea id="(rep-reason-[^"]+)"/g)].map(m => m[1]).filter(x => x !== ra)[0];
+  app.set(rb, 'Wrong build');
+  app.click('rep-decline-go', b.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app).map(d => [d.report, d.reason]), [['efgh5678', 'Wrong build']], 'B is declined');
+  app.click('refresh'); await app.tick(80);
+  assert.strictEqual(boxText(rb), undefined, 'B\'s form is closed');
+  assert.ok(new RegExp('data-act="rep-reopen" data-id="' + b.key + '"').test(app.html()), 'and B offers Reopen');
+  assert.strictEqual(boxText(ra), 'Still deciding on A', 'A\'s form keeps its draft');
+  app.click('nav', 'runs'); await app.tick(40);
+  app.click('open-run', app.run().key); await app.tick(40); await openStep(app, 'jenkins');
+  assert.strictEqual(boxText(rb), undefined, 'B stays closed after leaving and coming back');
+  assert.strictEqual(boxText(ra), 'Still deciding on A');
+});
+
 rule('App: this window\'s hint records only the acceptance it made: after Discard, an older acceptance of the same report isn\'t recorded by itself', async () => {
   const app = await recording();
   const x = await plant(app);

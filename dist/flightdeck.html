@@ -24624,7 +24624,7 @@ PF.examples = (function () {
       /* This person decided again: an acceptance of theirs still waiting for its decision is superseded (the run's log still
          names it, so it can be recorded later as a choice). */
       var hs = hintsOf(fk); if (hs[g.key] && !hs[g.key].busy) delete hs[g.key];
-      if (status === 'declined') delete repDrafts(fk)[g.key];
+      if (status === 'declined') { delete repDrafts(fk)[g.key]; repBoxes = repBoxes.filter(function (x) { return x.key !== g.key; }); }
       state.repSaving = null; state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
       state.focus = 'ins-reps';
