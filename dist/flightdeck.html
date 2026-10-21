@@ -24721,6 +24721,7 @@ PF.examples = (function () {
     var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
     if (!x || !rp) return { why: '' };
     if (fillOpenOn(key, id)) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
+    try { skillSeen(r, x.step); } catch (e) { return { why: e.message, fill: true, focus: '[data-act="refresh"]' }; }
     return { r: r, map: map, x: x, values: rp.values };
   }
   /* Inside the run's change: the answer with exactly the report's evidence (and, on a run/3 skill step, the registration as
@@ -25381,7 +25382,7 @@ PF.examples = (function () {
       });
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
-      var seen = skillSeen(r, x.step);
+      var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }
       if (seen) values._skill = seen;
       /* A value only Fill in holds (a Jira issue type or status): Fill in opens on that box instead of a refusal up top. */
       var jf = jiraFill(r, x.step);
@@ -25393,6 +25394,8 @@ PF.examples = (function () {
      Done, or accepting a report. null when there's nothing to record. */
   function skillSeen(r, step) {
     if (step.type !== 'run.skill' || r.format !== R.FORMAT3) return null;
+    /* When the skills couldn't be read this time, the list shown is the one read before: never evidence of what's current now. */
+    if (data.failed && data.failed.skills) throw new Error('The team folder\'s skills couldn\'t be read just now, so this step can\'t record which registration is current. Choose Try again above, then check it again.');
     var sname = R.fieldsOf(r, step).skill, reg = (data.skills || []).filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
     return reg ? PF.skills.observed(reg.skill) : null;
   }

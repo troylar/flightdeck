@@ -336,6 +336,48 @@ rule('App: accepting a report on a {run.skill} step in a run/3 records the regis
   assert.deepStrictEqual(same(acc), same(done), 'the same registration snapshot as Done');
 });
 
+rule('App: while skills/ can\'t be read, a {run.skill} step in a run/3 isn\'t checked, by Done or by accepting a report, so the skills read before never stand as the current registration', async () => {
+  for (const how of ['done', 'report']) {
+    const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    await app.fs.write('maps/drafts/notes.md', '---\nprocess: notes\ntitle: Release notes\ncategory: Operations\nowner: person-casey\n---\n\n## Write {#w}\n- [ ] {run.skill} Write the notes {#write}\n  skill: notes-writer\n  skillVersion: 1.2.0\n');
+    app.click('refresh'); await app.tick(120);
+    app.click('home'); await app.tick(); app.click('open-process', 'notes'); await app.tick();
+    app.set('change-note', 'First'); app.click('publish', 'notes'); await app.tick(120);
+    const info = JSON.parse(app.fs.files[app.files('publications/notes/').find(p => /publication\.json$/.test(p))].t);
+    const reg = (rev, version) => JSON.stringify({ format: 'flightdeck-skill/2', app: '2.0.0', id: 'sk-abcd1234', rev, seen: rev > 1 ? rev - 1 : null, name: 'notes-writer', version, location: 'https://example.com/skills/notes-writer',
+      implements: { process: 'notes', folder: info.folder, mapHash: info.mapHash, typesHash: info.typesHash }, description: 'Writes the release notes.', by: 'person-casey', updated: '2026-10-20T09:00:00.000Z' }, null, 2);
+    await app.fs.write('skill-registrations/notes-writer/sk-abcd1234.1.w-test.json', reg(1, '1.2.0'));
+    app.click('refresh'); await app.tick(120);
+    app.click('start', 'notes'); await app.tick(); app.submitForm('start-form'); await app.tick(120);
+    const path = app.files('runs/notes/').find(p => /run\.json$/.test(p)), j = JSON.parse(app.fs.files[path].t);
+    assert.strictEqual(j.format, 'preflight-run/3', 'set-up: a run/3');
+    if (how === 'report') {
+      const rep = { format: 'flightdeck-report/1', run: 'notes/' + j.id, publication: { folder: j.folder, version: +j.version }, step: 'write', verdict: 'pass', evidence: {},
+        producer: { name: 'notes-bot', version: '1.0.0' }, created: '2026-10-20T09:00:00.000Z', id: 'abcd1234', summary: 'Notes written.' };
+      await app.fs.write('reports/notes/' + j.id + '.write.notes-bot.abcd1234.json', JSON.stringify(rep, null, 2) + '\n');
+      app.click('refresh'); await app.tick(120);
+    }
+    // A newer revision lands, and skills/ stops listing: the app still shows revision 1 from the read before.
+    await app.fs.write('skill-registrations/notes-writer/sk-abcd1234.2.w-test.json', reg(2, '1.3.0'));
+    await app.fs.write('skills/other.json', JSON.stringify({ name: 'other', version: '1.0.0', location: 'there', implements: 'notes@1' }));
+    const list = app.fs.list.bind(app.fs);
+    app.fs.list = p => p === 'skills' ? Promise.reject(new Error('NotReadableError')) : list(p);
+    app.click('refresh'); await app.tick(160);
+    assert.ok(/Part of the team folder couldn(&#39;|')t be read/.test(app.html()), 'set-up: the skills part failed');
+    if (how === 'done') { app.click('toggle', 'write'); await app.tick(120); }
+    else {
+      await openStep(app, 'write');
+      const key = ['notes', j.id, 'write', 'notes-bot', 'abcd1234'].join('/');
+      app.click('rep-accept', key); await app.tick(); app.click('rep-accept-go', key); await app.tick(160);
+    }
+    const a = JSON.parse(app.fs.files[path].t).steps.write;
+    assert.ok(!a || a.s !== 'done', how + ': not checked: ' + JSON.stringify(a));
+    assert.ok(/skills couldn(&#39;|')t be read just now/.test(app.html() + app.live()), how + ': says why');
+    app.fs.list = list;
+  }
+});
+
 rule('App: Record the decision for this window\'s own acceptance is judged again when its write\'s turn comes', async () => {
   const app = await recording();
   const a = await plant(app), b = await plant(app, { id: 'efgh5678' });
