@@ -158,9 +158,11 @@
     if (!f) return '<div class="row"><button class="mini" data-act="nc-open"' + act + '>' + I('edit') + 'Suggest a change to this note</button></div>';
     var sfx = '-' + kind + '-' + id, eid = 'ferr-nc' + sfx, err = s.fieldErr && s.fieldErr.id === 'nc' + sfx ? s.fieldErr : null, bad = function (k) { return err && err.field === k ? ' aria-invalid="true" aria-describedby="' + esc(eid) + '"' : ''; };
     var fe = function (k) { return err && err.field === k ? '<p class="ferr" id="' + esc(eid) + '" role="alert">' + esc(err.msg) + '</p>' : ''; };
+    /* While it saves, what's typed is what's being saved: nothing typed then could be lost when the composer closes. */
+    var ro = f.sending ? ' readonly aria-readonly="true"' : '';
     return '<div class="corr-form nc-form" role="group" aria-label="Suggest a change to the ' + kind + '\'s note" data-draft-kept>' +
-      '<label class="small" for="nc-to' + esc(sfx) + '">What the note should say</label><textarea id="nc-to' + esc(sfx) + '" rows="3" maxlength="2000"' + bad('to') + '>' + esc(f.to) + '</textarea>' + fe('to') +
-      '<label class="small" for="nc-why' + esc(sfx) + '">Why (optional)</label><textarea id="nc-why' + esc(sfx) + '" rows="2" maxlength="2000"' + bad('why') + '>' + esc(f.why || '') + '</textarea>' + fe('why') +
+      '<label class="small" for="nc-to' + esc(sfx) + '">What the note should say</label><textarea id="nc-to' + esc(sfx) + '" rows="3" maxlength="2000"' + ro + bad('to') + '>' + esc(f.to) + '</textarea>' + fe('to') +
+      '<label class="small" for="nc-why' + esc(sfx) + '">Why (optional)</label><textarea id="nc-why' + esc(sfx) + '" rows="2" maxlength="2000"' + ro + bad('why') + '>' + esc(f.why || '') + '</textarea>' + fe('why') +
       '<p class="small">The team decides on it like any correction. Copies older than Flightdeck 2.0 show it as a described problem.</p>' +
       '<div class="row"><button class="btn" data-act="nc-save"' + act + (f.sending ? ' disabled' : '') + '>Save correction</button><button class="mini" data-act="nc-cancel"' + act + '>Cancel</button></div></div>';
   }

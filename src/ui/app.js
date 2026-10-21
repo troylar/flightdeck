@@ -4992,6 +4992,7 @@
     var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
     if (!x || !rp) return { why: '' };
     if (fillOpenOn(key, id)) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
+    try { skillSeen(r, x.step); } catch (e) { return { why: e.message, fill: true, focus: '[data-act="refresh"]' }; }
     return { r: r, map: map, x: x, values: rp.values };
   }
   /* Inside the run's change: the answer with exactly the report's evidence (and, on a run/3 skill step, the registration as
@@ -5301,7 +5302,7 @@
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
     var ncm = /^nc-(to|why)-(phase|gate)-(.+)$/.exec(e.target.id || ''), ncf = ncm && state.runKey && (state.noteCorrs || {})[ncKey(state.runKey, ncm[2], ncm[3])];
-    if (ncf) { ncf[ncm[1]] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'nc-' + ncm[2] + '-' + ncm[3]) state.fieldErr = null; }
+    if (ncf && !ncf.sending) { ncf[ncm[1]] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'nc-' + ncm[2] + '-' + ncm[3]) state.fieldErr = null; }
     if (/^corr-(to|text|why|happened)$/.test(e.target.id || '') && state.corrForm) { state.corrForm[e.target.id.slice(5)] = e.target.value; if (state.fieldErr && state.fieldErr.id === 'corr') state.fieldErr = null; render(); }
     /* The draft editor checks and previews as you type (redrawn at most every 250 ms; the editor itself is never replaced). */
     if (e.target.id === 'draft-editor') {
@@ -5652,7 +5653,7 @@
       });
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
-      var seen = skillSeen(r, x.step);
+      var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }
       if (seen) values._skill = seen;
       /* A value only Fill in holds (a Jira issue type or status): Fill in opens on that box instead of a refusal up top. */
       var jf = jiraFill(r, x.step);
@@ -5664,7 +5665,12 @@
      Done, or accepting a report. null when there's nothing to record. */
   function skillSeen(r, step) {
     if (step.type !== 'run.skill' || r.format !== R.FORMAT3) return null;
-    var sname = R.fieldsOf(r, step).skill, reg = (data.skills || []).filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
+    /* When the skills couldn't be read this time, the list shown is the one read before: never evidence of what's current now. */
+    if ((data.failed && data.failed.skills) || (data.skills && (data.skills.unlisted || data.skills.regsUnlisted))) throw new Error('The team folder\'s skills couldn\'t be read just now, so this step can\'t record which registration is current. Choose Try again above, then check it again.');
+    var sname = R.fieldsOf(r, step).skill, vs = data.skills && data.skills.verdicts, vd = vs && typeof sname === 'string' && Object.prototype.hasOwnProperty.call(vs, sname) ? vs[sname] : null;
+    /* A registration that's there but couldn't be read or listed is never recorded as none. */
+    if (vd && vd.kinds.some(function (k) { return k === 'legacy-unreadable' || k === 'revisions-unlisted' || k === 'revision-refused'; })) throw new Error('A registration of ' + sname + ' couldn\'t be read, so this step can\'t record which one is current. See Folder health, then check it again.');
+    var reg = (data.skills || []).filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
     return reg ? PF.skills.observed(reg.skill) : null;
   }
   /* The one way to answer a step, Done or Done differently, from every place that does it (row check, inspector Done, Space

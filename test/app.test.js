@@ -5932,6 +5932,34 @@ rule('App (2.0): anyone viewing a run can suggest a change to a phase\'s note or
   assert.ok(!/id="nc-to-gate-ready"/.test(app.html()), 'closed'); assert.ok(/Correction saved on this computer\./.test(app.html() + app.live()), 'said');
 });
 
+rule('App (2.0): while a note correction saves, its boxes are read-only, so nothing typed then is lost when the composer closes', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const md = app.fs.files['maps/drafts/release.md'].t;
+  await app.fs.write('maps/drafts/release.md', md.replace(/(## Gate: Ready to deploy[^\n]*\n  approves:[^\n]*\n)/, '$1  > Check the change board first.\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Gate note'); app.click('publish', 'release'); await app.tick(100);
+  const before = releaseRuns(app);
+  app.click('start', 'release'); await app.tick();
+  app.submitForm('start-form'); await app.tick(120);
+  const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t), key = 'release/' + run.id;
+  app.click('open-run', key); await app.tick(20);
+  app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
+  const orig = app.PF.repo.addNote, g = gate();
+  app.PF.repo.addNote = function () { const args = arguments; return g.p.then(() => orig.apply(this, args)); };
+  app.input('nc-to-gate-ready', 'Submitted note.'); app.click('nc-save', 'ready', { kind: 'gate' }); await app.tick();
+  const h = app.html();
+  assert.ok(/<textarea id="nc-to-gate-ready"[^>]* readonly[^>]*>Submitted note\.<\/textarea>/.test(h) && /<textarea id="nc-why-gate-ready"[^>]* readonly/.test(h), 'read-only while saving');
+  app.input('nc-to-gate-ready', 'New typing while saving'); await app.tick();
+  assert.ok(/<textarea id="nc-to-gate-ready"[^>]*>Submitted note\.<\/textarea>/.test(app.html()), 'what is shown is what is being saved');
+  g.open(); await app.tick(60);
+  app.PF.repo.addNote = orig;
+  const notes = newNotes(app, key).filter(n => n.kind === 'correction');
+  assert.strictEqual(notes.length, 1); assert.strictEqual(notes[0].change.to, 'Submitted note.');
+  assert.ok(!/id="nc-to-gate-ready"/.test(app.html()), 'closed once saved');
+});
+
 rule('App (2.0): the publish panel names the 2.0 features a draft uses and what that means for teammates on 1.22 or earlier; a draft that uses none says nothing', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
