@@ -250,4 +250,23 @@ rule('PF.skills.resolve: the one verdict for a skill name, from its legacy file 
   assert.ok(v.status === 'unmatched' && v.blocks && v.source === null, 'a refused revision holds the legacy skill too: ' + JSON.stringify(v));
 });
 
+rule('The checker never takes a folder or file it couldn\'t stat (an I/O error, not "no such file") for one that isn\'t there: the legacy skill beside it is held, never current', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-skeio-'));
+  try {
+    fs.mkdirSync(path.join(root, 'skills')); fs.mkdirSync(path.join(root, 'skill-registrations', 'legacy-only', 'r'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'skills', 'legacy-only.json'), JSON.stringify({ name: 'legacy-only', version: '0.9.0', location: 'there', implements: 'verify@1' }));
+    fs.writeFileSync(path.join(root, 'skill-registrations', 'legacy-only', 'x.1.w.json'), '{}');
+    const script = 'import sys, json, os, errno\nsys.path.insert(0, sys.argv[1])\nimport check_folder as c\nreal = os.lstat\n' +
+      'def bad(p, *a, **k):\n    if p.replace(os.sep, "/").endswith(sys.argv[3]): raise OSError(errno.EIO, "Input/output error")\n    return real(p, *a, **k)\n' +
+      'c.os.lstat = bad\nprint(json.dumps(c.skill_registrations(sys.argv[2])))';
+    const verdict = (target) => JSON.parse(cp.execFileSync(py, ['-I', '-c', script, path.dirname(CHECKER), root, target], { encoding: 'utf8' })).find(x => x.name === 'legacy-only');
+    for (const target of ['skill-registrations', 'skill-registrations/legacy-only', 'skill-registrations/legacy-only/x.1.w.json', 'skills/legacy-only.json']) {
+      const x = verdict(target);
+      assert.ok(x && x.status === 'unmatched' && x.blocks && /couldn't be read/.test(x.why), target + ': ' + JSON.stringify(x));
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

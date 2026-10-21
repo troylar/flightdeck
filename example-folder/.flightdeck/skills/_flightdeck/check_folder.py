@@ -18,6 +18,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import time
 
@@ -1031,14 +1032,32 @@ def _read_json(path):
 
 def _list(path):
     """(names, None), ([], None) for a folder that isn't there, or ([], why) for one that can't be listed: never empty."""
-    if not os.path.lexists(path):
+    # os.path.lexists says False for a folder it couldn't stat too (EIO, EACCES); only "no such file" is absent.
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
         return [], None
-    if os.path.islink(path):
+    except OSError as e:
+        return [], "couldn't be read (" + (e.strerror or str(e)) + ")."
+    if stat.S_ISLNK(st.st_mode):
         return [], "is a link, which Flightdeck doesn't follow."
     try:
         return sorted(os.listdir(path)), None
     except OSError as e:
         return [], "couldn't be listed (" + (e.strerror or str(e)) + ")."
+
+
+def _kind(path):
+    """("link" | "dir" | "file" | "other" | "missing", None), or (None, why) when it can't be told: never taken for missing."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return "missing", None
+    except OSError as e:
+        return None, "couldn't be read (" + (e.strerror or str(e)) + ")."
+    if stat.S_ISLNK(st.st_mode):
+        return "link", None
+    return ("dir" if stat.S_ISDIR(st.st_mode) else "file" if stat.S_ISREG(st.st_mode) else "other"), None
 
 
 def skill_registrations(root):
@@ -1053,10 +1072,12 @@ def skill_registrations(root):
     found, legacy_unlisted = _list(sdir)
     if legacy_unlisted:
         legacy_unlisted = "skills/ " + legacy_unlisted
-    files = [f for f in found if f.lower().endswith(".json") and os.path.isfile(os.path.join(sdir, f))]
+    kinds = {f: _kind(os.path.join(sdir, f)) for f in found if f.lower().endswith(".json")}
+    # A file that can't be told from a folder is read as one that couldn't be read, never left out.
+    files = [f for f in found if f in kinds and (kinds[f][1] or kinds[f][0] == "file" or (kinds[f][0] == "link" and os.path.isfile(os.path.join(sdir, f))))]
     dropped = files[MAX_SKILLS:]
     for f in files[:MAX_SKILLS]:
-        o, why, unreadable, _ = _read_json(os.path.join(sdir, f))
+        o, why, unreadable, _ = (None, kinds[f][1], True, b"") if kinds[f][1] else _read_json(os.path.join(sdir, f))
         x = {"why": why, "unreadable": unreadable} if why else check_legacy(o, f)
         x["file"] = "skills/" + f
         # A file speaks for the name it records and the one its file name says (PF.skills.legacyFor).
@@ -1073,10 +1094,14 @@ def skill_registrations(root):
         regs_unlisted = "skill-registrations/ " + regs_unlisted
     for name in found:
         ndir = os.path.join(rdir, name)
-        if os.path.islink(ndir):
+        kind, why = _kind(ndir)
+        if why:
+            mark(name, "skill-registrations/" + name + " " + why)
+            continue
+        if kind == "link":
             mark(name, "skill-registrations/" + name + " is a link, which Flightdeck doesn't follow.")
             continue
-        if not os.path.isdir(ndir):
+        if kind != "dir":
             continue
         inside, why = _list(ndir)
         if why:
@@ -1084,9 +1109,12 @@ def skill_registrations(root):
         for f in inside:
             if not f.lower().endswith(".json"):
                 continue
-            if os.path.islink(os.path.join(ndir, f)):
+            kind, why = _kind(os.path.join(ndir, f))
+            if why:
+                mark(name, "skill-registrations/" + name + "/" + f + " " + why)
+            elif kind == "link":
                 mark(name, "skill-registrations/" + name + "/" + f + " is a link, which Flightdeck doesn't follow.")
-            elif os.path.isfile(os.path.join(ndir, f)):
+            elif kind == "file":
                 paths.append("skill-registrations/" + name + "/" + f)
     paths.sort()
     for rel in paths[MAX_SKILLS:]:
