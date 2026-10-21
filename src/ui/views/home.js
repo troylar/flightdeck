@@ -6,8 +6,8 @@
   /* ---------- home ---------- */
   function runCard(ctx, r) {
     var map = R.mapOf(r), hl = R.headline(r, map), t = R.totals(r, map);
-    return '<button class="card" data-act="open-run" data-id="' + esc(runKey(r)) + '"><div class="row between"><span class="cat">' + esc(ctx.processTitle(r.process)) + ' · v' + esc(r.version) + '</span>' + avatar(ctx, r.recorder.person) + '</div>' +
-      '<span class="card-title">' + esc(r.title) + '</span><span class="state ' + hl.s + '">' + esc(hl.text) + '</span>' +
+    return '<button class="card" data-act="open-run" data-id="' + esc(runKey(r)) + '"><div class="row between"><span class="cat">' + esc(ctx.processTitle(r.process)) + '</span>' + avatar(ctx, r.recorder.person) + '</div>' +
+      '<span class="card-title">' + esc(r.title) + '</span><span class="state ' + hl.s + '">' + esc(K.hlText(r, hl)) + '</span>' +
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
       '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
   }
@@ -94,7 +94,7 @@
     var h = notices(ctx);
     if (st.needsReconnect && ctx.navPending && ctx.navPending()) h += '<div class="notice" role="status"><span>Reconnect to open the page you linked to.</span><button class="mini" data-act="reconnect">Reconnect</button></div>';
     if (st.fs && st.fs.kind === 'memory' && !st.needsReconnect) h += '<div class="notice"><span><b>You\'re looking at the examples</b>, a made-up team saved in this browser only. When you\'re ready, start or join your own team.</span><button class="btn" data-act="setup-mode" data-id="welcome">Start or join a team</button></div>';
-    h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : 'Choose who you are at the top right to see what needs you.', '', 'page-h');
+    h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : '', '', 'page-h');
     h += stillReading(ctx, true);
     if (V.setupHome) h += V.setupHome(ctx);
     if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
@@ -157,7 +157,8 @@
     var running = d.runs.filter(function (r) { return r.state === 'running' && (st.filter === 'all' || (!!st.me && (r.recorder.person === st.me || Object.keys(r.roles).some(function (k) { return r.roles[k] === st.me; })))); });
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
-    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process. To start one, pick its process.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() + '<button class="btn" data-act="ev-range">' + I('doc') + 'Export evidence…</button><button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
+    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
+      '<details class="rw-menu" data-disc="runs-more"' + ((st.disc || {})['runs-more'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list"><button class="mini" data-act="ev-range">' + I('doc') + 'Export evidence…</button></div></details><button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
     /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
     h += stillReading(ctx, false);
     var bad = (d.unreadable || []).filter(function (u) { return /^runs\//.test(u.path); });
@@ -176,7 +177,10 @@
       cardIds[p.id] = true;
       return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
     }).join('') + '</div></section>';
-    h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? K.paged(st, 'runs-ended', ended, cards, runKey) : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
+    /* The newest 8 finished runs, and any run with a warning; the rest one click away, remembered. */
+    var warned = function (r) { return (r._conflicts && r._conflicts.length) || (st.missing || {})[runKey(r)]; };
+    var flagged = ended.filter(function (r, i) { return i >= 8 && warned(r); }), older = ended.filter(function (r, i) { return i >= 8 && !warned(r); }), allOpen = (st.disc || {})['runs-older'];
+    h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? cards(ended.slice(0, 8)) + (flagged.length ? K.paged(st, 'runs-flagged', flagged, cards, runKey) : '') + (older.length ? '<details data-disc="runs-older"' + (allOpen ? ' open' : '') + '><summary class="small">Earlier finished runs (' + older.length + ')</summary>' + K.paged(st, 'runs-ended', older, cards, runKey) + '</details>' : '') : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
       (d.legacy.length ? '<p class="small">From Flightdeck v0.1 (read-only files in <code>runs/</code>): ' + d.legacy.map(function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }).join(', ') + '</p>' : '') + '</section>';
     return h;
   }
@@ -186,8 +190,8 @@
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
     var h = notices(ctx) + pageHead('Processes', 'Processes', 'Open one to run it or edit its checklist.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New process</button>');
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
-    h += '<section class="panel">' + K.tagBar(allTags(ctx), st.tags || []) + (procs.length ? K.tree(procs.filter(function (p) { return has(p.tags); }), function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
-      var pub = p.latest, info = pub ? 'v' + pub.info.version + ' · published by ' + esc(nameOf(ctx, pub.info.publishedBy)) : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
+    h += '<section class="panel">' + K.tagBar(allTags(ctx), st.tags || [], st.disc) + (procs.length ? K.tree(procs.filter(function (p) { return has(p.tags); }), function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+      var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
       if (p.draftChanged) flags.push('draft changes');
       if (p.clashes.length) flags.push('version clash');
@@ -197,7 +201,7 @@
         var pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;
         return '<button class="skillchip" data-act="open-skill" data-id="' + esc(x.skill.file || x.skill.name) + '">' + esc(x.skill.name) + ' <span class="pill ' + pill[0] + '">' + pill[1] + '</span></button>';
       }).join('') + '</div>' : '';
-      return '<li><button data-act="open-process" data-id="' + esc(p.id) + '"><span class="t">' + esc(p.title) + '</span>' + (flags.length ? '<span class="small" style="color:var(--stop)">' + esc(flags.join(' · ')) + '</span>' : '<span></span>') + '<span class="small">' + info + (p.lastRun ? ' · last run ' + esc(U.day(p.lastRun)) : '') + '</span>' + K.tagChips(p.tags) + '</button>' + skills + '</li>';
+      return '<li><button data-act="open-process" data-id="' + esc(p.id) + '"><span class="t">' + esc(p.title) + '</span>' + (flags.length ? '<span class="small" style="color:var(--stop)">' + esc(flags.join(' · ')) + '</span>' : '<span></span>') + '<span class="small">' + info + (p.lastRun ? ' · last run ' + esc(U.day(p.lastRun)) : '') + '</span></button>' + skills + '</li>';
     }, st.groupsOpen) : '<p class="small">No processes yet. Choose <b>New process</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
     return h;
   }
@@ -227,7 +231,7 @@
     if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2><ul class="rlist">' + ready.map(function (p) {
       return '<li><div class="row"><button class="link t" data-act="open-process" data-id="' + esc(p.id) + '">' + esc(p.title) + ' v' + p.latest.info.version + '</button><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy brief</button></div>' + V.briefBox(st, 'create:' + p.id) + '</li>';
     }).join('') + '</ul></section>';
-    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + K.tagBar(skillTags(skills, st.tags || []), st.tags || []) + (skills.length ? K.tree(skills.filter(function (k) { return has(k.x.skill.tags); }), function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, st.groupsOpen)
+    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + K.tagBar(skillTags(skills, st.tags || []), st.tags || [], st.disc) + (skills.length ? K.tree(skills.filter(function (k) { return has(k.x.skill.tags); }), function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, st.groupsOpen)
       : '<p class="small">No skills yet. Follow the steps above: once a process version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }

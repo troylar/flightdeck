@@ -113,14 +113,15 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
    target is where the lightness plan aims. */
 const BUDGETS = {
   home: { words: 139, buttons: 13, chips: 1, target: { words: 120 } },
-  /* Raised on purpose: the header now links to Skills and Step types, which left the top bar. */
-  processes: { words: 152, buttons: 25, chips: 30, target: { chips: 8 } },
-  'process page as a non-owner': { words: 280, buttons: 13, chips: 14, target: { words: 260, buttons: 16, chips: 12 } },
-  'process page as its owner': { words: 427, buttons: 24, chips: 20, target: { words: 430 } },
-  'run, just started': { words: 420, buttons: 42, chips: 9, target: { words: 300, buttons: 36, chips: 6 } },
-  finish: { words: 145, buttons: 6, inputs: 3, target: { words: 70, inputs: 0 } },
-  'new process': { words: 88, inputs: 8, target: { inputs: 1 } },
-  'builder, a step selected': { words: 278, buttons: 35, target: { words: 350, buttons: 36 } },
+  processes: { words: 95, buttons: 13, chips: 3, target: { chips: 8 } },
+  /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
+  'process page as a non-owner': { words: 268, buttons: 13, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
+  'process page as its owner': { words: 415, buttons: 24, chips: 9, target: { words: 430 } },
+  'run, just started': { words: 355, buttons: 39, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
+  finish: { words: 48, buttons: 4, inputs: 0, target: { words: 70, inputs: 0 } },
+  'new process': { words: 33, buttons: 6, inputs: 1, target: { inputs: 1 } },
+  /* Raised by 3 on purpose: the builder banner now says the whole path (Save draft, then Done to publish). */
+  'builder, a step selected': { words: 281, buttons: 35, target: { words: 350, buttons: 36 } },
   'folder health': { words: 135, buttons: 6, target: { words: 110 } }
 };
 async function screens() {

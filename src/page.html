@@ -223,6 +223,21 @@ button.tag.on { background: var(--plan-soft); color: var(--plan); border-color: 
 .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
 .badge { font-family: var(--label); font-weight: 600; font-size: 11px; line-height: 1.3; letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; }
 .b-must { background: var(--stop-soft); color: var(--stop); }
+/* Must do on a row: a red mark with a shape and a name (role="img", title), never color alone. */
+.mustmark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; background: var(--stop); color: #fff; font: 700 11px/1 var(--label); flex: none; }
+.pv-skill { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
+.pv-skill .ic { width: 12px; height: 12px; }
+b.dname { font-weight: 600; }
+.tagfold { margin: 0 0 8px; }
+.tagfold > summary, .np-more > summary, .rw-more > summary { cursor: pointer; }
+.np-more > summary { font-weight: 600; margin: 4px 0; }
+.np-more[open] { display: flex; flex-direction: column; gap: 12px; }
+.np-file { margin-top: -4px; }
+.np-tpls { display: flex; flex-wrap: wrap; gap: 8px; }
+.fu-add > summary { list-style: none; display: inline-flex; align-self: flex-start; }
+.fu-add > summary::-webkit-details-marker { display: none; }
+.fu-add[open] > summary { display: none; }
+.fu-add[open] { display: flex; flex-direction: column; gap: 10px; }
 .b-plan { background: var(--plan-soft); color: var(--plan); }
 .b-ref { background: var(--chip); color: var(--muted); }
 .b-warn { background: var(--amber-soft); color: var(--ink); }

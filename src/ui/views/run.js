@@ -5,6 +5,7 @@
   'use strict';
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, A = PF.attach, I = PF.icons.icon, esc = U.esc;
   var nameOf = K.nameOf, avatar = K.avatar, runKey = K.runKey, freshness = K.freshness;
+  var ATT_HELP = 'Images, PDF, text, logs and .zip, up to 10 MB each.';
   var BLOCK_REASONS = ['Failed', 'Waiting on someone', 'Not sure it passed'];
   var STATE_WORD = { open: 'not checked', done: 'done', na: 'not applicable', blocked: 'blocked', recheck: 'needs a re-check' };
   var GATE_WORD = { passed: 'Passed', waived: 'Waived', failed: 'Failed', review: 'Needs review', ready: 'Ready', open: 'Waiting on steps', locked: 'Locked' };
@@ -68,7 +69,7 @@
       var def = T.fieldDef(t, f), v = def && eff[f] ? R.fill(eff[f], r.details) : ''; if (!v || shown >= 2 || v.length > 32 || (def.kind !== 'text' && def.kind !== 'choice') || /^(expect|deadline|require|at|due|after|evidence|sets|carry)$/.test(f)) return;
       shown++; meta += '<span class="s-field">' + esc(def.label) + ' ' + esc(v) + '</span>';
     });
-    var badges = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
+    var badges = (s.must ? K.mustMark() : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
       (aState === 'recheck' ? '<span class="badge b-warn">Re-check: ' + esc(a.reason) + '</span>' : '') +
       (aState === 'blocked' ? '<span class="badge b-stop">Blocked · ' + esc(a.reason) + '</span>' : '') +
       (aState === 'na' ? '<span class="badge b-ref">N/A</span>' : '') +
@@ -126,7 +127,7 @@
     if (child) {
       /* The same verdict that refuses settlement (R.childHeld): a child it names can't stand for the step, current or not. */
       var off = cr ? R.childHeld(r, s.id, cr, procOf) : '';
-      var state = cr ? (cr.ended ? cr.ended.outcome : R.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
+      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : R.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
       if (!two && off) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
       var again = !fresh && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<span class="small">' + esc(target.why) + '</span><button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
       return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (fresh ? '' : off ? '. ' + esc(off) : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
@@ -170,11 +171,14 @@
     return esc(GATE_WORD[st] || st) + (st === 'review' ? ' (was ' + esc((rec2.s === 'review' ? rec2.was : rec2.s) || 'passed') + ')' : '') + ' by ' + esc(nameOf(ctx, rec2.by)) + ' at ' + U.hm(rec2.at) +
       (rec2.approved && Object.keys(rec2.approved).length ? ' for ' + esc(Object.keys(rec2.approved).map(function (k) { return k + ' ' + (rec2.approved[k] || '(not set)'); }).join(' · ')) : '') + (rec2.reason ? ': ' + esc(rec2.reason) : '');
   }
-  function gateBlock(ctx, r, map, pi, rec, sched) {
+  /* brief: the gate of a phase that can't start yet and is folded, so only its name and status show until it's reached
+     (never while a suggestion to its note is being written). */
+  function gateBlock(ctx, r, map, pi, rec, sched, brief) {
     var g = map.phases[pi].gate, st = R.gateStatus(r, map, pi), rec2 = r.gates[g.id], s = ctx.state, owner = g.owner && r.roles[g.owner], info = R.phaseInfo(r, map, pi);
     var approves = g.approves ? R.fill(g.approves, r.details) : '';
     var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? (R.solo(r) ? 'Confirm' : 'Confirm together') : 'Gate: ' + esc(g.title)) + '</span><span class="pill ' + st + '">' + GATE_WORD[st] + '</span>' +
       (st === 'passed' && s.justPassed === g.id ? '<span class="called-stamp">Passed</span>' : '') + '</div>';
+    if (brief) return h + (sched ? '<div class="badges">' + schedBadge(sched) + '</div>' : '') + '</div><div class="row"></div></div>';
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
     if (owner) h += '<div class="small">Owner: ' + esc(nameOf(ctx, owner)) + '</div>';
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';
@@ -209,7 +213,7 @@
     var s = ctx.state, me = s.me, rp = r.recorder.person;
     var risk = 'If the other window has changes OneDrive hasn\'t delivered yet, they\'ll show up as a conflict copy to review.';
     if (!r.recorder.session && R.waitingForHandoff(r)) return { text: '<b>' + esc(nameOf(ctx, r.recorder.handoff.from)) + ' handed recording to ' + (rp === me ? 'you' : esc(nameOf(ctx, rp))) + '.</b> Their last change hasn\'t reached this computer yet, so it can\'t be picked up here until OneDrive syncs it.', ctl: '' };
-    if (rp === me && !r.recorder.session) return { text: '<b>Recording is waiting for you</b> · revision ' + (r.rev || 0) + '. Pick it up to check steps in this window.', ctl: '<button class="btn go" data-act="pickup">Pick up recording</button>' };
+    if (rp === me && !r.recorder.session) return { text: '<b>Recording is waiting for you</b>. Pick it up to check steps in this window.', ctl: '<button class="btn go" data-act="pickup">Pick up recording</button>' };
     if (!r.recorder.session) return { text: 'Waiting for <b>' + esc(nameOf(ctx, rp)) + '</b> to pick up recording.', ctl: '' };
     if (rp === me) return { text: '<b>You\'re recording in another window.</b> This window is following. Choose Record here to record in this one; the other becomes view-only. ' + risk, ctl: '<button class="btn go" data-act="takeover">Record here</button>' };
     var ask = s.pick && s.pick.kind === 'takeover' ? '<span class="row rw-ask"><b>Take over from ' + esc(nameOf(ctx, rp)) + '? Only if they can\'t continue. ' + risk + '</b><button class="btn stop" data-act="takeover">Take over</button><button class="mini" data-act="unpick">Cancel</button></span>' : (me ? '<button class="mini" data-act="pick" data-kind="takeover" data-id="recorder">Take over recording</button>' : '');
@@ -220,7 +224,7 @@
   function strip(ctx, r) {
     var s = ctx.state, rec = ctx.recording(r), solo = R.solo(r), kind = 'follow', text = '', ctl = '';
     if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.'; }
-    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(r.ended.outcome) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
+    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
       var people = ctx.data.people.filter(function (p) { return !p.inactive; });
@@ -232,7 +236,7 @@
       else { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
     } else if (rec) {
       kind = 'rec';
-      text = (solo ? '<b>Your run</b>' : '<b>You\'re recording</b>') + ' · revision ' + (r.rev || 0);
+      text = solo ? '<b>Your run</b>' : '<b>You\'re recording</b>';
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
       var people2 = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== s.me; });
@@ -309,7 +313,7 @@
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
     var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
     var h = '<section class="rw-details" id="rw-details" aria-labelledby="rw-det-h"><h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details</h2>' +
-      '<p class="small">' + esc(map.meta.title) + ' · v' + esc(r.version) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + '</p>' +
+      '<p class="small">' + esc(map.meta.title) + ' · v' + esc(r.version) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
       (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
       (rec ? '<p class="small">Changing a detail sends steps that used it back for a re-check, and gates that approved it need review.</p>' : '') + migrationsList(ctx, r, map);
     if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<p class="small">' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops). ' + (pr ? '<button class="linkish" data-act="open-run" data-id="' + esc(pk) + '">Open it</button>' : '') + '</p>'; }
@@ -327,7 +331,7 @@
   /* ---------- Next up: where the run stands, never where this window is looking ---------- */
   function nextBar(ctx, r, map, nx, rec) {
     var s = ctx.state, hl = nx.hl, hint = '', main = '', btn = '';
-    if (nx.kind === 'ended') { hint = 'This run has ended'; main = hl.text; }
+    if (nx.kind === 'ended') { hint = 'This run has ended'; main = K.hlText(r, hl); }
     else if (nx.kind === 'paused') { hint = 'Paused'; main = r.paused.reason; btn = rec ? '<button class="btn go" data-act="resume">Resume</button>' : ''; }
     else if (nx.kind === 'blocked') { hint = 'Stopped · blocked (' + (r.steps[nx.step.id] || {}).reason + ')'; main = nx.step.text; btn = '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">Show blocked step</button>'; }
     else if (nx.kind === 'gate') {
@@ -524,7 +528,6 @@
     var chg = changedHere(ctx, r)[st.id];
     if (chg) h += '<div class="rw-prov">' + chg.map(function (g) { return provenance(ctx, r, map, st, g); }).join('') + '</div>';
     if (aState === 'blocked' || aState === 'recheck') h += '<div class="notice ' + (aState === 'blocked' ? 'bad' : 'warn') + ' rw-why"><span><b>' + (aState === 'blocked' ? 'Blocked' : 'Needs a re-check') + ':</b> ' + esc(a.reason) + (a.by ? ' · ' + esc(nameOf(ctx, a.by)) + ' ' + U.hm(a.at) : '') + '</span></div>';
-    if (s.keys && rec && work && aState !== 'done') h += '<p class="small rw-keys" aria-hidden="true">Space: check · N: note · B: blocked</p>';
 
     /* What to do */
     var how = (t.hint ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
@@ -543,8 +546,11 @@
       if (st.fields.deadline && !(a && a.deadline)) timeActs += '<button class="mini" data-act="pick" data-kind="deadline" data-id="' + esc(st.id) + '">Set deadline</button>';
     }
     if (s.pick && s.pick.id === st.id && s.pick.kind === 'deadline') timeActs = '<div class="pick" data-scope="deadline:' + esc(st.id) + '"><label for="pick-input">Deadline from the tool (for example 21:30):</label> <input id="pick-input" class="rw-in" placeholder="21:30" maxlength="8" data-enter="deadline" data-id="' + esc(st.id) + '" style="min-width:90px"><button class="mini" data-act="deadline" data-id="' + esc(st.id) + '">Set</button><button class="mini" data-act="unpick">Cancel</button></div>';
-    if (timing || timeActs) how += '<div class="rw-timing"><h4 class="rw-h4">Timing</h4><div class="badges">' + timing + '</div>' + (timeActs ? '<div class="row">' + timeActs + '</div>' : '') + '</div>';
+    /* Timing is on show when the checklist times the step, or it's started; otherwise Start waits under More for this step. */
+    var timed = !!(timing || st.fields.expect || st.fields.deadline || (s.pick && s.pick.id === st.id && s.pick.kind === 'deadline'));
+    if (timed && (timing || timeActs)) how += '<div class="rw-timing"><h4 class="rw-h4">Timing</h4><div class="badges">' + timing + '</div>' + (timeActs ? '<div class="row">' + timeActs + '</div>' : '') + '</div>';
     h += '<section class="rw-box" aria-labelledby="ins-do"><h3 class="rw-h3" id="ins-do">What to do</h3>' + (how || '<p class="small">Nothing more to it than the step says.</p>') + '</section>';
+    if (!timed && timeActs) h += '<details class="rw-more" data-disc="rw-more"' + ((s.disc || {})['rw-more'] ? ' open' : '') + '><summary class="small">More for this step</summary><div class="row">' + timeActs + '</div></details>';
 
     /* Record the result: evidence to type before Done, what was recorded, and Fill in for values known later. */
     var recFields = R.evidenceFor(r, st, R.fieldsOf(r, st)).list, editable = T.editable(t), showRec = recordShown(ctx, r, map, st.id);
@@ -559,8 +565,10 @@
       var fd = s.fieldsDraft && s.fieldsDraft.id === st.id && s.fieldsDraft.key === s.runKey && s.fieldsDraft.fs === ctx.fsKey ? s.fieldsDraft.values : {}, draft = Object.assign({}, fd);
       Object.keys(dr.fields || {}).forEach(function (k) { if (/^fld-/.test(k)) draft[k.slice(4)] = dr.fields[k]; });
       var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = R.evidenceFor(r, st, eff2).list;
+      /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
+      var jf = V.jiraFill ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
       recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for this run. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
-        T.relevant(t, eff2).map(function (f) { var d = T.fieldDef(t, f); return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', errFor(s, st.id, 'fld-' + f)); }).join('') +
+        T.relevant(t, eff2).concat(jf && T.relevant(t, eff2).indexOf(jf.field) < 0 && T.editable(t).indexOf(jf.field) >= 0 ? [jf.field] : []).map(function (f) { var d = T.fieldDef(t, f), mine = jf && jf.field === f; return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', mine ? jid : errFor(s, st.id, 'fld-' + f)) + (mine ? '<p class="ferr" id="' + esc(jid) + '">' + esc(jf.why) + '</p>' : ''); }).join('') +
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
@@ -618,8 +626,8 @@
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
-      (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? '<ul class="corrlist">' + rows.map(function (c) { return corrRow(ctx, c, idx[c.id], { withdraw: true }); }).join('') + '</ul>' : !(cf && cf.mode === 'correct') ? '<p class="small">If the checklist was wrong or unclear here, correct it. The team reviews corrections on the process page.</p>' : '') +
+      (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the process page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
+      (rows.length ? '<ul class="corrlist">' + rows.map(function (c) { return corrRow(ctx, c, idx[c.id], { withdraw: true }); }).join('') + '</ul>' : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     var notes = (r._notes || []).filter(function (n) { return n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; });
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' + (notes.length ? '<ul class="tnotes">' + notes.map(function (n) {
@@ -627,14 +635,14 @@
       return '<li' + (s.flash && s.flash.notes && s.flash.notes.indexOf(n.id) >= 0 ? ' class="flash"' : '') + '>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + '</div><div>' + U.mdInline(n.text) + '</div>' +
         attachments(ctx, n.id, n.files, n.fileInfo, 'note') +
         (rec && r.state === 'running' && n.text ? (made ? '<span class="small">Follow-up added</span>' : '<button class="linkish" data-act="add-followup" data-text="' + esc(n.text.slice(0, 300)) + '" data-step="' + esc(st.id) + '" data-from="' + esc(n.id) + '">Make it a follow-up</button>') : '') + '</div></li>';
-    }).join('') + '</ul>' : '<p class="small">No notes on this step yet.</p>');
+    }).join('') + '</ul>' : '');
     if (s.me) {
       var pend = ctx.attachments(runKey(r), st.id), ack = s.noteAck && s.noteAck.key === runKey(r) && s.noteAck.step === st.id;
       h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" data-draft-kept maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +
         pendingList(ctx, pend, 'note:' + st.id) +
-        '<div class="row"><button class="btn primary" data-act="add-note" data-id="' + esc(st.id) + '">Add note' + (pend.length ? ' with ' + pend.length + ' file' + (pend.length === 1 ? '' : 's') : '') + '</button><label class="btn" for="note-file">' + I('clip') + 'Attach</label><input type="file" id="note-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr">' +
+        '<div class="row"><button class="btn primary" data-act="add-note" data-id="' + esc(st.id) + '">Add note' + (pend.length ? ' with ' + pend.length + ' file' + (pend.length === 1 ? '' : 's') : '') + '</button><label class="btn" for="note-file">' + I('clip') + 'Attach</label><input type="file" id="note-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr" aria-describedby="att-help">' +
         (ack ? '<span class="small rw-ack" role="status">' + I('check') + 'Note added to this step.</span>' : '') + '</div>' +
-        '<p class="small">Images, PDF, text, logs and .zip, up to 10 MB each.</p></div>';
+        (pend.length ? '<p class="small" id="att-help">' + ATT_HELP + '</p>' : '<span class="sr" id="att-help">' + ATT_HELP + '</span>') + '</div>';
     }
     h += '</section>';
     return h + '</div></aside>';
@@ -657,7 +665,6 @@
     if (schedN) h += '<button class="mini" data-act="timeline" data-id="' + where + '" aria-expanded="' + !!s.timeline + '" aria-controls="rw-timeline">' + I('timeline') + 'Day timeline · ' + schedN + (lateN ? ' · ' + lateN + ' late' : '') + '</button>';
     h += '<button class="mini" data-act="run-fu" data-id="' + where + '" aria-expanded="' + !!s.fuOpen + '" aria-controls="rw-fu">' + I('flag') + 'Follow-ups · ' + fus + '</button>';
     if (V.reportButton) h += V.reportButton(ctx, r, where);
-    if (where === 'rail') h += '<button class="mini" data-act="help">Keyboard shortcuts</button>';
     return h + '</div>';
   }
   /* The day at a glance: every step and gate with a clock time or an "after start" due time, in order. */
@@ -809,14 +816,14 @@
       var open = R.phaseOpen(r, map, pi), folded = (done || locked) && !s.unfold[p.id];
       var one = alone, hint = p.mode === 'READ-DO' ? (one ? 'Read each step, then do it.' : 'Read each step aloud, then do it.') : p.mode === 'DO-CONFIRM' ? (one ? 'Do the work, then stop and confirm each step.' : 'Do the work, then stop and confirm each step together.') : '';
       deck += '<section class="phase" id="phase-' + esc(p.id) + '" data-s="' + (done ? 'done' : locked ? 'locked' : 'open') + '"' + (pi === cur ? ' data-cur="true"' : '') + ' aria-labelledby="ph-' + esc(p.id) + '"><div class="placard"><span class="p-label">Phase ' + (pi + 1) + '</span><h2 class="p-title" id="ph-' + esc(p.id) + '" tabindex="-1">' + esc(p.title) + '</h2><span class="p-count">' + info.done + '/' + info.total + '</span>' +
-        (p.mode ? '<span class="mode">' + p.mode + '</span>' : '') +  (hint && !folded ? '<span class="mode-hint">' + hint + '</span>' : '') + '</div>';
+        (hint && !folded ? '<span class="mode-hint">' + hint + '</span>' : '') + '</div>';
       if (folded) deck += '<div class="folded"><span>' + (locked ? info.total + ' step' + (info.total === 1 ? '' : 's') + ', after the gate above' : tally(r, p)) + '</span><button class="mini" data-act="unfold" data-id="' + esc(p.id) + '" aria-expanded="false" aria-controls="phase-' + esc(p.id) + '">' + (locked ? 'Preview steps' : 'Show steps') + '</button></div>';
       else {
         deck += phaseNote(ctx, p);
         if ((done || locked) && s.unfold[p.id]) deck += '<div class="folded"><span>' + (locked ? 'A preview: these open after the gate above.' : tally(r, p)) + '</span><button class="mini" data-act="fold" data-id="' + esc(p.id) + '" aria-expanded="true" aria-controls="phase-' + esc(p.id) + '">Hide steps</button></div>';
         deck += stepsHtml(ctx, r, p, row(p, pi, open));
       }
-      deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id]) + '</section>';
+      deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id], folded && locked && !(s.noteCorrs || {})[ctx.fsKey + '\n' + runKey(r) + '|nc:gate:' + p.gate.id]) + '</section>';
     });
     /* A compact Phases picker, timeline and follow-ups for screens too narrow for the rail. */
     var picker = '<div class="rw-picker"><label class="small" for="rw-phase">Phase</label><select id="rw-phase" data-bound>' + map.phases.map(function (p, pi) {

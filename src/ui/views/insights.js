@@ -213,7 +213,7 @@
   }
 
   /* ---------- Runs: filters and the runs behind a number ---------- */
-  var OUTCOMES = [['', 'Any'], ['running', 'Still going'], ['Completed', 'Completed'], ['Stopped early', 'Stopped early'], ['Cancelled', 'Cancelled']];
+  var OUTCOMES = [['', 'Any'], ['running', 'Still going'], ['Completed', 'Completed'], ['Stopped early', 'Stopped early'], ['Cancelled', 'Canceled']];
   function active(f) { return !!f && !f.cohort && !!(f.process || f.folder || f.outcome || f.from || f.through); }
   function filterBar(ctx) {
     var st = ctx.state, f = st.runFilter && !st.runFilter.cohort ? st.runFilter : {}, runs = ctx.data.runs || [];

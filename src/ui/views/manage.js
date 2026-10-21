@@ -62,8 +62,9 @@
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
-    var status = saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved changes' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
-    var count = nb || nt, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
+    var status = saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved: Save draft before you publish' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
+    /* Only problems make a number; tips are listed under Checks without one. */
+    var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
     var h = '<div class="fpe" id="fpe"><header class="fpe-head" role="region" aria-labelledby="ed-h"><div class="fpe-id">' +
@@ -75,7 +76,7 @@
       '<button type="button" class="chipbtn fpe-checks' + (nb ? ' bad' : '') + '" data-act="ins-tab" data-id="checks" aria-label="Checks: ' + checksLabel + '">' + (count ? '<span class="fpe-checks-t">Checks </span><span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : I('check') + '<span class="fpe-checks-t">Checks</span>') + '</button></div>' +
       '<div class="fpe-save"><span class="fpe-savestate"><span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (just ? I('check') : '') + status + '</span>' +
       '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button></span>' +
-      '<button type="button" class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '" title="Saving never publishes. Choose Done, then publish it."' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving && saving !== 'restore' ? 'Saving…' : 'Save draft') + '</button></div></header>';
+      '<button type="button" class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '" title="Saving never publishes. Choose Save draft, then Done to publish it."' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving && saving !== 'restore' ? 'Saving…' : 'Save draft') + '</button></div></header>';
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
@@ -97,7 +98,7 @@
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
       checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c) +
-        '<p class="small">Saving never publishes. When it\'s ready, choose Done and publish it.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
+        '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Done to publish it.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
     var tabs = (builder ? [['selected', 'Selected']] : []).concat([['checks', 'Checks'], ['preview', 'Preview']]);
@@ -123,18 +124,34 @@
   }
 
   /* ---------- a new process ---------- */
+  /* The file name a title makes: "Onboard a new hire!" → onboard-a-new-hire. */
+  function fileIdOf(title) { var x = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, ''); return x; }
+  /* Title first, and only Title on show: the file name is made from it and shown as it's typed (state.newProc.typed, drawn
+     beside the box, never into it, so leaving with typing still asks). The rest waits under More options, opened when a file
+     name is refused. A start from the same templates setup offers, or a prompt for your AI assistant. */
   function newProcess(ctx) {
-    var st = ctx.state, f = st.newProc || {};
+    var st = ctx.state, f = st.newProc || {}, typed = f.typed || {}, tpl = f.tpl || 'blank';
     var field = function (id, label, hint, val, extra) { return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + '></label>'; };
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-    return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1><div class="small">This starts a draft checklist in <code>maps/drafts/</code>. Edit it here or with your AI assistant, then publish it.</div></div></div>' +
+    var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
-      '<div class="grid2">' + field('id', 'Process ID', 'lowercase, dashes: the file name and what skills point to', f.id, ' pattern="[a-z0-9][a-z0-9\\-]*" required') + field('title', 'Title', '', f.title, ' required') + '</div>' +
+      '<div class="np-tpls" role="group" aria-label="Start from">' + PF.setup.TEMPLATES.slice().sort(function (a, b) { return (a.id === 'blank' ? 0 : 1) - (b.id === 'blank' ? 0 : 1); }).map(function (t) { return '<button type="button" class="chipbtn" data-act="np-tpl" data-id="' + t.id + '" aria-pressed="' + (tpl === t.id) + '">' + esc(t.id === 'assistant' ? 'Ask your AI assistant' : t.title) + '</button>'; }).join('') + '</div>';
+    if (tpl === 'assistant') {
+      var text = PF.setup.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me || '', backup: '' });
+      return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Processes, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
+        '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
+    }
+    var more = (st.disc || {})['np-more'];
+    h += field('title', 'Title', '', f.title, ' required aria-describedby="np-file"') +
+      '<span class="small np-file" id="np-file">' + (file ? 'Saved as <code>' + esc(file) + '.md</code>' : 'The file name is made from the title.') + '</span>' +
+      '<details class="np-more" data-disc="np-more"' + (more ? ' open' : '') + '><summary>More options</summary>' +
+      field('id', 'File name', 'lowercase letters, numbers and dashes; it can\'t change later', f.id, ' pattern="[a-z0-9][a-z0-9\\-]*" placeholder="made from the title"') +
       '<div class="grid2">' + field('group', 'Group', 'its place in the hierarchy, like Engineering / Releases', f.group) + field('tags', 'Tags', 'comma-separated', f.tags) + '</div>' +
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
-      '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label>' +
-      '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
+      '<label class="field" for="np-owner">Owner <span class="small">keeps this checklist up to date</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label></details>';
+    return h + '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button>' + (tpl !== 'blank' ? '<button class="btn" type="button" data-act="np-publish">' + I('play') + 'Publish v1 as it is</button>' : '') + '<button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
   }
   /* The starting Markdown for a new process: front matter plus one phase to fill in. */
   function starterMap(f) {
@@ -150,10 +167,10 @@
     var fields = Object.keys(t.fields || {}), rec = t.record || [], key = 'type:' + t.id;
     var open = st.disc && st.disc[key];
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
-    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(t.label) + '</b> <code>{' + esc(t.id) + '}</code>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
+    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(t.label) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
-      '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><div class="tcols">' +
+      '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
       '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(d.options.join(' / ')) : '') + '</li>'; })) + '</div>' +
       '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(d.options.join(' / ')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
   }
@@ -170,9 +187,10 @@
     var allT = chosen.slice(); teamTypes.forEach(function (t) { T.tagsOf(t).forEach(function (x) { if (allT.indexOf(x) < 0) allT.push(x); }); }); allT.sort();
     var has = function (t) { var tg = T.tagsOf(t); return chosen.every(function (c) { return tg.indexOf(c) >= 0; }); };
     var shownTeam = teamTypes.filter(has), shownBuilt = T.LIST.filter(has);
-    h += K.tagBar(allT, chosen);
+    h += K.tagBar(allT, chosen, st.disc);
     h += '<section class="panel"><h2>Your team\'s types · ' + teamTypes.length + '</h2>' + (teamTypes.length ? (shownTeam.length ? K.tree(shownTeam, T.groupOf, function (t) { return typeCard(st, t, true, uses(t.id)); }, st.groupsOpen) : '<p class="small">None with these tags.</p>') : '<p class="small">None yet. Choose <b>New step type</b>, or copy a built-in below.</p>') + '</section>';
-    if (shownBuilt.length) h += '<section class="panel"><h2>Built-in types · ' + T.LIST.length + '</h2>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</section>';
+    /* The built-ins are a reference: one closed line, open once opened (or while a tag filter is on). */
+    if (shownBuilt.length) h += '<details class="panel fold" data-disc="types-built"' + ((st.disc || {})['types-built'] || chosen.length ? ' open' : '') + '><summary><h2>Built-in types · ' + T.LIST.length + '</h2></summary>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</details>';
     return h;
   }
   /* ---------- the step-type editor: a full page with a slim header, the form on the left and a live preview on the right ---------- */
@@ -441,10 +459,13 @@
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
     h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your processes, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
-    h += V.teamSetup(ctx);
+    /* Jira workflows and Keyboard are rarely changed: under More settings, except that a workflow problem stays on show. */
+    var jw = d.jira || { workflows: {}, errors: [] }, jbad = (jw.errors || []).length || Object.keys(jw.workflows || {}).some(function (k) { return jw.workflows[k].invalid; });
+    if (jbad) h += V.teamSetup(ctx);
     var th = V.THEMES[st.theme] ? st.theme : 'system';
     h += '<section class="panel" aria-labelledby="set-look"><h2 id="set-look">Appearance</h2><div class="seg" role="group" aria-labelledby="set-look">' + ['system', 'light', 'dark'].map(function (k) { return '<button type="button" data-act="theme" data-id="' + k + '" aria-pressed="' + (th === k) + '">' + I(V.THEMES[k].icon) + V.THEMES[k].label + '</button>'; }).join('') + '</div></section>';
-    h += '<section class="panel" aria-labelledby="set-keys"><h2 id="set-keys">Keyboard</h2><div class="row"><button class="btn" data-act="toggle-keys" aria-pressed="' + (st.keys !== false) + '">' + (st.keys !== false ? 'Single-key shortcuts are on' : 'Single-key shortcuts are off') + '</button><span class="small">Press ? anywhere to see them.</span></div></section>';
+    h += '<details class="panel fold" data-disc="set-more"' + ((st.disc || {})['set-more'] ? ' open' : '') + '><summary><h2>More settings</h2></summary>' + (jbad ? '' : V.teamSetup(ctx)) +
+      '<section aria-labelledby="set-keys"><h2 id="set-keys">Keyboard</h2><div class="row"><button class="btn" data-act="toggle-keys" aria-pressed="' + (st.keys !== false) + '">' + (st.keys !== false ? 'Single-key shortcuts are on' : 'Single-key shortcuts are off') + '</button><span class="small">Press ? anywhere to see them.</span></div></section></details>';
     h += '<section class="panel" aria-labelledby="set-about"><h2 id="set-about">About</h2><p>Flightdeck <b>' + esc(rel.version) + '</b>' + (rel.newer ? ' · <b>' + esc(rel.newer) + '</b> is in the team folder' : '') + '</p><div class="row">' + (rel.version === 'dev' ? '' : '<button class="btn" data-act="whats-new">What\'s new</button>') + '</div>' +
       '<p class="small">Install or update from a terminal: <code>npm install -g @troylar/flightdeck</code>, then <code>flightdeck install &lt;team folder&gt;</code>.</p></section>';
     return h;
@@ -453,7 +474,7 @@
   var keySeq = 0;
   function nextKey() { return 'k' + (++keySeq); }
   V.settings = settings; V.skill = skillPage; V.typeErrors = formErrors; V.nextRowKey = nextKey;
-  V.tabOf = tabOf; V.checklistPanel = checklistPanel; V.shownOf = shownOf; V.editTab = editTab; V.insTabOf = insTabOf; V.newProcess = newProcess; V.starterMap = starterMap;
+  V.tabOf = tabOf; V.checklistPanel = checklistPanel; V.shownOf = shownOf; V.editTab = editTab; V.insTabOf = insTabOf; V.newProcess = newProcess; V.starterMap = starterMap; V.fileIdOf = fileIdOf;
   V.types = types; V.typeDefOf = defOf; V.typeFormOf = formOf; V.typeSlugs = { id: slugId, name: slugName };
   /* Everything a person can change in the form, unnamed rows included, so a half-filled row still counts as a change. */
   /* The type's own text is compared the way saving writes it (trimmed, the group and tags as the file keeps them), so a form

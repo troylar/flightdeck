@@ -352,7 +352,7 @@ rule('The size limit: saving and Keep mine refuse a draft over 1 MB with the siz
   app.click('save-draft'); await app.tick(120);
   assert.ok(said(app, /Not saved: this draft is 1\.2 MB, and Flightdeck saves drafts up to 1 MB\. Shorten it by about 0\.2 MB \(long notes or pasted logs are the usual cause\), then save\. Your text is still here\./));
   assert.ok(/title: Production release/.test(app.fs.files[DRAFT].t), 'nothing written');
-  assert.ok(/Unsaved changes/.test(app.html()), 'still unsaved, still here');
+  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'still unsaved, still here');
   // Keep mine over someone else's change: refused the same way.
   await app.fs.write(DRAFT, retitle(app, 'Theirs'));
   app.input('draft-editor', retitle(app, 'Mine')); await app.tick(300);

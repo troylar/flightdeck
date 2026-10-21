@@ -59,7 +59,7 @@ rule('Live: a fast-forward proposal appears in the open editor within one look, 
   assert.strictEqual(log.filter(t => /Your AI assistant changed this draft: 1 step changed\. Undo available\./.test(t)).length, 1, 'announced once: ' + JSON.stringify(log));
   assert.ok(/data-act="tl-undo" data-id="draft"/.test(app.html()) && /Saved/.test(app.html()));
   app.click('tl-undo', 'draft'); await app.tick(60);
-  assert.ok(/Unsaved changes/.test(app.html()), 'Undo makes the draft unsaved; it never writes it');
+  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'Undo makes the draft unsaved; it never writes it');
   assert.strictEqual(app.fs.files[DRAFT].t, B);
   assert.ok(new RegExp(FLAGS).test(app.html()), 'the editor shows the text before the change');
   assert.ok(!/\bob-inc\b/.test(app.html()), 'no highlight once taken back');
@@ -80,7 +80,7 @@ rule('Live: an Undo before the save starts cancels it: withdrawn, the draft unto
   assert.strictEqual(app.fs.files[DRAFT].t, A, 'nothing written');
   assert.deepStrictEqual(statuses(app, p.id), ['withdrawn']);
   assert.ok(said(app, /You took back your AI assistant.s change\. It.s listed on the process page if you want it later\./));
-  assert.ok(!/Unsaved changes/.test(app.html()) && /title: Production release/.test(app.html()), 'the editor is back as it was, nothing unsaved');
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()) && /title: Production release/.test(app.html()), 'the editor is back as it was, nothing unsaved');
   await app.watch(); await app.watch();
   assert.strictEqual(attempts(app, p.id).length, 1, 'not applied again');
   assert.ok(/Your AI assistant proposed changes\./.test(app.html()), 'it waits for Review');
@@ -97,7 +97,7 @@ rule('Live: an Undo after the save started is an ordinary edit: the change is sa
   g.open(); await app.tick(200); app.fs.write = write;
   assert.strictEqual(app.fs.files[DRAFT].t, B, 'saved');
   assert.deepStrictEqual(statuses(app, p.id), ['applied']);
-  assert.ok(/Unsaved changes/.test(app.html()) && /title: Production release/.test(app.html()), 'the undone text stays, unsaved');
+  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()) && /title: Production release/.test(app.html()), 'the undone text stays, unsaved');
   app.click('save-draft'); await app.tick(120);
   assert.strictEqual(app.fs.files[DRAFT].t, A, 'saving it is the person\'s own change');
 });
@@ -111,7 +111,7 @@ rule('Live: an Undo after the save started is an ordinary edit: the change is sa
     app.input('draft-editor', retitle(A, 'Typed meanwhile')); await app.tick(40);
     pause.g.open(); await app.tick(200); pause.restore();
     assert.strictEqual(app.fs.files[DRAFT].t, A);
-    assert.ok(/title: Typed meanwhile/.test(app.html()) && /Unsaved changes/.test(app.html()));
+    assert.ok(/title: Typed meanwhile/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()));
     assert.deepStrictEqual(statuses(app, p.id), ['cancelled']);
   });
 });
@@ -256,18 +256,18 @@ rule('Live: a window that isn\'t the main editor leaves it waiting, with Review,
   await w1.watch(10100);
   assert.strictEqual(files[DRAFT].t, retitle(A, 'B'), 'the main editor applied it');
   await w2.watch(); await w2.watch();
-  assert.ok(/title: B/.test(w2.html()) && !/Unsaved changes/.test(w2.html()), 'the other editor follows it');
+  assert.ok(/title: B/.test(w2.html()) && !/Unsaved: Save draft before you publish/.test(w2.html()), 'the other editor follows it');
 });
 
 rule('Following the folder: an editor with nothing unsaved takes a newer draft as one undoable, announced change, not a barrier', async () => {
   const app = await live(), A = app.fs.files[DRAFT].t, B = retitle(A, 'Theirs');
   await app.fs.write(DRAFT, B);
   await app.watch(); await app.watch();
-  assert.ok(/title: Theirs/.test(app.html()) && !/Unsaved changes/.test(app.html()), 'follows it');
+  assert.ok(/title: Theirs/.test(app.html()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'follows it');
   assert.ok(said(app, /This draft changed in the team folder\. Undo available\./));
   assert.ok(!/aria-disabled="true"[^>]*data-act="tl-undo"|data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'Undo is available');
   app.click('tl-undo', 'draft'); await app.tick(40);
-  assert.ok(/title: Production release/.test(app.html()) && /Unsaved changes/.test(app.html()), 'one Undo: the earlier text, unsaved');
+  assert.ok(/title: Production release/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'one Undo: the earlier text, unsaved');
   assert.strictEqual(app.fs.files[DRAFT].t, B, 'Undo never writes the draft');
 });
 
@@ -275,9 +275,9 @@ rule('Apply on the process page with the editor open and nothing unsaved: one Un
   const app = await live(), A = app.fs.files[DRAFT].t, B = retitle(A, 'B'), p = plant(app, { text: B });
   app.click('prop-apply', p.id); await app.tick(200);
   assert.strictEqual(app.fs.files[DRAFT].t, B);
-  assert.ok(/title: B/.test(app.html()) && !/Unsaved changes/.test(app.html()));
+  assert.ok(/title: B/.test(app.html()) && !/Unsaved: Save draft before you publish/.test(app.html()));
   app.click('tl-undo', 'draft'); await app.tick(40);
-  assert.ok(/title: Production release/.test(app.html()) && /Unsaved changes/.test(app.html()), 'Undo takes it back as an unsaved edit');
+  assert.ok(/title: Production release/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'Undo takes it back as an unsaved edit');
 });
 
 rule('Live: an open dialog keeps focus and stays open while a change arrives', async () => {
@@ -342,7 +342,7 @@ rule('Review: when the save starts, live apply is checked again in full: hidden 
   assert.strictEqual(app.fs.files[DRAFT].t, A, 'no hidden save');
   assert.deepStrictEqual(statuses(app, p.id), ['cancelled']);
   app.doc.hidden = false; app.click('dismiss'); await app.tick();
-  assert.ok(/title: B/.test(app.html()) && /Unsaved changes/.test(app.html()), 'the change stays in the editor, unsaved');
+  assert.ok(/title: B/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'the change stays in the editor, unsaved');
   assert.ok(/Your AI assistant proposed changes while you have unsaved ones/.test(app.html()), 'with the waiting notice');
 });
 

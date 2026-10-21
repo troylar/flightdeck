@@ -309,9 +309,9 @@ rule('Process page: one page; the checklist shows in place with its Markdown on 
   state.ptab = 'edit';
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md.replace('## Deploy', '## Deploy · NOPE') };
   html = V.process(ctx);
-  assert.ok(/class="ob" id="ob"/.test(html) && !/id="draft-editor"/.test(html) && /Unsaved changes/.test(html) && /Preview/.test(html), 'the builder by default');
+  assert.ok(/class="ob" id="ob"/.test(html) && !/id="draft-editor"/.test(html) && /Unsaved: Save draft before you publish/.test(html) && /Preview/.test(html), 'the builder by default');
   state.builder = false; html = V.process(ctx);
-  assert.ok(/id="draft-editor"/.test(html) && /Unsaved changes/.test(html) && /Preview/.test(html) && /Changed lines · 1 new or changed, 1 removed/.test(html), 'Markdown on request, with the lines changed');
+  assert.ok(/id="draft-editor"/.test(html) && /Unsaved: Save draft before you publish/.test(html) && /Preview/.test(html) && /Changed lines · 1 new or changed, 1 removed/.test(html), 'Markdown on request, with the lines changed');
   state.editor.text = 'not a map';
   assert.ok(/Won.t publish yet/.test(V.process(ctx)), 'live checks');
   state.editor.conflict = { theirs: 'their text', theirsHash: 'y' };
@@ -327,7 +327,7 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: null };
   let html = V.process(ctx);
   assert.ok(/data-act="ed-mode" data-id="builder" aria-pressed="true"/.test(html) && /data-act="ed-mode" data-id="markdown" aria-pressed="false"/.test(html), 'a Builder | Markdown switch');
-  assert.ok(/Phase 1<\/div>/.test(html) && /data-ob-phase="prep"/.test(html) && /<span class="cat">DO-CONFIRM<\/span>/.test(html), 'phase cards');
+  assert.ok(/Phase 1<\/div>/.test(html) && /data-ob-phase="prep"/.test(html) && /<span class="cat">Do, then confirm<\/span>/.test(html), 'phase cards');
   assert.ok(/<li class="ob-step" draggable="true" data-ob-step="approved">/.test(html) && /b-must/.test(html) && /<span class="ob-chip">\^commit<\/span>/.test(html), 'rows with must-do and run detail chips');
   assert.ok(/class="fp-gate ob-gate"[^>]*><div class="ob-gate-copy"><span class="fp-gate-t">.*Gate: Ready to deploy/.test(html), 'a named gate is a striped bar');
   assert.ok(/class="fp-gate implicit ob-gate"/.test(html) && /aria-label="Add a gate to Verify in production"/.test(html), 'a phase without one offers to add it');
@@ -802,8 +802,8 @@ rule('Flight plan: the Checklist | Flight plan switch shows the same version as 
   assert.ok(/data-act="flight" data-id="list" aria-pressed="false">Checklist</.test(html) && /data-act="flight" data-id="plan" aria-pressed="true">Flight plan</.test(html) && /data-act="flight" data-id="md" aria-pressed="false">Markdown</.test(html), 'one switch: Checklist, Flight plan, Markdown');
   assert.ok(/<ol class="fp" aria-label="Flight plan">/.test(html) && />Start</.test(html) && />Landed</.test(html), 'an ordered route');
   assert.strictEqual((html.match(/data-act="flight-phase"/g) || []).length, 3, 'one button per phase');
-  assert.ok(/aria-label="Phase 2 of 3, Deploy, Read-Do, 4 steps, then gate Deployed. Show it in the checklist"/.test(html), 'each phase says where it is and what follows');
-  assert.ok(/Phase 1 · Do-Confirm/.test(html) && /6 steps · 4 must-do/.test(html), 'mode, steps and must-dos');
+  assert.ok(/aria-label="Phase 2 of 3, Deploy, Read, then do, 4 steps, then gate Deployed. Show it in the checklist"/.test(html), 'each phase says where it is and what follows');
+  assert.ok(/Phase 1 · Do, then confirm/.test(html) && /6 steps · 4 must-do/.test(html), 'mode, steps and must-dos');
   assert.ok(!/data-act="toggle-md"/.test(html) && !/class="ph"/.test(html), 'the checklist itself is not shown');
   state.clView = 'list'; html = V.checklistPanel(ctx, p);
   assert.ok(/data-act="flight" data-id="list" aria-pressed="true"/.test(html) && /<h3 id="cl-ph-1" tabindex="-1">Deploy/.test(html) && !/class="fp"/.test(html), 'Checklist has an anchor per phase');
@@ -1079,7 +1079,7 @@ rule('Run screen: anyone who has said who they are can correct a step; Suggest a
   state.me = 'person-blake'; state.sel = 'approved';
   let html = V.run(ctx), ins = insOf(html);
   assert.ok(!ctx.recording(r), 'set-up: Blake isn\'t recording');
-  assert.ok(/<h3 class="rw-h3" id="ins-corr">Corrections<\/h3><button class="mini" data-act="corr-open" data-mode="correct" data-id="approved">.*Correct this step<\/button>/.test(ins), 'from the step');
+  assert.ok(/<h3 class="rw-h3" id="ins-corr">Corrections<\/h3><button class="mini" data-act="corr-open" data-mode="correct" data-id="approved"[^>]*>.*Correct this step<\/button>/.test(ins), 'from the step');
   assert.ok(/data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="approved" data-shot="images\/release\/cab.png">Replace this screenshot/.test(ins), 'from its screenshot');
   assert.ok(!/fix-open|Suggest a fix|fixform/.test(html), 'Suggest a fix is gone, from steps and phases');
   assert.ok(!/data-mode="differently"/.test(ins), 'a viewer can\'t answer the step');
@@ -1164,7 +1164,7 @@ rule('Run record: the finish page and receipt list Corrections · N with Checkli
   const g = C.status(C.groups(C.collect([r], 'release')), [])[1];
   ctx.data.corrDecisions = [Object.assign(C.decision(g, 'person-avery', 'declined', 'We set them in the job', NOW), { _file: 'x.w.1.json' })];
   let html = V.finish(ctx);
-  assert.ok(/<h2>2\. Corrections · 4<\/h2>/.test(html) && /<span class="pill locked">Declined<\/span><span class="small corr-why-no">We set them in the job<\/span>/.test(html));
+  assert.ok(/<h2>Corrections · 4<\/h2>/.test(html) && /<span class="pill locked">Declined<\/span><span class="small corr-why-no">We set them in the job<\/span>/.test(html));
   assert.ok(/<span class="pill waived">One-off<\/span>/.test(html) && /<div class="corr-step">Full test gate green on the release commit<\/div>/.test(html) && /<dt>What happened<\/dt><dd>Ran it twice<\/dd>/.test(html));
   assert.ok(/data-act="add-followup" data-text="Update the checklist: Change request approved/.test(html), 'Make it a follow-up stays');
   assert.ok(/Phase: Verify in production/.test(html) && /A step is missing: Add an error budget check/.test(html), 'a suggested fix from before 1.13 shows as a problem');
@@ -1512,8 +1512,8 @@ rule('Preview keeps lanes as labeled groups, and keeps each step\'s labels and i
   state.insTab = 'preview';
   const html = V.process(ctx);
   assert.ok(/<div class="pv-lanes"><p class="pv-lanes-h">Do all lanes<\/p><div class="pv-lane"><p class="pv-lane-h">Product checks <span class="pv-role">@qa<\/span><\/p><ul>/.test(html), 'lanes as groups');
-  assert.ok(/<span class="pv-copy">Smoke prompts return their expected answers<\/span><span class="pv-meta"><span class="badge b-must">Must do<\/span><span class="pv-role">@qa<\/span><\/span>/.test(html), 'copy, then labels');
-  assert.ok(/<div class="g"><span class="ic"[^>]*>.*?<\/span><span class="pv-gate-copy">Gate: Deployed · approves <code>\^commit<\/code> running in \^environment<\/span><\/div>/.test(html), 'the gate as one sentence');
+  assert.ok(/<span class="pv-copy">Smoke prompts return their expected answers<\/span><span class="pv-meta"><span class="mustmark" role="img" aria-label="Must do" title="Must do">!<\/span><span class="pv-role">@qa<\/span><\/span>/.test(html), 'copy, then labels');
+  assert.ok(/<div class="g"><span class="ic"[^>]*>.*?<\/span><span class="pv-gate-copy">Gate: Deployed · approves <b class="dname">commit<\/b> running in <b class="dname">environment<\/b><\/span><\/div>/.test(html), 'the gate as one sentence');
 });
 
 rule('Draft editor: Checklist details, a step\'s note and the Questions panel escape everything from the files', () => {
@@ -1559,7 +1559,7 @@ function playPhase(r, pi) { const map = R.mapOf(r), dn = sampleDone(PF); map.pha
 rule('Run workspace: the strip says who records, with the control that goes with it, and what this window saved, in every state', () => {
   const { r, ctx, state } = setup(r => { r.roles.qa = 'person-blake'; });
   let h = stripOf(V.run(ctx));
-  assert.ok(/data-k="rec"/.test(h) && /<b>You're recording<\/b> · revision 0/.test(h) && /data-act="pick" data-kind="pause"/.test(h) && /data-act="pick" data-kind="handoff"[^>]*>.*Hand off/.test(h), 'recording here: Pause and Hand off beside it');
+  assert.ok(/data-k="rec"/.test(h) && /<b>You're recording<\/b>/.test(h) && !/revision 0/.test(h) && /data-act="pick" data-kind="pause"/.test(h) && /data-act="pick" data-kind="handoff"[^>]*>.*Hand off/.test(h), 'recording here: Pause and Hand off beside it');
   assert.ok(/<span id="fresh" data-k="strip"><span class="small">Folder checked /.test(h), 'when the folder was checked');
   r.savedAt = NOW; assert.ok(/Saved here \d+:\d\d [AP]M · Folder checked/.test(stripOf(V.run(ctx))), 'saved here and folder checked are separate facts');
   state.pendingSaves = { [r.id]: 1 }; assert.ok(/<span class="rw-saving">Saving…<\/span>/.test(stripOf(V.run(ctx))), 'saving');
@@ -1583,7 +1583,7 @@ rule('Run workspace: the strip says who records, with the control that goes with
   assert.ok(/handed recording to you\.<\/b> Their last change hasn't reached this computer yet/.test(h) && !/data-act="pickup"/.test(h), 'a handoff still syncing can\'t be picked up');
   r.rev = r.recorder.handoff.rev;
   h = stripOf(V.run(ctx));
-  assert.ok(/data-k="ready"/.test(h) && /Recording is waiting for you<\/b> · revision 1/.test(h) && /data-act="pickup">Pick up recording/.test(h), 'then it can');
+  assert.ok(/data-k="ready"/.test(h) && /Recording is waiting for you<\/b>/.test(h) && !/revision 1/.test(h) && /data-act="pickup">Pick up recording/.test(h), 'then it can');
 });
 
 rule('Run workspace: paused, ended, read-only and no-identity strips', () => {
@@ -1596,7 +1596,7 @@ rule('Run workspace: paused, ended, read-only and no-identity strips', () => {
   assert.ok(!/data-act="resume"/.test(h) && /data-act="pick" data-kind="takeover"/.test(h), 'others keep their way to take over');
   state.me = 'person-casey'; R.resume(r, 'person-casey', NOW); R.end(r, map, 'Cancelled', 'person-casey', 'Casey Nguyen', NOW);
   h = V.run(ctx);
-  assert.ok(/data-k="ended"/.test(stripOf(h)) && /<b>Ended: Cancelled<\/b> by Casey Nguyen at/.test(h) && /class="btn go" data-act="receipt"/.test(stripOf(h)), 'ended: who, when, and the Receipt');
+  assert.ok(/data-k="ended"/.test(stripOf(h)) && /<b>Ended: Canceled<\/b> by Casey Nguyen at/.test(h) && /class="btn go" data-act="receipt"/.test(stripOf(h)), 'ended: who, when, and the Receipt');
   assert.ok(!/data-act="(toggle|record)" data-id="[^"]+">/.test(h) && !/data-act="pick" data-kind="(pause|handoff|block)"/.test(h), 'no recording or completion controls');
   const ro = setup().ctx; ro.run()._unrunnable = 'This version uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
   h = V.run(ro);
@@ -1631,7 +1631,7 @@ rule('Run workspace: rows are compact, with the check and the row as separate na
   let html = V.run(ctx), row = rowOf(html, 'merge');
   assert.ok(/^<li class="step next" data-a="open" id="step-merge"><button class="check" role="checkbox" aria-checked="false" aria-label="Merge the release branch to master, not checked, must do" data-act="toggle" data-id="merge">/.test(row), row);
   assert.ok(/<button class="s-pick" data-act="select" data-id="merge" aria-pressed="false" aria-controls="rw-ins"><span class="s-next">Next<\/span>/.test(row), 'selecting is its own control');
-  assert.ok(/<span class="s-who">Casey Nguyen<\/span>/.test(row) && /<span class="badge b-must">Must do<\/span>/.test(row), 'who does it; must-do stays quiet');
+  assert.ok(/<span class="s-who">Casey Nguyen<\/span>/.test(row) && /<span class="mustmark" role="img" aria-label="Must do" title="Must do">!<\/span>/.test(row), 'who does it; must-do stays quiet');
   state.sel = 'pods'; html = V.run(ctx);
   assert.ok(/<li class="step sel" data-a="open" id="step-pods">/.test(html) && /<li class="step next" data-a="open" id="step-merge">/.test(html), 'browsing elsewhere never moves the run\'s marker');
   assert.ok(/data-act="select" data-id="pods" aria-pressed="true"/.test(html));
@@ -1726,7 +1726,7 @@ rule('Run workspace: attachments show as thumbnails or named files with sizes, n
   assert.ok(/data-act="att-save"[^>]*data-path="[^"]*book\.pdf" aria-label="Save a copy of book\.pdf, 1\.4 MB">.*<span class="att-n">book\.pdf<\/span><span class="small">1\.4 MB<\/span><span class="att-do">Save<\/span>/.test(ins), 'a PDF saves a copy, with its name and size');
   assert.ok(/<span class="att-n">all\.zip<\/span><span class="att-do">Save<\/span>/.test(ins), 'a name from the path when the note has no details');
   assert.ok(/<ul class="att-list pending" aria-label="Waiting to attach"><li class="att">.*values\.yaml<\/span><span class="small">512 bytes<\/span><button class="mini" data-act="att-remove" data-id="p1" aria-label="Remove values\.yaml">Remove/.test(ins) && /Add note with 1 file/.test(ins));
-  assert.ok(/<input type="file" id="note-file" accept="\.png,\.jpg,\.jpeg,\.webp,\.gif,\.pdf,\.zip,\.txt,\.log,\.md,\.csv,\.json,\.yaml,\.yml,[^"]*" multiple class="sr">/.test(ins) && /data-drop="note" data-id="approved"/.test(ins), 'Attach takes several files; the box takes drops');
+  assert.ok(/<input type="file" id="note-file" accept="\.png,\.jpg,\.jpeg,\.webp,\.gif,\.pdf,\.zip,\.txt,\.log,\.md,\.csv,\.json,\.yaml,\.yml,[^"]*" multiple class="sr" aria-describedby="att-help">/.test(ins) && /data-drop="note" data-id="approved"/.test(ins), 'Attach takes several files; the box takes drops');
   state.attErr = { key: 'note:approved', msg: '"x.svg" can\'t be attached.' };
   assert.ok(/<p class="ferr" role="alert" id="atterr-note:approved">&quot;x\.svg&quot; can&#39;t be attached\.<\/p>/.test(insOf(V.run(ctx))), 'a refusal is said next to the box');
   const tp = V.textPreview('out.log', base + '2-b-w-out.log', true, 400000, 'n1', 'note');
@@ -2096,13 +2096,13 @@ const cards = html => (html.match(/class="card" data-act="open-run"/g) || []).le
 rule('Runs: the first view shows at most 50 running and 50 finished runs, says how many there are, and Show 50 more adds 50', () => {
   const { ctx, state } = manyRuns(70, 1950);
   let html = V.runs(ctx);
-  assert.strictEqual(cards(html), 100, 'at most 100 cards on the first view');
-  assert.ok(/Showing 50 of 1,950/.test(html) && /Showing 50 of 70/.test(html));
+  assert.strictEqual(cards(html), 108, 'at most 50 running, the 8 newest finished and 50 earlier ones on the first view');
+  assert.ok(/Showing 50 of 1,942/.test(html) && /Showing 50 of 70/.test(html));
   assert.ok(/<button class="btn" data-act="more" data-id="runs-ended"[^>]*>Show 50 more<\/button>/.test(html));
   assert.ok(/data-act="more" data-id="runs-running"[^>]*>Show 20 more</.test(html), 'says how many more when it\'s fewer than 50');
   state.more = { 'runs-ended': 100 };
   html = V.runs(ctx);
-  assert.strictEqual(cards(html), 150); assert.ok(/Showing 100 of 1,950/.test(html));
+  assert.strictEqual(cards(html), 158); assert.ok(/Showing 100 of 1,942/.test(html));
   // Newest first, and the next page continues where the first stopped.
   assert.ok(html.indexOf('data-id="release/r70"') < html.indexOf('data-id="release/r71"'));
 });
@@ -2114,7 +2114,7 @@ rule('Runs: a short list has no paging line, and growing to 500 cards still rend
   const { ctx, state } = manyRuns(0, 1950);
   state.more = { 'runs-ended': 500 };
   const t = process.hrtime.bigint(); const html = V.runs(ctx); const ms = Number(process.hrtime.bigint() - t) / 1e6;
-  assert.strictEqual(cards(html), 500);
+  assert.strictEqual(cards(html), 508);
   assert.ok(ms <= 250, 'rendered 500 cards in ' + ms.toFixed(0) + ' ms');
 });
 
