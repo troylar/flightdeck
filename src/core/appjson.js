@@ -243,7 +243,7 @@ PF.appjson = (function () {
   }
   function runs(runList, plans, nameOf, procs, unsure) {
     return { runs: (runList || []).map(function (r) { return summary(r, nameOf); }).sort(byCreated),
-      planned: (plans || []).map(function (p) { return { p: p, o: plan(p, procs, unsure) }; }).sort(function (a, b) { return a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : s(a.p._file) < s(b.p._file) ? -1 : 1; }).map(function (x) { return x.o; }) };
+      planned: plannedPairs(plans, procs, unsure).map(function (x) { return x.o; }) };
   }
   function followUp(x, nameOf) {
     var d = x.decision;
@@ -329,18 +329,23 @@ PF.appjson = (function () {
     });
     return out;
   }
+  /* Plans for runs' planned list, each with its entry, in the list's order: by ID, then by file. */
+  function plannedPairs(plans, procs, unsure) {
+    return (plans || []).map(function (p) { return { p: p, o: plan(p, procs, unsure) }; }).sort(function (a, b) { return a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : s(a.p._file) < s(b.p._file) ? -1 : 1; });
+  }
   function runs2(runList, plans, nameOf, procs, unsure) {
     var out = runs(runList, plans, nameOf, procs, unsure);
     out.runs = (runList || []).map(function (r) { return summary2(r, nameOf); }).sort(byCreated);
-    var byId = {}; (plans || []).forEach(function (p) { byId[s(p.id)] = byId[s(p.id)] || p; });
-    out.planned.forEach(function (o) {
-      var p = byId[o.id], two = !!p && p.format === PF.plans.FORMAT2;
+    /* Each entry with its own plan (copies of one plan that differ share an ID, so never joined by ID). */
+    out.planned = plannedPairs(plans, procs, unsure).map(function (x) {
+      var o = x.o, p = x.p, two = !!p && p.format === PF.plans.FORMAT2;
       o.format = two ? s(p.format) : 'flightdeck-plan/1'; o.pin = two && p.pin ? { folder: s(p.pin.folder), version: +p.pin.version || 0 } : null;
       /* A plan/2 starts on its pin (or the version it was switched to), never on another: no fallback to the latest. */
       if (two && o.versionMissing !== null) {
         var proc = (procs || []).filter(function (x) { return x.process === p.process; })[0], pick = proc && proc.index ? PF.plans.pick(proc.index, p, null) : { pub: null };
         o.startsOn = pick.pub ? { version: pick.pub.info.version, folder: s(pick.pub.info.folder) } : null; o.versionMissing = !pick.pub;
       }
+      return o;
     });
     return out;
   }

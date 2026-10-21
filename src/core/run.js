@@ -74,7 +74,7 @@ PF.run = (function () {
     return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: 120 }).ok ? { verdict: 'invalid', result: null } : m;
   }
   function startDetails(map, details, o) {
-    var from = o.from && typeof o.from === 'object' && MIG_SOURCES[o.from.source] && o.from.source !== 'report' ? o.from : null, out = [];
+    var from = o.from && typeof o.from === 'object' && typeof o.from.source === 'string' && own(MIG_SOURCES, o.from.source) && o.from.source !== 'report' ? o.from : null, out = [];
     map.meta.context.forEach(function (f) {
       var def = detailValueDef(map, f);
       if (!def) return;
@@ -152,7 +152,7 @@ PF.run = (function () {
   function migrationOk(m, map, r) {
     var txt = function (v) { return typeof v === 'string' && v.length <= MIG_TEXT; };
     if (!m || typeof m !== 'object' || Array.isArray(m) || JSON.stringify(Object.keys(m)) !== JSON.stringify(MIG_KEYS)) return false;
-    if (!txt(m.path) || !isoOrNull(m.at) || !txt(m.from) || !own(MIG_SOURCES, m.source) || !own(MIG_VERDICTS, m.verdict)) return false;
+    if (!txt(m.path) || !isoOrNull(m.at) || !txt(m.from) || typeof m.source !== 'string' || !own(MIG_SOURCES, m.source) || typeof m.verdict !== 'string' || !own(MIG_VERDICTS, m.verdict)) return false;
     var def = typedDef(r, map, m.path);
     if (!def) return false;
     if (m.verdict === 'converted' ? !(typeof m.result === 'string' && V.valid(def, m.result)) : m.result !== null) return false;
@@ -1137,7 +1137,14 @@ PF.run = (function () {
     }
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     /* run/3: null isn't text either (sanitize would save it as empty, rewriting what the file holds). */
-    function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return (three ? v[f] !== undefined : v[f] != null) && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
+    /* run/3: nor is text longer than this copy keeps (sanitize would cut it, and a typed value cut short can still look valid). */
+    function text(v, where, max) {
+      if (why || !obj(v)) return;
+      var k = Object.keys(v).filter(function (f) { return (three ? v[f] !== undefined : v[f] != null) && typeof v[f] !== 'string'; })[0];
+      if (k != null) { why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; return; }
+      var l = three && max ? Object.keys(v).filter(function (f) { return typeof v[f] === 'string' && v[f].length > max; })[0] : null;
+      if (l != null) why = where + ' "' + l.slice(0, 40) + '" is longer than ' + max + ' characters.';
+    }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
     var three = o.format === FORMAT3;
     look(o, three ? 'run3' : 'run', 'The run');
@@ -1155,10 +1162,10 @@ PF.run = (function () {
       if (!why && obj(o.pins) && !(obj(o.pins.children) && Object.keys(o.pins.children).length)) why = 'Its pins name no linked runs.';
       if (!why && Array.isArray(o.features) && JSON.stringify(PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; })) !== JSON.stringify(o.features)) why = 'Its features aren\'t listed as this copy writes them.';
     }
-    if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
+    if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
-    text(o.details, 'A run detail'); text(o.roles, 'A role');
-    if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"'); });
+    text(o.details, 'A run detail', 120); text(o.roles, 'A role', 80);
+    if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"', 300); });
     if (Array.isArray(o.lineage) && o.lineage.some(function (t) { return typeof t !== 'string'; })) why = why || 'A save receipt in it isn\'t a name.';
     /* The run's copy of the Jira workflows, as PF.jira.check writes it (an issue type, its transitions, their required fields). */
     if (obj(o.jira)) Object.keys(o.jira).forEach(function (k) {
@@ -1175,13 +1182,13 @@ PF.run = (function () {
       look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
       if (three && !why && obj(a.child) && a.child.folder !== undefined && !folderOk(a.child.folder)) why = w + '\'s linked run\'s version isn\'t a version folder.';
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
-      text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
+      text(a.values, w + '\'s evidence', 300); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail', 300);
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
       if (!obj(g)) return;
-      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of');
+      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', 120);
     });
     return why ? NEWER + ' ' + why : '';
   }

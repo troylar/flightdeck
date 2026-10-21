@@ -586,4 +586,24 @@ rule('Skills: a run detail gaining a kind is a change to a skill\'s inputs, and 
   assert.ok(!PF.skills.changes(a, a).some(c => c.change === 'context'), 'an untyped one compares as before');
 });
 
+rule('A run/3 holding text longer than this copy keeps is read-only, never cut; a migration record with an object for its source or verdict is name-only, never a crash', () => {
+  const r = startT({ details: { rows: '12' } });
+  const f = JSON.parse(JSON.stringify(r)); f.details.runbook = 'https://example.com/' + 'a'.repeat(121);
+  const back = R.sanitize(f);
+  assert.ok(back._unrunnable && /runbook/.test(back._unrunnable) && /longer than 120/.test(back._unrunnable), back._unrunnable);
+  const g = JSON.parse(JSON.stringify(r)); g.steps.count = { s: 'done', by: 'person-avery', at: NOW, values: { rows: '1'.repeat(301) } };
+  assert.ok(/longer than 300/.test(R.sanitize(g)._unrunnable || ''), 'evidence too');
+  const ok = JSON.parse(JSON.stringify(r)); ok.details.runbook = 'https://example.com/' + 'a'.repeat(100);
+  assert.ok(!R.sanitize(ok)._unrunnable, 'within the cap: read as always');
+  const m0 = startT({ details: { due: '03/04/2026' }, from: { source: 'plan', details: { due: '03/04/2026' } } });
+  for (const k of ['source', 'verdict']) {
+    const h = JSON.parse(JSON.stringify(m0)); h.migrations[0][k] = { toString: null };
+    let out; assert.doesNotThrow(() => { out = R.sanitize(h); }, k);
+    assert.ok(out && out._unrunnable, k + ': name-only');
+    assert.strictEqual(R.migrationOk(h.migrations[0], R.mapOf(m0), m0), false);
+  }
+  assert.doesNotThrow(() => startT({ details: {}, from: { source: { toString: null }, details: {} } }));
+  assert.ok(!(startT({ details: {}, from: { source: 'constructor', details: { due: 'x' } } }).migrations || []).length, 'a prototype name is no source');
+});
+
 run();

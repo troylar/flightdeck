@@ -1016,6 +1016,12 @@ rule('READ: contract 2 reads a typed run/3 and its version with typed values and
   const runs2 = agree(readCli('runs', dir, '--contract', '2', '--json'));
   const pinned = runs2.json.data.planned.find(p => p.id === 'plan-backup-pinned');
   assert.ok(pinned && pinned.format === 'flightdeck-plan/2' && pinned.pin.folder === 'v1-ab9ysnqh' && !runs2.json.problems.some(p => /proposals/.test(p.path)), 'a plan/2 is data in contract 2: ' + runs2.out.slice(0, 600));
+  const planFile = path.join(dir, 'proposals', 'plan-backup-pinned.json'), other = path.join(dir, 'proposals', 'plan-backup-pinned (1).json');
+  const copy2 = JSON.parse(fsx.readFileSync(planFile, 'utf8')); copy2.pin = { folder: 'v2-zzzz2222', version: 2, mapHash: 'b7bf4bf0', typesHash: 'dff477ba' };
+  fsx.writeFileSync(other, JSON.stringify(copy2, null, 2));
+  const both = agree(readCli('runs', dir, '--contract', '2', '--json')).json.data.planned.filter(p => p.id === 'plan-backup-pinned');
+  assert.deepStrictEqual(both.map(p => p.pin && p.pin.folder).sort(), ['v1-ab9ysnqh', 'v2-zzzz2222'], 'two copies that differ each keep their own pin: ' + JSON.stringify(both));
+  fsx.unlinkSync(other);
   fsx.appendFileSync(path.join(dir, 'runs', 'backup', 'run-c', 'history-w-twozero.jsonl'), '{"kind":"migration","av":1,"pa\n');
   const torn = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
   assert.ok(torn.code === 4 && torn.json.problems.some(p => p.kind === 'malformed' && /history-w-twozero\.jsonl$/.test(p.path)), 'a torn history line is named: ' + torn.out.slice(0, 600));
