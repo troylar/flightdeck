@@ -375,7 +375,7 @@ PF.reports = (function () {
     return cur;
   }
   /* The decline reason's field, one per report, so a reason typed for one report never lands in another's form. */
-  function reasonId(key) { return 'rep-reason-' + U.hash(String(key)); }
+  function reasonId(key) { return 'rep-reason-' + PF.sha256.hex(String(key)).slice(0, 32); }
   function acceptKey(sha, at, by) { return sha + '\n' + at + '\n' + by; }
   /* Where a report stands with the run: { state, text }. state: 'none' (not decided), 'tie', 'declined', 'open' (reopened),
      'accepted', 'changed' (evidence changed since acceptance), 'again' (the step was answered again since), 'gone' (no copy

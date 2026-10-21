@@ -85,11 +85,20 @@
 
   /* Accept, Decline and Reopen, for the recorder; disabled with the reason beside it when a report can't be accepted. */
   function actions(ctx, r, map, g, dec, id) {
+    var st = ctx.state, b = bundle(ctx, r), busy0 = st.repSaving === g.key, pick = st.repPick && st.repPick.key === g.key ? st.repPick : null;
+    /* A decline reason being typed stays on screen with Cancel whatever changes under it, so it can always be left. */
+    if (pick && pick.mode === 'decline') {
+      var stop = !ctx.recording(r) ? 'You aren\'t recording this run now, so this report can\'t be declined here.' : !g.report ? 'Every copy of this report is gone, so it can\'t be declined.' : (b.held ? b.held(g) : '');
+      var rid = X.reasonId(g.key), err = st.fieldErr && st.fieldErr.id === rid;
+      return '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
+        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(pick.reason || '') + '</textarea>' +
+        (stop ? '<p class="small" id="' + id + '-dcwhy">' + esc(stop) + '</p>' : '') +
+        '<div class="row"><button class="btn"' + (stop ? ' disabled aria-describedby="' + id + '-dcwhy"' : ' data-act="rep-decline-go" data-id="' + esc(g.key) + '"' + (busy0 ? ' disabled' : '')) + '>Decline</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
+    }
     if (!ctx.recording(r)) return '';
-    var st = ctx.state, b = bundle(ctx, r), busy0 = st.repSaving === g.key;
     /* Every copy gone: only Reopen, on the decision's own SHA-256. */
     if (!g.report) return dec.d && dec.d.status !== 'open' && !(b.held && b.held(g)) ? '<div class="row rep-acts" role="group" aria-label="Decide on this report"><button class="mini" data-act="rep-reopen" data-id="' + esc(g.key) + '"' + (busy0 ? ' disabled' : '') + '>Reopen</button></div>' : '';
-    var pick = st.repPick && st.repPick.key === g.key ? st.repPick : null, busy = st.repSaving === g.key;
+    var busy = busy0;
     var held = b.held ? b.held(g) : '';
     var el = X.eligible(g, r, map, { recording: true, readOnly: b.readOnly, held: held, fillOpen: b.fillOpen ? b.fillOpen(g.step) : false });
     var h = '';
@@ -102,13 +111,6 @@
         (el.applies.result === 'unknown' ? '<p class="small">Flightdeck can\'t compare these inputs.</p>' : '') +
         (el.applies.untied.length ? '<p class="small">' + esc(X.appliesText(el.applies)) + '</p>' : '') +
         '<div class="row"><button class="btn go" data-act="rep-accept-go" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept and check the step</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
-      return h;
-    }
-    if (pick && pick.mode === 'decline') {
-      var rid = X.reasonId(g.key), err = st.fieldErr && st.fieldErr.id === rid;
-      h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
-        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(pick.reason || '') + '</textarea>' +
-        '<div class="row"><button class="btn" data-act="rep-decline-go" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Decline</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
       return h;
     }
     var acts = '';

@@ -479,11 +479,14 @@ rule('An acceptance whose log line was archived out of a full log is still found
   assert.ok(X.provenance(r2, 'deploy'));
 });
 
-rule('Decision file names never collide for two reports on one step: the identity digest is 128 bits of SHA-256', () => {
+rule('Decision file names and decline reason boxes never collide for two reports on one step: 128 bits of SHA-256', () => {
   const a = { process: 'backup-check', run: 'run1', step: 'deploy', producer: 'ci-check', id: '374253898c08' }, b = Object.assign({}, a, { id: 'fe767ee61714' });
   assert.strictEqual(PF.util.hash(X.identity(a)), PF.util.hash(X.identity(b)), 'set-up: these two collide in 32 bits');
   assert.ok(/^[0-9a-f]{32}$/.test(X.decisionHash(a)));
   assert.notStrictEqual(X.decisionHash(a), X.decisionHash(b));
+  const ka = 'backup-check/run1/deploy/ci-check/374253898c08', kb = 'backup-check/run1/deploy/ci-check/fe767ee61714';
+  assert.strictEqual(PF.util.hash(ka), PF.util.hash(kb), 'set-up: their keys collide in 32 bits too');
+  assert.notStrictEqual(X.reasonId(ka), X.reasonId(kb), 'and their decline reason boxes don\'t');
   const g = groupOf(report()), d = X.decision(g, g.sha256, 'open', 'person-avery', LATER, null, {}), name = X.decisionName(d, 'w1');
   assert.ok(X.parseDecisionName(name) && X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', name).ok, 'its name parses and matches');
 });

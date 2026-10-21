@@ -607,6 +607,25 @@ rule('App: Back and a top-bar jump refuse to drop a decline reason with text in 
   assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'an empty reason doesn\'t block');
 });
 
+rule('App: a decline reason being typed keeps its box and Cancel when this person stops recording, so it can always be left', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  app.click('rep-decline', x.key); await app.tick();
+  const rid = (/<textarea id="(rep-reason-[^"]+)"/.exec(app.html()) || [])[1];
+  app.set(rid, 'Wrong build');
+  app.choose('person-blake'); await app.tick(40);
+  assert.ok(new RegExp('id="' + rid + '"').test(app.html()) && /Wrong build/.test(app.html()), 'the reason stays on screen');
+  assert.ok(/data-act="rep-cancel"/.test(app.html()) && !/data-act="rep-decline-go"/.test(app.html()), 'with Cancel, and no Decline to press');
+  assert.ok(/can(&#39;|')t be declined here/.test(app.html()), 'saying why');
+  app.click('go', '', { view: 'runs' }); await app.tick(40);
+  assert.ok(new RegExp('id="' + rid + '"').test(app.html()), 'leaving still asks first');
+  app.click('rep-cancel', x.key); await app.tick();
+  app.click('go', '', { view: 'runs' }); await app.tick(40);
+  assert.ok(/<h1[^>]*>Runs<\/h1>/.test(app.html()), 'after Cancel it goes');
+  assert.strictEqual(decisions(app).length, 0, 'nothing was decided');
+});
+
 rule('App: this window\'s hint records only the acceptance it made: after Discard, an older acceptance of the same report isn\'t recorded by itself', async () => {
   const app = await recording();
   const x = await plant(app);

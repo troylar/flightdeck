@@ -3476,9 +3476,12 @@
     var p = state.repPick; if (!p || p.mode !== 'decline' || state.view !== 'run') return null;
     var id = PF.reports.reasonId(p.key), on = repBox === id, el = on ? document.getElementById(id) : null;
     if (!String((el ? el.value : p.reason) || '').trim()) return null;
-    var r = ctx.run(), x = !on && r ? M.findStep(R.mapOf(r), p.step) : null;
-    if (x) { state.unfold[x.phase.id] = true; selectStep(p.step); state.refOpen = true; }
-    return el || { id: id };
+    if (on) return el || { id: id };
+    /* A report no longer on the run (or a step no longer in its map) can't draw its form again: nothing is held for it. */
+    var r = ctx.run(), x = r && repItem(p.key).it ? M.findStep(R.mapOf(r), p.step) : null;
+    if (!x) return null;
+    state.unfold[x.phase.id] = true; selectStep(p.step); state.refOpen = true;
+    return { id: id };
   }
   /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
      does, and stays; one holding typing or choices isn't closed. Returns whether there was one. */
