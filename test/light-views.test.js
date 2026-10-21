@@ -48,7 +48,7 @@ rule('Process page, not its owner: Corrections and Skills are one closed line ea
   assert.ok(/<summary><h2 id="fx-h" tabindex="-1">[\s\S]{0,400}?Corrections · \d+ open<\/h2>[\s\S]{0,80}?Review[\s\S]{0,40}?<\/summary>/.test(html), 'one line: Corrections · N open, Review');
   assert.ok(!shown(html, /Copy correction brief/) && !shown(html, /data-act="corr-review"/) && inHtml(html, /data-act="corr-review"/), 'its body is on the page, closed');
   assert.ok(folded(html, 'sk:release'), 'skills folded');
-  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · 2 · 2 need an update<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
+  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · 2 · 2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
   assert.ok(!shown(html, /Ready for a skill\?/) && inHtml(html, /Ready for a skill\?/) && !shown(html, /needs update/), 'readiness and the list are inside it');
   assert.ok(html.indexOf('data-disc="sk:release"') > html.indexOf('id="pr-h"'), 'at the bottom of the side column');
 });
@@ -126,7 +126,7 @@ rule('Publish: after Done with unsaved edits, Publish is off and says why; it pu
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
   app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); app.submit('new-process-form'); await app.tick(150);
   const draft = 'maps/drafts/risk-review.md', saved = app.fs.files[draft].t;
-  app.input('draft-editor', saved.replace(/^- \[ \] .*$/m, '- [ ] Read the risk register')); await app.tick(300);
+  app.input('draft-editor', saved.replace('The first thing to do', 'Read the risk register')); await app.tick(300);
   app.click('ed-done'); await app.tick();
   let html = app.html();
   assert.ok(/data-act="publish" data-id="risk-review" disabled aria-describedby="pub-why"/.test(html), 'Publish is off');
@@ -186,6 +186,12 @@ rule('Home, the examples: skills that need attention go to the process\'s owner 
   const app = boot(); await app.tick(60);
   const has = async who => { app.choose(who); await app.tick(); app.click('nav', 'home'); await app.tick(); return todos(app.html()).some(t => /Production release: 2 skills need attention/.test(t)); };
   assert.deepStrictEqual([await has('person-casey'), await has('person-avery'), await has('person-morgan'), await has('person-blake')], [true, true, false, false]);
+});
+
+rule('Home: a run you record is one item, "you\'re recording", never also "you\'re up"', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick(); app.click('nav', 'home'); await app.tick();
+  const runs = todos(app.html()).filter(t => /^run: Release 2026\.10\.16/.test(t));
+  assert.deepStrictEqual(runs, ['run: Release 2026.10.16: you\'re recording']);
 });
 
 rule('Home: At a glance is running and processes', async () => {

@@ -172,7 +172,8 @@ rule('Navigation: every section has a page, and the top bar lights the one you\'
   for (const [view, page, h1] of [['home', 'home', /Hi, Casey/], ['runs', 'runs', /Runs/], ['processes', 'processesPage', /Processes/], ['skills', 'skillsPage', /Skills/], ['types', 'types', /Step types/], ['settings', 'settings', /Settings/]]) {
     state.view = view;
     assert.ok(h1.test(V[page](ctx)), view);
-    assert.ok(new RegExp('data-id="' + view + '" aria-current="page"').test(V.top(ctx)), view + ' is lit');
+    const section = view === 'skills' || view === 'types' ? 'processes' : view;
+    assert.ok(new RegExp('data-id="' + section + '" aria-current="page"').test(V.top(ctx)), view + ' lights ' + section);
   }
   state.view = 'process';
   assert.ok(/data-id="processes" aria-current="page"/.test(V.top(ctx)), 'a process page belongs to Processes');

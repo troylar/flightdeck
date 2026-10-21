@@ -239,7 +239,7 @@ rule('App: the sections switch from the top bar, and Home never opens a run by i
   const app = boot(); await app.tick(80);
   app.choose('person-casey'); await app.tick();
   assert.ok(/Needs you/.test(app.html()) && !/id="phase-/.test(app.html()), 'Home lists, it doesn\'t open');
-  for (const s of ['runs', 'processes', 'skills', 'types', 'settings', 'home']) { app.click('nav', s); await app.tick(); assert.ok(new RegExp('data-id="' + s + '" aria-current="page"').test(app.top()), s); }
+  for (const s of ['runs', 'processes', 'skills', 'types', 'settings', 'home']) { app.click('nav', s); await app.tick(); assert.ok(new RegExp('data-id="' + (s === 'skills' || s === 'types' ? 'processes' : s) + '" aria-current="page"').test(app.top()), s); }
 });
 
 /* A focused step row in the builder, as the keyboard handler sees it. */

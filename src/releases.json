@@ -96,6 +96,42 @@
         "title": "Receipts and Evidence show which reports were accepted",
         "now": "The receipt names the report a step was accepted from, with its hash, and lists every report on the run. Evidence export packs the run's reports and the decisions on them.",
         "before": "There were no reports."
+      },
+      {
+        "kind": "improved",
+        "area": "Processes",
+        "title": "A process page shows its owner's panels only to its owner",
+        "now": "Corrections, Ready for a skill? and Skills are one closed line each for everyone but the checklist's owner and backup owner, saying what they hold (\"Corrections · 2 open\"). Open one to see it all, as before. A warning in Corrections is never folded. Versions shows the newest, with the rest under Earlier versions, and Recent runs shows 3, with All runs of this process.",
+        "before": "Everyone saw every correction, the skill readiness and every skill in full beside the checklist.",
+        "where": "A process page"
+      },
+      {
+        "kind": "improved",
+        "area": "Home",
+        "title": "Home lists only what's yours",
+        "now": "A draft with unpublished changes, and skills that need attention, show on the Home of the checklist's owner and backup owner. A checklist that names nobody still shows them to everyone. Drafts stay marked on Processes. At a glance shows running and processes.",
+        "before": "A draft never published, and every skill needing attention, showed on everyone's Home, so someone joining a folder could find ten things that weren't theirs."
+      },
+      {
+        "kind": "improved",
+        "area": "Navigation",
+        "title": "Four sections in the top bar",
+        "now": "Home, Runs, Processes, Settings. Skills and Step types open from the Processes page, from Settings (Library) and from search, and their links still work. The first-run welcome shows only its three choices.",
+        "before": "Skills and Step types were top-bar sections on every screen, and the welcome drew the whole bar."
+      },
+      {
+        "kind": "fixed",
+        "area": "Publishing",
+        "title": "Publish waits for edits that aren't saved",
+        "now": "After Done with edits not saved yet, Publish is off and says to save or discard them first, so a version always has what you see.",
+        "before": "Publish stayed on and published the draft as last saved, without those edits."
+      },
+      {
+        "kind": "fixed",
+        "area": "Home",
+        "title": "A run you record shows once on Home",
+        "now": "You're recording, with a separate line when reports wait for review.",
+        "before": "A run you were recording also showed as \"you're up\"."
       }
     ]
   },

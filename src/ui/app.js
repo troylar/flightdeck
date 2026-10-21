@@ -121,6 +121,8 @@
     canRecover: function (r) { return !!r && !!state.me && !r._unrunnable && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
     processTitle: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.title : id; },
     processes: function () { return processes(); },
+    /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
+    welcome: function () { return state.view === 'home' && !!state.fs && state.fs.kind === 'memory' && !state.needsReconnect && !state.lookAround; },
     get fsKey() { return fsKey(); },
     /* A link waiting for the folder (Home says Reconnect opens it). */
     navPending: function () { return !!H.pending; },
@@ -461,7 +463,7 @@
         var keep = e.draft.file === id + '.md' || (d.file !== id + '.md' && e.draft.file < d.file);
         if (keep) return;
       }
-      e.draft = d;
+      e.draft = d; e.draftMeta = { owner: m.meta.owner, backup: m.meta.backup };
       if (!e.latest) { e.title = m.meta.title || id; e.category = m.meta.category || 'Other'; e.group = m.meta.group; e.tags = m.meta.tags; }
       e.draftChanged = !e.latest || U.hash(d.md) !== e.latest.info.mapHash;
       /* A team step type the map uses changed since it was frozen into the publication: republishing picks it up. */
@@ -1247,7 +1249,7 @@
     tfPreviewFits();
     if (drawn && drawn.key === state.runKey && drawn.sel === V.runSel(ctx) && drawn.kind === (state.pick && state.pick.kind === 'fields' && state.pick.id === drawn.sel ? 'fields' : 'record')) harvest();
     /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
-    var welcome = v === 'home' && state.fs && state.fs.kind === 'memory' && !state.needsReconnect && !state.lookAround;
+    var welcome = ctx.welcome();
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
     patch(app, page);
     noteDrawn(page);
@@ -3804,7 +3806,14 @@
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
       /* A step-type form with changes stays for when you come back to Step types; an untouched one closes. */
       if (state.typeForm && !typeFormChanged(state.typeForm)) state.typeForm = null;
-      state.focus = '[data-act="nav"][data-id="' + id + '"]'; render(); window.scrollTo(0, 0);
+      /* Skills and Step types aren't in the top bar: focus goes to their page's heading. */
+      state.focus = V.sectionOf(id) === id ? '[data-act="nav"][data-id="' + id + '"]' : 'page-h'; render(); window.scrollTo(0, 0);
+    },
+    /* All runs of one process: Runs, filtered to it. */
+    'runs-of': function (id) {
+      if (!processes().some(function (x) { return x.id === id; })) return;
+      state.runFilter = { process: id }; state.more = Object.assign({}, state.more, { 'runs-filtered': 0 });
+      ACTIONS.nav('runs');
     },
     /* ---------- a process's map: tabs, versions, the draft editor ---------- */
     /* The process page's three views: reading the checklist, editing the draft in its place, and how runs go. Focus goes
@@ -4198,6 +4207,9 @@
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
       if (!p || !p.draft || stillSaving(p)) return;
+      /* Publishing takes the draft in the folder, so edits waiting unsaved in the editor would be left out: never publish then. */
+      var ed = editorOf(p.id);
+      if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved, so nothing was published. Save or discard them in the editor, then publish.', 'warn'); render(); return; }
       /* Publish exactly the draft that was shown: it is read again from the folder in the queue (after any save ahead of it),
          and if it differs, the newer draft is shown instead of being published unseen. */
       var shown = p.draft.md, draftPath = 'maps/drafts/' + p.draft.file;
@@ -4543,7 +4555,7 @@
     /* Home acknowledgments: View change opens the process's corrections; Dismiss is remembered in this browser only. */
     'ack-view': function (id, b) {
       var pid = b && b.dataset.process; if (!pid) return;
-      ACTIONS['open-process'](pid); state.fixFilter = 'all'; state.focus = 'fx-h'; render();
+      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h'; render();
     },
     'ack-dismiss': function (id) {
       if (!ACK_KEY.test(id || '')) return;
