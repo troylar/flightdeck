@@ -2412,6 +2412,11 @@ rule('REPORT: write refuses what can\'t be for the run, honors --strict and --un
   assert.deepStrictEqual(EV.tree(dir), before, 'nothing written');
   const r = repAgree(readCli('report', 'write', dir, repFile(Object.assign({}, REPORT, { run: 'release/later' })), '--json', '--unmatched-ok'));
   assert.ok(r.code === 0 && r.json.data.report.status === 'written' && r.json.data.report.applies === 'unknown' && /isn't in the team folder yet/.test(r.json.data.report.warnings[0]), r.out);
+  // A run folder that's a link isn't "not synced yet": --unmatched-ok holds (exit 4), names the link and writes nothing.
+  const lr = await readFolder(null, d => { const real = path.join(tmp(), 'run1'); fs.renameSync(path.join(d, 'runs', 'release', 'run1'), real); fs.symlinkSync(real, path.join(d, 'runs', 'release', 'run1')); });
+  const lrBefore = EV.tree(lr), h = repAgree(readCli('report', 'write', lr, repFile(REPORT), '--json', '--unmatched-ok'));
+  assert.ok(h.code === 4 && h.json.data.report.status === 'held' && h.json.problems.some(p => p.path === 'runs/release/run1' && p.kind === 'link'), h.out);
+  assert.deepStrictEqual(EV.tree(lr), lrBefore, 'nothing written while held');
   const linked = await readFolder(), outside = tmp();
   fs.symlinkSync(outside, path.join(linked, 'reports'));
   const l = readCli('report', 'write', linked, repFile(REPORT), '--json');

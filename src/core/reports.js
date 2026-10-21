@@ -374,6 +374,15 @@ PF.reports = (function () {
     return cur;
   }
   function acceptKey(sha, at, by) { return sha + '\n' + at + '\n' + by; }
+  /* An acceptance's decision waiting to be written (rec), against the folder now (hit: current()'s entry for its report;
+     taken: a decision file already has rec's name, i.e. this window decided again at that rev): 'recorded' when a decision file
+     already accepts exactly that answer; else rec, made again on the newest decision only when its name is taken, so a retry
+     never lands on an occupied name. A decision another window made at the same rev stays a tie for a person to settle. */
+  function rebase(rec, hit, taken, at) {
+    if (hit && hit.accepts && hit.accepts[acceptKey(rec.sha256, rec.answer.at, rec.answer.by)]) return 'recorded';
+    if (!taken || !hit) return rec;
+    return decision({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report }, rec.sha256, 'accepted', rec.by, at, hit.d, { answer: rec.answer, inputs: rec.inputs });
+  }
   /* Where a report stands with the run: { state, text }. state: 'none' (not decided), 'tie', 'declined', 'open' (reopened),
      'accepted', 'changed' (evidence changed since acceptance), 'again' (the step was answered again since), 'gone' (no copy
      has the bytes that were accepted). */
@@ -554,5 +563,5 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, rebase: rebase, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();

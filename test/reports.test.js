@@ -306,6 +306,22 @@ rule('An acceptance logged in the run but never recorded is recoverable only fro
   assert.strictEqual(X.unrecorded(r, [g], {}).length, 0);
 });
 
+rule('A waiting acceptance is written again on the newest decision only when its own name is taken, and never twice', () => {
+  const g = groupOf(report()), ans = { at: LATER, by: 'person-avery', fp: 'a'.repeat(64) };
+  const acc = X.decision(g, g.sha256, 'accepted', 'person-avery', LATER, null, { inputs: 'match', answer: ans });
+  const load = (ds) => X.current(ds.map((x, i) => X.cleanDecision(JSON.parse(JSON.stringify(x[0])), 'backup-check', X.decisionName(x[0], x[1])).d));
+  assert.strictEqual(X.rebase(acc, undefined, false, LATER), acc, 'nothing decided: as it is');
+  // This window declined at the same rev (its name is taken): made again at rev 2 on that decline.
+  const dec = X.decision(g, g.sha256, 'declined', 'person-avery', LATER, null, { reason: 'Wrong build' });
+  const cur = load([[dec, 'w1']]);
+  const next = X.rebase(acc, cur[g.key], true, '2026-10-21T00:00:00.000Z');
+  assert.deepStrictEqual(plain([next.rev, next.status, next.seen, next.answer]), [2, 'accepted', X.decisionName(dec, 'w1'), ans]);
+  // Another window's decision at the same rev: left as it is, so the two stay a tie for a person.
+  assert.strictEqual(X.rebase(acc, cur[g.key], false, LATER), acc);
+  // Already in the folder (at any rev): recorded, never written again.
+  assert.strictEqual(X.rebase(acc, load([[acc, 'w1'], [X.decision(g, g.sha256, 'open', 'person-avery', LATER, acc, {}), 'w1']])[g.key], true, LATER), 'recorded');
+});
+
 rule('Recovery finds the report by the step that still holds the logged answer, when one id is used on two steps', () => {
   const { r, map } = makeRun();
   const ga = groupOf(report()), smoke = report({ step: 'smoke', evidence: { evidence: 'https://ci.example.com/smoke' } }), gb = X.group('backup-check', [entry(smoke, 'run1.smoke.ci-check.abcd1234.json')]).list[0];

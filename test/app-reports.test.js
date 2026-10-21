@@ -178,6 +178,26 @@ rule('App: a decision that couldn\'t be written is offered again, and writing it
   app.PF.repo.decideReport = orig;
 });
 
+rule('App: declining a report whose acceptance decision is still waiting supersedes it, and Record the decision still works', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  const orig = app.PF.repo.decideReport; let fail = true;
+  app.PF.repo.decideReport = function () { if (fail) { fail = false; return Promise.reject(new Error('offline')); } return orig.apply(this, arguments); };
+  app.click('rep-accept', x.key); await app.tick();
+  app.click('rep-accept-go', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), [], 'set-up: the decision failed');
+  app.click('rep-decline', x.key); await app.tick();
+  app.set('rep-reason', 'Wrong build'); app.click('rep-decline-go', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app).map(d => [d.status, d.rev]), [['declined', 1]]);
+  await openStep(app, 'jenkins');
+  assert.ok(/Another decision on it is in the folder too \(declined by Casey[^)]*\)/.test(app.html()), 'the acceptance in the run and the decline are both shown');
+  app.click('rep-record', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app).sort((a, b) => a.rev - b.rev).map(d => [d.status, d.rev]), [['declined', 1], ['accepted', 2]], 'written at the next rev, not over the decline');
+  assert.ok(/Accepted by Casey/.test(app.html()));
+  app.PF.repo.decideReport = orig;
+});
+
 rule('App: an acceptance the run records without its decision is recorded from the logged bytes only, during the run or after it ended', async () => {
   for (const changed of [false, true, 'ended']) {
     const app = await recording();

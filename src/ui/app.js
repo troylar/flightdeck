@@ -4964,6 +4964,11 @@
     /* Every way an acceptance's decision is written (after the save, after a read, Record the decision) passes this hold. */
     var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
     if (held) { it.tried = true; it.err = held; say(held, 'warn'); render(); return Promise.resolve(false); }
+    var next;
+    var mineName = PF.reports.decisionName(rec, WRITER), taken = (data.repDecisions || []).some(function (d) { return d.process === rec.process && d._file === mineName; });
+    try { next = PF.reports.rebase(rec, repCur()[it.gkey], taken, new Date().toISOString()); } catch (e) { it.tried = true; it.err = e.message; say(e.message, 'warn'); render(); return Promise.resolve(false); }
+    if (next === 'recorded') { if (ins[it.k] === it) delete ins[it.k]; load(true); return Promise.resolve(true); }
+    it.rec = next;
     it.writing = true; it.tried = true; it.err = '';
     return putDecision(dfs, it.rec).then(function () {
       it.writing = false; if (ins[it.k] === it) delete ins[it.k];
@@ -4988,6 +4993,9 @@
     var dfs = state.fs, gg = gen;
     state.repSaving = id; render();
     putDecision(dfs, rec).then(function () {
+      /* This person decided again: an acceptance of theirs still waiting for its decision is superseded (the run's log still
+         names it, so it can be recorded later as a choice). */
+      var ins = acceptsOf(); if (ins[g.key] && !ins[g.key].writing) delete ins[g.key];
       if (gg !== gen) return;
       state.repSaving = null; state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');

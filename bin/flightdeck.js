@@ -1175,6 +1175,9 @@ async function reportData(eng, adapter, req, write) {
     const one = await repo.readRunOnly(L.fs, rep.process, rep.run);
     let t = null;
     if (!one.found) {
+      /* Not listed isn't proof it's absent: with a problem met on the way (a link, a folder that can't be read), --unmatched-ok
+         holds and nothing is written. */
+      if (req.cmd === 'write' && req.unmatchedOk && ledger().length) return done(A.reportOut(file, null, 'held', rep, { applies: 'unknown', warnings: [] }));
       if (!(req.cmd === 'write' && req.unmatchedOk)) return err(EXIT.notFound, 'not-found', 'There\'s no run ' + rep.process + '/' + rep.run + ' in the team folder.' + (req.cmd === 'write' ? ' Nothing was written. If it hasn\'t synced here yet, add --unmatched-ok.' : ''));
       t = { errors: [], warnings: ['Run ' + rep.process + '/' + rep.run + ' isn\'t in the team folder yet; nobody can accept this report until it is.'], applies: 'unknown' };
     } else {

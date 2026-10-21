@@ -11508,6 +11508,15 @@ PF.reports = (function () {
     return cur;
   }
   function acceptKey(sha, at, by) { return sha + '\n' + at + '\n' + by; }
+  /* An acceptance's decision waiting to be written (rec), against the folder now (hit: current()'s entry for its report;
+     taken: a decision file already has rec's name, i.e. this window decided again at that rev): 'recorded' when a decision file
+     already accepts exactly that answer; else rec, made again on the newest decision only when its name is taken, so a retry
+     never lands on an occupied name. A decision another window made at the same rev stays a tie for a person to settle. */
+  function rebase(rec, hit, taken, at) {
+    if (hit && hit.accepts && hit.accepts[acceptKey(rec.sha256, rec.answer.at, rec.answer.by)]) return 'recorded';
+    if (!taken || !hit) return rec;
+    return decision({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report }, rec.sha256, 'accepted', rec.by, at, hit.d, { answer: rec.answer, inputs: rec.inputs });
+  }
   /* Where a report stands with the run: { state, text }. state: 'none' (not decided), 'tie', 'declined', 'open' (reopened),
      'accepted', 'changed' (evidence changed since acceptance), 'again' (the step was answered again since), 'gone' (no copy
      has the bytes that were accepted). */
@@ -11688,7 +11697,7 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, rebase: rebase, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();
 
 /* Shapes for other apps (docs/apps.md): what `flightdeck processes | process | runs | run | next | followups --json` and
@@ -24491,6 +24500,11 @@ PF.examples = (function () {
     /* Every way an acceptance's decision is written (after the save, after a read, Record the decision) passes this hold. */
     var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
     if (held) { it.tried = true; it.err = held; say(held, 'warn'); render(); return Promise.resolve(false); }
+    var next;
+    var mineName = PF.reports.decisionName(rec, WRITER), taken = (data.repDecisions || []).some(function (d) { return d.process === rec.process && d._file === mineName; });
+    try { next = PF.reports.rebase(rec, repCur()[it.gkey], taken, new Date().toISOString()); } catch (e) { it.tried = true; it.err = e.message; say(e.message, 'warn'); render(); return Promise.resolve(false); }
+    if (next === 'recorded') { if (ins[it.k] === it) delete ins[it.k]; load(true); return Promise.resolve(true); }
+    it.rec = next;
     it.writing = true; it.tried = true; it.err = '';
     return putDecision(dfs, it.rec).then(function () {
       it.writing = false; if (ins[it.k] === it) delete ins[it.k];
@@ -24515,6 +24529,9 @@ PF.examples = (function () {
     var dfs = state.fs, gg = gen;
     state.repSaving = id; render();
     putDecision(dfs, rec).then(function () {
+      /* This person decided again: an acceptance of theirs still waiting for its decision is superseded (the run's log still
+         names it, so it can be recorded later as a choice). */
+      var ins = acceptsOf(); if (ins[g.key] && !ins[g.key].writing) delete ins[g.key];
       if (gg !== gen) return;
       state.repSaving = null; state.repPick = null; if (state.fieldErr && state.fieldErr.id === 'rep-reason') state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
