@@ -20,6 +20,7 @@ node test/app-reports.test.js
 node test/propose-app.test.js
 node test/live-app.test.js
 node test/shots-app.test.js
+node test/light-views.test.js
 node test/compat.test.js
 node test/compat-bridge.test.js
 node test/compat-formats.test.js

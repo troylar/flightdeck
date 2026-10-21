@@ -7,6 +7,15 @@ PF.vk = (function () {
   /* ---------- small helpers ---------- */
   function person(ctx, id) { return ctx.peopleById[id] || null; }
   function nameOf(ctx, id) { var p = person(ctx, id); return p ? p.name : id ? String(id) : 'nobody'; }
+  /* Who looks after a checklist: its owner and backup owner (the published version's, else the draft's) who are active on the
+     team. null when nobody is, so what they'd see goes to everyone. */
+  function keepers(ctx, p) {
+    var meta = p.latest ? p.latest.map.meta : p.draftMeta || (p.draft ? PF.map.parse(p.draft.md).meta : null);
+    var by = ctx.peopleById, on = function (id) { var x = id && Object.prototype.hasOwnProperty.call(by, id) ? by[id] : null; return x && !x.inactive ? id : null; };
+    var list = meta ? [on(meta.owner), on(meta.backup)].filter(Boolean) : [];
+    return list.length ? list : null;
+  }
+  function keeps(ctx, p) { var k = keepers(ctx, p); return !k || (!!ctx.state.me && k.indexOf(ctx.state.me) >= 0); }
   function avatar(ctx, id, lg) {
     var p = person(ctx, id), ini = p ? p.initials : String(id || '?').slice(0, 2).toUpperCase();
     return '<span class="avatar' + (lg ? ' lg' : '') + '" title="' + esc(nameOf(ctx, id)) + '">' + esc(ini) + '</span>';
@@ -113,7 +122,7 @@ PF.vk = (function () {
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { typedField: typedField, valueText: valueText, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
+  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
 })();
 (function () {
   'use strict';
@@ -122,11 +131,15 @@ PF.vk = (function () {
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   /* ---------- top bar ---------- */
   /* The sections, always in the top bar. Every screen belongs to one, so where you are is always lit. */
-  var NAV = [['home', 'Home'], ['runs', 'Runs'], ['processes', 'Processes'], ['skills', 'Skills'], ['types', 'Step types'], ['settings', 'Settings']];
-  var SECTION = { setup: 'home', health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', followups: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'skills', skill: 'skills', types: 'types', settings: 'settings' };
+  /* Skills and Step types belong to Processes: its page links to them, and so do Settings and search. */
+  var NAV = [['home', 'Home'], ['runs', 'Runs'], ['processes', 'Processes'], ['settings', 'Settings']];
+  var SECTION = { setup: 'home', health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', followups: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'processes', skill: 'processes', types: 'processes', settings: 'settings' };
   function sectionOf(view) { return SECTION[view] || 'home'; }
   function top(ctx) {
-    var st = ctx.state, fs = st.fs, cur = sectionOf(st.view), h = '<button class="brand" data-act="nav" data-id="home" aria-label="Flightdeck home"><span class="brand-mark" aria-hidden="true"></span>Flightdeck</button>';
+    var st = ctx.state, fs = st.fs, cur = sectionOf(st.view), rel = ctx.releases;
+    /* The first-run welcome has its own three choices: only the name and What's new above them. */
+    if (ctx.welcome && ctx.welcome()) return '<span class="brand"><span class="brand-mark" aria-hidden="true"></span>Flightdeck</span>' + whatsNew(rel);
+    var h = '<button class="brand" data-act="nav" data-id="home" aria-label="Flightdeck home"><span class="brand-mark" aria-hidden="true"></span>Flightdeck</button>';
     h += '<nav class="mainnav" aria-label="Sections">' + NAV.map(function (n) { return '<button data-act="nav" data-id="' + n[0] + '"' + (cur === n[0] ? ' aria-current="page"' : '') + '>' + n[1] + '</button>'; }).join('') + '</nav>';
     /* Search is one button and one shortcut everywhere: Ctrl+K (Cmd+K on a Mac). */
     if (fs) h += '<button class="mini sx-btn" data-act="search" aria-keyshortcuts="' + (ctx.mac ? 'Meta+K' : 'Control+K') + '" aria-label="Search the team folder (' + (ctx.mac ? 'Cmd+K' : 'Ctrl+K') + ')">' + I('search') + '<span class="sx-lbl">Search</span><kbd>' + (ctx.mac ? '⌘K' : 'Ctrl K') + '</kbd></button>';
@@ -135,11 +148,8 @@ PF.vk = (function () {
     else if (st.needsReconnect) h += '<span class="dotlive off" aria-hidden="true"></span><span>The team folder needs your OK again</span><button class="mini" data-act="reconnect">Reconnect "' + esc(st.needsReconnect.dir.name) + '"</button><button class="mini" data-act="recovery" data-id="flightdeck-lost-access-to-the-folder">What to do</button>';
     else h += '<span class="dotlive off" aria-hidden="true"></span><span>Examples</span>';
     h += '</div>';
-    var rel = ctx.releases;
     if (rel.newer) h += '<span class="pill newer" title="Open flightdeck.html from the team folder to use it">Flightdeck ' + esc(rel.newer) + ' is in the team folder</span>';
-    h += rel.version === 'dev'
-      ? '<button class="mini wn" disabled title="This is the unbuilt source. Open dist/flightdeck.html to read the release history.">What\'s new · source</button>'
-      : '<button class="mini wn" data-act="whats-new" aria-label="' + (rel.fresh ? 'What\'s new: Flightdeck ' + esc(rel.version) + ', not seen yet' : 'What\'s new in Flightdeck ' + esc(rel.version)) + '">What\'s new<span class="ver"> · v' + esc(rel.version) + '</span>' + (rel.fresh ? '<span class="wn-dot" aria-hidden="true"></span>' : '') + '</button>';
+    h += whatsNew(rel);
     /* Appearance: follow the computer, or always light or dark. One button steps through the three. */
     var th = THEMES[st.theme] ? st.theme : 'system';
     h += '<button class="mini icon-btn" data-act="theme" data-id="' + THEMES[th].next + '" aria-label="Appearance: ' + THEMES[th].label + '. Switch to ' + THEMES[THEMES[th].next].label + '" title="Appearance: ' + THEMES[th].label + '">' + I(THEMES[th].icon) + '</button>';
@@ -156,6 +166,12 @@ PF.vk = (function () {
         '<span class="rs-sub">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</span><span class="rs-now">' + esc(hl.text) + '</span><span class="rs-count">' + tot.done + '/' + tot.total + '</span></div>';
     }
     return h;
+  }
+
+  function whatsNew(rel) {
+    return rel.version === 'dev'
+      ? '<button class="mini wn" disabled title="This is the unbuilt source. Open dist/flightdeck.html to read the release history.">What\'s new · source</button>'
+      : '<button class="mini wn" data-act="whats-new" aria-label="' + (rel.fresh ? 'What\'s new: Flightdeck ' + esc(rel.version) + ', not seen yet' : 'What\'s new in Flightdeck ' + esc(rel.version)) + '">What\'s new<span class="ver"> · v' + esc(rel.version) + '</span>' + (rel.fresh ? '<span class="wn-dot" aria-hidden="true"></span>' : '') + '</button>';
   }
 
   /* ---------- Undo, Redo and History: the same three controls on every editor ---------- */

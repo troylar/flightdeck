@@ -72,8 +72,8 @@
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
       var map = R.mapOf(r), hl = R.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
       if (r.recorder.person === me) add('run', esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
-      if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
       else if (nx) add('run', esc(r.title) + ': you\'re up', esc(nx.step.text) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
+      if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
@@ -84,9 +84,10 @@
     });
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', 'Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.', 'open-process', id, 'Open it'); });
     ctx.processes().forEach(function (p) {
-      var owner = p.latest && p.latest.map.meta.owner;
-      if (p.draft && p.draftChanged && (!owner || owner === me)) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
-      if (p.staleSkills) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The process changed since they were built.', 'open-process', p.id, 'See the skills');
+      var owner = p.latest && p.latest.map.meta.owner, mine = K.keeps(ctx, p);
+      /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
+      if (p.draft && p.draftChanged && mine) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
+      if (p.staleSkills && mine) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The process changed since they were built.', 'open-process', p.id, 'See the skills');
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && PF.skills.readiness(d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
     });
@@ -102,10 +103,8 @@
     var running = d.runs.filter(function (r) { return r.state === 'running'; });
     h += '<section class="panel" aria-labelledby="go-h"><h2 id="go-h">At a glance</h2><div class="glance">' +
       '<button class="tile" data-act="nav" data-id="runs"><span class="big">' + running.length + '</span><span>running</span></button>' +
-      /* Versions and skills arrive with the first complete read, so until then their counts aren't known. */
-      '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + (st.reading ? '…' : ctx.processes().length) + '</span><span>processes</span></button>' +
-      '<button class="tile" data-act="nav" data-id="skills"><span class="big">' + (st.reading ? '…' : ctx.processes().reduce(function (n, p) { return n + p.skills.length; }, 0)) + '</span><span>skills</span></button>' +
-      '<button class="tile" data-act="nav" data-id="types"><span class="big">' + (T.LIST.length + Object.keys((d.stepTypes || {}).types || {}).length) + '</span><span>step types</span></button></div></section>';
+      /* Versions arrive with the first complete read, so until then the count isn't known. */
+      '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + (st.reading ? '…' : ctx.processes().length) + '</span><span>processes</span></button></div></section>';
     return h;
   }
 
@@ -185,7 +184,7 @@
   /* ---------- Processes: the templates, in the team's hierarchy ---------- */
   function processesPage(ctx) {
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
-    var h = notices(ctx) + pageHead('Processes', 'Processes', 'Open one to run it or edit its checklist.', '<button class="btn go" data-act="new-process">' + I('edit') + 'New process</button>');
+    var h = notices(ctx) + pageHead('Processes', 'Processes', 'Open one to run it or edit its checklist.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New process</button>');
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
     h += '<section class="panel">' + K.tagBar(allTags(ctx), st.tags || []) + (procs.length ? K.tree(procs.filter(function (p) { return has(p.tags); }), function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       var pub = p.latest, info = pub ? 'v' + pub.info.version + ' · published by ' + esc(nameOf(ctx, pub.info.publishedBy)) : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';

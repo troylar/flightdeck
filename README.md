@@ -80,7 +80,7 @@ To update later, run `flightdeck install` again: it updates what's still a Fligh
 
 ## A tour
 
-`flightdeck open` starts on a team folder with a month of history in it. Choose **Casey Nguyen** in the top right and follow along. Six sections sit in the top bar: **Home, Runs, Processes, Skills, Step types, Settings**.
+`flightdeck open` starts on a team folder with a month of history in it. Choose **Casey Nguyen** in the top right and follow along. Four sections sit in the top bar: **Home, Runs, Processes, Settings**. **Skills** and **Step types** open from the Processes page, from Settings and from search.
 
 <table>
 <tr>

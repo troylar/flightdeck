@@ -51,13 +51,24 @@
 
   var SKILL_PILL = { current: ['passed', 'in step'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'] };
   /* Skills built from this process: one row each, opening the skill's own page. */
-  function skillsPanel(ctx, p) {
-    var h = '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>';
-    if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off below, copy its brief for your AI assistant.</p></section>';
+  /* bare: inside the Skills fold, as a heading and its content rather than a panel of its own. */
+  function skillsPanel(ctx, p, bare) {
+    var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
+    if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off, copy its brief for your AI assistant.</p>' + end;
     return h + '<ul class="plist">' + p.skills.map(function (x) {
       var s = x.skill, pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;
       return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + esc(s.name) + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span></button></li>';
-    }).join('') + '</ul></section>';
+    }).join('') + '</ul>' + end;
+  }
+  /* For someone who doesn't look after the checklist: Ready for a skill? and Skills as one closed line that says what they hold. */
+  function skillsFold(ctx, p, pub) {
+    var st = ctx.state, n = p.skills.length, stale = p.staleSkills || 0, line = 'Skills · ';
+    if (n) line += n + (stale ? ' · ' + stale + ' need' + (stale === 1 ? 's' : '') + ' attention' : '');
+    else if (!pub) line += 'none yet';
+    else if (PF.skills.signoffs(ctx.data.validations, pub).length) line += 'none yet (v' + pub.info.version + ' signed off)';
+    else { var ready = PF.skills.readiness(ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
+    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
+      readyPanel(ctx, p, pub, true) + skillsPanel(ctx, p, true) + '</details>';
   }
   /* The last brief copied, shown so it can be read or selected by hand if the clipboard isn't available. */
   function briefBox(st, key) {
@@ -66,10 +77,10 @@
     return '<details' + (open ? ' open' : '') + ' class="brief" data-disc="brief:' + esc(key) + '"><summary class="small" id="sum-brief"><span id="copy-msg" role="status"></span> The brief</summary><pre id="brief-pre" class="source" tabindex="0">' + esc(st.brief.text) + '</pre></details>';
   }
   /* Is the current version ready to become a skill? One line of status and the one thing to do next. */
-  function readyPanel(ctx, p, pub) {
+  function readyPanel(ctx, p, pub, bare) {
     if (!pub) return '';
     var st = ctx.state, ready = PF.skills.readiness(ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
-    var h = '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
+    var h = bare ? '<h3>Ready for a skill?</h3>' : '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
     if (signs.length) {
       h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
     } else if (!ready.enough) {
@@ -82,7 +93,7 @@
     } else h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs. ' + esc(nameOf(ctx, owner)) + ', the owner, signs it off' + (pub.map.meta.backup && pub.map.meta.backup !== owner ? ' (or ' + esc(nameOf(ctx, pub.map.meta.backup)) + ', the backup owner, while the owner is away)' : '') + '.</p>';
     var devOpen = st.disc && st.disc['dev:' + p.id] === true;
     if (ready.deviations.length) h += '<details' + (devOpen ? ' open' : '') + ' data-disc="dev:' + esc(p.id) + '"><summary class="small" id="sum-dev">Why some runs don\'t count (' + ready.deviations.length + ')</summary><ul class="small">' + ready.deviations.slice(0, 20).map(function (d) { return '<li>' + esc(d.run) + ': ' + (d.text ? '"' + esc(d.text) + '" ' : '') + esc(d.kind) + (d.note ? ': ' + esc(d.note) : '') + '</li>'; }).join('') + '</ul></details>';
-    return h + '</section>';
+    return h + (bare ? '' : '</section>');
   }
 
   /* ---------- corrections (docs/design.md section 19) ---------- */
@@ -97,8 +108,7 @@
     if (!all.length) return '';
     var open = all.filter(function (g) { return g.status === 'open'; });
     var showAll = st.fixFilter === 'all', list = showAll ? all : open, map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
-    var h = '<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>' +
-      '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Review one to apply it to the draft, or mark it as applied once the draft has it.</p>' +
+    var h = '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Review one to apply it to the draft, or mark it as applied once the draft has it.</p>' +
       '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="corr-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
     var unread = (ctx.data.corrUnread || []).filter(function (u) { return u.process === p.id; });
     if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>corrections/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some corrections may show the wrong status until it syncs.') + '</span></div>';
@@ -114,7 +124,10 @@
         '<ul class="fixlist">' + gs.map(function (g) { return groupItem(ctx, p, g); }).join('') + '</ul>';
     });
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
-    return h + '</section>';
+    var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
+    /* Open for whoever looks after the checklist, and whenever it holds a warning; for everyone else, one closed line. */
+    if (unread.length || K.keeps(ctx, p)) return '<section class="panel" aria-labelledby="fx-h">' + head + h + '</section>';
+    return '<details class="panel fold" data-disc="fx:' + esc(p.id) + '"' + ((st.disc || {})['fx:' + p.id] ? ' open' : '') + '><summary>' + head + '<span class="fold-act">Review</span></summary>' + h + '</details>';
   }
   function groupItem(ctx, p, g) {
     var st = ctx.state, C = PF.corrections, d = g.decision, c = g.first, declining = st.pick && st.pick.kind === 'corr-decline' && st.pick.id === g.id;
@@ -262,8 +275,8 @@
     /* Editing a draft takes the whole page (manage.js). */
     if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
     var pub = p.latest, h = notices(ctx);
-    h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · v' + pub.info.version + ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1 id="page-h" tabindex="-1">' + esc(p.title) + '</h1>' +
-      (pub ? '<div class="small">Published by ' + esc(nameOf(ctx, pub.info.publishedBy)) + ' on ' + esc(U.when(pub.info.publishedAt)) + ' · "' + esc(pub.info.changes) + '"</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
+    h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1 id="page-h" tabindex="-1">' + esc(p.title) + '</h1>' +
+      (pub ? '<div class="small">v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) + '</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
       '<div class="row">' + (V.tabOf(ctx) === 'overview' && p.all.length ? '<button class="mini" data-act="ptab" data-id="insights">' + I('chart') + 'How runs go</button>' : '') + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>';
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
@@ -279,8 +292,11 @@
       var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }) });
       h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c);
       if (p.draftChanged) {
+        /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
+        var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
-          '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
+          '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me || held ? ' disabled' : '') + (held ? ' aria-describedby="pub-why"' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
+          (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
           '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(ctx, p) + publishCorrections(ctx, p);
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
@@ -289,20 +305,24 @@
     h += proposalsPanel(ctx, p);
     h += V.checklistPanel(ctx, p);
     h += '</div><aside class="stack">';
-    h += fixesPanel(ctx, p) + readyPanel(ctx, p, pub) + skillsPanel(ctx, p);
-    /* Versions: one line each; the change note shows in full on hover and in Changes. */
-    h += '<section class="panel" aria-labelledby="ver-h"><h2 id="ver-h">Versions</h2><ul class="vlist compact">' + (p.all.map(function (v, i) {
+    var mine = K.keeps(ctx, p);
+    h += fixesPanel(ctx, p) + (mine ? readyPanel(ctx, p, pub) + skillsPanel(ctx, p) : '');
+    /* Versions: the newest on show, earlier ones folded; one line each; the change note shows in full on hover and in Changes. */
+    var verLi = function (v, i) {
       var older = p.all[i + 1];
       return '<li><b>v' + v.info.version + '</b><span><span class="clip" title="' + esc(v.info.changes) + '">' + esc(v.info.changes) + '</span><span class="small">' + esc(U.day(v.info.publishedAt)) + '</span></span>' +
         '<span class="row">' + (older ? '<button class="mini" data-act="diff" data-id="' + esc(v.folder) + '" aria-expanded="' + (st.diffOf === v.folder) + '">Changes</button>' : '') + '<button class="mini" data-act="view-version" data-id="' + esc(v.folder) + '" aria-pressed="' + (st.mapVer === v.folder) + '">View</button></span></li>' +
         (st.diffOf === v.folder && older ? '<li style="display:block">' + diffHtml(PF.publish.diff(older.md, v.md)) + '</li>' : '');
-    }).join('') || '<li class="small">Not published yet. Edit the checklist, then publish it.</li>') + '</ul></section>';
+    };
+    var earlier = p.all.slice(1), verOpen = (st.disc || {})['vers:' + p.id] || earlier.some(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; });
+    h += '<section class="panel" aria-labelledby="ver-h"><h2 id="ver-h">Versions</h2><ul class="vlist compact">' + (p.all.length ? verLi(p.all[0], 0) : '<li class="small">Not published yet. Edit the checklist, then publish it.</li>') + '</ul>' +
+      (earlier.length ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">Earlier versions (' + earlier.length + ')</summary><ul class="vlist compact">' + earlier.map(function (v, i) { return verLi(v, i + 1); }).join('') + '</ul></details>' : '') + '</section>';
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
-    h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 5).map(function (r) {
+    h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = R.headline(r, R.mapOf(r));
       return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? r.ended.outcome : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · v' + esc(r.version) + '</span></button></li>';
-    }).join('') + '</ul>' + (runs.length > 5 ? '<button class="link" data-act="nav" data-id="runs">All ' + runs.length + ' runs</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section></aside></div>';
-    return h;
+    }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this process</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
+    return h + (mine ? '' : skillsFold(ctx, p, pub)) + '</aside></div>';
   }
 
   /* ---------- proposals from AI assistants and who's editing (docs/design.md section 27) ---------- */

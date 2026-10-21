@@ -24,6 +24,14 @@ Notes and screenshots on phases and gates.
 - **The publish panel says when a version needs Flightdeck 2.0** (Publishing). When a checklist uses something new in 2.0, the publish panel names it and says what that means: teammates on Flightdeck 1.22 or earlier see the version but can't run it. A checklist that uses nothing new publishes as before, and every teammate runs it.
 - **Evidence checks pins and the published payload** (Evidence). Evidence for a run made with Flightdeck 2.0 checks that its version's pins and payload match what was published, and step fingerprints include the version each step runs.
 - **Receipts and Evidence show which reports were accepted** (Receipt). The receipt names the report a step was accepted from, with its hash, and lists every report on the run. Evidence export packs the run's reports and the decisions on them.
+- **A process page shows its owner's panels only to its owner** (Processes). Corrections, Ready for a skill? and Skills are one closed line each for everyone but the checklist's owner and backup owner, saying what they hold ("Corrections · 2 open"). Open one to see it all, as before. A warning in Corrections is never folded. Versions shows the newest, with the rest under Earlier versions, and Recent runs shows 3, with All runs of this process. *Where:* A process page
+- **Home lists only what's yours** (Home). A draft with unpublished changes, and skills that need attention, show on the Home of the checklist's owner and backup owner. A checklist that names nobody still shows them to everyone. Drafts stay marked on Processes. At a glance shows running and processes.
+- **Four sections in the top bar** (Navigation). Home, Runs, Processes, Settings. Skills and Step types open from the Processes page, from Settings (Library) and from search, and their links still work. The first-run welcome shows only its three choices.
+
+### Fixed
+
+- **Publish waits for edits that aren't saved** (Publishing). After Done with edits not saved yet, Publish is off and says to save or discard them first, so a version always has what you see.
+- **A run you record shows once on Home** (Home). You're recording, with a separate line when reports wait for review.
 
 ## 1.22.0 · Oct 20, 2026
 
