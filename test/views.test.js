@@ -2684,4 +2684,25 @@ rule('Typed values: a stored value that isn\'t valid for its kind is shown as wr
   assert.ok(/type="date"[^>]*value=""/.test(K.typedField('fx-d', 'due', { kind: 'date' }, '', '')), 'an empty one too');
 });
 
+rule('Process page: while a screenshot is being added to the draft, Publish is off and says why', () => {
+  const { ctx, state } = setup();
+  const md = ['---', 'process: x', 'title: X', 'owner: person-casey', '---', '## One · READ-DO {#one}', '- [ ] {confirm} Alpha {#alpha}', ''].join('\n');
+  const p = { id: 'x', title: 'X', category: 'Other', latest: null, all: [], clashes: [], broken: [], skills: [], taken: [], draft: { file: 'x.md', md }, draftChanged: true };
+  ctx.processes = () => [p]; ctx.data.validations = []; state.view = 'process'; state.processId = 'x';
+  assert.ok(/data-act="publish" data-id="x">/.test(V.process(ctx)), 'set-up: Publish is on');
+  ctx.shotBusy = () => 1;
+  const html = V.process(ctx);
+  assert.ok(/data-act="publish" data-id="x" disabled aria-describedby="pub-why"/.test(html) && /id="pub-why">A screenshot is still being added to this draft\. Publish when it.s done\./.test(html));
+});
+
+rule('Home: an owner ID that names something every object has (constructor, toString) isn\'t a person, so the draft goes to everyone', () => {
+  const { ctx, state } = setup();
+  state.view = 'home'; ctx.data.runs = [];
+  ['constructor', 'toString', '__proto__'].forEach(id => {
+    const md = ['---', 'process: x', 'title: X', 'owner: ' + id, '---', '## One · READ-DO {#one}', '- [ ] {confirm} Alpha {#alpha}', ''].join('\n');
+    ctx.processes = () => [{ id: 'x', title: 'X', category: 'Other', latest: null, all: [], clashes: [], broken: [], skills: [], draft: { file: 'x.md', md }, draftChanged: true, staleSkills: 0 }];
+    assert.ok(/X: the draft has unpublished changes/.test(V.home(ctx)), id);
+  });
+});
+
 run();

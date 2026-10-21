@@ -11,7 +11,7 @@ PF.vk = (function () {
      team. null when nobody is, so what they'd see goes to everyone. */
   function keepers(ctx, p) {
     var meta = p.latest ? p.latest.map.meta : p.draftMeta || (p.draft ? PF.map.parse(p.draft.md).meta : null);
-    var on = function (id) { var x = id && person(ctx, id); return x && !x.inactive ? id : null; };
+    var by = ctx.peopleById, on = function (id) { var x = id && Object.prototype.hasOwnProperty.call(by, id) ? by[id] : null; return x && !x.inactive ? id : null; };
     var list = meta ? [on(meta.owner), on(meta.backup)].filter(Boolean) : [];
     return list.length ? list : null;
   }

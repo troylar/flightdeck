@@ -4209,7 +4209,8 @@
       if (!p || !p.draft || stillSaving(p)) return;
       /* Publishing takes the draft in the folder, so edits waiting unsaved in the editor would be left out: never publish then. */
       var ed = editorOf(p.id);
-      if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved, so nothing was published. Save or discard them in the editor, then publish.', 'warn'); render(); return; }
+      if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id) { say('Your edits to this draft aren\'t saved, so nothing was published. Save or discard them in the editor, then publish.', 'warn'); render(); return; }
+      if (shotBusy(p.id)) { say('A screenshot is still being added to this draft, so nothing was published. Publish when it\'s done.', 'warn'); render(); return; }
       /* Publish exactly the draft that was shown: it is read again from the folder in the queue (after any save ahead of it),
          and if it differs, the newer draft is shown instead of being published unseen. */
       var shown = p.draft.md, draftPath = 'maps/drafts/' + p.draft.file;
