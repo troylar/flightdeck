@@ -227,7 +227,8 @@ PF.health = (function () {
       .concat((d.repUnread || []).filter(function (u) { return u.kind !== 'newer'; }).map(function (u) { return { path: u.dir + '/' + u.process + '/' + u._file, why: u.why || 'couldn\'t be read' }; }));
     var repDiffer = scan && scan.reports ? scan.reports.differ : [];
     var named = Object.create(null); repBad.concat(refused).forEach(function (x) { named[x.path] = true; });
-    var orphans = (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
+    /* A report names a run that isn't here only when the runs were listed completely: a listing that failed isn't absence. */
+    var orphans = (d.failed || {}).runs ? [] : (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
     if (repBad.length || repDiffer.length || orphans.length) {
       var rparts = [];
       if (repBad.length) rparts.push(repBad[0].path + ' ' + repBad[0].why + (repBad.length > 1 ? ' (and ' + plural(repBad.length - 1, 'other file') + ')' : ''));

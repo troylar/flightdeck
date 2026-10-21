@@ -429,4 +429,29 @@ rule('Folder health names reports that can\'t be read, newer ones, copies that d
   assert.ok(!i.paths.some(p => /eeee5555/.test(p)), 'a newer report is named once, as newer');
 });
 
+rule('Folder health names no report as for a missing run while the runs couldn\'t be listed', async () => {
+  const fs = memFolder({ 'people.json': '[]', 'runs/backup-check/run1/run.json': '{}', ['reports/backup-check/' + NAME]: JSON.stringify(report()) });
+  const list = fs.list.bind(fs);
+  fs.list = p => p === 'runs/backup-check' ? Promise.reject(new Error('NotReadableError')) : list(p);
+  const d = await repo.loadAll(fs), rep = PF.health.check({ data: d, scan: null, me: 'person-avery', app: '2.0.0' }, Date.parse(AT));
+  assert.ok(d.failed && d.failed.runs, 'set-up: the runs couldn\'t be listed');
+  const i = rep.issues.find(x => x.id === 'reports');
+  assert.ok(!i || !/isn't in the folder/.test(i.detail), i && i.detail);
+});
+
+rule('An acceptance whose log line was archived out of a full log is still found, for recovery and for the receipt', () => {
+  const { r, map } = makeRun(), g = groupOf(report());
+  const e = X.eligible(g, r, map, { recording: true });
+  R.done(r, map, 'deploy', 'person-avery', LATER, e.values, { exact: true });
+  const line = { at: LATER, by: 'person-avery', what: X.logLine(g, g.sha256, 'Deploy') };
+  // Archived to history-*.jsonl (loaded) or still in _overflow before the next save; not in r.log.
+  const archived = [{ kind: 'log', id: 'x1', at: line.at, by: line.by, what: line.what }];
+  assert.strictEqual(X.unrecorded(r, [g], {}, map).length, 0, 'set-up: not in r.log');
+  assert.deepStrictEqual(plain(X.unrecorded(r, [g], {}, map, archived).map(x => x.recordable)), [true]);
+  assert.ok(/accepted report/.test(X.provenance(r, 'deploy', null, archived)));
+  const r2 = JSON.parse(JSON.stringify(r)); r2._overflow = archived;
+  assert.deepStrictEqual(plain(X.unrecorded(r2, [g], {}, map).map(x => x.recordable)), [true], 'from _overflow too');
+  assert.ok(X.provenance(r2, 'deploy'));
+});
+
 run();

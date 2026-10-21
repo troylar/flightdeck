@@ -58,7 +58,7 @@
     var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
     var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
-    var reportOf = function (id) { return PF.reports.provenance(r, id, who); };
+    var reportOf = function (id) { return PF.reports.provenance(r, id, who, rb ? rb.archived : null); };
     reportOf.lines = PF.reports.lines(reps, rb ? rb.cur : null, r, map, who);
     var body = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);

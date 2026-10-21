@@ -452,13 +452,20 @@ PF.reports = (function () {
     return head + (t.length > room ? t.slice(0, room - 1) + '…' : t) + '"';
   }
   function parseLog(what) { var m = typeof what === 'string' ? LOG.exec(what) : null; return m ? { producer: m[1], id: m[2], sha256: m[3] } : null; }
+  /* The run's log with the lines archived out of it (a full log moves its oldest lines to history-*.jsonl, or to _overflow
+     until the next save): archived records of kind 'log', as loading the history gives them. */
+  function logsOf(r, archived) {
+    var out = [], add = function (x) { if (x && x.kind === 'log' && typeof x.what === 'string') out.push({ at: x.at, by: x.by, what: x.what }); };
+    (archived || []).forEach(add); (r && r._overflow || []).forEach(add);
+    return out.concat(r && r.log || []);
+  }
   /* Acceptances in the run whose decision isn't in the folder (the window closed before it was written): the log names the
      report and its hash, and the step's answer is still the one accepted. recordable when a copy with exactly those bytes is
      there now and the step still holds exactly that report's evidence (map is needed to tell); a decision is never written
      from other bytes or for evidence changed since (why: 'gone' or 'changed'). */
-  function unrecorded(r, groups, cur, map) {
+  function unrecorded(r, groups, cur, map, archived) {
     var out = [], seen = dict();
-    (r && r.log || []).forEach(function (l) {
+    logsOf(r, archived).forEach(function (l) {
       var p = l && parseLog(l.what);
       if (!p) return;
       /* The log names the tool and id, not the step: the report is the one whose step still holds the answer logged with it
@@ -501,10 +508,10 @@ PF.reports = (function () {
   /* ---------- the receipt ---------- */
   /* Where a done step's answer came from, from the run alone: the log line written with it names the report and its hash.
      '' when the answer wasn't an accepted report. */
-  function provenance(r, stepId, nameOf) {
+  function provenance(r, stepId, nameOf, archived) {
     var a = r && r.steps && own(r.steps, stepId) ? r.steps[stepId] : null;
     if (!a || a.s !== 'done') return '';
-    var hit = (r.log || []).filter(function (l) { return l && l.at === a.at && l.by === a.by && parseLog(l.what); })[0];
+    var hit = logsOf(r, archived).filter(function (l) { return l && l.at === a.at && l.by === a.by && parseLog(l.what); })[0];
     if (!hit) return '';
     var p = parseLog(hit.what);
     return 'accepted report ' + p.producer + '/' + p.id + ', sha256 ' + p.sha256.slice(0, 12) + '…, by ' + (nameOf ? nameOf(a.by) : a.by);

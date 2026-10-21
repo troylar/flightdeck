@@ -6683,7 +6683,7 @@ PF.run = (function () {
 
   return {
     RUN_ID: RUN_ID,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
@@ -9294,7 +9294,8 @@ PF.health = (function () {
       .concat((d.repUnread || []).filter(function (u) { return u.kind !== 'newer'; }).map(function (u) { return { path: u.dir + '/' + u.process + '/' + u._file, why: u.why || 'couldn\'t be read' }; }));
     var repDiffer = scan && scan.reports ? scan.reports.differ : [];
     var named = Object.create(null); repBad.concat(refused).forEach(function (x) { named[x.path] = true; });
-    var orphans = (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
+    /* A report names a run that isn't here only when the runs were listed completely: a listing that failed isn't absence. */
+    var orphans = (d.failed || {}).runs ? [] : (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
     if (repBad.length || repDiffer.length || orphans.length) {
       var rparts = [];
       if (repBad.length) rparts.push(repBad[0].path + ' ' + repBad[0].why + (repBad.length > 1 ? ' (and ' + plural(repBad.length - 1, 'other file') + ')' : ''));
@@ -11586,13 +11587,20 @@ PF.reports = (function () {
     return head + (t.length > room ? t.slice(0, room - 1) + '…' : t) + '"';
   }
   function parseLog(what) { var m = typeof what === 'string' ? LOG.exec(what) : null; return m ? { producer: m[1], id: m[2], sha256: m[3] } : null; }
+  /* The run's log with the lines archived out of it (a full log moves its oldest lines to history-*.jsonl, or to _overflow
+     until the next save): archived records of kind 'log', as loading the history gives them. */
+  function logsOf(r, archived) {
+    var out = [], add = function (x) { if (x && x.kind === 'log' && typeof x.what === 'string') out.push({ at: x.at, by: x.by, what: x.what }); };
+    (archived || []).forEach(add); (r && r._overflow || []).forEach(add);
+    return out.concat(r && r.log || []);
+  }
   /* Acceptances in the run whose decision isn't in the folder (the window closed before it was written): the log names the
      report and its hash, and the step's answer is still the one accepted. recordable when a copy with exactly those bytes is
      there now and the step still holds exactly that report's evidence (map is needed to tell); a decision is never written
      from other bytes or for evidence changed since (why: 'gone' or 'changed'). */
-  function unrecorded(r, groups, cur, map) {
+  function unrecorded(r, groups, cur, map, archived) {
     var out = [], seen = dict();
-    (r && r.log || []).forEach(function (l) {
+    logsOf(r, archived).forEach(function (l) {
       var p = l && parseLog(l.what);
       if (!p) return;
       /* The log names the tool and id, not the step: the report is the one whose step still holds the answer logged with it
@@ -11635,10 +11643,10 @@ PF.reports = (function () {
   /* ---------- the receipt ---------- */
   /* Where a done step's answer came from, from the run alone: the log line written with it names the report and its hash.
      '' when the answer wasn't an accepted report. */
-  function provenance(r, stepId, nameOf) {
+  function provenance(r, stepId, nameOf, archived) {
     var a = r && r.steps && own(r.steps, stepId) ? r.steps[stepId] : null;
     if (!a || a.s !== 'done') return '';
-    var hit = (r.log || []).filter(function (l) { return l && l.at === a.at && l.by === a.by && parseLog(l.what); })[0];
+    var hit = logsOf(r, archived).filter(function (l) { return l && l.at === a.at && l.by === a.by && parseLog(l.what); })[0];
     if (!hit) return '';
     var p = parseLog(hit.what);
     return 'accepted report ' + p.producer + '/' + p.id + ', sha256 ' + p.sha256.slice(0, 12) + '…, by ' + (nameOf ? nameOf(a.by) : a.by);
@@ -17112,7 +17120,10 @@ PF.vk = (function () {
   }
 
   /* The reports folder couldn't be read on the last check: what's shown is the last read, said wherever reports are. */
-  function failedNote(b) { return b.failed ? '<div class="notice warn" role="status"><span>The reports folder couldn\'t be read on the last check: ' + esc(b.failed) + (b.list.length ? ' These are the reports as last read.' : '') + '</span></div>' : ''; }
+  function failedNote(b) {
+    return (b.failed ? '<div class="notice warn" role="status"><span>The reports folder couldn\'t be read on the last check: ' + esc(b.failed) + (b.list.length ? ' These are the reports as last read.' : '') + '</span></div>' : '') +
+      (b.histFailed ? '<div class="notice warn" role="status"><span>The run\'s history couldn\'t all be read (' + esc(b.histFailed) + '), so an acceptance it names may not be shown.</span></div>' : '');
+  }
 
   /* The run's Reports panel (rail): every report on the run in checklist order, with where each stands. */
   function panel(ctx, r, map) {
@@ -17200,7 +17211,7 @@ PF.vk = (function () {
     var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
     var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
-    var reportOf = function (id) { return PF.reports.provenance(r, id, who); };
+    var reportOf = function (id) { return PF.reports.provenance(r, id, who, rb ? rb.archived : null); };
     reportOf.lines = PF.reports.lines(reps, rb ? rb.cur : null, r, map, who);
     var body = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
@@ -24389,8 +24400,21 @@ PF.examples = (function () {
       if (!res.failed) { ne.list = res.list.map(function (g) { return { g: g, depth: g.order ? g.order.depth : 0, note: g.order ? g.order.note : '' }; }); ne.badNames = res.badNames; }
       render();
     }, function (err) { if (g !== gen) return; ne.failed = err && err.message || String(err); ne.loading = false; render(); });
+    /* A full log has archived its oldest lines, which may name an acceptance: the history is read too, and one that can't be
+       read (or has lines this copy can't read) is named, never taken as "no acceptance there". */
+    ne.archived = e ? e.archived : []; ne.histFailed = '';
+    if (names.length && (r.log || []).length >= R.LOG_MAX) {
+      ne.histLoading = true;
+      repo.loadHistory(state.fs, r).then(function (h) {
+        if (g !== gen) return;
+        ne.histLoading = false; ne.archived = h.filter(function (x) { return x && x.kind === 'log'; });
+        if (h.refused && h.refused.length) ne.histFailed = h.refused[0].path + ' ' + h.refused[0].why;
+        render();
+      }, function (err) { if (g !== gen) return; ne.histLoading = false; ne.histFailed = err && err.message || String(err); render(); });
+    }
     return ne;
   }
+  function repArchived(r) { var e = r ? repCache[fsKey() + '\n' + r.process + '/' + r.id] : null; return e ? e.archived || [] : []; }
   function repCur() { return repCurMemo || (repCurMemo = PF.reports.current(data.repDecisions || [])); }
   function reportsOf(r) {
     if (!r) return null;
@@ -24398,7 +24422,8 @@ PF.examples = (function () {
     if (repMemo[key]) return repMemo[key];
     var e = repLoad(r), cur = repCur(), list = e ? e.list : [];
     return (repMemo[key] = { list: list, badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: !!(e && e.loading), cur: cur,
-      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r)), pending: pendingAccepts(key), readOnly: repReadOnly(r),
+      archived: e ? e.archived || [] : [], histFailed: e ? e.histFailed || '' : '',
+      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r), e ? e.archived : null), pending: pendingAccepts(key), readOnly: repReadOnly(r),
       fillOpen: function (id) { return fillOpenOn(key, id); }, held: repHeld, canRecord: function () { return repCanRecord(r); } });
   }
   function reportsWaiting() {
@@ -24577,14 +24602,14 @@ PF.examples = (function () {
       if (!g || !g.report || g.differ || g.unreadable.length || g.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
       var now = g, r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
       /* Judged again on the run as it is now, with every copy just read: the same answer, holding exactly this report's evidence. */
-      var again = r2 ? X.unrecorded(r2, [g], repCur(), map).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+      var again = r2 ? X.unrecorded(r2, [g], repCur(), map, repArchived(r2)).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
       if (!a || !again || !again.recordable) { say(again && again.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
       var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
       try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
       catch (e) { say(e.message, 'warn'); render(); return; }
       /* Judged again inside the write queue: no unsaved change, and the run still holds exactly this answer and evidence. */
       return putDecision(dfs, rec, function () {
-        var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+        var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3, repArchived(r3)).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
         return runNotSure(r3) || (u3 && u3.recordable && X.fingerprint(r3.steps[g.step].values || {}, X.schemaOf(r3, x.step)) === rec.answer.fp ? '' : 'The step was answered or changed since, so this acceptance isn\'t recorded.');
       }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
     }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });

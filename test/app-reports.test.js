@@ -493,6 +493,28 @@ rule('App: Home tells the recorder about reports waiting, and a folder without r
   assert.ok(!/report to review/.test(app.html()), 'only the recorder');
 });
 
+rule('App: an acceptance whose log line was archived out of a full log is still recordable and named on the receipt', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
+  j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '1432', buildLink: 'https://ci.example.com/jobs/1432' } };
+  // 300 later lines pushed the acceptance's line into the run's history file.
+  const later = new Date(Date.now() - 30000).toISOString();
+  j.log = Array.from({ length: 300 }, (_, i) => ({ at: later, by: 'person-casey', what: 'Note ' + i }));
+  j.rev = (j.rev || 0) + 1;
+  await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
+  await app.fs.write(app.run().path.replace(/run\.json$/, 'history-w1.jsonl'), JSON.stringify({ kind: 'log', id: 'archived01', at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') }) + '\n');
+  app.click('refresh'); await app.tick(160);
+  await openStep(app, 'jenkins'); await app.tick(80);
+  assert.ok(/data-act="rep-record"/.test(app.html()), 'Record the decision is offered from the archived line');
+  app.click('receipt'); await app.tick(80);
+  assert.ok(/Accepted report ci-check\/abcd1234, sha256 /.test(app.html()), 'the receipt names it');
+  app.click('receipt'); await app.tick(40);
+  await openStep(app, 'jenkins');
+  app.click('rep-record', x.key); await app.tick(160);
+  assert.deepStrictEqual(decisions(app).map(d => [d.status, d.answer.at]), [['accepted', at]]);
+});
+
 rule('App: the receipt names the accepted report and lists every report on the run', async () => {
   const app = await recording();
   const x = await plant(app);

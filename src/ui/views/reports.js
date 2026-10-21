@@ -128,7 +128,10 @@
   }
 
   /* The reports folder couldn't be read on the last check: what's shown is the last read, said wherever reports are. */
-  function failedNote(b) { return b.failed ? '<div class="notice warn" role="status"><span>The reports folder couldn\'t be read on the last check: ' + esc(b.failed) + (b.list.length ? ' These are the reports as last read.' : '') + '</span></div>' : ''; }
+  function failedNote(b) {
+    return (b.failed ? '<div class="notice warn" role="status"><span>The reports folder couldn\'t be read on the last check: ' + esc(b.failed) + (b.list.length ? ' These are the reports as last read.' : '') + '</span></div>' : '') +
+      (b.histFailed ? '<div class="notice warn" role="status"><span>The run\'s history couldn\'t all be read (' + esc(b.histFailed) + '), so an acceptance it names may not be shown.</span></div>' : '');
+  }
 
   /* The run's Reports panel (rail): every report on the run in checklist order, with where each stands. */
   function panel(ctx, r, map) {

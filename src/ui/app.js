@@ -4847,8 +4847,21 @@
       if (!res.failed) { ne.list = res.list.map(function (g) { return { g: g, depth: g.order ? g.order.depth : 0, note: g.order ? g.order.note : '' }; }); ne.badNames = res.badNames; }
       render();
     }, function (err) { if (g !== gen) return; ne.failed = err && err.message || String(err); ne.loading = false; render(); });
+    /* A full log has archived its oldest lines, which may name an acceptance: the history is read too, and one that can't be
+       read (or has lines this copy can't read) is named, never taken as "no acceptance there". */
+    ne.archived = e ? e.archived : []; ne.histFailed = '';
+    if (names.length && (r.log || []).length >= R.LOG_MAX) {
+      ne.histLoading = true;
+      repo.loadHistory(state.fs, r).then(function (h) {
+        if (g !== gen) return;
+        ne.histLoading = false; ne.archived = h.filter(function (x) { return x && x.kind === 'log'; });
+        if (h.refused && h.refused.length) ne.histFailed = h.refused[0].path + ' ' + h.refused[0].why;
+        render();
+      }, function (err) { if (g !== gen) return; ne.histLoading = false; ne.histFailed = err && err.message || String(err); render(); });
+    }
     return ne;
   }
+  function repArchived(r) { var e = r ? repCache[fsKey() + '\n' + r.process + '/' + r.id] : null; return e ? e.archived || [] : []; }
   function repCur() { return repCurMemo || (repCurMemo = PF.reports.current(data.repDecisions || [])); }
   function reportsOf(r) {
     if (!r) return null;
@@ -4856,7 +4869,8 @@
     if (repMemo[key]) return repMemo[key];
     var e = repLoad(r), cur = repCur(), list = e ? e.list : [];
     return (repMemo[key] = { list: list, badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: !!(e && e.loading), cur: cur,
-      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r)), pending: pendingAccepts(key), readOnly: repReadOnly(r),
+      archived: e ? e.archived || [] : [], histFailed: e ? e.histFailed || '' : '',
+      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r), e ? e.archived : null), pending: pendingAccepts(key), readOnly: repReadOnly(r),
       fillOpen: function (id) { return fillOpenOn(key, id); }, held: repHeld, canRecord: function () { return repCanRecord(r); } });
   }
   function reportsWaiting() {
@@ -5035,14 +5049,14 @@
       if (!g || !g.report || g.differ || g.unreadable.length || g.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
       var now = g, r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
       /* Judged again on the run as it is now, with every copy just read: the same answer, holding exactly this report's evidence. */
-      var again = r2 ? X.unrecorded(r2, [g], repCur(), map).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+      var again = r2 ? X.unrecorded(r2, [g], repCur(), map, repArchived(r2)).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
       if (!a || !again || !again.recordable) { say(again && again.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
       var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
       try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
       catch (e) { say(e.message, 'warn'); render(); return; }
       /* Judged again inside the write queue: no unsaved change, and the run still holds exactly this answer and evidence. */
       return putDecision(dfs, rec, function () {
-        var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
+        var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3, repArchived(r3)).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
         return runNotSure(r3) || (u3 && u3.recordable && X.fingerprint(r3.steps[g.step].values || {}, X.schemaOf(r3, x.step)) === rec.answer.fp ? '' : 'The step was answered or changed since, so this acceptance isn\'t recorded.');
       }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
     }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });
