@@ -4910,7 +4910,7 @@
     render();
   }
   /* Acceptances this window made in this session, per folder: only a hint that the finalizer should try them by itself, once
-     (run key, report key, SHA-256). A hint holds no decision and decides nothing; saved state does. */
+     (run key, report key, SHA-256 and the answer's at and by). A hint holds no decision and decides nothing; saved state does. */
   function hintsOf(fk) { var all = state.repHints || (state.repHints = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
   function pendingAccepts(key) { var hs = hintsOf(); return Object.keys(hs).filter(function (k) { return hs[k].runKey === key; }).map(function (k) { return { key: k }; }); }
   /* A report as the folder has it now: every copy read again and grouped (PF.reports.group), so a copy that arrived or
@@ -4958,18 +4958,18 @@
     var X = PF.reports, x = M.findStep(map2, id), seen = skillSeen(r2, x.step);
     R.done(r2, map2, id, me, now, seen ? Object.assign({}, rp.values, { _skill: seen }) : rp.values, { exact: true });
     R.log(r2, me, now, X.logLine(rp.g, rp.sha, x.step.text));
-    return { runKey: r2.process + '/' + r2.id, gkey: rp.g.key, sha: rp.sha };
+    return { runKey: r2.process + '/' + r2.id, gkey: rp.g.key, sha: rp.sha, at: now, by: me };
   }
   /* After a save of a run lands (key), or after a read (no key): this window's own acceptances are tried by the finalizer. */
   function finishAccepts(key) {
     var hs = hintsOf();
-    Object.keys(hs).forEach(function (k) { var h = hs[k]; if (!h.busy && (key == null || h.runKey === key)) finalizeAccept(h.runKey, k, h.sha, h); });
+    Object.keys(hs).forEach(function (k) { var h = hs[k]; if (!h.busy && (key == null || h.runKey === key)) finalizeAccept(h.runKey, k, h, h); });
   }
   /* The one way an acceptance's decision is written (plan rev 6), automatically for this window's hint or by Record the
-     decision. Judged in its write's turn from saved state only: the run as the folder holds it (with its archived log), every
+     decision; want: { sha, at, by }, the one acceptance to record. Judged in its write's turn from saved state only: the run as the folder holds it (with its archived log), every
      copy of the report and the decisions on it, both read again. Resolves { wait } when it couldn't start (the run isn't
      saved or can't be read, a decision can't be read), { done } once written, else { why }. */
-  function finalizeAccept(key, gkey, sha, hint) {
+  function finalizeAccept(key, gkey, want, hint) {
     var X = PF.reports, dfs = state.fs, gg = gen, fk = fsKey(), part = gkey.split('/'), id = { key: gkey, process: part[0], run: part[1], step: part[2], producer: part[3], id: part[4] };
     var wait = function () { var r = ctx.findRun(key); return runNotSure(r) || repHeld(id) || (!repCanRecord(r) ? 'Only the recorder can record this decision.' : ''); };
     if (hint) hint.busy = true;
@@ -4984,7 +4984,7 @@
         if (wait() || dd.unread.length) return { wait: wait() || 'A decision on this report can\'t be read (' + dd.unread[0] + '), so nobody here knows what was decided. Decide once it can be read.' };
         if (!g) return { why: 'The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.' };
         var r = ctx.findRun(key), map = R.mapOf(r), cur = X.current(dd.decisions);
-        var u = X.unrecorded(r, [g], cur, map, repArchived(r)).filter(function (y) { return !sha || y.sha256 === sha; })[0];
+        var u = X.unrecorded(r, [g], cur, map, repArchived(r)).filter(function (y) { return y.sha256 === want.sha && y.at === want.at && y.by === want.by; })[0];
         if (!u) return { why: 'There\'s no acceptance of this report left to record: it\'s recorded, or the step was answered again since.' };
         if (!u.recordable) return { why: u.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.' };
         if (hint && u.other) return { why: '' };
@@ -5020,13 +5020,13 @@
     var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? val(rid) : '', rec;
     try { rec = X.decision(g, g.sha256 || (cur ? cur.d.sha256 : ''), status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
     catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
-    var dfs = state.fs, gg = gen;
+    var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();
     putDecision(dfs, rec).then(function () {
+      if (gg !== gen) return;
       /* This person decided again: an acceptance of theirs still waiting for its decision is superseded (the run's log still
          names it, so it can be recorded later as a choice). */
-      var hs = hintsOf(); if (hs[g.key] && !hs[g.key].busy) delete hs[g.key];
-      if (gg !== gen) return;
+      var hs = hintsOf(fk); if (hs[g.key] && !hs[g.key].busy) delete hs[g.key];
       state.repSaving = null; state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
       state.focus = 'ins-reps';
@@ -5043,7 +5043,7 @@
     if (!r || !u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
     if (repHeld(u.g) || runNotSure(r)) { say(repHeld(u.g) || runNotSure(r), 'warn'); render(); return; }
     state.repSaving = id; render();
-    finalizeAccept(r.process + '/' + r.id, id, u.sha256, null);
+    finalizeAccept(r.process + '/' + r.id, id, { sha: u.sha256, at: u.at, by: u.by }, null);
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
   function recover(getCopy, logPrefix, cleanup) {

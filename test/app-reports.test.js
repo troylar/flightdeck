@@ -579,6 +579,55 @@ rule('App: a decline reason being typed survives moving to another step and back
   assert.ok(/Wrong build, half typed/.test(app.html()), 'the reason is still there');
 });
 
+rule('App: this window\'s hint records only the acceptance it made: after Discard, an older acceptance of the same report isn\'t recorded by itself', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  const origD = app.PF.repo.decideReport; let failD = true;
+  app.PF.repo.decideReport = function () { if (failD) { failD = false; return Promise.reject(new Error('offline')); } return origD.apply(this, arguments); };
+  app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(160);
+  assert.deepStrictEqual(decisions(app), [], 'set-up: A saved, its decision failed');
+  const at = app.run().json.steps.jenkins.at;
+  await new Promise(res => setTimeout(res, 5));
+  // B: the same report accepted again, and its save fails; then Discard puts A back.
+  const origS = app.PF.repo.saveRun; let failS = true;
+  app.PF.repo.saveRun = function () { if (failS) { failS = false; return Promise.reject(new Error('offline')); } return origS.apply(this, arguments); };
+  await openStep(app, 'jenkins');
+  app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(160);
+  app.click('discard-unsaved'); await app.tick(160);
+  app.click('refresh'); await app.tick(160);
+  assert.strictEqual(app.run().json.steps.jenkins.at, at, 'set-up: A is the saved answer again');
+  assert.deepStrictEqual(decisions(app), [], 'A isn\'t recorded by B\'s hint');
+  await openStep(app, 'jenkins');
+  assert.ok(/data-act="rep-record"/.test(app.html()), 'A is offered to the person');
+  app.PF.repo.saveRun = origS; app.PF.repo.decideReport = origD;
+});
+
+rule('App: a decision finishing for a folder this window has left never drops a hint in the folder it uses now', async () => {
+  const app = await recording();
+  let x = await plant(app);
+  await openStep(app, 'jenkins');
+  // A decline in the first folder waits in the write queue.
+  const origD = app.PF.repo.decideReport, g = gate(); let hold = true;
+  app.PF.repo.decideReport = function () { const a = arguments; if (hold) { hold = false; return g.p.then(() => origD.apply(this, a)); } return origD.apply(this, a); };
+  app.click('rep-decline', x.key); await app.tick();
+  app.set(app.PF.reports.reasonId(x.key), 'Wrong build'); app.click('rep-decline-go', x.key); await app.tick(20);
+  // A copy of the folder (the examples reset, then this run copied in): the same report is accepted there, its save queued
+  // behind the decline.
+  const path = app.run().path, text = app.fs.files[path].t;
+  app.click('reset-examples'); await app.tick(160);
+  await app.fs.write(path, text); app._runPath = path;
+  app.click('refresh'); await app.tick(160);
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  x = await plant(app);
+  await openStep(app, 'jenkins');
+  app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(40);
+  g.open(); await app.tick(300);
+  assert.strictEqual(app.run().json.steps.jenkins.s, 'done', 'set-up: accepted in the new folder');
+  assert.deepStrictEqual(decisions(app).map(d => d.status), ['accepted'], 'its decision is written');
+  app.PF.repo.decideReport = origD;
+});
+
 rule('App: the receipt names the accepted report and lists every report on the run', async () => {
   const app = await recording();
   const x = await plant(app);
