@@ -1144,6 +1144,11 @@ def skill_registrations(root):
         if regs_unlisted:
             V.append({"why": regs_unlisted, "unlisted": True, "file": "skill-registrations/" + n + "/"})
         out.append(resolve_skill(n, L, V))
+    # A folder that couldn't be listed is named on its own, as the app does, so a folder with no names it can see is never
+    # read as one with no skills.
+    for folder, why, kind in (("skills/", legacy_unlisted, "legacy-unreadable"), ("skill-registrations/", regs_unlisted, "revisions-unlisted")):
+        if why:
+            out.append({"name": None, "status": "unmatched", "source": None, "rev": None, "kinds": [kind], "blocks": True, "why": why, "file": folder})
     return out
 
 

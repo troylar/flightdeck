@@ -266,6 +266,10 @@ rule('The checker never takes a folder or file it couldn\'t stat (an I/O error, 
       const x = verdict(target);
       assert.ok(x && x.status === 'unmatched' && x.blocks && /couldn't be read/.test(x.why), target + ': ' + JSON.stringify(x));
     }
+    // With no skill-registrations/ at all, a skills/ that can't be read is still named, never an empty list.
+    fs.rmSync(path.join(root, 'skill-registrations'), { recursive: true, force: true });
+    const all = JSON.parse(cp.execFileSync(py, ['-I', '-c', script, path.dirname(CHECKER), root, 'skills'], { encoding: 'utf8' }));
+    assert.ok(all.some(x => x.file === 'skills/' && x.blocks && /couldn't be read/.test(x.why)), JSON.stringify(all));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
