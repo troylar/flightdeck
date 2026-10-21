@@ -143,6 +143,25 @@ rule('A run/3 without version: pins the latest child when it starts; a later chi
   assert.strictEqual(PF.pins.childTarget(r, step, (id) => procs[id] || null).pub.info.folder, kids[0].info.folder, 'Start again: the pin');
 });
 
+rule('Keeping a conflict copy keeps the pin its child was given when it first started, so the kept run never falls back to a later child version', () => {
+  const parent = linked(childProc(['A']), [], {});
+  /* The parent starts before its child process is published: nothing is pinned yet. */
+  const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', explicit: true, details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, null, () => null) });
+  assert.ok(!(r.pins && r.pins.children && r.pins.children.verify), 'no pin at start');
+  const cur = R.sanitize(plain(r)), copy = R.sanitize(plain(r));
+  const kids = childProc(['A']); let procs = { verify: proc(kids) };
+  const kid1 = R.create(kids[0], { id: 'kid1', by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' } });
+  R.linkChild(copy, R.mapOf(copy), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: kids[0].info.folder, format: 'preflight-run/2' }, 'person-avery', AT, { run: kid1, procOf: (id) => procs[id] || null });
+  assert.strictEqual(copy.pins.children.verify.folder, kids[0].info.folder, 'pinned when the child first started');
+  R.adopt(cur, R.sanitize(plain(copy)), 'person-avery', AT);
+  assert.deepStrictEqual(plain(cur.pins), plain(copy.pins), 'the kept copy\'s pin comes with it');
+  assert.ok(cur.features.indexOf('pinned-children') >= 0, 'and the feature that says so');
+  const later = childProc(['A', 'B']); procs = { verify: proc(kids.concat([later[1]])) };
+  const back = R.sanitize(plain(cur)); assert.ok(!back._unrunnable, back._unrunnable);
+  assert.strictEqual(PF.pins.childTarget(back, M.findStep(R.mapOf(back), 'verify').step, (id) => procs[id] || null).pub.info.folder, kids[0].info.folder, 'still v1, though v2 is published');
+  assert.deepStrictEqual(plain(R.unexplained(plain(back))), [], 'read back exactly');
+});
+
 rule('A pinned child that can\'t be used refuses the start in the plan\'s words, and never falls back: missing folder, another folder with the same number, a clash, changed files', () => {
   const kids = childProc(['A']), parent = linked(kids, ['  version: 1']);
   const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', pins: PF.pins.atStart(parent.map, parent.info.payload.pins, () => null) });

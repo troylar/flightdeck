@@ -685,7 +685,18 @@ PF.run = (function () {
     var seenMarks = [cur, copy].map(function (v) { var m = {}; Object.keys(v.marks || {}).forEach(function (k) { m[k] = (v.marks[k] || []).slice(); }); Object.keys(v.steps || {}).forEach(function (k) { var a = v.steps[k] || {}; [a].concat(a.history || []).forEach(function (h) { var kind = h.s === 'blocked' || h.s === 'recheck' || h.s === 'na' ? h.s : null; [kind, h.differently ? 'differently' : null].forEach(function (x) { if (!x) return; var l = Object.prototype.hasOwnProperty.call(m, k) ? m[k] : (m[k] = []); if (l.indexOf(x) < 0) l.push(x); }); }); }); return m; });
     ['steps', 'gates', 'fields', 'details', 'roles', 'followUps', 'title', 'state', 'ended', 'tz', 'shotsFrozen', 'paused', 'pauses', 'jira', 'parent'].forEach(function (k) { cur[k] = JSON.parse(JSON.stringify(copy[k] == null ? (k === 'ended' || k === 'paused' || k === 'parent' ? null : cur[k]) : copy[k])); });
     /* A run/3's migration records come with the copy taken over (they sit before its steps). */
-    if (cur.format === FORMAT3 && (copy.migrations || cur.migrations)) { if (Array.isArray(copy.migrations)) cur.migrations = JSON.parse(JSON.stringify(copy.migrations)); else delete cur.migrations; var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
+    if (cur.format === FORMAT3 && (copy.migrations || cur.migrations)) { if (Array.isArray(copy.migrations)) cur.migrations = JSON.parse(JSON.stringify(copy.migrations)); else delete cur.migrations; }
+    /* A child pinned when it first started (linkChild) is in only the version that started it: the copy's pins win for the
+       steps it pins, this version's stay for the rest, so a kept copy never lets a linked step fall back to the latest. */
+    var cpins = copy.pins && copy.pins.children;
+    if (cur.format === FORMAT3 && cpins && Object.keys(cpins).length) {
+      var kids = {}, mine = cur.pins && cur.pins.children || {};
+      Object.keys(mine).forEach(function (k) { kids[k] = mine[k]; });
+      Object.keys(cpins).forEach(function (k) { kids[k] = JSON.parse(JSON.stringify(cpins[k])); });
+      cur.pins = { children: kids };
+      (copy.features || []).forEach(function (f) { addFeature(cur, f); });
+    }
+    if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;
        they're complete only if both versions' were. */
     var marks = {};
