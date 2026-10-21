@@ -78,11 +78,12 @@ function visible(html) {
     if (m[1]) { if (stack.some(t => t.tag === tag)) while (stack.length && pop().tag !== tag); continue; }
     const cls = (/\sclass="([^"]*)"/.exec(attrs) || [])[1] || '';
     const hide = /\shidden(?=[\s=]|$)/.test(attrs) || /\saria-hidden="true"/.test(attrs) || /(^|\s)sr(\s|$)/.test(cls) ||
-      /^(script|style|template|textarea)$/.test(tag) || (tag === 'option' && !/\sselected/.test(attrs)) || (tag === 'input' && /\stype="hidden"/.test(attrs));
+      /^(script|style|template)$/.test(tag) || (tag === 'option' && !/\sselected/.test(attrs)) || (tag === 'input' && /\stype="hidden"/.test(attrs));
     if (!hidden && !hide) out.push({ tag, attrs, cls });
     if (VOID.test(tag) || m[4]) continue;
-    const t = { tag, hide };
-    if (hide) hidden++;
+    /* A box counts; what is typed in it isn't content. */
+    const t = { tag, hide: hide || tag === 'textarea' };
+    if (t.hide) hidden++;
     const up = stack[stack.length - 1];
     if (tag === 'summary' && up && up.closed) t.summaryOf = up;
     if (tag === 'details' && !/\sopen(?=[\s=]|$)/.test(attrs)) t.closed = true;
@@ -104,8 +105,8 @@ const shown = (html, re) => re.test(visible(html).map(x => x.text ? x.text : '<'
 
 rule('The visible-content counter skips closed details bodies, screen-reader text, hidden and aria-hidden content', () => {
   const html = '<p>One two</p><details><summary>Three</summary><p>four five</p><button>Six</button></details><details open><summary>Seven</summary><button>Eight</button></details>' +
-    '<span class="sr">nine</span><div hidden><button>ten</button></div><span aria-hidden="true">eleven</span><span class="badge">Twelve</span><select><option selected>Thirteen</option><option>no</option></select>';
-  assert.deepStrictEqual(measure(html), { words: 7, buttons: 1, inputs: 1, chips: 1 });
+    '<textarea>typed words</textarea><details><summary>x</summary><textarea></textarea></details><span class="sr">nine</span><div hidden><button>ten</button></div><span aria-hidden="true">eleven</span><span class="badge">Twelve</span><select><option selected>Thirteen</option><option>no</option></select>';
+  assert.deepStrictEqual(measure(html), { words: 8, buttons: 1, inputs: 2, chips: 1 });
 });
 
 /* Today's numbers are the budgets; a slice that lightens a screen lowers its budget (SHOW=1 prints what each screen has now).
