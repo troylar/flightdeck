@@ -1208,6 +1208,10 @@ rule('App: a value the builder refuses shows why next to its box, marked invalid
   app.set('ob-text', 'Ask @qa'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-text', value: 'Ask @qa', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   assert.ok(/<textarea id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text">/.test(app.html()), 'the box is marked');
   assert.ok(/<p class="ferr" id="ferr-ob-text" role="alert">Choose roles and run details with their buttons/.test(app.html()), 'the reason is next to it');
+  /* Selecting another step waits for the refused text, so it isn't dropped (1.22.0); cleared, the mark goes with it. */
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/then choose another/.test(app.live()) && /aria-invalid="true"/.test(app.html()), 'the refused text holds the selection');
+  app.input('ob-text', 'Feature flags set in the deploy values'); await app.tick();
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(!/aria-invalid="true"/.test(app.html()), 'gone once another step is selected');
 });
@@ -6748,6 +6752,54 @@ rule('Builder: people, roles and run details from the files are escaped; hostile
   addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.ok(/owner: person-casey\nbackup: person-gone\n/.test(releaseText(app)), 'kept through an unrelated change');
+});
+
+rule('Builder: text a box refused, or hasn\'t applied yet, holds choosing something else in the outline, so it is never dropped', async () => {
+  const app = await builderOn();
+  await app.fs.write('maps/drafts/release.md', QDRAFT); app.focus(); await app.tick(80);
+  app.click('ob-sel-questions'); await app.tick();
+  leave(app, 'ob-q-text', 'Keep this\n## Extra heading'); await app.tick();
+  assert.ok(/id="ferr-ob-q-text"/.test(app.html()), 'refused');
+  app.click('ob-sel-details'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then choose another\./.test(app.live()), app.live());
+  assert.ok(/id="ob-q-text"/.test(app.html()) && app.draft('ob-q-text') === 'Keep this\n## Extra heading', 'still there');
+  assert.strictEqual(app.focused(), '#ob-q-text');
+  app.input('ob-q-text', '\n- Who signs off?\n- Which window?'); await app.tick();
+  app.click('ob-sel-details'); await app.tick();
+  addBox(app, 'ob-add-role', 'roles', 'two words'); await app.tick();
+  ['ob-sel', 'ob-sel-phase', 'ob-add-phase', 'ob-add'].forEach(a => { app.click(a, a === 'ob-sel' ? 'one' : 'first'); });
+  await app.tick();
+  assert.ok(/then choose another/.test(app.live()) && app.draft('ob-add-role') === 'two words' && /Checklist details<\/h2>/.test(app.html()), 'the Add box keeps its text, the form stays');
+  app.select('ob-owner', 'person-morgan'); await app.tick();
+  assert.ok(/then change anything else\./.test(app.live()) && app.draft('ob-add-role') === 'two words' && /<option value="person-casey" selected>/.test(app.html()), 'another change waits too: ' + app.live());
+  app.click('ob-meta-del', 'lead', { key: 'roles' }); await app.tick();
+  assert.ok(/then change anything else\./.test(app.live()) && app.draft('ob-add-role') === 'two words' && /data-act="ob-meta-del" data-key="roles" data-id="lead"/.test(app.html()), 'Remove waits too');
+  /* A second box applied while the first still holds refused text waits as well, so neither is lost. */
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  assert.ok(/then change anything else\./.test(app.live()) && app.draft('ob-add-role') === 'two words' && app.draft('ob-add-ctx') === 'region', app.live());
+  app.click('ob-part', 'step'); await app.tick();
+  assert.ok(/then choose another/.test(app.live()) && !/class="ob placing/.test(app.html()) && app.draft('ob-add-role') === 'two words', 'choosing a part waits too');
+  /* Clearing the second box leaves the first one protected: Undo and Done wait for it. */
+  app.input('ob-add-ctx', ''); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(Enter applies it\), then Undo/.test(app.live()) && app.draft('ob-add-role') === 'two words', app.live());
+  app.click('ob-done'); await app.tick();
+  assert.ok(/Checklist details<\/h2>/.test(app.html()) && app.draft('ob-add-role') === 'two words', 'Done keeps the form open');
+  app.input('ob-add-role', ''); await app.tick();
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  assert.ok(/Added \^region\./.test(app.live()), app.live());
+  app.click('ob-sel', 'one'); await app.tick();
+  assert.ok(/id="ob-note"/.test(app.html()), 'cleared, the step opens');
+});
+
+rule('Builder: Done with typing in two boxes applies neither over the other and keeps the form open', async () => {
+  const app = await builderOn();
+  await app.fs.write('maps/drafts/release.md', QDRAFT); app.focus(); await app.tick(80);
+  app.click('ob-sel-details'); await app.tick();
+  app.set('ob-add-role', 'qa'); app.input('ob-add-role', 'qa'); app.set('ob-add-ctx', 'region'); app.input('ob-add-ctx', 'region'); await app.tick();
+  app.click('ob-done'); await app.tick();
+  assert.ok(/Checklist details<\/h2>/.test(app.html()) && app.draft('ob-add-role') === 'qa' && app.draft('ob-add-ctx') === 'region', 'both kept: ' + app.live());
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
 });
 
 run();

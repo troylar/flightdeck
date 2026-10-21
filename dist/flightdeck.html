@@ -17927,6 +17927,7 @@ PF.examples = (function () {
     } else { app.removeAttribute('inert'); topEl.removeAttribute('inert'); }
     /* Typed text whose box has left the screen (a mode switch, another screen) was never applied: it isn't pending. */
     if (state.obPendingField && (!document.getElementById(state.obPendingField) || app.innerHTML.indexOf('id="' + state.obPendingField + '"') < 0)) dropPending();
+    if (state.obRepend) { state.obRepend = false; obRepend(); }
     editorPage();
     runPage();
     fitPanes();
@@ -18969,8 +18970,11 @@ PF.examples = (function () {
   /* Apply one outline operation to the editor's current text. The result is unsaved, like typing: Save draft, conflicts
      and checks work exactly as they do for the Markdown. Returns the operation's result, or null if nothing changed. */
   /* field: the input the value came from, so a refusal shows next to it. what: the change in a few words, for Undo. */
-  function builderEdit(op, field, what) {
+  /* keep: the caller keeps every box's typing itself (shotApply); otherwise a change while another box holds typing it hasn't
+     applied (or refused) waits, since the redraw would drop that typing. */
+  function builderEdit(op, field, what, keep) {
     var p = currentProcess(); if (!p || builderBlocked(p)) return null;
+    if (!keep && obHeld(p, 'then change anything else', field)) return null;
     var ed = openEditor(p), cur = ed.text != null ? ed.text : ed.base, res = PF.outline.apply(cur, op);
     if (res.error) {
       if (field) { state.fieldErr = { id: 'ob', msg: res.error, field: field }; state.focus = '#' + field; say(null); } else say(res.error, 'warn');
@@ -19086,7 +19090,7 @@ PF.examples = (function () {
       var drawnV = /^ob-new-|^ob-shot-new$/.test(el.id) ? '' : fieldApplied(el.id);
       if (el.id === 'ob-shot-new' ? el.value !== capRaw && el.value !== '' : el.value !== drawnV) typed.push({ id: el.id, v: el.value });
     });
-    var res = builderEdit(op, 'ob-shot-file');
+    var res = builderEdit(op, 'ob-shot-file', null, true);
     if (!res) return null;
     if (pend.p) { state.obPending = pend.p; state.obPendingField = pend.f; }
     if (err) state.fieldErr = err;
@@ -19462,7 +19466,8 @@ PF.examples = (function () {
   function applyHint(id) { return MULTI.test(id || '') ? '(leaving the box applies it)' : '(Enter applies it)'; }
   /* Selections that are about the whole checklist rather than one of its steps or phases. */
   function isWhole(s) { return !!s && (s.kind === 'details' || s.kind === 'questions'); }
-  function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; dropPending(); }
+  /* A box that still holds typing once the form is redrawn stays pending (obRepend), so clearing a message never unprotects it. */
+  function obClearErr() { if (state.fieldErr && state.fieldErr.id === 'ob') state.fieldErr = null; dropPending(); state.obRepend = true; }
 
   /* Parts added in this window and not saved yet, by ID: own keys only, so an ID like "constructor" is never one of them.
      Each Undo step keeps a copy, so undoing an addition also undoes its being new. */
@@ -19488,7 +19493,7 @@ PF.examples = (function () {
   /* Choosing a part (click, Enter or Space) starts placing it: the place nearest what's selected is offered first, the
      arrow keys move among the places it can legally go, Enter puts it there, Escape cancels. A part dragged in skips this. */
   function startPlacing(partId, via) {
-    var p = currentProcess(), pt = p && V.obPart(ctx, partId); if (!pt) return;
+    var p = currentProcess(), pt = p && V.obPart(ctx, partId); if (!pt || obHeld(p)) return;
     obClearErr(); state.obAdd = null; state.obAsk = null;
     var sel = state.obSel && state.obSel.pid === p.id ? state.obSel : null, at = PF.outline.nearest(edText(p), pt.kind, sel);
     state.obPlace = { pid: p.id, part: pt.id, at: at, via: via || '' };
@@ -19610,10 +19615,37 @@ PF.examples = (function () {
     var el = clear === undefined ? null : document.getElementById(id), want = clear != null ? clear : fieldApplied(id);
     if (el && el.value !== want) el.value = want;
     if (state.obPendingField === id) dropPending();
+    obRepend();
   }
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
+  /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
+     opening an Add box: that waits until it's applied or cleared, as Back does. */
+  var OB_TYPED = /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx)$/;
+  /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
+     Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
+  function obTyped(except, skipNew) {
+    var list = app.querySelectorAll ? app.querySelectorAll('input[id], textarea[id]') : [];
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i], id = el.id || '';
+      if (id === except || !OB_TYPED.test(id) || (skipNew && /^ob-new-/.test(id))) continue;
+      if (boxNorm(id, el.value) !== boxNorm(id, /^ob-(new|add)-/.test(id) ? '' : fieldApplied(id))) return id;
+    }
+    return null;
+  }
+  /* With no box marked pending, another box that still differs from the draft (refused, say) becomes the pending one, so
+     Undo, Done, live apply and leaving keep protecting it after a different box is cleared (input) or applied (obApplied). */
+  function obRepend() {
+    if (state.obPendingField || !state.processId || state.view !== 'process' || state.ptab !== 'edit') return;
+    var other = obTyped(null); if (other) { state.obPending = state.processId; state.obPendingField = other; }
+  }
+  function obHeld(p, then, except, skipNew) {
+    var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && /^ob-new-/.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
+    if (!pf) return false;
+    say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', ' + (then || 'then choose another') + '.', 'warn');
+    state.focus = '#' + cssEsc(pf); render(); return true;
+  }
   function obSelWhole(kind, focus) {
-    var p = currentProcess(); if (!p) return;
+    var p = currentProcess(); if (!p || obHeld(p)) return;
     obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obPlace = null; state.planFormReset = true;
     state.focus = focus === 'ob-add-role' || focus === 'ob-add-ctx' ? '#' + focus : kind === 'details' ? '[data-act="ob-sel-details"]' : 'ob-q-text';
     render();
@@ -20397,8 +20429,8 @@ PF.examples = (function () {
       var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce && ce.tl) TL.close(ce.tl);
       state.focus = '[data-act="ed-mode"][data-id="' + (state.builder ? 'builder' : 'markdown') + '"]'; render();
     },
-    'ob-sel': function (id) { var p = currentProcess(); if (!p || !id) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
-    'ob-sel-track': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.insTab = null; var k = b && b.dataset ? +b.dataset.track : 0; state.obSel = { pid: p.id, kind: 'track', key: id, track: k }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel-track"][data-id="' + cssEsc(id) + '"][data-track="' + k + '"]'; render(); },
+    'ob-sel': function (id) { var p = currentProcess(); if (!p || !id) return; if (obHeld(p)) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-sel-track': function (id, b) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); state.insTab = null; var k = b && b.dataset ? +b.dataset.track : 0; state.obSel = { pid: p.id, kind: 'track', key: id, track: k }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel-track"][data-id="' + cssEsc(id) + '"][data-track="' + k + '"]'; render(); },
     'ob-part': function (id) {
       var pl = state.obPlace, sheet = !!(state.overlay && state.overlay.obParts);
       if (pl && pl.part === id && !sheet) { cancelPlacing(); return; }
@@ -20450,7 +20482,9 @@ PF.examples = (function () {
     'ob-meta-add': function (key) { if (key !== 'roles' && key !== 'context') return; var bid = key === 'roles' ? 'ob-add-role' : 'ob-add-ctx', v = val(bid); if (!String(v).trim()) { state.fieldErr = { id: 'ob', field: bid, msg: 'Type a name first.' }; state.focus = '#' + bid; render(); return; } builderField(bid, v); },
     'ob-meta-del': function (id, b) {
       var key = b && b.dataset && b.dataset.key, s = state.obSel; if ((key !== 'roles' && key !== 'context') || !s || s.kind !== 'details') return;
-      var bid = key === 'roles' ? 'ob-add-role' : 'ob-add-ctx', mark = key === 'roles' ? '@' : '^';
+      var bid = key === 'roles' ? 'ob-add-role' : 'ob-add-ctx', mark = key === 'roles' ? '@' : '^', cp = currentProcess();
+      /* Remove applies no box, so typing in any box (its own list's Add box included) waits. */
+      if (!cp || obHeld(cp, 'then change anything else')) return;
       var res = builderEdit({ op: 'meta', key: key, set: { remove: String(id) } }, bid); if (!res || res.same) return;
       sayUndo('Removed ' + mark + id + '.'); state.focus = '#' + bid; render();
     },
@@ -20478,11 +20512,13 @@ PF.examples = (function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
       if (pel && /^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      /* Another box that still holds typing (refused earlier, say) keeps the form open too. */
+      var cp = currentProcess(); if (cp && obTyped(null, true) && obHeld(cp, 'then close the form', null, true)) return;
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
       state.focus = !s ? 'ed-h' : selFocus(s);
       render();
     },
-    'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
     'ob-move': function (id, b) { builderMoveStep(id, b && b.dataset.dir === 'up' ? -1 : 1, b && b.dataset.from === 'key' ? 'row' : 'button'); },
     'ob-ph-move': function (id, b) {
       var up = b && b.dataset.dir === 'up', res = builderEdit({ op: 'movePhase', phase: id, dir: up ? -1 : 1 }); if (!res) return;
@@ -20506,9 +20542,9 @@ PF.examples = (function () {
       var res = builderEdit({ op: 'delete', step: id }, null, 'deleted the step “' + (st ? String(st.text).slice(0, 60) : '') + '”'); if (!res) return;
       state.obSel = null; sayUndo('Deleted the step.'); state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
     },
-    'ob-add': function (id, b) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', phase: id, track: b && b.dataset.track != null ? +b.dataset.track : -1 }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
-    'ob-add-after': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', after: id }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
-    'ob-add-phase': function (id) { var p = currentProcess(); if (!p) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'phase', after: id || null }; state.planFormReset = true; state.focus = 'ob-new-title'; render(); },
+    'ob-add': function (id, b) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', phase: id, track: b && b.dataset.track != null ? +b.dataset.track : -1 }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
+    'ob-add-after': function (id) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'step', after: id }; state.planFormReset = true; state.focus = 'ob-new-text'; render(); },
+    'ob-add-phase': function (id) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); sheetAway(); state.obAdd = { pid: p.id, kind: 'phase', after: id || null }; state.planFormReset = true; state.focus = 'ob-new-title'; render(); },
     'ob-add-cancel': function () { var a = state.obAdd; state.obAdd = null; obClearErr(); state.focus = a && a.kind === 'phase' ? '[data-act="ob-add-phase"]' : a && a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : a ? '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]' : 'ed-h'; render(); },
     'ob-add-go': function () {
       var a = state.obAdd, p = currentProcess(); if (!a || !p || a.pid !== p.id) return;
@@ -21434,10 +21470,10 @@ PF.examples = (function () {
     }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, true); scheduleRender(); }
     /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
-    if (/^ob-(text|ph-title|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx)$/.test(e.target.id || '') && state.processId) {
+    if (OB_TYPED.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
       var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
-      if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) dropPending();
+      if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) { dropPending(); obRepend(); }
       if (was !== !!state.obPending) scheduleRender();
     }
     /* Typing in a New process form after Create the draft makes it a newer form: a late creation then leaves it alone. */
