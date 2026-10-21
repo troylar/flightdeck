@@ -11154,7 +11154,7 @@ PF.reports = (function () {
      part (never a lowercase letter, a digit or a dot), so a copy never changes a part or adds one. */
   var MARK = '(?:([^a-z0-9.\\/\\\\][^\\/\\\\]{0,99}))?';
   var FILE = new RegExp('^([a-z0-9-]{1,40})\\.([a-z0-9][a-z0-9-]{0,59})\\.([a-z0-9][a-z0-9-]{0,29})\\.([a-z0-9]{8,16})' + MARK + '\\.json$');
-  var DFILE = new RegExp('^([a-z0-9-]{1,40})\\.([0-9a-f]{8})\\.([\\w-]{1,40})\\.(\\d{1,7})' + MARK + '\\.json$');
+  var DFILE = new RegExp('^([a-z0-9-]{1,40})\\.([0-9a-f]{32})\\.([\\w-]{1,40})\\.(\\d{1,7})' + MARK + '\\.json$');
   var KEYS = ['format', 'features', 'app', 'run', 'publication', 'step', 'verdict', 'blockers', 'evidence', 'links', 'inputs', 'producer', 'created', 'id', 'supersedes', 'summary'];
   var DKEYS = ['format', 'features', 'app', 'process', 'run', 'step', 'producer', 'report', 'sha256', 'status', 'reason', 'inputs', 'answer', 'by', 'at', 'rev', 'seen'];
   var VERDICTS = ['pass', 'fail', 'blocked'], STATUS = ['accepted', 'declined', 'open'], MAX_REV = 1000000;
@@ -11212,7 +11212,8 @@ PF.reports = (function () {
   function fileName(o) { return o.run + '.' + o.step + '.' + o.producer + '.' + o.id + '.json'; }
   /* The logical identity of a report, apart from the files that hold it: (process, run, step, producer, id). */
   function identity(o) { return [o.process, o.run, o.step, o.producer, o.id].join('/'); }
-  function decisionHash(o) { return U.hash(identity(o)); }
+  /* 128 bits of SHA-256 of the report's identity: two reports on one step never share a decision file name. */
+  function decisionHash(o) { return PF.sha256.hex(identity(o)).slice(0, 32); }
   function decisionName(rec, writer) { return rec.run + '.' + decisionHash({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report }) + '.' + writer + '.' + Math.floor(rec.rev) + '.json'; }
   function parseDecisionName(name) {
     var m = typeof name === 'string' ? DFILE.exec(name) : null;

@@ -197,7 +197,7 @@ rule('The committed 2.0 samples and probes are exactly what tools/v2-samples.js 
 const PART2_READS = ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skill-registrations/release-notes/sk-aaaa1111.1.w-twozero.json', 'runs/backup/run-e/run.json',
   'publications/backup/v2-zzzz2222/publication.json', 'runs/backup/run-c/run.json', 'step-types/team.count.json'];
 /* What slice 2b reads: a report and a decision on it, through the reports reader itself. */
-const REPORT_READS = ['reports/backup/run-c.count.row-counter.k3m9p2q8.json', 'report-decisions/backup/run-c.' + S.hash('backup/run-c/count/row-counter/k3m9p2q8') + '.w-twozero.1.json'];
+const REPORT_READS = ['reports/backup/run-c.count.row-counter.k3m9p2q8.json', 'report-decisions/backup/run-c.' + S.decisionHash('backup/run-c/count/row-counter/k3m9p2q8') + '.w-twozero.1.json'];
 rule('Every 2.0 sample this slice doesn\'t build is refused by its family\'s verdict in this copy, every probe too, and the ones it builds are read', () => {
   const t = S.tree('folder');
   PART2_READS.forEach(p => { const fam = E.familyOfPath(p), o = JSON.parse(t[p]); assert.ok(E.judge(fam, o).ok, p); if (fam === 'preflight-run') assert.ok(!PF.run.sanitize(o)._unrunnable, p); });

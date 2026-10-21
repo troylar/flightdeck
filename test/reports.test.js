@@ -223,7 +223,7 @@ rule('Decisions: written once per rev, named by the report\'s identity, read bac
   const d = X.decision(g, sha, 'declined', 'person-avery', AT, null, { reason: '  wrong   build ' });
   assert.strictEqual(d.reason, 'wrong build'); assert.strictEqual(d.rev, 1); assert.strictEqual(d.seen, null);
   const name = X.decisionName(d, 'w-avery');
-  assert.ok(new RegExp('^run1\\.[0-9a-f]{8}\\.w-avery\\.1\\.json$').test(name));
+  assert.ok(new RegExp('^run1\\.[0-9a-f]{32}\\.w-avery\\.1\\.json$').test(name));
   const back = X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', name);
   assert.ok(back.ok, back.why); assert.strictEqual(back.d.key, g.key);
   assert.strictEqual(X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', name.replace('.1.json', '.2.json')).ok, false);
@@ -477,6 +477,15 @@ rule('An acceptance whose log line was archived out of a full log is still found
   const r2 = JSON.parse(JSON.stringify(r)); r2._overflow = archived;
   assert.deepStrictEqual(plain(X.unrecorded(r2, [g], {}, map).map(x => x.recordable)), [true], 'from _overflow too');
   assert.ok(X.provenance(r2, 'deploy'));
+});
+
+rule('Decision file names never collide for two reports on one step: the identity digest is 128 bits of SHA-256', () => {
+  const a = { process: 'backup-check', run: 'run1', step: 'deploy', producer: 'ci-check', id: '374253898c08' }, b = Object.assign({}, a, { id: 'fe767ee61714' });
+  assert.strictEqual(PF.util.hash(X.identity(a)), PF.util.hash(X.identity(b)), 'set-up: these two collide in 32 bits');
+  assert.ok(/^[0-9a-f]{32}$/.test(X.decisionHash(a)));
+  assert.notStrictEqual(X.decisionHash(a), X.decisionHash(b));
+  const g = groupOf(report()), d = X.decision(g, g.sha256, 'open', 'person-avery', LATER, null, {}), name = X.decisionName(d, 'w1');
+  assert.ok(X.parseDecisionName(name) && X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', name).ok, 'its name parses and matches');
 });
 
 run();
