@@ -35,8 +35,8 @@
     var stop = rep.issues.filter(function (i) { return i.severity === 'stop'; }), look = rep.issues.filter(function (i) { return i.severity !== 'stop'; });
     if (stop.length) h += '<section class="panel hz-sec" aria-labelledby="hz-stop"><h2 id="hz-stop">Needs action · ' + stop.length + '</h2><ul class="hz-list">' + stop.map(issueRow).join('') + '</ul></section>';
     if (look.length) h += '<section class="panel hz-sec" aria-labelledby="hz-look"><h2 id="hz-look">Worth a look · ' + look.length + '</h2><ul class="hz-list">' + look.map(issueRow).join('') + '</ul></section>';
-    h += '<section class="panel hz-sec" aria-labelledby="hz-ok"><h2 id="hz-ok">All clear · ' + rep.clear.length + '</h2><ul class="hz-clear">' + rep.clear.map(function (c) { return '<li><span class="hz-tick" aria-hidden="true">' + I('check') + '</span><span>' + esc(c.text) + '</span></li>'; }).join('') + '</ul>' +
-      (rep.scanned ? '' : '<p class="small">Choose Check again to read every file, not just what Flightdeck already loaded.</p>') + '</section>';
+    h += '<details class="panel hz-sec" data-disc="hz-ok"' + ((st.disc || {})['hz-ok'] ? ' open' : '') + '><summary><h2 id="hz-ok">All clear · ' + plural(rep.clear.length, 'check') + ' passed</h2></summary><ul class="hz-clear">' + rep.clear.map(function (c) { return '<li><span class="hz-tick" aria-hidden="true">' + I('check') + '</span><span>' + esc(c.text) + '</span></li>'; }).join('') + '</ul></details>' +
+      (rep.scanned ? '' : '<p class="small">Choose Check again to read every file, not just what Flightdeck already loaded.</p>');
     if (hs && hs.scan) {
       var areas = hs.scan.areas || {}, keys = Object.keys(areas).sort(function (a, b) { return areas[b].bytes - areas[a].bytes || (a < b ? -1 : 1); });
       h += '<details class="panel hz-sec"><summary><h2 style="display:inline">What\'s in the folder</h2></summary><table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' +
