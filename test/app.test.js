@@ -6143,7 +6143,7 @@ rule('Back and Forward: a link to a run whose read failed isn\'t called gone, an
   app.fs.list = p => fail && p === 'runs' ? Promise.reject(new Error('NotReadableError')) : list(p);
   app.click('refresh'); await app.tick(80);
   app.typeHash('#/run/release/later-run'); await app.settle();
-  assert.ok(onProcess(app) && /That run couldn.t be read just now, so it wasn.t opened\. Refresh tries again\./.test(app.live()) && !/isn.t in this folder anymore/.test(app.live()), app.live());
+  assert.ok(onProcess(app) && /That run wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()) && !/isn.t in this folder anymore/.test(app.live()), app.live());
   fail = false; app.click('refresh'); await app.tick(80); await app.settle();
   assert.ok(onRun(app) && /Later run/.test(app.html()), 'opened once read');
   assert.strictEqual(app.hash(), '#/run/release/later-run');
@@ -6155,6 +6155,22 @@ rule('Back and Forward: a link to a run whose read failed isn\'t called gone, an
   app.click('nav', 'runs'); await app.tick();
   fail = false; app.click('refresh'); await app.tick(80); await app.settle();
   assert.ok(!onRun(app), 'stays where it was moved to');
+});
+
+rule('Back and Forward: a link to a process whose draft couldn\'t be read isn\'t called gone, and opens once Refresh reads it', async () => {
+  const app = await navBoot(), path = 'maps/drafts/later.md';
+  await app.fs.write(path, ['---', 'process: later', 'title: Later process', '---', '', '## One · READ-DO {#one}', '- [ ] {confirm} Do it {#it}', ''].join('\n'));
+  const read = app.fs.read.bind(app.fs); let fail = true;
+  app.fs.read = p => fail && p === path ? Promise.reject(new Error('NotReadableError')) : read(p);
+  app.click('refresh'); await app.tick(80);
+  app.typeHash('#/process/later'); await app.settle();
+  assert.ok(/That process wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()), app.live());
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.ok(onProcess(app, 'Later process'), 'opened once read');
+  assert.strictEqual(app.hash(), '#/process/later');
+  /* A target the folder was read without any failure is gone, and says so. */
+  app.typeHash('#/process/never'); await app.settle();
+  assert.ok(/That process isn.t in this folder anymore\./.test(app.live()), app.live());
 });
 
 /* The examples' folder fingerprint, as entries made in them carry it. */

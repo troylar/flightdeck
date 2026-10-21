@@ -19966,7 +19966,7 @@ PF.examples = (function () {
     H.loadedGen = gen;
     /* A run link that couldn't be read opens once a later read finds it, if nothing was moved to since. */
     var rt = H.retry; if (rt && (rt.seq !== navSeq || rt.f !== navFp())) rt = H.retry = null;
-    if (rt && H.on && !H.pending && ctx.findRun(rt.loc.process + '/' + rt.loc.run)) { H.retry = null; arrive({ loc: rt.loc, n: H.pos, f: rt.f }); return; }
+    if (rt && H.on && !H.pending && (!navUnread(rt.loc) || navFound(rt.loc))) { H.retry = null; arrive({ loc: rt.loc, n: H.pos, f: rt.f }); return; }
     var t = H.pending; if (!H.on || !t || !readyFor(t)) return;
     H.pending = null; arrive(t);
   }
@@ -20087,6 +20087,25 @@ PF.examples = (function () {
     render(); window.scrollTo(0, 0);
   }
   function navWarn(m) { say(m, 'warn'); }
+  /* A link's target not found while part of the folder couldn't be read may only be unread: it isn't called gone, and the
+     link is kept, to open (or be called gone) after the next read that can tell (navLoaded), unless you've moved since. */
+  function navUnread(loc) {
+    var f = data.failed || {}, u = state.unread || {}, v = loc.view, drafts = !!(f.drafts || f.publications || Object.keys(u.drafts || {}).length);
+    if (v === 'run') { var key = loc.process + '/' + loc.run; return !!(f.runs || (u.runs || {})[key] || drafts || (data.unreadable || []).some(function (x) { return String(x.path || '').indexOf('runs/' + key + '/') === 0; })); }
+    if (v === 'process') return drafts;
+    if (v === 'plan') return !!f.proposals;
+    if (v === 'skill') return !!(f.skills || drafts);
+    return false;
+  }
+  function navFound(loc) {
+    if (loc.view === 'run') return !!ctx.findRun(loc.process + '/' + loc.run);
+    if (loc.view === 'process') return processes().some(function (x) { return x.id === loc.process; }) && (!loc.version || loc.version === 'current' || (processes().filter(function (x) { return x.id === loc.process; })[0].all || []).some(function (x) { return x.folder === loc.version && x.map; }));
+    return false;
+  }
+  function navGone(what, loc) {
+    if (!navUnread(loc)) { navWarn('That ' + what + ' isn\'t in this folder anymore.'); return; }
+    H.retryLoc = loc; navWarn('That ' + what + ' wasn\'t found, but part of the team folder couldn\'t be read just now. Refresh tries again.');
+  }
   /* The move: the smallest step a click would take, through the click's own functions. Returns 'moved', 'focus' (moved,
      focus already chosen), 'stay' (the screen is as it was; the URL is put back) or 'async' (a step type's read). */
   function moveTo(loc) {
@@ -20123,13 +20142,13 @@ PF.examples = (function () {
       var add = function (x) { var k = x.skill.file || x.skill.name; if (U.hash(k) === loc.skill && files.indexOf(k) < 0) files.push(k); };
       processes().forEach(function (p) { p.skills.forEach(add); }); ctx.orphanSkills().forEach(add);
       if (files.length === 1) { ACTIONS['open-skill'](files[0]); return 'moved'; }
-      ACTIONS.nav('skills'); navWarn('That skill isn\'t in this folder anymore.'); return 'moved';
+      ACTIONS.nav('skills'); navGone('skill', loc); return 'moved';
     }
     home(); return 'moved';
   }
   function moveToProcess(loc) {
     var pid = loc.process, p = processes().filter(function (x) { return x.id === pid; })[0];
-    if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navWarn('That process isn\'t in this folder anymore.'); return 'moved'; }
+    if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('process', loc); return 'moved'; }
     var rf = state.runFilter;
     if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
     if (loc.sub === 'start') {
@@ -20148,7 +20167,7 @@ PF.examples = (function () {
     if (loc.version === 'current') { if (p.latest) { state.ptab = 'overview'; ACTIONS['back-current'](); } else ACTIONS['view-version'](null); return 'moved'; }
     if (loc.version) {
       var pub = (p.all || []).filter(function (x) { return x.folder === loc.version; })[0];
-      if (pub && pub.map) ACTIONS['view-version'](loc.version); else { ACTIONS['view-version'](null); navWarn('That version isn\'t in this folder anymore.'); }
+      if (pub && pub.map) ACTIONS['view-version'](loc.version); else { ACTIONS['view-version'](null); navGone('version', loc); }
       return 'moved';
     }
     ACTIONS['view-version'](null); return 'moved';
@@ -20161,17 +20180,14 @@ PF.examples = (function () {
     /* A decided plan never reopens with Start the run or Decline. */
     if (s && s.status === 'accepted' && s.run && ctx.findRun(p.process + '/' + s.run)) { openRun(p.process + '/' + s.run); return 'moved'; }
     ACTIONS.nav('runs');
-    navWarn(!s ? 'That plan isn\'t in this folder anymore.' : s.status === 'accepted' ? 'That plan was already started.' : 'That plan was declined.');
+    if (!s) navGone('plan', loc); else navWarn(s.status === 'accepted' ? 'That plan was already started.' : 'That plan was declined.');
     return 'moved';
   }
   function moveToRun(loc) {
     var key = loc.process + '/' + loc.run, r = ctx.findRun(key);
     if (!r) {
-      /* A run that couldn't be read isn't gone: the link is kept, and opens when a later read (Refresh) finds it. */
-      var unread = !!((data.failed || {}).runs || ((state.unread || {}).runs || {})[key]);
       if (processes().some(function (x) { return x.id === loc.process; })) ACTIONS['open-process'](loc.process); else ACTIONS.nav('runs');
-      if (unread) H.retryLoc = loc;
-      navWarn(unread ? 'That run couldn\'t be read just now, so it wasn\'t opened. Refresh tries again.' : 'That run isn\'t in this folder anymore.'); return 'moved';
+      navGone('run', loc); return 'moved';
     }
     var sub = loc.sub || '';
     if (sub === 'finish' && r.ended) sub = 'receipt';
