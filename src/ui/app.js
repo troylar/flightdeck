@@ -4941,7 +4941,8 @@
   function acceptInto(r2, map2, id, me, now, rp) {
     var X = PF.reports, x = M.findStep(map2, id);
     var rec = X.decision(rp.g, rp.sha, 'accepted', me, now, rp.cur, { answer: { at: now, by: me, fp: X.fingerprint(rp.values, rp.schema) }, inputs: rp.inputs });
-    R.done(r2, map2, id, me, now, rp.values, { exact: true });
+    var seen = skillSeen(r2, x.step);
+    R.done(r2, map2, id, me, now, seen ? Object.assign({}, rp.values, { _skill: seen }) : rp.values, { exact: true });
     R.log(r2, me, now, X.logLine(rp.g, rp.sha, x.step.text));
     rec.answer.fp = X.fingerprint(r2.steps[id].values || {}, rp.schema);
     return { k: rp.g.key, gkey: rp.g.key, runKey: r2.process + '/' + r2.id, step: id, at: now, by: me, fp: rec.answer.fp, schema: rp.schema, rec: rec, fk: rp.fk, err: '', tried: false };
@@ -4962,7 +4963,7 @@
     });
   }
   /* The decision file, written once; a retry after a lost answer finds the same bytes and succeeds (repo.decideReport). */
-  function writeAccept(it) {
+  function writeAccept(it, guard) {
     var dfs = state.fs, g = gen, ins = acceptsOf(it.fk), rec = it.rec;
     /* Every way an acceptance's decision is written (after the save, after a read, Record the decision) passes this hold. */
     var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
@@ -4973,7 +4974,7 @@
     if (next === 'recorded') { if (ins[it.k] === it) delete ins[it.k]; load(true); return Promise.resolve(true); }
     it.rec = next;
     it.writing = true; it.tried = true; it.err = '';
-    return putDecision(dfs, it.rec).then(function () {
+    return putDecision(dfs, it.rec, guard).then(function () {
       it.writing = false; if (ins[it.k] === it) delete ins[it.k];
       if (g !== gen) return true;
       say('Report accepted. The step is checked with its evidence.', 'good');
@@ -5020,7 +5021,8 @@
       if (mine.writing) return;
       if (runNotSure(r)) { say(runNotSure(r), 'warn'); render(); return; }
       if (!X.landed(r, mine)) { delete ins[id]; say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
-      writeAccept(mine); render(); return;
+      /* Judged again inside the write queue, as recovery is: a write ahead of it may outlast a read that changes what's known. */
+      writeAccept(mine, function () { var r3 = ctx.findRun(key); return runNotSure(r3) || (X.landed(r3, mine) ? '' : 'The step was answered again since, so this acceptance isn\'t recorded.'); }); render(); return;
     }
     var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
     if (!u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
@@ -5550,13 +5552,17 @@
       });
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
-      /* A skill step in a run/3 records the registration as it is when the step is checked (pinned-skills). */
-      if (x.step.type === 'run.skill' && r.format === R.FORMAT3) {
-        var sname = R.fieldsOf(r, x.step).skill, reg = data.skills.filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
-        if (reg) values._skill = PF.skills.observed(reg.skill);
-      }
+      var seen = skillSeen(r, x.step);
+      if (seen) values._skill = seen;
     }
     return { r: r, map: map, x: x, values: values };
+  }
+  /* A skill step in a run/3 records the registration as it is when the step is checked (pinned-skills), however it's checked:
+     Done, or accepting a report. null when there's nothing to record. */
+  function skillSeen(r, step) {
+    if (step.type !== 'run.skill' || r.format !== R.FORMAT3) return null;
+    var sname = R.fieldsOf(r, step).skill, reg = (data.skills || []).filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
+    return reg ? PF.skills.observed(reg.skill) : null;
   }
   /* The one way to answer a step, Done or Done differently, from every place that does it (row check, inspector Done, Space
      and X, the Done differently composer and Mark it now). It works on that step only, with answerCheck's values, and only

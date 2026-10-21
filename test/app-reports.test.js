@@ -299,6 +299,75 @@ rule('App: a reports folder that can\'t be read keeps the reports last read, and
   assert.ok(!/couldn(&#39;|')t be read on the last check/.test(app.html()), 'readable again: the note goes');
 });
 
+rule('App: accepting a report on a {run.skill} step in a run/3 records the registration as observed, as Done does', async () => {
+  const runOf = async (how) => {
+    const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    await app.fs.write('maps/drafts/notes.md', '---\nprocess: notes\ntitle: Release notes\ncategory: Operations\nowner: person-casey\n---\n\n## Write {#w}\n- [ ] {run.skill} Write the notes {#write}\n  skill: notes-writer\n  skillVersion: 1.2.0\n');
+    app.click('refresh'); await app.tick(120);
+    app.click('home'); await app.tick(); app.click('open-process', 'notes'); await app.tick();
+    app.set('change-note', 'First'); app.click('publish', 'notes'); await app.tick(120);
+    const info = JSON.parse(app.fs.files[app.files('publications/notes/').find(p => /publication\.json$/.test(p))].t);
+    const reg = { format: 'flightdeck-skill/2', app: '2.0.0', id: 'sk-abcd1234', rev: 1, seen: null, name: 'notes-writer', version: '1.2.0', location: 'https://example.com/skills/notes-writer',
+      implements: { process: 'notes', folder: info.folder, mapHash: info.mapHash, typesHash: info.typesHash }, description: 'Writes the release notes.', by: 'person-casey', updated: '2026-10-20T09:00:00.000Z' };
+    const regText = JSON.stringify(reg, null, 2), regSha = app.PF.sha256.hex(new TextEncoder().encode(regText));
+    await app.fs.write('skill-registrations/notes-writer/sk-abcd1234.1.w-test.json', regText);
+    app.click('refresh'); await app.tick(120);
+    app.click('start', 'notes'); await app.tick(); app.submitForm('start-form'); await app.tick(120);
+    const path = app.files('runs/notes/').find(p => /run\.json$/.test(p)), j = JSON.parse(app.fs.files[path].t);
+    assert.strictEqual(j.format, 'preflight-run/3', 'set-up: a run/3');
+    if (how === 'done') { app.click('toggle', 'write'); await app.tick(120); }
+    else {
+      const rep = { format: 'flightdeck-report/1', run: 'notes/' + j.id, publication: { folder: j.folder, version: +j.version }, step: 'write', verdict: 'pass', evidence: {},
+        producer: { name: 'notes-bot', version: '1.0.0' }, created: '2026-10-20T09:00:00.000Z', id: 'abcd1234', summary: 'Notes written.' };
+      await app.fs.write('reports/notes/' + j.id + '.write.notes-bot.abcd1234.json', JSON.stringify(rep, null, 2) + '\n');
+      app.click('refresh'); await app.tick(120);
+      await openStep(app, 'write');
+      const key = ['notes', j.id, 'write', 'notes-bot', 'abcd1234'].join('/');
+      app.click('rep-accept', key); await app.tick(); app.click('rep-accept-go', key); await app.tick(160);
+    }
+    return { a: JSON.parse(app.fs.files[path].t).steps.write, sha: regSha, folder: info.folder };
+  };
+  // Each window publishes its own folder, so the folder (and the registration's bytes naming it) differ; all else is the same.
+  const same = (x) => { const k = JSON.parse(JSON.stringify(x.a.skill)); assert.strictEqual(k.sha, x.sha, 'the SHA-256 of the registration read'); assert.strictEqual(k.snapshot.implements.folder, x.folder); delete k.sha; delete k.snapshot.implements.folder; return k; };
+  const done = await runOf('done'), acc = await runOf('report');
+  assert.ok(done.a && done.a.s === 'done' && done.a.skill && done.a.skill.id === 'sk-abcd1234', 'set-up: Done records it: ' + JSON.stringify(done.a));
+  assert.ok(acc.a && acc.a.s === 'done' && acc.a.skill, 'accepted, with the registration: ' + JSON.stringify(acc.a));
+  assert.deepStrictEqual(same(acc), same(done), 'the same registration snapshot as Done');
+});
+
+rule('App: Record the decision for this window\'s own acceptance is judged again when its write\'s turn comes', async () => {
+  const app = await recording();
+  const a = await plant(app), b = await plant(app, { id: 'efgh5678' });
+  await openStep(app, 'jenkins');
+  const orig = app.PF.repo.decideReport; let fail = true, hold = null;
+  app.PF.repo.decideReport = function (fs, rec) {
+    if (fail) { fail = false; return Promise.reject(new Error('offline')); }
+    if (hold && rec.report === 'efgh5678') { const g = hold; hold = null; return g.p.then(() => orig.apply(this, arguments)); }
+    return orig.apply(this, arguments);
+  };
+  app.click('rep-accept', a.key); await app.tick(); app.click('rep-accept-go', a.key); await app.tick(120);
+  assert.strictEqual(app.run().json.steps.jenkins.s, 'done', 'set-up: accepted');
+  assert.deepStrictEqual(decisions(app), [], 'set-up: its decision failed');
+  // A slow write (B's decline) is ahead in the queue when Record the decision is chosen.
+  const g = gate(); hold = g;
+  app.click('rep-decline', b.key); await app.tick();
+  app.set(app.PF.reports.reasonId(b.key), 'Old tag'); app.click('rep-decline-go', b.key); await app.tick(20);
+  await openStep(app, 'jenkins');
+  assert.strictEqual(hold, null, 'set-up: B\'s write is waiting');
+  app.click('rep-record', a.key); await app.tick(20);
+  // Meanwhile the folder's run changes and this window's next read of it fails.
+  const path = app.run().path, j = app.run().json;
+  j.steps.jenkins.values.build = '9999'; j.rev += 1;
+  await app.fs.write(path, JSON.stringify(j, null, 2));
+  const read = app.fs.read.bind(app.fs);
+  app.fs.read = p => p === path ? Promise.reject(new Error('NotReadableError')) : read(p);
+  app.click('refresh'); await app.tick(120);
+  g.open(); await app.tick(160);
+  assert.deepStrictEqual(decisions(app).map(d => [d.report, d.status]), [['efgh5678', 'declined']], 'only B; A isn\'t recorded from a run that couldn\'t be read');
+  app.fs.read = read; app.PF.repo.decideReport = orig;
+});
+
 rule('App: a decline reason typed for one report never lands in another report\'s form', async () => {
   const app = await recording();
   const a = await plant(app);
