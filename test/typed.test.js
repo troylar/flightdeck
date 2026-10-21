@@ -617,4 +617,15 @@ rule('Fill in never drops a stored value that isn\'t valid: saving it unchanged 
   assert.strictEqual(back.steps.day.values.evidence, '2026-02-28');
 });
 
+rule('A step type\'s kind is read only as text: ["number"] in a field or a record is refused, never coerced to a kind', () => {
+  const rec = Object.assign(plain(TYPE2), { record: [{ name: 'rows', label: 'Rows', kind: ['number'], required: true }] });
+  assert.ok(T.checkCustom(rec).some(e => /kind must be one of/.test(e)), JSON.stringify(T.checkCustom(rec)));
+  const fld = Object.assign(plain(TYPE2), { fields: { system: { label: 'System', kind: ['text'] } } });
+  assert.ok(T.checkCustom(fld).some(e => /kind must be one of/.test(e)), JSON.stringify(T.checkCustom(fld)));
+  const frozen = plain(T.customType(TYPE2)); frozen.record[0].kind = ['number'];
+  assert.strictEqual(T.understood(frozen), false);
+  const frozenF = plain(T.customType(TYPE2)); frozenF.fields.system.kind = ['text'];
+  assert.strictEqual(T.understood(frozenF), false);
+});
+
 run();

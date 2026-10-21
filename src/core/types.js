@@ -116,7 +116,8 @@ PF.types = (function () {
   /* Evidence kinds a 2.0 step type (flightdeck-step-type/2, typed-evidence) may also record, and the keys only a number has. */
   var RECORD_KINDS2 = { text: 1, url: 1, choice: 1, number: 1, 'yes-no': 1, date: 1 }, NUMBER_KEYS = ['min', 'max', 'unit'];
   var NEEDS2 = ' evidence needs Flightdeck 2.0; add "format": "flightdeck-step-type/2" and "features": ["typed-evidence"] to the file';
-  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  /* Keys from file data are looked up only as text: an array or object there would be coerced to a name. */
+  function has(o, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k); }
   function numberKeys(d) { return NUMBER_KEYS.filter(function (k) { return has(d, k); }); }
   var NAME = /^[a-zA-Z][\w-]{0,29}$/;
   function checkCustom(def) {
@@ -145,7 +146,7 @@ PF.types = (function () {
     else Object.keys(fields).forEach(function (f) {
       var d = fields[f];
       if (!NAME.test(f) || COMMON[f]) errs.push('field "' + f + '": names are letters, numbers and dashes, and can\'t reuse ' + Object.keys(COMMON).join(', '));
-      if (!d || !FIELD_KINDS[d.kind]) errs.push('field "' + f + '": kind must be one of ' + Object.keys(FIELD_KINDS).join(', '));
+      if (!d || !has(FIELD_KINDS, d.kind)) errs.push('field "' + f + '": kind must be one of ' + Object.keys(FIELD_KINDS).join(', '));
       if (d && (typeof d.label !== 'string' || !d.label || d.label.length > 40)) errs.push('field "' + f + '": label must be 1-40 characters');
       if (d && d.options != null && d.kind !== 'choice') errs.push('field "' + f + '": only a choice has "options"');
       if (d && d.kind === 'choice' && (!Array.isArray(d.options) || !d.options.length || d.options.some(function (o) { return typeof o !== 'string' || !o || o.length > 40; }))) errs.push('field "' + f + '": a choice needs "options", a list of short texts');
@@ -166,7 +167,7 @@ PF.types = (function () {
     else rec.forEach(function (d, i) {
       if (!d || !NAME.test(d.name)) errs.push('record ' + (i + 1) + ': "name" must be letters, numbers and dashes');
       var at = 'record ' + (i + 1);
-      if (d && !RECORD_KINDS[d.kind] && has(RECORD_KINDS2, d.kind) && !two) errs.push(at + ': ' + d.kind + NEEDS2);
+      if (d && !has(RECORD_KINDS, d.kind) && has(RECORD_KINDS2, d.kind) && !two) errs.push(at + ': ' + d.kind + NEEDS2);
       else if (!d || !has(RECORD_KINDS2, d.kind)) errs.push(at + ': kind must be one of ' + Object.keys(RECORD_KINDS2).join(', '));
       if (d && (typeof d.label !== 'string' || !d.label || d.label.length > 40)) errs.push(at + ': label must be 1-40 characters');
       if (d && d.options != null && d.kind !== 'choice') errs.push(at + ': only a choice has "options"');
@@ -246,7 +247,7 @@ PF.types = (function () {
     /* Version 3 (2.0): a definition with typed evidence. The 2.0 kinds and keys are read only there, and only with values
        this copy can check (a min that isn't an exact decimal could never be compared). */
     if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3))) return false;
-    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return plainObj(d) && only(d, FIELD_KEYS) && Object.prototype.hasOwnProperty.call(KNOWN_KINDS, d.kind); }))) return false;
+    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return plainObj(d) && only(d, FIELD_KEYS) && has(KNOWN_KINDS, d.kind); }))) return false;
     if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
     if (uses2(def.record) && def.version !== 3) return false;
     return true;
