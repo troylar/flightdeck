@@ -640,6 +640,16 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .ob-part { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 6px 8px; color: var(--ink); cursor: grab; transition: border-color .12s, box-shadow .12s, transform .12s; }
 .ob-part:hover { border-color: var(--ink); transform: translateX(2px); }
 .ob-part[aria-pressed="true"] { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }
+.ob-all > summary { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; cursor: pointer; font-weight: 600; list-style: none; }
+.ob-all > summary::-webkit-details-marker { display: none; }
+.ob-all[open] > summary { margin-bottom: 8px; }
+.ob-all-list { display: flex; flex-direction: column; gap: 12px; }
+.fpe-panes.rail .ob-all > summary { justify-content: center; padding: 6px 0; }
+.fpe-panes.rail .ob-all-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (min-width: 801px) and (max-width: 1100px) {
+  .fpe-parts .ob-all > summary { justify-content: center; padding: 6px 0; }
+  .fpe-parts .ob-all-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .ob-pt { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.25; }
 .ob-pt small { color: var(--muted); font-size: 12px; }
 .ob-pic { flex: none; width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; font-family: var(--mono); font-size: 11px; font-weight: 700; background: var(--chip); color: var(--ink); }
@@ -1643,6 +1653,8 @@ button.att:hover { border-color: var(--ink); }
 @keyframes hz-sweep { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 .hz-sec { margin-bottom: 16px; }
 .hz-sec > summary { cursor: pointer; }
+.hz-sec > summary > h2 { display: inline; margin: 0; }
+.hz-sec[open] > summary { margin-bottom: 10px; }
 .hz-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .hz-issue { display: flex; gap: 10px 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 10px; background: var(--card); }
 .hz-issue.stop { border-left-color: var(--stop); } .hz-issue.info { border-left-color: var(--muted); }
