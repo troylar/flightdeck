@@ -4878,11 +4878,11 @@ rule('New process: a creation that finishes late never clears or leaves a newer 
   hold = false;
   app.click('go', '', { view: 'runs' }); await app.tick();
   app.click('new-process'); await app.tick();
-  app.set('np-id', 'release'); app.set('np-title', 'Second try'); app.submit('new-process-form'); await app.tick(20);
+  app.input('np-id', 'release'); app.input('np-title', 'Second try'); app.submit('new-process-form'); await app.tick(20);
   g.open(); await app.tick(80);
   app.PF.repo.loadAll = orig;
   assert.ok(app.fs.files['maps/drafts/risk-review.md'], 'set-up: the first draft was created');
-  assert.ok(/id="np-title"[^>]*value="Second try"/.test(app.html()), 'still on the newer form, as submitted');
+  assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Second try', 'still on the newer form, as submitted');
   assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()), 'told where the first one is');
 });
 

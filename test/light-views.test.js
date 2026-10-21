@@ -375,9 +375,14 @@ rule('New process: one box, Title; the file name is made from it and shown, and 
 });
 
 rule('New process: a file name typed under More options wins, and a bad or taken one opens the fold with the reason', async () => {
-  let app = await newProc();
+  let app = await newProc({ domFocus: true });
   app.set('np-title', 'Release'); app.submit('new-process-form'); await app.tick(60);
-  assert.ok(/already a process/.test(app.html() + app.live()) && /<details class="np-more" data-disc="np-more" open>/.test(app.html()) && app.focused() === 'np-id', 'taken: More opens on the file name');
+  assert.ok(/already a process/.test(app.html() + app.live()) && /<details class="np-more" data-disc="np-more" open>/.test(app.html()) , 'taken: More opens');
+  assert.strictEqual(app.activeId(), 'np-title', 'the title it came from has focus');
+  assert.ok(/id="np-id" maxlength="120" value=""/.test(app.html()), 'the file name stays made from the title');
+  app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
+  app.set('np-title', 'Release checklist'); app.submit('new-process-form'); await app.tick(150);
+  assert.ok(app.fs.files['maps/drafts/release-checklist.md'], 'a new title makes a new file name');
   app = await newProc();
   app.set('np-title', 'Bad name'); app.set('np-id', 'Bad Name'); app.submit('new-process-form'); await app.tick(60);
   assert.ok(/lowercase letters, numbers and dashes/.test(app.html() + app.live()) && /data-disc="np-more" open/.test(app.html()), 'refused');
@@ -440,11 +445,15 @@ rule('New process: two quick clicks on Publish v1 publish once and land on the p
 });
 
 rule('New process: a template that runs solo starts the box checked, and unchecking it leaves runs: solo out', async () => {
-  const app = await newProc();
-  app.click('np-tpl', 'weekly-review'); await app.tick();
+  let app = await newProc();
+  app.check('np-solo', false); app.click('np-tpl', 'weekly-review'); await app.tick();
   assert.ok(/<input type="checkbox" id="np-solo" checked>/.test(app.html()), 'checked, as the template says');
-  app.set('np-title', 'Team review'); app.set('np-solo', false); app.submit('new-process-form'); await app.tick(150);
-  assert.ok(!/^runs: solo$/m.test(app.fs.files['maps/drafts/team-review.md'].t), 'left out');
+  app.set('np-title', 'Solo review'); app.submit('new-process-form'); await app.tick(150);
+  assert.ok(/^runs: solo$/m.test(app.fs.files['maps/drafts/solo-review.md'].t), 'the live box followed the template, so it is kept');
+  app = await newProc();
+  app.click('np-tpl', 'weekly-review'); await app.tick();
+  app.set('np-title', 'Team review'); app.check('np-solo', false); app.submit('new-process-form'); await app.tick(150);
+  assert.ok(!/^runs: solo$/m.test(app.fs.files['maps/drafts/team-review.md'].t), 'unchecked: left out');
 });
 
 /* ---------- Part 3: the builder's words; Checks counts problems only ---------- */

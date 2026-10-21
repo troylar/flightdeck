@@ -4052,7 +4052,7 @@
       /* The assistant's prompt replaces the boxes, so what's typed in them is kept with the form first. */
       if (document.getElementById('np-title')) { var k = newProcForm(); ['token', 'title', 'group', 'tags', 'context', 'roles', 'owner', 'solo'].forEach(function (x) { f[x] = k[x]; }); f.id = k.ownId; f.typed = null; }
       /* A template's own "runs: solo" is where the box starts; unchecking it leaves it out. */
-      if (f.tpl !== id && id !== 'assistant') { var tb = id === 'blank' ? '' : npBase(id) || ''; f.solo = /^runs:[ \t]*solo[ \t]*$/m.test(tb.split(/^---[ \t]*$/m)[1] || ''); }
+      if (f.tpl !== id && id !== 'assistant') { var tb = id === 'blank' ? '' : npBase(id) || ''; f.solo = /^runs:[ \t]*solo[ \t]*$/m.test(tb.split(/^---[ \t]*$/m)[1] || ''); var cb = document.getElementById('np-solo'); if (cb) cb.checked = f.solo; }
       f.tpl = id; state.focus = '[data-act="np-tpl"][data-id="' + cssEsc(id) + '"]'; render(); },
     'np-publish': function () { createProcess(true); },
     'np-copy': function () { var pre = document.getElementById('np-prompt'); if (pre) copyText(pre.textContent, pre, 'Copied. Paste it to your AI assistant.'); },
@@ -5160,7 +5160,7 @@
     return { token: ++npToken, tpl: was.tpl || 'blank', id: own || V.fileIdOf(title), ownId: own, title: title, group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner') || state.me, solo: !!(document.getElementById('np-solo') || {}).checked };
   }
   /* A refused file name opens More options on it, with the reason. */
-  function npRefuse(f, msg, box) { say(msg, 'warn'); if (box === 'np-id') (state.disc = state.disc || {})['np-more'] = true; state.focus = box; render(); }
+  function npRefuse(f, msg, box, more) { say(msg, 'warn'); if (more || box === 'np-id') (state.disc = state.disc || {})['np-more'] = true; state.focus = box; render(); }
   function npBase(id) { var t = PF.setup.TEMPLATES.filter(function (x) { return x.id === id; })[0]; return id === 'check-in' ? EXAMPLES['maps/drafts/check-in.md'] : t && t.md; }
   /* The draft's text: the starter, or a template made this process's own (only its front-matter lines change). */
   function newProcMd(f) {
@@ -5174,15 +5174,16 @@
     return M.withMeta(base, set);
   }
   function createProcess(publish) {
-    if (npBusy === gen) return;
+    if (npBusy.gen === gen && state.newProc && state.newProc.token === npBusy.token) return;
     var f = newProcForm();
-    state.newProc = Object.assign(f, { typed: null });
+    /* The form keeps only a file name typed by hand; one made from the title follows the title. */
+    state.newProc = Object.assign({}, f, { id: f.ownId, typed: null });
     if (!f.title) return npRefuse(f, 'Give the process a title.', 'np-title');
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) return npRefuse(f, 'The file name is lowercase letters, numbers and dashes, like release or code-review.', f.ownId ? 'np-id' : 'np-title');
-    if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a process called "' + f.id + '". Choose another title, or another file name under More options.', 'np-id');
+    if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a process called "' + f.id + '". Choose another title, or another file name under More options.', f.ownId ? 'np-id' : 'np-title', true);
     var md = newProcMd(f), sfs = state.fs, g = gen, mine = f.token, by = state.me;
-    npBusy = gen;
-    var done = function () { if (npBusy === g) npBusy = -1; };
+    npBusy = { gen: gen, token: mine };
+    var done = function () { if (npBusy.token === mine) npBusy = { gen: -1, token: -1 }; };
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
@@ -5208,7 +5209,7 @@
       });
     }).catch(function (err) { if (g !== gen) return; say('Couldn\'t ' + (publish ? 'publish' : 'create') + ' the draft: ' + err.message, 'bad'); render(); }).then(done, done);
   }
-  var npBusy = -1;
+  var npBusy = { gen: -1, token: -1 };
   document.addEventListener('submit', function (e) {
     if (e.target.id === 'type-form') { e.preventDefault(); readTypeForm(); saveType(); return; }
     if (e.target.id !== 'new-process-form') return;
