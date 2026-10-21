@@ -21,10 +21,11 @@ roles: owner
   options: Ask the reporter, Close as unclear, Keep as is
 
 ## Tidy the backlog · DO-CONFIRM {#tidy}
-- [!] {jira.issue} Stale issues moved to "Won't do" with a comment @owner {#stale}
+- [!] {jira.issue} Stale issues closed as "Won't Do" with a comment @owner {#stale}
   action: transition
   issue: Board filter "Not updated in 90 days"
-  status: Won't do
+  issueType: Story
+  status: Done
 - [ ] {confirm} Top 20 backlog items are in priority order @owner {#order}
 - [ ] {confirm} Next sprint's candidates have acceptance criteria @owner {#criteria}
   evidence: note

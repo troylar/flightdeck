@@ -49,6 +49,7 @@
     out.forEach(function (pt) { pt.base = true; });
     return out.concat(mine, T.LIST.filter(function (t) { return t.id !== 'confirm' && t.id !== 'run.process'; }).map(function (t) { return typePart(t, false); }));
   }
+  var QUICK = ['phase', 'gate', 'step', 'must'];
   function partOf(ctx, id) { return parts(ctx).filter(function (x) { return x.id === id; })[0] || null; }
   function matches(pt, q) { return !q || [pt.label, pt.hint, pt.group, pt.keys || '', pt.type || ''].join(' ').toLowerCase().indexOf(q) >= 0; }
   function pic(pt) { return pt.glyph ? '<span class="ob-pic g-' + pt.glyph[0] + '" aria-hidden="true">' + esc(pt.glyph[1]) + '</span>' : '<span class="ob-pic g-ty" aria-hidden="true">' + I(pt.icon || 'check') + '</span>'; }
@@ -69,16 +70,25 @@
     };
     var section = function (head, list, extra, sub) { return list.length || extra ? '<div class="ob-pgroup"><h4' + (sub ? ' class="sub"' : '') + '>' + esc(head) + '</h4>' + (list.length ? '<ul>' + list.map(btn).join('') + '</ul>' : '') + (extra || '') + '</div>' : ''; };
     var by = function (list) { var g = []; list.forEach(function (pt) { if (g.indexOf(pt.group) < 0) g.push(pt.group); }); return g.map(function (name) { return [name, list.filter(function (pt) { return pt.group === name; })]; }); };
-    h += section('Structure', shown.filter(function (pt) { return pt.base && pt.group === 'Structure'; })) + section('Steps', shown.filter(function (pt) { return pt.base && pt.group === 'Steps'; }));
-    var team = shown.filter(function (pt) { return pt.team; }), anyTeam = all.some(function (pt) { return pt.team; });
+    /* Without a search: Phase, Gate, Step and Must-do, and every part under All parts (opened by hand, or while one of its
+       parts is being placed). A search shows every match. A type that can't be used is never folded. */
+    var fold = !q, rest = fold ? shown.filter(function (pt) { return QUICK.indexOf(pt.id) < 0; }) : shown, list = '';
+    if (fold) h += '<ul class="ob-pgroup ob-quick">' + QUICK.map(function (id) { return all.filter(function (pt) { return pt.id === id; })[0]; }).map(btn).join('') + '</ul>';
+    list += section('Structure', rest.filter(function (pt) { return pt.base && pt.group === 'Structure'; })) + section('Steps', rest.filter(function (pt) { return pt.base && pt.group === 'Steps'; }));
+    var team = rest.filter(function (pt) { return pt.team; }), anyTeam = all.some(function (pt) { return pt.team; });
     var broken = errs.map(function (e) { return '<li class="ob-broken"><b>' + esc(e.file) + '</b><span class="small">Can\'t use this type yet.</span> <button type="button" class="linkish" data-act="open-types">View errors</button></li>'; }).join('');
-    if (team.length || broken || (!anyTeam && !q)) {
-      h += '<div class="ob-pgroup"><h4>Your team\'s step types</h4>' + (!anyTeam && !q ? '<p class="small">None yet. <button type="button" class="linkish" data-act="new-type">Create a step type</button></p>' : '') + '</div>';
-      by(team).forEach(function (g) { h += section(g[0], g[1], '', true); });
-      if (broken) h += '<ul class="ob-pgroup">' + broken + '</ul>';
+    if (team.length || (broken && !fold) || (!anyTeam && !q)) {
+      list += '<div class="ob-pgroup"><h4>Your team\'s step types</h4>' + (!anyTeam && !q ? '<p class="small">None yet. <button type="button" class="linkish" data-act="new-type">Create a step type</button></p>' : '') + '</div>';
+      by(team).forEach(function (g) { list += section(g[0], g[1], '', true); });
+      if (broken && !fold) list += '<ul class="ob-pgroup">' + broken + '</ul>';
     }
-    var built = shown.filter(function (pt) { return !pt.base && !pt.team; });
-    if (built.length) { h += '<div class="ob-pgroup"><h4>Built-in step types</h4></div>'; by(built).forEach(function (g) { h += section(g[0], g[1], '', true); }); }
+    var built = rest.filter(function (pt) { return !pt.base && !pt.team; });
+    if (built.length) { list += '<div class="ob-pgroup"><h4>Built-in step types</h4></div>'; by(built).forEach(function (g) { list += section(g[0], g[1], '', true); }); }
+    if (fold) {
+      var open = (st.disc || {})['ob-all'] || (pl && QUICK.indexOf(pl.part) < 0), label = 'All parts (' + all.length + ')';
+      h += '<details class="ob-all" data-disc="ob-all"' + (open ? ' open' : '') + '><summary class="ob-all-sum" title="' + esc(label) + '"><span class="ob-pic g-ty" aria-hidden="true">' + I('plus') + '</span><span class="ob-all-t">' + esc(label) + '</span></summary><div class="ob-all-list">' + list + '</div></details>';
+      if (broken) h += '<div class="ob-pgroup"><h4>Your team\'s step types</h4></div><ul class="ob-pgroup">' + broken + '</ul>';
+    } else h += list;
     return '<div class="ob-plist" id="ob-plist' + sfx + '">' + h + '</div>';
   }
   /* The parts pane of the full-page editor: it folds to a rail of icons (remembered in this browser). */

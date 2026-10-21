@@ -129,7 +129,7 @@
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1><div class="small">This starts a draft checklist in <code>maps/drafts/</code>. Edit it here or with your AI assistant, then publish it.</div></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
-      '<div class="grid2">' + field('id', 'Process ID', 'lowercase, dashes: the file name and what skills point to', f.id, ' pattern="[a-z0-9][a-z0-9-]*" required') + field('title', 'Title', '', f.title, ' required') + '</div>' +
+      '<div class="grid2">' + field('id', 'Process ID', 'lowercase, dashes: the file name and what skills point to', f.id, ' pattern="[a-z0-9][a-z0-9\\-]*" required') + field('title', 'Title', '', f.title, ' required') + '</div>' +
       '<div class="grid2">' + field('group', 'Group', 'its place in the hierarchy, like Engineering / Releases', f.group) + field('tags', 'Tags', 'comma-separated', f.tags) + '</div>' +
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
       '<label class="field" for="np-owner">Owner <span class="small">signs versions off as ready for a skill</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
