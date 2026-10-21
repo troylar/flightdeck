@@ -1224,6 +1224,9 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
+    /* A decline reason being typed stays with its report when the form isn't drawn (another step selected). */
+    var rp = state.repPick, rbox = rp && rp.mode === 'decline' ? document.getElementById(PF.reports.reasonId(rp.key)) : null;
+    if (rbox) rp.reason = rbox.value;
     procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -1603,7 +1606,7 @@
         landed._fileHash = U.hash(wrote.text); landed._overflow = [];
         var landedText = JSON.stringify(landed);
         keepBaseline(r.id, function () { return JSON.parse(landedText); });
-        finishAccepts(key, landed, rev);
+        finishAccepts(key);
       }
       runOutcome(key, 'run'); bump('~' + r.id);
       render();
@@ -4471,7 +4474,6 @@
       /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
       var base = baselines[r.id];
       if (base) { var back = base.make(); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = back; bump(r.id); }
-      dropAccepts(r.process + '/' + r.id);
       delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
     },
     /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
@@ -4867,10 +4869,12 @@
     if (!r) return null;
     var key = r.process + '/' + r.id;
     if (repMemo[key]) return repMemo[key];
-    var e = repLoad(r), cur = repCur(), list = e ? e.list : [];
+    var e = repLoad(r), cur = repCur(), found = e ? e.list : [];
+    /* A report whose every copy is gone still shows from the decisions on it. */
+    var list = found.concat(PF.reports.fromDecisions(found.map(function (it) { return it.g; }), data.repDecisions, r.process, r.id).map(function (g) { return { g: g, depth: 0, note: '' }; }));
     return (repMemo[key] = { list: list, badNames: e ? e.badNames : [], failed: e ? e.failed : '', loading: !!(e && e.loading), cur: cur,
       archived: e ? e.archived || [] : [], histFailed: e ? e.histFailed || '' : '',
-      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r), e ? e.archived : null), pending: pendingAccepts(key), readOnly: repReadOnly(r),
+      unrecorded: PF.reports.unrecorded(r, list.map(function (it) { return it.g; }), cur, R.mapOf(r), e ? e.archived : null), pending: pendingAccepts(key), unsaved: !!runUnsaved(r), readOnly: repReadOnly(r),
       fillOpen: function (id) { return fillOpenOn(key, id); }, held: repHeld, canRecord: function () { return repCanRecord(r); } });
   }
   function reportsWaiting() {
@@ -4905,11 +4909,10 @@
     state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
     render();
   }
-  /* Acceptances this window made whose decision isn't written yet, per folder (docs/design.md section 26): kept across a
-     failed save, Try again and a folder switch; dropped by Discard my change. */
-  function acceptsOf(fk) { var all = state.reportIntents || (state.reportIntents = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
-  function pendingAccepts(key) { var ins = acceptsOf(); return Object.keys(ins).filter(function (k) { return ins[k].runKey === key; }).map(function (k) { return { key: ins[k].gkey, err: ins[k].err }; }); }
-  function dropAccepts(key) { var ins = acceptsOf(); Object.keys(ins).forEach(function (k) { if (ins[k].runKey === key && !ins[k].writing) delete ins[k]; }); }
+  /* Acceptances this window made in this session, per folder: only a hint that the finalizer should try them by itself, once
+     (run key, report key, SHA-256). A hint holds no decision and decides nothing; saved state does. */
+  function hintsOf(fk) { var all = state.repHints || (state.repHints = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
+  function pendingAccepts(key) { var hs = hintsOf(); return Object.keys(hs).filter(function (k) { return hs[k].runKey === key; }).map(function (k) { return { key: k }; }); }
   /* A report as the folder has it now: every copy read again and grouped (PF.reports.group), so a copy that arrived or
      changed since it was shown is judged too. Rejects when the reports folder can't be read. */
   function freshGroup(dfs, g) {
@@ -4919,9 +4922,9 @@
     });
   }
   /* Every decision on a report is written here, and the hold is checked again right before the write, in the write queue. */
-  function putDecision(dfs, rec, guard) {
+  function putDecision(dfs, rec) {
     return queued(function () {
-      var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report }) || (guard ? guard() : '');
+      var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
       if (held) return Promise.reject(new Error(held));
       return repo.decideReport(dfs, rec, WRITER);
     });
@@ -4940,8 +4943,7 @@
       var r2 = ctx.findRun(key), map = r2 && R.mapOf(r2);
       var el = X.eligible(g, r2, map, { recording: ctx.recording(r2), readOnly: r2 ? repReadOnly(r2) : '', held: repHeld(g), fillOpen: fillOpenOn(key, g.step) });
       if (!el.ok) { say(el.why, 'warn'); render(); return; }
-      var cur = repCur()[g.key];
-      return answerStep(key, g.step, { how: 'report', report: { g: g, sha: g.sha256, values: el.values, schema: el.schema, inputs: el.applies.result === 'match' ? 'match' : 'unknown', cur: cur ? cur.d : null, fk: fk } });
+      return answerStep(key, g.step, { how: 'report', report: { g: g, sha: g.sha256, values: el.values, fk: fk } });
     }, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t read the report again: ' + (e && e.message || e), 'bad'); render(); });
   }
   function reportCheck(key, id, rp) {
@@ -4950,53 +4952,63 @@
     if (fillOpenOn(key, id)) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
     return { r: r, map: map, x: x, values: rp.values };
   }
-  /* Inside the run's change: the decision is built first (so nothing changes if it can't be), then the answer with exactly the
-     report's evidence and the log line naming the SHA-256 of the bytes accepted. Returns the acceptance to finish. */
+  /* Inside the run's change: the answer with exactly the report's evidence (and, on a run/3 skill step, the registration as
+     observed, as Done records it) and the log line naming the SHA-256 of the bytes accepted. Returns the hint. */
   function acceptInto(r2, map2, id, me, now, rp) {
-    var X = PF.reports, x = M.findStep(map2, id);
-    var rec = X.decision(rp.g, rp.sha, 'accepted', me, now, rp.cur, { answer: { at: now, by: me, fp: X.fingerprint(rp.values, rp.schema) }, inputs: rp.inputs });
-    var seen = skillSeen(r2, x.step);
+    var X = PF.reports, x = M.findStep(map2, id), seen = skillSeen(r2, x.step);
     R.done(r2, map2, id, me, now, seen ? Object.assign({}, rp.values, { _skill: seen }) : rp.values, { exact: true });
     R.log(r2, me, now, X.logLine(rp.g, rp.sha, x.step.text));
-    rec.answer.fp = X.fingerprint(r2.steps[id].values || {}, rp.schema);
-    return { k: rp.g.key, gkey: rp.g.key, runKey: r2.process + '/' + r2.id, step: id, at: now, by: me, fp: rec.answer.fp, schema: rp.schema, rec: rec, fk: rp.fk, err: '', tried: false };
+    return { runKey: r2.process + '/' + r2.id, gkey: rp.g.key, sha: rp.sha };
   }
-  /* An acceptance's decision is written only once the team folder holds exactly its answer: after a save that carried it (first
-     try or Try again; key, landed, rev), or when a read finds it there (no key: this folder opened again). A save that carried
-     it but holds another answer means the step changed since, so nothing was accepted and no decision is written. */
-  function finishAccepts(key, landed, rev) {
-    var ins = acceptsOf();
-    Object.keys(ins).forEach(function (k) {
-      var it = ins[k];
-      if (it.writing || (key != null && it.runKey !== key)) return;
-      var r = key != null ? landed : ctx.findRun(it.runKey);
-      if (key == null && (!r || it.tried || state.unsaved[r.id] || (state.pendingSaves || {})[r.id])) return;
-      if (key != null && it.rev > rev) return;
-      if (PF.reports.landed(r, it)) { writeAccept(it); return; }
-      if (key != null) delete ins[k];
-    });
+  /* After a save of a run lands (key), or after a read (no key): this window's own acceptances are tried by the finalizer. */
+  function finishAccepts(key) {
+    var hs = hintsOf();
+    Object.keys(hs).forEach(function (k) { var h = hs[k]; if (!h.busy && (key == null || h.runKey === key)) finalizeAccept(h.runKey, k, h.sha, h); });
   }
-  /* The decision file, written once; a retry after a lost answer finds the same bytes and succeeds (repo.decideReport). */
-  function writeAccept(it, guard) {
-    var dfs = state.fs, g = gen, ins = acceptsOf(it.fk), rec = it.rec;
-    /* Every way an acceptance's decision is written (after the save, after a read, Record the decision) passes this hold. */
-    var held = repHeld({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report });
-    if (held) { it.tried = true; it.err = held; say(held, 'warn'); render(); return Promise.resolve(false); }
-    var next;
-    var mineName = PF.reports.decisionName(rec, WRITER), taken = (data.repDecisions || []).some(function (d) { return d.process === rec.process && d._file === mineName; });
-    try { next = PF.reports.rebase(rec, repCur()[it.gkey], taken, new Date().toISOString()); } catch (e) { it.tried = true; it.err = e.message; say(e.message, 'warn'); render(); return Promise.resolve(false); }
-    if (next === 'recorded') { if (ins[it.k] === it) delete ins[it.k]; load(true); return Promise.resolve(true); }
-    it.rec = next;
-    it.writing = true; it.tried = true; it.err = '';
-    return putDecision(dfs, it.rec, guard).then(function () {
-      it.writing = false; if (ins[it.k] === it) delete ins[it.k];
-      if (g !== gen) return true;
-      say('Report accepted. The step is checked with its evidence.', 'good');
-      load(true); return true;
+  /* The one way an acceptance's decision is written (plan rev 6), automatically for this window's hint or by Record the
+     decision. Judged in its write's turn from saved state only: the run as the folder holds it (with its archived log), every
+     copy of the report and the decisions on it, both read again. Resolves { wait } when it couldn't start (the run isn't
+     saved or can't be read, a decision can't be read), { done } once written, else { why }. */
+  function finalizeAccept(key, gkey, sha, hint) {
+    var X = PF.reports, dfs = state.fs, gg = gen, fk = fsKey(), part = gkey.split('/'), id = { key: gkey, process: part[0], run: part[1], step: part[2], producer: part[3], id: part[4] };
+    var wait = function () { var r = ctx.findRun(key); return runNotSure(r) || repHeld(id) || (!repCanRecord(r) ? 'Only the recorder can record this decision.' : ''); };
+    if (hint) hint.busy = true;
+    return queued(function () {
+      if (wait()) return { wait: wait() };
+      var g;
+      return freshGroup(dfs, id).then(function (got) {
+        g = got;
+        return repo.loadDecisionsOn(dfs, id);
+      }).then(function (dd) {
+        if (gg !== gen) return { wait: 'gone' };
+        if (wait() || dd.unread.length) return { wait: wait() || 'A decision on this report can\'t be read (' + dd.unread[0] + '), so nobody here knows what was decided. Decide once it can be read.' };
+        if (!g) return { why: 'The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.' };
+        var r = ctx.findRun(key), map = R.mapOf(r), cur = X.current(dd.decisions);
+        var u = X.unrecorded(r, [g], cur, map, repArchived(r)).filter(function (y) { return !sha || y.sha256 === sha; })[0];
+        if (!u) return { why: 'There\'s no acceptance of this report left to record: it\'s recorded, or the step was answered again since.' };
+        if (!u.recordable) return { why: u.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.' };
+        if (hint && u.other) return { why: '' };
+        var x = M.findStep(map, g.step), ap = X.applies(g.report, r, map, x.step);
+        var rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur[g.key] ? cur[g.key].d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(r.steps[g.step].values || {}, X.schemaOf(r, x.step)) }, inputs: ap.result === 'match' ? 'match' : 'unknown' });
+        return repo.decideReport(dfs, rec, WRITER).then(function () { return { done: true }; });
+      });
+    }).then(function (res) {
+      if (hint) hint.busy = false;
+      if (gg !== gen) return res;
+      state.repSaving = null;
+      /* The hint is used up by the first attempt that reaches a judgment; it waits only while the attempt can't start. */
+      if (res.wait) { if (!hint) say(res.wait, 'warn'); render(); return res; }
+      var hs = hintsOf(fk); if (hint && hs[gkey] === hint) delete hs[gkey];
+      if (res.done) { say(hint ? 'Report accepted. The step is checked with its evidence.' : 'The decision is recorded.', 'good'); load(true); return res; }
+      if (!hint && res.why) say(res.why, 'warn');
+      render(); return res;
     }, function (e) {
-      it.writing = false; it.err = e && e.message || String(e);
-      if (g === gen) { say('The step is checked, but the decision on the report couldn\'t be saved: ' + it.err + ' Choose Record the decision to try again.', 'bad'); render(); }
-      return false;
+      if (hint) hint.busy = false;
+      if (gg !== gen) return { why: e.message };
+      state.repSaving = null;
+      var hs = hintsOf(fk); if (hint && hs[gkey] === hint) delete hs[gkey];
+      say(hint ? 'The step is checked, but the decision on the report couldn\'t be saved: ' + (e && e.message || e) + ' Choose Record the decision to try again.' : 'Couldn\'t record the decision: ' + (e && e.message || e), 'bad');
+      render(); return { why: e && e.message };
     });
   }
   /* Decline (with a reason) and Reopen write a decision file only; run.json never changes. */
@@ -5006,14 +5018,14 @@
     if (!ctx.recording(o.r)) { say('Only the recorder can decide on a report.', 'warn'); render(); return; }
     if (repHeld(o.it.g)) { say(repHeld(o.it.g), 'warn'); render(); return; }
     var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? val(rid) : '', rec;
-    try { rec = X.decision(g, g.sha256, status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
+    try { rec = X.decision(g, g.sha256 || (cur ? cur.d.sha256 : ''), status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
     catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; if (state.repPick) state.repPick.reason = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
     state.repSaving = id; render();
     putDecision(dfs, rec).then(function () {
       /* This person decided again: an acceptance of theirs still waiting for its decision is superseded (the run's log still
          names it, so it can be recorded later as a choice). */
-      var ins = acceptsOf(); if (ins[g.key] && !ins[g.key].writing) delete ins[g.key];
+      var hs = hintsOf(); if (hs[g.key] && !hs[g.key].busy) delete hs[g.key];
       if (gg !== gen) return;
       state.repSaving = null; state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
       say(status === 'declined' ? 'Report declined. The run shows why.' : 'Reopened. The report isn\'t accepted.', 'good');
@@ -5021,45 +5033,17 @@
       return load(true);
     }, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t save the decision: ' + (e && e.message || e), 'bad'); render(); });
   }
-  /* Record the decision: this window's acceptance whose write failed, or (recovery) one the run's log names, built only from
-     a copy with exactly the logged SHA-256, never from other bytes. */
   /* A decision vouches for the run as it is in the folder: never while this window holds a change to it that isn't saved. */
   function runUnsaved(r) { return r && (state.unsaved[r.id] || (state.pendingSaves || {})[r.id]) ? 'The run isn\'t saved yet. The decision is recorded once the step is saved.' : ''; }
   /* ...nor while the run couldn't be read: what this window shows of it may not be what the folder holds. */
   function runNotSure(r) { return !r ? 'The run isn\'t in the team folder as this window last read it, so no decision was recorded.' : runUnsaved(r) || repReadOnly(r); }
+  /* Record the decision: an acceptance the run logs whose decision isn't in the folder, through the finalizer. */
   function recordAccept(id) {
-    var o = repItem(id), r = o.r;
-    if (!r) return;
-    var X = PF.reports, key = r.process + '/' + r.id, ins = acceptsOf(), mine = ins[id];
-    if (mine && mine.runKey === key) {
-      if (mine.writing) return;
-      if (runNotSure(r)) { say(runNotSure(r), 'warn'); render(); return; }
-      if (!X.landed(r, mine)) { delete ins[id]; say('The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
-      /* Judged again inside the write queue, as recovery is: a write ahead of it may outlast a read that changes what's known. */
-      writeAccept(mine, function () { var r3 = ctx.findRun(key); return runNotSure(r3) || (X.landed(r3, mine) ? '' : 'The step was answered again since, so this acceptance isn\'t recorded.'); }); render(); return;
-    }
-    var u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
-    if (!u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
+    var o = repItem(id), r = o.r, u = o.b ? o.b.unrecorded.filter(function (x) { return x.g.key === id; })[0] : null;
+    if (!r || !u || !u.recordable || !repCanRecord(r) || state.repSaving) return;
     if (repHeld(u.g) || runNotSure(r)) { say(repHeld(u.g) || runNotSure(r), 'warn'); render(); return; }
-    var dfs = state.fs, gg = gen, fk = fsKey();
     state.repSaving = id; render();
-    freshGroup(dfs, u.g).then(function (g) {
-      if (gg !== gen) return;
-      state.repSaving = null;
-      if (!g || !g.report || g.differ || g.unreadable.length || g.sha256 !== u.sha256) { delete repCache[fk + '\n' + key]; say('The report it accepted isn\'t in the folder in that form anymore, so no decision was recorded.', 'warn'); render(); return; }
-      var now = g, r2 = ctx.findRun(key), map = r2 && R.mapOf(r2), x = map && M.findStep(map, g.step), a = x && Object.prototype.hasOwnProperty.call(r2.steps, g.step) ? r2.steps[g.step] : null;
-      /* Judged again on the run as it is now, with every copy just read: the same answer, holding exactly this report's evidence. */
-      var again = r2 ? X.unrecorded(r2, [g], repCur(), map, repArchived(r2)).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
-      if (!a || !again || !again.recordable) { say(again && again.why === 'changed' ? 'The step\'s evidence was changed after the report was accepted, so the decision can\'t be recorded from this report.' : 'The step was answered again since, so this acceptance isn\'t recorded.', 'warn'); render(); return; }
-      var schema = X.schemaOf(r2, x.step), cur = repCur()[g.key], ap = X.applies(now.report, r2, map, x.step), rec;
-      try { rec = X.decision(g, u.sha256, 'accepted', state.me, new Date().toISOString(), cur ? cur.d : null, { answer: { at: u.at, by: u.by, fp: X.fingerprint(a.values || {}, schema) }, inputs: ap.result === 'match' ? 'match' : 'unknown' }); }
-      catch (e) { say(e.message, 'warn'); render(); return; }
-      /* Judged again inside the write queue: no unsaved change, and the run still holds exactly this answer and evidence. */
-      return putDecision(dfs, rec, function () {
-        var r3 = ctx.findRun(key), m3 = r3 && R.mapOf(r3), u3 = r3 && m3 ? X.unrecorded(r3, [g], repCur(), m3, repArchived(r3)).filter(function (y) { return y.sha256 === u.sha256; })[0] : null;
-        return runNotSure(r3) || (u3 && u3.recordable && X.fingerprint(r3.steps[g.step].values || {}, X.schemaOf(r3, x.step)) === rec.answer.fp ? '' : 'The step was answered or changed since, so this acceptance isn\'t recorded.');
-      }).then(function () { if (gg !== gen) return; say('The decision is recorded.', 'good'); return load(true); });
-    }).then(null, function (e) { if (gg !== gen) return; state.repSaving = null; say('Couldn\'t record the decision: ' + (e && e.message || e), 'bad'); render(); });
+    finalizeAccept(r.process + '/' + r.id, id, u.sha256, null);
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
   function recover(getCopy, logPrefix, cleanup) {
@@ -5599,7 +5583,7 @@
       applied = true;
     }, quiet ? { only: id, background: true } : { only: id });
     /* An accepted report leaves the step's own drafts (evidence typed, a note) as they are. */
-    if (intent) { intent.rev = edits(c.r.id); acceptsOf(o.report.fk)[intent.k] = intent; state.repPick = null; }
+    if (intent) { hintsOf(o.report.fk)[intent.gkey] = intent; state.repPick = null; }
     if (applied && o.how !== 'report') dropDraft(key, id, ['record']);
     if (applied && !quiet && state.view === 'run' && state.runKey === key) afterAnswer(id, was);
     return saving.then(function (saved) { return applied && saved === true; });

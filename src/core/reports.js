@@ -376,15 +376,6 @@ PF.reports = (function () {
   /* The decline reason's field, one per report, so a reason typed for one report never lands in another's form. */
   function reasonId(key) { return 'rep-reason-' + U.hash(String(key)); }
   function acceptKey(sha, at, by) { return sha + '\n' + at + '\n' + by; }
-  /* An acceptance's decision waiting to be written (rec), against the folder now (hit: current()'s entry for its report;
-     taken: a decision file already has rec's name, i.e. this window decided again at that rev): 'recorded' when a decision file
-     already accepts exactly that answer; else rec, made again on the newest decision only when its name is taken, so a retry
-     never lands on an occupied name. A decision another window made at the same rev stays a tie for a person to settle. */
-  function rebase(rec, hit, taken, at) {
-    if (hit && hit.accepts && hit.accepts[acceptKey(rec.sha256, rec.answer.at, rec.answer.by)]) return 'recorded';
-    if (!taken || !hit) return rec;
-    return decision({ process: rec.process, run: rec.run, step: rec.step, producer: rec.producer, id: rec.report }, rec.sha256, 'accepted', rec.by, at, hit.d, { answer: rec.answer, inputs: rec.inputs });
-  }
   /* Where a report stands with the run: { state, text }. state: 'none' (not decided), 'tie', 'declined', 'open' (reopened),
      'accepted', 'changed' (evidence changed since acceptance), 'again' (the step was answered again since), 'gone' (no copy
      has the bytes that were accepted). */
@@ -461,7 +452,7 @@ PF.reports = (function () {
   }
   /* Acceptances in the run whose decision isn't in the folder (the window closed before it was written): the log names the
      report and its hash, and the step's answer is still the one accepted. recordable when a copy with exactly those bytes is
-     there now and the step still holds exactly that report's evidence (map is needed to tell); a decision is never written
+     there now, no copy differs or can't be read, and the step still holds exactly that report's evidence (map is needed to tell); a decision is never written
      from other bytes or for evidence changed since (why: 'gone' or 'changed'). */
   function unrecorded(r, groups, cur, map, archived) {
     var out = [], seen = dict();
@@ -478,11 +469,23 @@ PF.reports = (function () {
       var hit = cur ? cur[g.key] : null;
       if (hit && hit.accepts && hit.accepts[acceptKey(p.sha256, l.at, l.by)]) return;
       seen[g.key + p.sha256] = true;
-      var bytes = g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ && g.sha256 === p.sha256 && !!g.report;
+      var bytes = g.copies.some(function (c) { return c.ok && c.sha256 === p.sha256; }) && !g.differ && !g.unreadable.length && g.sha256 === p.sha256 && !!g.report;
       var same = bytes && sameEvidence(g, r, map);
       /* Another decision on it is in the folder too. Clocks can't say which came last, so it's shown, and recording this one is
          a person's choice. */
       out.push({ g: g, sha256: p.sha256, at: l.at, by: l.by, recordable: bytes && same, why: !bytes ? 'gone' : same ? '' : 'changed', other: hit ? hit.d : null });
+    });
+    return out;
+  }
+  /* Reports known only from the decisions on them (every copy of the report is gone): one entry per identity on this run, with
+     no copies, so the step still shows its report and what was decided. */
+  function fromDecisions(groups, decisions, process, run) {
+    var have = dict(), out = [];
+    (groups || []).forEach(function (g) { have[g.key] = true; });
+    (decisions || []).forEach(function (d) {
+      if (!d || d.process !== process || d.run !== run || have[d.key]) return;
+      have[d.key] = true;
+      out.push({ key: d.key, process: d.process, run: d.run, step: d.step, producer: d.producer, id: d.report, copies: [], report: null, sha256: '', differ: false, unreadable: [], reason: 'No copy of this report is in the team folder anymore.' });
     });
     return out;
   }
@@ -498,11 +501,6 @@ PF.reports = (function () {
     if (!a) return false;
     var chk = R.checkEvidence(r, x.step, null, valuesFor(g.report, r, x.step).values), schema = schemaOf(r, x.step);
     return !chk.error && fingerprint(a.values || {}, schema) === fingerprint(chk.values, schema);
-  }
-  /* Whether the saved run holds exactly the answer an acceptance made (intent: { step, at, by, fp, schema }). */
-  function landed(r, intent) {
-    var a = r && r.steps && own(r.steps, intent.step) ? r.steps[intent.step] : null;
-    return !!a && a.s === 'done' && a.at === intent.at && a.by === intent.by && fingerprint(a.values || {}, intent.schema) === intent.fp;
   }
 
   /* ---------- the receipt ---------- */
@@ -572,5 +570,5 @@ PF.reports = (function () {
     utf8: utf8, snapshot: snapshot, parseName: parseName, fileName: fileName, identity: identity, decisionHash: decisionHash, decisionName: decisionName, parseDecisionName: parseDecisionName,
     clean: clean, cleanValue: cleanValue, group: group, order: order, applies: applies, appliesText: appliesText, schemaOf: schemaOf, fingerprint: fingerprint,
     decision: decision, cleanDecision: cleanDecision, current: current, decided: decided, valuesFor: valuesFor, eligible: eligible, logLine: logLine, parseLog: parseLog,
-    unrecorded: unrecorded, rebase: rebase, reasonId: reasonId, unreadOn: unreadOn, landed: landed, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
+    unrecorded: unrecorded, fromDecisions: fromDecisions, reasonId: reasonId, unreadOn: unreadOn, provenance: provenance, lines: lines, target: target, text: text, holdsKey: holdsKey, undecided: undecided, revOk: revOk };
 })();

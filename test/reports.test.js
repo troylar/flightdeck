@@ -255,7 +255,9 @@ rule('After acceptance: still accepted, evidence changed (Fill in), answered aga
   const e = X.eligible(g, r, map, { recording: true });
   R.done(r, map, 'deploy', 'person-avery', LATER, e.values, { exact: true });
   const fp = X.fingerprint(r.steps.deploy.values, e.schema);
-  assert.ok(X.landed(r, { step: 'deploy', at: LATER, by: 'person-avery', fp, schema: e.schema }));
+  // The saved answer holds the acceptance (what the finalizer reads): logged, recordable.
+  const logged = JSON.parse(JSON.stringify(r)); logged.log.push({ at: LATER, by: 'person-avery', what: X.logLine(g, g.sha256, 'Deploy') });
+  assert.deepStrictEqual(plain(X.unrecorded(logged, [g], {}, map).map(x => [x.recordable, x.at, x.by])), [[true, LATER, 'person-avery']]);
   const d = X.decision(g, g.sha256, 'accepted', 'person-avery', LATER, null, { inputs: 'match', answer: { at: LATER, by: 'person-avery', fp } });
   const cur = X.current([X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', X.decisionName(d, 'w1')).d]);
   assert.strictEqual(X.decided(g, cur, r, step).state, 'accepted');
@@ -306,20 +308,43 @@ rule('An acceptance logged in the run but never recorded is recoverable only fro
   assert.strictEqual(X.unrecorded(r, [g], {}).length, 0);
 });
 
-rule('A waiting acceptance is written again on the newest decision only when its own name is taken, and never twice', () => {
-  const g = groupOf(report()), ans = { at: LATER, by: 'person-avery', fp: 'a'.repeat(64) };
+rule('An acceptance\'s decision is made on the newest decision there is, and never written twice', () => {
+  const { r, map } = makeRun(), g = groupOf(report());
+  const e = X.eligible(g, r, map, { recording: true });
+  R.done(r, map, 'deploy', 'person-avery', LATER, e.values, { exact: true });
+  r.log.push({ at: LATER, by: 'person-avery', what: X.logLine(g, g.sha256, 'Deploy') });
+  const fp = X.fingerprint(r.steps.deploy.values, e.schema), ans = { at: LATER, by: 'person-avery', fp };
+  const load = (ds) => X.current(ds.map((x) => X.cleanDecision(JSON.parse(JSON.stringify(x[0])), 'backup-check', X.decisionName(x[0], x[1])).d));
   const acc = X.decision(g, g.sha256, 'accepted', 'person-avery', LATER, null, { inputs: 'match', answer: ans });
-  const load = (ds) => X.current(ds.map((x, i) => X.cleanDecision(JSON.parse(JSON.stringify(x[0])), 'backup-check', X.decisionName(x[0], x[1])).d));
-  assert.strictEqual(X.rebase(acc, undefined, false, LATER), acc, 'nothing decided: as it is');
-  // This window declined at the same rev (its name is taken): made again at rev 2 on that decline.
+  assert.strictEqual(acc.rev, 1, 'nothing decided: rev 1');
+  // This window declined at rev 1 since: the acceptance is still unrecorded, and is made at rev 2 on that decline.
   const dec = X.decision(g, g.sha256, 'declined', 'person-avery', LATER, null, { reason: 'Wrong build' });
-  const cur = load([[dec, 'w1']]);
-  const next = X.rebase(acc, cur[g.key], true, '2026-10-21T00:00:00.000Z');
+  const cur = load([[dec, 'w1']]), u = X.unrecorded(r, [g], cur, map)[0];
+  assert.ok(u && u.recordable && u.other && u.other.status === 'declined');
+  const next = X.decision(g, u.sha256, 'accepted', 'person-avery', LATER, cur[g.key].d, { inputs: 'match', answer: ans });
   assert.deepStrictEqual(plain([next.rev, next.status, next.seen, next.answer]), [2, 'accepted', X.decisionName(dec, 'w1'), ans]);
-  // Another window's decision at the same rev: left as it is, so the two stay a tie for a person.
-  assert.strictEqual(X.rebase(acc, cur[g.key], false, LATER), acc);
-  // Already in the folder (at any rev): recorded, never written again.
-  assert.strictEqual(X.rebase(acc, load([[acc, 'w1'], [X.decision(g, g.sha256, 'open', 'person-avery', LATER, acc, {}), 'w1']])[g.key], true, LATER), 'recorded');
+  // Already in the folder (at any rev, even reopened since): recorded, never written again.
+  assert.strictEqual(X.unrecorded(r, [g], load([[acc, 'w1'], [X.decision(g, g.sha256, 'open', 'person-avery', LATER, acc, {}), 'w1']]), map).length, 0);
+});
+
+rule('A logged acceptance isn\'t recordable while a copy of its report can\'t be read, even with the exact bytes there', () => {
+  const { r, map } = makeRun(), ok = entry(report());
+  const g = X.group('backup-check', [ok, entry('{"format": "flightdeck-report/1"', NAME.replace('.json', '-LAPTOP.json'))]).list[0];
+  assert.ok(g.report && g.unreadable.length === 1 && !g.differ, 'set-up: one exact copy, one that can\'t be read');
+  const e = X.eligible(groupOf(report()), r, map, { recording: true });
+  R.done(r, map, 'deploy', 'person-avery', LATER, e.values, { exact: true });
+  r.log.push({ at: LATER, by: 'person-avery', what: X.logLine(g, g.sha256, 'Deploy') });
+  assert.deepStrictEqual(plain(X.unrecorded(r, [g], {}, map).map(x => x.recordable)), [false]);
+});
+
+rule('Reports known only from decisions on them still show on their step, with what was decided', () => {
+  const g = groupOf(report()), d = X.decision(g, g.sha256, 'accepted', 'person-avery', LATER, null, { inputs: 'match', answer: { at: LATER, by: 'person-avery', fp: 'a'.repeat(64) } });
+  const clean = X.cleanDecision(JSON.parse(JSON.stringify(d)), 'backup-check', X.decisionName(d, 'w1')).d;
+  const ghosts = X.fromDecisions([], [clean], 'backup-check', g.run);
+  assert.deepStrictEqual(plain(ghosts.map(x => [x.key, x.step, x.report, x.copies.length])), [[g.key, g.step, null, 0]]);
+  assert.strictEqual(X.decided(ghosts[0], X.current([clean]), null, null).state, 'gone');
+  assert.strictEqual(X.fromDecisions([g], [clean], 'backup-check', g.run).length, 0, 'not when a copy is there');
+  assert.strictEqual(X.fromDecisions([], [clean], 'backup-check', 'other-run').length, 0, 'only this run\'s');
 });
 
 rule('Recovery finds the report by the step that still holds the logged answer, when one id is used on two steps', () => {

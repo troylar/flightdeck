@@ -953,6 +953,25 @@ PF.repo = (function () {
       return path;
     }).then(release, function (e) { release(); throw e; });
   }
+  /* The decisions on one report as the folder has them now, for writing the next one: { decisions, unread }. A listing that
+     fails rejects (never "no decisions"); a file that can't be read is named in unread, which holds the report. */
+  function loadDecisionsOn(fs, g) {
+    var X = PF.reports, h = X.decisionHash(g), dir = X.DDIR + '/' + g.process, out = { decisions: [], unread: [] };
+    if (!PROC_DIR.test(g.process)) return Promise.reject(new Error('That report can\'t be decided here.'));
+    fs = bounded(fs, 'open');
+    return fs.list(X.DDIR).then(function (top) {
+      if (!(top || []).some(function (i) { return i.kind === 'dir' && i.name === g.process; })) return [];
+      return fs.list(dir);
+    }).then(function (items) {
+      var mine = (items || []).filter(function (i) { var nm = i.kind === 'file' && X.parseDecisionName(i.name); return !!nm && nm.run === g.run && nm.hash === h; });
+      return Promise.all(mine.map(function (i) {
+        return fs.read(dir + '/' + i.name, { maxBytes: X.LIMITS.decisionBytes }).then(function (f) {
+          var raw = f ? json(f.text) : undefined, c = raw === undefined ? null : X.cleanDecision(raw, g.process, i.name);
+          if (c && c.ok) out.decisions.push(c.d); else out.unread.push(i.name);
+        }, function () { out.unread.push(i.name); });
+      }));
+    }).then(function () { return out; });
+  }
   /* A report as it is on disk now, for accepting: the entry readReport gives, or null when it's gone. */
   function rereadReport(fs, proc, name) {
     if (!PROC_DIR.test(proc) || !PF.reports.parseName(name)) return Promise.resolve(null);
@@ -2495,5 +2514,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

@@ -66,11 +66,10 @@
     if (rep && g.reason) h += '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
     h += '<div class="rep-fact"><h4 class="small">What a person decided</h4><p>' + esc(dec.text) + '</p></div>';
     if (ap) h += '<div class="rep-fact"><h4 class="small">Whether its inputs match the run</h4><p>' + esc(X.appliesText(ap)) + '</p></div>';
-    /* An acceptance whose decision isn't in the folder yet: this window's own (still saving, or its write failed), or one
-       the run records from a window that closed first. */
+    /* An acceptance the run logs whose decision isn't in the folder (from saved state); this window's own while its step
+       isn't saved yet says so. */
     var mine = (b.pending || []).filter(function (p) { return p.key === g.key; })[0], un = (b.unrecorded || []).filter(function (u) { return u.g.key === g.key; })[0];
-    if (mine && mine.err) h += '<div class="notice bad" role="status"><span>The step is checked, but the decision on this report couldn\'t be saved: ' + esc(mine.err) + '</span>' + (st.me && !(b.held && b.held(g)) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>';
-    else if (mine) h += '<p class="small" role="status">Saving the decision once the step is saved…</p>';
+    if (un && mine && b.unsaved) h += '<p class="small" role="status">Saving the decision once the step is saved…</p>';
     else if (un) h += un.recordable ? '<div class="notice warn"><span>Accepted in the run, but the decision isn\'t in the team folder yet.' + (un.other ? ' Another decision on it is in the folder too (' + esc(un.other.status === 'open' ? 'reopened' : un.other.status) + ' by ' + esc(nameOf(ctx, un.other.by)) + '), and Flightdeck can\'t tell which came last. Record the decision makes this acceptance the current one.' : '') + '</span>' + (b.canRecord && b.canRecord() && !(b.held && b.held(g)) ? '<button class="mini" data-act="rep-record" data-id="' + esc(g.key) + '">Record the decision</button>' : '') + '</div>'
       : un.why === 'changed' ? '<div class="notice warn"><span>Accepted in the run, but the step\'s evidence was changed since, so the decision can\'t be recorded from this report.</span></div>'
       : '<div class="notice warn"><span>Accepted in the run, but the report it accepted isn\'t in the folder in that form anymore.</span></div>';
@@ -86,8 +85,11 @@
 
   /* Accept, Decline and Reopen, for the recorder; disabled with the reason beside it when a report can't be accepted. */
   function actions(ctx, r, map, g, dec, id) {
-    if (!g.report || !ctx.recording(r)) return '';
-    var st = ctx.state, b = bundle(ctx, r), pick = st.repPick && st.repPick.key === g.key ? st.repPick : null, busy = st.repSaving === g.key;
+    if (!ctx.recording(r)) return '';
+    var st = ctx.state, b = bundle(ctx, r), busy0 = st.repSaving === g.key;
+    /* Every copy gone: only Reopen, on the decision's own SHA-256. */
+    if (!g.report) return dec.d && dec.d.status !== 'open' && !(b.held && b.held(g)) ? '<div class="row rep-acts" role="group" aria-label="Decide on this report"><button class="mini" data-act="rep-reopen" data-id="' + esc(g.key) + '"' + (busy0 ? ' disabled' : '') + '>Reopen</button></div>' : '';
+    var pick = st.repPick && st.repPick.key === g.key ? st.repPick : null, busy = st.repSaving === g.key;
     var held = b.held ? b.held(g) : '';
     var el = X.eligible(g, r, map, { recording: true, readOnly: b.readOnly, held: held, fillOpen: b.fillOpen ? b.fillOpen(g.step) : false });
     var h = '';

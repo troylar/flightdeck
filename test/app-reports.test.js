@@ -515,6 +515,70 @@ rule('App: an acceptance whose log line was archived out of a full log is still 
   assert.deepStrictEqual(decisions(app).map(d => [d.status, d.answer.at]), [['accepted', at]]);
 });
 
+rule('App: Record the decision after a write whose read-back failed finds it recorded, and writes nothing under its name again', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  const j = app.run().json, at = new Date(Date.now() - 60000).toISOString();
+  j.steps.jenkins = { s: 'done', by: 'person-casey', at, values: { build: '1432', buildLink: 'https://ci.example.com/jobs/1432' } };
+  j.log.push({ at, by: 'person-casey', what: app.PF.reports.logLine({ producer: 'ci-check', id: 'abcd1234' }, x.sha, 'Jenkins') });
+  j.rev = (j.rev || 0) + 1;
+  await app.fs.write(app.run().path, JSON.stringify(j, null, 2));
+  app.click('refresh'); await app.tick(120);
+  await openStep(app, 'jenkins');
+  const orig = app.PF.repo.decideReport; let lose = true;
+  app.PF.repo.decideReport = function () { const p = orig.apply(this, arguments); if (!lose) return p; lose = false; return p.then(() => { throw new Error('read back failed'); }); };
+  app.click('rep-record', x.key); await app.tick(160);
+  assert.strictEqual(decisions(app).length, 1, 'set-up: written, though its read-back failed');
+  await openStep(app, 'jenkins');
+  app.click('rep-record', x.key); await app.tick(160);
+  assert.strictEqual(decisions(app).length, 1, 'still one');
+  assert.ok(!/already in the folder/.test(app.html()), 'no clash with its own name');
+  app.PF.repo.decideReport = orig;
+});
+
+rule('App: an acceptance\'s decision is tried by itself once; after a failed write, a read doesn\'t try again', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  const orig = app.PF.repo.decideReport; let fail = true;
+  app.PF.repo.decideReport = function () { if (fail) { fail = false; return Promise.reject(new Error('offline')); } return orig.apply(this, arguments); };
+  app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(120);
+  assert.deepStrictEqual(decisions(app), [], 'set-up: the automatic write failed');
+  app.click('refresh'); await app.tick(160); app.click('refresh'); await app.tick(160);
+  assert.deepStrictEqual(decisions(app), [], 'not tried again by itself');
+  await openStep(app, 'jenkins');
+  assert.ok(/data-act="rep-record"/.test(app.html()), 'offered to the person');
+  app.PF.repo.decideReport = orig;
+});
+
+rule('App: a report whose every copy is gone still shows on its step from the decision on it, and can be reopened', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(160);
+  assert.strictEqual(decisions(app).length, 1, 'set-up: accepted');
+  await app.fs.remove(x.path);
+  app.click('refresh'); await app.tick(160);
+  await openStep(app, 'jenkins');
+  assert.ok(/Accepted, but the report it accepted is gone or changed\./.test(app.html()), 'the card and what was decided');
+  assert.ok(/Report: /.test(app.html()), 'the badge');
+  assert.ok(/data-act="rep-reopen"/.test(app.html()), 'Reopen is offered');
+  app.click('rep-reopen', x.key); await app.tick(160);
+  assert.deepStrictEqual(decisions(app).sort((a, b) => a.rev - b.rev).map(d => d.status), ['accepted', 'open']);
+});
+
+rule('App: a decline reason being typed survives moving to another step and back', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  app.click('rep-decline', x.key); await app.tick();
+  const field = () => (/<textarea id="([^"]+)"/.exec(app.html()) || [])[1];
+  app.set(field(), 'Wrong build, half typed');
+  await openStep(app, 'pods');
+  await openStep(app, 'jenkins');
+  assert.ok(/Wrong build, half typed/.test(app.html()), 'the reason is still there');
+});
+
 rule('App: the receipt names the accepted report and lists every report on the run', async () => {
   const app = await recording();
   const x = await plant(app);
