@@ -96,7 +96,7 @@ PF.vk = (function () {
     var Vv = PF.values, k = Vv.kindOf(def), v = typeof value === 'string' ? value : '', a = attrs ? ' ' + attrs : '', c = cls || 'field';
     function radios(opts, shown) {
       return '<fieldset class="' + c + ' typed" id="' + esc(id) + '"' + a + '><legend>' + esc(label) + '</legend><span class="row">' + opts.map(function (o, i) {
-        return '<label class="radio"><input type="radio" name="' + esc(id) + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + '> ' + esc(shown[i]) + '</label>';
+        return '<label class="radio"><input type="radio" id="opt-' + esc(id) + '-' + i + '" name="' + esc(id) + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + '> ' + esc(shown[i]) + '</label>';
       }).join('') + '</span></fieldset>';
     }
     if (k === 'yes-no') return radios(['yes', 'no'], ['Yes', 'No']);

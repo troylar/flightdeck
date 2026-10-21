@@ -1013,6 +1013,12 @@ rule('READ: contract 2 reads a typed run/3 and its version with typed values and
   const proc = agree(readCli('process', dir, 'backup', '--contract', '2', '--json'));
   assert.deepStrictEqual(wrong(proc.json.data, AJ.SCHEMA2.process), [], 'process data');
   assert.strictEqual(proc.json.data.details.find(d => d.name === 'rows').type, 'number');
+  const runs2 = agree(readCli('runs', dir, '--contract', '2', '--json'));
+  const pinned = runs2.json.data.planned.find(p => p.id === 'plan-backup-pinned');
+  assert.ok(pinned && pinned.format === 'flightdeck-plan/2' && pinned.pin.folder === 'v1-ab9ysnqh' && !runs2.json.problems.some(p => /proposals/.test(p.path)), 'a plan/2 is data in contract 2: ' + runs2.out.slice(0, 600));
+  fsx.appendFileSync(path.join(dir, 'runs', 'backup', 'run-c', 'history-w-twozero.jsonl'), '{"kind":"migration","av":1,"pa\n');
+  const torn = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
+  assert.ok(torn.code === 4 && torn.json.problems.some(p => p.kind === 'malformed' && /history-w-twozero\.jsonl$/.test(p.path)), 'a torn history line is named: ' + torn.out.slice(0, 600));
   const one = agree(readCli('run', dir, 'backup/run-c', '--json'));
   assert.ok(one.json.data.run === null && one.json.problems.some(p => p.kind === 'newer' && /run-c/.test(p.path)), 'contract 1 is unchanged: ' + one.out.slice(0, 400));
 });

@@ -631,7 +631,7 @@ PF.repo = (function () {
     return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
-      readPlans(fs, malformed),
+      readPlans(fs, malformed, null, opts.contract2),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }),
       loadCorrectionDecisions(fs, cache, sched),
@@ -1044,14 +1044,15 @@ PF.repo = (function () {
       names = hist.map(function (i) { return i.name; });
       return Promise.all(hist.map(function (i) { return fs.read(dir + '/' + i.name); }));
     }).then(function (files) {
-      var out = [], refused = [];
+      var out = [], refused = [], malformed = [];
       var seen = {};
       /* Each line through R.cleanArchive: log and answer records as always, a 2.0 migration record kept (never shown here), and
          anything else (a newer av, a kind this copy doesn't know) refused and counted with its reason, never read for meaning.
          An entry whose time is missing or can't be read is kept (it shows "time unknown"), never dropped; it sorts first. */
       files.forEach(function (f, fi) { if (f) f.text.split('\n').forEach(function (line) {
         var x = line.trim() && json(line);
-        if (!x || typeof x !== 'object' || Array.isArray(x)) return;
+        /* A line that isn't a record is counted (reading for other apps names it), never read. */
+        if (!x || typeof x !== 'object' || Array.isArray(x)) { if (line.trim()) malformed.push(dir + '/' + names[fi]); return; }
         var v = R.cleanArchive(x);
         if (!v.ok) { refused.push({ path: dir + '/' + names[fi], kind: v.kind, why: v.why, needs: v.needs || '' }); return; }
         if (x.id && Object.prototype.hasOwnProperty.call(seen, x.id)) return;
@@ -1059,7 +1060,7 @@ PF.repo = (function () {
       }); });
       var key = function (x) { return typeof x.at === 'string' && !isNaN(Date.parse(x.at)) ? x.at : ''; };
       out.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
-      out.refused = refused;
+      out.refused = refused; out.malformed = malformed;
       return out;
     });
   }
@@ -1647,12 +1648,13 @@ PF.repo = (function () {
      plan request, which reads them with this same code), every file not in the format is named there, by file, and left out;
      a plan or decision from a newer Flightdeck is named newer. Without bad (the app) those are left out too, and the newer
      ones are kept in refused, so Folder health names them. only(name): just those files (plan request reads its own request's). */
-  function readPlans(fs, bad, only) {
+  /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
+  function readPlans(fs, bad, only, two) {
     var refused = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only).then(function (props) {
       var plans = [], statuses = [];
       props.forEach(function (p) {
-        var v = PF.plans.clean(p, p._file, !!bad), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
         if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
         if (v.why) {
           if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; }

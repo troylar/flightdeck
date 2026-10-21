@@ -411,7 +411,7 @@ NUMBER_KEYS = ("min", "max", "unit")
 
 def is_number(s):
     """PF.values.isNumber: an exact decimal in canonical form, at most 30 characters."""
-    return isinstance(s, str) and len(s) <= 30 and re.fullmatch(r"-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?", s) is not None
+    return isinstance(s, str) and len(s) <= 30 and s != "-0" and re.fullmatch(r"-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?", s) is not None
 
 
 def compare_numbers(a, b):

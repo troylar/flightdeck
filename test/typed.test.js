@@ -484,6 +484,16 @@ rule('A child that migrated what its parent carried stands for the parent\'s ste
   same(R.childVerdict(parent, step, a, child({ amount: '1' }, [])).s, 'blocked', 'no record: a different value');
 });
 
+
+rule('A run/3 holding null where text belongs is read-only, never saved as empty; -0 is never a number bound', () => {
+  const r = startT({ details: { rows: '12' } }), f = JSON.parse(JSON.stringify(r));
+  f.details.rows = null;
+  const back = R.sanitize(f);
+  assert.ok(back._unrunnable && /rows/.test(back._unrunnable), back._unrunnable);
+  assert.ok(!V.isNumber('-0') && V.numberDefProblems({ kind: 'number', max: '-0' }, 'x').length === 1);
+  assert.ok(T.checkRecord(T.customType(Object.assign({}, TYPE2, { record: [{ name: 'rows', label: 'Rows', kind: 'number', max: '0' }] })), {}, { rows: '0' }).values);
+});
+
 /* ---------- READ/2: typed values for other apps ---------- */
 const AJ = PF.appjson, FIX = require('path').join(__dirname, 'fixtures', 'v2', 'folder');
 const wrongs = (v, d) => JSON.parse(JSON.stringify(AJ.conforms(v, d)));

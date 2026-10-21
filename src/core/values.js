@@ -49,7 +49,8 @@ PF.values = (function () {
     while (fb.length < n) fb += '0';
     return fa === fb ? 0 : fa < fb ? -1 : 1;
   }
-  function isNumber(s) { return typeof s === 'string' && s.length <= NUMBER_MAX && NUMBER.test(s); }
+  /* Canonical: every zero is 0, never -0. */
+  function isNumber(s) { return typeof s === 'string' && s.length <= NUMBER_MAX && NUMBER.test(s) && s !== '-0'; }
 
   /* ---- dates: calendar dates ---- */
   function leap(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }

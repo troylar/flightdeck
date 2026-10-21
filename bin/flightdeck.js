@@ -794,6 +794,7 @@ async function readData(eng, adapter, req) {
       if (two && usable && r.format === PF.run.FORMAT3) {
         const h = await repo.loadHistory(L.fs, r).catch((e) => { L.note('runs/' + key + '/', 'unreadable', fileWhy(e && e.message || String(e))); return []; });
         take((h.refused || []).map((x) => ({ path: x.path, kind: x.kind === 'newer' ? 'newer' : 'malformed', why: x.why })));
+        [...new Set(h.malformed || [])].forEach((p) => L.note(p, 'malformed', 'This file has lines that aren\'t archived records, so some of the run\'s history may be missing.'));
         r._archivedMigrations = h.filter((x) => x.kind === 'migration').map((x) => { const m = {}; ['path', 'at', 'from', 'source', 'verdict', 'result', 'resolved'].forEach((k) => { m[k] = x[k]; }); return m; });
       }
       if (req.cmd === 'run') return done(keep, usable ? (two ? A.run2 : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
@@ -802,7 +803,7 @@ async function readData(eng, adapter, req) {
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
     relevant = covers(needs(req));
-    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true });
+    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true, contract2: two });
     if (!two) { d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean); }
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */

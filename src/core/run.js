@@ -1125,7 +1125,8 @@ PF.run = (function () {
       if (extra != null) why = where + ' has "' + String(extra).slice(0, 40) + '".';
     }
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
-    function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
+    /* run/3: null isn't text either (sanitize would save it as empty, rewriting what the file holds). */
+    function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return (three ? v[f] !== undefined : v[f] != null) && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
     var three = o.format === FORMAT3;
     look(o, three ? 'run3' : 'run', 'The run');
