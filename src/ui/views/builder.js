@@ -191,15 +191,26 @@
       (ph.mode ? '<span class="cat">' + esc(ph.mode) + '</span>' : '<span class="cat">No mode</span>') + fixBadge(B, ph.id && 'phase:' + ph.id) + '</div><div class="ob-body">' + body + '</div>' + gate + '</li>';
   }
 
+  /* The checklist's own details (front matter): who owns it, its roles and its run details, at a glance; selecting it opens
+     their form. */
+  function personName(ctx, id) { var x = (ctx.data.people || []).filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
+  function detailsCard(ctx, map, sel) {
+    var m = map.meta, on = !!sel && sel.kind === 'details';
+    return '<div class="ob-details' + (on ? ' sel' : '') + '"><button type="button" class="ob-det" data-act="ob-sel-details" aria-pressed="' + on + '">' + I('people') +
+      '<span class="ob-row"><span class="ob-txt">Checklist details</span><span class="ob-meta"><span class="small">' + (m.owner ? 'Owner ' + esc(personName(ctx, m.owner)) : 'No owner yet') + (m.backup ? ' · backup ' + esc(personName(ctx, m.backup)) : '') + '</span>' +
+      (m.roles.length ? '<span class="ob-role">@' + esc(m.roles.join(' @')) + '</span>' : '<span class="small">No roles</span>') +
+      (m.context.length ? m.context.map(function (c) { return '<span class="ob-chip">^' + esc(c) + '</span>'; }).join('') : '<span class="small">No run details</span>') + '</span></span></button></div>';
+  }
+
   /* The outline pane of the full-page editor. The parts pane (partsPane) and the inspector sit beside it (manage.js). */
   function builder(ctx, p, text) {
     var o = O.parse(text), sel = selOf(ctx, p), add = addOf(ctx, p), map = M.parse(text), h = '';
     if (o.unsupported) return '<div class="notice warn"><span>The builder can\'t edit this draft safely: ' + esc(o.unsupported) + ' Use Markdown instead.</span><button class="mini" data-act="ed-mode" data-id="markdown">Markdown</button></div>';
     var B = placing(ctx, p, text, o); B.fix = PF.corrections.openCounts(V.fixesOf(ctx, p));
     if (map.errors.length) h += '<div class="notice warn"><span>' + map.errors.length + ' line' + (map.errors.length === 1 ? ' isn\'t' : 's aren\'t') + ' understood (see Checks). The builder keeps ' + (map.errors.length === 1 ? 'it' : 'them') + ' exactly as written; fix ' + (map.errors.length === 1 ? 'it' : 'them') + ' in Markdown.</span></div>';
-    if (o.questions >= 0) h += '<div class="notice warn"><span>It still has a Questions section. Answer the questions in Markdown.</span></div>';
-    h = strip(B, o) + h + '<div class="row between ob-bar"><details class="ob-help"><summary>Editing help</summary><p id="ob-kbd" class="small">Drag a part onto the checklist, or choose one and pick a place with the arrow keys. Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, lane, phase or gate to change it.</p></details>' +
-      '<button type="button" class="btn ob-addpart" data-act="ob-parts-open">' + I('plus') + 'Add part</button></div>';
+    if (o.questions >= 0) h += '<div class="notice warn" id="ob-q-note"><span>It still has a Questions section, so it can\'t be published yet. Answer the questions, then remove the section.</span><button type="button" class="btn" data-act="ob-sel-questions">Open the Questions</button></div>';
+    h = strip(B, o) + h + '<div class="row between ob-bar"><details class="ob-help"><summary>Editing help</summary><p id="ob-kbd" class="small">Drag a part onto the checklist, or choose one and pick a place with the arrow keys. Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, lane, phase or gate to change it, its note included. Checklist details sets the owner, the backup owner, the roles and the run details.</p></details>' +
+      '<button type="button" class="btn ob-addpart" data-act="ob-parts-open">' + I('plus') + 'Add part</button></div>' + detailsCard(ctx, map, sel);
     var phaseForm = '<div class="ob-addform row"><label class="sr" for="ob-new-title">New phase name</label><input id="ob-new-title" maxlength="120" placeholder="Phase name" data-enter="ob-add-go"' + errAt(ctx, 'ob-new-title') + '>' +
       '<label class="sr" for="ob-new-mode">How it\'s worked</label><select id="ob-new-mode"><option value="READ-DO">READ-DO</option><option value="DO-CONFIRM">DO-CONFIRM</option></select>' +
       '<button type="button" class="btn go" data-act="ob-add-go">Add phase</button><button type="button" class="mini" data-act="ob-add-cancel">Cancel</button></div>' + errMsg(ctx, 'ob-new-title');
@@ -245,6 +256,8 @@
     var sel = selOf(ctx, p); if (!sel) return '';
     var o = O.parse(text); if (o.unsupported) return '';
     var meta = M.parse(text).meta;
+    if (sel.kind === 'details') return detailsForm(ctx, o, meta);
+    if (sel.kind === 'questions') return questionsForm(ctx, o);
     if (sel.kind === 'step') {
       var s = o.steps.filter(function (x) { return x.key === sel.key; })[0]; if (!s) return '';
       var at = o.steps.indexOf(s), prevS = o.steps[at - 1], nextS = o.steps[at + 1];
@@ -258,14 +271,15 @@
         }).join('') + '</fieldset>' +
         '<label class="field" for="ob-type">Type<select id="ob-type" data-bound>' + typeOptions(ctx, s.type) + '</select></label>';
       var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; }));
-      h += '<div class="field"><span id="ob-roles-l">Who does it</span>' + (roles.length ? '<div class="row" role="group" aria-labelledby="ob-roles-l">' + roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no roles. Add them to "roles:" in Markdown.</span>') +
+      h += '<div class="field"><span id="ob-roles-l">Who does it</span>' + (roles.length ? '<div class="row" role="group" aria-labelledby="ob-roles-l">' + roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no roles yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-role">Add roles</button>') +
         (s.track >= 0 && !own.length ? '<span class="small">With no role of its own, it goes to the lane\'s people.</span>' : '') + '</div>';
       var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-      h += '<div class="field"><span id="ob-binds-l">Tied to run details</span><span class="small">When one of these changes during a run, the step needs a re-check.</span>' + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details ("context:").</span>') + '</div>';
+      h += '<div class="field"><span id="ob-binds-l">Tied to run details</span><span class="small">When one of these changes during a run, the step needs a re-check.</span>' + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
       var names = def ? Object.keys(def.fields || {}) : [];
       Object.keys(s.fields).forEach(function (f) { if (names.indexOf(f) < 0) names.push(f); });
       h += '<h3 class="ob-sec">Fields</h3>' + (names.length ? names.map(function (f) { return fieldRow(ctx, def, s, f); }).join('') : '<p class="small">This type asks for nothing more.</p>');
-      if (s.notes) h += '<p class="small">Its ' + (s.notes === 1 ? 'note line stays' : s.notes + ' note lines stay') + ' as written; edit notes in Markdown.</p>';
+      /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
+      h += '<label class="field" for="ob-note">Note <span class="small">shown with the step during a run; Markdown works</span><textarea id="ob-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-note') + '>\n' + esc(s.note) + '</textarea></label>' + errMsg(ctx, 'ob-note');
       h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
@@ -309,6 +323,48 @@
       '<label class="field" for="ob-g-approves">What passing it approves <span class="small">use ^details from the run</span><input id="ob-g-approves" maxlength="200" data-enter="ob-commit" value="' + esc(gt.approves) + '"' + errAt(ctx, 'ob-g-approves') + '></label>' + errMsg(ctx, 'ob-g-approves') +
       source(ctx, gt.id, 'gate', U.slug(gt.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this gate</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
+  }
+
+  /* ---------- the checklist's details and its Questions section ---------- */
+  /* A person to choose: the active people whose IDs a checklist can hold, and the current value even when it isn't one of
+     them (inactive, or not in people.json), so an unrelated change never drops it. */
+  function personSelect(ctx, id, label, hint, cur, none) {
+    var all = ctx.data.people || [], ok = all.filter(function (x) { return !x.inactive && O.personOk(x.id); }), have = ok.some(function (x) { return x.id === cur; });
+    var gone = cur && !have ? all.filter(function (x) { return x.id === cur; })[0] : null;
+    var opt = function (v, t, on) { return '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(t) + '</option>'; };
+    return '<label class="field" for="' + id + '">' + label + ' <span class="small">' + hint + '</span><select id="' + id + '" data-bound' + errAt(ctx, id) + '>' + opt('', none, !cur) +
+      (cur && !have ? opt(cur, (gone ? gone.name : cur) + (gone ? (gone.inactive ? ' (inactive)' : '') : ' (not in people.json)'), true) : '') +
+      ok.map(function (x) { return opt(x.id, PF.people.label(x, all), x.id === cur); }).join('') + '</select></label>' + errMsg(ctx, id);
+  }
+  function listField(ctx, key, label, hint, list, mark, addId, ph) {
+    var lid = 'ob-' + key + '-l', cls = key === 'roles' ? 'ob-role' : 'ob-chip';
+    return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' +
+      (list.length ? '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + list.map(function (n) {
+        return '<li><span class="' + cls + '">' + mark + esc(n) + '</span><button type="button" class="mini" data-act="ob-meta-del" data-key="' + key + '" data-id="' + esc(n) + '" aria-label="Remove ' + mark + esc(n) + '">Remove</button></li>';
+      }).join('') + '</ul>' : '<span class="small">None yet.</span>') +
+      '<div class="row"><label class="sr" for="' + addId + '">' + ph + '</label><input id="' + addId + '" maxlength="60" autocomplete="off" placeholder="' + ph + '" data-enter="ob-meta-add" data-id="' + key + '"' + errAt(ctx, addId) + '>' +
+      '<button type="button" class="mini" data-act="ob-meta-add" data-id="' + key + '">' + I('plus') + 'Add</button></div>' + errMsg(ctx, addId) + '</div>';
+  }
+  function detailsForm(ctx, o, meta) {
+    var sig = o.front ? sigOf(o, o.front.start, o.front.end) : 'none';
+    return '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-details|' + sig + '">' + formHead('Checklist details', ['The whole checklist']) +
+      personSelect(ctx, 'ob-owner', 'Owner', 'signs versions off as ready for a skill', meta.owner, 'Nobody yet') +
+      personSelect(ctx, 'ob-backup', 'Backup owner', 'signs off only while the owner is away', meta.backup, 'No backup') +
+      listField(ctx, 'roles', 'Roles', 'Who does what, like lead or reviewer. Steps, lanes and gates choose from these.', meta.roles, '@', 'ob-add-role', 'New role') +
+      listField(ctx, 'context', 'Run details', 'Filled in when a run starts, like ticket or commit. Steps can be tied to them.', meta.context, '^', 'ob-add-ctx', 'New run detail') +
+      '<p class="small">A role or run detail still in use can\'t be removed: take it out of its steps first.</p>' +
+      '<details class="ob-src"><summary>Source details</summary><p class="small">The front matter\'s <code>owner:</code>, <code>backup:</code>, <code>roles:</code> and <code>context:</code> lines. Other lines stay as written.</p></details></section>';
+  }
+  function questionsForm(ctx, o) {
+    if (o.questions < 0) return '';
+    var ask = askOf(ctx, 'questions', ':questions');
+    var h = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-questions|' + sigOf(o, o.questions, o.qEnd) + '">' + formHead('Questions', ['Questions section']) +
+      '<p class="small">Questions for the owner, written while the checklist was drafted. It can\'t be published while this section is there: answer them in the steps, then remove it.</p>' +
+      '<label class="field" for="ob-q-text">The questions<textarea id="ob-q-text" rows="8" maxlength="20000"' + errAt(ctx, 'ob-q-text') + '>\n' + esc(o.qText) + '</textarea></label>' + errMsg(ctx, 'ob-q-text') +
+      '<div class="row"><button type="button" class="mini" data-act="ob-ask" data-id="questions">Remove section</button></div>';
+    if (ask) h += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">Remove the Questions section and everything in it? Undo brings it back.</span>' +
+      '<button type="button" class="btn stop" data-act="ob-q-remove" id="ob-ask-go">Remove section</button><button type="button" class="mini" data-act="ob-ask-cancel">Cancel</button></div>';
+    return h + '</section>';
   }
 
   /* A step's reference screenshots: thumbnails (alt text is the caption) with the caption as a box, Move up / Move down and

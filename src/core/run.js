@@ -3,6 +3,8 @@ PF.run = (function () {
   'use strict';
   var U = PF.util, M = PF.map;
   var FORMAT = 'preflight-run/2', FORMAT3 = 'preflight-run/3';
+  /* A run's ID, as the reader accepts it (also what PF.nav accepts in a link). */
+  var RUN_ID = /^[a-z0-9-]{1,40}$/i;
   var LOG_MAX = 300;
 
   function create(pub, o) {
@@ -927,7 +929,7 @@ PF.run = (function () {
     Object.keys(r).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(out, k)) out[k] = r[k]; });
     return out;
   }
-  function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && /^[a-z0-9-]{1,40}$/i.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
+  function valid(o) { return !!o && (o.format === FORMAT || o.format === FORMAT3) && typeof o.id === 'string' && RUN_ID.test(o.id) && typeof o.snapshot === 'string' && !!o.steps && !!o.gates && !!o.recorder; }
 
   /* Runs come from a shared folder anyone can edit, so keep only values the app understands. */
   /* Without a prototype, so a state named like an inherited property (constructor, toString) is never a state. */
@@ -1051,7 +1053,7 @@ PF.run = (function () {
   /* What this copy says about a run it can only list by name: the Flightdeck it needs (from the file's own app and features, or
      the contract), and whether it's a 2.0 test run. */
   function nameOnly(o, needs) {
-    if (typeof o.id !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(o.id)) return null;
+    if (typeof o.id !== 'string' || !RUN_ID.test(o.id)) return null;
     var r = sanitize({ format: FORMAT, id: o.id, process: o.process, title: o.title, created: o.created, createdBy: o.createdBy, version: o.version, folder: o.folder, state: o.state, ended: o.ended, snapshot: '', steps: {}, gates: {}, recorder: { person: o.recorder && o.recorder.person } });
     var test = o.test === true;
     r._unrunnable = (test ? 'Test run · needs ' + (needs ? 'Flightdeck ' + needs : 'a newer Flightdeck') + '. ' : 'Made with ' + (needs ? 'Flightdeck ' + needs : 'a newer Flightdeck') + '. ') + 'This copy shows its name only and won\'t change it.';
@@ -1313,6 +1315,7 @@ PF.run = (function () {
   }
 
   return {
+    RUN_ID: RUN_ID,
     FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,

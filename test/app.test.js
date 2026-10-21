@@ -1208,6 +1208,10 @@ rule('App: a value the builder refuses shows why next to its box, marked invalid
   app.set('ob-text', 'Ask @qa'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-text', value: 'Ask @qa', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   assert.ok(/<textarea id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text">/.test(app.html()), 'the box is marked');
   assert.ok(/<p class="ferr" id="ferr-ob-text" role="alert">Choose roles and run details with their buttons/.test(app.html()), 'the reason is next to it');
+  /* Selecting another step waits for the refused text, so it isn't dropped (1.22.0); cleared, the mark goes with it. */
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/then choose another/.test(app.live()) && /aria-invalid="true"/.test(app.html()), 'the refused text holds the selection');
+  app.input('ob-text', 'Feature flags set in the deploy values'); await app.tick();
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(!/aria-invalid="true"/.test(app.html()), 'gone once another step is selected');
 });
@@ -2074,7 +2078,7 @@ rule('Plans: planning a run from a process page writes one new plan file with wh
   app.click('open-process', 'release'); await app.tick();
   assert.ok(/data-act="plan-run" data-id="release">Plan a run</.test(app.html()), 'next to Start a run');
   app.click('plan-run', 'release'); await app.tick();
-  assert.ok(/<h1>Plan a run<\/h1>/.test(app.html()) && /type="datetime-local" id="plan-when"/.test(app.html()));
+  assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(app.html()) && /type="datetime-local" id="plan-when"/.test(app.html()));
   const before = app.files('proposals/');
   app.set('run-title', 'Release 2026.11.06').set('detail-ticket', 'ABC-5000').set('plan-when', '2026-11-06T09:00').set('plan-note', 'Morgan takes QA').set('role-qa', 'person-morgan');
   app.submitForm('plan-form'); await app.tick(80);
@@ -2090,7 +2094,7 @@ rule('Plans: planning a run from a process page writes one new plan file with wh
   assert.strictEqual(plan.roles.qa, 'person-morgan');
   assert.strictEqual(plan.when, new Date('2026-11-06T09:00').toISOString());
   assert.strictEqual(plan.note, 'Morgan takes QA'); assert.strictEqual(plan.by, 'person-casey');
-  assert.ok(/Planned Release 2026\.11\.06\./.test(app.html()) && /<h1>Runs<\/h1>/.test(app.html()), 'goes to Runs and says so');
+  assert.ok(/Planned Release 2026\.11\.06\./.test(app.html()) && /<h1[^>]*>Runs<\/h1>/.test(app.html()), 'goes to Runs and says so');
   assert.ok(app.html().includes('id="card-' + plan.id + '"'), 'listed under Planned');
   // A file with the same name is already there (another computer, or an assistant): nothing is replaced.
   app.fs.files['proposals/plan-release-taken000.json'] = { t: 'THEIRS', m: Date.now() };
@@ -2124,7 +2128,7 @@ rule('Plans: duplicating a run plans its details and roles on the current versio
   app.click('receipt'); await app.tick();
   assert.ok(/data-act="plan-from-run"/.test(app.html()), 'and on its receipt');
   app.click('plan-from-run', key); await app.tick();
-  assert.ok(/<h1>Plan a run<\/h1>/.test(app.html()) && /id="detail-ticket"[^>]*value="ABC-4722"/.test(app.html()) && !/id="detail-tag"/.test(app.html()));
+  assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(app.html()) && /id="detail-ticket"[^>]*value="ABC-4722"/.test(app.html()) && !/id="detail-tag"/.test(app.html()));
   const before = app.files('proposals/');
   app.submitForm('plan-form'); await app.tick(80);
   const plan = JSON.parse(app.fs.files[newPlans(app, before)[0]].t);
@@ -5890,7 +5894,7 @@ rule('App (2.0): anyone viewing a run can suggest a change to a phase\'s note or
   assert.ok(!/id="nc-to-gate-ready"/.test(app.html()), 'closed'); assert.ok(/Correction saved on this computer\./.test(app.html() + app.live()), 'said');
 });
 
-rule('App (2.0): the publish panel names the 2.0 features a draft uses and what that means for teammates on 1.21 or earlier; a draft that uses none says nothing', async () => {
+rule('App (2.0): the publish panel names the 2.0 features a draft uses and what that means for teammates on 1.22 or earlier; a draft that uses none says nothing', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   const md = app.fs.files['maps/drafts/release.md'].t;
@@ -5904,7 +5908,7 @@ rule('App (2.0): the publish panel names the 2.0 features a draft uses and what 
   app.click('refresh'); await app.tick(80);
   const h = app.html();
   assert.ok(/<p class="small pub-needs"[^>]*><b>Needs Flightdeck 2\.0:<\/b> a note on a phase\./.test(h), h.slice(h.indexOf('change-note'), h.indexOf('change-note') + 1500));
-  assert.ok(/Teammates on Flightdeck 1\.21 or earlier see this version but can(&#39;|')t run it/.test(h));
+  assert.ok(/Teammates on Flightdeck 1\.22 or earlier see this version but can(&#39;|')t run it/.test(h));
 });
 
 rule('App (2.0): what is typed in a note correction is kept per run and per phase or gate: opening another one, or leaving the run, never loses it', async () => {
@@ -6220,6 +6224,1151 @@ rule('Pins: a plan switch waiting behind another write is dropped, and says so, 
     assert.ok(!Object.keys(oldFs.files).some(p => /^proposals\/plan-release-exact\.status-/.test(p)), change + ': nor in the first');
     assert.ok(/wasn(&#39;|')t switched/.test(app.html()), change + ': it says so');
   }
+});
+
+/* ---------- Back and Forward (docs/design.md section 29) ---------- */
+const navBoot = async (o) => { const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); if (!(o && o.nobody)) { app.choose('person-casey'); await app.tick(); } return app; };
+const hashes = app => app.entries().map(e => e.hash);
+// Every entry is numbered by its place, as Flightdeck writes them: no two share an n, and none is missing.
+const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && Object.keys(e.state).sort().join() === 'f,fd,n', 'entry ' + i + ' ' + JSON.stringify(e)));
+const onRun = app => /id="run-h"/.test(app.html());
+const onReceipt = app => /<div class="eyebrow">Receipt ·/.test(app.html());
+const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
+const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</h1>') >= 0);
+const back = async app => { app.back(); await app.settle(); };
+const fwd = async app => { app.forward(); await app.settle(); };
+// Every hash ever written: route words and IDs only.
+const ID_ONLY = /^#\/[a-z0-9._\/-]*$/i;
+
+rule('Back and Forward: Home, a process, a run and its receipt, back and forth, each on its own screen and hash', async () => {
+  const app = await navBoot();
+  assert.strictEqual(app.hash(), '#/');
+  assert.strictEqual(app.scrollRestoration(), 'manual');
+  app.click('open-process', 'release'); await app.tick();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick();
+  app.click('receipt'); await app.tick();
+  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/run/' + key, '#/run/' + key + '/receipt']);
+  assert.strictEqual(app.index(), 3); numbered(app);
+  await back(app); assert.ok(onRun(app), 'the run'); assert.strictEqual(app.hash(), '#/run/' + key);
+  await back(app); assert.ok(onProcess(app), 'the process'); assert.strictEqual(app.hash(), '#/process/release');
+  await back(app); assert.ok(onHome(app), 'Home'); assert.strictEqual(app.index(), 0);
+  await fwd(app); await fwd(app); await fwd(app);
+  assert.ok(onReceipt(app), 'the receipt again'); assert.strictEqual(app.index(), 3);
+  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/run/' + key, '#/run/' + key + '/receipt'], 'nothing added or lost');
+  numbered(app); assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch(), 0);
+});
+
+rule('Back and Forward: typing, filters, selecting steps, the checklist views, dialogs, refreshes and folder reads add no entry', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick();
+  const before = JSON.stringify(hashes(app)), at = app.index();
+  app.key('j'); await app.tick(); app.key('j'); await app.tick(); app.key('k'); await app.tick();
+  app.click('select', 'announce'); await app.tick();
+  app.key('?'); await app.tick(); app.key('Escape'); await app.tick();
+  app.click('refresh'); await app.tick(60);
+  app.every(); await app.tick(40); app.every(); await app.tick(40);
+  assert.strictEqual(JSON.stringify(hashes(app)), before); assert.strictEqual(app.index(), at);
+  app.click('open-process', 'release'); await app.tick();
+  const two = JSON.stringify(hashes(app));
+  app.click('flight', 'plan'); await app.tick(); app.click('flight', 'md'); await app.tick(); app.click('flight', 'list'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  const three = JSON.stringify(hashes(app));
+  app.click('filter', 'all'); await app.tick(); app.click('filter', 'mine'); await app.tick();
+  assert.strictEqual(JSON.stringify(hashes(app)), three, 'filters push nothing');
+  assert.notStrictEqual(two, three);
+  numbered(app);
+});
+
+rule('Back and Forward: one action that changes process, version and tab makes one entry', async () => {
+  const app = await navBoot();
+  const n = app.entries().length;
+  app.click('go', null, { view: 'process', process: 'release', ptab: 'insights' }); await app.tick();
+  assert.strictEqual(app.entries().length, n + 1);
+  assert.strictEqual(app.hash(), '#/process/release/insights');
+  await back(app); assert.ok(onHome(app));
+});
+
+rule('Back and Forward: hostile hashes typed into the address bar land on Home with a message, never on the page', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'release'); await app.tick();
+  const bad = ['#/run/<script>/x', '#/run/a/%3Cscript%3E', '#/process/%E0%A4%A', '#/' + 'x'.repeat(10000), '#/process/../x', '#/process/a%2Fb', '#/process/a%01b', '#/types/__proto__', '#/run/a/b/c/d/e/f/g', '#/nowhere-at-all'];
+  for (const h of bad) {
+    app.click('open-process', 'release'); await app.tick();
+    app.typeHash(h); await app.settle();
+    assert.ok(onHome(app), 'Home for ' + h.slice(0, 40));
+    assert.ok(/That link isn't one Flightdeck can open\./.test(app.live()), app.live());
+    assert.strictEqual(app.hash(), '#/');
+    ['<script>', '%3Cscript', 'nowhere-at-all', '__proto__', 'x'.repeat(50)].forEach(t => { assert.ok(app.html().indexOf(t) < 0 && app.live().indexOf(t) < 0 && app.top().indexOf(t) < 0, t); });
+  }
+  numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a browser that refuses the History API still works as before, with nothing written', async () => {
+  const app = await navBoot({ historyThrows: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick();
+  assert.ok(onRun(app), 'still navigates');
+  assert.deepStrictEqual(app.entries(), [{ hash: '', state: null }]);
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(/<div class="eyebrow">Runs<\/div>/.test(app.html()));
+});
+
+rule('Back and Forward: every screen and tab has a route', async () => {
+  const fs = require('fs'), path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+  const pages = /var PAGES = \{([^}]*)\}/.exec(src)[1].split(',').map(x => x.split(':')[0].trim().replace(/'/g, ''));
+  const app = await navBoot(), N = app.PF.nav;
+  assert.ok(pages.length >= 18, pages.join());
+  pages.concat(['home']).forEach(v => ['overview', 'edit', 'insights'].forEach(ptab => {
+    const loc = N.locate({ view: v, processId: 'release', runKey: 'release/abc', ptab, mapVer: null, planId: 'plan-x', skillFile: 'x.json', recoveryAt: '', typeForm: null });
+    assert.ok(loc, 'a route for ' + v);
+    const back = N.parse(N.format(loc));
+    assert.ok(back && (v === 'home' || back.view !== 'home'), v + ' → ' + N.format(loc));
+  }));
+});
+
+rule('Back and Forward: editor Done and the version picker push, so Back returns to the editor and the earlier version', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release/edit');
+  app.click('ed-done'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release');
+  await back(app);
+  assert.ok(/id="ed-h"/.test(app.html()), 'the editor again'); assert.strictEqual(app.hash(), '#/process/release/edit');
+  await back(app);
+  assert.strictEqual(app.hash(), '#/process/release');
+  const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]);
+  assert.ok(vers.length >= 2, 'the example has versions: ' + vers.join());
+  // v2 is the current version, v1 the first: picking v1 then v2, Back shows v1, Back again the page's default.
+  // The page redraws the picker from the version shown (syncBound); this stand-in keeps a chosen value, so it is let go.
+  app.select('map-ver', vers[1]); await app.tick(); app.gone('map-ver');
+  app.select('map-ver', vers[0]); await app.tick(); app.gone('map-ver');
+  assert.strictEqual(app.hash(), '#/process/release/v/' + vers[0]);
+  await back(app); assert.strictEqual(app.hash(), '#/process/release/v/' + vers[1]); assert.ok(/<option value="v1-[a-z0-9]+" selected>/.test(app.html()), 'v1 shown');
+  await back(app); assert.strictEqual(app.hash(), '#/process/release');
+  numbered(app);
+});
+
+rule('Back and Forward: a move within one screen kind pushes: run to its child run, one recovery section to another', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick();
+  app.click('select', 'notes'); await app.tick();
+  const child = /data-act="open-run" data-id="(check-in\/[a-z0-9-]+)"/.exec(app.html());
+  assert.ok(child, 'the release links its check-in run');
+  app.click('open-run', child[1]); await app.tick();
+  assert.strictEqual(app.hash(), '#/run/' + child[1]);
+  await back(app); assert.strictEqual(app.hash(), '#/run/' + key); assert.ok(app.html().indexOf('Release 2026.10.16') >= 0);
+  app.click('recovery', 'run-missing'); await app.tick();
+  app.click('recovery', 'a-runs-file-is-gone'); await app.tick();
+  app.click('recovery', 'onedrive-isnt-syncing'); await app.tick();
+  assert.strictEqual(app.hash(), '#/recovery/onedrive-isnt-syncing');
+  await back(app); assert.strictEqual(app.hash(), '#/recovery/a-runs-file-is-gone');
+  numbered(app);
+});
+
+rule('Back and Forward: Back with a builder box typed and not applied refuses, keeps the typing and focus, and leaves the entries alone', async () => {
+  const app = await navBoot({ localStore: {}, domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ed-done'); await app.tick();
+  await back(app);
+  assert.strictEqual(app.hash(), '#/process/release/edit');
+  app.click('ob-sel', 'flags'); await app.tick();
+  const was = /<textarea id="ob-text"[^>]*>([^<]*)</.exec(app.html())[1];
+  app.input('ob-text', 'Half typed'); await app.tick();
+  const list = JSON.stringify(app.entries());
+  await back(app);
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
+  assert.ok(/id="ed-h"/.test(app.html()), 'still the editor');
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
+  assert.strictEqual(JSON.stringify(app.entries()), list, 'the entry after it is still there');
+  assert.strictEqual(app.draft('ob-text'), 'Half typed'); assert.strictEqual(app.activeId(), 'ob-text');
+  // Cleared, Forward goes where it went before.
+  app.input('ob-text', was); await app.tick();
+  await fwd(app);
+  assert.strictEqual(app.hash(), '#/process/release'); assert.ok(!/id="ed-h"/.test(app.html()));
+  assert.strictEqual(app.reloads(), 0); numbered(app);
+});
+
+rule('Back and Forward: Back from a step type with changes shows the leave prompt; Leave without saving lands on the list', async () => {
+  const app = await navBoot({ domFocus: true });
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  assert.strictEqual(app.hash(), '#/types/edit/change.request');
+  app.input('tf-label', 'Changed by me'); await app.tick();
+  await back(app); await app.tick(40);
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()), 'the prompt');
+  assert.strictEqual(app.hash(), '#/types/edit/change.request'); assert.strictEqual(app.index(), 2);
+  assert.strictEqual(app.activeId(), '[data-act="type-save"]');
+  app.click('type-cancel'); await app.tick();
+  assert.ok(!/id="type-form"/.test(app.html()), 'the list');
+  assert.deepStrictEqual(hashes(app), ['#/', '#/types', '#/types']); assert.strictEqual(app.index(), 2);
+  numbered(app);
+});
+
+rule('Back and Forward: Back from the draft editor with unsaved text goes, says so, and the text is there on Forward', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  const text = /<textarea[^>]*id="draft-editor"[^>]*>([\s\S]*?)<\/textarea>/.exec(app.html())[1];
+  app.input('draft-editor', text.replace('Production release', 'Production release EDITED')); await app.tick(20);
+  await back(app);
+  assert.strictEqual(app.hash(), '#/process/release'); assert.ok(!/id="ed-h"/.test(app.html()));
+  assert.ok(/Your changes aren.t saved yet/.test(app.live()), app.live());
+  await fwd(app);
+  assert.ok(/id="ed-h"/.test(app.html()) && /Production release EDITED/.test(app.html()), 'the text is in the editor');
+});
+
+rule('Back and Forward: Fill in, its values and a note are kept as drafts and come back, by Forward and by a click', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const step = app.nextStep();
+  app.click('pick', step, { kind: 'fields' }); await app.tick();
+  app.set('fld-job', 'KEPT-1'); await app.tick();
+  await back(app);
+  assert.ok(onHome(app));
+  await fwd(app);
+  assert.ok(onRun(app) && /id="fld-job"/.test(app.html()), 'Fill in drawn open again');
+  assert.strictEqual(app.draft('fld-job'), 'KEPT-1');
+  app.click('nav', 'home'); await app.tick();
+  app.click('open-run', key); await app.tick();
+  assert.ok(/id="fld-job"/.test(app.html()), 'and after a click back to the run');
+  assert.strictEqual(app.draft('fld-job'), 'KEPT-1');
+  await back(app); await back(app);
+  assert.ok(onRun(app) && /id="fld-job"/.test(app.html()), 'and by Back');
+});
+
+rule('Back and Forward: Back closes an open dialog and stays, focus back on its opener; a dialog holding typing refuses', async () => {
+  const app = await navBoot({ domFocus: true });
+  app.click('open-run', app.run().key); await app.tick();
+  const list = JSON.stringify(app.entries());
+  app.click('help'); await app.tick();
+  assert.ok(/id="help-t"/.test(app.overlay()), 'set-up: help is open');
+  await back(app);
+  assert.strictEqual(app.overlay(), '', 'closed'); assert.ok(onRun(app), 'still the run');
+  assert.strictEqual(JSON.stringify(app.entries()), list); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(app.activeId(), '[data-act="help"]');
+  const b = await navBoot({ nobody: true }); b.choose('person-morgan'); await b.tick();
+  b.click('open-process', 'release'); await b.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(b.html())[1];
+  b.click('corr-review', id); await b.tick(20); b.click('corr-ca-declining'); await b.tick();
+  b.set('ca-reason', 'Not this time'); await b.tick();
+  await back(b);
+  assert.ok(/id="ca-reason"/.test(b.overlay()), 'not closed'); assert.strictEqual(b.draft('ca-reason'), 'Not this time');
+  assert.ok(/Finish or cancel this first\./.test(b.live()));
+  assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 1); assert.strictEqual(b.reloads(), 0);
+});
+
+rule('Back and Forward: on a phone, Back closes the step sheet first and stays on the run; one holding a typed reason stays open', async () => {
+  const app = await navBoot({ narrow: true, domFocus: true });
+  app.click('open-run', app.run().key); await app.tick(); app.click('pickup'); await app.tick(40);
+  const step = app.nextStep();
+  app.click('select', step); await app.tick();
+  const sheet = app.node('.rw-ins[data-open="true"]');
+  assert.ok(sheet && sheet.getAttribute('role') === 'dialog' && sheet.getAttribute('aria-modal') === 'true' && app.topInert(), 'set-up: the sheet is open and modal');
+  await back(app);
+  assert.ok(!app.node('.rw-ins[data-open="true"]'), 'closed'); assert.ok(onRun(app));
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 1);
+  app.click('select', step); await app.tick();
+  app.click('pick', step, { kind: 'block' }); await app.tick();
+  assert.ok(/id="pick-input"/.test(app.html()), 'set-up: the Block reason box');
+  app.set('pick-input', 'Waiting on the board'); await app.tick();
+  await back(app); await back(app);
+  assert.ok(app.node('.rw-ins[data-open="true"]'), 'the sheet stays open');
+  assert.ok(/Finish or cancel this first\./.test(app.live()));
+  assert.strictEqual(app.activeId(), 'pick-input'); assert.strictEqual(app.draft('pick-input'), 'Waiting on the board');
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a link to a run that isn\'t in the folder opens its process with a message, replacing the entry', async () => {
+  const app = await navBoot({ hash: '#/run/release/no-such-run' });
+  assert.ok(onProcess(app), 'the process page');
+  assert.ok(/That run isn.t in this folder anymore\./.test(app.live()));
+  assert.deepStrictEqual(hashes(app), ['#/process/release']); numbered(app);
+  const two = await navBoot({ hash: '#/run/gone-process/abc' });
+  assert.ok(/<div class="eyebrow">Runs<\/div>/.test(two.html())); assert.deepStrictEqual(hashes(two), ['#/runs']);
+});
+
+rule('Back and Forward: a link to a run whose read failed isn\'t called gone, and opens once Refresh reads it', async () => {
+  const app = await navBoot();
+  const src = app.run(), j = Object.assign({}, src.json, { id: 'later-run', title: 'Later run' });
+  await app.fs.write('runs/release/later-run/run.json', JSON.stringify(j));
+  const list = app.fs.list.bind(app.fs); let fail = true;
+  app.fs.list = p => fail && p === 'runs' ? Promise.reject(new Error('NotReadableError')) : list(p);
+  app.click('refresh'); await app.tick(80);
+  app.typeHash('#/run/release/later-run'); await app.settle();
+  assert.ok(onProcess(app) && /That run wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()) && !/isn.t in this folder anymore/.test(app.live()), app.live());
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.ok(onRun(app) && /Later run/.test(app.html()), 'opened once read');
+  assert.strictEqual(app.hash(), '#/run/release/later-run');
+  /* Moving elsewhere first drops the retry. */
+  await app.fs.write('runs/release/third-run/run.json', JSON.stringify(Object.assign({}, j, { id: 'third-run', title: 'Third run' })));
+  fail = true; app.click('refresh'); await app.tick(80);
+  app.typeHash('#/run/release/third-run'); await app.settle();
+  assert.ok(/Refresh tries again/.test(app.live()), 'set-up: not read');
+  app.click('nav', 'runs'); await app.tick();
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.ok(!onRun(app), 'stays where it was moved to');
+});
+
+rule('Back and Forward: a link to the current version while publications couldn\'t be read waits for them, not the draft', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, hash: '#/process/release/current' });
+  const proto = app.PF.fs.MemoryFS.prototype, list = proto.list; let fail = true;
+  proto.list = function (p) { return fail && /^publications/.test(p) ? Promise.reject(new Error('NotReadableError')) : list.call(this, p); };
+  await app.tick(80); app.choose('person-casey'); await app.tick(); await app.settle();
+  assert.ok(/That version wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()), app.live());
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/current', 'the published version opens once read');
+});
+
+rule('Back and Forward: a link to a process whose draft couldn\'t be read isn\'t called gone, and opens once Refresh reads it', async () => {
+  const app = await navBoot(), path = 'maps/drafts/later.md';
+  await app.fs.write(path, ['---', 'process: later', 'title: Later process', '---', '', '## One · READ-DO {#one}', '- [ ] {confirm} Do it {#it}', ''].join('\n'));
+  const read = app.fs.read.bind(app.fs); let fail = true;
+  app.fs.read = p => fail && p === path ? Promise.reject(new Error('NotReadableError')) : read(p);
+  app.click('refresh'); await app.tick(80);
+  app.typeHash('#/process/later'); await app.settle();
+  assert.ok(/That process wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()), app.live());
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.ok(onProcess(app, 'Later process'), 'opened once read');
+  assert.strictEqual(app.hash(), '#/process/later');
+  /* A target the folder was read without any failure is gone, and says so. */
+  app.typeHash('#/process/never'); await app.settle();
+  assert.ok(/That process isn.t in this folder anymore\./.test(app.live()), app.live());
+});
+
+/* The examples' folder fingerprint, as entries made in them carry it. */
+async function examplesFp() { const a = boot(); await a.tick(60); return a.entries()[0].state.f; }
+/* A remembered team folder holding a copy of another boot's examples (its runs have other IDs than a new boot's). */
+async function teamCopy() { const src = boot(); await src.tick(80); const files = {}; sameRunsFolder(src, files); return { files, key: src.run().key, fp: src.PF.util.hash('folder:team-1') }; }
+
+rule('Back and Forward: an entry from another folder is refused, nothing of it opens, and the next Back reaches the one before', async () => {
+  const fp = await examplesFp();
+  const app = await navBoot({ entries: [{ hash: '#/', state: { fd: 1, n: 0, f: fp } }, { hash: '#/runs', state: { fd: 1, n: 1, f: 'deadbeef' } }, { hash: '#/processes', state: { fd: 1, n: 2, f: fp } }] });
+  assert.ok(/<div class="eyebrow">Processes<\/div>/.test(app.html()), 'the reload lands on its own entry');
+  await back(app);
+  assert.ok(/That page was in another team folder, so it wasn.t opened\./.test(app.live()));
+  assert.ok(/<div class="eyebrow">Processes<\/div>/.test(app.html()), 'nothing of it opened');
+  assert.deepStrictEqual(app.entries()[1], { hash: '#/processes', state: { fd: 1, n: 1, f: fp } }, 'replaced with where you are');
+  await back(app);
+  assert.ok(onHome(app)); assert.strictEqual(app.index(), 0); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a reload on a run link while the folder needs Reconnect shows Home, then the team folder\'s run after Reconnect', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}), hash: '#/run/' + t.key, historyState: { fd: 1, n: 3, f: t.fp } });
+  assert.ok(onHome(app), 'Home first'); assert.ok(/Reconnect to open the page you linked to\./.test(app.html()));
+  assert.strictEqual(app.hash(), '#/run/' + t.key, 'the address bar keeps the link');
+  app.click('reconnect'); await app.tick(200);
+  assert.ok(onRun(app), 'the run'); assert.strictEqual(app.hash(), '#/run/' + t.key);
+  assert.deepStrictEqual(app.entries(), [{ hash: '#/run/' + t.key, state: { fd: 1, n: 3, f: t.fp } }]);
+});
+
+rule('Back and Forward: while Reconnect is pending, a pasted link waits and never opens the examples\' copy; inside the examples Back and Forward work', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}) });
+  const exKey = app.run().key;
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', exKey); await app.tick();
+  await back(app); assert.ok(onProcess(app), 'Back inside the examples'); await fwd(app); assert.ok(onRun(app), 'and Forward');
+  app.click('nav', 'home'); await app.tick();
+  app.typeHash('#/process/release'); await app.settle();
+  assert.ok(onHome(app), 'waits on Home'); assert.ok(/Reconnect to open the page you linked to\./.test(app.html()));
+  // A Back to a team-folder entry waits the same way.
+  app.click('reconnect'); await app.tick(200);
+  assert.ok(onProcess(app), 'opens after Reconnect'); assert.strictEqual(app.hash(), '#/process/release');
+  assert.ok(app.html().indexOf(t.key.split('/')[1]) >= 0 && app.html().indexOf(exKey.split('/')[1]) < 0, 'the team folder\'s release, not the examples\'');
+  assert.ok(app.entries().every(e => e.state && e.state.fd === 1), 'every entry is numbered');
+});
+
+rule('Back and Forward: a link opened inside the examples while Reconnect waits drops it with a message', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}), hash: '#/process/release', historyState: null });
+  assert.ok(onHome(app));
+  app.click('nav', 'runs'); await app.tick();
+  assert.ok(/The linked page wasn.t opened\./.test(app.live()));
+  app.click('reconnect'); await app.tick(200);
+  assert.ok(!onProcess(app), 'nothing opens after Reconnect');
+});
+
+rule('Back and Forward: focus goes to the new screen\'s heading after Back', async () => {
+  const app = await navBoot({ domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', app.run().key); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  await back(app); assert.strictEqual(app.activeId(), 'run-h');
+  await back(app); assert.strictEqual(app.activeId(), 'page-h'); assert.ok(onProcess(app));
+  await back(app); assert.strictEqual(app.activeId(), 'page-h'); assert.ok(onHome(app));
+});
+
+rule('Back and Forward: only route words and IDs reach the address bar and history state', async () => {
+  const app = await navBoot();
+  const key = app.run().key, r = app.run().json;
+  app.click('open-process', 'release'); await app.tick();
+  app.click('open-run', key); await app.tick(); app.click('mission'); await app.tick(); app.click('exit-mission'); await app.tick();
+  app.click('receipt'); await app.tick();
+  app.click('nav', 'skills'); await app.tick();
+  const sk = /data-act="open-skill" data-id="([^"]+)"/.exec(app.html())[1];
+  app.click('open-skill', sk); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.click('nav', 'settings'); await app.tick(); app.click('nav', 'types'); await app.tick(); app.click('health'); await app.tick(40); app.click('connection'); await app.tick(40);
+  const words = [r.title, sk, 'Casey', 'person-casey', 'examples', 'preflight'].concat(Object.values(r.details || {}).filter(v => String(v).length > 3));
+  app.entries().forEach(e => {
+    assert.ok(ID_ONLY.test(e.hash), e.hash);
+    words.forEach(w => assert.ok(e.hash.toLowerCase().indexOf(String(w).toLowerCase()) < 0, e.hash + ' has ' + w));
+    assert.deepStrictEqual(Object.keys(e.state).sort(), ['f', 'fd', 'n']); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
+  });
+  assert.ok(hashes(app).indexOf('#/skill/' + app.PF.util.hash(sk)) >= 0);
+  assert.ok(hashes(app).indexOf('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')) >= 0);
+});
+
+rule('Back and Forward: Alt+Left in the picture viewer leaves the picture alone (it is the browser\'s Back)', async () => {
+  const app = await navBoot();
+  const r = app.run(), lines = r.json.snapshot.split('\n'), i = lines.findIndex(l => /\{#announce\}/.test(l));
+  lines.splice(i + 1, 0, '  ![Picture one](images/release/a.png)', '  ![Picture two](images/release/b.png)');
+  r.json.snapshot = lines.join('\n'); r.json.rev = (r.json.rev || 0) + 1;
+  await app.fs.write(r.path, JSON.stringify(r.json)); app.click('refresh'); await app.tick(80);
+  app.click('open-run', r.key); await app.tick(); app.click('select', 'announce'); await app.tick();
+  app.click('zoom', 'announce', { i: '0' }); await app.tick();
+  assert.ok(/Picture one/.test(app.overlay()), 'set-up: the first picture');
+  app.keyOn('ArrowLeft', { altKey: true }); await app.tick();
+  app.keyOn('ArrowRight', { altKey: true }); await app.tick();
+  app.keyOn('ArrowRight', { metaKey: true }); await app.tick();
+  assert.ok(/Picture one/.test(app.overlay()) && !/Picture two<\/figcaption>/.test(app.overlay()), 'not stepped');
+  app.keyOn('ArrowRight'); await app.tick();
+  assert.ok(/Picture two/.test(app.overlay()), 'a plain arrow still steps');
+});
+
+rule('Back and Forward: the default page, the current version and an older one are three places, each showing its own text', async () => {
+  const app = await navBoot();
+  const path = 'maps/drafts/release.md';
+  await app.fs.write(path, app.fs.files[path].t.replace('Post "starting release" in the team channel', 'Post DRAFTONLY in the team channel'));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  // The checklist's own row for the step (the page also lists the draft's changes).
+  const draftShown = a => /id="cl-st-announce"[^>]*>(?:(?!<\/li>)[\s\S])*DRAFTONLY/.test(a.html());
+  assert.ok(draftShown(app), 'set-up: the page shows the draft');
+  app.click('back-current'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release/current'); assert.ok(!draftShown(app));
+  const v1 = /<option value="(v1-[a-z0-9]+)"/.exec(app.html())[1];
+  app.select('map-ver', v1); await app.tick(); app.gone('map-ver');
+  assert.strictEqual(app.hash(), '#/process/release/v/' + v1);
+  const v1Text = app.html();
+  await back(app); assert.ok(!draftShown(app) && /<option value="v2-[a-z0-9]+" selected>/.test(app.html()), 'the current version');
+  await back(app); assert.ok(draftShown(app), 'the draft again'); assert.strictEqual(app.hash(), '#/process/release');
+  await fwd(app); assert.ok(!draftShown(app)); assert.strictEqual(app.hash(), '#/process/release/current');
+  await fwd(app); assert.strictEqual(app.html(), v1Text, 'the older version, the same as before');
+  numbered(app);
+});
+
+rule('Back and Forward: a running run\'s receipt is reached again by Back, Forward and a reload on its link', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('receipt'); await app.tick();
+  await back(app); assert.ok(onRun(app)); await fwd(app); assert.ok(onReceipt(app) && /In progress/.test(app.html()));
+  const again = await navBoot({ localStore: app.store, hash: '#/run/' + key + '/receipt', historyState: app.entries()[app.index()].state });
+  assert.ok(onReceipt(again), 'a reload on the link'); assert.strictEqual(again.hash(), '#/run/' + key + '/receipt');
+});
+
+rule('Back and Forward: step types: a type called new, a new form, and a changed form kept across Back-menu jumps', async () => {
+  const app = await navBoot();
+  const def = JSON.parse(app.fs.files['step-types/change.request.json'].t); def.id = 'new'; def.label = 'Called new';
+  await app.fs.write('step-types/new.json', JSON.stringify(def, null, 2)); app.click('refresh'); await app.tick(80);
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'new'); await app.tick(40);
+  assert.strictEqual(app.hash(), '#/types/edit/new'); assert.ok(/value="Called new"/.test(app.html()));
+  app.click('type-cancel'); await app.tick();
+  app.click('new-type'); await app.tick();
+  assert.strictEqual(app.hash(), '#/types/new');
+  // An unchanged new form: a jump to the type's entry opens that type.
+  app.go(-2); await app.settle(); await app.tick(40);
+  assert.ok(/value="Called new"/.test(app.html()), 'type A opens'); assert.strictEqual(app.hash(), '#/types/edit/new');
+  await fwd(app); await fwd(app); await app.tick(40);
+  assert.ok(/That new step type was closed\./.test(app.live()), app.live()); assert.strictEqual(app.hash(), '#/types');
+  // A changed new form B: the jump keeps B with the prompt, at B's place.
+  app.click('new-type'); await app.tick(); app.input('tf-label', 'Form B'); await app.tick();
+  const at = app.index();
+  app.go(-3); await app.settle(); await app.tick(40); await app.settle();
+  assert.ok(/Form B/.test(app.html()) && /This step type has changes that aren.t saved/.test(app.html()), 'B kept, with the prompt');
+  assert.ok(/Save or leave this step type first, then go back again\./.test(app.live()), app.live() + JSON.stringify(app.entries()));
+  assert.strictEqual(app.index(), at); assert.strictEqual(app.hash(), '#/types/new');
+  // From another screen, a #/types entry while B is kept shows B's prompt under B's own location.
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()) && /Form B/.test(app.html()));
+  assert.strictEqual(app.hash(), '#/types/new'); numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: a slow step-type read from Back never reopens over a later Back to the list', async () => {
+  const app = await navBoot();
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  const read = app.fs.read.bind(app.fs), g = gate();
+  app.fs.read = p => p === 'step-types/change.request.json' ? read(p).then(v => g.p.then(() => v)) : read(p);
+  app.click('nav', 'types'); await app.tick();
+  app.go(-3); await app.settle(); await app.tick(5);
+  assert.ok(!/id="type-form"/.test(app.html()), 'the read is still on its way');
+  await back(app); await app.tick(5);
+  g.open(); await app.tick(80); await app.settle();
+  assert.ok(!/id="type-form"/.test(app.html()), 'stays on the list');
+  assert.ok(/^#\/types$/.test(app.hash()), app.hash()); numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: screen share, the receipt and Finish return to the run with Fill in and a correction open, values intact', async () => {
+  for (const [go, leave] of [['mission', 'back'], ['receipt', 'back'], ['finish', 'back'], ['mission', 'exit-mission'], ['receipt', 'escape']]) {
+    const app = await navBoot();
+    const key = app.run().key;
+    app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+    const step = app.nextStep();
+    app.click('pick', step, { kind: 'fields' }); await app.tick();
+    app.set('fld-job', 'JOB-9'); await app.tick();
+    app.click('corr-open', step, { mode: 'correct' }); await app.tick();
+    app.input('corr-why', 'WHY-9'); await app.tick();
+    app.click(go); await app.tick();
+    if (leave === 'back') await back(app); else if (leave === 'escape') { app.key('Escape'); await app.tick(); } else { app.click(leave); await app.tick(); }
+    assert.ok(onRun(app), go + ' ' + leave + ': the run');
+    assert.ok(/id="fld-job"/.test(app.html()) && app.draft('fld-job') === 'JOB-9', go + ' ' + leave + ': Fill in open with its value');
+    assert.ok(/id="corr-why"/.test(app.html()) && app.draft('corr-why') === 'WHY-9', go + ' ' + leave + ': the correction open with its text');
+  }
+});
+
+rule('Back and Forward: Back to a draft removed from the folder while it had unsaved edits shows its recovery page', async () => {
+  const app = await navBoot();
+  app.click('open-process', 'incident'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  const text = /<textarea[^>]*id="draft-editor"[^>]*>([\s\S]*?)<\/textarea>/.exec(app.html())[1];
+  app.input('draft-editor', text + '\nEDITED-LINE'); await app.tick(20);
+  app.click('nav', 'home'); await app.tick();
+  delete app.fs.files['maps/drafts/incident.md'];
+  Object.keys(app.fs.files).filter(p => /^publications\/incident\//.test(p)).forEach(p => { delete app.fs.files[p]; });
+  app.click('refresh'); await app.tick(80);
+  await back(app);
+  assert.ok(/This draft was removed from the folder/.test(app.html()) && /EDITED-LINE/.test(app.html()), app.live());
+});
+
+rule('Back and Forward: a click while Back puts the address bar back after closing a dialog still gets its own entry', async () => {
+  const app = await navBoot();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  app.key('?'); await app.tick();
+  app.back(); await new Promise(r => setTimeout(r, 0)); app.holdPops();
+  app.click('nav', 'skills'); await app.tick();
+  app.releasePops(); await app.settle();
+  assert.strictEqual(app.hash(), '#/skills');
+  assert.deepStrictEqual(hashes(app), ['#/', '#/runs', '#/settings', '#/skills']);
+  await back(app);
+  assert.strictEqual(app.hash(), '#/settings'); numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward: overlapping moves never reload, never reuse a number, and end on the drawn entry', async () => {
+  const app = await navBoot({ localStore: {} });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Half typed'); await app.tick();
+  app.holdPops(); app.back(); app.back(); app.releasePops();
+  await app.settle(); await new Promise(r => setTimeout(r, 1200)); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
+  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/process/release/edit']);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed');
+  // A typed hash refused while a dialog is open, then the dialog again and Back.
+  const b = await navBoot();
+  b.click('open-process', 'release'); await b.tick();
+  b.key('?'); await b.tick();
+  b.typeHash('#/runs'); await b.settle();
+  assert.strictEqual(b.overlay(), '', 'the dialog closed first'); assert.ok(onProcess(b));
+  b.key('?'); await b.tick();
+  await back(b); await new Promise(r => setTimeout(r, 50)); await b.settle();
+  assert.strictEqual(b.reloads(), 0); numbered(b);
+  assert.strictEqual(b.overlay(), ''); assert.ok(onProcess(b));
+  assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch() + b.popMismatch(), 0);
+});
+
+rule('Back and Forward: text typed in Add a tag on an otherwise unchanged form isn\'t lost: it becomes a tag and the form is kept', async () => {
+  const app = await navBoot();
+  app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'change.request'); await app.tick(40);
+  app.click('type-cancel'); await app.tick();
+  app.click('new-type'); await app.tick();
+  app.set('tf-tagadd', 'risky');
+  app.go(-2); await app.settle(); await app.tick(40);
+  assert.ok(/This step type has changes that aren.t saved/.test(app.html()), 'the prompt, not closed');
+  assert.ok(/#risky/.test(app.html()), 'the text became a tag');
+  assert.strictEqual(app.hash(), '#/types/new');
+});
+
+rule('Back and Forward: the start form never shows another folder\'s planning, by click or by history', async () => {
+  const t = await teamCopy();
+  const app = await navBoot({ picker: folderHandle('B', t.files), indexedDB: memoryIDB() });
+  app.click('open-run', app.run().key); await app.tick();
+  app.click('plan-from-run', app.run().key); await app.tick();
+  assert.ok(/Plan a run/.test(app.html()) && /Release 2026\.10\.16/.test(app.html()), 'set-up: planning from folder A\'s run');
+  app.click('connect'); await app.tick(200);
+  app.click('open-process', 'release'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  assert.ok(!/Plan a run/.test(app.html()), 'by click: a plain start form');
+  app.click('nav', 'runs'); await app.tick();
+  app.typeHash('#/process/release/start'); await app.settle();
+  assert.ok(/id="start-form"/.test(app.html()) && !/Plan a run/.test(app.html()), 'by history: a plain start form');
+});
+
+rule('Back and Forward: skill file names the loader accepts round-trip as a fingerprint, by Back, Forward and a reload', async () => {
+  const app = await navBoot();
+  const base = JSON.parse(app.fs.files['skills/pr-opener.json'].t);
+  const names = ['backup checks.json', 'backup (1).json', 'バックアップの確認と復元の手順書を毎週見直すための自動化スキルです一二三四.json'];
+  for (const [i, n] of names.entries()) await app.fs.write('skills/' + n, JSON.stringify(Object.assign({}, base, { name: 'skill-' + i }), null, 2));
+  app.click('refresh'); await app.tick(80);
+  for (const n of names) {
+    app.click('nav', 'skills'); await app.tick();
+    assert.ok(app.html().indexOf('data-act="open-skill" data-id="' + n + '"') >= 0, 'listed: ' + n);
+    app.click('open-skill', n); await app.tick();
+    const h = '#/skill/' + app.PF.util.hash(n);
+    assert.strictEqual(app.hash(), h);
+    await back(app); await fwd(app);
+    assert.strictEqual(app.hash(), h); assert.ok(/<div class="eyebrow">Skill/.test(app.html()), 'Forward opens it');
+    const again = await navBoot({ localStore: app.store, hash: h, historyState: app.entries()[app.index()].state });
+    assert.ok(/<div class="eyebrow">Skill/.test(again.html()) && again.html().indexOf('skill-' + names.indexOf(n)) >= 0, 'a reload opens it: ' + n);
+  }
+});
+
+rule('Back and Forward: starting a run from a plan or the start form makes one entry, the run\'s, also when the person moves meanwhile', async () => {
+  const app = await navBoot();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = hashes(app);
+  app.submitForm('start-form'); await app.tick(200);
+  assert.ok(onRun(app), 'set-up: started');
+  assert.deepStrictEqual(hashes(app).slice(0, -1), before); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick();
+  const two = hashes(app);
+  app.submitForm('start-form'); await app.tick(200);
+  assert.deepStrictEqual(hashes(app).slice(0, -1), two); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  // Paused in the folder's read: the person visits Runs and Settings, then the run lands after them.
+  app.click('start', 'release'); await app.tick();
+  const list = app.fs.list.bind(app.fs), g = gate(); let armed = true;
+  app.fs.list = p => { if (armed && p === 'runs') { armed = false; return list(p).then(x => g.p.then(() => x)); } return list(p); };
+  const three = hashes(app);
+  app.submitForm('start-form'); await app.tick(60);
+  app.click('nav', 'runs'); await app.tick(); app.click('nav', 'settings'); await app.tick();
+  g.open(); await app.tick(200);
+  assert.deepStrictEqual(hashes(app).slice(0, three.length), three);
+  assert.deepStrictEqual(hashes(app).slice(three.length, -1), ['#/runs', '#/settings']); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  numbered(app);
+});
+
+rule('Back and Forward: a decided plan never reopens with Start the run or Decline; its files are unchanged', async () => {
+  const app = await navBoot();
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  app.submitForm('start-form'); await app.tick(200);
+  const key = app.run && /^#\/run\/(.*)$/.exec(app.hash())[1];
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-example-next'); await app.tick();
+  app.click('decline-plan', 'plan-release-example-next'); await app.tick(100);
+  const files = JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t]));
+  const startOrDecline = h => /id="start-form"/.test(h) || /data-act="decline-plan"/.test(h);
+  await back(app); assert.ok(!startOrDecline(app.html()) && /That plan was declined\./.test(app.live()), 'declined: Runs');
+  for (let i = 0; i < 3; i++) await back(app);
+  assert.ok(!startOrDecline(app.html()) && onRun(app) && app.hash() === '#/run/' + key, 'accepted: its run (' + app.hash() + ')');
+  const again = await navBoot({ localStore: app.store, hash: '#/plan/' + app.PF.util.hash('plan-release-example-next') });
+  assert.ok(!startOrDecline(again.html()) && /That plan was declined\./.test(again.live()), 'a reload too');
+  assert.strictEqual(JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t])), files);
+});
+
+rule('Back and Forward: Getting started belongs to its folder; Start your team survives a trip to Runs and back', async () => {
+  const { example } = require('./harness');
+  const a = {}, b = { 'people.json': example('people.json') }, opts = { localStore: { 'preflight:builder': 'false' }, picker: folderHandle('A', a), indexedDB: memoryIDB() };
+  const app = boot(opts); await app.tick(80);
+  app.click('setup-mode', 'start'); await app.tick();
+  app.click('setup-pick'); await app.tick(80);
+  app.click('setup-next', 'people'); await app.tick();
+  app.input('su-me-name', 'Riley Park'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.ok(/id="su-h"/.test(app.html()) && /Riley Park/.test(app.html() + app.draft('su-me-name')), 'the wizard, still open, with its input');
+  assert.strictEqual(app.hash(), '#/setup');
+  // Another folder opened with Change team folder: nothing of the wizard comes along.
+  app.click('nav', 'runs'); await app.tick();
+  opts.picker = folderHandle('B', b);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  for (const how of ['back', 'typed']) {
+    if (how === 'back') { app.go(-2); await app.settle(); } else { app.typeHash('#/setup'); await app.settle(); }
+    // The wizard's entry was made in the examples, so Back refuses it as another folder's; typed, it's Getting started closed.
+    assert.ok(how === 'back' ? /That page was in another team folder, so it wasn.t opened\./.test(app.live()) : onHome(app) && /Getting started was closed\. Continue it from Home\./.test(app.live()), how + ': ' + app.live());
+    assert.ok(!/Riley Park/.test(app.html()) && !/id="su-h"/.test(app.html()), how + ': nothing of folder A');
+    app.click('nav', 'settings'); await app.tick();
+  }
+});
+
+rule('Back and Forward: Add a person typed in one folder is empty in the next, by click and by Back', async () => {
+  const { example } = require('./harness');
+  const a = { 'people.json': example('people.json') }, b = { 'people.json': example('people.json') }, opts = { picker: folderHandle('A', a), indexedDB: memoryIDB() };
+  const app = boot(opts); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('nav', 'settings'); await app.tick();
+  app.input('pa-name', 'Folder A Person'); app.input('pa-email', 'a@example.com'); await app.tick();
+  app.click('nav', 'runs'); await app.tick();
+  opts.picker = folderHandle('B', b);
+  app.click('connect'); await app.tick(200); app.goneUndrawn();
+  app.click('nav', 'settings'); await app.tick();
+  assert.ok(!/Folder A Person|a@example\.com/.test(app.html()), 'by click: empty');
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.ok(/<div class="eyebrow">Settings<\/div>/.test(app.html()) && !/Folder A Person|a@example\.com/.test(app.html()), 'by Back: empty');
+  app.submit('people-add-form'); await app.tick(200);
+  assert.ok(!/Folder A Person/.test(b['people.json']), 'nothing of A\'s submitted to B');
+});
+
+rule('Back and Forward: IDs the readers accept round-trip: a plan ID with dots and a 90-character process ID', async () => {
+  const app = await navBoot();
+  const plan = JSON.parse(app.fs.files['proposals/plan-release-2026-10-24.json'].t); plan.id = 'plan-release-2026.10.20';
+  await app.fs.write('proposals/plan-release-2026.10.20.json', JSON.stringify(plan, null, 2));
+  const long = 'p' + 'ab-'.repeat(29) + 'z', draft = app.fs.files['maps/drafts/check-in.md'].t.replace(/^process: .*$/m, 'process: ' + long);
+  assert.strictEqual(long.length, 89 + 0 * 1 || long.length);
+  await app.fs.write('maps/drafts/' + long + '.md', draft);
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'runs'); await app.tick();
+  app.click('review-plan', 'plan-release-2026.10.20'); await app.tick();
+  const ph = app.hash(); assert.strictEqual(ph, '#/plan/' + app.PF.util.hash('plan-release-2026.10.20'));
+  app.click('open-process', long); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/' + long);
+  await back(app); assert.ok(/id="start-form"/.test(app.html()), 'the plan again'); await fwd(app); assert.ok(onProcess(app));
+  for (const h of [ph, '#/process/' + long]) {
+    const again = await navBoot({ localStore: app.store, hash: h, historyState: app.entries()[0].state });
+    assert.strictEqual(again.hash(), h, 'a reload keeps ' + h);
+    assert.ok(h === ph ? /id="start-form"/.test(again.html()) : onProcess(again), 'and opens it');
+  }
+});
+
+rule('Back and Forward: the browser\'s place and the drawn entry stay right through held links, typed hashes and guarded jumps', async () => {
+  // (b) entries 0 to 4 with 4 drawn; a jump to entry 1 held for Reconnect; a typed hash becomes entry 2 and cuts 3 and 4;
+  // Reconnect opens it; then a guarded Back to entry 1 is put back on entry 2.
+  const t = await teamCopy();
+  const app = await navBoot({ localStore: {}, indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}) });
+  app.click('nav', 'runs'); await app.tick(); app.click('nav', 'processes'); await app.tick(); app.click('nav', 'skills'); await app.tick(); app.click('nav', 'settings'); await app.tick();
+  numbered(app); assert.strictEqual(app.index(), 4);
+  const entries = app.entries(); entries[1] = { hash: '#/process/release', state: { fd: 1, n: 1, f: t.fp } };
+  const b = await navBoot({ localStore: {}, indexedDB: await rememberedFolder(t.files), picker: folderHandle('Other', {}), entries, index: 4 });
+  b.go(-3); await b.settle();
+  assert.strictEqual(b.index(), 1); assert.ok(/<div class="eyebrow">Settings<\/div>/.test(b.html()) || onHome(b), 'held: the screen stays');
+  b.typeHash('#/process/release/edit'); await b.settle();
+  assert.deepStrictEqual(hashes(b).length, 3); assert.strictEqual(b.index(), 2); numbered(b);
+  b.click('reconnect'); await b.tick(200);
+  assert.strictEqual(b.hash(), '#/process/release/edit'); assert.ok(/id="ed-h"/.test(b.html()), 'opened in the team folder');
+  b.click('ob-sel', 'flags'); await b.tick(); b.input('ob-text', 'typed'); await b.tick();
+  await back(b);
+  assert.ok(/Apply or clear what you typed/.test(b.live()));
+  assert.strictEqual(b.index(), 2); assert.strictEqual(b.hash(), '#/process/release/edit'); numbered(b); assert.strictEqual(b.reloads(), 0);
+});
+
+rule('Back and Forward: End the run lands on the receipt in Finish\'s place, so Back never reopens Finish of an ended run', async () => {
+  const app = await navBoot();
+  const key = app.run().key;
+  app.click('open-run', key); await app.tick(); app.click('pickup'); await app.tick(40);
+  app.click('finish'); await app.tick();
+  assert.strictEqual(app.hash(), '#/run/' + key + '/finish');
+  app.click('end', 'Cancelled'); await app.tick(60);
+  assert.ok(onReceipt(app), 'set-up: ended');
+  assert.deepStrictEqual(hashes(app), ['#/', '#/run/' + key, '#/run/' + key + '/receipt']);
+  await back(app); assert.ok(onRun(app));
+  const again = await navBoot({ localStore: app.store, hash: '#/run/' + key + '/finish' });
+  assert.ok(onReceipt(again) && again.hash() === '#/run/' + key + '/receipt', 'a link to Finish of an ended run is its receipt');
+});
+
+rule('Back and Forward: every promise callback in the app that changes a route field holds the URL, replaces, or is a known landing', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  // The callback's body, by its braces (strings and comments skipped).
+  const bodyAt = i => {
+    let d = 0, q = null;
+    for (let j = i; j < src.length; j++) {
+      const c = src[j];
+      if (q) { if (c === '\\') j++; else if (c === q) q = null; continue; }
+      if (c === "'" || c === '"') { q = c; continue; }
+      if (c === '/' && src[j + 1] === '*') { j = src.indexOf('*/', j) + 1; continue; }
+      if (c === '{') d++; else if (c === '}' && !--d) return src.slice(i, j + 1);
+    }
+    return src.slice(i);
+  };
+  const ROUTE = /state\.(view|processId|runKey|ptab|mapVer|planId|skillFile|recoveryAt|typeForm)\s*=[^=]|setView\(|openRun\(|\bhome\(\)/;
+  // Held (holdNav), replacing (H.mode), opening a folder (useFs replaces), or the person's own save, start or decline
+  // landing, which pushes like the click it finishes (docs/design.md section 29).
+  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file'];
+  const re = /\.then\(function\s*\([^)]*\)\s*\{/g; let m; const found = [];
+  while ((m = re.exec(src))) { const b = bodyAt(m.index + m[0].length - 1); if (ROUTE.test(b)) found.push(b); }
+  assert.ok(found.length >= 10, 'the scan finds the callbacks: ' + found.length);
+  assert.deepStrictEqual(found.filter(b => !OK.some(k => b.indexOf(k) >= 0)).map(b => b.replace(/\s+/g, ' ').slice(0, 160)), []);
+});
+
+/* ---------- Back and Forward with what 2.0 added (the 1.22 merge) ---------- */
+rule('Back and Forward (2.0): a plan/2 link reopens its review on its exact version, then switched after "Start on v2 instead", and once started opens its run', async () => {
+  const app = await navBoot();
+  await exactPlan(app);
+  const fp = '#/plan/' + app.PF.util.hash('plan-release-exact');
+  app.click('review-plan', 'plan-release-exact'); await app.tick();
+  assert.strictEqual(app.hash(), fp);
+  app.click('nav', 'runs'); await app.tick();
+  await back(app);
+  assert.strictEqual(app.hash(), fp);
+  assert.ok(/This plan was made for v1\. v2 is now published\./.test(app.html()) && /id="start-form"/.test(app.html()), 'Back reopens the review on v1');
+  // Its folder goes: the link reopens the question, never a quiet switch; the person switches; the link keeps the switch.
+  const v1 = pubFolder(app, 1), v2 = pubFolder(app, 2);
+  app.files('publications/release/' + v1 + '/').forEach(p => { delete app.fs.files[p]; });
+  app.click('nav', 'runs'); await app.tick(); app.click('refresh'); await app.tick(80);
+  await back(app);
+  assert.ok(/It won(&#39;|')t start on another version by itself\./.test(app.html()) && !/id="start-form"/.test(app.html()), 'asks, with no form');
+  app.click('plan-retarget', 'plan-release-exact', { folder: v2 }); await app.tick(120);
+  assert.ok(/Switched to v2/.test(app.html()));
+  await back(app); await fwd(app);
+  assert.strictEqual(app.hash(), fp);
+  assert.ok(/Switched to v2/.test(app.html()) && /id="start-form"/.test(app.html()), 'the switch is kept by Back and Forward');
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(200);
+  const made = releaseRuns(app).filter(p => before.indexOf(p) < 0), run = JSON.parse(app.fs.files[made[0]].t), key = 'release/' + run.id;
+  assert.strictEqual(run.folder, v2); assert.strictEqual(app.hash(), '#/run/' + key);
+  await back(app);
+  assert.ok(onRun(app) && app.hash() === '#/run/' + key && !/id="start-form"/.test(app.html()), 'the accepted plan/2 opens its run (' + app.hash() + ')');
+  numbered(app); assert.strictEqual(app.reloads(), 0);
+});
+
+rule('Back and Forward (2.0): a link to a run this copy can only read opens it read-only; its Finish link lands on the run and nothing is written', async () => {
+  const app = await navBoot();
+  const src = JSON.parse(app.fs.files[releaseRuns(app)[0]].t), fpath = 'runs/release/ro-two/run.json';
+  const text = JSON.stringify(Object.assign({}, src, { format: 'preflight-run/3', features: ['a-later-feature'], app: '2.1.0', id: 'ro-two', title: 'Later run', ended: null, state: 'running' }));
+  await app.fs.write(fpath, text);
+  app.click('refresh'); await app.tick(80);
+  for (const sub of ['finish', '']) {
+    app.click('nav', 'runs'); await app.tick();
+    app.typeHash('#/run/release/ro-two' + (sub ? '/' + sub : '')); await app.settle();
+    assert.ok(onRun(app) && /Later run/.test(app.html()), sub + ': the run');
+    assert.ok(/Read-only in this copy|shows its name only/.test(app.html()), sub + ': says why it is read-only');
+    assert.strictEqual(app.hash(), '#/run/release/ro-two', sub + ': the address bar says the run');
+  }
+  await back(app); await fwd(app);
+  assert.ok(onRun(app) && /Later run/.test(app.html()), 'Forward opens it again');
+  assert.strictEqual(app.fs.files[fpath].t, text, 'never written');
+  assert.deepStrictEqual(app.files('runs/release/ro-two/'), [fpath]);
+  numbered(app);
+});
+
+rule('Back and Forward (2.0): a skill registered in skill-registrations/ keeps its link when a newer revision arrives, by Back, Forward and a reload', async () => {
+  const app = await navBoot();
+  const d = await app.PF.repo.loadAll(app.fs), v1 = d.processes.find(p => p.process === 'release').index.all.find(p => p.info.version === 1).info;
+  const reg = (rev, version) => JSON.stringify({ format: 'flightdeck-skill/2', app: '2.0.0', id: 'sk-aaaa1111', rev, seen: rev > 1 ? rev - 1 : null, name: 'release-notes', version, location: 'https://example.com/skills/release-notes',
+    implements: { process: 'release', folder: v1.folder, mapHash: v1.mapHash, typesHash: v1.typesHash }, description: 'Writes the release notes.', by: 'person-avery', updated: new Date().toISOString() }, null, 2) + '\n';
+  const r1 = 'skill-registrations/release-notes/sk-aaaa1111.1.w-avery.json', r2 = 'skill-registrations/release-notes/sk-aaaa1111.2.w-avery.json';
+  await app.fs.write(r1, reg(1, '1.0.0'));
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'skills'); await app.tick();
+  assert.ok(app.html().indexOf('data-act="open-skill" data-id="' + r1 + '"') >= 0, 'set-up: listed');
+  app.click('open-skill', r1); await app.tick();
+  const h = '#/skill/' + app.PF.util.hash('skill-registrations/release-notes/');
+  assert.strictEqual(app.hash(), h, 'named by its name, not its revision file');
+  app.click('nav', 'runs'); await app.tick();
+  await app.fs.write(r2, reg(2, '2.0.0'));
+  app.click('refresh'); await app.tick(80);
+  await back(app);
+  assert.strictEqual(app.hash(), h);
+  assert.ok(/<div class="eyebrow">Skill/.test(app.html()) && /2\.0\.0/.test(app.html()) && !/isn(&#39;|')t in this folder anymore/.test(app.live()), 'Back opens its current revision: ' + app.live());
+  await back(app); await fwd(app);
+  assert.ok(/<div class="eyebrow">Skill/.test(app.html()) && /2\.0\.0/.test(app.html()), 'Forward too');
+  const again = await navBoot({ localStore: app.store, hash: h, historyState: app.entries()[app.index()].state });
+  assert.ok(/<div class="eyebrow">Skill/.test(again.html()) && /2\.0\.0/.test(again.html()), 'and a reload');
+  // A legacy registration keeps its file as its key.
+  assert.strictEqual(app.PF.nav.skillKey('pr-opener.json'), 'pr-opener.json');
+});
+
+rule('Back and Forward (2.0): a phase\'s note typed and not applied holds Back like a step\'s note, keeps the typing, and leaving the box applies it', async () => {
+  const app = await navBoot({ localStore: {}, domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel-phase', 'verify'); await app.tick();
+  assert.ok(/id="ob-ph-note"/.test(app.html()), 'set-up: the phase form has its note');
+  const list = JSON.stringify(app.entries());
+  app.input('ob-ph-note', 'Half a phase note'); await app.tick();
+  await back(app);
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
+  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.strictEqual(app.draft('ob-ph-note'), 'Half a phase note'); assert.strictEqual(app.activeId(), 'ob-ph-note');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
+  leave(app, 'ob-ph-note', 'Line one.\nLine two.'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/\{#verify\}\r?\n  > Line one\.\r?\n  > Line two\.\r?\n/.test(releaseText(app)), 'applied as the phase\'s note: ' + releaseText(app));
+  // A value the draft normalizes (a trailing line break) shows as the draft has it, and nothing is left waiting.
+  leave(app, 'ob-ph-note', 'Line one.\nLine two.\n'); await app.tick();
+  assert.strictEqual(app.draft('ob-ph-note'), 'Line one.\nLine two.', 'the box shows the note as the draft has it');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/Apply or clear what you typed/.test(app.live()), 'Undo isn\'t held up: ' + app.live());
+  app.click('tl-redo', 'draft'); await app.tick();
+  await back(app);
+  assert.ok(!/id="ed-h"/.test(app.html()), 'Back goes once it is applied');
+});
+
+rule('Back and Forward (2.0): "Start it as a Flightdeck 2.0 run" makes one entry, the new run\'s, also when the person moves meanwhile; Back returns to the old run', async () => {
+  for (const moves of [false, true]) {
+    const app = await recordingRelease();
+    app.click('reopen', '0'); await app.tick(40);
+    app.click('edit', 'detail:commit'); app.set('edit-input', 'f00d123'); app.click('save-edit'); await app.tick(40);
+    app.click('clear', 'notes'); await app.tick(40);
+    const d = await app.PF.repo.loadAll(app.fs), ci = d.processes.find(p => p.process === 'check-in'), md = ci.index.latest.md.replace(/\n## ([^\n]+)\n/, '\n## $1\n  > Use the scratch server.\n');
+    const res = await app.PF.repo.publish(app.fs, md, { people: d.people, customTypes: d.stepTypes.types, workflows: {}, by: 'person-avery', changes: '2.0', existing: ci.index.all.map(p => p.info), now: new Date().toISOString(), app: '2.0.0' });
+    assert.ok(res && !res.blockers, 'set-up: ' + JSON.stringify(res && res.blockers));
+    app.click('refresh'); await app.tick(80);
+    const parentKey = app.run().key;
+    app.click('select', 'notes'); await app.tick();
+    const before = hashes(app), runsBefore = releaseRuns(app);
+    assert.strictEqual(app.hash(), '#/run/' + parentKey, 'set-up: on the old run');
+    const list = app.fs.list.bind(app.fs), g = gate(); let armed = moves;
+    app.fs.list = p => { if (armed && p === 'runs') { armed = false; return list(p).then(x => g.p.then(() => x)); } return list(p); };
+    app.click('continue-two', 'notes');
+    if (moves) { await app.tick(200); app.click('nav', 'runs'); await app.tick(); app.click('nav', 'settings'); await app.tick(); g.open(); }
+    await app.tick(400);
+    app.fs.list = list;
+    const made = releaseRuns(app).filter(p => runsBefore.indexOf(p) < 0);
+    assert.strictEqual(made.length, 1, 'one new run');
+    const id = JSON.parse(app.fs.files[made[0]].t).id;
+    assert.strictEqual(app.hash(), '#/run/release/' + id, moves + ': the new run');
+    assert.deepStrictEqual(hashes(app).slice(0, before.length), before);
+    assert.deepStrictEqual(hashes(app).slice(before.length, -1), moves ? ['#/runs', '#/settings'] : [], moves + ': one entry, after any the person made');
+    if (moves) { await back(app); await back(app); }
+    await back(app);
+    assert.ok(onRun(app) && app.hash() === '#/run/' + parentKey, moves + ': Back returns to the old run');
+    numbered(app); assert.strictEqual(app.reloads(), 0);
+  }
+});
+
+/* ---------- checklist details, notes and the Questions section in the builder (1.22.0) ---------- */
+const addBox = (app, id, key, value) => { app.set(id, value); app.input(id, value); app.keyOn('Enter', {}, { tagName: 'INPUT', id, value, dataset: { enter: 'ob-meta-add', id: key }, closest: () => null }); };
+const leave = (app, id, value) => { app.input(id, value); app.select(id, value); };
+const QDRAFT = ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: lead', 'context: ticket', '---', '',
+  '## First · READ-DO {#first}', '- [!] {confirm} One @lead ^ticket {#one}', '',
+  '## Questions for the owner', '', '- Who signs off?', '- Which window?', ''].join('\n');
+
+rule('Builder: Checklist details adds and removes roles and run details, and sets the owner and backup; Save changes only those lines', async () => {
+  const app = await builderOn(), original = releaseText(app);
+  assert.ok(/data-act="ob-sel-details" aria-pressed="false"/.test(app.html()) && /Owner Casey Nguyen · backup Avery Lee/.test(app.html()), 'the card, at a glance');
+  app.click('ob-sel-details'); await app.tick();
+  const html = app.html();
+  assert.ok(/<h2 id="ob-form-h">[\s\S]*?Checklist details<\/h2>/.test(html), 'its form');
+  assert.ok(/<select id="ob-owner" data-bound><option value="">Nobody yet<\/option>[\s\S]*?<option value="person-casey" selected>/.test(html), 'owner');
+  assert.ok(/<select id="ob-backup" data-bound><option value="">No backup<\/option>[\s\S]*?<option value="person-avery" selected>/.test(html), 'backup');
+  assert.ok(/data-act="ob-meta-del" data-key="roles" data-id="qa" aria-label="Remove @qa"/.test(html) && /data-act="ob-meta-del" data-key="context" data-id="tag"/.test(html), 'each with Remove');
+  addBox(app, 'ob-add-role', 'roles', 'ops'); await app.tick();
+  assert.ok(/Added @ops\./.test(app.live()) && app.draft('ob-add-role') === '', 'added, the box emptied: ' + app.live());
+  assert.strictEqual(app.focused(), '#ob-add-role');
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  addBox(app, 'ob-add-ctx', 'context', 'two words'); await app.tick();
+  assert.ok(/<p class="ferr" id="ferr-ob-add-ctx" role="alert">A run detail is one word/.test(app.html()), 'refused next to its box');
+  assert.strictEqual(app.draft('ob-add-ctx'), 'two words', 'the typing stays');
+  app.input('ob-add-ctx', ''); await app.tick();
+  app.click('ob-meta-del', 'backend', { key: 'roles' }); await app.tick();
+  assert.ok(/@backend is still used by the step “Feature flags set in the deploy values”/.test(app.html()), 'a role in use isn\'t removed');
+  app.click('ob-meta-del', 'ops', { key: 'roles' }); await app.tick();
+  assert.ok(/Removed @ops\./.test(app.live()), app.live());
+  app.select('ob-backup', ''); await app.tick();
+  app.select('ob-owner', 'person-morgan'); await app.tick();
+  assert.ok(/The owner is now Morgan Diaz\./.test(app.live()), app.live());
+  assert.strictEqual(app.draft('ob-owner'), 'person-morgan', 'a choice is left as chosen');
+  app.click('save-draft'); await app.tick(80);
+  assert.deepStrictEqual(lineDelta(original, releaseText(app)), { gone: ['backup: person-avery', 'context: ticket, commit, environment, tag', 'owner: person-casey'], added: ['context: ticket, commit, environment, tag, region', 'owner: person-morgan'] });
+});
+
+rule('Builder: the step form edits its note; no "in Markdown" is left for roles, run details or notes', async () => {
+  const app = await builderOn(), original = releaseText(app);
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000">\nNew features ship off\. Turn them on in the environment&#39;s values file, never in code\.<\/textarea>/.test(app.html()), 'the note, in a box');
+  assert.ok(!/edit notes in Markdown|Add them to "roles:" in Markdown|lists no run details \("context:"\)/.test(app.html()));
+  leave(app, 'ob-note', 'New features ship off.\n\nTurn them on in the values file.'); await app.tick();
+  assert.ok(/Changed the note of "Feature flags set in the deploy values"\. Undo available\./.test(app.live()), app.live());
+  app.click('save-draft'); await app.tick(80);
+  assert.deepStrictEqual(lineDelta(original, releaseText(app)), { gone: ['  > New features ship off. Turn them on in the environment\'s values file, never in code.'], added: ['  >', '  > New features ship off.', '  > Turn them on in the values file.'] });
+  /* A step that has no note gets one; a box applied with what the draft already says shows exactly that, and nothing waits. */
+  app.click('ob-sel', 'rollback'); await app.tick();
+  leave(app, 'ob-note', 'Paste the SHA.'); await app.tick();
+  app.input('ob-note', '\n\nPaste the SHA.'); await app.tick();
+  app.select('ob-note', '\n\nPaste the SHA.'); await app.tick();
+  assert.strictEqual(app.draft('ob-note'), 'Paste the SHA.', 'the box shows the note as the draft has it');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/Apply or clear what you typed/.test(app.live()) && /Undid/.test(app.live()), 'Undo isn\'t held up: ' + app.live());
+});
+
+rule('Builder: a draft with no roles or run details offers to add them from the step form', async () => {
+  const app = await builderOn();
+  await app.fs.write('maps/drafts/release.md', ['---', 'process: release', 'title: Production release', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', ''].join('\n'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel', 'one'); await app.tick();
+  assert.ok(/The checklist lists no roles yet\.<\/span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-role">Add roles<\/button>/.test(app.html()));
+  assert.ok(/data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details<\/button>/.test(app.html()));
+  app.click('ob-sel-details', null, { focus: 'ob-add-role' }); await app.tick();
+  assert.strictEqual(app.focused(), '#ob-add-role');
+  addBox(app, 'ob-add-role', 'roles', 'lead'); await app.tick();
+  app.click('ob-sel', 'one'); await app.tick();
+  app.click('ob-role', 'lead'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(releaseText(app), ['---', 'process: release', 'title: Production release', 'roles: lead', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One @lead {#one}', ''].join('\n'));
+});
+
+rule('Builder: the Questions section opens in a panel, its text is edited there, and Remove section asks in the page; Undo brings it back', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, QDRAFT); app.focus(); await app.tick(80);
+  assert.ok(/It still has a Questions section, so it can.t be published yet\./.test(app.html()) && /data-act="ob-sel-questions">Open the Questions<\/button>/.test(app.html()));
+  assert.ok(!/Answer the questions in Markdown/.test(app.html()));
+  app.click('ob-sel-questions'); await app.tick();
+  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000">\n\n- Who signs off\?\n- Which window\?<\/textarea>/.test(app.html()), 'its text, the blank line under the heading kept');
+  assert.strictEqual(app.focused(), 'ob-q-text');
+  leave(app, 'ob-q-text', '\n- Who signs off? Casey.\n- Which window?'); await app.tick();
+  assert.ok(/Changed the Questions section\. Undo available\./.test(app.live()), app.live());
+  leave(app, 'ob-q-text', '## Not allowed'); await app.tick();
+  assert.ok(/id="ferr-ob-q-text" role="alert">A line starting with ## or ### Track: would end the Questions section/.test(app.html()));
+  leave(app, 'ob-q-text', '\n- Who signs off? Casey.\n- Which window?'); await app.tick();
+  app.click('ob-ask', 'questions'); await app.tick();
+  assert.ok(/Remove the Questions section and everything in it\? Undo brings it back\./.test(app.html()) && /data-act="ob-q-remove" id="ob-ask-go">Remove section<\/button>/.test(app.html()));
+  assert.strictEqual(app.focused(), 'ob-ask-go');
+  app.key('Escape'); await app.tick();
+  assert.ok(!/Remove the Questions section and everything/.test(app.html()) && /id="ob-q-text"/.test(app.html()), 'Escape cancels, the panel stays');
+  app.click('ob-ask', 'questions'); await app.tick();
+  app.click('ob-ask-cancel'); await app.tick();
+  assert.ok(!/Remove the Questions section and everything/.test(app.html()), 'Cancel too');
+  app.click('ob-ask', 'questions'); await app.tick();
+  app.click('ob-q-remove'); await app.tick();
+  assert.ok(/Removed the Questions section\./.test(app.live()) && !/id="ob-q-note"/.test(app.html()), app.live());
+  assert.ok(!/It still has a Questions section/.test(app.html()) && !/id="ob-q-text"/.test(app.html()), 'the notice and the panel are gone');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/id="ob-q-note"/.test(app.html()), 'Undo brings it back');
+  app.click('tl-redo', 'draft'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const t = releaseText(app);
+  assert.strictEqual(t, QDRAFT.slice(0, QDRAFT.indexOf('## Questions')));
+  assert.ok(!app.PF.map.check(app.PF.map.parse(t), {}).blockers.some(b => /Questions/.test(b)), 'nothing about Questions blocks publishing');
+});
+
+rule('Builder: typing in the note, Questions or an Add box and not applying it holds Back, Undo and Reverse, and keeps the typing', async () => {
+  const app = await navBoot({ localStore: {}, domFocus: true });
+  app.click('open-process', 'release'); await app.tick();
+  app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-mark-step'); app.check('ob-mark-step', true); await app.tick();
+  const list = JSON.stringify(app.entries());
+  app.input('ob-note', 'Half a note'); await app.tick();
+  await back(app);
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
+  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.strictEqual(app.draft('ob-note'), 'Half a note'); assert.strictEqual(app.activeId(), 'ob-note');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
+  app.input('ob-note', 'New features ship off. Turn them on in the environment\'s values file, never in code.'); await app.tick();
+  app.click('ob-sel-details'); await app.tick();
+  app.input('ob-add-role', 'half'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(Enter applies it\), then Undo/.test(app.live()), app.live());
+  await back(app);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-add-role') === 'half', 'Back refused');
+  app.input('ob-add-role', ''); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Undid/.test(app.live()), app.live());
+});
+
+rule('Builder: people, roles and run details from the files are escaped; hostile IDs are never offered; an inactive owner stays chosen', async () => {
+  const app = await builderOn();
+  const ppl = JSON.parse(app.fs.files['people.json'].t);
+  ppl.push({ id: '"><img src=x onerror=alert(1)>', name: '<b>Bad</b>' }, { id: '__proto__', name: 'Proto' }, { id: 'person-ok', name: '<i>Ok</i>' });
+  ppl.forEach(p => { if (p.id === 'person-casey') p.inactive = true; });
+  await app.fs.write('people.json', JSON.stringify(ppl));
+  await app.fs.write('maps/drafts/release.md', ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'backup: person-gone', 'roles: <script>x</script>, lead', 'context: "><svg>', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', ''].join('\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('ob-sel-details'); await app.tick();
+  const html = app.html();
+  assert.ok(!/<img src=x|<script>x|<svg>|<b>Bad|<i>Ok/.test(html), 'nothing from the files is markup');
+  assert.ok(/&lt;script&gt;x&lt;\/script&gt;/.test(html) && /&lt;i&gt;Ok&lt;\/i&gt;/.test(html));
+  assert.ok(!/value="&quot;&gt;&lt;img/.test(html) && !/<option value="__proto__"/.test(html), 'hostile IDs aren\'t offered');
+  assert.ok(/<option value="person-casey" selected>Casey Nguyen \(inactive\)<\/option>/.test(html), 'the inactive owner stays chosen');
+  assert.ok(/<option value="person-gone" selected>person-gone \(not in people\.json\)<\/option>/.test(html), 'and a backup who left the file');
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/owner: person-casey\nbackup: person-gone\n/.test(releaseText(app)), 'kept through an unrelated change');
+});
+
+rule('Builder: text a box refused, or hasn\'t applied yet, holds choosing something else in the outline, so it is never dropped', async () => {
+  const app = await builderOn();
+  await app.fs.write('maps/drafts/release.md', QDRAFT); app.focus(); await app.tick(80);
+  app.click('ob-sel-questions'); await app.tick();
+  leave(app, 'ob-q-text', 'Keep this\n## Extra heading'); await app.tick();
+  assert.ok(/id="ferr-ob-q-text"/.test(app.html()), 'refused');
+  app.click('ob-sel-details'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then choose another\./.test(app.live()), app.live());
+  assert.ok(/id="ob-q-text"/.test(app.html()) && app.draft('ob-q-text') === 'Keep this\n## Extra heading', 'still there');
+  assert.strictEqual(app.focused(), '#ob-q-text');
+  app.input('ob-q-text', '\n- Who signs off?\n- Which window?'); await app.tick();
+  app.click('ob-sel-details'); await app.tick();
+  addBox(app, 'ob-add-role', 'roles', 'two words'); await app.tick();
+  ['ob-sel', 'ob-sel-phase', 'ob-add-phase', 'ob-add'].forEach(a => { app.click(a, a === 'ob-sel' ? 'one' : 'first'); });
+  await app.tick();
+  assert.ok(/then choose another/.test(app.live()) && app.draft('ob-add-role') === 'two words' && /Checklist details<\/h2>/.test(app.html()), 'the Add box keeps its text, the form stays');
+  app.select('ob-owner', 'person-morgan'); await app.tick();
+  assert.ok(/then change anything else\./.test(app.live()) && app.draft('ob-add-role') === 'two words' && /<option value="person-casey" selected>/.test(app.html()), 'another change waits too: ' + app.live());
+  app.click('ob-meta-del', 'lead', { key: 'roles' }); await app.tick();
+  assert.ok(/then change anything else\./.test(app.live()) && app.draft('ob-add-role') === 'two words' && /data-act="ob-meta-del" data-key="roles" data-id="lead"/.test(app.html()), 'Remove waits too');
+  /* A second box applied while the first still holds refused text waits as well, so neither is lost. */
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  assert.ok(/then change anything else\./.test(app.live()) && app.draft('ob-add-role') === 'two words' && app.draft('ob-add-ctx') === 'region', app.live());
+  app.click('ob-part', 'step'); await app.tick();
+  assert.ok(/then choose another/.test(app.live()) && !/class="ob placing/.test(app.html()) && app.draft('ob-add-role') === 'two words', 'choosing a part waits too');
+  /* Clearing the second box leaves the first one protected: Undo and Done wait for it. */
+  app.input('ob-add-ctx', ''); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first \(Enter applies it\), then Undo/.test(app.live()) && app.draft('ob-add-role') === 'two words', app.live());
+  app.click('ob-done'); await app.tick();
+  assert.ok(/Checklist details<\/h2>/.test(app.html()) && app.draft('ob-add-role') === 'two words', 'Done keeps the form open');
+  app.input('ob-add-role', ''); await app.tick();
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  assert.ok(/Added \^region\./.test(app.live()), app.live());
+  app.click('ob-sel', 'one'); await app.tick();
+  assert.ok(/id="ob-note"/.test(app.html()), 'cleared, the step opens');
+});
+
+rule('Builder: refused text beside an open Add box holds Undo, and Cancel never lets a newer draft drop it', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, QDRAFT); app.focus(); await app.tick(80);
+  app.click('ob-sel-details'); await app.tick();
+  addBox(app, 'ob-add-role', 'roles', 'ops'); await app.tick();
+  assert.ok(/Added @ops\./.test(app.live()), 'set-up: ' + app.live());
+  app.click('ob-add-phase', 'first'); await app.tick();
+  addBox(app, 'ob-add-role', 'roles', 'two words'); await app.tick();
+  assert.ok(/id="ob-new-title"/.test(app.html()) && /id="ferr-ob-add-role"/.test(app.html()), 'set-up: Add phase open, the role refused');
+  app.set('ob-new-title', 'Later'); app.input('ob-new-title', 'Later'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/then Undo/.test(app.live()) && app.draft('ob-add-role') === 'two words' && /data-id="ops"/.test(app.html()), 'Undo waits: ' + app.live());
+  /* Nothing else unsaved: a newer draft would be followed, but not while the refused text is on screen. */
+  const two = await builderOn();
+  await two.fs.write(path, QDRAFT); two.focus(); await two.tick(80);
+  two.click('ob-sel-details'); await two.tick();
+  two.click('ob-add-phase', 'first'); await two.tick();
+  addBox(two, 'ob-add-role', 'roles', 'two words'); await two.tick();
+  await two.fs.write(path, QDRAFT.replace('owner: person-casey', 'owner: person-morgan')); two.focus(); await two.tick(80);
+  two.click('ob-add-cancel'); await two.tick(); two.focus(); await two.tick(80);
+  assert.ok(two.draft('ob-add-role') === 'two words' && /Checklist details<\/h2>/.test(two.html()), 'the refused text stays');
+  assert.ok(/<option value="person-casey" selected>/.test(two.html()), 'the newer draft waits for it');
+});
+
+rule('Builder: Done with typing in two boxes applies neither over the other and keeps the form open', async () => {
+  const app = await builderOn();
+  await app.fs.write('maps/drafts/release.md', QDRAFT); app.focus(); await app.tick(80);
+  app.click('ob-sel-details'); await app.tick();
+  app.set('ob-add-role', 'qa'); app.input('ob-add-role', 'qa'); app.set('ob-add-ctx', 'region'); app.input('ob-add-ctx', 'region'); await app.tick();
+  app.click('ob-done'); await app.tick();
+  assert.ok(/Checklist details<\/h2>/.test(app.html()) && app.draft('ob-add-role') === 'qa' && app.draft('ob-add-ctx') === 'region', 'both kept: ' + app.live());
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
 });
 
 run();

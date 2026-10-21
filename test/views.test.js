@@ -268,7 +268,7 @@ rule('Plans: a plan made for an older version starts on it, with the differences
   // Plan mode: the same form, with a time and a note, saving instead of starting.
   state.planId = null; state.planning = { process: 'release', from: 'release/run1', title: 'Release', details: { ticket: 'ABC-7' }, roles: { qa: 'person-morgan' } };
   html = V.start(ctx);
-  assert.ok(/<h1>Plan a run<\/h1>/.test(html) && /id="plan-form"/.test(html) && !/id="start-form"/.test(html));
+  assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(html) && /id="plan-form"/.test(html) && !/id="start-form"/.test(html));
   assert.ok(/<label class="field" for="plan-when">When \(optional\)<input type="datetime-local" id="plan-when"/.test(html), 'a labeled date and time');
   assert.ok(/<label class="field" for="plan-note">/.test(html) && />Save the plan</.test(html) && !/Start the run/.test(html));
   assert.ok(/id="detail-ticket"[^>]*value="ABC-7"/.test(html) && !/id="detail-tag"/.test(html), 'prefilled; a detail a step sets is not asked for');
@@ -1515,6 +1515,27 @@ rule('Preview keeps lanes as labeled groups, and keeps each step\'s labels and i
   assert.ok(/<div class="g"><span class="ic"[^>]*>.*?<\/span><span class="pv-gate-copy">Gate: Deployed · approves <code>\^commit<\/code> running in \^environment<\/span><\/div>/.test(html), 'the gate as one sentence');
 });
 
+rule('Draft editor: Checklist details, a step\'s note and the Questions panel escape everything from the files', () => {
+  const { ctx, state } = partsSetup();
+  const evil = '"><img src=x onerror=alert(1)>';
+  ctx.data.people = [{ id: 'person-a', name: '<b>A</b>', initials: 'A' }, { id: evil, name: evil, initials: 'X' }, { id: 'constructor', name: 'C', initials: 'C' }];
+  state.editor.text = ['---', 'process: release', 'title: T', 'owner: ' + evil, 'roles: <i>r</i>', 'context: </textarea><svg>', '---', '',
+    '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', '  > </textarea><script>alert(1)</script>', '',
+    '## Questions', '</textarea><script>q()</script>', ''].join('\n');
+  state.insTab = 'selected';
+  const views = [];
+  state.obSel = { pid: 'release', kind: 'details', key: ':details' }; views.push(V.process(ctx));
+  state.obSel = { pid: 'release', kind: 'step', key: 'one' }; views.push(V.process(ctx));
+  state.obSel = { pid: 'release', kind: 'questions', key: ':questions' }; state.obAsk = { kind: 'questions', key: ':questions' }; views.push(V.process(ctx));
+  views.forEach((html, i) => {
+    assert.ok(!/<img src=x|<script>|<svg>|<i>r<\/i>|<b>A<\/b>/.test(html), 'view ' + i + ' has no markup from the files');
+    assert.strictEqual((html.match(/<\/textarea>/g) || []).length, (html.match(/<textarea/g) || []).length, 'view ' + i + ': every textarea closes once');
+  });
+  assert.ok(/<option value="person-a">&lt;b&gt;A&lt;\/b&gt;<\/option>/.test(views[0]) && !/<option value="constructor"/.test(views[0]), 'people: escaped, reserved IDs not offered');
+  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000">\n&lt;\/textarea&gt;&lt;script&gt;/.test(views[1]));
+  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000">\n&lt;\/textarea&gt;&lt;script&gt;q\(\)/.test(views[2]) && /data-act="ob-q-remove" id="ob-ask-go">Remove section<\/button>/.test(views[2]));
+});
+
 rule('Draft editor: empty and nothing-selected states say what to do next', () => {
   const { ctx, state } = partsSetup();
   state.insTab = 'selected';
@@ -2591,6 +2612,18 @@ rule('Every run/3 field 2.0 added, set to a wrong type or a number JavaScript ca
   }
   assert.strictEqual(n, paths.length * BAD.length);
   assert.ok(readOnly > 0 && kept > 0, readOnly + ' read-only, ' + kept + ' kept');
+});
+
+rule('Back and Forward: the screens it lands on have a heading that takes focus (id and tabindex="-1")', () => {
+  const { ctx, state } = setup();
+  const head = html => /<h1 id="page-h" tabindex="-1">/.test(html);
+  state.view = 'mission'; assert.ok(head(V.mission(ctx)), 'screen share');
+  state.view = 'finish'; assert.ok(head(V.finish(ctx)), 'Finish');
+  state.view = 'receipt'; assert.ok(head(V.receipt(ctx)), 'the receipt');
+  const latest = ctx.data.processes[0].index.latest;
+  ctx.processes = () => [{ id: 'release', title: 'Production release', category: 'Releases', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md: '' }, draftChanged: false, typesChanged: [] }];
+  state.processId = 'release'; state.view = 'process'; assert.ok(head(V.process(ctx)), 'the process page');
+  assert.ok(head(V.pageHead('Runs', 'Runs', '')), 'a page heading without an id gets page-h');
 });
 
 run();

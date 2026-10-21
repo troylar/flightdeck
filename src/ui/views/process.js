@@ -248,7 +248,7 @@
   function publishNeeds(p) {
     var n = PF.publish.needs(M.parse(p.draft.md)); if (!n) return '';
     var list = n.names.length === 1 ? n.names[0] : n.names.slice(0, -1).join(', ') + ' and ' + n.names[n.names.length - 1];
-    return '<p class="small pub-needs" role="note"><b>Needs Flightdeck 2.0:</b> ' + esc(list) + '. Teammates on Flightdeck 1.21 or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
+    return '<p class="small pub-needs" role="note"><b>Needs Flightdeck 2.0:</b> ' + esc(list) + '. Teammates on Flightdeck 1.22 or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
   }
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
@@ -430,7 +430,7 @@
     if (plan && pick.exact && !pick.pub) return notices(ctx) + exactAsk(ctx, p, plan, pick);
     var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
     var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1>' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
     if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';

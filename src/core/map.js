@@ -4,6 +4,8 @@ PF.map = (function () {
   var U = PF.util, T = PF.types;
 
   var ID_RE = /\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$/i;
+  /* A process ID as the checklist reader accepts it (also what PF.nav accepts in a link). */
+  var PROCESS_ID = /^[a-z0-9][a-z0-9-]*$/;
 
   function takeId(s) {
     var m = ID_RE.exec(s);
@@ -124,7 +126,7 @@ PF.map = (function () {
     var blockers = map.errors.map(function (e) { return 'Line ' + e.line + ': ' + e.msg; }), suggestions = [], ids = {};
     var meta = map.meta;
     if (!meta.process) blockers.push('Front matter needs "process" (the process ID, like release).');
-    else if (!/^[a-z0-9][a-z0-9-]*$/.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
+    else if (!PROCESS_ID.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
     if (!meta.title) blockers.push('Front matter needs a title.');
     /* A format: or features: line is never a minimum by itself (every older copy publishes it as ordinary text). */
     var env = PF.envelope.markdown(meta, map);
@@ -271,5 +273,5 @@ PF.map = (function () {
     return text.slice(0, at) + head + text.slice(at + m[2].length);
   }
 
-  return { parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
+  return { PROCESS_ID: PROCESS_ID, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();
