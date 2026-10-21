@@ -397,6 +397,38 @@ rule('Filling in a waiting value resolves it once; later changes change the valu
   assert.strictEqual(r.details.due, '2026-04-05');
 });
 
+/* A report (2.0 slice 2b) is accepted through the same typed check as Done: PF.reports.eligible asks R.checkEvidence, and the
+   acceptance is R.done with exactly those values. */
+function typedReport(r, evidence) {
+  const X = PF.reports, name = r.id + '.count.row-counter.k3m9p2q8.json';
+  const text = JSON.stringify({ format: 'flightdeck-report/1', run: r.process + '/' + r.id, publication: { folder: r.folder, version: +r.version }, step: 'count', verdict: 'pass', evidence, producer: { name: 'row-counter', version: '1.0.0' }, created: NOW, id: 'k3m9p2q8' });
+  const snap = X.snapshot(new Uint8Array(Buffer.from(text, 'utf8'))), c = X.clean(snap.text, r.process, name);
+  assert.ok(c.ok, c.why);
+  return X.group(r.process, [{ name, path: 'reports/' + r.process + '/' + name, sha256: snap.sha256, text: snap.text, report: c.report }]).list[0];
+}
+rule('Accepting a report on a typed-evidence step uses Done\'s own typed check: refused with Done\'s words, stored as Done stores it', () => {
+  const X = PF.reports, map = mapT(), doneErr = (vals) => { const r = startT({ details: { rows: '1234' } }); return errOf(() => R.done(r, mapT(), 'count', 'person-avery', NOW, vals)); };
+  let r = startT({ details: { rows: '1234' } });
+  [{ rows: '12a', matches: 'yes' }, { rows: '-1', matches: 'yes' }, { rows: '5', matches: 'maybe' }].forEach(ev => {
+    const e = X.eligible(typedReport(r, ev), r, map, { recording: true });
+    assert.ok(!e.ok, JSON.stringify(ev) + ' is refused');
+    assert.strictEqual(e.why, doneErr(ev).message, 'with Done\'s words: ' + e.why);
+  });
+  const e = X.eligible(typedReport(r, { rows: ' 0005.50 ', matches: 'Yes' }), r, map, { recording: true });
+  assert.ok(e.ok, e.why);
+  same(e.values, { rows: '5.5', matches: 'yes' }, 'canonical, as Done stores them');
+  R.done(r, map, 'count', 'person-avery', NOW, e.values, { exact: true });
+  same(r.steps.count.values, { rows: '5.5', matches: 'yes' });
+  /* An input naming a typed run detail is compared as that kind reads it. */
+  const withInput = (v) => { const g = typedReport(r, { rows: '5', matches: 'yes' }); g.report = Object.assign({}, g.report, { inputs: [{ name: 'Rows expected', value: v, source: 'detail:rows' }] }); return X.applies(g.report, r, map, map.phases[0].steps[1]).result; };
+  assert.strictEqual(withInput('1234.00'), 'match', '1234.00 is the run\'s 1234');
+  assert.strictEqual(withInput('1235'), 'mismatch');
+  /* A run detail the step consumes, still waiting on a migration, stops an acceptance as it stops Done. */
+  r = startT({ details: { rows: '1,234' }, from: { source: 'plan', details: { rows: '1,234' } } });
+  const w = X.eligible(typedReport(r, { rows: '5', matches: 'yes' }), r, map, { recording: true });
+  assert.ok(!w.ok && w.why === 'Rows still needs a number (it was "1,234" in the plan).', w.why);
+});
+
 rule('A value still waiting can\'t be used: no step bound to it is checked, no gate approving it passes', () => {
   const r = startT({ details: { rows: '1,234', due: '03/04/2026' }, from: { source: 'plan', details: { rows: '1,234', due: '03/04/2026' } } }), map = mapT();
   ['read', 'count', 'day'].forEach(id => { try { R.done(r, map, id, 'person-avery', NOW, id === 'count' ? { rows: '5', matches: 'yes' } : id === 'day' ? { evidence: '2026-10-01' } : {}); } catch (e) { if (id === 'count') assert.strictEqual(e.message, 'Rows still needs a number (it was "1,234" in the plan).'); else throw e; } });
