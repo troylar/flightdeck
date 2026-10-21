@@ -1,0 +1,239 @@
+// Lightness, part 2: the process page folds the owner's panels for everyone else, Home lists only what's yours, the top bar
+// keeps four sections, and Publish never publishes a draft other than the one the person sees.
+'use strict';
+const assert = require('assert'), fs = require('fs'), path = require('path');
+const { rule, run } = require('./harness');
+const { boot, folderHandle, memoryIDB } = require('./app-harness');
+
+/* Text a person can see: closed <details> bodies (not their summary), hidden and aria-hidden content and screen-reader-only
+   text are left out, as the lightness audit counted. */
+function visible(html) {
+  const out = [], stack = [], re = /<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)(\/?)>|([^<]+)/g, VOID = /^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/;
+  let hidden = 0, m;
+  const pop = () => { const t = stack.pop(); if (t.hide) hidden--; if (t.summaryOf && !t.summaryOf.hide) { t.summaryOf.hide = true; hidden++; } return t; };
+  while ((m = re.exec(html))) {
+    if (m[5] != null) { if (!hidden) out.push(m[5]); continue; }
+    const tag = m[2].toLowerCase(), attrs = m[3] || '';
+    if (m[1]) { if (stack.some(t => t.tag === tag)) while (stack.length && pop().tag !== tag); continue; }
+    const cls = (/\sclass="([^"]*)"/.exec(attrs) || [])[1] || '';
+    const hide = /\shidden(?=[\s=]|$)/.test(attrs) || /\saria-hidden="true"/.test(attrs) || /(^|\s)sr(\s|$)/.test(cls) || /^(script|style|template)$/.test(tag);
+    if (!hidden && !hide) out.push('<' + tag + attrs + '>');
+    if (VOID.test(tag) || m[4]) continue;
+    const t = { tag, hide };
+    if (hide) hidden++;
+    const up = stack[stack.length - 1];
+    if (tag === 'summary' && up && up.closed) t.summaryOf = up;
+    if (tag === 'details' && !/\sopen(?=[\s=]|$)/.test(attrs)) t.closed = true;
+    stack.push(t);
+  }
+  return out.join('');
+}
+const shown = (html, re) => re.test(visible(html));
+const inHtml = (html, re) => re.test(html);
+const folded = (html, disc) => new RegExp('<details class="panel fold" data-disc="' + disc.replace(/[.:]/g, '\\$&') + '"><summary>').test(html);
+const opened = (html, disc) => new RegExp('<details class="panel fold" data-disc="' + disc.replace(/[.:]/g, '\\$&') + '" open><summary>').test(html);
+const openFold = async (app, disc) => { app.fire('toggle', { target: { dataset: { disc }, open: true } }); app.click('corr-filter', 'open'); await app.tick(); };
+
+async function releaseAs(who) {
+  const app = boot(); await app.tick(60);
+  app.choose(who); await app.tick();
+  app.click('open-process', 'release'); await app.tick();
+  return app;
+}
+
+/* ---------- Process page: the owner's panels fold for everyone else ---------- */
+rule('Process page, not its owner: Corrections and Skills are one closed line each, with what they hold in the line', async () => {
+  const app = await releaseAs('person-morgan'), html = app.html();
+  assert.ok(folded(html, 'fx:release'), 'corrections folded');
+  assert.ok(/<summary><h2 id="fx-h" tabindex="-1">[\s\S]{0,400}?Corrections · \d+ open<\/h2>[\s\S]{0,80}?Review[\s\S]{0,40}?<\/summary>/.test(html), 'one line: Corrections · N open, Review');
+  assert.ok(!shown(html, /Copy correction brief/) && !shown(html, /data-act="corr-review"/) && inHtml(html, /data-act="corr-review"/), 'its body is on the page, closed');
+  assert.ok(folded(html, 'sk:release'), 'skills folded');
+  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · 2 · 2 need an update<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
+  assert.ok(!shown(html, /Ready for a skill\?/) && inHtml(html, /Ready for a skill\?/) && !shown(html, /needs update/), 'readiness and the list are inside it');
+  assert.ok(html.indexOf('data-disc="sk:release"') > html.indexOf('id="pr-h"'), 'at the bottom of the side column');
+});
+
+rule('Process page, not its owner: each fold opens in place and stays open across redraws', async () => {
+  const app = await releaseAs('person-morgan');
+  await openFold(app, 'fx:release');
+  assert.ok(opened(app.html(), 'fx:release') && shown(app.html(), /data-act="corr-review"/) && shown(app.html(), /Copy correction brief/), 'corrections open, with every action');
+  await openFold(app, 'sk:release');
+  assert.ok(opened(app.html(), 'sk:release') && shown(app.html(), /Ready for a skill\?/) && shown(app.html(), /data-act="open-skill"/), 'skills open, with each skill');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(opened(app.html(), 'fx:release') && opened(app.html(), 'sk:release'), 'remembered');
+});
+
+rule('Process page, its owner and its backup owner: Corrections, Ready for a skill? and Skills are open panels, as before', async () => {
+  for (const who of ['person-casey', 'person-avery']) {
+    const app = await releaseAs(who), html = app.html();
+    assert.ok(!/data-disc="(fx|sk):release"/.test(html), who + ': nothing folded');
+    assert.ok(/<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">[\s\S]*?Corrections · \d+ open/.test(html) && shown(html, /Copy correction brief/), who + ': corrections open');
+    assert.ok(/<section class="panel" aria-labelledby="rd-h">/.test(html) && /<section class="panel" aria-labelledby="sk-h">/.test(html) && shown(html, /needs update/), who + ': readiness and skills open');
+  }
+});
+
+rule('Process page: View change from Home opens the corrections, even for someone who doesn\'t own the checklist', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-morgan'); await app.tick(); app.click('nav', 'home'); await app.tick(20);
+  const key = (/data-act="ack-view" data-id="([^"]+)" data-process="release"/.exec(app.html()) || [])[1];
+  assert.ok(key, 'Morgan has a correction on Home');
+  app.click('ack-view', key, { process: 'release' }); await app.tick(20);
+  assert.ok(opened(app.html(), 'fx:release') && shown(app.html(), /Declined/), 'open on her corrections');
+  assert.strictEqual(app.focused(), 'fx-h');
+});
+
+rule('Process page: a warning in Corrections is never folded', async () => {
+  const app = await releaseAs('person-morgan');
+  const dec = app.files('corrections/release/').filter(f => /\.json$/.test(f))[0];
+  assert.ok(dec, 'the examples have a decision file');
+  await app.fs.write(dec, '{ not json');
+  app.click('refresh'); await app.tick(120);
+  const html = app.html();
+  assert.ok(shown(html, /Couldn.t read 1 decision file/), 'the warning is on screen');
+  assert.ok(!/data-disc="fx:release"/.test(html) && /<section class="panel" aria-labelledby="fx-h">/.test(html), 'the panel is drawn open');
+});
+
+rule('Process page: one version line with the rest folded, three recent runs with a way to all of them, and a short header', async () => {
+  const app = await releaseAs('person-casey'), html = app.html();
+  const ver = html.slice(html.indexOf('id="ver-h"'), html.indexOf('id="pr-h"'));
+  assert.ok(/<details data-disc="vers:release"><summary class="small">Earlier versions \(1\)<\/summary>/.test(ver), 'earlier versions folded');
+  assert.strictEqual((visible(ver).match(/data-act="view-version"/g) || []).length, 1, 'one version on show');
+  assert.ok(/data-act="view-version" data-id="v1-/.test(ver), 'the earlier one is still there');
+  const v1 = /data-act="view-version" data-id="(v1-[^"]+)"/.exec(ver)[1];
+  app.click('view-version', v1); await app.tick();
+  assert.ok(/<details data-disc="vers:release" open>/.test(app.html()), 'viewing an earlier version opens the fold');
+  const runs = html.slice(html.indexOf('id="pr-h"'));
+  const n = (runs.match(/data-act="open-run"/g) || []).length;
+  assert.ok(n <= 3, 'three runs at most: ' + n);
+  const all = /data-act="runs-of" data-id="release">All (\d+) runs of this process<\/button>/.exec(runs);
+  assert.ok(all && +all[1] > 3, 'a way to the rest');
+  assert.ok(/<div class="small">v2 · published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/div>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
+  app.click('runs-of', 'release'); await app.tick();
+  assert.ok(/aria-current="page">Runs</.test(app.top()) && /Matching runs · \d+/.test(app.html()) && /<option value="release" selected>/.test(app.html()), 'Runs, filtered to this process');
+  assert.strictEqual((app.html().match(/data-act="open-run"/g) || []).length, +all[1], 'every run of it');
+});
+
+rule('Process page: with no skills and no clean runs yet, the fold says so for someone who doesn\'t own it', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick(); app.click('open-process', 'jira-cleanup'); await app.tick();
+  const html = app.html();
+  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
+});
+
+/* ---------- Publish: never the old draft while newer edits sit unsaved in the editor ---------- */
+rule('Publish: after Done with unsaved edits, Publish is off and says why; it publishes what was saved once the edits are saved', async () => {
+  const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
+  app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); app.submit('new-process-form'); await app.tick(150);
+  const draft = 'maps/drafts/risk-review.md', saved = app.fs.files[draft].t;
+  app.input('draft-editor', saved.replace(/^- \[ \] .*$/m, '- [ ] Read the risk register')); await app.tick(300);
+  app.click('ed-done'); await app.tick();
+  let html = app.html();
+  assert.ok(/data-act="publish" data-id="risk-review" disabled aria-describedby="pub-why"/.test(html), 'Publish is off');
+  assert.ok(shown(html, /id="pub-why"[^>]*>Your edits aren.t saved, so they wouldn.t be in this version\. Save or discard them in the editor first\./), 'and says why');
+  app.set('change-note', 'First version'); app.click('publish', 'risk-review'); await app.tick(120);
+  assert.deepStrictEqual(app.files('publications/risk-review/'), [], 'nothing published');
+  assert.ok(/aren.t saved, so nothing was published/.test(app.html() + app.live()));
+  assert.strictEqual(app.fs.files[draft].t, saved, 'and nothing saved');
+  app.click('ptab', 'edit'); await app.tick(); app.click('save-draft'); await app.tick(200); app.click('ed-done'); await app.tick();
+  html = app.html();
+  assert.ok(/data-act="publish" data-id="risk-review">/.test(html) && !/id="pub-why"/.test(html), 'saved: Publish is on');
+  app.set('change-note', 'First version'); app.click('publish', 'risk-review'); await app.tick(200);
+  const md = app.files('publications/risk-review/').filter(f => /map\.md$/.test(f));
+  assert.ok(md.length === 1 && /Read the risk register/.test(app.fs.files[md[0]].t), 'what the person saw is what was published');
+});
+
+/* ---------- Home: what's yours ---------- */
+function exampleFolder() {
+  const root = path.join(__dirname, '..', 'example-folder'), files = {};
+  (function walk(d) { fs.readdirSync(d).forEach(f => { const q = path.join(d, f); if (fs.statSync(q).isDirectory()) walk(q); else files[path.relative(root, q).split(path.sep).join('/')] = fs.readFileSync(q, 'utf8'); }); })(root);
+  return files;
+}
+const todos = html => [...html.matchAll(/<li class="todo ([\w ]+)"><div><b>([^<]*)<\/b>/g)].map(m => m[1] + ': ' + m[2].replace(/&quot;/g, '"').replace(/&#39;/g, '\''));
+async function joined(who, edit) {
+  const files = exampleFolder(); if (edit) edit(files);
+  const app = boot({ picker: folderHandle('Team', files), indexedDB: memoryIDB(), firstRun: true }); await app.tick(60);
+  app.click('setup-mode', 'join'); await app.tick(); app.click('setup-open'); await app.tick(300);
+  app.click('setup-who', who); await app.tick(100);
+  return app;
+}
+
+rule('Home, a teammate who just joined: only her own drafts and the plan for everyone, not the team\'s drafts and skills', async () => {
+  const app = await joined('person-morgan');
+  assert.deepStrictEqual(todos(app.html()).sort(), [
+    'draft: New skill or process: the draft has unpublished changes',
+    'draft: Weekly Jira cleanup: the draft has unpublished changes',
+    'plan: AI assistant planned "Release 2026.10.24"'
+  ]);
+  assert.ok(/3 things need you\./.test(app.html()));
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(/data-act="open-process" data-id="release"[\s\S]*?draft changes/.test(app.html()), 'the team\'s drafts are on Processes');
+});
+
+rule('Home: a draft goes to its owner and backup owner; with no one active to take it, to everyone', async () => {
+  let app = await joined('person-avery');
+  const avery = todos(app.html());
+  assert.ok(avery.indexOf('draft: Production release: the draft has unpublished changes') >= 0, 'Avery is the release\'s backup owner');
+  assert.ok(avery.indexOf('skill: Production release: 2 skills need attention') >= 0, 'and gets its skills');
+  assert.ok(avery.indexOf('draft: Weekly Jira cleanup: the draft has unpublished changes') < 0, 'not Morgan\'s');
+  app = await joined('person-casey', files => { files['maps/drafts/jira-cleanup.md'] = files['maps/drafts/jira-cleanup.md'].replace(/^owner: .*\n/m, ''); });
+  assert.ok(todos(app.html()).indexOf('draft: Weekly Jira cleanup: the draft has unpublished changes') >= 0, 'no owner named: everyone');
+  app = await joined('person-casey', files => { files['people.json'] = files['people.json'].replace('"email": "morgan@example.com"', '"email": "morgan@example.com", "inactive": true'); });
+  assert.ok(todos(app.html()).indexOf('draft: Weekly Jira cleanup: the draft has unpublished changes') >= 0, 'its owner left: everyone');
+});
+
+rule('Home, the examples: skills that need attention go to the process\'s owner and backup owner only', async () => {
+  const app = boot(); await app.tick(60);
+  const has = async who => { app.choose(who); await app.tick(); app.click('nav', 'home'); await app.tick(); return todos(app.html()).some(t => /Production release: 2 skills need attention/.test(t)); };
+  assert.deepStrictEqual([await has('person-casey'), await has('person-avery'), await has('person-morgan'), await has('person-blake')], [true, true, false, false]);
+});
+
+rule('Home: At a glance is running and processes', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const g = app.html().slice(app.html().indexOf('id="go-h"'));
+  assert.deepStrictEqual([...g.matchAll(/class="tile" data-act="nav" data-id="(\w+)"/g)].map(m => m[1]), ['runs', 'processes']);
+});
+
+/* ---------- Top bar: four sections; Skills and Step types stay a click away ---------- */
+rule('Top bar: Home, Runs, Processes, Settings', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const nav = app.top().slice(app.top().indexOf('class="mainnav"'), app.top().indexOf('</nav>'));
+  assert.deepStrictEqual([...nav.matchAll(/data-id="(\w+)"/g)].map(m => m[1]), ['home', 'runs', 'processes', 'settings']);
+});
+
+rule('Top bar: Skills and Step types open from Processes and Settings, light Processes, and keep their links, Back and Forward', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(/data-act="nav" data-id="skills"/.test(app.html()) && /data-act="nav" data-id="types"/.test(app.html()), 'Processes links to both');
+  app.click('nav', 'skills'); await app.tick();
+  assert.ok(/<h1 id="page-h" tabindex="-1">Skills<\/h1>/.test(app.html()) && /data-id="processes" aria-current="page"/.test(app.top()), 'Skills, under Processes');
+  assert.strictEqual(app.focused(), 'page-h', 'focus on the page');
+  assert.strictEqual(app.hash(), '#/skills');
+  app.click('nav', 'settings'); await app.tick();
+  const lib = app.html().slice(app.html().indexOf('id="set-lib"'));
+  assert.ok(/Library/.test(lib) && /data-act="nav" data-id="skills"/.test(lib) && /data-act="nav" data-id="types"/.test(lib), 'Settings has a Library');
+  app.click('nav', 'types'); await app.tick();
+  assert.ok(/<h1 id="page-h" tabindex="-1">Step types<\/h1>/.test(app.html()) && /data-id="processes" aria-current="page"/.test(app.top()));
+  assert.strictEqual(app.hash(), '#/types');
+  app.back(); await app.settle();
+  assert.ok(/aria-current="page">Settings</.test(app.top()), 'Back to Settings');
+  app.back(); await app.settle();
+  assert.ok(/<h1 id="page-h" tabindex="-1">Skills<\/h1>/.test(app.html()), 'Back to Skills');
+  app.forward(); await app.settle(); app.forward(); await app.settle();
+  assert.ok(/<h1 id="page-h" tabindex="-1">Step types<\/h1>/.test(app.html()), 'Forward to Step types');
+  app.typeHash('#/skills'); await app.settle();
+  assert.ok(/<h1 id="page-h" tabindex="-1">Skills<\/h1>/.test(app.html()), 'a link to #/skills');
+});
+
+rule('Top bar: the first-run welcome draws only the name and What\'s new', async () => {
+  const app = boot({ firstRun: true }); await app.tick(60);
+  const top = app.top();
+  assert.ok(/Start your team/.test(app.html()), 'the welcome');
+  assert.ok(!/class="mainnav"/.test(top) && !/id="me"/.test(top) && !/data-act="search"/.test(top) && !/data-act="theme"/.test(top), 'no sections, search, theme or You are');
+  assert.ok(/Flightdeck/.test(top) && /data-act="whats-new"/.test(top), 'the name and What\'s new');
+  assert.ok((top.match(/<(button|select|input)\b/g) || []).length <= 2, 'two controls at most');
+  app.click('setup-mode', 'examples'); await app.tick();
+  assert.ok(/class="mainnav"/.test(app.top()) && /id="me"/.test(app.top()), 'the examples get the full bar');
+});
+
+run();
