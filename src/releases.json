@@ -81,6 +81,21 @@
         "title": "Evidence checks pins and the published payload",
         "now": "Evidence for a run made with Flightdeck 2.0 checks that its version's pins and payload match what was published, and step fingerprints include the version each step runs.",
         "before": "Pins weren't part of the evidence."
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "See reports from tools on each step, and accept or decline them",
+        "now": "A tool or script that did a step's work can write a report with flightdeck report write. The step shows what the report says, what a person decided, and whether its inputs match the run. The recorder can accept a passing report, which checks the step with exactly its evidence, or decline it with a reason.",
+        "before": "A tool's work could only be recorded by a person typing it in.",
+        "where": "The selected step in a run, and Reports beside Follow-ups"
+      },
+      {
+        "kind": "improved",
+        "area": "Receipt",
+        "title": "Receipts and Evidence show which reports were accepted",
+        "now": "The receipt names the report a step was accepted from, with its hash, and lists every report on the run. Evidence export packs the run's reports and the decisions on them.",
+        "before": "There were no reports."
       }
     ]
   },

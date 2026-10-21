@@ -6,6 +6,7 @@ node test/rules.test.js
 node test/envelope.test.js
 node test/pins.test.js
 node test/typed.test.js
+node test/reports.test.js
 node test/insights.test.js
 node test/outline.test.js
 node test/timeline.test.js
@@ -15,6 +16,7 @@ node test/sync.test.js
 node test/views.test.js
 node test/checker.test.js
 node test/app.test.js
+node test/app-reports.test.js
 node test/propose-app.test.js
 node test/live-app.test.js
 node test/shots-app.test.js

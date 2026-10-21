@@ -369,7 +369,7 @@ PF.run = (function () {
   /* Every deviation a step ever had in this run (blocked, re-checked, N/A, done differently), kept even after older answers are
      archived, so "was this run clean?" never depends on how much history run.json still holds. */
   function mark(r, id, kind) { var m = (r.marks = r.marks || {}), k = Object.prototype.hasOwnProperty.call(m, id) ? m[id] : (m[id] = []); if (k.indexOf(kind) < 0) k.push(kind); }
-  function answer(r, id, rec) {
+  function answer(r, id, rec, exact) {
     if (rec.s === 'blocked' || rec.s === 'recheck' || rec.s === 'na') mark(r, id, rec.s);
     var prev = r.steps[id] || {}, history = (prev.history || []).slice();
     /* A run/3 skill step's earlier answer keeps the registration it observed (skill), so a re-check never loses it. */
@@ -380,18 +380,19 @@ PF.run = (function () {
     if (history.length > HISTORY_MAX) history.splice(0, history.length - HISTORY_MAX).forEach(function (h) { if (h.s === 'blocked' || h.s === 'recheck' || h.s === 'na') mark(r, id, h.s); if (h.differently) mark(r, id, 'differently'); archive(r, Object.assign({ kind: 'answer', step: id }, h)); });
     rec.started = prev.started; rec.deadline = prev.deadline; if (prev.child) rec.child = prev.child;
     /* Values noted so far stay with the step, except when a changed detail makes them stale (a re-check). */
-    if (!rec.values && prev.values && rec.s !== 'recheck') rec.values = prev.values;
+    if (!rec.values && prev.values && rec.s !== 'recheck' && !exact) rec.values = prev.values;
     if (history.length) rec.history = history;
     r.steps[id] = rec;
   }
   /* A step's map fields, with any values filled in for this run. */
   function fieldsOf(r, step) { return Object.assign({}, step.fields, (r.fields || {})[step.id] || {}); }
-  /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count. */
-  function done(r, map, id, who, now, values) {
-    var x = guardStep(r, map, id), t = PF.types.get(x.step.type, r.types), rec = { s: 'done', by: who, at: now };
+  /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count,
+     except with o.exact (an accepted report): then the step records exactly these values and nothing earlier. */
+  function done(r, map, id, who, now, values, o) {
+    var x = guardStep(r, map, id), t = PF.types.get(x.step.type, r.types), rec = { s: 'done', by: who, at: now }, exact = !!(o && o.exact);
     var waiting = consumption(r, x.step.binds || []);
     if (waiting) throw new Error(waiting);
-    var prev = r.steps[id] && r.steps[id].s !== 'recheck' ? r.steps[id].values : null;
+    var prev = r.steps[id] && r.steps[id].s !== 'recheck' && !exact ? r.steps[id].values : null;
     var jp = jiraProblem(r, x.step);
     if (jp) throw new Error(jp);
     var cur = r.steps[id];
@@ -408,7 +409,7 @@ PF.run = (function () {
     if (chk.error) throw new Error(chk.error);
     if (Object.keys(chk.values).length) rec.values = chk.values;
     if (seen && r.format === FORMAT3 && x.step.type === 'run.skill' && cleanSkill(seen)) { rec.skill = cleanSkill(seen); addFeature(r, 'pinned-skills'); }
-    answer(r, id, rec);
+    answer(r, id, rec, exact);
     applySets(r, map, x.step, who, now);
     return x;
   }
@@ -1022,7 +1023,9 @@ PF.run = (function () {
   function describe(o) { return Object.keys(o || {}).map(function (k) { return k + ' ' + (o[k] || '(not set)'); }).join(', '); }
 
   /* Plain text for a Jira comment. Leaves out notes' attachments and file paths. */
-  function receipt(r, map, nameOf, now, notes, statusOf, fuStatusOf) {
+  /* reportOf (optional): stepId → where a done step's answer came from ('' for none), with reportOf.lines: one line per
+     report on the run (PF.reports.lines). */
+  function receipt(r, map, nameOf, now, notes, statusOf, fuStatusOf, reportOf) {
     var h = headline(r, map), lines = [];
     lines.push('Flightdeck receipt: ' + r.title);
     lines.push('Process: ' + map.meta.title + ' (v' + r.version + ')');
@@ -1037,13 +1040,16 @@ PF.run = (function () {
       lines.push(p.title);
       p.steps.forEach(function (s) {
         var a = r.steps[s.id], word = !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
-        lines.push('  [' + word + '] ' + s.text + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
+        var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
+        lines.push('  [' + word + '] ' + s.text + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
         if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');
     });
     if ((r.pauses || []).length) { lines.push('Pauses'); r.pauses.forEach(function (p) { lines.push('  ' + U.hm(p.from) + '-' + U.hm(p.to) + ' ' + nameOf(p.by) + ': ' + p.reason); }); lines.push(''); }
+    var reps = reportOf && reportOf.lines ? reportOf.lines : [];
+    if (reps.length) { lines.push('Reports · ' + reps.length); reps.forEach(function (x) { lines.push('  - ' + x); }); lines.push(''); }
     /* Follow-ups, with what became of each when the caller knows the decisions (fuStatusOf). */
     var fus = r.followUps || [];
     if (fus.length) { lines.push('Follow-ups'); fus.forEach(function (f) { lines.push('  - ' + f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : '') + (fuStatusOf ? ' · ' + fuStatusOf(f) : '')); }); lines.push(''); }
@@ -1478,7 +1484,7 @@ PF.run = (function () {
 
   return {
     RUN_ID: RUN_ID,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

@@ -16,12 +16,14 @@ Notes and screenshots on phases and gates.
 - **Continue an older run with Flightdeck 2.0** (Runs). When a run made before 2.0 reaches a step whose linked checklist needs Flightdeck 2.0, it offers Start it as a Flightdeck 2.0 run. The old step is marked Continued in run <key>, which teammates on older copies read too.
 - **Plans that start on an exact version** (Plans). A plan for a version made with Flightdeck 2.0 starts on that version and nothing else. If it can't be used, the plan asks, and Start on vN instead switches it on purpose.
 - **Register skills with flightdeck skill register** (Skills). flightdeck skill register writes the skill's registration for a version made with Flightdeck 2.0, and a {run.skill} step can say skillVersion: to expect one. Checking the step records which registration was current, with a warning if it isn't the expected one.
+- **See reports from tools on each step, and accept or decline them** (Runs). A tool or script that did a step's work can write a report with flightdeck report write. The step shows what the report says, what a person decided, and whether its inputs match the run. The recorder can accept a passing report, which checks the step with exactly its evidence, or decline it with a reason. *Where:* The selected step in a run, and Reports beside Follow-ups
 
 ### Improved
 
 - **Gate notes now show in runs** (Runs). A gate's note shows above Pass the gate, for every version, including versions published before 2.0.
 - **The publish panel says when a version needs Flightdeck 2.0** (Publishing). When a checklist uses something new in 2.0, the publish panel names it and says what that means: teammates on Flightdeck 1.22 or earlier see the version but can't run it. A checklist that uses nothing new publishes as before, and every teammate runs it.
 - **Evidence checks pins and the published payload** (Evidence). Evidence for a run made with Flightdeck 2.0 checks that its version's pins and payload match what was published, and step fingerprints include the version each step runs.
+- **Receipts and Evidence show which reports were accepted** (Receipt). The receipt names the report a step was accepted from, with its hash, and lists every report on the run. Evidence export packs the run's reports and the decisions on them.
 
 ## 1.22.0 · Oct 20, 2026
 

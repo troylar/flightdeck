@@ -897,7 +897,12 @@ function failureJson(eng, kind, why) { return eng ? eng.PF.appjson.failure(eng.v
    replacing a file here; it can't stop two computers that aren't syncing from both writing (OneDrive then keeps both). */
 function writeRequest(dir, name, text, hooks) {
   if (!/^req-[a-z0-9-]{1,60}\.json$/.test(name)) fail('refusing an unexpected request name: ' + name);
-  const home = folders(dir, ['proposals'], true), target = path.join(home, name), data = Buffer.from(text, 'utf8');
+  return writeOnce(dir, ['proposals'], name, text, hooks);
+}
+/* The same, for any one folder of the team folder (parts): a report in reports/<process>/ too. */
+function writeOnce(dir, parts, name, text, hooks) {
+  const rel = parts.join('/') + '/';
+  const home = folders(dir, parts, true), target = path.join(home, name), data = Buffer.from(text, 'utf8');
   const tmp = path.join(home, '.' + name + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
   const put = (fd) => { for (let off = 0; off < data.length;) { const n = fs.writeSync(fd, data, off, data.length - off); if (!(n > 0)) throw new Error('the disk accepted no more bytes'); off += n; } fs.fsyncSync(fd); };
   const EXCL = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0);
@@ -907,7 +912,7 @@ function writeRequest(dir, name, text, hooks) {
     mine = fs.fstatSync(fd);
     put(fd);
     fs.closeSync(fd); fd = null;
-    folders(dir, ['proposals'], false);
+    folders(dir, parts, false);
     const now = lstatOrNull(tmp);
     if (!now || now.isSymbolicLink() || now.ino !== mine.ino || now.dev !== mine.dev) fail('refusing to write through a link: ' + home);
     if (hooks && hooks.beforeLink) hooks.beforeLink();
@@ -925,14 +930,14 @@ function writeRequest(dir, name, text, hooks) {
         throw e3;
       } finally { fs.closeSync(f2); }
     }
-    folders(dir, ['proposals'], false);
+    folders(dir, parts, false);
     const st = lstatOrNull(target);
     if (!st || st.isSymbolicLink() || !st.isFile()) fail('refusing to write through a link: ' + target);
-    if (!fs.readFileSync(target).equals(data)) fail('proposals/' + name + ' didn\'t read back the same after it was written. Check the team folder before asking again.');
+    if (!fs.readFileSync(target).equals(data)) fail(rel + name + ' didn\'t read back the same after it was written. Check the team folder before trying again.');
     return 'written';
   } catch (e) {
     if (e instanceof Refused) throw e;
-    fail('couldn\'t write proposals/' + name + ': ' + e.message);
+    fail('couldn\'t write ' + rel + name + ': ' + e.message);
   } finally {
     if (fd !== null) try { fs.closeSync(fd); } catch (e) { /* already failing */ }
     /* The temporary file goes, if it's still the one this process made (the final name, once linked, keeps the bytes). */
@@ -1105,6 +1110,165 @@ async function requestMain(argv) {
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(input.buf); } catch (e) { return out(failureJson(eng, 'invalid', 'The request isn\'t UTF-8 text.'), EXIT.error); }
   const r = await requestData(eng, readAdapter(dir, { maxBytes: READ_MAX }), { key, text, dryRun }, (name, t) => writeRequest(dir, name, t));
+  return out(r.json, r.code);
+}
+
+/* ---------- Reports from other apps: flightdeck report targets | check | write (docs/apps.md, contract flightdeck-read/2)
+   A tool that did a step's work writes a report: a claim a person accepts or declines in Flightdeck. These commands never
+   write run.json and never decide; write puts one new file in reports/<process>/, once, and reads it back. They read the
+   way the --json commands read (a problem ledger over a read-only view) and print READ's envelope under flightdeck-read/2. */
+function randomReportId() { const a = 'abcdefghijklmnopqrstuvwxyz0123456789', b = crypto.randomBytes(12); let o = ''; for (let i = 0; i < 12; i++) o += a[b[i] % 36]; return o; }
+/* req: { cmd: 'check' | 'write' | 'targets', buf (the report's bytes), folder (false: check alone, no team folder), dryRun,
+   strict, unmatchedOk, now, proc, key }. adapter: the team folder, or null for check alone. write(parts, name, text): writes
+   reports/<process>/<name> once (writeOnce), resolving 'written' or 'exists'. Resolves to { code, json }. */
+async function reportData(eng, adapter, req, write) {
+  const PF = eng.PF, A = PF.appjson, X = PF.reports, repo = PF.repo, app = eng.version || '', C2 = A.CONTRACT2;
+  const L = adapter ? repo.ledger(repo.readOnly(adapter, 'Checking a report')) : null;
+  const take = (list) => list.forEach((p) => L.note(p.path, p.kind, p.why));
+  let relevant = () => true;
+  const ledger = () => { if (!L) return []; take(adapterProblems(adapter)); return L.problems().filter((p) => relevant(p.path)); };
+  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why, ledger(), C2) });
+  const done = (data) => { const e = A.envelope(app, new Date().toISOString(), ledger(), data, C2); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
+  try {
+    if (req.cmd === 'targets') {
+      const scope = ['runs' + (req.proc ? '/' + req.proc : ''), 'publications' + (req.proc ? '/' + req.proc : ''), 'people.json'];
+      relevant = covers(scope);
+      const d = await repo.loadAll(dependsOn(L.fs, scope), { readOnly: true, explain: true, deep: true });
+      take(folderProblems(PF, d));
+      const pubOf = (r) => { const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r); };
+      d.runs.forEach((r) => take(judgeRun(PF, r, pubOf(r))));
+      let runs = d.runs.filter((r) => !r._unrunnable && !r.ended && r.state === 'running' && (!req.proc || r.process === req.proc));
+      if (req.key) {
+        runs = runs.filter((r) => r.process + '/' + r.id === req.key);
+        if (!runs.length) return err(EXIT.notFound, 'not-found', 'There\'s no running run ' + req.key + ' in the team folder.');
+      }
+      return done(A.targets(runs, A.names(d.people)));
+    }
+    if (req.buf.length > X.LIMITS.bytes) return err(EXIT.error, 'invalid', 'A report is at most 64 KB; this one is more.');
+    const snap = X.snapshot(new Uint8Array(req.buf));
+    if (snap.text === null) return err(EXIT.error, 'invalid', 'The report isn\'t UTF-8 text.');
+    if (X.holdsKey(snap.text)) return err(EXIT.error, 'invalid', 'The report holds a private key. A report never needs one; nothing was written.');
+    let o;
+    try { o = JSON.parse(snap.text); } catch (e) { return err(EXIT.error, 'invalid', 'The report isn\'t complete JSON: ' + e.message); }
+    /* id and created are filled when they're left out (check says so; write writes them). */
+    let text = snap.text, filled = [];
+    if (o && typeof o === 'object' && !Array.isArray(o)) {
+      if (!Object.prototype.hasOwnProperty.call(o, 'id')) { o.id = randomReportId(); filled.push('id'); }
+      if (!Object.prototype.hasOwnProperty.call(o, 'created')) { o.created = req.now || new Date().toISOString(); filled.push('created'); }
+      if (filled.length) text = X.text(o);
+    }
+    const pre = req.cmd === 'check' && filled.length ? ['No ' + filled.map((k) => '"' + k + '"').join(' or ') + ': report write fills ' + (filled.length === 1 ? 'it' : 'them') + ' in, so the file name and SHA-256 here are examples.'] : [];
+    const withPre = (t) => (t ? Object.assign({}, t, { warnings: pre.concat(t.warnings) }) : { applies: null, warnings: pre });
+    const rm = o && typeof o.run === 'string' ? /^([a-z0-9][a-z0-9-]{0,59})\/([a-z0-9-]{1,40})$/.exec(o.run) : null;
+    const prod = o && o.producer && typeof o.producer === 'object' ? o.producer.name : null;
+    const name = rm && typeof o.step === 'string' && typeof prod === 'string' && typeof o.id === 'string' ? X.fileName({ run: rm[2], step: o.step, producer: prod, id: o.id }) : null;
+    const c = X.clean(text, rm ? rm[1] : null, name && X.parseName(name) ? name : null);
+    if (!c.ok) return err(EXIT.error, 'invalid', (c.kind === 'newer' ? 'This report ' + c.why : 'This isn\'t a report Flightdeck can use: ' + c.errors.join('; ') + '.') + (req.cmd === 'write' ? ' Nothing was written.' : ''));
+    const rep = c.report, file = X.DIR + '/' + rep.process + '/' + X.fileName({ run: rep.run, step: rep.step, producer: rep.producer.name, id: rep.id });
+    /* The hash is always of the bytes written (a byte-order mark in the input isn't), so it's the one the app logs. */
+    const bytes = Buffer.from(text, 'utf8'), sha = PF.sha256.hex(new Uint8Array(bytes));
+    if (bytes.length > X.LIMITS.bytes) return err(EXIT.error, 'invalid', 'With id and created filled in, the report is more than 64 KB, so it couldn\'t be read. Nothing was written.');
+    if (!adapter) return done(A.reportOut(file, sha, 'valid', rep, withPre(null)));
+
+    /* Against the folder: the run, read alone (its folder, its version, people.json), as run --json reads it. */
+    relevant = runCovers(rep.process, rep.run, null);
+    const one = await repo.readRunOnly(L.fs, rep.process, rep.run);
+    let t = null;
+    if (!one.found) {
+      /* Not listed isn't proof it's absent: with a problem met on the way (a link, a folder that can't be read), --unmatched-ok
+         holds and nothing is written. */
+      if (req.cmd === 'write' && req.unmatchedOk && ledger().length) return done(A.reportOut(file, null, 'held', rep, { applies: 'unknown', warnings: [] }));
+      if (!(req.cmd === 'write' && req.unmatchedOk)) return err(EXIT.notFound, 'not-found', 'There\'s no run ' + rep.process + '/' + rep.run + ' in the team folder.' + (req.cmd === 'write' ? ' Nothing was written. If it hasn\'t synced here yet, add --unmatched-ok.' : ''));
+      t = { errors: [], warnings: ['Run ' + rep.process + '/' + rep.run + ' isn\'t in the team folder yet; nobody can accept this report until it is.'], applies: 'unknown' };
+    } else {
+      const r = one.run;
+      if (one.nofile) L.note('runs/' + rep.process + '/' + rep.run + '/run.json', 'nofile', 'The run folder has no run.json.');
+      take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
+      if (r) { relevant = runCovers(rep.process, rep.run, r); take(judgeRun(PF, r, one.pub)); }
+      if (!r || r._unrunnable || ledger().length) {
+        if (!ledger().length) L.note('runs/' + rep.process + '/' + rep.run + '/run.json', 'unreadable', 'This run can\'t be read here' + (r && r._unrunnable ? ': ' + r._unrunnable : '.'));
+        return done(A.reportOut(file, null, 'held', rep, { applies: 'unknown', warnings: [] }));
+      }
+      t = X.target(rep, r, PF.run.mapOf(r));
+      if (t.errors.length) return err(EXIT.error, 'invalid', t.errors.join(' ') + (req.cmd === 'write' ? ' Nothing was written.' : ''));
+    }
+    if (req.strict && t.warnings.length) return err(EXIT.error, 'invalid', 'With --strict, warnings refuse the report: ' + t.warnings.join(' ') + ' Nothing was written.');
+    if (req.cmd === 'check') return done(A.reportOut(file, sha, 'valid', rep, withPre(t)));
+
+    /* write: a report is written once. The same bytes already there are this report (a retry); anything else under its name
+       is another report, and nothing is written. */
+    relevant = (p) => runCovers(rep.process, rep.run, one.run)(p) || p === X.DIR || p === X.DIR + '/' + rep.process || p === file;
+    const there = async () => {
+      let f;
+      try { f = await L.fs.blob(file, { maxBytes: X.LIMITS.bytes }); } catch (e) { L.note(file, e && e.skipped ? 'skipped' : 'unreadable', fileWhy(e && e.message)); return 'held'; }
+      if (!f) return null;
+      const got = Buffer.from(await f.arrayBuffer());
+      return got.equals(bytes) ? 'same' : 'other';
+    };
+    const before = await there();
+    if (before === 'held') return done(A.reportOut(file, null, 'held', rep, t));
+    if (before === 'same') return done(A.reportOut(file, sha, 'already', rep, t));
+    if (before === 'other') return err(EXIT.error, 'id-taken', file + ' is already in the team folder with other contents. Reports are written once: give this one another id. Nothing was written.');
+    if (req.dryRun || !write) return done(A.reportOut(file, sha, 'would-write', rep, t));
+    let res;
+    try { res = await write([X.DIR, rep.process], file.split('/').pop(), text); } catch (e) { return err(EXIT.error, 'failed', e && e.message || String(e)); }
+    if (res === 'written') return done(A.reportOut(file, sha, 'written', rep, t));
+    const after = await there();
+    if (after === 'same') return done(A.reportOut(file, sha, 'already', rep, t));
+    if (after === 'held') return done(A.reportOut(file, null, 'held', rep, t));
+    return err(EXIT.error, 'id-taken', file + ' was written by someone else first, with other contents. Give this report another id. Nothing was written.');
+  } catch (e) {
+    return err(EXIT.error, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
+  }
+}
+/* The words for report check, write and targets without --json. */
+function reportWords(json) {
+  if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
+  const lines = [];
+  if (json.data.runs) {
+    if (!json.data.runs.length) lines.push('No running runs.');
+    json.data.runs.forEach((r) => { lines.push(r.key + '  ' + r.title + ' (' + r.folder + ')'); r.steps.forEach((st) => lines.push('  ' + st.id + '  ' + st.text + (st.evidence.length ? '  evidence: ' + st.evidence.map((e) => e.name + (e.required ? '*' : '')).join(', ') : '') + (st.accepts ? '' : '  (' + st.why + ')'))); });
+  } else {
+    const r = json.data.report, say = { valid: 'Valid', written: 'Wrote', already: 'Already in the folder, nothing written:', 'would-write': 'Would write (--dry-run), nothing written:', held: 'Nothing was written, because part of what this report depends on couldn\'t be read:' };
+    lines.push(say[r.status] + ' ' + r.file + (r.sha256 ? ' (sha256 ' + r.sha256 + ')' : ''));
+    if (r.applies) lines.push('Applies to the run now: ' + r.applies + '.');
+    r.warnings.forEach((w) => lines.push('Warning: ' + w));
+  }
+  json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
+  return lines.join('\n');
+}
+async function reportMain(argv) {
+  const asJson = argv.includes('--json'), VAL = ['--folder', '--process', '--run'], val = {};
+  const args = argv.filter((a, i) => (!a.startsWith('--') || a === '-') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : reportWords(json), code });
+  const fj = (kind, why) => (eng ? eng.PF.appjson.failure(eng.version, kind, why, [], eng.PF.appjson.CONTRACT2) : { contract: 'flightdeck-read/2', app: versionOf(app()) || '', error: { kind, why }, problems: [] });
+  const usage = (why) => out(fj('usage', why), EXIT.error);
+  for (const f of VAL) { const i = argv.indexOf(f); if (i >= 0) { if (!argv[i + 1] || argv[i + 1].startsWith('--')) return usage('say what goes after ' + f + '.'); val[f] = argv[i + 1]; } }
+  try { eng = loadEngine(); } catch (e) { return out(fj('failed', e.message), EXIT.error); }
+  const sub = args[1], X = eng.PF.reports;
+  const allowed = { targets: ['--json', '--process', '--run'], check: ['--json', '--folder'], write: ['--json', '--dry-run', '--strict', '--unmatched-ok'] };
+  if (!allowed[sub]) return usage('say what to do: flightdeck report targets <team folder>, report check <report.json | -> [--folder <team folder>], or report write <team folder> <report.json | ->');
+  const unknown = argv.filter((a) => a.startsWith('--') && allowed[sub].indexOf(a) < 0);
+  if (unknown.length) return usage('report ' + sub + ' doesn\'t take ' + unknown.join(', ') + '.');
+  if (sub === 'targets') {
+    if (!args[2] || args[3]) return usage('say the team folder: flightdeck report targets <team folder> [--process <process>] [--run <process>/<run id>]');
+    if (val['--process'] && !PROC_ID.test(val['--process'])) return usage('a process ID is lowercase letters, numbers and dashes.');
+    if (val['--run'] && !/^[a-z0-9][a-z0-9-]{0,59}\/[a-z0-9-]{1,40}$/.test(val['--run'])) return usage('--run is a run key, <process>/<run id>, like release/k3m9p2q8.');
+    let dir;
+    try { dir = folderArg(args[2], 'report targets'); } catch (e) { return out(fj('failed', e.message), EXIT.error); }
+    const r = await reportData(eng, readAdapter(dir, { maxBytes: READ_MAX }), { cmd: 'targets', proc: val['--process'] || null, key: val['--run'] || null });
+    return out(r.json, r.code);
+  }
+  const fileArg = sub === 'check' ? args[2] : args[3], folderIn = sub === 'check' ? val['--folder'] : args[2];
+  if (!fileArg || (sub === 'check' ? args[3] : !args[2] || args[4])) return usage(sub === 'check' ? 'say the report file, or - for standard input: flightdeck report check <report.json | -> [--folder <team folder>]' : 'say the team folder and the report file, or - for standard input: flightdeck report write <team folder> <report.json | ->');
+  let dir = null;
+  if (folderIn) { try { dir = folderArg(folderIn, 'report ' + sub); } catch (e) { return out(fj('failed', e.message), EXIT.error); } }
+  let input;
+  try { input = await readRequestInput(fileArg, X.LIMITS.bytes); } catch (e) { return usage('couldn\'t read the report ' + (fileArg === '-' ? 'from standard input' : fileArg) + ': ' + e.message); }
+  if (input.tooBig) return out(fj('invalid', 'A report is at most 64 KB; this one is more.'), EXIT.error);
+  const r = await reportData(eng, dir ? readAdapter(dir, { maxBytes: READ_MAX }) : null, { cmd: sub, buf: input.buf, dryRun: argv.includes('--dry-run'), strict: argv.includes('--strict'), unmatchedOk: argv.includes('--unmatched-ok') },
+    (parts, name, t) => writeOnce(dir, parts, name, t));
   return out(r.json, r.code);
 }
 
@@ -1408,6 +1572,13 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck plan request <team folder> <request.json | -> --key <key> [--json] [--dry-run]
                                       for other apps: ask for a run. Writes a planned run to proposals/ once, for a
                                       person to start in Flightdeck; the same key and request again writes nothing
+  flightdeck report targets <team folder> [--process <process>] [--run <process>/<run id>] [--json]
+                                      for other apps: running runs and the steps a report can be written for
+  flightdeck report check <report.json | -> [--folder <team folder>] [--json]
+                                      check a report (with --folder, against its run too); writes nothing
+  flightdeck report write <team folder> <report.json | -> [--json] [--dry-run] [--strict] [--unmatched-ok]
+                                      say a step's work is done: writes the report to reports/ once, for a person
+                                      to accept or decline in Flightdeck. It never checks a step by itself
   flightdeck draft read <team folder> <process> [--session <id>] [--or-latest] --json
                                       for AI assistants: the draft's exact text and rev, who has it open,
                                       this session's proposals and the text to continue from
@@ -1457,6 +1628,7 @@ function main(argv) {
   if (first === 'draft' && !argv.includes('--help')) return draftMain(argv);
   if (first === 'plan' && !argv.includes('--help')) return requestMain(argv);
   if (first === 'skill' && !argv.includes('--help')) return skillMain(argv);
+  if (first === 'report' && !argv.includes('--help')) return reportMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */
@@ -1574,4 +1746,4 @@ if (require.main === module) {
     if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
   } catch (e) { failed(e); }
 }
-module.exports = { _hooks, main, installedNewer, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, EXIT };
+module.exports = { _hooks, main, installedNewer, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, reportData, writeOnce, EXIT };

@@ -281,6 +281,28 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 **What not to do:** don't write or edit files in `skill-registrations/` by hand, and don't change a pointer in `skills/` back to a version number: older copies of Flightdeck would then match it to whatever has that number. `flightdeck skill register` is the only way to write a registration.
 
+## A report can't be accepted
+
+**What you see:** a report from another app on a run's step that has no **Accept** button, with one of these, or Folder health's "Some reports from other apps can't be used":
+
+- "Two copies of this report differ (…), so neither can be accepted. Delete the wrong one."
+- "This report can't be read: …" (not complete JSON, not UTF-8 text, over 64 KB, or a property this copy doesn't know).
+- "This report was made with a newer Flightdeck." (Folder health lists it under what a newer Flightdeck wrote.)
+- "Doesn't match: it examined env staging; the run's env is prod."
+- "Accepted, but the report it accepted is gone or changed."
+- A report naming a run that isn't in the folder.
+
+**What it means:** a report is a claim another app wrote once. Flightdeck checks a step from a report only when a person accepts one it can read in full, whose copies agree, for the run's own version, whose inputs don't contradict the run. Anything else is shown and never used. An acceptance names the SHA-256 of the exact bytes accepted, so a report changed after it was accepted no longer matches.
+
+**What to do:**
+
+- **Copies differ:** OneDrive kept two versions of one report. Compare them, delete the one the app didn't write, and the other can be accepted.
+- **Can't be read:** if it may still be arriving, wait and refresh. Otherwise ask the app that wrote it to write a new report (`flightdeck report check` says what's wrong with one before it's written); never edit a report by hand.
+- **Doesn't match, or a run that isn't here:** the app examined something else. Ask it to write a report for this run, or check the step yourself.
+- **Gone or changed after acceptance:** the step stays checked, and the run's log names the report and its SHA-256. If the report was replaced by mistake, restore it from a backup; otherwise check the step again from a new report or by hand.
+
+**What not to do:** don't edit or rename files in `reports/` or `report-decisions/`. An edited report is a different report, and a decision file names exactly one.
+
 ## A plan or a linked run won't start on its version
 
 **What you see:** "This plan starts on Release v3 (v3-…), which can't be used here: …. It won't start on another version by itself." on a planned run, or "This step runs Check in code v4, which can't be used here: …" on a step that starts another process.

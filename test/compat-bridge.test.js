@@ -26,7 +26,7 @@ const RUN3 = ['run-c', 'run-t', 'run-e'];
 /* What this version reads since slice 2 part 2 (pins): exact skill registrations, plan/2 and its decisions, and the explicit
    2.0 run on a /1 version (run-e); since slice 3 (typed data) the typed version v2, its run run-c and the 2.0 step type.
    Everything else in the samples (stages, test runs) stays refused by name. */
-const MAIN_TOPS = NEW_TOPS.filter(x => x !== 'skill-registrations/'), MAIN_RUN3 = ['run-t'];
+const MAIN_TOPS = NEW_TOPS.filter(x => ['skill-registrations/', 'reports/', 'report-decisions/'].indexOf(x) < 0), MAIN_RUN3 = ['run-t'];
 const snap = (m) => JSON.stringify(Object.keys(m.files).sort().map(p => [p, m.files[p].t]));
 function eachTag(name, fn, filter) {
   TAGS.filter(filter || (() => true)).forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': ' + name, async () => {
@@ -89,12 +89,44 @@ eachTag('starting a run is refused on the /2 version, and a plan for it can\'t f
   const before = snap(m); await OLD.repo.loadAll(m); assert.strictEqual(snap(m), before);
 }, (t) => !below(t.version));
 
+/* An accepted report is an ordinary answer plus a log line naming the report's SHA-256 (run.json gains no field): every
+   release reads that run/2 in full and writable, and none of them lists reports/ or report-decisions/. */
+eachTag('reads a run/2 whose step was checked from an accepted report in full and writable, keeps its log line, and never lists reports/', async (OLD, t) => {
+  const NEW = H.loadMain(), files = fixture(t.tag), mn = H.memFolder(NEW, files);
+  const d0 = await NEW.repo.loadAll(mn, { deep: true }), r = d0.runs.find(x => x.id === 'run-a');
+  assert.ok(r && !r._unrunnable && !r.ended, 'run-a is open in ' + t.tag);
+  const map = NEW.run.mapOf(r);
+  const text = JSON.stringify({ format: 'flightdeck-report/1', run: 'backup/run-a', publication: { folder: r.folder }, step: 'read', verdict: 'pass', producer: { name: 'spec-tool', version: '1.0.0' }, created: AT, id: 'spec0001' }, null, 2) + '\n';
+  mn.files['reports/backup/run-a.read.spec-tool.spec0001.json'] = { t: text, m: 1 };
+  const g = (await NEW.repo.loadRunReports(mn, 'backup', 'run-a')).list[0], e = NEW.reports.eligible(g, r, map, { recording: true });
+  assert.ok(e.ok, e.why);
+  NEW.run.done(r, map, 'read', 'person-avery', AT, e.values, { exact: true });
+  NEW.run.log(r, 'person-avery', AT, NEW.reports.logLine(g, g.sha256, 'Read the restore runbook'));
+  await NEW.repo.saveRun(mn, r, r.recorder.session);
+  const saved = JSON.parse(mn.files['runs/backup/run-a/run.json'].t);
+  assert.strictEqual(saved.format, 'preflight-run/2', 'the lowest sufficient format');
+  const after = H.filesOf(mn), m = H.memFolder(OLD, after), w = watch(m);
+  w.on.v = true; const d = await OLD.repo.loadAll(m, { deep: true }); w.on.v = false;
+  assert.deepStrictEqual(w.seen.filter(p => /^report(s|-decisions)(\/|$)/.test(p)), [], 'never lists reports/');
+  const old = d.runs.find(x => x.id === 'run-a');
+  assert.ok(old && !old._unrunnable, 'writable: ' + (old && old._unrunnable));
+  assert.strictEqual(old.steps.read.s, 'done');
+  assert.ok(old.log.some(l => /^Accepted report spec-tool\/spec0001 sha256:[0-9a-f]{64} \(says pass\)/.test(l.what)));
+  const before = mn.files['reports/backup/run-a.read.spec-tool.spec0001.json'].t;
+  await OLD.repo.saveRun(m, old, old.recorder.session);
+  assert.ok(JSON.parse(m.files['runs/backup/run-a/run.json'].t).log.some(l => /^Accepted report spec-tool\/spec0001/.test(l.what)), 'its own save keeps the line');
+  assert.strictEqual(m.files['reports/backup/run-a.read.spec-tool.spec0001.json'].t, before, 'the report is never touched');
+}, (t) => !below(t.version));
+
 /* ---------- The bridge: this version reading the same folders ---------- */
 
 TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses each 2.0 file it doesn\'t build by name, with the Flightdeck it needs, reads the typed data and pins it builds, and writes nothing', async () => {
   const NEW = H.loadMain(), m = H.memFolder(NEW, Object.assign(fixture(t.tag), V2)), w = watch(m);
   w.on.v = true; const d = await NEW.repo.loadAll(m, { deep: true }); w.on.v = false;
   assert.deepStrictEqual(w.seen.filter(p => MAIN_TOPS.some(x => (p + '/').indexOf(x) === 0)), [], 'new folders never listed by ordinary loaders');
+  // Slice 2b: report names and decisions are listed, never a report's contents (read for the open run only).
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.reports.files.map(f => f.name))), ['run-c.count.row-counter.k3m9p2q8.json']);
+  assert.ok(d.repDecisions.length === 1 && d.repDecisions[0].status === 'declined' && !d.repUnread.length);
   const proc = d.processes.find(p => p.process === 'backup'), v2 = proc.pubs.find(x => x.folder === S.PUB2);
   /* Changed on purpose in slice 3: typed-details and typed-evidence are read here, so v2 and run-c are read in full. */
   assert.ok(v2.ok, v2.why);

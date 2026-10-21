@@ -47,9 +47,10 @@ PF.fs = (function () {
     return this.walk(parts).then(function (d) { return d.getFileHandle(file); }).then(function (h) { return h.getFile(); })
       .then(function (f) { return { size: f.size, mtime: f.lastModified }; }, orNull);
   };
-  FolderFS.prototype.blob = function (path) {
-    var parts = split(path), file = parts.pop();
-    return this.walk(parts).then(function (d) { return d.getFileHandle(file); }).then(function (h) { return h.getFile(); }, orNull);
+  FolderFS.prototype.blob = function (path, o) {
+    var parts = split(path), file = parts.pop(), max = o && o.maxBytes;
+    return this.walk(parts).then(function (d) { return d.getFileHandle(file); }).then(function (h) { return h.getFile(); }, orNull)
+      .then(function (f) { if (f && max && f.size > max) throw tooBig(path, f.size, max); return f; });
   };
   /* Add to the end of a file this window owns (a notes or history file) without rewriting it. */
   FolderFS.prototype.append = function (path, text) {
@@ -118,9 +119,10 @@ PF.fs = (function () {
   function utf8(s) { var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 ? (i++, 4) : 3; } return n; }
   MemoryFS.prototype.stat = function (path) { var f = this.files[path]; return Promise.resolve(f ? { size: utf8(f.t), mtime: f.m } : null); };
   MemoryFS.prototype.append = function (path, text) { var f = this.files[path]; return this.write(path, (f ? f.t : '') + text); };
-  MemoryFS.prototype.blob = function (path) {
-    var f = this.files[path];
+  MemoryFS.prototype.blob = function (path, o) {
+    var f = this.files[path], max = o && o.maxBytes;
     if (!f) return Promise.resolve(null);
+    if (max && utf8(f.t) > max && !/^data:/.test(f.t)) return Promise.reject(tooBig(path, utf8(f.t), max));
     if (/^data:/.test(f.t)) return fetch(f.t).then(function (r) { return r.blob(); });
     return Promise.resolve(new Blob([f.t]));
   };

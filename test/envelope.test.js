@@ -77,7 +77,8 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   no('flightdeck-step-type', { format: 'flightdeck-step-type/3' }, 'newer', '');
   no('flightdeck-types', { version: 4 }, 'newer', '');
   no('flightdeck-skill', { format: 'flightdeck-skill/3' }, 'newer', '');
-  ['flightdeck-stage-decision', 'flightdeck-extension', 'flightdeck-report', 'flightdeck-report-decision'].forEach(f => no(f, { format: f + '/1' }, 'newer', '2.0'));
+  ['flightdeck-stage-decision', 'flightdeck-extension'].forEach(f => no(f, { format: f + '/1' }, 'newer', '2.0'));
+  ['flightdeck-report', 'flightdeck-report-decision'].forEach(f => { ok(f, { format: f + '/1' }); no(f, { format: f + '/2' }, 'newer', ''); no(f, { format: f + '/1', features: ['staged'] }, 'newer', '2.0'); });
   no('flightdeck-followup-decision', { kind: 'followup-decision', fv: 2 }, 'newer', '');
   no('flightdeck-correction-decision', { kind: 'correction-decision', dv: 3 }, 'newer', '');
   no('flightdeck-run-archive', { kind: 'migration', av: 2 }, 'newer', '');
@@ -195,10 +196,16 @@ rule('The committed 2.0 samples and probes are exactly what tools/v2-samples.js 
    slice 3 adds the typed /2 version, its typed run/3 with migration records, and the 2.0 step type. */
 const PART2_READS = ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skill-registrations/release-notes/sk-aaaa1111.1.w-twozero.json', 'runs/backup/run-e/run.json',
   'publications/backup/v2-zzzz2222/publication.json', 'runs/backup/run-c/run.json', 'step-types/team.count.json'];
+/* What slice 2b reads: a report and a decision on it, through the reports reader itself. */
+const REPORT_READS = ['reports/backup/run-c.count.row-counter.k3m9p2q8.json', 'report-decisions/backup/run-c.' + S.decisionHash('backup/run-c/count/row-counter/k3m9p2q8') + '.w-twozero.1.json'];
 rule('Every 2.0 sample this slice doesn\'t build is refused by its family\'s verdict in this copy, every probe too, and the ones it builds are read', () => {
   const t = S.tree('folder');
   PART2_READS.forEach(p => { const fam = E.familyOfPath(p), o = JSON.parse(t[p]); assert.ok(E.judge(fam, o).ok, p); if (fam === 'preflight-run') assert.ok(!PF.run.sanitize(o)._unrunnable, p); });
-  Object.keys(t).filter(p => /\.json$/.test(p) && !/types\.json$|replaced-|presence\//.test(p) && !/^runs\/backup\/run-a\//.test(p) && PART2_READS.indexOf(p) < 0).forEach(p => {
+  const rep = PF.reports.clean(t[REPORT_READS[0]], 'backup', REPORT_READS[0].split('/').pop());
+  assert.ok(rep.ok, rep.why);
+  const dec = PF.reports.cleanDecision(JSON.parse(t[REPORT_READS[1]]), 'backup', REPORT_READS[1].split('/').pop());
+  assert.ok(dec.ok, dec.why); assert.strictEqual(dec.d.sha256, PF.sha256.hex(t[REPORT_READS[0]])); assert.strictEqual(dec.d.key, rep.report.key);
+  Object.keys(t).filter(p => /\.json$/.test(p) && !/types\.json$|replaced-|presence\//.test(p) && !/^runs\/backup\/run-a\//.test(p) && PART2_READS.indexOf(p) < 0 && REPORT_READS.indexOf(p) < 0).forEach(p => {
     const fam = E.familyOfPath(p), o = JSON.parse(t[p]);
     const v = fam === 'flightdeck-skill' && o.implements === 'moved' ? { ok: false } : fam === 'preflight-run' && E.judge(fam, o).ok ? { ok: (PF.run.sanitize(o) || {})._needs == null } : E.judge(fam, o);
     assert.ok(!v.ok, p + ' (' + fam + ') must be refused');

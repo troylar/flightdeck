@@ -15,6 +15,8 @@ const PUB1 = 'v1-ab9ysnqh', PUB2 = 'v2-zzzz2222', STAGE = 'stage-aaaa1111', AT =
 const j = (o) => JSON.stringify(o, null, 2) + '\n';
 
 /* FNV-1a over UTF-16 code units, as PF.util.hash: the fingerprints publication.json and run.json carry. */
+/* A decision file's name carries 128 bits of SHA-256 of its report's identity (PF.reports.decisionHash). */
+function decisionHash(s) { return require('crypto').createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 32); }
 function hash(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
 const sha = (s) => require('crypto').createHash('sha256').update(s, 'utf8').digest('hex');
 /* SHA-256 of a file's exact bytes: a screenshot's are the PNG bytes on disk, never the data: URL the tree keeps them as. */
@@ -108,8 +110,15 @@ function folder() {
   f['staged/backup/decisions/' + STAGE + '.w-twozero.1.json'] = j({ format: 'flightdeck-stage-decision/1', app: APP, process: 'backup', stage: STAGE, status: 'retired', reason: 'Replaced by a new stage', by: 'person-avery', at: AT, rev: 1, seen: null });
   f['extensions/acme/extension.json'] = j({ format: 'flightdeck-extension/1', app: APP, namespace: 'acme', version: '1.0.0', title: 'Acme checks', description: 'Ticket keys and row limits.', by: 'person-avery', updated: AT });
   f['extensions/acme/checks/ticket-key.json'] = j({ format: 'flightdeck-extension/1', check: 'ticket-key', severity: 'block', message: 'Use a ticket key like ABC-123.' });
-  f['reports/backup/rp-aaaa1111.json'] = j({ format: 'flightdeck-report/1', app: APP, id: 'rp-aaaa1111', process: 'backup', run: 'run-c', step: 'count', producer: 'row-counter', at: AT, result: 'pass', evidence: { rows: '1234.5' } });
-  f['report-decisions/backup/rp-aaaa1111.w-twozero.1.json'] = j({ format: 'flightdeck-report-decision/1', app: APP, report: 'rp-aaaa1111', status: 'accepted', by: 'person-avery', at: AT, rev: 1, seen: null });
+  /* A report from another app (flightdeck-report/1) and the recorder's decision on it (flightdeck-report-decision/1): the
+     decision names the report by its identity's hash and the SHA-256 of its exact bytes. */
+  const REPORT = j({ format: 'flightdeck-report/1', app: APP, run: 'backup/run-c', publication: { folder: PUB2, version: 2 }, step: 'count', verdict: 'pass',
+    evidence: { rows: '1234.5', matches: 'yes' }, links: [{ label: 'Row count job', url: 'https://ci.example.com/jobs/1432' }],
+    inputs: [{ name: 'Rows expected', value: '1234.5', source: 'detail:rows' }, { name: 'Database', value: 'scratch', source: 'external' }, { name: 'Read token', source: 'external', secret: true }],
+    producer: { name: 'row-counter', version: '1.4.0' }, created: AT, id: 'k3m9p2q8', summary: 'Counted the restored rows.' });
+  f['reports/backup/run-c.count.row-counter.k3m9p2q8.json'] = REPORT;
+  f['report-decisions/backup/run-c.' + decisionHash('backup/run-c/count/row-counter/k3m9p2q8') + '.w-twozero.1.json'] = j({ format: 'flightdeck-report-decision/1', app: APP, process: 'backup', run: 'run-c', step: 'count', producer: 'row-counter', report: 'k3m9p2q8',
+    sha256: sha(REPORT), status: 'declined', reason: 'Counted the wrong database.', by: 'person-avery', at: AT, rev: 1, seen: null });
   f['presence/w-twozero.json'] = j({ kind: 'presence', pv: 1, app: APP, writer: 'w-twozero', by: 'person-avery', device: 'Laptop', since: AT, at: AT, beat: 1, drafts: [], main: [] });
   /* Checklist drafts: 2.0 syntax, and the three front-matter cases no copy may rely on (review #3). */
   f['maps/drafts/typed.md'] = MAP2.replace('process: backup', 'process: typed');
@@ -169,6 +178,13 @@ function probes() {
   const cn = { kind: 'connection-probe', id: 'k3m9p2q8', n: 1, by: 'person-avery', writer: 'w-probe', device: 'Laptop', at: AT, app: '9.0.0', run: null, seen: [] };
   put('major', 'connection/probe-20261020T090000Z-k3m9p2q8.w-probe.json', Object.assign({}, cn, { cv: 9 }));
   put('feature', 'connection/probe-20261020T090000Z-k3m9p2q8.w-probe.json', Object.assign({}, cn, { cv: 1, features: X }));
+  const rp = { run: 'backup/run-c', publication: { folder: PUB2 }, step: 'count', verdict: 'pass', producer: { name: 'row-counter', version: '1.4.0' }, created: AT, id: 'pr0b3a00' };
+  put('major', 'reports/backup/run-c.count.row-counter.pr0b3a00.json', Object.assign({ format: 'flightdeck-report/9', app: '9.0.0' }, rp));
+  put('feature', 'reports/backup/run-c.count.row-counter.pr0b3a00.json', Object.assign({ format: 'flightdeck-report/1', features: X, app: '9.1.0' }, rp));
+  const rd = { process: 'backup', run: 'run-c', step: 'count', producer: 'row-counter', report: 'pr0b3a00', sha256: sha('probe'), status: 'open', by: 'person-avery', at: AT, rev: 1, seen: null };
+  const rdName = 'report-decisions/backup/run-c.' + decisionHash('backup/run-c/count/row-counter/pr0b3a00') + '.w-probe.1.json';
+  put('major', rdName, Object.assign({ format: 'flightdeck-report-decision/9', app: '9.0.0' }, rd));
+  put('feature', rdName, Object.assign({ format: 'flightdeck-report-decision/1', features: X, app: '9.1.0' }, rd));
   return out;
 }
 
@@ -197,4 +213,4 @@ if (require.main === module) {
     process.exitCode = bad.length ? 1 : 0;
   }
 }
-module.exports = { DIR, PUB1, PUB2, STAGE, MAP2, all, folder, probes, tree, hash };
+module.exports = { DIR, PUB1, PUB2, STAGE, MAP2, all, folder, probes, tree, hash, decisionHash };

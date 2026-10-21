@@ -132,6 +132,16 @@ rule('docs/apps.md documents flightdeck plan request: its command, every status,
   assert.ok(readme.includes('flightdeck plan request'), 'README');
 });
 
+rule('docs/apps.md documents flightdeck report: its commands, every status, error kind and applies value, its flags and contract', () => {
+  const PF = require('./harness').load(), Q = PF.reports.CLI, doc = fs.readFileSync(path.join(ROOT, 'docs', 'apps.md'), 'utf8');
+  Q.commands.forEach(c => assert.ok(doc.includes('flightdeck report ' + c + ' '), c));
+  const missing = Q.statuses.concat(Q.errors, Q.applies, PF.reports.KEYS.filter(k => k !== 'features' && k !== 'app')).filter(k => !doc.includes('`' + k + '`'));
+  assert.strictEqual(missing.length, 0, 'not in docs/apps.md: ' + missing.join(', '));
+  ['--dry-run', '--strict', '--unmatched-ok', '--folder', 'flightdeck-read/2', 'flightdeck-report/1'].forEach(f => assert.ok(doc.includes(f), f));
+  const help = require('child_process').execFileSync(process.execPath, [path.join(ROOT, 'bin', 'flightdeck.js'), 'help'], { encoding: 'utf8' });
+  Q.commands.forEach(c => assert.ok(help.includes('flightdeck report ' + c + ' '), 'the help names report ' + c));
+});
+
 rule('1.20.0 has its own release entry, in plain words', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '1.20.0')[0];
   assert.ok(r && rel[rel.findIndex(x => x.version === '1.21.0') + 1] === r, '1.20.0 is the release before 1.21.0');

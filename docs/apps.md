@@ -2,7 +2,7 @@
 
 Flightdeck is a checklist tool for people: a monthly backup check, a quarterly access review, onboarding a new hire, closing the month, a release. Other apps can work beside a run the way a teammate would: look at it, then let the people decide. Since 1.18 an app can **read** checklists, runs, what's waiting and on whom, and follow-ups as JSON, through the `flightdeck` command. It works offline, on the team folder itself. There's no server and nothing to sign in to.
 
-Since 1.20 an app can also **ask for a run** with `flightdeck plan request`: it writes a planned run that a person reviews and starts in the app (see *Asking for a run*, below). Reporting work a tool did is planned for a later release; until then a person checks every step. Since 1.19, AI assistants can also read and save **drafts** of checklists with `flightdeck draft` (contract `flightdeck-draft/1`, at the end of this page). `plan request` and the draft commands change the team folder; the reading commands never do.
+Since 1.20 an app can also **ask for a run** with `flightdeck plan request`: it writes a planned run that a person reviews and starts in the app (see *Asking for a run*, below). Since 2.0 an app can also **report** the work it did on a step with `flightdeck report`: a person accepts the report (the step is checked with its evidence) or declines it (see *Reporting work*, below). A report never checks a step by itself. Since 1.19, AI assistants can also read and save **drafts** of checklists with `flightdeck draft` (contract `flightdeck-draft/1`, at the end of this page). `plan request` and the draft commands change the team folder; the reading commands never do.
 
 ## What reading promises
 
@@ -290,6 +290,89 @@ It reads only `proposals/` (this request's own files and their decisions), the p
 2. **Ask for the run** with `flightdeck plan request "$TEAM" request.json --key 2026-11`. Retry freely: the same key and request change nothing.
 3. **A person starts it** in the app, from **Runs** or Home, and can change the title, details and roles first.
 4. **Find the run** with `flightdeck runs "$TEAM" --process backup-check --status planned --json`: once started, the planned run's `status` is `accepted` and `run` is the run's key. `flightdeck plan request` with the same key says it too (`run`).
+
+## Reporting work
+
+A tool that did a step's work says so in a report: the backup script restored a sample, the access review export ran, the test gate went green. The report shows on the step in the app. **A person decides**: the run's recorder accepts it, and the step is checked with exactly the report's evidence, or declines it with a reason. A report is a claim: it never checks a step, passes a gate or changes `run.json` by itself, and nothing an app reads back is permission to act.
+
+```
+flightdeck report targets <team folder> [--process <process>] [--run <process>/<run id>] [--json]
+flightdeck report check <report.json | -> [--folder <team folder>] [--json]
+flightdeck report write <team folder> <report.json | -> [--json] [--dry-run] [--strict] [--unmatched-ok]
+```
+
+These print READ's envelope and exit codes under contract `flightdeck-read/2` (the six reading commands above stay `flightdeck-read/1`, which never reads reports).
+
+**For example**, after the nightly restore test a backup script writes this to `report.json` and runs `flightdeck report write "$TEAM" report.json`:
+
+```json
+{ "format": "flightdeck-report/1", "run": "backup-check/k3m9p2q8", "publication": { "folder": "v3-k3m9p2q8" }, "step": "restore-test",
+  "verdict": "pass", "evidence": { "evidence": "https://backup.example.com/restores/77" },
+  "links": [ { "label": "Restore log", "url": "https://backup.example.com/restores/77/log" } ],
+  "inputs": [ { "name": "backup set", "value": "nightly-2026-10-31", "source": "external" },
+              { "name": "vault password", "source": "external", "secret": true } ],
+  "producer": { "name": "backup-check", "version": "1.4.0" }, "summary": "Restored 3 files; checksums match." }
+```
+
+### The report
+
+At most 64 KB of UTF-8 JSON, from a file or standard input with `-`. Anything not listed here, at any level, makes it a report Flightdeck can't use, naming the property.
+
+| Field | Required | What it is |
+|---|---|---|
+| `format` | yes | `flightdeck-report/1` |
+| `run` | yes | The run's key, `<process>/<run id>` |
+| `publication` | yes | `folder`: the run's version folder (from `run --json`); `version`: its number, shown only |
+| `step` | yes | The step's ID (from `report targets` or `process --json`) |
+| `verdict` | yes | `pass`, `fail` or `blocked`. A `pass` has no blockers; `fail` and `blocked` name at least one. Only a `pass` can be accepted |
+| `blockers` | no | What's wrong, up to 20 texts of 300 characters |
+| `evidence` | no | Text by the step's evidence names (`evidence` on a plain step), up to 40, each up to 300 characters. Names the step doesn't record are warned about and never used |
+| `links` | no | Up to 20 `{label, url}`; a url starts with `https://` or `http://` |
+| `inputs` | no | What the tool examined, up to 40 `{name, value, source}`: `source` is `detail:<run detail>` (compared with the run) or `external`. A secret is `{name, source, secret: true}`, with no value: a report with a secret's value is refused |
+| `producer` | yes | `name`: your tool, lowercase letters, numbers and dashes, at most 30; `version`: its version |
+| `created` | no | When it ran, with its zone. `report write` fills it in when you leave it out |
+| `id` | no | 8 to 16 lowercase letters and numbers. `report write` makes one when you leave it out |
+| `supersedes` | no | The `id` of an earlier report from your tool on the same step that this one replaces |
+| `summary` | no | Up to 500 characters |
+
+The file is `reports/<process>/<run id>.<step>.<tool>.<id>.json`, written once. The run, step, tool and id in the name must be what's inside. Write a new report (a new `id`, with `supersedes`) instead of changing one: Flightdeck accepts a report by the SHA-256 of its exact bytes, so an edited report no longer matches its acceptance.
+
+### Inputs and the run
+
+`detail:` inputs are compared with the run's details when a person looks: matching, not matching (Accept is refused), or nothing to compare (`external` inputs only; a person can still accept, deliberately). A step tied to a detail (`^commit` in the checklist) goes back to re-check in every copy when that detail changes, so tie the steps your reports are about to the details they examined. `report check --folder` and `report write` warn when they aren't. Flightdeck compares inputs with the run's own details only: it can't see your other systems, so it can't tell whether something is still the latest or whether your tool really ran.
+
+### targets
+
+Running runs and their steps: `data` is `{ "runs": [...] }`, each with `key`, `title`, `folder`, `version`, `recorder`, `details` and `steps`. Each step has `id`, `phase`, `text`, `type`, `state`, `binds` (the details it's tied to), `evidence` (what it records, as in `run --json`), `accepts` (whether a person could accept a report on it) and `why` (why not, or `null`). A step that starts another process, or one that sets run details, takes no report.
+
+### check and write
+
+`report check` reads the report alone, or with `--folder` against its run too: the run exists, `publication.folder` is the run's version and the step is in it. `report write` does the same, then writes the file once and reads it back. `--dry-run` writes nothing; `--strict` refuses a report that has warnings; `--unmatched-ok` writes a report for a run that isn't in the folder yet (one still syncing). A report whose inputs don't match the run is still written: it's a record, and the app says it doesn't match.
+
+`data` is `{ "report": {...} }` (one field, `report`):
+
+| Field | What it is |
+|---|---|
+| `file` | Where it goes, relative to the team folder |
+| `sha256` | The SHA-256 of the file's bytes; `null` when `held` |
+| `status` | `valid` (check), `written`, `already` (exactly these bytes are already there; nothing written), `would-write` (`--dry-run`) or `held` (nothing written, because the run couldn't be read; `problems` says what) |
+| `run`, `step`, `id`, `verdict`, `created` | As in the report (`id` and `created` as filled in) |
+| `producer` | `name` and `version`, as the report says |
+| `applies` | Whether its inputs match the run now: `yes`, `no` or `unknown`; `null` without a folder |
+| `warnings` | Evidence the step doesn't record, inputs the step isn't tied to, a verdict that can't be accepted, an ended run |
+
+| Code | Means |
+|---|---|
+| `0` | `valid`, `written`, `already` or `would-write` |
+| `4` | `held`: the run couldn't be read, so nothing was written |
+| `1` | Refused, with an error object: `usage`, `invalid` (every reason is named; a private key in the report is refused too), `id-taken` (another report is already under that name) or `failed` |
+| `5` | `not-found`: no such run (`report write` with `--unmatched-ok` writes it anyway) |
+
+### What it can't promise
+
+- **Who wrote it.** The tool's name is what the file says. The app shows "by its own account".
+- **Two computers that aren't syncing.** OneDrive keeps both copies of a report written twice. Copies with the same bytes are one report; copies that differ can't be accepted until a person deletes the wrong one (docs/recovery.md, *A report can't be accepted*).
+- **Older copies.** Flightdeck 1.x never lists `reports/`. A step checked from an accepted report is an ordinary answer with a log line naming the report and its SHA-256, which every copy reads.
 
 ## Writing drafts (for AI assistants)
 

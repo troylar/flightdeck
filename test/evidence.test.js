@@ -117,6 +117,29 @@ rule('The collector reads only: with every mutating method throwing, a run with 
   assert.ok(!ro.writeTest && !ro.url, 'only list, read, stat and blob');
 });
 
+rule('A pack holds the run\'s reports (copies too, the unreadable flagged) and decisions on them, and says which were accepted', async () => {
+  await folder();
+  const rep = { format: 'flightdeck-report/1', run: 'release/run1', publication: { folder: 'v1-aaaa1111', version: 1 }, step: 'deploy', verdict: 'pass', producer: { name: 'ci-check', version: '1.0.0' }, created: NOW, id: 'abcd1234' };
+  const text = JSON.stringify(rep, null, 2) + '\n', sha = crypto.createHash('sha256').update(text).digest('hex');
+  const dec = { format: 'flightdeck-report-decision/1', process: 'release', run: 'run1', step: 'deploy', producer: 'ci-check', report: 'abcd1234', sha256: sha, status: 'accepted', inputs: 'unknown', answer: { at: NOW, by: 'person-casey', fp: 'a'.repeat(64) }, by: 'person-casey', at: NOW, rev: 1, seen: null };
+  const dname = 'run1.' + PF.reports.decisionHash({ process: 'release', run: 'run1', step: 'deploy', producer: 'ci-check', id: 'abcd1234' }) + '.w1.1.json';
+  const extra = {
+    'reports/release/run1.deploy.ci-check.abcd1234.json': Buffer.from(text),
+    'reports/release/run1.deploy.ci-check.abcd1234-LAPTOP.json': Buffer.from(text),
+    'reports/release/run1.deploy.ci-check.zzzz9999.json': Buffer.from('{"format": "flightdeck-rep'),
+    'reports/release/run9.deploy.ci-check.abcd1234.json': Buffer.from(text.replace('run1', 'run9')),
+    ['report-decisions/release/' + dname]: Buffer.from(JSON.stringify(dec, null, 2) + '\n')
+  };
+  const f = new BytesFS(Object.assign({}, fixture.files, extra)), col = await repo.collectEvidence(f, { run: 'release/run1' }, { now: () => Date.parse(NOW) });
+  const reps = col.files.filter(x => x.role === 'report').map(x => x.path).sort();
+  same(reps, ['reports/release/run1.deploy.ci-check.abcd1234-LAPTOP.json', 'reports/release/run1.deploy.ci-check.abcd1234.json', 'reports/release/run1.deploy.ci-check.zzzz9999.json'], 'this run\'s reports, OneDrive\'s copy and the unreadable one; never another run\'s');
+  assert.ok(col.files.filter(x => x.role === 'report').every(x => /a claim, not proof/.test(x.label)));
+  assert.ok(/couldn't be read/.test(col.files.filter(x => /zzzz9999/.test(x.path))[0].flag), 'the unreadable one is flagged');
+  const d = col.files.filter(x => x.role === 'report decision');
+  assert.strictEqual(d.length, 1);
+  assert.ok(d[0].label.indexOf('accepted ci-check/abcd1234, sha256 ' + sha) >= 0, d[0].label);
+});
+
 rule('A pack keeps every file in the run folder; lineage receipts and temporary files are left out with their real reasons', async () => {
   const f = await folder(), col = await repo.collectEvidence(f, { run: 'release/run1' }, { now: () => Date.parse(NOW) });
   const has = p => col.files.filter(x => x.path === fixture.base + p)[0];

@@ -132,6 +132,10 @@ A checklist that uses nothing on this list publishes as before, and every teamma
 
 A gate's note isn't on this list: every copy since 1.10 publishes it, and 2.0 shows it for every version.
 
+## Reports from tools
+
+A tool that does a step's work can report it (docs/apps.md): the report names the step by its ID and its evidence by the step's evidence names (`flightdeck report targets` lists both). When a report depends on a run detail (a commit, a database), tie the step to that detail with `^detail` in its text: a later change to the detail then sends the step back for a re-check, in every copy. A step that isn't tied is only compared when the report is accepted.
+
 ## Step types
 
 Each type has two kinds of fields. **Checklist fields** describe the step: the Jenkins job, the repo and branches, the Jira action. **Evidence** fields can be noted when the step is checked: build number, PR link, the decision.
