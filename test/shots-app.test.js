@@ -34,7 +34,7 @@ rule('Shots: Choose files writes the image under images/<process>/ with a unique
   assert.strictEqual(imgs.length, 1, 'one image written');
   assert.ok(/^images\/release\/flags-\d+-[a-z0-9]+-[a-z0-9]+\.png$/.test(imgs[0]), imgs[0]);
   assert.strictEqual(app.fs.files[DRAFT].t, before, 'the draft isn\'t written: the line waits in the editor');
-  assert.ok(/Unsaved changes/.test(app.html()));
+  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()));
   const md = await markdown(app), lines = md.split('\n'), at = lines.findIndex(l => /\{#flags\}/.test(l));
   assert.deepStrictEqual(shotLines(md), ['  ![The flags page](' + imgs[0] + ')']);
   assert.ok(lines.indexOf('  ![The flags page](' + imgs[0] + ')') > at && lines.slice(at + 1, lines.indexOf('  ![The flags page](' + imgs[0] + ')')).every(l => /^\s{2,}\S/.test(l)), 'under the step, after its own lines');
@@ -64,7 +64,7 @@ rule('Shots: a caption is required; without one nothing is written and the reaso
   assert.strictEqual(images(app).length, 0, 'no file written');
   assert.ok(/id="ob-shot-new"[^>]*aria-invalid="true" aria-describedby="ferr-ob-shot-new"/.test(app.html()), 'the box is marked');
   assert.ok(/id="ferr-ob-shot-new" role="alert">Write a caption first/.test(app.html()), app.html().slice(app.html().indexOf('ob-shot-new') - 200, app.html().indexOf('ob-shot-new') + 600));
-  assert.ok(!/Unsaved changes/.test(app.html()));
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()));
   /* An existing caption can't be emptied either. */
   await choose(app, 'First', [png()]);
   app.setScoped('ob-shot-cap-0', ''); app.select('ob-shot-cap-0', ''); await app.tick();
@@ -118,7 +118,7 @@ rule('Shots: a failed write adds no line, and says so next to Choose files', asy
   await choose(app, 'Broken', [png()]);
   app.fs.write = write;
   assert.deepStrictEqual(shotLines(await markdown(app)), []);
-  assert.ok(!/Unsaved changes/.test(app.html()), 'nothing changed in the draft');
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'nothing changed in the draft');
   assert.ok(/id="ferr-ob-shot-file" role="alert">Couldn&#39;t add &quot;shot\.png&quot;: The disk is full\. Nothing was added to the step\./.test(app.html()), app.html().slice(app.html().indexOf('ob-shot-file'), app.html().indexOf('ob-shot-file') + 900));
 });
 
@@ -197,7 +197,7 @@ rule('Shots, counterexample: a phase name typed while an image is being added st
   app.setScoped('ob-ph-title', 'Verify it now'); app.input('ob-ph-title', 'Verify it now'); await app.tick();
   slow.g.open(); await app.tick(120); slow.restore();
   assert.strictEqual(app.draft('ob-ph-title'), 'Verify it now', 'the typing is still in its box');
-  assert.ok(/Unsaved changes/.test(app.html()));
+  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()));
   assert.strictEqual(shotLines(await markdown(app)).length, 1, 'the image\'s line was added');
   app.click('ob-sel-phase', 'verify'); await app.tick();
   app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it now', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
@@ -252,10 +252,10 @@ rule('Shots, counterexample: Discard my changes while an image is being added: i
   const slow = slowWrite(app);
   app.setScoped('ob-shot-new', 'Second'); app.change('ob-shot-file', [png()]); await app.tick(40);
   app.click('revert-draft'); await app.tick();
-  assert.ok(!/Unsaved changes/.test(app.html()), 'set-up: discarded');
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: discarded');
   slow.g.open(); await app.tick(120); slow.restore();
   assert.ok(RESET.test(app.html()) || RESET.test(app.live()), 'said');
-  assert.ok(!/Unsaved changes/.test(app.html()), 'the draft stays as discarded');
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'the draft stays as discarded');
   assert.strictEqual(images(app).length, 2, 'both images stay in the folder');
   assert.deepStrictEqual(shotLines(await markdown(app)), []);
 });
@@ -272,7 +272,7 @@ rule('Shots, counterexample: Take theirs while an image is being added: no line 
   app.click('draft-take-theirs'); await app.tick();
   slow.g.open(); await app.tick(120); slow.restore();
   assert.ok(RESET.test(app.html()) || RESET.test(app.live()), 'said');
-  assert.ok(!/Unsaved changes/.test(app.html()), 'their text, nothing unsaved');
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'their text, nothing unsaved');
   assert.deepStrictEqual(shotLines(await markdown(app)), []);
 });
 
@@ -284,7 +284,7 @@ rule('Shots, counterexample: switching folders while an image is being added add
   slow.g.open(); await app.tick(120); slow.restore();
   app.choose('person-casey'); await app.tick();
   app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
-  assert.ok(!/Unsaved changes/.test(app.html()));
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()));
   assert.deepStrictEqual(shotLines(await markdown(app)), []);
   assert.ok(!app.leaveWarns(), 'nothing left counted as being added');
 });

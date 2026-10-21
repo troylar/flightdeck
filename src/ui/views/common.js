@@ -110,7 +110,11 @@ PF.vk = (function () {
   var MODE_WORD = { 'READ-DO': 'Read, then do', 'DO-CONFIRM': 'Do, then confirm' };
   function modeWord(m) { return MODE_WORD[m] || m; }
   /* ^detail in rendered text (code or plain) shown as the detail's name, without the caret. html is already escaped. */
-  function detailWords(html) { return String(html).replace(/<code>\^([\w-]+)<\/code>/g, '<b class="dname">$1</b>').replace(/\^([A-Za-z][\w-]*)/g, '<b class="dname">$1</b>'); }
+  function detailWords(html) {
+    return String(html).replace(/<code>\^([\w-]+)<\/code>/g, '<b class="dname">$1</b>').split(/(<[^>]*>)/).map(function (part, i) {
+      return i % 2 ? part : part.replace(/\^([A-Za-z][\w-]*)/g, '<b class="dname">$1</b>');
+    }).join('');
+  }
   /* An outcome as it reads on screen: US spelling for Cancelled, which run files keep as written. */
   function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
   function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }

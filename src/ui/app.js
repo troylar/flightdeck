@@ -4047,7 +4047,11 @@
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     /* What was submitted and refused stays until Cancel or the draft is created, so leaving and coming back keeps it. */
     'new-process': function () { setView('new-process'); state.newProc = state.newProc || { token: ++npToken }; resetRunUi(); render(); window.scrollTo(0, 0); },
-    'np-tpl': function (id) { var f = state.newProc = state.newProc || { token: ++npToken }; f.tpl = id; state.focus = '[data-act="np-tpl"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'np-tpl': function (id) {
+      var f = state.newProc = state.newProc || { token: ++npToken };
+      /* The assistant's prompt replaces the boxes, so what's typed in them is kept with the form first. */
+      if (document.getElementById('np-title')) { var k = newProcForm(); ['token', 'title', 'group', 'tags', 'context', 'roles', 'owner', 'solo'].forEach(function (x) { f[x] = k[x]; }); f.id = k.ownId; f.typed = null; }
+      f.tpl = id; state.focus = '[data-act="np-tpl"][data-id="' + cssEsc(id) + '"]'; render(); },
     'np-publish': function () { createProcess(true); },
     'np-copy': function () { var pre = document.getElementById('np-prompt'); if (pre) copyText(pre.textContent, pre, 'Copied. Paste it to your AI assistant.'); },
     'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
@@ -5171,7 +5175,10 @@
     if (!f.title) return npRefuse(f, 'Give the process a title.', 'np-title');
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) return npRefuse(f, 'The file name is lowercase letters, numbers and dashes, like release or code-review.', f.ownId ? 'np-id' : 'np-title');
     if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a process called "' + f.id + '". Choose another title, or another file name under More options.', 'np-id');
+    if (npBusy === gen) return;
     var md = newProcMd(f), sfs = state.fs, g = gen, mine = f.token, by = state.me;
+    npBusy = gen;
+    var done = function () { if (npBusy === g) npBusy = -1; };
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
@@ -5188,14 +5195,16 @@
           return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString(), app: APP_VERSION }); });
         }).then(function (pub) {
           if (g !== gen) return;
+          if (!here()) { say(pub.blockers ? 'Created the draft for "' + f.title + '", but it can\'t be published yet. Open it from Processes.' : 'Published ' + f.title + ' v' + pub.version + '. Open it from Processes.', pub.blockers ? 'warn' : 'good'); render(); return; }
           state.newProc = null; setView('process'); state.processId = f.id; state.ptab = 'overview';
           if (pub.blockers) { say('The draft is saved, but it can\'t be published yet: ' + pub.blockers[0], 'warn'); render(); return; }
           say('Published ' + f.title + ' v' + pub.version + '. Start a run when you\'re ready.', 'good'); state.focus = 'page-h';
           return load(true).then(function () { if (g === gen) { render(); window.scrollTo(0, 0); } });
         });
       });
-    }).catch(function (err) { if (g !== gen) return; say('Couldn\'t ' + (publish ? 'publish' : 'create') + ' the draft: ' + err.message, 'bad'); render(); });
+    }).catch(function (err) { if (g !== gen) return; say('Couldn\'t ' + (publish ? 'publish' : 'create') + ' the draft: ' + err.message, 'bad'); render(); }).then(done, done);
   }
+  var npBusy = -1;
   document.addEventListener('submit', function (e) {
     if (e.target.id === 'type-form') { e.preventDefault(); readTypeForm(); saveType(); return; }
     if (e.target.id !== 'new-process-form') return;

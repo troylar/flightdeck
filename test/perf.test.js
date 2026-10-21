@@ -76,7 +76,7 @@ rule('Large folder: refreshing every 30 seconds checks every run within 10 minut
   assert.ok(most <= SWEEP_MOST, 'no refresh in the cycle costs more than ' + SWEEP_MOST + ': ' + most);
 });
 
-rule('Large folder: the Runs page parses each checklist once and draws at most 100 cards, however many runs there are', async () => {
+rule('Large folder: the Runs page parses each checklist once and draws at most 158 cards (50 running, the 8 newest finished, 50 earlier ones with a warning and 50 more earlier), however many runs there are', async () => {
   const PF = loadViews(), fs = bigFolder(PF, {}), R = PF.run, V = PF.views;
   const mem0 = process.memoryUsage();
   const d = await PF.repo.loadAll(fs);
@@ -93,7 +93,7 @@ rule('Large folder: the Runs page parses each checklist once and draws at most 1
   const renderMs = Number(process.hrtime.bigint() - t) / 1e6;
   const shown = (html.match(/data-act="open-run"/g) || []).length, parses = R.mapMemo.stats().parses;
   console.log('  Runs page: ' + shown + ' cards, ' + parses + ' parses, ' + renderMs.toFixed(0) + ' ms');
-  assert.ok(shown <= 100, shown + ' cards');
+  assert.ok(shown <= 158, shown + ' cards');
   assert.ok(parses <= shown, 'at most one parse per card on a cold memo');
   t = process.hrtime.bigint();
   V.runs(ctx);

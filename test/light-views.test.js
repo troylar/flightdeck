@@ -403,6 +403,34 @@ rule('New process: start from a template, then create the draft or publish v1 as
   assert.ok(/\/flightdeck-new-checklist/.test(app.html()) && /data-act="np-copy"/.test(app.html()), 'a prompt to copy');
 });
 
+rule('New process: switching to Ask your AI assistant and back keeps what was typed in every box', async () => {
+  const app = await newProc();
+  app.set('np-title', 'Kept title'); app.set('np-group', 'Ops / Kept'); app.set('np-id', 'kept-file');
+  app.click('np-tpl', 'assistant'); await app.tick();
+  assert.ok(!/id="np-title"/.test(app.html()), 'the prompt replaces the boxes');
+  app.click('np-tpl', 'blank'); await app.tick();
+  const html = app.html();
+  assert.ok(/id="np-title" maxlength="120" value="Kept title"/.test(html) && /id="np-group" maxlength="120" value="Ops \/ Kept"/.test(html) && /id="np-id" maxlength="120" value="kept-file"/.test(html), 'all back');
+  assert.ok(/Saved as <code>kept-file\.md/.test(html), 'and the file name with them');
+});
+
+rule('New process: a publish that finishes after the person left the form says where it is and never moves them', async () => {
+  const app = await newProc(), orig = app.PF.repo.publish;
+  app.PF.repo.publish = function () { app.click('nav', 'runs'); return orig.apply(this, arguments); };
+  app.click('np-tpl', 'weekly-review'); await app.tick();
+  app.set('np-title', 'Left weekly'); app.click('np-publish'); await app.tick(300);
+  app.PF.repo.publish = orig;
+  assert.strictEqual(app.files('publications/left-weekly/').filter(f => /map\.md$/.test(f)).length, 1, 'published');
+  assert.ok(/<h1 id="page-h"[^>]*>Runs/.test(app.html()), 'still on Runs');
+  assert.ok(/Published Left weekly v1\. Open it from Processes\./.test(app.html() + app.live()), 'says where it is');
+});
+
+rule('Plain words: a run detail inside a link\'s address is left alone; only the text shows the name', () => {
+  const app = boot(), K = app.PF.vk;
+  const out = K.detailWords('<a href="https://example.com/^commit" rel="noopener">see ^commit</a> to <code>^environment</code>');
+  assert.strictEqual(out, '<a href="https://example.com/^commit" rel="noopener">see <b class="dname">commit</b></a> to <b class="dname">environment</b>');
+});
+
 /* ---------- Part 3: the builder's words; Checks counts problems only ---------- */
 rule('Builder: the new-draft banner names Save draft, the header says what unsaved means, and tips don\'t make a Checks badge', async () => {
   const app = await newProc();
@@ -485,6 +513,18 @@ rule('Runs: Export evidence is under More, finished runs show the newest 8 with 
   const shownCards = (visible(fin).match(/class="card"/g) || []).length, all = (fin.match(/class="card"/g) || []).length;
   assert.ok(n > 8 ? shownCards === 8 && all === n && /Earlier finished runs \(\d+\)/.test(fin) : shownCards === n, 'newest 8: ' + shownCards + ' of ' + n);
   assert.ok(!/<span class="cat">[^<]* · v\d+<\/span>/.test(html), 'no version on cards');
+});
+
+rule('Runs: a finished run with a conflict copy is never folded away, however old', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const ended = app.files('runs/').filter(f => /run\.json$/.test(f)).map(f => ({ f, j: JSON.parse(app.fs.files[f].t) })).filter(x => x.j.ended).sort((a, b) => a.j.ended.at < b.j.ended.at ? -1 : 1);
+  assert.ok(ended.length > 8, 'enough finished runs: ' + ended.length);
+  const oldest = ended[0];
+  await app.fs.write(oldest.f.replace('run.json', 'run.conflict-wx-1.json'), JSON.stringify(oldest.j));
+  app.click('nav', 'runs'); app.click('refresh'); await app.tick(120);
+  const fin = between(app.html(), 'Finished · ', '</section>'), at = fin.indexOf('data-id="' + oldest.j.process + '/' + oldest.j.id + '"'), fold = fin.indexOf('<details data-disc="runs-older"');
+  assert.ok(at > 0 && (fold < 0 || at < fold), 'outside the fold');
+  assert.ok(/conflict copy found/.test(fin.slice(at, fin.indexOf('</button>', at))), 'with its warning');
 });
 
 rule('Step types: the built-in types fold into one line, and a type\'s {id} is inside What it asks for', async () => {

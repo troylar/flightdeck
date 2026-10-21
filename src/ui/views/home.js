@@ -177,9 +177,10 @@
       cardIds[p.id] = true;
       return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
     }).join('') + '</div></section>';
-    /* The newest 8 finished runs; the rest one click away, remembered. */
-    var older = ended.slice(8), allOpen = (st.disc || {})['runs-older'];
-    h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? cards(ended.slice(0, 8)) + (older.length ? '<details data-disc="runs-older"' + (allOpen ? ' open' : '') + '><summary class="small">Earlier finished runs (' + older.length + ')</summary>' + K.paged(st, 'runs-ended', older, cards, runKey) + '</details>' : '') : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
+    /* The newest 8 finished runs, and any run with a warning; the rest one click away, remembered. */
+    var warned = function (r) { return (r._conflicts && r._conflicts.length) || (st.missing || {})[runKey(r)]; };
+    var flagged = ended.filter(function (r, i) { return i >= 8 && warned(r); }), older = ended.filter(function (r, i) { return i >= 8 && !warned(r); }), allOpen = (st.disc || {})['runs-older'];
+    h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? cards(ended.slice(0, 8)) + (flagged.length ? K.paged(st, 'runs-flagged', flagged, cards, runKey) : '') + (older.length ? '<details data-disc="runs-older"' + (allOpen ? ' open' : '') + '><summary class="small">Earlier finished runs (' + older.length + ')</summary>' + K.paged(st, 'runs-ended', older, cards, runKey) + '</details>' : '') : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
       (d.legacy.length ? '<p class="small">From Flightdeck v0.1 (read-only files in <code>runs/</code>): ' + d.legacy.map(function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }).join(', ') + '</p>' : '') + '</section>';
     return h;
   }

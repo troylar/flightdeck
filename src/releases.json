@@ -131,8 +131,8 @@
         "kind": "improved",
         "area": "Checklists",
         "title": "Plain words for phase modes, details and outcomes",
-        "now": "Phases say \"Read, then do\" and \"Do, then confirm\". A run detail in a step or gate shows as its name, like approves deploy of commit to environment. Runs that were canceled say Canceled. Only the words on screen changed: checklist files still say READ-DO and DO-CONFIRM, and run files and receipt text still store Cancelled.",
-        "before": "READ-DO and DO-CONFIRM badges, ^commit tokens, and Cancelled.",
+        "now": "Phases say \"Read, then do\" and \"Do, then confirm\". A run detail in a step or gate shows as its name, like approves deploy of commit to environment. Runs that were canceled say Canceled. Only the words on screen changed: checklist files still say READ-DO and DO-CONFIRM, and run files and receipt text keep the outcome exactly as stored.",
+        "before": "READ-DO and DO-CONFIRM badges, ^commit tokens, and the British spelling of canceled.",
         "where": "Process pages, runs, the builder, Finish, receipts and Insights"
       },
       {
