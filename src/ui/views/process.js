@@ -245,8 +245,8 @@
   }
 
   /* A draft that uses something new in 2.0 publishes a version older copies can't run: say which, and what that means. */
-  function publishNeeds(p) {
-    var n = PF.publish.needs(M.parse(p.draft.md)); if (!n) return '';
+  function publishNeeds(ctx, p) {
+    var map = M.parse(p.draft.md), n = PF.publish.needs(map, PF.types.freeze(M.usedTypes(map), (ctx.data.stepTypes || {}).types)); if (!n) return '';
     var list = n.names.length === 1 ? n.names[0] : n.names.slice(0, -1).join(', ') + ' and ' + n.names[n.names.length - 1];
     return '<p class="small pub-needs" role="note"><b>Needs Flightdeck 2.0:</b> ' + esc(list) + '. Teammates on Flightdeck 1.22 or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
   }
@@ -281,7 +281,7 @@
       if (p.draftChanged) {
         h += '<div class="row" style="margin-top:12px"><label class="field" style="flex:1;min-width:240px" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" placeholder="e.g. Require the full test gate after the rebase"></label>' +
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me ? ' disabled' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
-          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(p) + publishCorrections(ctx, p);
+          '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(ctx, p) + publishCorrections(ctx, p);
         if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
       }
       h += '</section>';
@@ -451,7 +451,13 @@
     /* A detail a step produces during the run (sets:) isn't asked for here; the form says which step fills it in. */
     var setBy = M.setBy(pub.map), given = pre.details && typeof pre.details === 'object' ? pre.details : {};
     var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && !(plan && given[f]); });
-    meta.context.filter(function (f) { return later.indexOf(f) < 0; }).forEach(function (f) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(typeof given[f] === 'string' ? given[f] : '') + '"></label>'; });
+    meta.context.filter(function (f) { return later.indexOf(f) < 0; }).forEach(function (f) {
+      var g = typeof given[f] === 'string' ? given[f] : '', def = PF.run.typedDef({ snapshot: '' }, pub.map, 'details.' + f);
+      if (!def) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(g) + '"></label>'; return; }
+      /* A typed detail (2.0) gets its kind's box. A plan's text that doesn't convert is shown beside it, never guessed. */
+      var m = plan && g ? PF.run.migrateDetail(def, g) : null, shown = m && (m.verdict === 'exact' || m.verdict === 'converted') ? m.result : plan ? '' : g;
+      h += '<div>' + K.typedField('detail-' + f, f, def, shown, 'data-detail="' + esc(f) + '"') + (m && m.verdict !== 'exact' && m.verdict !== 'converted' ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
+    });
     if (later.length) h += '<p class="small" style="grid-column:1/-1">' + later.map(function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }).join('; ') + '.</p>';
     if (planning) {
       var err = st.fieldErr && st.fieldErr.id === 'plan-when';

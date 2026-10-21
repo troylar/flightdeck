@@ -538,6 +538,17 @@ rule('App: each Undo and Redo says what it undid or redid, on screen and to scre
   assert.ok(app.live() !== once && app.live().trim() === once.trim(), 'the same words again are announced again');
 });
 
+rule('Typed values: Add evidence makes a number, a yes/no or a date as chosen, never text', async () => {
+  for (const kind of ['number', 'yes-no', 'date']) {
+    const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+    app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+    app.click('tf-add', 'r', { kind }); await app.tick();
+    const k = (/data-act="tf-open" data-id="r:(k\d+)"/.exec(app.html()) || [])[1];
+    assert.ok(k, kind + ': a row');
+    assert.ok(new RegExp('<option value="' + kind + '" selected').test(app.html()), kind + ': ' + (app.html().match(/<select[^>]*-kind"[\s\S]*?<\/select>/) || [''])[0].slice(0, 400));
+  }
+});
+
 rule('App: in a step type, removing a field and undoing puts it back in place with all it had, and Cmd+Z there uses the same Undo', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
   app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
@@ -4654,6 +4665,33 @@ rule('go(): a choice left as drawn never blocks; a changed one does', async () =
   app.select(role, 'person-morgan'); await app.tick();
   app.click('go', '', { view: 'runs' }); await app.tick();
   assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && new RegExp('id="' + role + '"').test(app.html()), 'a changed one does');
+});
+
+/* A typed checklist published into the example folder, and its start form open. */
+async function typedStart() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
+  const md = ['---', 'process: typed', 'title: Typed', 'owner: person-avery', 'context: ticket, ok:yes-no, rows:number, env:choice(dev|test|prod|stage|qa|perf)', '---', '', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One {#one}'].join('\n');
+  const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now: new Date().toISOString(), rand: 'ty000001', app: '2.0.0' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  Object.keys(b.files).forEach(k => { app.fs.files['publications/typed/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'typed'); await app.settle();
+  assert.ok(/id="opt-detail-ok-0"/.test(app.html()) && /<select id="detail-env"/.test(app.html()), 'set-up: the typed start form');
+  return app;
+}
+
+rule('Typed values: a yes/no, a choice or a number chosen on the start form keeps Back and go() from dropping it; untouched ones never block', async () => {
+  for (const [what, act] of [['yes/no', a => a.check('opt-detail-ok-0', true)], ['choice', a => a.select('detail-env', 'prod')], ['number', a => a.set('detail-rows', '12')]]) {
+    let app = await typedStart(); act(app); await app.tick();
+    app.back(); await app.settle();
+    assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && /id="detail-ok"/.test(app.html()), what + ': Back waits');
+    app = await typedStart(); act(app); await app.tick();
+    app.click('go', '', { view: 'home' }); await app.tick();
+    assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()) && /id="detail-ok"/.test(app.html()), what + ': go() waits');
+  }
+  const app = await typedStart(); app.back(); await app.settle();
+  assert.ok(!/id="detail-ok"/.test(app.html()) && !/Finish or cancel this first/.test(app.html() + app.live()), 'nothing chosen: Back goes');
 });
 
 rule('go(): with nothing typed, every screen and dialog of the examples lets you go', async () => {

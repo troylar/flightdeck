@@ -2626,4 +2626,61 @@ rule('Back and Forward: the screens it lands on have a heading that takes focus 
   assert.ok(head(V.pageHead('Runs', 'Runs', '')), 'a page heading without an id gets page-h');
 });
 
+
+rule('Typed values: the start form gives a typed detail its kind\'s box, says what a plan\'s text was when it didn\'t convert, and leaves text boxes as they were', () => {
+  const { ctx, state } = setup();
+  const md = example('maps/drafts/release.md').replace(/^context: .*$/m, (l) => l + ', rows:number, ok:yes-no, due:date, env:choice(dev|prod)');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'Typed', existing: [], now: NOW, rand: 'view0t01', app: '2.0.0' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
+  const proc = { id: 'release', title: 'Production release', category: 'Releases', latest: pub, all: [pub], clashes: [], broken: [], skills: [], draft: null };
+  ctx.processes = () => [proc]; ctx.suggestRole = () => null;
+  ctx.data.plans = [{ id: 'plan-t', process: 'release', version: pub.info.version, title: 'Planned', details: { ticket: 'ABC-9', rows: '1,234', ok: 'Y', due: '03/04/2026' }, roles: {}, by: 'person-blake', _hash: 'h1' }];
+  state.view = 'start'; state.processId = 'release'; state.planId = 'plan-t';
+  const html = V.start(ctx);
+  assert.ok(/<label class="field" for="detail-ticket">ticket<input id="detail-ticket" data-detail="ticket" maxlength="120" value="ABC-9"><\/label>/.test(html), 'a text detail keeps its box exactly');
+  assert.ok(/<input id="detail-rows" inputmode="decimal" maxlength="30" value=""/.test(html) && /Before: &quot;1,234&quot; \(text\)\. Type the number it means\./.test(html), 'a number that didn\'t convert starts empty, with what it was');
+  assert.ok(/<fieldset class="field typed" id="detail-ok" data-detail="ok"><legend>ok<\/legend>/.test(html) && /value="yes" checked/.test(html), 'yes/no: a fieldset with a legend; Y converted to yes');
+  assert.ok(/<input type="date" id="detail-due"[^>]*value=""/.test(html) && /Pick the date it means/.test(html));
+  assert.ok(/name="detail-env" value="dev"/.test(html), 'a short choice is radios');
+  ctx.data.plans = []; state.planId = null;
+  const plain = V.start(ctx);
+  assert.ok(!/<fieldset class="field typed"/.test(V.start(Object.assign({}, ctx, { processes: () => [ctx.data.processes[0].index.latest && { id: 'release', title: 'R', category: 'R', latest: ctx.data.processes[0].index.latest, all: [ctx.data.processes[0].index.latest], clashes: [], broken: [], skills: [], draft: null }] }))), 'a checklist without typed values has no typed boxes');
+  assert.ok(plain.length > 0);
+});
+
+
+rule('Typed values: the run shows typed details the way people read them, names one that isn\'t valid, and asks for typed evidence with its box', () => {
+  const { ctx, state } = setup();
+  const md = example('maps/drafts/release.md').replace(/^context: .*$/m, (l) => l + ', rows:number, due:date').replace(/^(- \[[ !]\] \{confirm\}[^\n]*\{#[a-z0-9-]+\})$/m, '$1\n  evidence: number');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'Typed', existing: [], now: NOW, rand: 'view0t02', app: '2.0.0' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
+  const r = R.create(pub, { title: 'T', details: { ticket: 'ABC-1', commit: 'c0ffee1', environment: 'production', rows: '1234567.5', due: '2026-10-31' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, app: '2.0.0' });
+  const f = JSON.parse(JSON.stringify(r)); f.details.rows = '12a';
+  const back = R.sanitize(f); back._notes = []; back._conflicts = [];
+  ctx.run = () => back; ctx.data.runs = [back];
+  let html = V.run(ctx);
+  assert.ok(/<span class="k">rows<\/span> <code>12a<\/code> <span class="small">needs filling in<\/span>/.test(html), 'flagged beside the run');
+  state.runDetails = true; html = V.run(ctx);
+  assert.ok(/Oct 31, 2026 \(2026-10-31\)/.test(html), 'a date as people read it, with what is stored');
+  assert.ok(/Not a number: &quot;12a&quot;\. Fill in to correct it\./.test(html), 'an invalid value is named, as written');
+  const first = PF.map.steps(R.mapOf(back)).find(x => x.step.fields.evidence === 'number').step;
+  state.sel = first.id; state.runDetails = false;
+  html = V.run(ctx);
+  assert.ok(new RegExp('id="rec-evidence" inputmode="decimal"').test(html), 'number evidence: a box for decimals');
+});
+
+rule('Typed values: a stored value that isn\'t valid for its kind is shown as written in a plain box, so saving something else never drops it', () => {
+  const K = PF.vk;
+  const date = K.typedField('fx-due', 'due', { kind: 'date' }, '2026-02-30', '');
+  assert.ok(/<input id="fx-due" maxlength="300" value="2026-02-30"/.test(date) && !/type="date"/.test(date), date);
+  const yn = K.typedField('fx-ok', 'ok', { kind: 'yes-no' }, 'maybe', '');
+  assert.ok(/<input id="fx-ok" maxlength="300" value="maybe"/.test(yn) && !/type="radio"/.test(yn), yn);
+  const ch = K.typedField('fx-env', 'env', { kind: 'choice', options: ['dev', 'prod', 'a', 'b', 'c', 'd'] }, 'qa', '');
+  assert.ok(/<input id="fx-env" maxlength="300" value="qa"/.test(ch), ch);
+  assert.ok(/type="date"[^>]*value="2026-02-28"/.test(K.typedField('fx-d', 'due', { kind: 'date' }, '2026-02-28', '')), 'a valid one gets its kind\'s box');
+  assert.ok(/type="date"[^>]*value=""/.test(K.typedField('fx-d', 'due', { kind: 'date' }, '', '')), 'an empty one too');
+});
+
 run();

@@ -27,7 +27,7 @@ Every command takes the team folder's path and `--json`. Without `--json` it exi
 
 A run's key is `<process>/<run id>`, for example `backup-check/k3m9p2q8`. In the app, a run's **More** menu has **Copy run key**.
 
-`--contract 1` asks for this contract by number. A number this copy doesn't have exits 1 and names the ones it has.
+`--contract 1` asks for this contract by number. A number this copy doesn't have exits 1 and names the ones it has. Without `--contract`, you get contract 1 (`flightdeck-read/1`), exactly what Flightdeck 1.x printed. `--contract 2` (`flightdeck-read/2`) reads what Flightdeck 2.0 writes; see Contract 2 below.
 
 ### Exit codes
 
@@ -167,6 +167,19 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
 ### followups
 
 `{ "followUps": [...] }`, oldest first. Each: `key` (`<process>/<run id>/<follow-up id>`), `process`, `run`, `runTitle`, `runEnded`, `id`, `text`, `owner`, `ticket`, `step`, `at`, `status` (`open`, `done`, `ticket`, `moved`, `wont`), `label` (the app's words), `tie` (two people decided at once; it stays open until someone decides again) and `decision`: `status`, `by`, `at`, `rev`, `ticket`, `link`, `to` (a run's key or `plan:<id>`), `reason` and `note`, or `null`.
+
+## Contract 2 (Flightdeck 2.0)
+
+`--contract 2` prints `"contract": "flightdeck-read/2"`, with the same commands, envelope, problem kinds and exit codes. What's different from contract 1:
+
+- **2.0 versions and runs are data.** A version published with Flightdeck 2.0 (`preflight-publication/2`) and a run of one (`preflight-run/3`) are read, not named as `newer`. One that uses something this copy can't read is still `newer`.
+- **Typed values.** In `runs` and `run`, a run's `details`, and in `run`, each step's `values`, are objects keyed by name. Each value has `type` (`text`, `number`, `yes-no`, `date`, `choice` or `link`), `text` (exactly what's stored), `value` (a string for a number, so it's never rounded; `true` or `false` for yes/no; the text for the rest; `null` when it's empty, still waiting for a person, or not valid), `valid` (`false` when the stored text isn't a value of its type; it's also a `malformed` problem naming its place) and `migration` (the latest migration record about it, or `null`).
+- **Migrations.** When a typed value came from older text (a plan, a carried value, a report), the run keeps a record of what it was and what it became. Each record has `path` (like `details.due` or `steps.count.values.rows`), `at`, `from` (the text before), `source` (`plan`, `switch`, `carry`, `request` or `report`), `verdict` (`converted`, `ambiguous` or `invalid`), `result` (what it converted to, or `null`), `resolved` (`by`, `at` and `value` when a person filled it in, or `null`) and `open` (`true` while a person still has to fill it in).
+- **`run`** adds `format`, `features` (what the run needs from Flightdeck, in order), `pins` (each linked step's pinned version: `process`, `version`, `folder`, `mapHash`, `typesHash`) and `migrations` (every record, archived ones first). Each step's `evidence` entry adds its `type`: how its values are checked and reported, the same `type` as each of its values. Evidence a 1.x step type records as a choice or a link (`kind` `choice` or `url`) is `text`: its values were never checked as typed values.
+- **`runs`** adds `format` and `features` to each run, and each planned run's `format` and `pin` (`folder` and `version` of the exact version a 2.0 plan starts on, or `null`). A 2.0 plan never falls back to the latest version: when its version can't be used, `startsOn` is `null` and `versionMissing` is `true`.
+- **`process`** adds `format`, `features` and `details` (each run detail's `name`, `type` and `options`), and each step's `evidence` entry adds `type`, `min`, `max` and `unit` (a number's limits, as text, or `null`).
+
+Contract 1's output doesn't change.
 
 ## A walkthrough
 

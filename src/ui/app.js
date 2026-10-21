@@ -1223,7 +1223,7 @@
     /* Each input's scope is read from the page it's on: the old page when saving drafts, the new page when restoring them. */
     function scopeOf(el) { var z = el.closest('[data-scope]'); return (app.dataset.scope || '') + '|' + (z ? z.dataset.scope : ''); }
     /* Controls marked data-bound are drawn from state (the draft editor, the step-type form), so they're never carried over. */
-    if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox', scope: scopeOf(el) }; });
+    if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
     if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? '#' + ae.id : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
     var y = window.scrollY;
@@ -1651,7 +1651,7 @@
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
     var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
@@ -4046,7 +4046,7 @@
     },
     'tf-add': function (id, b) {
       var f = state.typeForm, d = f && f.def; if (!d) return; flushAdds(f);
-      var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice'];
+      var kd = b && b.dataset && b.dataset.kind, kinds = id === 'f' ? ['text', 'url', 'code', 'message', 'list', 'choice'] : ['text', 'url', 'choice', 'number', 'yes-no', 'date'];
       var before = typeSnap(f), row = { k: V.nextRowKey(), name: '', label: '', kind: kinds.indexOf(kd) >= 0 ? kd : 'text' }; (id === 'f' ? d.fields : d.record).push(row);
       f.open = id + ':' + row.k; (state.disc = state.disc || {})['tf-add-' + id] = false;
       recordTypeForm(f, before, { kind: 'form', label: id === 'f' ? 'new field' : 'new evidence', items: [(id === 'f' ? 'field:' : 'evidence:') + row.k], selBefore: { focus: '[data-act="tf-add"][data-id="' + id + '"]' }, selAfter: { focus: '#tf-' + id + '-' + row.k + '-label' } });
@@ -4216,10 +4216,10 @@
     },
     'save-fields': function (id) {
       var r = ctx.run(), x = M.findStep(R.mapOf(r), id), t = T.get(x.step.type, r.types), fields = {}, values = {};
-      T.editable(t).forEach(function (f) { var el = document.getElementById('fld-' + f); if (el) fields[f] = el.value; });
+      T.editable(t).forEach(function (f) { var el = document.getElementById('fld-' + f); if (el) fields[f] = inputValue(el); });
       /* Evidence is collected and checked against the fields as they'll be after this save, not as they were. */
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
-      R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = el.value; });
+      R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
       var chk = R.checkEvidence(r, x.step, merged, values, true);
       if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
       /* The draft is dropped only once the values are in the run, and only the evidence this form saved: evidence typed for
@@ -4844,7 +4844,10 @@
       return { key: key, g: g };
     });
   }
-  function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  /* A fieldset of radios (a typed yes/no or choice) reads as its checked value. */
+  function val(id) { var el = document.getElementById(id); return !el ? '' : el.tagName === 'FIELDSET' ? inputValue(el) : el.value; }
+  function setInput(el, v) { if (el.tagName !== 'FIELDSET') { el.value = v; return; } el.querySelectorAll('input[type="radio"]').forEach(function (x) { x.checked = x.value === v; }); }
+  function inputValue(el) { if (el.tagName !== 'FIELDSET') return el.value; var c = el.querySelector('input:checked'); return c ? c.value : ''; }
   /* The opener is remembered by what it is (its id or action), not as a node, because redraws replace nodes. */
   function selectorOf(el) {
     if (!el || el === document.body) return null;
@@ -4893,7 +4896,7 @@
     var p = processes().filter(function (x) { return x.id === e.target.dataset.process; })[0];
     if (!p || !p.latest || !state.me) return;
     var details = {}, roles = {};
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = el.value; });
+    e.target.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = inputValue(el); });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var plan = state.planId && data.plans.filter(function (x) { return x.id === state.planId; })[0];
     /* Start exactly what was reviewed: the same published version and, for a plan, the same plan content. Only a plan can start
@@ -4909,8 +4912,10 @@
     if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
-    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
-    catch (err) { say(err.message, 'warn'); render(); return; }
+    /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */
+    var from = plan && plan.details && typeof plan.details === 'object' ? { source: pick.chosen ? 'switch' : 'plan', details: plan.details } : null;
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
@@ -4939,7 +4944,7 @@
     if (!p || !p.latest || !state.me || !planning || planning.process !== p.id) return;
     var pub = p.latest, details = {}, roles = {};
     if (e.target.dataset.folder !== pub.info.folder) { say('A new version was published while you were filling this in. Check the form, then save again.', 'warn'); render(); return; }
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = el.value.trim(); if (v) details[el.dataset.detail] = v.slice(0, 120); });
+    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = String(inputValue(el) || '').trim(); if (v) details[el.dataset.detail] = v.slice(0, 120); });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { if (el.value) roles[el.dataset.role] = el.value; });
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     var whenText = val('plan-when').trim(), parsed = whenText ? U.localDateTime(whenText) : null, when = parsed && parsed.date;
@@ -5146,10 +5151,10 @@
     if (!drawn || drawn.key !== state.runKey || state.view !== 'run') return;
     var d = draftOf(drawn.key, drawn.sel, true, drawn.fs), part = d[drawn.kind];
     drawn.ids.forEach(function (id) {
-      var el = document.getElementById(id); if (!el || el.value === baseOf(id) || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
+      var el = document.getElementById(id); if (!el || inputValue(el) === baseOf(id) || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
       if (id === 'note-text') { d.note = el.value; return; }
       /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
-      part[id] = el.value;
+      part[id] = inputValue(el);
     });
     if (!hasDraft(d)) delete state.stepDrafts[draftKey(drawn.key, drawn.sel, drawn.fs)];
   }
@@ -5160,6 +5165,7 @@
     while ((m = re.exec(html))) {
       var id = m[1], at = m.index, tag = html.lastIndexOf('<', at), name = html.slice(tag + 1, tag + 9), v = '';
       if (/^textarea/.test(name)) { var o = html.indexOf('>', at) + 1; v = html.slice(o, html.indexOf('</textarea>', o)); }
+      else if (/^fieldset/.test(name)) { var fh = html.slice(at, html.indexOf('</fieldset>', at)), fo = /<input[^>]*\svalue="([^"]*)"[^>]*\schecked/.exec(fh); v = fo ? fo[1] : ''; }
       else if (/^select/.test(name)) { var sh = html.slice(at, html.indexOf('</select>', at)), so = /<option[^>]*\sselected[^>]*>([^<]*)/.exec(sh); v = so ? so[1] : ''; }
       else { var tg = html.slice(at, html.indexOf('>', at)), vm2 = /\svalue="([^"]*)"/.exec(tg); v = vm2 ? vm2[1] : ''; }
       ids.push(id); base[id] = unesc(v);
@@ -5173,8 +5179,8 @@
     var d = draftOf(drawn.key, drawn.sel, false);
     drawn.ids.forEach(function (id) {
       var el = document.getElementById(id), mine = d ? (id === 'note-text' ? d.note || null : Object.prototype.hasOwnProperty.call(d[drawn.kind], id) ? d[drawn.kind][id] : null) : null, want = mine != null ? mine : baseOf(id);
-      if (!el || el.value === want) return;
-      if (changed || (mine && !el.value)) el.value = want;
+      if (!el || inputValue(el) === want) return;
+      if (changed || (mine && !inputValue(el))) setInput(el, want);
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */

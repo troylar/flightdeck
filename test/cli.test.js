@@ -733,7 +733,7 @@ function agree(r) {
     return r;
   }
   assert.deepStrictEqual(wrong(r.json, AJ.SCHEMA.envelope), [], 'envelope');
-  assert.strictEqual(r.json.contract, 'flightdeck-read/1');
+  assert.ok(/^flightdeck-read\/[12]$/.test(r.json.contract), r.json.contract);
   assert.strictEqual(r.json.complete, r.json.problems.length === 0, 'complete is true exactly when problems is empty');
   assert.strictEqual(r.code === 4, !r.json.complete, 'exit 4 exactly when not complete (exit ' + r.code + ')');
   if (r.json.complete) assert.strictEqual(r.code, 0);
@@ -990,11 +990,49 @@ rule('READ: next equals the run screen\'s Next up at every point of a run, from 
   assert.ok(checks > 10, 'checked ' + checks + ' points');
 });
 
-rule('READ: --contract 1 is this contract; one this copy doesn\'t have exits 1 naming those it has', async () => {
+rule('READ: --contract 1 is this contract; 2 reads Flightdeck 2.0; one this copy doesn\'t have exits 1 naming those it has', async () => {
   const dir = await readFolder();
   assert.strictEqual(agree(readCli('runs', dir, '--contract', '1', '--json')).code, 0);
-  const r = agree(readCli('runs', dir, '--contract', '2', '--json'));
-  assert.ok(r.code === 1 && r.json.error.kind === 'contract' && /flightdeck-read\/1/.test(r.json.error.why), r.out);
+  const two = agree(readCli('runs', dir, '--contract', '2', '--json'));
+  assert.ok(two.code === 0 && two.json.contract === 'flightdeck-read/2', two.out);
+  assert.deepStrictEqual(wrong(two.json.data, AJ.SCHEMA2.runs), [], 'contract 2 runs data');
+  const r = agree(readCli('runs', dir, '--contract', '3', '--json'));
+  assert.ok(r.code === 1 && r.json.error.kind === 'contract' && /flightdeck-read\/1, flightdeck-read\/2/.test(r.json.error.why), r.out);
+});
+
+
+rule('READ: contract 2 reads a typed run/3 and its version with typed values and the migration record; contract 1 still names it newer', async () => {
+  const fsx = require('fs'), dir = tmp();
+  const copy = (from) => { (function walk(rel) { const abs = path.join(from, rel); for (const e of fsx.readdirSync(abs, { withFileTypes: true })) { const r2 = path.join(rel, e.name); if (e.isDirectory()) { fsx.mkdirSync(path.join(dir, r2), { recursive: true }); walk(r2); } else fsx.copyFileSync(path.join(from, r2), path.join(dir, r2)); } })(''); };
+  copy(path.join(__dirname, 'fixtures', 'folders', 'v1.18.0')); copy(path.join(__dirname, 'fixtures', 'v2', 'folder'));
+  const two = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
+  assert.deepStrictEqual(wrong(two.json.data, AJ.SCHEMA2.run), [], 'run data');
+  const run = two.json.data.run;
+  assert.deepStrictEqual([run.format, run.details.rows.value, run.details.approved.value, run.details.due.migration.verdict], ['preflight-run/3', '1234.5', true, 'ambiguous']);
+  assert.strictEqual(run.migrations.length, 2, 'the current record and the archived one');
+  const proc = agree(readCli('process', dir, 'backup', '--contract', '2', '--json'));
+  assert.deepStrictEqual(wrong(proc.json.data, AJ.SCHEMA2.process), [], 'process data');
+  assert.strictEqual(proc.json.data.details.find(d => d.name === 'rows').type, 'number');
+  const runs2 = agree(readCli('runs', dir, '--contract', '2', '--json'));
+  const pinned = runs2.json.data.planned.find(p => p.id === 'plan-backup-pinned');
+  assert.ok(pinned && pinned.format === 'flightdeck-plan/2' && pinned.pin.folder === 'v1-ab9ysnqh' && !runs2.json.problems.some(p => /proposals/.test(p.path)), 'a plan/2 is data in contract 2: ' + runs2.out.slice(0, 600));
+  const planFile = path.join(dir, 'proposals', 'plan-backup-pinned.json'), other = path.join(dir, 'proposals', 'plan-backup-pinned (1).json');
+  const copy2 = JSON.parse(fsx.readFileSync(planFile, 'utf8')); copy2.pin = { folder: 'v2-zzzz2222', version: 2, mapHash: 'b7bf4bf0', typesHash: 'dff477ba' };
+  fsx.writeFileSync(other, JSON.stringify(copy2, null, 2));
+  const both = agree(readCli('runs', dir, '--contract', '2', '--json')).json.data.planned.filter(p => p.id === 'plan-backup-pinned');
+  assert.deepStrictEqual(both.map(p => p.pin && p.pin.folder).sort(), ['v1-ab9ysnqh', 'v2-zzzz2222'], 'two copies that differ each keep their own pin: ' + JSON.stringify(both));
+  fsx.unlinkSync(other);
+  fsx.appendFileSync(path.join(dir, 'runs', 'backup', 'run-c', 'history-w-twozero.jsonl'), '{"kind":"migration","av":1,"pa\n');
+  const torn = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
+  assert.ok(torn.code === 4 && torn.json.problems.some(p => p.kind === 'malformed' && /history-w-twozero\.jsonl$/.test(p.path)), 'a torn history line is named: ' + torn.out.slice(0, 600));
+  const hist = path.join(dir, 'runs', 'backup', 'run-c', 'history-w-twozero.jsonl');
+  fsx.writeFileSync(hist, '{"kind":"migration","av":1}\n{"kind":"migration","av":1,"path":"details.nope","at":null,"from":"x","source":"plan","verdict":"invalid","result":null,"resolved":null}\n');
+  const odd = agree(readCli('run', dir, 'backup/run-c', '--contract', '2', '--json'));
+  assert.ok(odd.code === 4 && odd.json.problems.filter(p => p.kind === 'malformed' && /history-w-twozero\.jsonl$/.test(p.path)).length >= 1, 'an archived record in another shape is named: ' + odd.out.slice(0, 600));
+  assert.strictEqual(odd.json.data.run.migrations.length, 1, 'and never read as a migration');
+  fsx.unlinkSync(hist);
+  const one = agree(readCli('run', dir, 'backup/run-c', '--json'));
+  assert.ok(one.json.data.run === null && one.json.problems.some(p => p.kind === 'newer' && /run-c/.test(p.path)), 'contract 1 is unchanged: ' + one.out.slice(0, 400));
 });
 
 rule('READ: without --json, or on a folder that can\'t be read, nothing is printed as data and the exit code is 1', async () => {

@@ -41,11 +41,31 @@ roles: author, reviewer
 | `backup` | no | The backup owner: another person ID from `people.json`. Signs off only while the owner is inactive or gone from `people.json`. Flightdeck before 1.15 ignores it and counts only the owner's sign-offs. |
 | `group` | no | Where the process sits in the team's hierarchy, separated by `/` (`Engineering / Releases`). Without it, the category. |
 | `tags` | no | Labels to filter by (`production, deploy`). |
-| `context` | no | Run details filled in when a run starts (`ticket, commit, environment`). At most 40, each a name of letters, numbers, dashes or underscores up to 60 characters. |
+| `context` | no | Run details filled in when a run starts (`ticket, commit, environment`). At most 40, each a name of letters, numbers, dashes or underscores up to 60 characters. A detail can have a kind (Flightdeck 2.0): see [Typed run details](#typed-run-details). |
 | `roles` | no | Roles people are assigned to in each run. |
 | `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it), or `team` (the default). |
 
 In the builder, **Checklist details** sets `owner`, `backup`, `roles` and `context` without editing this block. Each step's form edits its note, and the Questions section has a panel with **Remove section**.
+
+## Typed run details
+
+Most run details are text, and that's the default: `context: ticket, commit` works as it always has. When a detail is always a number, a yes or no, a date, one of a few choices or a link, give it a kind after a colon (Flightdeck 2.0):
+
+```
+context: ticket, rows:number, due:date, approved:yes-no, env:choice(dev|test|prod), runbook:link
+```
+
+| Kind | Stored as | Typed in as |
+|---|---|---|
+| `number` | A plain decimal, never rounded: `1234.5`, `-3`, `0` | A box for decimals. `+12`, `007` and `3.50` are accepted and stored as `12`, `7` and `3.5`; `1,234`, `1e3` and words are refused. At most 30 characters. |
+| `yes-no` | `yes` or `no` | Two choices, Yes and No |
+| `date` | `YYYY-MM-DD`, a real calendar day | The browser's date box |
+| `choice(a\|b)` | The option as written | Up to five options as choices, more as a list. A different capitalization of an option is accepted and stored as written here. 2 to 20 options, each up to 40 characters, with no `, \| ( ) :`, and no two that differ only in capitals. |
+| `link` | A link that starts with `http://` or `https://` | A box that says so |
+
+Steps and gates still use the bare name (`^rows`). Writing `name:text` is an error (just write `name`), so is an unknown kind or a name listed twice with a kind. A checklist with a typed detail, or with `number`, `yes-no` or `date` evidence, is published as a 2.0 version: an older Flightdeck names it and can't run it. A checklist without any stays exactly as before.
+
+When a run starts from text (a plan, or a detail carried from a parent run), each typed detail is converted only when that's certain: `1234.50` becomes `1234.5`, `Y` becomes `yes`, `Prod` becomes `prod`. Anything else (`03/04/2026`, `1,234`) starts empty, with what it was shown beside it, until a person fills it in, and nothing that uses it (a step bound to it, a gate that approves it, a linked run that carries it) can go ahead before then. The run keeps a record of each conversion.
 
 ## Phases, steps and gates
 
@@ -147,7 +167,7 @@ During a run, the recorder can **Fill in** any step's checklist fields and evide
 | `measure` | Record a number with its unit, like velocity or points carried over. | **`metric`**, `unit`, `where` | `value`, `unit` |
 <!-- types:end -->
 
-Every type also accepts `link`, `expect` (how long it usually takes, like `25m`), `deadline` (`external` means the deadline is copied in from the real tool during the run) `evidence` (`link` or `note`: checking the step then requires one) and `require` (evidence names that must be recorded, or `all`). Field values can use `^details`, like `parameters: TICKET=^ticket`.
+Every type also accepts `link`, `expect` (how long it usually takes, like `25m`), `deadline` (`external` means the deadline is copied in from the real tool during the run) `evidence` (`link` or `note`, or in Flightdeck 2.0 `number`, `yes-no` or `date`: checking the step then requires one) and `require` (evidence names that must be recorded, or `all`). Field values can use `^details`, like `parameters: TICKET=^ticket`.
 
 Recorded links must be `https://` links. Flightdeck never calls Jenkins, Bitbucket or Jira; these types only make sure the right things are written down.
 
@@ -204,7 +224,7 @@ A team can add its own types as `step-types/<id>.json` in the team folder. The f
 }
 ```
 
-Field kinds are `text`, `url`, `code`, `message`, `list` and `choice` (with `options`); evidence kinds are `text`, `url` and `choice`. `group` (optional, up to 80 characters, levels separated by `/`) and `tags` (optional, up to 10 short words) only organize the Step types page; they're never frozen into a version, so changing them doesn't change any process or skill. Publishing freezes the type into the publication, so a later edit to the file never changes an old version. A broken file is listed on the process page and its type can't be used.
+Field kinds are `text`, `url`, `code`, `message`, `list` and `choice` (with `options`); evidence kinds are `text`, `url` and `choice`, and in Flightdeck 2.0 also `number` (with optional `min` and `max`, written as plain decimals like `"0"`, and `unit`, up to 20 characters), `yes-no` and `date`. A file that records one of those three is a 2.0 step type: it starts with `"format": "flightdeck-step-type/2"` and `"features": ["typed-evidence"]`, and Flightdeck says so if they're missing. A teammate on an older Flightdeck sees it as a type they can't use until they update. In a 2.0 file, a choice's options can't differ only in capitals. `group` (optional, up to 80 characters, levels separated by `/`) and `tags` (optional, up to 10 short words) only organize the Step types page; they're never frozen into a version, so changing them doesn't change any process or skill. Publishing freezes the type into the publication, so a later edit to the file never changes an old version. A broken file is listed on the process page and its type can't be used.
 
 ## Jira workflows
 

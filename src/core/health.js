@@ -218,8 +218,9 @@ PF.health = (function () {
       Object.keys(byFam).sort().forEach(function (k) { var x = byFam[k], n = NAMES[x[0].family] || ['file', 'files']; parts.push(x.length + ' ' + (x.length === 1 ? n[0] : n[1]) + ' need' + (x.length === 1 ? 's ' : ' ') + needs(x[0].needs)); });
       add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy shows them and leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; }), refused.map(function (x) { return x.path; }), instNewer ? ['.flightdeck/installed.json'] : []), action: help(HELP.newer), help: HELP.newer });
     } else ok('newer', 'Nothing here was written by a newer Flightdeck.');
-    /* An older copy's Restore beside a run it could only list by name leaves a placeholder (no steps, no answers). */
-    var ph = scan && scan.placeholders ? scan.placeholders.filter(function (p) { var m = /^runs\/([^/]+)\/([^/]+)\//.exec(p); return m && ro.some(function (r) { return r.process === m[1] && r.id === m[2] && r._needs != null; }); }) : [];
+    /* An older copy's Restore beside a run it could only list by name leaves a placeholder (no steps, no answers): beside a run
+       this copy lists by name only, or a run/3 it reads in full. */
+    var ph = scan && scan.placeholders ? scan.placeholders.filter(function (p) { var m = /^runs\/([^/]+)\/([^/]+)\//.exec(p); return m && runs.some(function (r) { return r.process === m[1] && r.id === m[2] && (r._needs != null || r.format === PF.run.FORMAT3); }); }) : [];
     if (ph.length) add({ id: 'placeholder', severity: 'info', area: 'Runs', title: plural(ph.length, 'placeholder') + ' left by an older Flightdeck', detail: 'An older Flightdeck left ' + (ph.length === 1 ? 'this placeholder' : 'these placeholders') + ' beside a run made with a newer one. ' + (ph.length === 1 ? 'It holds' : 'They hold') + ' no answers. Once the run reads correctly in the newer Flightdeck, ' + (ph.length === 1 ? 'it' : 'they') + ' can be deleted.', paths: ph, action: help(HELP.placeholder), help: HELP.placeholder });
 
     /* ---- copies seen lately: older Flightdecks that answered connection checks or edited drafts here ---- */

@@ -765,18 +765,19 @@ async function readData(eng, adapter, req) {
      folder above what it reads included, are never its problems. */
   let relevant = () => true;
   const ledger = () => { take(adapterProblems(adapter)); return L.problems().filter((p) => relevant(p.path)); };
-  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why, ledger()) });
+  const two = +req.contract === 2;
+  const err = (code, kind, why) => ({ code, json: A.failure(app, kind, why, ledger(), two ? 2 : 1) });
   const notFound = (why) => err(EXIT.notFound, 'not-found', why);
-  if (req.contract != null && A.VERSIONS.indexOf(+req.contract) < 0) return err(EXIT.error, 'contract', 'This copy of Flightdeck reads contract ' + A.VERSIONS.join(', ') + ' only (' + A.CONTRACT + '). Ask for one of those, or update Flightdeck.');
-  const done = (keep, data, readAt) => { const e = A.envelope(app, readAt || new Date().toISOString(), keep(ledger()), data); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
+  if (req.contract != null && A.VERSIONS.indexOf(+req.contract) < 0) return err(EXIT.error, 'contract', 'This copy of Flightdeck reads contract ' + A.VERSIONS.join(', ') + ' only (' + A.VERSIONS.map(A.CONTRACT_OF).join(', ') + '). Ask for one of those, or update Flightdeck.');
+  const done = (keep, data, readAt) => { const e = A.envelope(app, readAt || new Date().toISOString(), keep(ledger()), data, two ? 2 : 1); return { code: e.complete ? 0 : EXIT.partial, json: e }; };
   try {
     if (req.cmd === 'run' || req.cmd === 'next') {
       const m = RUN_KEY.exec(req.key || '');
       relevant = runCovers(m[1], m[2], null);
       const one = await repo.readRunOnly(L.fs, m[1], m[2]);
       if (!one.found) return notFound('There\'s no run ' + req.key + ' in the team folder.');
-      /* Contract 1 (the only one yet) shows what Flightdeck 1.x reads: a run/3 and a 2.0 version are named as newer. */
-      one.run = A.v1Run(one.run); one.pub = A.v1Pub(one.pub);
+      /* Contract 1 shows what Flightdeck 1.x reads: a run/3 and a 2.0 version are named as newer. Contract 2 reads them. */
+      if (!two) { one.run = A.v1Run(one.run); one.pub = A.v1Pub(one.pub); }
       const r = one.run, key = m[1] + '/' + m[2];
       if (one.nofile) L.note('runs/' + key + '/run.json', 'nofile', 'The run folder has no run.json.');
       take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
@@ -789,14 +790,28 @@ async function readData(eng, adapter, req) {
       const usable = !!r && !newerRun(PF, r);
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
       const keep = (list) => list, nameOf = A.names(one.people);
-      if (req.cmd === 'run') return done(keep, usable ? A.run(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
+      /* Contract 2 lists a run/3's migration records, current and archived (history-*.jsonl): a failed read is a problem. */
+      if (two && usable && r.format === PF.run.FORMAT3) {
+        const h = await repo.loadHistory(L.fs, r).catch((e) => { L.note('runs/' + key + '/', 'unreadable', fileWhy(e && e.message || String(e))); return []; });
+        take((h.refused || []).map((x) => ({ path: x.path, kind: x.kind === 'newer' ? 'newer' : 'malformed', why: x.why })));
+        [...new Set(h.malformed || [])].forEach((p) => L.note(p, 'malformed', 'This file has lines that aren\'t archived records, so some of the run\'s history may be missing.'));
+        /* An archived record is read only in its exact frozen shape (kind, av, then a migration record); any other is named. */
+        const rmap = PF.run.mapOf(r), MK = ['path', 'at', 'from', 'source', 'verdict', 'result', 'resolved'];
+        r._archivedMigrations = [];
+        h.filter((x) => x.kind === 'migration').forEach((x) => {
+          const m = {}; Object.keys(x).filter((k) => k !== 'kind' && k !== 'av').forEach((k) => { m[k] = x[k]; });
+          if (Object.keys(x).slice(0, 2).join() === 'kind,av' && Object.keys(m).join() === MK.join() && PF.run.migrationOk(m, rmap, r)) r._archivedMigrations.push(m);
+          else L.note(x._file || 'runs/' + key + '/', 'malformed', 'An archived migration record isn\'t one Flightdeck can read, so some of the run\'s history may be missing.');
+        });
+      }
+      if (req.cmd === 'run') return done(keep, usable ? (two ? A.run2 : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
       return done(keep, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
     relevant = covers(needs(req));
-    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true });
-    d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean);
+    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true, contract2: two });
+    if (!two) { d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean); }
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */
     const pubOf = (r) => { const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r); };
@@ -814,7 +829,7 @@ async function readData(eng, adapter, req) {
       else if (req.version != null) pub = proc.pubs.filter((p) => vOf(p) === +req.version).sort((a, b) => (b.ok ? 1 : 0) - (a.ok ? 1 : 0) || (a.folder < b.folder ? -1 : 1))[0];
       else pub = proc.index.latest || proc.pubs.slice().sort((a, b) => (vOf(b) || 0) - (vOf(a) || 0))[0];
       if (!pub) return notFound('There\'s no version ' + (req.folder || req.version) + ' of ' + req.proc + ' in the team folder.');
-      return done(all, A.process(proc, pub), d.readAt);
+      return done(all, (two ? A.process2 : A.process)(proc, pub), d.readAt);
     }
     if (req.cmd === 'runs') {
       const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
@@ -823,7 +838,7 @@ async function readData(eng, adapter, req) {
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */
       const probs = ledger(), unsure = (proc) => probs.some((x) => ['', 'publications', 'publications/'].indexOf(x.path) >= 0 || x.path === 'publications/' + proc || x.path.indexOf('publications/' + proc + '/') === 0);
-      return done(all, A.runs(list, plans, nameOf, d.processes, unsure), d.readAt);
+      return done(all, (two ? A.runs2 : A.runs)(list, plans, nameOf, d.processes, unsure), d.readAt);
     }
     /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
     const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));

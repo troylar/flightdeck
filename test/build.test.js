@@ -82,7 +82,7 @@ rule('The shapes for other apps are built into the core block, and docs/apps.md 
   assert.ok(/PF\.appjson = /.test(core), 'core/appjson.js is in CORE');
   const PF = require('./harness').load(), A = PF.appjson, doc = fs.readFileSync(path.join(ROOT, 'docs', 'apps.md'), 'utf8');
   const keys = new Set();
-  (function walk(d) { if (Array.isArray(d)) return d.forEach(walk); if (d && typeof d === 'object') Object.keys(d).forEach(k => { if (k[0] !== '$') keys.add(k); walk(d[k]); }); })(Object.values(JSON.parse(JSON.stringify(A.SCHEMA))));
+  (function walk(d) { if (Array.isArray(d)) return d.forEach(walk); if (d && typeof d === 'object') Object.keys(d).forEach(k => { if (k[0] !== '$') keys.add(k); walk(d[k]); }); })(Object.values(JSON.parse(JSON.stringify(A.SCHEMA))).concat(Object.values(JSON.parse(JSON.stringify(A.SCHEMA2)))));
   const missing = [...keys].filter(k => !doc.includes('`' + k + '`'));
   assert.deepStrictEqual(missing, [], 'fields not in docs/apps.md');
   A.KINDS.forEach(k => assert.ok(doc.includes('`' + k + '`'), 'problem kind ' + k));

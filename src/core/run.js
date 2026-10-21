@@ -15,8 +15,11 @@ PF.run = (function () {
     var explicit = !two && !!o.explicit;
     var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT && !two ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
-    var map = pub.map, details = {}, roles = {};
+    var map = pub.map, details = {}, roles = {}, migs = [];
     map.meta.context.forEach(function (f) { details[f] = String((o.details || {})[f] || '').trim(); });
+    /* Typed run details (2.0) are stored canonical. Text they came from (o.from: a plan, a carried value, a request) is
+       migrated, never guessed: what didn't convert starts empty, with a record a person resolves (docs/design.md, slice 3). */
+    if (two) migs = startDetails(map, details, o);
     map.meta.roles.forEach(function (r) { roles[r] = (o.roles || {})[r] || ''; });
     var id = o.id || U.randomId(8);
     var r = {
@@ -50,11 +53,123 @@ PF.run = (function () {
       Object.keys(own2).forEach(function (k) { if (STEP_ID.test(k)) kids[k] = JSON.parse(JSON.stringify(own2[k])); });
       if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
     }
+    if (migs.length) { r.migrations = migs; r = withPins(r); }
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && typeof o.parent.folder === 'string' && o.parent.folder) r.parent.folder = o.parent.folder; }
     addLog(r, o.by, o.now, 'Started the run');
     return r;
   }
 
+
+  /* ---------- Typed values (2.0, typed-details and typed-evidence) ---------- */
+  var V = PF.values;
+  var MIG_SOURCES = { plan: 1, 'switch': 1, carry: 1, request: 1, report: 1 }, MIG_VERDICTS = { converted: 1, ambiguous: 1, invalid: 1 }, MIG_MAX = 200, MIG_TEXT = 300;
+  var KIND_WORD = { number: 'a number', 'yes-no': 'a yes or no', date: 'a date', choice: 'a choice', url: 'a link' };
+  var SOURCE_WORD = { plan: 'in the plan', 'switch': 'in the plan', carry: 'in the parent run', request: 'in the request', report: 'in the report' };
+  function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); }
+  function badValue(msg, field) { var e = new Error(msg); e.field = field; return e; }
+  /* A run detail's text from a plan or a parent run, as its kind: V.migrate, and a result longer than a run detail can hold
+     isn't one, so it waits for a person like any other that didn't convert. */
+  function migrateDetail(def, src) {
+    var m = V.migrate(def, src);
+    return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: 120 }).ok ? { verdict: 'invalid', result: null } : m;
+  }
+  function startDetails(map, details, o) {
+    var from = o.from && typeof o.from === 'object' && typeof o.from.source === 'string' && own(MIG_SOURCES, o.from.source) && o.from.source !== 'report' ? o.from : null, out = [];
+    map.meta.context.forEach(function (f) {
+      var def = detailValueDef(map, f);
+      if (!def) return;
+      var mine = own(o.details, f) && o.details[f] != null ? o.details[f] : '', src = from && own(from.details, f) && typeof from.details[f] === 'string' ? from.details[f] : null;
+      var m = src != null && src !== '' ? migrateDetail(def, src) : null;
+      var open = !!m && (m.verdict === 'ambiguous' || m.verdict === 'invalid');
+      /* Untouched: the box still holds the plan's text, what the form showed for it, or (one that didn't convert) nothing.
+         A box the person cleared or changed is theirs. */
+      var untouched = !!m && (mine === src || (open ? mine === '' : mine === m.result));
+      if (untouched) {
+        details[f] = open ? '' : m.result;
+      } else {
+        var p = V.parse(def, mine, { max: 120 });
+        if (!p.ok) throw badValue(p.why, f);
+        details[f] = p.canonical;
+      }
+      if (!m || m.verdict === 'exact' || (!open && !untouched)) return;
+      out.push({ path: 'details.' + f, at: o.now, from: src.slice(0, MIG_TEXT), source: from.source, verdict: m.verdict, result: m.verdict === 'converted' ? m.result : null,
+        resolved: open && !untouched && details[f] ? { by: o.by, at: o.now, value: details[f] } : null });
+    });
+    return out;
+  }
+  function isOpen(m) { return !!m && (m.verdict === 'ambiguous' || m.verdict === 'invalid') && m.resolved === null; }
+  function openMigrations(r) { return (Array.isArray(r.migrations) ? r.migrations : []).filter(isOpen); }
+  /* Why a run detail still waiting for a person can't be used yet (answering a step bound to it, passing a gate that approves
+     it, carrying it to a child run), or ''. */
+  function consumption(r, names) {
+    var open = openMigrations(r), map = open.length ? mapOf(r) : null;
+    for (var i = 0; i < (names || []).length; i++) {
+      for (var j = 0; j < open.length; j++) {
+        if (open[j].path !== 'details.' + names[i]) continue;
+        var def = detailValueDef(map, names[i]), word = (def && KIND_WORD[V.kindOf(def)]) || 'a value', n = String(names[i]);
+        return n.charAt(0).toUpperCase() + n.slice(1) + ' still needs ' + word + ' (it was "' + String(open[j].from).slice(0, 60) + '" ' + (SOURCE_WORD[open[j].source] || 'before') + ').';
+      }
+    }
+    return '';
+  }
+  /* The definition a typed value at a run-file path follows (details.<name>, steps.<id>.values.<name>), or null for text. */
+  function typedDef(r, map, path) {
+    var m = /^details\.(.+)$/.exec(path);
+    if (m) return detailValueDef(map, m[1]);
+    m = /^steps\.([^.]+)\.values\.(.+)$/.exec(path);
+    var x = m ? M.findStep(map, m[1]) : null;
+    if (!x) return null;
+    var d = evidenceFor(r, x.step).list.filter(function (e) { return e.name === m[2]; })[0];
+    return d && (V.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) ? d : null;
+  }
+  /* A value as people read it: a typed one (run/3) shown in its kind, with the stored text in brackets where they differ
+     (yes/no just Yes or No); text as written. */
+  function shown(r, map, path, v) {
+    var d = r && r.format === FORMAT3 ? typedDef(r, map, path) : null;
+    return !d ? String(v == null ? '' : v) : V.kindOf(d) === 'yes-no' ? V.show(d, v) : V.both(d, v);
+  }
+  /* Every typed value in a run/3 that isn't exactly canonical: { path: { raw, why } }. Never coerced, never saved. */
+  function invalidValues(r, map) {
+    var out = {};
+    Object.keys(r.details).forEach(function (k) { var d = detailValueDef(map, k), v = r.details[k]; if (d && v && !V.valid(d, v)) out['details.' + k] = { raw: v, why: V.invalidWhy(d, v) }; });
+    Object.keys(r.steps).forEach(function (id) {
+      var vals = r.steps[id].values;
+      if (vals) Object.keys(vals).forEach(function (n) { var path = 'steps.' + id + '.values.' + n, d = vals[n] ? typedDef(r, map, path) : null; if (d && !V.valid(d, vals[n])) out[path] = { raw: vals[n], why: V.invalidWhy(d, vals[n]) }; });
+    });
+    return Object.keys(out).length ? out : null;
+  }
+  /* A migration list is read only when every entry is exactly the frozen shape, about a typed value this run has: a run/3
+     holding anything else is listed by name only, since saving it would rewrite it. */
+  var MIG_KEYS = ['path', 'at', 'from', 'source', 'verdict', 'result', 'resolved'];
+  function migrationsOk(o, map, r) {
+    var list = o.migrations;
+    if (list == null) return true;
+    if (!Array.isArray(list) || list.length > MIG_MAX) return false;
+    return list.every(function (m) { return migrationOk(m, map, r); });
+  }
+  /* One migration record in its exact frozen shape, about a typed value this run's version has. Archived ones are checked
+     the same way before anything reads them. */
+  function migrationOk(m, map, r) {
+    var txt = function (v) { return typeof v === 'string' && v.length <= MIG_TEXT; };
+    if (!m || typeof m !== 'object' || Array.isArray(m) || JSON.stringify(Object.keys(m)) !== JSON.stringify(MIG_KEYS)) return false;
+    if (!txt(m.path) || !isoOrNull(m.at) || !txt(m.from) || typeof m.source !== 'string' || !own(MIG_SOURCES, m.source) || typeof m.verdict !== 'string' || !own(MIG_VERDICTS, m.verdict)) return false;
+    var def = typedDef(r, map, m.path);
+    if (!def) return false;
+    if (m.verdict === 'converted' ? !(typeof m.result === 'string' && V.valid(def, m.result)) : m.result !== null) return false;
+    if (m.resolved === null) return true;
+    var z = m.resolved;
+    return !!z && typeof z === 'object' && !Array.isArray(z) && JSON.stringify(Object.keys(z)) === '["by","at","value"]' && txt(z.by) && z.by.length <= 80 && !!isoOrNull(z.at) && typeof z.value === 'string' && V.valid(def, z.value);
+  }
+  /* Past 200 records, the oldest closed ones move to the run's history file (r._overflow); open ones never move, and neither
+     do carry records (at most one per detail): a parent's settlement of this run reads them (childVerdict). */
+  function trimMigrations(r) {
+    var list = r.migrations;
+    if (!Array.isArray(list)) return;
+    for (var i = 0; list.length > MIG_MAX && i < list.length;) {
+      if (isOpen(list[i]) || list[i].source === 'carry') { i++; continue; }
+      (r._overflow = r._overflow || []).push(Object.assign({ kind: 'migration', av: 1 }, list.splice(i, 1)[0]));
+    }
+  }
   /* A pin's step ID (never __proto__ or another key an object treats specially). */
   var STEP_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
   /* A must-understand feature a run/3 now uses, kept in the frozen order. */
@@ -109,10 +224,17 @@ PF.run = (function () {
       });
     }
     String(f.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (d) {
-      extra.push({ name: detailKey(d), label: d, kind: 'text', required: true, max: 120, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d });
+      /* A typed run detail (2.0) is asked for with its kind, so the step stores it canonical. */
+      var dt = detailDef(mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: 120, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
+      if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); }
+      extra.push(e);
     });
     return { type: t, fields: f, extra: extra, list: PF.types.recordFields(t, f, extra) };
   }
+  /* A run detail's kind (2.0, typed-details): { kind, options? } from the run's own checklist, or null for text. */
+  function detailDef(map, name) { var t = map && map.meta && map.meta.detailTypes; return t && Object.prototype.hasOwnProperty.call(t, name) ? t[name] : null; }
+  /* The same as a value definition PF.values reads ({ kind, label, options }), or null. */
+  function detailValueDef(map, name) { var d = detailDef(map, name); return d ? { kind: d.kind, label: name, options: d.options } : null; }
   /* The evidence key a step stores a run detail it sets under: short and safe as a run-file key. */
   function detailKey(d) { return 'rd-' + U.slug(String(d), 20) + '-' + U.hash(String(d)); }
   /* After a step that sets run details is checked or corrected, its values become the run's details, re-checking later
@@ -267,6 +389,8 @@ PF.run = (function () {
   /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count. */
   function done(r, map, id, who, now, values) {
     var x = guardStep(r, map, id), t = PF.types.get(x.step.type, r.types), rec = { s: 'done', by: who, at: now };
+    var waiting = consumption(r, x.step.binds || []);
+    if (waiting) throw new Error(waiting);
     var prev = r.steps[id] && r.steps[id].s !== 'recheck' ? r.steps[id].values : null;
     var jp = jiraProblem(r, x.step);
     if (jp) throw new Error(jp);
@@ -411,7 +535,8 @@ PF.run = (function () {
   function pass(r, map, pi, who, now) {
     notPaused(r);
     if (!canPass(r, map, pi)) throw new Error('This gate isn\'t ready to pass.');
-    var g = map.phases[pi].gate;
+    var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
+    if (waiting) throw new Error(waiting);
     r.gates[g.id] = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) };
     addLog(r, who, now, 'Passed gate "' + g.title + '"' + (g.binds.length ? ' for ' + describe(r.gates[g.id].approved) : ''));
   }
@@ -419,7 +544,8 @@ PF.run = (function () {
     notPaused(r);
     if (!canWaive(r, map, pi)) throw new Error('This gate can\'t be waived: every must-do step has to be done, and nothing can be blocked.');
     if (!String(reason || '').trim()) throw new Error('Say why the gate is waived.');
-    var g = map.phases[pi].gate;
+    var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
+    if (waiting) throw new Error(waiting);
     r.gates[g.id] = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) };
     addLog(r, who, now, 'Waived gate "' + g.title + '": ' + r.gates[g.id].reason);
   }
@@ -441,7 +567,11 @@ PF.run = (function () {
   function setDetail(r, map, field, value, who, now, except) {
     notPaused(r);
     if (map.meta.context.indexOf(field) < 0) throw new Error('Unknown run detail.');
-    var old = String(r.details[field] || '').trim(), v = String(value || '').trim().slice(0, 120);
+    var old = String(r.details[field] || '').trim(), v = String(value || '').trim().slice(0, 120), def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
+    if (def) { var p = V.parse(def, value == null ? '' : value, { max: 120 }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
+    /* Filling in a value that didn't migrate resolves its record, once; later changes change the value only. */
+    var waiting = def && v ? openMigrations(r).filter(function (m) { return m.path === 'details.' + field; })[0] : null;
+    if (waiting) waiting.resolved = { by: who, at: now, value: v };
     if (old === v) return 0;
     r.details[field] = v;
     var n = 0, viaChildren = [];
@@ -500,6 +630,7 @@ PF.run = (function () {
   /* What differs between two copies of the same run, in plain sentences, for choosing which to keep.
      Covers everything a person could have recorded: answers and their evidence, filled-in values, gates, details, roles,
      who's recording, follow-ups and how the run ended. */
+  function migText(m) { return !m ? '' : m.verdict + (m.result != null ? ' to ' + m.result : '') + (m.resolved ? ', resolved as ' + m.resolved.value : isOpen(m) ? ', waiting' : ''); }
   function compare(cur, other, map, nameOf) {
     var out = [], T = PF.types;
     function word(a) { return !a || a.s === 'open' ? 'not checked' : { done: 'done', na: 'N/A', blocked: 'blocked', recheck: 'needs a re-check' }[a.s]; }
@@ -527,6 +658,8 @@ PF.run = (function () {
       else if (JSON.stringify([a.by, a.at, a.reason, a.approved]) !== JSON.stringify([b.by, b.at, b.reason, b.approved])) out.push('Gate "' + p.gate.title + '": passed for different details or by someone else (' + (a.approved ? JSON.stringify(a.approved) : '-') + ' here, ' + (b.approved ? JSON.stringify(b.approved) : '-') + ' in the copy)');
     });
     Object.keys(Object.assign({}, cur.details, other.details)).forEach(function (k) { pair(k, cur.details[k], other.details[k]); });
+    var ma = cur.migrations || [], mb = other.migrations || [];
+    for (var mi = 0; mi < Math.max(ma.length, mb.length); mi++) { var xa = ma[mi], xb = mb[mi]; if (JSON.stringify(xa || null) !== JSON.stringify(xb || null)) pair('Migration ' + ((xa || xb).path || ''), migText(xa), migText(xb)); }
     Object.keys(Object.assign({}, cur.roles, other.roles)).forEach(function (k) { pair('Role ' + k, cur.roles[k] && nameOf(cur.roles[k]), other.roles[k] && nameOf(other.roles[k])); });
     pair('Recording', nameOf(cur.recorder.person), nameOf(other.recorder.person));
     function fu(list) { return (list || []).map(function (f) { return f.text + (f.owner ? ' (' + nameOf(f.owner) + ')' : '') + (f.ticket ? ' [' + f.ticket + ']' : ''); }).join('; '); }
@@ -550,6 +683,8 @@ PF.run = (function () {
        answers replace this version's, so a run from before marks existed can't lose a block by being recovered. */
     var seenMarks = [cur, copy].map(function (v) { var m = {}; Object.keys(v.marks || {}).forEach(function (k) { m[k] = (v.marks[k] || []).slice(); }); Object.keys(v.steps || {}).forEach(function (k) { var a = v.steps[k] || {}; [a].concat(a.history || []).forEach(function (h) { var kind = h.s === 'blocked' || h.s === 'recheck' || h.s === 'na' ? h.s : null; [kind, h.differently ? 'differently' : null].forEach(function (x) { if (!x) return; var l = Object.prototype.hasOwnProperty.call(m, k) ? m[k] : (m[k] = []); if (l.indexOf(x) < 0) l.push(x); }); }); }); return m; });
     ['steps', 'gates', 'fields', 'details', 'roles', 'followUps', 'title', 'state', 'ended', 'tz', 'shotsFrozen', 'paused', 'pauses', 'jira', 'parent'].forEach(function (k) { cur[k] = JSON.parse(JSON.stringify(copy[k] == null ? (k === 'ended' || k === 'paused' || k === 'parent' ? null : cur[k]) : copy[k])); });
+    /* A run/3's migration records come with the copy taken over (they sit before its steps). */
+    if (cur.format === FORMAT3 && (copy.migrations || cur.migrations)) { if (Array.isArray(copy.migrations)) cur.migrations = JSON.parse(JSON.stringify(copy.migrations)); else delete cur.migrations; var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;
        they're complete only if both versions' were. */
     var marks = {};
@@ -685,6 +820,8 @@ PF.run = (function () {
      also has (childContext). They and the step's own ^details are the child's inputs; `keys` limits them to a snapshot's. */
   /* Why a child of this process can't be started for the step: carry: names a detail the child's map doesn't have. */
   function childProblem(r, step, childContext) {
+    var waiting = consumption(r, Object.keys(childDetails(r, step, childContext)));
+    if (waiting) return waiting;
     var miss = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean).filter(function (k) { return (childContext || []).indexOf(k) < 0; });
     return miss.length ? 'The ' + fieldsOf(r, step).process + ' checklist has no run detail ' + miss.join(', ') + ', so this step can\'t pass ' + (miss.length > 1 ? 'them' : 'it') + ' on. Change carry: or that checklist.' : null;
   }
@@ -727,7 +864,16 @@ PF.run = (function () {
     if (childHeld(r, step.id, child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
-    var changed = Object.keys(a.child.inputs || {}).filter(function (k) { return Object.prototype.hasOwnProperty.call(child.details || {}, k) && (child.details[k] || '') !== (a.child.inputs[k] || ''); });
+    /* A carried value the child migrated (its own record, from the carried text) is the same value; one still waiting there
+       keeps this step open. */
+    var cm = Array.isArray(child.migrations) ? child.migrations : [], held = false;
+    var changed = Object.keys(a.child.inputs || {}).filter(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(child.details || {}, k) || (child.details[k] || '') === (a.child.inputs[k] || '')) return false;
+      var m = cm.filter(function (x) { return x && x.path === 'details.' + k && x.from === a.child.inputs[k]; })[0];
+      if (m && isOpen(m)) { held = true; return false; }
+      return !(m && child.details[k] === (m.resolved ? m.resolved.value : m.result));
+    });
+    if (held) return null;
     if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + child.details[k] + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
     if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
     return { s: 'done' };
@@ -880,7 +1026,7 @@ PF.run = (function () {
     var h = headline(r, map), lines = [];
     lines.push('Flightdeck receipt: ' + r.title);
     lines.push('Process: ' + map.meta.title + ' (v' + r.version + ')');
-    var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + r.details[f]; }).join(' · ');
+    var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     if (det) lines.push(det);
     lines.push('Status: ' + (r.ended ? h.text : 'In progress. ' + h.text));
     var roles = map.meta.roles.filter(function (ro) { return r.roles[ro]; }).map(function (ro) { return ro + ': ' + nameOf(r.roles[ro]); }).join(' · ');
@@ -892,7 +1038,7 @@ PF.run = (function () {
       p.steps.forEach(function (s) {
         var a = r.steps[s.id], word = !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
         lines.push('  [' + word + '] ' + s.text + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
-        if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + a.values[d.name]); }); }
+        if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');
@@ -974,8 +1120,6 @@ PF.run = (function () {
     }
     /* Its own pins: children only, each a pin this copy reads. */
     if (o.pins != null && (!obj(o.pins) || Object.keys(o.pins).some(function (k) { return k !== 'children'; }) || !PF.pins.shapeOk({ children: o.pins.children || {} }))) return 'It pins versions in a way this copy doesn\'t read.';
-    /* Migration records belong to typed data (a later slice): an empty list says there are none. */
-    if (o.migrations != null && !(Array.isArray(o.migrations) && !o.migrations.length)) return 'It has migration records.';
     return '';
   }
   /* The Flightdeck a run/3 this copy can't fully read needs: its writer's own version when that's 2.0 or later, else 2.0. */
@@ -992,7 +1136,15 @@ PF.run = (function () {
       if (extra != null) why = where + ' has "' + String(extra).slice(0, 40) + '".';
     }
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
-    function text(v, where) { if (!why && obj(v)) { var k = Object.keys(v).filter(function (f) { return v[f] != null && typeof v[f] !== 'string'; })[0]; if (k != null) why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; } }
+    /* run/3: null isn't text either (sanitize would save it as empty, rewriting what the file holds). */
+    /* run/3: nor is text longer than this copy keeps (sanitize would cut it, and a typed value cut short can still look valid). */
+    function text(v, where, max) {
+      if (why || !obj(v)) return;
+      var k = Object.keys(v).filter(function (f) { return (three ? v[f] !== undefined : v[f] != null) && typeof v[f] !== 'string'; })[0];
+      if (k != null) { why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; return; }
+      var l = three && max ? Object.keys(v).filter(function (f) { return typeof v[f] === 'string' && v[f].length > max; })[0] : null;
+      if (l != null) why = where + ' "' + l.slice(0, 40) + '" is longer than ' + max + ' characters.';
+    }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
     var three = o.format === FORMAT3;
     look(o, three ? 'run3' : 'run', 'The run');
@@ -1010,10 +1162,10 @@ PF.run = (function () {
       if (!why && obj(o.pins) && !(obj(o.pins.children) && Object.keys(o.pins.children).length)) why = 'Its pins name no linked runs.';
       if (!why && Array.isArray(o.features) && JSON.stringify(PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; })) !== JSON.stringify(o.features)) why = 'Its features aren\'t listed as this copy writes them.';
     }
-    if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details');
+    if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
-    text(o.details, 'A run detail'); text(o.roles, 'A role');
-    if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"'); });
+    text(o.details, 'A run detail', 120); text(o.roles, 'A role', 80);
+    if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"', 300); });
     if (Array.isArray(o.lineage) && o.lineage.some(function (t) { return typeof t !== 'string'; })) why = why || 'A save receipt in it isn\'t a name.';
     /* The run's copy of the Jira workflows, as PF.jira.check writes it (an issue type, its transitions, their required fields). */
     if (obj(o.jira)) Object.keys(o.jira).forEach(function (k) {
@@ -1030,13 +1182,13 @@ PF.run = (function () {
       look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
       if (three && !why && obj(a.child) && a.child.folder !== undefined && !folderOk(a.child.folder)) why = w + '\'s linked run\'s version isn\'t a version folder.';
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
-      text(a.values, w + '\'s evidence'); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail');
+      text(a.values, w + '\'s evidence', 300); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail', 300);
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
       if (!obj(g)) return;
-      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of');
+      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', 120);
     });
     return why ? NEWER + ' ' + why : '';
   }
@@ -1066,8 +1218,9 @@ PF.run = (function () {
   var PLACEHOLDER = 'An older Flightdeck left this placeholder. It holds no answers.';
   function isPlaceholder(o, current) {
     if (!o || typeof o !== 'object' || o.format !== FORMAT || o.snapshot !== '' || !o.steps || typeof o.steps !== 'object' || Object.keys(o.steps).length || !o.gates || typeof o.gates !== 'object' || Object.keys(o.gates).length) return false;
-    /* Beside a run: only when that run.json is one this copy lists by name only (a newer format), with the same id. */
-    return !current || (o.id === current.id && !!current._unrunnable && !Object.keys(current.steps || {}).length);
+    /* Beside a run: only when that run.json is a run/3 or one this copy lists by name only (a newer format), with the same id:
+       an older copy that left it could only list that run by name, even when this copy reads it in full. */
+    return !current || (o.id === current.id && ((!!current._unrunnable && !Object.keys(current.steps || {}).length) || current.format === FORMAT3));
   }
   function cleanCopy(o, current) {
     if (isPlaceholder(o, current)) { var r = sanitize(o); if (r) { r._unrunnable = PLACEHOLDER; r._placeholder = true; } return r; }
@@ -1223,6 +1376,8 @@ PF.run = (function () {
       if (!obj(o.ended) || !OUTCOMES[o.ended.outcome]) add('ended', 'dropped: not an outcome this copy knows');
       else { text(o.ended.by, 80, 'ended.by'); text(o.ended.byName, 80, 'ended.byName'); }
     }
+    /* A typed value (run/3) that isn't exactly canonical is kept as written and named here, never changed. */
+    if (o.format === FORMAT3) { var sr = sanitize(o); if (sr && sr._invalid) Object.keys(sr._invalid).forEach(function (k) { add(k, 'malformed: ' + sr._invalid[k].why); }); }
     return out;
   }
   /* What sanitize may add where a run file says nothing (older copies didn't write these, and a missing value gets this
@@ -1308,15 +1463,22 @@ PF.run = (function () {
       r.typesHash = str(o.typesHash, 16);
       if (o.payload != null) r.payload = JSON.parse(JSON.stringify(o.payload));
       if (o.pins && o.pins.children && Object.keys(o.pins.children).length) r.pins = { children: JSON.parse(JSON.stringify(o.pins.children)) };
-      if (Array.isArray(o.migrations)) r.migrations = [];
+      if (Array.isArray(o.migrations)) r.migrations = JSON.parse(JSON.stringify(o.migrations));
       r = withPins(order3(r));
+      /* Typed values are checked against the run's own checklist and types; one that isn't canonical stays as written and is
+         named (this load only), and migration records not in their frozen shape make the run name-only. */
+      var tmap = r.snapshot && !r._unrunnable ? mapOf(r) : null;
+      if (tmap && !migrationsOk(o, tmap, r)) return nameOnly(o, needs3(o));
+      if (!tmap && Array.isArray(o.migrations) && o.migrations.length) return nameOnly(o, needs3(o));
+      var inv = tmap ? invalidValues(r, tmap) : null;
+      if (inv) r._invalid = inv;
     }
     return r;
   }
 
   return {
     RUN_ID: RUN_ID,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

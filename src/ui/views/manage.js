@@ -176,8 +176,11 @@
     return h;
   }
   /* ---------- the step-type editor: a full page with a slim header, the form on the left and a live preview on the right ---------- */
-  var KIND_NAMES = { text: 'Text', url: 'Link', code: 'Code or command', message: 'Message', list: 'List', choice: 'Choice' };
-  var REC_HELP = { text: 'a line of text, or a box for more', url: 'a web link', choice: 'one of fixed options' };
+  var KIND_NAMES = { text: 'Text', url: 'Link', code: 'Code or command', message: 'Message', list: 'List', choice: 'Choice', number: 'Number', 'yes-no': 'Yes/no', date: 'Date' };
+  var REC_HELP = { text: 'a line of text, or a box for more', url: 'a web link', choice: 'one of fixed options', number: 'a number, like 12 or 3.5', 'yes-no': 'yes or no', date: 'a calendar date' };
+  /* Evidence kinds: number, yes/no and date (2.0) come after the ones every Flightdeck reads. */
+  var REC_KINDS = ['text', 'url', 'choice', 'number', 'yes-no', 'date'];
+  function uses2(d) { return d.record.some(function (r) { return r.name && PF.values.isNew(r.kind); }); }
   var ICON_NAMES = { check: 'Check', chat: 'Message', people: 'People', fork: 'Decision', doc: 'Document', hourglass: 'Wait', cursor: 'Click', gear: 'Settings', merge: 'Merge', ticket: 'Ticket', terminal: 'Command', script: 'Script', spark: 'Spark', pipeline: 'Pipeline', nest: 'Nested' };
   var SAMPLE = { text: '…', url: 'https://…', code: 'make deploy', message: 'Text to post', list: 'one, two' };
   /* IDs and field names made from what people type: "Change request" → change.request, "Ticket link" → ticket-link. */
@@ -269,7 +272,7 @@
       var k = r.k, key = kind + ':' + k, id = function (x) { return 'tf-' + kind + '-' + k + '-' + x; }, mine = Object.keys(at).filter(function (t) { return t.indexOf('tf-' + kind + '-' + k + '-') === 0; });
       var open = f.open === key || (tried && mine.length > 0), title = String(r.label || '').trim() || String(r.name || '').trim() || (kind === 'f' ? 'New field' : 'New evidence');
       var noun = kind === 'f' ? 'field' : 'evidence', item = (kind === 'f' ? 'field:' : 'evidence:') + k;
-      var typeName = kind === 'f' ? KIND_NAMES[r.kind] || r.kind : r.kind === 'url' ? 'Link' : r.kind === 'choice' ? 'Choice' : r.long ? 'Long text' : 'Text';
+      var typeName = kind === 'f' ? KIND_NAMES[r.kind] || r.kind : r.kind === 'url' ? 'Link' : r.kind === 'choice' ? 'Choice' : PF.values.isNew(r.kind) ? KIND_NAMES[r.kind] : r.long ? 'Long text' : 'Text';
       var sub = (r.name ? '<code>' + esc(r.name) + '</code> · ' : '') + esc(typeName) + (r.required ? ' · usually filled in' : '');
       var c = '<li class="tf-item' + (open ? ' open' : '') + flash(item) + '" data-tf-row="' + key + '" data-scope="tf-' + kind + '-' + k + '"><div class="tf-item-bar"><span class="ob-grip" draggable="true" aria-hidden="true" title="Drag to reorder"></span>' +
         '<button type="button" class="tf-item-main" data-act="tf-open" data-id="' + key + '" aria-expanded="' + open + '" aria-controls="tf-ed-' + kind + '-' + k + '"><span class="tf-item-text"><span class="tf-item-t">' + esc(title) + '</span><span class="tf-item-sub">' + sub + '</span></span><span class="tf-chev">' + I('chevron') + '</span></button>' +
@@ -278,7 +281,7 @@
         '<button type="button" data-act="hist-open" data-id="type" data-item="' + item + '" aria-haspopup="dialog">' + I('clock') + 'History</button><button type="button" data-act="tf-remove" data-id="' + key + '">Remove ' + noun + '</button></div></details></span></div>';
       if (!open && mine.length) c += '<p class="ferr tf-item-err">' + mine.length + ' to fix. Open it to see.</p>';
       if (open) {
-        var kinds = kind === 'f' ? Object.keys(KIND_HELP) : ['text', 'url', 'choice'], help = kind === 'f' ? KIND_HELP : REC_HELP;
+        var kinds = kind === 'f' ? Object.keys(KIND_HELP) : REC_KINDS, help = kind === 'f' ? KIND_HELP : REC_HELP;
         c += '<div class="tf-item-ed" id="tf-ed-' + kind + '-' + k + '"><div class="tf-two">' +
           field(id('label'), 'Label people see', '<input id="' + id('label') + '" maxlength="40" value="' + esc(r.label) + '"' + attrs(id('label'), !!r.label, false) + '>', '', !!r.label) +
           field(id('name'), kind === 'f' ? 'Name used in a checklist' : 'Name in the record', '<input id="' + id('name') + '" maxlength="30" spellcheck="false" class="mono" value="' + esc(r.name) + '"' + attrs(id('name'), !!r.name, true) + '>', kind === 'f' ? 'Written as ' + esc(r.name || 'name') + ': value. Made from the label until you change it.' : 'Made from the label until you change it.', !!r.name) + '</div>' +
@@ -296,9 +299,10 @@
       return c + '</li>';
     };
     var addMenu = function (kind) {
-      var kinds = kind === 'f' ? Object.keys(KIND_HELP) : ['text', 'url', 'choice'], help = kind === 'f' ? KIND_HELP : REC_HELP, dk = 'tf-add-' + kind;
+      var kinds = kind === 'f' ? Object.keys(KIND_HELP) : REC_KINDS, help = kind === 'f' ? KIND_HELP : REC_HELP, dk = 'tf-add-' + kind;
       return '<details class="tf-addmenu" data-disc="' + dk + '"' + (disc[dk] ? ' open' : '') + '><summary class="tf-addbtn">' + I('plus') + (kind === 'f' ? 'Add a field' : 'Add evidence') + '</summary><ul class="tf-addlist">' +
-        kinds.map(function (x) { return '<li><button type="button" data-act="tf-add" data-id="' + kind + '" data-kind="' + x + '"><b>' + (KIND_NAMES[x] || x) + '</b><span class="small">' + help[x] + '</span></button></li>'; }).join('') + '</ul></details>';
+        kinds.map(function (x) { return '<li><button type="button" data-act="tf-add" data-id="' + kind + '" data-kind="' + x + '"><b>' + (KIND_NAMES[x] || x) + '</b><span class="small">' + help[x] + '</span></button></li>'; }).join('') + '</ul></details>' +
+        (kind === 'r' && uses2(d) ? '<p class="tf-help">Number, yes/no and date evidence need Flightdeck 2.0. Teammates on an older Flightdeck see this step type as one they can\'t use until they update.</p>' : '');
     };
     var section = function (kind, list, title, help) {
       return '<section class="panel tf-card" aria-labelledby="tf-' + kind + '-h"><h2 id="tf-' + kind + '-h">' + title + '</h2><p class="tf-help">' + help + '</p>' +
@@ -365,15 +369,21 @@
     if (d.icon) out.icon = d.icon;
     out.fields = {};
     d.fields.forEach(function (r) { if (!r.name) return; var x = { label: r.label, kind: r.kind }; if (r.required) x.required = true; if (r.kind === 'choice') x.options = opts(r); out.fields[r.name] = x; });
-    out.record = d.record.filter(function (r) { return r.name; }).map(function (r) { var x = { name: r.name, label: r.label, kind: r.kind }; if (r.kind === 'choice') x.options = opts(r); if (r.long) x.long = true; return x; });
-    return out;
+    out.record = d.record.filter(function (r) { return r.name; }).map(function (r) {
+      var x = { name: r.name, label: r.label, kind: r.kind }; if (r.kind === 'choice') x.options = opts(r); if (r.long && !PF.values.isNew(r.kind)) x.long = true;
+      /* A number's min, max and unit, as the file had them (the form doesn't edit them). */
+      if (r.kind === 'number' && r.num) ['min', 'max', 'unit'].forEach(function (k) { if (r.num[k] != null) x[k] = r.num[k]; });
+      return x;
+    });
+    /* A 2.0 kind makes the file a 2.0 step type; without one it stays the 1.x shape every Flightdeck reads. */
+    return uses2(d) ? Object.assign({ format: 'flightdeck-step-type/2', features: ['typed-evidence'] }, out) : out;
   }
   /* A definition (from a file or a built-in) → the form's state. */
   function formOf(t, keepId) {
     return { id: keepId ? t.id : '', idSet: !!keepId, label: t.label || '', hint: t.hint || '', icon: t.icon || 'check', group: keepId && t.group ? t.group.join(' / ') : '', tags: keepId && t.tags ? t.tags.join(', ') : '',
       fields: Object.keys(t.fields || {}).map(function (n) { var x = t.fields[n], fixed = x.kind !== 'choice' || ((x.options || []).length && !x.optionsFrom); return { k: nextKey(), name: n, nameSet: true, label: x.label, kind: fixed ? x.kind : 'text', required: !!x.required, options: fixed ? (x.options || []).join('\n') : '', orig: fixed && x.options ? x.options.slice() : null }; }),
       /* A built-in choice whose options come from the step (optionsFrom) has no fixed list a team type can hold: it becomes text. */
-      record: (t.record || []).map(function (r) { var fixed = r.kind === 'choice' && (r.options || []).length && !r.optionsFrom; return { k: nextKey(), name: r.name, nameSet: true, label: r.label, kind: fixed ? 'choice' : r.kind === 'url' ? 'url' : 'text', long: !!r.long, options: fixed ? r.options.join('\n') : '', orig: fixed ? r.options.slice() : null }; }) };
+      record: (t.record || []).map(function (r) { var fixed = r.kind === 'choice' && (r.options || []).length && !r.optionsFrom; return { k: nextKey(), name: r.name, nameSet: true, label: r.label, kind: fixed ? 'choice' : r.kind === 'url' || PF.values.isNew(r.kind) ? r.kind : 'text', long: !!r.long, options: fixed ? r.options.join('\n') : '', orig: fixed ? r.options.slice() : null, num: r.kind === 'number' ? { min: r.min, max: r.max, unit: r.unit } : null }; }) };
   }
 
   /* ---------- one skill: what it is, where it lives, what it follows, and whether it still matches ---------- */

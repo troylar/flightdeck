@@ -19,22 +19,27 @@ PF.map = (function () {
 
   function parse(md) {
     var lines = String(md || '').replace(/\r\n?/g, '\n').split('\n');
-    var meta = {}, phases = [], errors = [], i = 0, phase = null, step = null, gate = null, track = null, questions = false;
+    var meta = {}, phases = [], errors = [], i = 0, phase = null, step = null, gate = null, track = null, questions = false, ctxLine = -1;
     function err(n, msg) { errors.push({ line: n + 1, msg: msg }); }
 
     if (lines[0] && lines[0].trim() === '---') {
       for (i = 1; i < lines.length && lines[i].trim() !== '---'; i++) {
         var kv = /^([\w-]+):\s*(.*)$/.exec(lines[i]);
-        if (kv) meta[kv[1]] = kv[2].trim();
+        if (kv) { meta[kv[1]] = kv[2].trim(); if (kv[1] === 'context') ctxLine = i; }
         else if (lines[i].trim()) err(i, 'Front matter line isn\'t "key: value".');
       }
       i++;
     }
-    meta.context = list(meta.context);
+    /* Run details: a bare name is text; name:kind types it (2.0, typed-details). meta.context stays the names. */
+    var typed = details(list(meta.context));
+    meta.context = typed.names;
+    typed.errors.forEach(function (m) { err(ctxLine < 0 ? 0 : ctxLine, m); });
     meta.roles = list(meta.roles);
     /* Where the process sits in the team's hierarchy ("Engineering / Releases"), and its tags. Without a group, its category. */
     meta.group = String(meta.group || meta.category || '').split('/').map(function (x) { return x.trim().slice(0, 60); }).filter(Boolean).slice(0, 6);
     meta.tags = list(meta.tags).map(function (t) { return t.toLowerCase().slice(0, 40); }).filter(function (t, k, all) { return all.indexOf(t) === k; }).slice(0, 20);
+    /* Last, so the keys every older parse gives keep their order (the builder compares parses as JSON). */
+    meta.detailTypes = typed.types;
 
     for (; i < lines.length; i++) {
       var line = lines[i], m;
@@ -110,6 +115,43 @@ PF.map = (function () {
   }
 
   function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+  /* The kinds a run detail can have after its name (name:kind), as checklists spell them. */
+  var DETAIL_KINDS = { number: 1, 'yes-no': 1, date: 1, link: 1 }, OPTIONS_MAX = 20, OPTION_MAX = 40;
+  /* context: entries as names, the typed ones' kinds (prototype-free), and what's wrong with any declaration. Only the first
+     ":" splits a name from its kind; a choice's options are between parentheses, separated by "|", and can't hold
+     , | ( ) : or start or end with a space (there is no escaping, so nothing needs unescaping). */
+  function details(entries) {
+    var names = [], types = Object.create(null), errors = [];
+    entries.forEach(function (e) {
+      var at = e.indexOf(':');
+      if (at < 0) { names.push(e); return; }
+      var name = e.slice(0, at).trim(), spec = e.slice(at + 1).trim(), what = 'Run detail "' + name.slice(0, 60) + '"';
+      names.push(name);
+      if (spec === 'text') { errors.push(what + ' is text already; write just ' + name.slice(0, 60) + '.'); return; }
+      if (Object.prototype.hasOwnProperty.call(DETAIL_KINDS, spec)) { types[name] = { kind: spec }; return; }
+      var c = /^choice\((.*)\)$/.exec(spec);
+      if (!c) { errors.push(what + ': "' + spec.slice(0, 60) + '" isn\'t a kind. Use number, yes-no, date, link or choice(a|b).'); return; }
+      var opts = c[1].split('|'), bad = '';
+      opts.forEach(function (o) {
+        if (bad) return;
+        if (!o) bad = what + ': an option is empty.';
+        else if (/[,|():]/.test(o)) bad = what + ': the option "' + o.slice(0, 40) + '" has "' + /[,|():]/.exec(o)[0] + '", which an option can\'t hold.';
+        else if (o !== o.trim()) bad = what + ': the option "' + o.slice(0, 40) + '" starts or ends with a space; remove it.';
+        else if (o.length > OPTION_MAX) bad = what + ': the option "' + o.slice(0, 40) + '…" is longer than ' + OPTION_MAX + ' characters; an option can be at most 40 characters.';
+      });
+      if (!bad && opts.length < 2) bad = what + ': a choice needs at least two options, like choice(dev|prod).';
+      if (!bad && opts.length > OPTIONS_MAX) bad = what + ': a choice can have at most 20 options.';
+      var clash = !bad && PF.values.foldClash(opts);
+      if (clash) bad = what + ': ' + clash[0] + ' and ' + clash[1] + ' differ only in capitals; keep one.';
+      if (bad) { errors.push(bad); return; }
+      types[name] = { kind: 'choice', options: opts };
+    });
+    /* A name listed twice can hold only one kind: when either entry has one, it's an error (bare duplicates stay allowed). */
+    var count = Object.create(null), kinded = Object.create(null);
+    entries.forEach(function (e) { var n = e.indexOf(':') < 0 ? e : e.slice(0, e.indexOf(':')).trim(); count[n] = (count[n] || 0) + 1; if (e.indexOf(':') >= 0) kinded[n] = true; });
+    Object.keys(count).forEach(function (n) { if (count[n] > 1 && kinded[n]) { errors.push('Run detail "' + n.slice(0, 60) + '" is listed twice; list it once.'); delete types[n]; } });
+    return { names: names, types: types, errors: errors };
+  }
 
   function steps(map) {
     var out = [];
@@ -231,8 +273,11 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
+    if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     (map.phases || []).forEach(function (p) {
+      p.steps.forEach(function (s) { if (PF.values.isNew(String(s.fields.evidence || '').trim().toLowerCase())) has['typed-evidence'] = true; });
       /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
       p.steps.forEach(function (s) {
         if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;

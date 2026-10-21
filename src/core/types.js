@@ -14,7 +14,8 @@ PF.types = (function () {
     link: { label: 'Link', kind: 'url' },
     expect: { label: 'Usually takes', kind: 'duration' },
     deadline: { label: 'Deadline', kind: 'deadline' },
-    evidence: { label: 'Evidence needed', kind: 'choice', options: ['link', 'note'] },
+    /* number, yes-no and date (2.0, typed-evidence): an older copy refuses them as values the field can't take. */
+    evidence: { label: 'Evidence needed', kind: 'choice', options: ['link', 'note', 'number', 'yes-no', 'date'] },
     require: { label: 'Required when checked', kind: 'require' },
     /* Schedule: clock times on the run's day, or a duration after the run starts. */
     at: { label: 'At', kind: 'time' },
@@ -28,7 +29,10 @@ PF.types = (function () {
   /* Record fields added when the map asks for evidence. */
   var EVIDENCE = {
     link: { name: 'evidence', label: 'Link to the evidence', kind: 'url', required: true },
-    note: { name: 'evidence', label: 'What you saw', kind: 'text', long: true, required: true }
+    note: { name: 'evidence', label: 'What you saw', kind: 'text', long: true, required: true },
+    number: { name: 'evidence', label: 'The number you saw', kind: 'number', required: true },
+    'yes-no': { name: 'evidence', label: 'Your answer', kind: 'yes-no', required: true },
+    date: { name: 'evidence', label: 'The date', kind: 'date', required: true }
   };
 
   var LIST = [
@@ -109,21 +113,30 @@ PF.types = (function () {
 
   /* ---- Team step types: step-types/<id>.json in the team folder. Checked as strictly as a map, so a bad file never reaches a run. ---- */
   var FIELD_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1 }, RECORD_KINDS = { text: 1, url: 1, choice: 1 };
+  /* Evidence kinds a 2.0 step type (flightdeck-step-type/2, typed-evidence) may also record, and the keys only a number has. */
+  var RECORD_KINDS2 = { text: 1, url: 1, choice: 1, number: 1, 'yes-no': 1, date: 1 }, NUMBER_KEYS = ['min', 'max', 'unit'];
+  var NEEDS2 = ' evidence needs Flightdeck 2.0; add "format": "flightdeck-step-type/2" and "features": ["typed-evidence"] to the file';
+  /* Keys from file data are looked up only as text: an array or object there would be coerced to a name. */
+  function has(o, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k); }
+  function numberKeys(d) { return NUMBER_KEYS.filter(function (k) { return has(d, k); }); }
   var NAME = /^[a-zA-Z][\w-]{0,29}$/;
   function checkCustom(def) {
     var errs = [];
     if (!def || typeof def !== 'object') return ['must be a JSON object'];
     /* A step type from a newer Flightdeck (its own format, a newer major or a feature this copy doesn't know) is named for what
        it is, never read field by field (docs/design.md section 28). */
+    var two = false, enveloped = false;
     if (def.format != null || def.features != null) {
       var env = PF.envelope.judge('flightdeck-step-type', def);
       if (!env.ok && env.kind === 'newer') return ['This step type needs ' + (env.needs ? 'Flightdeck ' + env.needs : 'a newer Flightdeck') + '. This copy shows it but can\'t use or change it.'];
+      if (!env.ok) return ['"format" or "features" isn\'t one this copy can read (' + env.why + ')'];
+      enveloped = true; two = env.major === 2;
     }
     if (typeof def.id !== 'string' || !ID.test(def.id) || def.id.length > ID_MAX) errs.push('"id" must be lowercase letters, numbers, dashes and dots, like "change.request"');
     else if (BY[def.id]) errs.push('"' + def.id + '" is a built-in type; choose another id');
     if (typeof def.label !== 'string' || !def.label.trim() || def.label.length > 40) errs.push('"label" must be 1-40 characters');
     if (def.hint != null && (typeof def.hint !== 'string' || def.hint.length > 120)) errs.push('"hint" must be at most 120 characters');
-    var extra = Object.keys(def).filter(function (k) { return ['id', 'label', 'hint', 'icon', 'fields', 'record', 'group', 'tags'].indexOf(k) < 0; });
+    var extra = Object.keys(def).filter(function (k) { return ['id', 'label', 'hint', 'icon', 'fields', 'record', 'group', 'tags'].concat(enveloped ? ['format', 'features', 'app'] : []).indexOf(k) < 0; });
     /* Checked as the app writes them (levels joined with " / ", tags without "#"), so opening and saving never changes validity. */
     if (def.group != null && (typeof def.group !== 'string' || groupText(def.group).length > 80)) errs.push('"group" must be text of at most 80 characters, like "Releases / Approvals"');
     if (def.tags != null && (!Array.isArray(def.tags) || def.tags.length > 10 || def.tags.some(function (t) { return typeof t !== 'string' || !tagText(t) || tagText(t).length > 30 || /,/.test(t); }))) errs.push('"tags" must be a list of up to 10 short words, without commas');
@@ -133,10 +146,11 @@ PF.types = (function () {
     else Object.keys(fields).forEach(function (f) {
       var d = fields[f];
       if (!NAME.test(f) || COMMON[f]) errs.push('field "' + f + '": names are letters, numbers and dashes, and can\'t reuse ' + Object.keys(COMMON).join(', '));
-      if (!d || !FIELD_KINDS[d.kind]) errs.push('field "' + f + '": kind must be one of ' + Object.keys(FIELD_KINDS).join(', '));
+      if (!d || !has(FIELD_KINDS, d.kind)) errs.push('field "' + f + '": kind must be one of ' + Object.keys(FIELD_KINDS).join(', '));
       if (d && (typeof d.label !== 'string' || !d.label || d.label.length > 40)) errs.push('field "' + f + '": label must be 1-40 characters');
       if (d && d.options != null && d.kind !== 'choice') errs.push('field "' + f + '": only a choice has "options"');
       if (d && d.kind === 'choice' && (!Array.isArray(d.options) || !d.options.length || d.options.some(function (o) { return typeof o !== 'string' || !o || o.length > 40; }))) errs.push('field "' + f + '": a choice needs "options", a list of short texts');
+      else if (two && d && d.kind === 'choice') { var fc = PF.values.foldClash(d.options); if (fc) errs.push('field "' + f + '": ' + fc[0] + ' and ' + fc[1] + ' differ only in capitals; keep one'); }
     });
     var rec = def.record || [], seenRec = Object.create(null);
     if (Array.isArray(rec) && rec.length > 20) errs.push('"record" lists ' + rec.length + ' kinds of evidence; the most a step type can record is 20');
@@ -152,10 +166,17 @@ PF.types = (function () {
     if (!Array.isArray(rec)) errs.push('"record" must be a list');
     else rec.forEach(function (d, i) {
       if (!d || !NAME.test(d.name)) errs.push('record ' + (i + 1) + ': "name" must be letters, numbers and dashes');
-      if (!d || !RECORD_KINDS[d.kind]) errs.push('record ' + (i + 1) + ': kind must be one of ' + Object.keys(RECORD_KINDS).join(', '));
-      if (d && (typeof d.label !== 'string' || !d.label || d.label.length > 40)) errs.push('record ' + (i + 1) + ': label must be 1-40 characters');
-      if (d && d.options != null && d.kind !== 'choice') errs.push('record ' + (i + 1) + ': only a choice has "options"');
-      if (d && d.kind === 'choice' && (!Array.isArray(d.options) || !d.options.length || d.options.some(function (o) { return typeof o !== 'string' || !o || o.length > 40; }))) errs.push('record ' + (i + 1) + ': a choice needs "options", a list of short names');
+      var at = 'record ' + (i + 1);
+      if (d && !has(RECORD_KINDS, d.kind) && has(RECORD_KINDS2, d.kind) && !two) errs.push(at + ': ' + d.kind + NEEDS2);
+      else if (!d || !has(RECORD_KINDS2, d.kind)) errs.push(at + ': kind must be one of ' + Object.keys(RECORD_KINDS2).join(', '));
+      if (d && (typeof d.label !== 'string' || !d.label || d.label.length > 40)) errs.push(at + ': label must be 1-40 characters');
+      if (d && d.options != null && d.kind !== 'choice') errs.push(at + ': only a choice has "options"');
+      if (d && d.kind === 'choice' && (!Array.isArray(d.options) || !d.options.length || d.options.some(function (o) { return typeof o !== 'string' || !o || o.length > 40; }))) errs.push(at + ': a choice needs "options", a list of short names');
+      else if (two && d && d.kind === 'choice') { var rc = PF.values.foldClash(d.options); if (rc) errs.push(at + ': ' + rc[0] + ' and ' + rc[1] + ' differ only in capitals; keep one'); }
+      if (d && typeof d === 'object' && numberKeys(d).length) {
+        if (d.kind !== 'number') errs.push(at + ': only a number has "min", "max" and "unit"');
+        else PF.values.numberDefProblems(d, at).forEach(function (m) { errs.push(m); });
+      }
     });
     return errs;
   }
@@ -167,9 +188,13 @@ PF.types = (function () {
     Object.keys(def.fields || {}).forEach(function (f) { var d = def.fields[f]; fields[f] = { label: d.label, kind: d.kind, required: d.required === true }; if (d.options) fields[f].options = d.options.map(String); });
     var group = typeof def.group === 'string' ? groupText(def.group).split(' / ').filter(Boolean) : [];
     var tags = Array.isArray(def.tags) ? def.tags.map(tagText).filter(Boolean) : [];
-    return { id: def.id, label: def.label, icon: ICONS_OK.indexOf(def.icon) >= 0 ? def.icon : 'check', hint: def.hint || '', fields: fields, version: VERSION, custom: true, group: group, tags: tags,
-      record: (def.record || []).map(function (d) { var c = { name: d.name, label: d.label, kind: d.kind }; if (d.options) c.options = d.options.map(String); if (d.long) c.long = true; return c; }) };
+    var record = (def.record || []).map(function (d) { var c = { name: d.name, label: d.label, kind: d.kind }; if (d.options) c.options = d.options.map(String); if (d.long) c.long = true; numberKeys(d).forEach(function (k) { c[k] = d[k]; }); return c; });
+    /* A definition using a 2.0 kind or key is version 3 when frozen (1.x copies refuse it there too); every other stays VERSION. */
+    return { id: def.id, label: def.label, icon: ICONS_OK.indexOf(def.icon) >= 0 ? def.icon : 'check', hint: def.hint || '', fields: fields, version: uses2(record) ? 3 : VERSION, custom: true, group: group, tags: tags,
+      record: record };
   }
+  /* Whether evidence definitions use a kind or key only 2.0 knows. */
+  function uses2(record) { return Array.isArray(record) && record.some(function (d) { return !!d && typeof d === 'object' && (PF.values.isNew(d.kind) || numberKeys(d).length > 0); }); }
   var ICONS_OK = ['check', 'chat', 'people', 'fork', 'doc', 'hourglass', 'cursor', 'gear', 'merge', 'ticket', 'terminal', 'script', 'spark', 'pipeline', 'nest'];
   /* Pins (2.0): version: on a {run.process} step and skillVersion: on a {run.skill} step. Map lines only, never a field of the
      built-in type (its frozen definition, and so every version that uses it, stays as 1.x copies know it), never changed
@@ -213,15 +238,18 @@ PF.types = (function () {
   /* Whether a step type frozen into a version uses only what this copy knows: a newer type version, or a property, field
      kind or evidence kind it doesn't know, could change how the step works, so such a version isn't run here. */
   var TYPE_KEYS = { id: 1, label: 1, icon: 1, hint: 1, fields: 1, record: 1, version: 1, custom: 1, group: 1, tags: 1 };
-  var FIELD_KEYS = { label: 1, kind: 1, required: 1, requiredWhen: 1, requiredUnless: 1, options: 1 }, RECORD_KEYS = { name: 1, label: 1, kind: 1, long: 1, optionsFrom: 1, options: 1, when: 1 };
+  var FIELD_KEYS = { label: 1, kind: 1, required: 1, requiredWhen: 1, requiredUnless: 1, options: 1 }, RECORD_KEYS = { name: 1, label: 1, kind: 1, long: 1, optionsFrom: 1, options: 1, when: 1, min: 1, max: 1, unit: 1 };
   var KNOWN_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1, duration: 1, deadline: 1, require: 1, time: 1, sets: 1 };
   function plainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
   function only(o, keys) { return Object.keys(o).every(function (k) { return Object.prototype.hasOwnProperty.call(keys, k); }); }
   function understood(def) {
     if (!plainObj(def) || !only(def, TYPE_KEYS)) return false;
-    if (def.version != null && !(typeof def.version === 'number' && def.version <= VERSION)) return false;
-    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return plainObj(d) && only(d, FIELD_KEYS) && Object.prototype.hasOwnProperty.call(KNOWN_KINDS, d.kind); }))) return false;
-    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && Object.prototype.hasOwnProperty.call(RECORD_KINDS, d.kind); }))) return false;
+    /* Version 3 (2.0): a definition with typed evidence. The 2.0 kinds and keys are read only there, and only with values
+       this copy can check (a min that isn't an exact decimal could never be compared). */
+    if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3))) return false;
+    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return plainObj(d) && only(d, FIELD_KEYS) && has(KNOWN_KINDS, d.kind); }))) return false;
+    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
+    if (uses2(def.record) && def.version !== 3) return false;
     return true;
   }
   function editable(type) { return Object.keys((type && type.fields) || {}).concat(['link']).filter(function (f) { return !FIXED[f]; }); }
@@ -248,7 +276,15 @@ PF.types = (function () {
     for (var i = 0; i < list.length; i++) {
       /* Only the value's own property: a name like "constructor" must never read something inherited. */
       var d = list[i], raw = Object.prototype.hasOwnProperty.call(values, d.name) ? values[d.name] : null, v = String(raw == null ? '' : raw).trim();
-      if (v.length > (d.max || 300)) return { error: d.label + ' can be at most ' + (d.max || 300) + ' characters.', field: d.name };
+      /* A typed value (2.0: number, yes/no, date, or a run detail with a kind) goes through PF.values; its canonical text is stored. */
+      if (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) {
+        var p = PF.values.parse(d, raw == null ? '' : raw, { max: d.cap || 300 });
+        if (!p.ok) return { error: p.why, field: d.name };
+        if (!p.canonical) { if (d.required && !partial) return { error: d.label + ' is needed to check this step.', field: d.name }; continue; }
+        out[d.name] = p.canonical;
+        continue;
+      }
+      if (v.length > (d.cap || 300)) return { error: d.label + ' can be at most ' + (d.cap || 300) + ' characters.', field: d.name };
       if (!v) { if (d.required && !partial) return { error: d.label + ' is needed to check this step.', field: d.name }; continue; }
       if (d.kind === 'url' && !/^https?:\/\/\S+$/i.test(v)) return { error: d.label + ' should be a web link (https://…).', field: d.name };
       if (d.kind === 'choice' && !hasOption(d, fields, v)) return { error: d.label + ' should be one of: ' + d.options.join(', ') + '.', field: d.name };
@@ -271,5 +307,5 @@ PF.types = (function () {
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
 })();
