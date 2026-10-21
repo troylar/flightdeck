@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   var V = PF.views, U = PF.util, R = PF.run, T = PF.types, I = PF.icons.icon, esc = U.esc;
-  var MODE = { 'READ-DO': 'Read-Do', 'DO-CONFIRM': 'Do-Confirm' };
+  var MODE = PF.vk.MODE_WORD;
   /* Up to this many steps in the whole checklist, every phase's steps start open; a longer one starts as an overview. */
   var OPEN_MAX = 40;
 

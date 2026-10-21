@@ -1063,7 +1063,7 @@
     if (!su || su.busy || !md || !state.fs || !state.me) return;
     var pid = M.parse(md).meta.process, sfs = state.fs, g = gen, by = state.me;
     su.busy = true; render();
-    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Done, then publish it.', 'good'); render(); window.scrollTo(0, 0); };
+    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Save draft, then Done to publish it.', 'good'); render(); window.scrollTo(0, 0); };
     queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return null;
       if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Processes.', 'warn'); render(); return null; }
@@ -4047,6 +4047,9 @@
     'open-skill': function (id) { setView('skill'); state.skillFile = id; state.brief = null; resetRunUi(); state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
     /* What was submitted and refused stays until Cancel or the draft is created, so leaving and coming back keeps it. */
     'new-process': function () { setView('new-process'); state.newProc = state.newProc || { token: ++npToken }; resetRunUi(); render(); window.scrollTo(0, 0); },
+    'np-tpl': function (id) { var f = state.newProc = state.newProc || { token: ++npToken }; f.tpl = id; state.focus = '[data-act="np-tpl"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'np-publish': function () { createProcess(true); },
+    'np-copy': function () { var pre = document.getElementById('np-prompt'); if (pre) copyText(pre.textContent, pre, 'Copied. Paste it to your AI assistant.'); },
     'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
     'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
@@ -5145,23 +5148,59 @@
   /* New process and step-type forms. Each New process form (opened fresh or submitted) gets a new token: a creation that
      finishes later clears and leaves only the form it came from, never a newer one. */
   var npToken = 0;
-  document.addEventListener('submit', function (e) {
-    if (e.target.id === 'type-form') { e.preventDefault(); readTypeForm(); saveType(); return; }
-    if (e.target.id !== 'new-process-form') return;
-    e.preventDefault();
-    var f = { token: ++npToken, id: val('np-id').trim().toLowerCase(), title: val('np-title').trim(), group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner'), solo: !!(document.getElementById('np-solo') || {}).checked };
-    state.newProc = f;
-    if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) { say('The process ID is lowercase letters, numbers and dashes, like release or code-review.', 'warn'); state.focus = 'np-id'; render(); return; }
-    if (!f.title) { say('Give the process a title.', 'warn'); state.focus = 'np-title'; render(); return; }
-    if (processes().some(function (x) { return x.id === f.id; })) { say('There\'s already a process called "' + f.id + '". Choose another ID, or open that one.', 'warn'); state.focus = 'np-id'; render(); return; }
-    var md = V.starterMap(f), sfs = state.fs, g = gen, mine = f.token;
+  /* New process: the form's values, with the file name made from the title unless one was typed under More options. */
+  function newProcForm() {
+    var title = val('np-title').trim(), own = val('np-id').trim().toLowerCase(), was = state.newProc || {};
+    return { token: ++npToken, tpl: was.tpl || 'blank', id: own || V.fileIdOf(title), ownId: own, title: title, group: val('np-group').trim(), tags: val('np-tags').trim(), context: val('np-context').trim(), roles: val('np-roles').trim(), owner: val('np-owner') || state.me, solo: !!(document.getElementById('np-solo') || {}).checked };
+  }
+  /* A refused file name opens More options on it, with the reason. */
+  function npRefuse(f, msg, box) { say(msg, 'warn'); if (box === 'np-id') (state.disc = state.disc || {})['np-more'] = true; state.focus = box; render(); }
+  /* The draft's text: the starter, or a template made this process's own (only its front-matter lines change). */
+  function newProcMd(f) {
+    if (f.tpl === 'blank' || !f.tpl) return V.starterMap(f);
+    var t = PF.setup.TEMPLATES.filter(function (x) { return x.id === f.tpl; })[0], base = f.tpl === 'check-in' ? EXAMPLES['maps/drafts/check-in.md'] : t && t.md;
+    if (!base) return V.starterMap(f);
+    var set = { process: f.id, title: f.title, owner: f.owner };
+    if (f.group) { set.group = f.group; set.category = f.group.split('/').pop().trim() || 'Other'; }
+    if (f.tags) set.tags = f.tags; if (f.context) set.context = f.context; if (f.roles) set.roles = f.roles; if (f.solo) set.runs = 'solo';
+    return M.withMeta(base, set);
+  }
+  function createProcess(publish) {
+    var f = newProcForm();
+    state.newProc = Object.assign(f, { typed: null });
+    if (!f.title) return npRefuse(f, 'Give the process a title.', 'np-title');
+    if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) return npRefuse(f, 'The file name is lowercase letters, numbers and dashes, like release or code-review.', f.ownId ? 'np-id' : 'np-title');
+    if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a process called "' + f.id + '". Choose another title, or another file name under More options.', 'np-id');
+    var md = newProcMd(f), sfs = state.fs, g = gen, mine = f.token, by = state.me;
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return;
       if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
+      var here = function () { return state.view === 'new-process' && state.newProc && state.newProc.token === mine; };
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
-      return load(true).then(function () { if (g !== gen) return; if (state.view !== 'new-process' || !state.newProc || state.newProc.token !== mine) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; } setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Done, then publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); });
-    }, function (err) { if (g !== gen) return; say('Couldn\'t create the draft: ' + err.message, 'bad'); render(); });
+      return load(true).then(function () {
+        if (g !== gen) return;
+        if (!here()) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; }
+        if (!publish) { setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null; say('Draft created. Fill in the steps, choose Save draft, then Done to publish it.', 'good'); state.focus = 'draft-editor'; render(); window.scrollTo(0, 0); return; }
+        /* Publish v1 as it is: the same publish setup uses, of exactly the draft just saved. */
+        var p = processes().filter(function (x) { return x.id === f.id; })[0], people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
+        return queued(function () {
+          return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString(), app: APP_VERSION }); });
+        }).then(function (pub) {
+          if (g !== gen) return;
+          state.newProc = null; setView('process'); state.processId = f.id; state.ptab = 'overview';
+          if (pub.blockers) { say('The draft is saved, but it can\'t be published yet: ' + pub.blockers[0], 'warn'); render(); return; }
+          say('Published ' + f.title + ' v' + pub.version + '. Start a run when you\'re ready.', 'good'); state.focus = 'page-h';
+          return load(true).then(function () { if (g === gen) { render(); window.scrollTo(0, 0); } });
+        });
+      });
+    }).catch(function (err) { if (g !== gen) return; say('Couldn\'t ' + (publish ? 'publish' : 'create') + ' the draft: ' + err.message, 'bad'); render(); });
+  }
+  document.addEventListener('submit', function (e) {
+    if (e.target.id === 'type-form') { e.preventDefault(); readTypeForm(); saveType(); return; }
+    if (e.target.id !== 'new-process-form') return;
+    e.preventDefault();
+    createProcess(false);
   });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'start-form') return;
@@ -5194,7 +5233,7 @@
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     queued(function () { r.recorder.session = SESSION; return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
       return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION) : null;
-    }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); render(); },
+    }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) { endBusy(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });
 
@@ -5267,6 +5306,11 @@
     }
     /* Typing in a New process form after Create the draft makes it a newer form: a late creation then leaves it alone. */
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
+    /* The file name follows the title as it's typed, drawn beside the box (never into it). */
+    if ((e.target.id === 'np-title' || e.target.id === 'np-id') && state.view === 'new-process') {
+      var npf = state.newProc = state.newProc || { token: ++npToken }, ty = npf.typed = npf.typed || {};
+      ty[e.target.id === 'np-title' ? 'title' : 'id'] = String(e.target.value || '').slice(0, 120); render();
+    }
     if (e.target.id === 'ob-part-q' || e.target.id === 'ob-part-q2') { state.obQ = String(e.target.value || '').slice(0, 60); render(); }
     /* Getting started's forms keep what's typed in their state, so ID previews and the request follow the names. */
     var su = state.setup, sm = /^su-(me|name|email|rq)-?(name|email|t\d+)?$/.exec(e.target.id || '');
@@ -5569,6 +5613,16 @@
   function nextStepId(r, map) { var nx = R.nextUp(r, map, state.me); return nx.kind === 'step' && nx.step ? nx.step.id : null; }
   /* Whether a step can be answered now, and with what: its own draft's evidence, else what's saved, else what the box would
      show. An open or unsaved Fill in on it is saved or canceled first. Returns { r, map, x, values } or { why, focus, field }. */
+  /* The Jira problem a step's Fill in can fix ({ why, field }), or null: no issue type the team's workflows know, or no status
+     with a transition into it. A workflow file that can't be read or is invalid isn't something Fill in fixes. */
+  function jiraFill(r, step, fields) {
+    var f = fields || R.fieldsOf(r, step), why = R.jiraProblem(r, step, f);
+    if (!why || PF.jira.fileProblem(r.jira)) return null;
+    var w = PF.jira.forType(r.jira, f.issueType);
+    if (!w) return { why: why, field: 'issueType' };
+    return w.workflow.invalid ? null : { why: why, field: 'status' };
+  }
+  V.jiraFill = jiraFill;
   function answerCheck(key, id) {
     harvest();
     var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
@@ -5586,6 +5640,9 @@
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen = skillSeen(r, x.step);
       if (seen) values._skill = seen;
+      /* A value only Fill in holds (a Jira issue type or status): Fill in opens on that box instead of a refusal up top. */
+      var jf = jiraFill(r, x.step);
+      if (jf) return { why: jf.why, open: 'fields', focus: 'fld-' + jf.field };
     }
     return { r: r, map: map, x: x, values: values };
   }
@@ -5606,7 +5663,12 @@
     if (!c.r) {
       if (quiet || !c.why) return Promise.resolve(false);
       selectStep(id); state.refOpen = true;
-      if (c.fill) { say(c.why, 'warn'); state.msg.quiet = true; } else state.fieldErr = { id: id, msg: c.why, field: c.field };
+      if (c.open === 'fields') {
+        /* Fill in opens on the box that needs the value; the reason shows beside it and is announced once. */
+        leaveFillIn(); state.pick = { kind: 'fields', id: id, back: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"]' };
+        var fd0 = draftOf(key, id, false); state.fieldsDraft = fd0 && fd0.fd && fd0.fd.key === state.runKey && fd0.fd.fs === fsKey() ? fd0.fd : null; if (fd0) fd0.open = false;
+        say(c.why, 'warn'); state.msg.quiet = true;
+      } else if (c.fill) { say(c.why, 'warn'); state.msg.quiet = true; } else state.fieldErr = { id: id, msg: c.why, field: c.field };
       state.focus = c.focus; render(); return Promise.resolve(false);
     }
     var was = here ? nextStepId(c.r, c.map) : null, applied = false;

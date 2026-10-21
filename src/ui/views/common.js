@@ -72,16 +72,24 @@ PF.vk = (function () {
     function count(n) { return n.items.length + n.order.reduce(function (s, k) { return s + count(n.kids[k]); }, 0); }
     function draw(n, path) {
       var groups = n.order.slice().sort().map(function (seg) {
-        var p = path.concat(seg), key = p.join(' / '), shut = openSet && Object.prototype.hasOwnProperty.call(openSet, key) && openSet[key] === false;
-        return '<li class="tgroup"><details' + (shut ? '' : ' open') + ' data-group="' + esc(key) + '"><summary><span class="t">' + esc(seg) + '</span> <span class="small">' + count(n.kids[seg]) + '</span></summary><ul class="plist">' + draw(n.kids[seg], p) + '</ul></details></li>';
+        /* A group whose only child is a group is one heading ("Delivery / Backlog"); a count of 1 isn't drawn. */
+        var kid = n.kids[seg], p = path.concat(seg), name = [seg];
+        while (!kid.items.length && kid.order.length === 1) { name.push(kid.order[0]); p = p.concat(kid.order[0]); kid = kid.kids[kid.order[0]]; }
+        var key = p.join(' / '), shut = openSet && Object.prototype.hasOwnProperty.call(openSet, key) && openSet[key] === false, c = count(kid);
+        return '<li class="tgroup"><details' + (shut ? '' : ' open') + ' data-group="' + esc(key) + '"><summary><span class="t">' + esc(name.join(' / ')) + '</span>' + (c > 1 ? ' <span class="small">' + c + '</span>' : '') + '</summary><ul class="plist">' + draw(kid, p) + '</ul></details></li>';
       }).join('');
       return groups + n.items.map(render).join('');
     }
     return '<ul class="plist tree">' + draw(root, []) + '</ul>';
   }
   /* The tag filter: every tag in use, as toggles. A list shows only items with all chosen tags. */
-  function tagBar(all, chosen) {
+  /* Folded into Filter by tag (N) unless a tag is chosen or it was opened (st.disc.tags). */
+  function tagBar(all, chosen, disc) {
     if (!all.length) return '';
+    var open = chosen.length || (disc || {}).tags;
+    return '<details class="tagfold" data-disc="tags"' + (open ? ' open' : '') + '><summary class="small">Filter by tag (' + all.length + ')</summary>' + tagButtons(all, chosen) + '</details>';
+  }
+  function tagButtons(all, chosen) {
     return '<div class="tagbar" role="group" aria-label="Filter by tag">' + all.map(function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; }).join('') +
       (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
   }
@@ -96,6 +104,16 @@ PF.vk = (function () {
       '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(keyOf(items[n])) + '">Show ' + Math.min(PAGE, left) + ' more</button></div>';
     return h;
   }
+  /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
+  function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
+  /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
+  var MODE_WORD = { 'READ-DO': 'Read, then do', 'DO-CONFIRM': 'Do, then confirm' };
+  function modeWord(m) { return MODE_WORD[m] || m; }
+  /* ^detail in rendered text (code or plain) shown as the detail's name, without the caret. html is already escaped. */
+  function detailWords(html) { return String(html).replace(/<code>\^([\w-]+)<\/code>/g, '<b class="dname">$1</b>').replace(/\^([A-Za-z][\w-]*)/g, '<b class="dname">$1</b>'); }
+  /* An outcome as it reads on screen: US spelling for Cancelled, which run files keep as written. */
+  function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
+  function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }
   function tagChips(tags) { return (tags || []).length ? '<span class="tags">' + tags.map(function (t) { return '<span class="tag">#' + esc(t) + '</span>'; }).join('') + '</span>' : ''; }
   /* A typed value's box (2.0): only a value with a kind gets one; a text value keeps its plain box, so a checklist without typed
      values looks exactly as before. Yes/no, and a choice of up to five, are radios in a fieldset whose legend is the label (its
@@ -122,7 +140,7 @@ PF.vk = (function () {
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagChips: tagChips, paged: paged, PAGE: PAGE };
+  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE };
 })();
 (function () {
   'use strict';
@@ -163,7 +181,7 @@ PF.vk = (function () {
     if (r) {
       var map = PF.run.mapOf(r), hl = PF.run.headline(r, map), tot = PF.run.totals(r, map);
       h += '<div class="runstrip" role="region" aria-label="This run"><span class="rs-dot ' + esc(hl.s) + '" aria-hidden="true"></span><b class="rs-title">' + esc(r.title) + '</b>' +
-        '<span class="rs-sub">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</span><span class="rs-now">' + esc(hl.text) + '</span><span class="rs-count">' + tot.done + '/' + tot.total + '</span></div>';
+        '<span class="rs-sub">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</span><span class="rs-now">' + esc(K.hlText(r, hl)) + '</span><span class="rs-count">' + tot.done + '/' + tot.total + '</span></div>';
     }
     return h;
   }

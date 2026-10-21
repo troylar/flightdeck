@@ -4,7 +4,7 @@
    Markdown editor and the builder always agree. */
 (function () {
   'use strict';
-  var V = PF.views, U = PF.util, T = PF.types, O = PF.outline, M = PF.map, I = PF.icons.icon, esc = U.esc;
+  var K = PF.vk, V = PF.views, U = PF.util, T = PF.types, O = PF.outline, M = PF.map, I = PF.icons.icon, esc = U.esc;
   var LAND = 'Cleared to land here · or move with Alt+Up / Alt+Down';
   var LANES_SAY = 'Do all lanes. Finish every lane before the gate.';
 
@@ -198,7 +198,7 @@
     var inc = incoming(ctx, 'phase', ph.key);
     return '<li class="ob-phase' + (on ? ' sel' : '') + (isNew(ctx, 'phase', ph.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '"><div class="ob-ph-head"><div class="fp-eye">Phase ' + (ph.index + 1) + '</div>' +
       '<h3 class="ob-ph-h"><button type="button" class="ob-ph-name" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-ob-phase="' + esc(ph.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + esc(title) + '</button></h3>' + incWords(inc) +
-      (ph.mode ? '<span class="cat">' + esc(ph.mode) + '</span>' : '<span class="cat">No mode</span>') + fixBadge(B, ph.id && 'phase:' + ph.id) + '</div><div class="ob-body">' + body + '</div>' + gate + '</li>';
+      (ph.mode ? '<span class="cat">' + esc(K.modeWord(ph.mode)) + '</span>' : '<span class="cat">No mode</span>') + fixBadge(B, ph.id && 'phase:' + ph.id) + '</div><div class="ob-body">' + body + '</div>' + gate + '</li>';
   }
 
   /* The checklist's own details (front matter): who owns it, its roles and its run details, at a glance; selecting it opens
@@ -222,7 +222,7 @@
     h = strip(B, o) + h + '<div class="row between ob-bar"><details class="ob-help"><summary>Editing help</summary><p id="ob-kbd" class="small">Drag a part onto the checklist, or choose one and pick a place with the arrow keys. Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, lane, phase or gate to change it, its note included. Checklist details sets the owner, the backup owner, the roles and the run details.</p></details>' +
       '<button type="button" class="btn ob-addpart" data-act="ob-parts-open">' + I('plus') + 'Add part</button></div>' + detailsCard(ctx, map, sel);
     var phaseForm = '<div class="ob-addform row"><label class="sr" for="ob-new-title">New phase name</label><input id="ob-new-title" maxlength="120" placeholder="Phase name" data-enter="ob-add-go"' + errAt(ctx, 'ob-new-title') + '>' +
-      '<label class="sr" for="ob-new-mode">How it\'s worked</label><select id="ob-new-mode"><option value="READ-DO">READ-DO</option><option value="DO-CONFIRM">DO-CONFIRM</option></select>' +
+      '<label class="sr" for="ob-new-mode">How it\'s worked</label><select id="ob-new-mode"><option value="READ-DO">Read, then do</option><option value="DO-CONFIRM">Do, then confirm</option></select>' +
       '<button type="button" class="btn go" data-act="ob-add-go">Add phase</button><button type="button" class="mini" data-act="ob-add-cancel">Cancel</button></div>' + errMsg(ctx, 'ob-new-title');
     var addingPhase = add && add.kind === 'phase', out = '<ol class="ob-phases" aria-label="Phases">' + slot(B, 'li', 'phase', 'phase:^', 'h') +
       o.phases.map(function (ph) { return phaseCard(ctx, o, p, ph, sel, add, B) + (addingPhase && add.after === ph.key ? '<li>' + phaseForm + '</li>' : '') + slot(B, 'li', 'phase', 'phase:' + ph.key, 'h'); }).join('') + '</ol>';
@@ -316,7 +316,7 @@
     var gt = ph.gate, sig = sigOf(o, ph.line, ph.end) + (gt ? '.' + sigOf(o, gt.line, gt.end) : ''), pask = askOf(ctx, 'phase', ph.key);
     var f = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-phase|' + esc(ph.key) + '|' + sig + '">' + formHead('Phase', ['Phase ' + (ph.index + 1) + ' of ' + o.phases.length]) +
       '<label class="field" for="ob-ph-title">Name<input id="ob-ph-title" maxlength="120" data-enter="ob-commit" value="' + esc(ph.title) + '"' + errAt(ctx, 'ob-ph-title') + '></label>' + errMsg(ctx, 'ob-ph-title') +
-      '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>READ-DO: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>DO-CONFIRM: do the work, then confirm together</option></select></label>' +
+      '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>Read, then do: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>Do, then confirm: do the work, then confirm together</option></select></label>' +
       '<label class="field" for="ob-ph-note">Note for the phase <span class="small">shown at the top of the phase in runs. Needs Flightdeck 2.0 to run.</span><textarea id="ob-ph-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-ph-note') + '>' + esc(ph.note || '') + '</textarea></label>' + errMsg(ctx, 'ob-ph-note') +
       (ph.odd ? '<p class="small">This phase has lines under its heading the builder can\'t change safely. Edit its note and screenshots in Markdown.</p>' : shotsSection(ctx, p, ph, 'phase')) +
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
