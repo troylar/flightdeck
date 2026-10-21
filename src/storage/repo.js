@@ -657,8 +657,9 @@ PF.repo = (function () {
       r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
       r[15].forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, 'flightdeck-report-decision', u)); });
-      /* skills/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part that failed. */
-      if (r[5] && r[5].unlisted && !('skills' in failed)) failed.skills = r[5].unlisted;
+      /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
+         that failed, so a name neither listing showed is never read as having no registration. */
+      if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
       var plans = groupPlans(r[6].plans, r[6].statuses);
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
@@ -1013,6 +1014,7 @@ PF.repo = (function () {
       if (legacyOnly) return r[0];
       var out = PF.skills.merge(r[0], r[1]); out.skipped = r[0].skipped + (r[1].skipped || 0);
       if (r[0].unlisted) out.unlisted = r[0].unlisted;
+      if (r[1].unlisted) out.regsUnlisted = r[1].unlisted;
       return out;
     });
   }

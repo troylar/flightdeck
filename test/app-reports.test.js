@@ -336,8 +336,8 @@ rule('App: accepting a report on a {run.skill} step in a run/3 records the regis
   assert.deepStrictEqual(same(acc), same(done), 'the same registration snapshot as Done');
 });
 
-rule('App: while skills/ or a registration can\'t be read, a {run.skill} step in a run/3 isn\'t checked, by Done or by accepting a report, so what was read before (or nothing) never stands as the current registration', async () => {
-  for (const [how, cause] of [['done', 'list'], ['report', 'list'], ['done', 'read'], ['report', 'read']]) {
+rule('App: while skills/, skill-registrations/ or a registration can\'t be read, a {run.skill} step in a run/3 isn\'t checked, by Done or by accepting a report, so what was read before (or nothing) never stands as the current registration', async () => {
+  for (const [how, cause] of [['done', 'list'], ['report', 'list'], ['done', 'read'], ['report', 'read'], ['done', 'regs'], ['report', 'regs']]) {
     const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
     app.choose('person-casey'); await app.tick();
     await app.fs.write('maps/drafts/notes.md', '---\nprocess: notes\ntitle: Release notes\ncategory: Operations\nowner: person-casey\n---\n\n## Write {#w}\n- [ ] {run.skill} Write the notes {#write}\n  skill: notes-writer\n  skillVersion: 1.2.0\n');
@@ -363,6 +363,8 @@ rule('App: while skills/ or a registration can\'t be read, a {run.skill} step in
     await app.fs.write('skills/other.json', JSON.stringify({ name: 'other', version: '1.0.0', location: 'there', implements: 'notes@1' }));
     const list = app.fs.list.bind(app.fs), read = app.fs.read.bind(app.fs), blob = app.fs.blob.bind(app.fs), two = (p) => /sk-abcd1234\.2\.w-test\.json$/.test(p);
     if (cause === 'list') app.fs.list = p => p === 'skills' ? Promise.reject(new Error('NotReadableError')) : list(p);
+    // skill-registrations/ can't be listed at all, and skills/ has no file naming this skill: no name to hold, still not absent.
+    else if (cause === 'regs') app.fs.list = p => p === 'skill-registrations' ? Promise.reject(new Error('NotReadableError')) : list(p);
     else { app.fs.read = p => two(p) ? Promise.reject(new Error('NotReadableError')) : read(p); app.fs.blob = p => two(p) ? Promise.reject(new Error('NotReadableError')) : blob(p); }
     app.click('refresh'); await app.tick(160);
     if (cause === 'list') assert.ok(/Part of the team folder couldn(&#39;|')t be read/.test(app.html()), 'set-up: the skills part failed');
@@ -374,7 +376,7 @@ rule('App: while skills/ or a registration can\'t be read, a {run.skill} step in
     }
     const a = JSON.parse(app.fs.files[path].t).steps.write;
     assert.ok(!a || a.s !== 'done', how + '/' + cause + ': not checked: ' + JSON.stringify(a));
-    assert.ok(/couldn(&#39;|')t be read( just now)?, so this step can(&#39;|')t record/.test(app.html() + app.live()), how + '/' + cause + ': says why');
+    assert.ok(/couldn(&#39;|')t be (read|listed)( just now)?, so this step can(&#39;|')t record/.test(app.html() + app.live()), how + '/' + cause + ': says why');
     app.fs.list = list; app.fs.read = read; app.fs.blob = blob;
   }
 });
