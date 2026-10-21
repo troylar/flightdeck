@@ -5667,7 +5667,10 @@
     if (step.type !== 'run.skill' || r.format !== R.FORMAT3) return null;
     /* When the skills couldn't be read this time, the list shown is the one read before: never evidence of what's current now. */
     if (data.failed && data.failed.skills) throw new Error('The team folder\'s skills couldn\'t be read just now, so this step can\'t record which registration is current. Choose Try again above, then check it again.');
-    var sname = R.fieldsOf(r, step).skill, reg = (data.skills || []).filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
+    var sname = R.fieldsOf(r, step).skill, vs = data.skills && data.skills.verdicts, vd = vs && typeof sname === 'string' && Object.prototype.hasOwnProperty.call(vs, sname) ? vs[sname] : null;
+    /* A registration that's there but couldn't be read or listed is never recorded as none. */
+    if (vd && vd.kinds.some(function (k) { return k === 'legacy-unreadable' || k === 'revisions-unlisted' || k === 'revision-refused'; })) throw new Error('A registration of ' + sname + ' couldn\'t be read, so this step can\'t record which one is current. See Folder health, then check it again.');
+    var reg = (data.skills || []).filter(function (k) { return k.skill && k.skill.name === sname && k.skill.regId && !k.unmatched; })[0];
     return reg ? PF.skills.observed(reg.skill) : null;
   }
   /* The one way to answer a step, Done or Done differently, from every place that does it (row check, inspector Done, Space
