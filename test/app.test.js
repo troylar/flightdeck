@@ -6135,6 +6135,28 @@ rule('Back and Forward: a link to a run that isn\'t in the folder opens its proc
   assert.ok(/<div class="eyebrow">Runs<\/div>/.test(two.html())); assert.deepStrictEqual(hashes(two), ['#/runs']);
 });
 
+rule('Back and Forward: a link to a run whose read failed isn\'t called gone, and opens once Refresh reads it', async () => {
+  const app = await navBoot();
+  const src = app.run(), j = Object.assign({}, src.json, { id: 'later-run', title: 'Later run' });
+  await app.fs.write('runs/release/later-run/run.json', JSON.stringify(j));
+  const list = app.fs.list.bind(app.fs); let fail = true;
+  app.fs.list = p => fail && p === 'runs' ? Promise.reject(new Error('NotReadableError')) : list(p);
+  app.click('refresh'); await app.tick(80);
+  app.typeHash('#/run/release/later-run'); await app.settle();
+  assert.ok(onProcess(app) && /That run couldn.t be read just now, so it wasn.t opened\. Refresh tries again\./.test(app.live()) && !/isn.t in this folder anymore/.test(app.live()), app.live());
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.ok(onRun(app) && /Later run/.test(app.html()), 'opened once read');
+  assert.strictEqual(app.hash(), '#/run/release/later-run');
+  /* Moving elsewhere first drops the retry. */
+  await app.fs.write('runs/release/third-run/run.json', JSON.stringify(Object.assign({}, j, { id: 'third-run', title: 'Third run' })));
+  fail = true; app.click('refresh'); await app.tick(80);
+  app.typeHash('#/run/release/third-run'); await app.settle();
+  assert.ok(/Refresh tries again/.test(app.live()), 'set-up: not read');
+  app.click('nav', 'runs'); await app.tick();
+  fail = false; app.click('refresh'); await app.tick(80); await app.settle();
+  assert.ok(!onRun(app), 'stays where it was moved to');
+});
+
 /* The examples' folder fingerprint, as entries made in them carry it. */
 async function examplesFp() { const a = boot(); await a.tick(60); return a.entries()[0].state.f; }
 /* A remembered team folder holding a copy of another boot's examples (its runs have other IDs than a new boot's). */
@@ -6790,6 +6812,30 @@ rule('Builder: text a box refused, or hasn\'t applied yet, holds choosing someth
   assert.ok(/Added \^region\./.test(app.live()), app.live());
   app.click('ob-sel', 'one'); await app.tick();
   assert.ok(/id="ob-note"/.test(app.html()), 'cleared, the step opens');
+});
+
+rule('Builder: refused text beside an open Add box holds Undo, and Cancel never lets a newer draft drop it', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, QDRAFT); app.focus(); await app.tick(80);
+  app.click('ob-sel-details'); await app.tick();
+  addBox(app, 'ob-add-role', 'roles', 'ops'); await app.tick();
+  assert.ok(/Added @ops\./.test(app.live()), 'set-up: ' + app.live());
+  app.click('ob-add-phase', 'first'); await app.tick();
+  addBox(app, 'ob-add-role', 'roles', 'two words'); await app.tick();
+  assert.ok(/id="ob-new-title"/.test(app.html()) && /id="ferr-ob-add-role"/.test(app.html()), 'set-up: Add phase open, the role refused');
+  app.set('ob-new-title', 'Later'); app.input('ob-new-title', 'Later'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/then Undo/.test(app.live()) && app.draft('ob-add-role') === 'two words' && /data-id="ops"/.test(app.html()), 'Undo waits: ' + app.live());
+  /* Nothing else unsaved: a newer draft would be followed, but not while the refused text is on screen. */
+  const two = await builderOn();
+  await two.fs.write(path, QDRAFT); two.focus(); await two.tick(80);
+  two.click('ob-sel-details'); await two.tick();
+  two.click('ob-add-phase', 'first'); await two.tick();
+  addBox(two, 'ob-add-role', 'roles', 'two words'); await two.tick();
+  await two.fs.write(path, QDRAFT.replace('owner: person-casey', 'owner: person-morgan')); two.focus(); await two.tick(80);
+  two.click('ob-add-cancel'); await two.tick(); two.focus(); await two.tick(80);
+  assert.ok(two.draft('ob-add-role') === 'two words' && /Checklist details<\/h2>/.test(two.html()), 'the refused text stays');
+  assert.ok(/<option value="person-casey" selected>/.test(two.html()), 'the newer draft waits for it');
 });
 
 rule('Builder: Done with typing in two boxes applies neither over the other and keeps the form open', async () => {

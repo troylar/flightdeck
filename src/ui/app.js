@@ -100,7 +100,7 @@
     Object.defineProperty(state, name, { enumerable: true, get: function () { return v; }, set: function (x) { if (x !== v) navSeq++; v = x; } });
   });
   var HIST = (function () { try { return typeof history !== 'undefined' && history && typeof history.replaceState === 'function' && typeof location !== 'undefined' ? history : null; } catch (e) { return null; } })();
-  var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, restoring: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false };
+  var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, restoring: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false, retry: null, retryLoc: null };
   applyTheme();
   var data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, proposed: { procs: {} }, presence: [], readAt: new Date().toISOString() };
   /* Writes to the folder happen one at a time, in order, so a later change never lands before an earlier one. */
@@ -1712,10 +1712,11 @@
       /* Only a read that started after the editor's own save or Take theirs counts, so an older copy still in memory or
          an older read finishing late never undoes it. A later read is the folder as it is, whatever it holds. */
       /* Nor while this window's own save of it is still finishing (an Undo made meanwhile is newer than either), nor while
-         text typed in the builder's form isn't applied yet (that's unsaved too). */
+         text typed in the builder's form isn't applied yet (that's unsaved too; a box still on screen after its pending mark
+         was cleared counts until the redraw looks again). */
       /* A read of this draft (a routine load, or the editor's watcher) counts by its own sequence. */
       var readAt = p.draft && fileSeq[p.draft.file] != null ? fileSeq[p.draft.file] : data.readSeq || 0;
-      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || shotBusy(p.id) || !p.draft || state.draftSaving[edKey(p.id)] || readAt <= (ed.after || 0)) return;
+      var ed = editorOf(p.id); if (!ed || ed.conflict || dirty(ed) || state.obPending === p.id || (state.obRepend && state.processId === p.id && obTyped(null)) || shotBusy(p.id) || !p.draft || state.draftSaving[edKey(p.id)] || readAt <= (ed.after || 0)) return;
       /* The newer draft is one change in the editor's timeline (slice 2): one Undo takes it back as an unsaved edit, and the
          changes before it stay undoable. It's already in the folder, so a later save never lists it as the person's. */
       var h = U.hash(p.draft.md); if (h === ed.baseHash || p.draft.md === ed.base) return;
@@ -2688,7 +2689,9 @@
      An Add box keeps its text (see addAnchorKept). Returns true when it has to wait, having said why and gone to the box. */
   function typedFirst(p, what) {
     var pf = state.obPending === p.id && state.obPendingField;
-    if (!pf || /^ob-new-/.test(pf)) return false;
+    /* An Add box's typing is kept by Undo itself (tlMove), but another box beside it that holds typing isn't. */
+    if (pf && /^ob-new-/.test(pf)) pf = state.processId === p.id ? obTyped(null, true) : null;
+    if (!pf) return false;
     if (state.overlay) closeOverlay();
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then ' + what + '.', 'warn');
     state.focus = '#' + pf; render(); return true;
@@ -3332,6 +3335,9 @@
   function readyFor(t) { return H.loadedGen === gen && (!state.needsReconnect || (t.f != null && t.f === navFp())); }
   function navLoaded() {
     H.loadedGen = gen;
+    /* A run link that couldn't be read opens once a later read finds it, if nothing was moved to since. */
+    var rt = H.retry; if (rt && (rt.seq !== navSeq || rt.f !== navFp())) rt = H.retry = null;
+    if (rt && H.on && !H.pending && ctx.findRun(rt.loc.process + '/' + rt.loc.run)) { H.retry = null; arrive({ loc: rt.loc, n: H.pos, f: rt.f }); return; }
     var t = H.pending; if (!H.on || !t || !readyFor(t)) return;
     H.pending = null; arrive(t);
   }
@@ -3425,7 +3431,7 @@
   function headingOf() { var v = state.view; return v === 'run' ? 'run-h' : v === 'process' && state.ptab === 'edit' ? 'ed-h' : v === 'types' && state.typeForm ? 'tf-h' : v === 'setup' ? 'su-h' : 'page-h'; }
   /* A target the browser is on: the folder check, layers, guards, then the move, and the entry gets what is drawn. */
   function arrive(t) {
-    var loc = t.loc, msg = t.msg || null;
+    var loc = t.loc, msg = t.msg || null; H.retry = null; H.retryLoc = null;
     if (!loc) { loc = { view: 'home' }; msg = 'That link isn\'t one Flightdeck can open.'; }
     if (t.f != null && t.f !== navFp()) {
       say('That page was in another team folder, so it wasn\'t opened.', 'warn');
@@ -3447,6 +3453,7 @@
     var hash = navHere(), fp = navFp();
     H.seen = navSeq; H.mode = null;
     if (histWrite(false, hash, H.pos, fp)) H.cur = { n: H.pos, hash: hash, f: fp };
+    if (H.retryLoc) { H.retry = { loc: H.retryLoc, seq: navSeq, f: fp }; H.retryLoc = null; }
     if (res !== 'focus') state.focus = headingOf();
     render(); window.scrollTo(0, 0);
   }
@@ -3531,8 +3538,11 @@
   function moveToRun(loc) {
     var key = loc.process + '/' + loc.run, r = ctx.findRun(key);
     if (!r) {
+      /* A run that couldn't be read isn't gone: the link is kept, and opens when a later read (Refresh) finds it. */
+      var unread = !!((data.failed || {}).runs || ((state.unread || {}).runs || {})[key]);
       if (processes().some(function (x) { return x.id === loc.process; })) ACTIONS['open-process'](loc.process); else ACTIONS.nav('runs');
-      navWarn('That run isn\'t in this folder anymore.'); return 'moved';
+      if (unread) H.retryLoc = loc;
+      navWarn(unread ? 'That run couldn\'t be read just now, so it wasn\'t opened. Refresh tries again.' : 'That run isn\'t in this folder anymore.'); return 'moved';
     }
     var sub = loc.sub || '';
     if (sub === 'finish' && r.ended) sub = 'receipt';
