@@ -112,10 +112,11 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
 /* Today's numbers are the budgets; a slice that lightens a screen lowers its budget (SHOW=1 prints what each screen has now).
    target is where the lightness plan aims. */
 const BUDGETS = {
-  home: { words: 164, buttons: 16, chips: 1, target: { words: 120 } },
-  processes: { words: 149, buttons: 23, chips: 30, target: { chips: 8 } },
-  'process page as a non-owner': { words: 456, buttons: 26, chips: 22, target: { words: 260, buttons: 16, chips: 12 } },
-  'process page as its owner': { words: 456, buttons: 26, chips: 22, target: { words: 430 } },
+  home: { words: 139, buttons: 13, chips: 1, target: { words: 120 } },
+  /* Raised on purpose: the header now links to Skills and Step types, which left the top bar. */
+  processes: { words: 152, buttons: 25, chips: 30, target: { chips: 8 } },
+  'process page as a non-owner': { words: 280, buttons: 13, chips: 14, target: { words: 260, buttons: 16, chips: 12 } },
+  'process page as its owner': { words: 427, buttons: 24, chips: 20, target: { words: 430 } },
   'run, just started': { words: 420, buttons: 42, chips: 9, target: { words: 300, buttons: 36, chips: 6 } },
   finish: { words: 145, buttons: 6, inputs: 3, target: { words: 70, inputs: 0 } },
   'new process': { words: 88, inputs: 8, target: { inputs: 1 } },
