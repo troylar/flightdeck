@@ -92,7 +92,7 @@
       var stop = !ctx.recording(r) ? 'You aren\'t recording this run now, so this report can\'t be declined here.' : !g.report ? 'Every copy of this report is gone, so it can\'t be declined.' : (b.held ? b.held(g) : '');
       var rid = X.reasonId(g.key), err = st.fieldErr && st.fieldErr.id === rid;
       return '<div class="rep-confirm" role="group" data-draft-kept aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
-        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(draft || '') + '</textarea>' +
+        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (busy0 ? ' readonly' : '') + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(draft || '') + '</textarea>' +
         (stop ? '<p class="small" id="' + id + '-dcwhy">' + esc(stop) + '</p>' : '') +
         '<div class="row"><button class="btn"' + (stop ? ' disabled aria-describedby="' + id + '-dcwhy"' : ' data-act="rep-decline-go" data-id="' + esc(g.key) + '"' + (busy0 ? ' disabled' : '')) + '>Decline</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
     }

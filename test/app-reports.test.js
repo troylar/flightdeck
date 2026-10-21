@@ -653,6 +653,23 @@ rule('App: saving a decline closes only that report\'s form; another report\'s o
   assert.strictEqual(boxText(ra), 'Still deciding on A');
 });
 
+rule('App: a decline reason is read-only while its decision is being saved, so nothing typed then is dropped', async () => {
+  const app = await recording();
+  const x = await plant(app);
+  await openStep(app, 'jenkins');
+  app.click('rep-decline', x.key); await app.tick();
+  const rid = app.PF.reports.reasonId(x.key), box = () => new RegExp('<textarea id="' + rid + '"[^>]*>').exec(app.html());
+  assert.ok(box() && !/readonly/.test(box()[0]), 'set-up: editable while typing');
+  app.set(rid, 'Wrong build');
+  const origD = app.PF.repo.decideReport, g = gate(); let hold = true;
+  app.PF.repo.decideReport = function () { const a = arguments; if (hold) { hold = false; return g.p.then(() => origD.apply(this, a)); } return origD.apply(this, a); };
+  app.click('rep-decline-go', x.key); await app.tick(20);
+  assert.ok(box() && / readonly/.test(box()[0]), 'read-only while the write waits');
+  g.open(); await app.tick(120);
+  assert.deepStrictEqual(decisions(app).map(d => d.reason), ['Wrong build']);
+  assert.ok(!box(), 'and the form closes once it is saved');
+});
+
 rule('App: this window\'s hint records only the acceptance it made: after Discard, an older acceptance of the same report isn\'t recorded by itself', async () => {
   const app = await recording();
   const x = await plant(app);

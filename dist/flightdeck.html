@@ -11411,7 +11411,10 @@ PF.reports = (function () {
       if (!dm || x.secret) { rows.push({ name: x.name, source: x.source, result: 'unknown' }); return; }
       var d = dm[1], known = ctxNames.indexOf(d) >= 0, have = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d].trim() : '';
       var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
-      row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === String(x.value).trim() ? 'match' : 'mismatch';
+      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5). */
+      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
+      if (p && p.ok && p.canonical) want = p.canonical;
+      row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === want ? 'match' : 'mismatch';
       row.why = !known ? d + ' isn\'t a run detail of this checklist' : !have ? 'the run has no ' + d + ' yet' : '';
       rows.push(row);
     });
@@ -11559,6 +11562,9 @@ PF.reports = (function () {
     if (r.ended || r.state !== 'running') return no('The run has ended.');
     if (r.paused) return no('The run is paused. Resume it first.');
     if (!R.phaseOpen(r, map, x.phaseIndex)) return no('That phase isn\'t open yet.');
+    /* A run detail the step uses, still waiting on a migration, stops an acceptance as it stops Done (R.consumption). */
+    var waiting = R.consumption(r, x.step.binds || []);
+    if (waiting) return no(waiting);
     if (o.fillOpen) return no('Save or cancel Fill in first.');
     var ap = applies(rep, r, map, x.step);
     if (ap.result === 'mismatch') return no(appliesText(ap));
@@ -17102,7 +17108,7 @@ PF.vk = (function () {
       var stop = !ctx.recording(r) ? 'You aren\'t recording this run now, so this report can\'t be declined here.' : !g.report ? 'Every copy of this report is gone, so it can\'t be declined.' : (b.held ? b.held(g) : '');
       var rid = X.reasonId(g.key), err = st.fieldErr && st.fieldErr.id === rid;
       return '<div class="rep-confirm" role="group" data-draft-kept aria-labelledby="' + id + '-dc"><h4 id="' + id + '-dc" tabindex="-1">Decline this report?</h4>' + K.ferr(st, rid) +
-        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(draft || '') + '</textarea>' +
+        '<label class="small" for="' + rid + '">Why not? The run will show this.</label><textarea id="' + rid + '" rows="2" maxlength="' + X.LIMITS.text + '"' + (busy0 ? ' readonly' : '') + (err ? ' aria-invalid="true" aria-describedby="ferr-' + rid + '"' : '') + '>' + esc(draft || '') + '</textarea>' +
         (stop ? '<p class="small" id="' + id + '-dcwhy">' + esc(stop) + '</p>' : '') +
         '<div class="row"><button class="btn"' + (stop ? ' disabled aria-describedby="' + id + '-dcwhy"' : ' data-act="rep-decline-go" data-id="' + esc(g.key) + '"' + (busy0 ? ' disabled' : '')) + '>Decline</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
     }
