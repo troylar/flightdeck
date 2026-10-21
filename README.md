@@ -318,7 +318,7 @@ Beside the checklist: whether it's ready for a skill, its skills, its versions a
 
 Saving is careful. A save only goes through if the draft is still exactly what you opened. If a teammate or your AI assistant changed it meanwhile, nothing is saved: you see their version and choose to keep yours or take theirs. One limit: a shared folder can't lock a file, so a change that lands in the instant between that check and the write can still be replaced. Edit a draft with one person (or one AI assistant) at a time. Saving never publishes; publishing is a separate, logged step.
 
-**New process** on the Processes page asks for an ID, title, group, tags, run details, roles and owner, starts the draft, and opens it in the editor.
+**New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
 
 <br>
 

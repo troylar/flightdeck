@@ -120,6 +120,64 @@
         "before": "Skills and Step types were top-bar sections on every screen, and the welcome drew the whole bar."
       },
       {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "A run says each thing once",
+        "now": "The keyboard hint shows once, in Next up; More → Keyboard shortcuts and ? still list every key. No start notice repeats the status strip, and the revision is in Details. A must-do step is marked with a red ! named \"Must do\". Timing shows only on a step the checklist times; otherwise Start is under More for this step. Correct this step explains itself on hover.",
+        "before": "The keyboard keys were listed in four places, the start notice repeated the status strip, and every step showed Timing and a paragraph about corrections.",
+        "where": "A run"
+      },
+      {
+        "kind": "improved",
+        "area": "Checklists",
+        "title": "Plain words for phase modes, details and outcomes",
+        "now": "Phases say \"Read, then do\" and \"Do, then confirm\". A run detail in a step or gate shows as its name, like approves deploy of commit to environment. Runs that were canceled say Canceled. Only the words on screen changed: checklist files still say READ-DO and DO-CONFIRM, and run files and receipt text still store Cancelled.",
+        "before": "READ-DO and DO-CONFIRM badges, ^commit tokens, and Cancelled.",
+        "where": "Process pages, runs, the builder, Finish, receipts and Insights"
+      },
+      {
+        "kind": "improved",
+        "area": "Processes",
+        "title": "A flatter Processes list",
+        "now": "Tags fold into Filter by tag (N), which stays open once you open it. A group whose only child is a group shows as one heading (\"Operations / Incidents\"), and counts of 1 aren't drawn. Each row says its version and when it last ran. Tags are still on the process page, in search and in the filter.",
+        "before": "A cloud of every tag, a heading for every level, and tags and the publisher on every row."
+      },
+      {
+        "kind": "improved",
+        "area": "New process",
+        "title": "New process asks for a title",
+        "now": "Type a title and the file name is made from it, shown under it (\"Saved as onboard-a-new-hire.md\") and editable under More options with the group, tags, run details, roles, owner and \"Usually run by one person\". A taken or invalid name is refused as before, and the options open to show why. Start from Code check-in or Weekly review and publish v1 as it is, or copy a prompt for your AI assistant.",
+        "before": "Eight boxes, with the Process ID first."
+      },
+      {
+        "kind": "improved",
+        "area": "Builder",
+        "title": "The builder says the save step",
+        "now": "A new draft says to fill in the steps, choose Save draft, then Done to publish it, and unsaved edits say \"Unsaved: Save draft before you publish\". Checks counts problems and warnings only; tips are still listed. The first version's change note starts as \"First version\". Done and saving work exactly as before.",
+        "before": "The banner said to choose Done, tips counted in Checks, and v1's change note started empty."
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Fill in opens itself",
+        "now": "Checking a Jira step that needs an issue type or status only Fill in holds opens that step's Fill in, puts the reason beside the box and focuses it, the way required evidence already does.",
+        "before": "The check was refused with a message, and you opened Fill in yourself."
+      },
+      {
+        "kind": "improved",
+        "area": "Finish",
+        "title": "Finish shows only what has something in it",
+        "now": "With no follow-ups, the form is one Add a follow-up line that opens it; with no corrections, one line says No corrections. The three End buttons are unchanged.",
+        "before": "The follow-up form's three boxes and an empty corrections section showed on every finish."
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Lighter Runs, Step types and Settings pages",
+        "now": "Runs shows the 8 newest finished runs with the rest under Earlier finished runs, Export evidence is in a More menu (still on each run's too), and cards don't repeat the version. Step types folds the built-in types, with each type's ID inside What it asks for. Settings puts Jira workflows and Keyboard under More settings, except that a Jira workflow problem keeps Jira workflows outside the fold.",
+        "before": "Every finished run, every built-in type and every setting were drawn in full."
+      },
+      {
         "kind": "fixed",
         "area": "Publishing",
         "title": "Publish waits for edits that aren't saved",
