@@ -202,6 +202,26 @@ rule('Promote and decisions drop their work, writing nothing, when the window\'s
   assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
 });
 
+rule('The last check of the window\'s folder and person comes after every read, right before the first write: stage and promote', async () => {
+  const pause = (fs, re) => { let release; const gate = new Promise(r => { release = r; }); const orig = fs.blob.bind(fs); fs.blob = (x, o) => re.test(x) ? gate.then(() => orig(x, o)) : orig(x, o); return release; };
+  const fs = folder(); await staged(fs);
+  let ok = true;
+  const go = pause(fs, /^staged\/release\/stage-abcd1234\/map\.md$/);
+  const before = JSON.stringify(Object.keys(fs.files).sort());
+  const p1 = repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', still: () => ok });
+  await new Promise(r => setTimeout(r, 20)); ok = false; go();
+  same(await p1, { dropped: true });
+  assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'promote wrote nothing');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const md = CHANGED.replace(/(\n- \[[ !~]\] [^\n]*\{#flags\}\n)/, '$1  ![The values file](images/flags.png)\n');
+  const fs2 = folder({ 'images/flags.png': png }); await v1(fs2);
+  let ok2 = true; const go2 = pause(fs2, /^images\/flags\.png$/);
+  const s1 = repo.stage(fs2, md, opts({ existing: [{ version: 1 }], rand: 'drop0001', still: () => ok2 }));
+  await new Promise(r => setTimeout(r, 20)); ok2 = false; go2();
+  same(await s1, { dropped: true });
+  assert.ok(!files(fs2, /^staged\//).length, 'stage wrote nothing');
+});
+
 /* ---------- The stage transaction ---------- */
 
 rule('Stage transaction: a write or read-back failure at each step stops it with the reason; the record is written last, so a half stage is never usable', async () => {

@@ -4296,7 +4296,7 @@
           if (!got[0] || got[0].text !== shown) return { changed: true };
           /* The corrections this exact text includes, as publishing records them, so promoting it keeps them. */
           var inc = PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list;
-          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION });
+          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION, still: function () { return !stale(); } });
         });
       }).then(function (res) {
         state.stageBusy = null; if (pg !== gen) return;

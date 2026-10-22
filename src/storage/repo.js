@@ -1370,6 +1370,8 @@ PF.repo = (function () {
           var b2 = shots.length ? P.build(draftMd, Object.assign({}, o, { images: images, imageBytes: bytes, rand: built.folder.replace(/^stage-/, '') })) : built;
           if (b2.blockers) return b2;
           var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+          /* The window's folder and person, checked right before the first write (o.still, as for promote). */
+          if (typeof opts.still === 'function' && !opts.still()) return { dropped: true };
           return shots.reduce(function (p, src) { return p.then(function () { return put(src, blobs[src], sha256Of(bytes[src])); }); }, Promise.resolve())
             .then(function () { return put('map.md', b2.files['map.md'], sha256Of(b2.files['map.md'])); })
             .then(function () { return put('types.json', b2.files['types.json'], sha256Of(b2.files['types.json'])); })
@@ -1493,7 +1495,6 @@ PF.repo = (function () {
         /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
            published is byte for byte what was staged (a byte-order mark included). */
         var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
-        try { stillOk(o); } catch (e) { return { dropped: true }; }
         var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
         var raw = function (name, want) {
           return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {
@@ -1501,18 +1502,26 @@ PF.repo = (function () {
             return u8;
           });
         };
-        var text = function (name, want) { return raw(name, want).then(function (u8) { var t = PF.reports.utf8(u8); if (t == null) throw new Error(from + name + ' isn\'t UTF-8 text. Nothing was published.'); return put(name, t, want); }); };
+        var text = function (name, want) { return raw(name, want).then(function (u8) { var t = PF.reports.utf8(u8); if (t == null) throw new Error(from + name + ' isn\'t UTF-8 text. Nothing was published.'); return t; }); };
+        /* Everything is read and checked first; the window's folder and person are checked right before the first write. */
+        var got = { blobs: {} };
         return shots.reduce(function (p, src) {
-          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return raw(src, pay.images[src]).then(function () { return put(src, b, pay.images[src]); }); }); });
+          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return raw(src, pay.images[src]).then(function () { got.blobs[src] = b; }); }); });
         }, Promise.resolve())
-          .then(function () { return text('map.md', pay.map); })
-          .then(function () { return text('types.json', pay.types); })
-          .then(function () { return fs.write(base + 'publication.json', record); })
-          .then(function () { return readVersion(fs, proc, folder); })
-          .then(function (res) {
+          .then(function () { return text('map.md', pay.map).then(function (t) { got.map = t; }); })
+          .then(function () { return text('types.json', pay.types).then(function (t) { got.types = t; }); })
+          .then(function () {
+            if (o && typeof o.still === 'function' && !o.still()) return { dropped: true };
+            return shots.reduce(function (p, src) { return p.then(function () { return put(src, got.blobs[src], pay.images[src]); }); }, Promise.resolve())
+              .then(function () { return put('map.md', got.map, pay.map); })
+              .then(function () { return put('types.json', got.types, pay.types); })
+              .then(function () { return writeRecord(); });
+          });
+        function writeRecord() { return fs.write(base + 'publication.json', record).then(finish); }
+        function finish() { return readVersion(fs, proc, folder).then(function (res) {
             if (!res.ok) throw new Error('The new version didn\'t read back as written (' + res.why + ').');
             return { version: version, folder: folder, proposed: st.info.stage.proposed, renumbered: version !== st.info.stage.proposed };
-          });
+          }); }
       });
     });
   }
