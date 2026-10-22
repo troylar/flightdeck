@@ -163,6 +163,20 @@ rule('One sign-off file whose read is refused is named by itself and holds only 
   assert.ok(/release\.v1\.w-own\.json/.test(S.signUnknown(d, pub)), 'its own version is held: ' + S.signUnknown(d, pub));
 });
 
+rule('A file listed in validations/ or proposals/ that\'s gone when read is named and holds what it could decide', async () => {
+  const fs = folder(), pub = await publish(fs), plan = JSON.parse(example('proposals/plan-release-2026-10-24.json'));
+  put(fs, 'proposals/plan-release-2026-10-24.json', JSON.stringify(plan));
+  put(fs, 'validations/release.v1.w-gone.json', '{}');
+  put(fs, 'proposals/plan-release-2026-10-24.status-w-gone.json', '{}');
+  const read = fs.read.bind(fs), gone = ['validations/release.v1.w-gone.json', 'proposals/plan-release-2026-10-24.status-w-gone.json'];
+  fs.read = (p, o) => gone.indexOf(p) >= 0 ? Promise.resolve(null) : read(p, o);
+  const d = await repo.loadAll(fs);
+  assert.ok(/release\.v1\.w-gone\.json/.test(S.signUnknown(d, pub)), 'the version is held: ' + JSON.stringify(d.valUnread));
+  const p = d.plans.filter(x => x.id === 'plan-release-2026-10-24')[0];
+  same(p._statusUnread, ['proposals/plan-release-2026-10-24.status-w-gone.json']);
+  assert.ok(named(health(d), 'validations/release.v1.w-gone.json') && named(health(d), 'proposals/plan-release-2026-10-24.status-w-gone.json'));
+});
+
 rule('Sign-offs that couldn\'t be listed or read at all leave readiness unanswered too', async () => {
   const fs = folder(), pub = await publish(fs);
   put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));

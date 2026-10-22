@@ -603,7 +603,8 @@ PF.repo = (function () {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
-          if (!f) return null;
+          /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
+          if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           var o = json(f.text);
           if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */

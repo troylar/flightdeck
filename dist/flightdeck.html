@@ -13921,7 +13921,8 @@ PF.repo = (function () {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
-          if (!f) return null;
+          /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
+          if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           var o = json(f.text);
           if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
@@ -21598,7 +21599,7 @@ PF.examples = (function () {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok + (x.fromStage ? ':' + x.fromStage.folder + x.fromStage.ok : ''); }); }),
       d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }), (d.valUnread || []).map(function (u) { return u.path + ':' + !!u.ignored + !!u.claimed + ':' + (u.process || '') + ':' + (u.folder || '') + ':' + (u.stage || ''); }), (d.refused || []).map(function (x) { return x.path + ':' + x.kind + ':' + (x.needs || ''); }), (d.planUnread || []).map(function (u) { return u.path + ':' + u.kind; }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
-      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
+      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|') + JSON.stringify([p._retarget || null, p._retargetClash || null, p._statusHeld || null]); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
       (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); }),
       d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; }),

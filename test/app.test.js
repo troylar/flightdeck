@@ -2274,6 +2274,20 @@ rule('Plans: while proposals/ can\'t be read, a plan kept from before can\'t be 
   assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
 });
 
+rule('Plans: a decision listed but gone when read holds its plan: nothing starts (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const dec = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  app.fs.files[dec] = { t: '{}', m: Date.now() };
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === dec ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+});
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
@@ -6127,6 +6141,23 @@ rule('Pins: a plan/2 starts on its exact folder; offering the latest is an expli
   assert.strictEqual(run.folder, pubFolder(app, 1));
   const st = JSON.parse(app.fs.files[app.files('proposals/plan-release-exact.status-')[0]].t);
   assert.strictEqual(st.format, 'flightdeck-plan-status/2'); assert.strictEqual(st.status, 'accepted'); assert.strictEqual(st.run, run.id);
+});
+
+rule('Pins: a routine refresh shows a switch made in another window, and two switches that disagree, on the open plan (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  await exactPlan(app);
+  const v1 = pubFolder(app, 1), v2 = pubFolder(app, 2);
+  app.click('review-plan', 'plan-release-exact'); await app.tick();
+  const eyebrow = () => (app.html().match(/<div class="eyebrow">[^<]*/) || [''])[0];
+  assert.ok(/ · v1/.test(eyebrow()), 'set-up: on v1: ' + eyebrow());
+  const p0 = () => app.PF.repo.loadAll(app.fs).then(d => d.plans.find(p => p.id === 'plan-release-exact'));
+  await app.PF.repo.recordPlanStatus(app.fs, await p0(), 'w-avery', 'retargeted', null, 'person-avery', { folder: v2, version: 2 }, '2.1.0');
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(/ · v2/.test(eyebrow()), 'the switch shows: ' + eyebrow());
+  await app.PF.repo.recordPlanStatus(app.fs, await p0(), 'w-blake', 'retargeted', null, 'person-blake', { folder: v1, version: 1 }, '2.1.0');
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(/two people switched it to different versions/.test(app.html()) && !/id="start-form"/.test(app.html()), (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
 });
 
 rule('Pins: a plan/2 whose folder is gone asks and starts nothing; "Start on v2 instead" writes the switch (plan-status/2, retargeted) and then starts on v2', async () => {
