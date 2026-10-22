@@ -2363,6 +2363,20 @@ rule('Plans: a form left open after another window started or declined the plan 
   }
 });
 
+rule('Plans: without cross-window locks, a decline clicked right after Start waits its turn: one decision is written, the start (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  let writes = 0; const write = app.fs.write;
+  app.fs.write = function (p) { if (/^proposals\/.*\.status-/.test(p)) writes++; return write.apply(this, arguments); };
+  app.submitForm('start-form');
+  app.click('decline-plan', 'plan-release-2026-10-24');
+  await app.tick(200);
+  assert.strictEqual(writes, 1, 'one decision write');
+  const st = app.files('proposals/').filter(p => /status/.test(p)).map(p => JSON.parse(app.fs.files[p].t).status);
+  assert.deepStrictEqual(st, ['accepted']);
+});
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
