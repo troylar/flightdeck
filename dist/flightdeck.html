@@ -8405,14 +8405,16 @@ PF.insights = (function () {
         gate: { title: p.gate.title, waived: gq(acc.waived), failed: gq(acc.failed) } }, spread(acc.values));
     });
 
-    /* Corrections: distinct runs of this folder with a correction on the step; groups counted by where each stands. */
+    /* Corrections: distinct runs of this folder with a correction on the step; groups counted by where each stands. A run that
+       didn't need the step (2.1 conditions) is left out of its numbers, as for the others. */
+    var nnMemo = Object.create(null), nnOf = function (k) { return nnMemo[k] || (nnMemo[k] = notNeededIds(baseSet[k], mapOf(baseSet[k]))); };
     var corr = Object.create(null), decSig = Object.create(null);
     (input.corrections || []).forEach(function (g) {
       var sid = g && g.target && g.target.step; if (!sid || !stepAcc[sid]) return;
       var st = g.tie ? 'tie' : String(g.status || 'open'), c = corr[sid] = corr[sid] || { runs: Object.create(null), groups: {} }, mine = false;
       (g.members || []).forEach(function (mb) {
         if (mb.folder !== folder) return;
-        var k = process + '/' + mb.run; if (!baseSet[k]) return;
+        var k = process + '/' + mb.run; if (!baseSet[k] || nnOf(k)[sid]) return;
         c.runs[k] = true; mine = true;
         decSig[k] = (decSig[k] || '') + 'c' + (g.id || sid) + '=' + st + (g.decision ? '@' + (g.decision.rev || 0) : '') + ';';
       });
@@ -8432,7 +8434,8 @@ PF.insights = (function () {
           out[metric] = { hits: x.keys.length, n: x.counted.length, keys: x.keys, incomplete: x.incompleteKeys.length, incompleteKeys: x.incompleteKeys, q: qual('run', x.counted, x.ex, x.incompleteKeys) };
         });
         var ck = c ? Object.keys(c.runs) : [];
-        out.corrections = { hits: ck.length, n: base.length, keys: ck, groups: c ? c.groups : {}, q: qual('run', base.map(keyOf), []) };
+        var cn = base.map(keyOf).filter(function (k) { return !nnOf(k)[s.id]; }), cx = base.map(keyOf).filter(function (k) { return nnOf(k)[s.id]; }).map(function (k) { return { why: 'notneeded', key: k }; });
+        out.corrections = { hits: ck.length, n: cn.length, keys: ck, groups: c ? c.groups : {}, q: qual('run', cn, cx) };
         res.steps.push(out);
       });
     });
@@ -8550,6 +8553,7 @@ PF.insights = (function () {
       return x.indexOf(k) >= 0;
     }
     if (p[0] === 'step' && p[2] === 'corrections') {
+      if (notNeededIds(r, mapOf(r))[p[1]]) return false;
       return (ctx.corrections || []).some(function (g) {
         return g && g.target && g.target.step === p[1] && (g.members || []).some(function (mb) { return mb.folder === sp.folder && sp.process + '/' + mb.run === k; });
       });

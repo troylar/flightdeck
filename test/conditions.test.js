@@ -526,6 +526,13 @@ rule('Insights: a step that wasn\'t needed in a run is left out of its per-step 
   runs[1].steps.board = { s: 'na', by: 'person-avery', at: NOW, reason: 'x' };
   const sp = { process: 'rel', folder: pub.info.folder, path: 'step:board:skipped', asOf: Date.parse(LATER) };
   assert.ok(!PF.insights.matches(runs[1], sp, {}), 'a drill-down never lists a run that didn\'t need the step');
+  /* Corrections on the step, one from each kind of run: only the run that needed it counts, in the number and the drill-down. */
+  const corrections = ['run-a', 'run-b'].map((run, i) => ({ id: 'g' + i, status: 'open', target: { step: 'board' }, members: [{ folder: pub.info.folder, run }] }));
+  const withC = PF.insights.forProcess({ runs, corrections }, 'rel', { now: Date.parse(LATER), folder: pub.info.folder }).steps.filter(x => x.id === 'board')[0];
+  same([withC.corrections.hits, withC.corrections.n, withC.corrections.groups.open], [1, 1, 1]);
+  const cp = { process: 'rel', folder: pub.info.folder, path: 'step:board:corrections', asOf: Date.parse(LATER) };
+  assert.ok(PF.insights.matches(runs[0], cp, { corrections }) && !PF.insights.matches(runs[1], cp, { corrections }));
+  same(PF.insights.forProcess({ runs, corrections }, 'rel', { now: Date.parse(LATER), folder: pub.info.folder }).steps.filter(x => x.id === 'ship')[0].corrections.n, 3, 'a step without conditions: every run');
 });
 
 rule('Search: a step is found by its own condition and its phase\'s', () => {
