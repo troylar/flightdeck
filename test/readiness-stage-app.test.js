@@ -175,4 +175,22 @@ rule('With its test runs unchanged, the default version is signed off on them', 
   assert.strictEqual(app.files('validations/').length, before + 1, panel(app));
 });
 
+rule('A refresh landing while the test runs are read again never brings back the count it replaced', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const R = app.PF.repo, orig = R.loadRun, pending = [];
+  R.loadRun = (...a) => new Promise(res => { pending.push(() => orig(...a).then(res)); });
+  const before = app.files('validations/').length;
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(40);
+  assert.ok(pending.length >= 3, 'set-up: the reread is waiting (' + pending.length + ')');
+  const rp = 'runs/release/run-try3/run.json', o = JSON.parse(app.fs.files[rp].t);
+  o.ended = Object.assign({}, o.ended, { outcome: 'Stopped early' });
+  await app.fs.write(rp, JSON.stringify(o, null, 2) + '\n');
+  app.click('refresh'); await app.tick(200);
+  R.loadRun = orig; pending.splice(0).forEach(go => go()); await app.tick(200);
+  const recs = app.files('validations/').map(f => JSON.parse(app.fs.files[f].t)).filter(v => v.process === 'release' && v.evidence && v.evidence.clean >= 3);
+  assert.strictEqual(recs.length, 0, 'never signed on 3 clean: ' + JSON.stringify(recs) + ' ' + JSON.stringify(JSON.parse(app.fs.files[rp].t).ended));
+});
+
 run();

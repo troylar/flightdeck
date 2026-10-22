@@ -3833,12 +3833,13 @@
         if (!ready.tests) return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null);
         /* It leans on test runs (2.1): the version's bytes are checked against its stage again and those test runs read again
            now, and the count worked out again from them, before anything is written. */
-        var st = pub.fromStage && pub.fromStage.stage, tests = data.runs.filter(function (r) { return r.process === id && PF.run.isTest(r) && st && r.folder === st.folder; });
+        var st = pub.fromStage && pub.fromStage.stage, tests = st ? data.runs.filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
         var ids = tests.map(function (r) { return r.id; });
         return Promise.all([st ? repo.stageCarried(sfs, pub, st) : Promise.resolve('Its stage isn\'t known.'), Promise.all(ids.map(function (rid) { return repo.loadRun(sfs, id, rid, null, true); }))]).then(function (f) {
           if (f[0]) throw new Error(f[0]);
           var fresh = f[1].filter(function (r, i) { return r && r.process === id && r.id === ids[i]; });
-          var again = PF.skills.readiness(data.runs.filter(function (r) { return tests.indexOf(r) < 0; }).concat(fresh), pub, null);
+          var onSt = function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; };
+          var again = PF.skills.readiness(data.runs.filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
           if (!again.enough) throw new Error('It needs ' + again.needed + ' clean completed runs; it has ' + again.clean + ' now.');
           if (!still()) return { dropped: true };
           return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: again.completed, clean: again.clean, runs: again.cleanRuns }, as === 'backup' ? 'backup' : null);
