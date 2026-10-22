@@ -6477,6 +6477,31 @@ rule('Pins: a plan switch waiting behind another write is dropped, and says so, 
   }
 });
 
+rule('Plans: a decline waiting behind another write is dropped, and says so, if the folder or the person changes first; it never lands in another folder (2.1.0)', async () => {
+  for (const change of ['folder', 'person']) {
+    const app = boot(); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    const oldFs = app.fs, mine = fs => Object.keys(fs.files).filter(p => /^proposals\/plan-release-2026-10-24\.status-/.test(p)).length, had = mine(oldFs);
+    app.click('open-process', 'check-in'); await app.tick();
+    const orig = app.PF.repo.publish, g = gate(); let first = true;
+    app.PF.repo.publish = function () { const a = arguments; if (!first) return orig.apply(this, a); first = false; return g.p.then(() => orig.apply(this, a)); };
+    app.set('change-note', 'A change'); app.click('publish', 'check-in'); await app.tick();
+    const calls = [], rec = app.PF.repo.recordPlanStatus;
+    app.PF.repo.recordPlanStatus = function (fs, plan, w, status) { calls.push(status); return rec.apply(this, arguments); };
+    app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick();
+    if (change === 'folder') { app.click('reset-examples'); await app.tick(60); app.choose('person-blake'); await app.tick(); }
+    else { app.choose('person-blake'); await app.tick(); }
+    const now = mine(app.fs);
+    g.open(); await app.tick(120);
+    app.PF.repo.publish = orig; app.PF.repo.recordPlanStatus = rec;
+    if (change === 'folder') assert.ok(app.fs !== oldFs, 'set-up: another folder');
+    assert.deepStrictEqual(calls.filter(s => s === 'declined'), [], change + ': nothing recorded');
+    assert.strictEqual(mine(app.fs), now, change + ': nothing in this folder');
+    assert.strictEqual(mine(oldFs), had, change + ': nor in the first');
+    assert.ok(/wasn(&#39;|')t declined/.test(app.html() + app.live()), change + ': it says so');
+  }
+});
+
 /* ---------- Back and Forward (docs/design.md section 29) ---------- */
 const navBoot = async (o) => { const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); if (!(o && o.nobody)) { app.choose('person-casey'); await app.tick(); } return app; };
 const hashes = app => app.entries().map(e => e.hash);
