@@ -416,8 +416,9 @@ PF.repo = (function () {
   /* The same rule on a raw run.json alone (the evidence pack, which reads files as they are): why it isn't the run of
      runs/<proc>/<id>/, or ''. */
   function elsewhere(raw, proc, id) {
-    if (!raw || typeof raw !== 'object' || typeof raw.process !== 'string' || typeof raw.id !== 'string' || (raw.process === proc && raw.id === id)) return '';
-    return 'belongs to ' + raw.process.slice(0, 80) + '/' + raw.id.slice(0, 40) + ', not to the folder it\'s in';
+    /* One without an ID isn't a run at all, and is refused as one; one without its own process can't be this folder's. */
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || (raw.process === proc && raw.id === id)) return '';
+    return 'belongs to ' + (typeof raw.process === 'string' && raw.process ? raw.process.slice(0, 80) : '(no process)') + '/' + raw.id.slice(0, 40) + ', not to the folder it\'s in';
   }
   /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
      one run (the open one) also checks its own publication. */

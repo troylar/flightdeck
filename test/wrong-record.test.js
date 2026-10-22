@@ -194,6 +194,16 @@ rule('Evidence: a packed folder holding another run\'s run.json says so and isn\
   assert.deepStrictEqual(JSON.parse(JSON.stringify(withCopy.col.runs[0].claims)), JSON.parse(JSON.stringify(alone.col.runs[0].claims)), 'the same claims');
 });
 
+rule('Evidence: a run.json in another run\'s folder that names no process is never read as that folder\'s run either', async () => {
+  const files = await evFiles(), o = JSON.parse(files['runs/release/run1/run.json'].toString('utf8'));
+  delete o.process;
+  Object.keys(files).filter(k => k.indexOf('runs/release/run1/') === 0).forEach(k => { files['runs/release/run9/' + k.slice('runs/release/run1/'.length)] = files[k]; });
+  files['runs/release/run9/run.json'] = Buffer.from(JSON.stringify(o));
+  const res = await evPack(files, { run: 'release/run9' }), rc = res.col.runs[0];
+  assert.strictEqual(rc.run, null);
+  assert.ok(/belongs to \(no process\)\/run1/.test(rc.limited) && !(rc.corrections || []).length, rc.limited);
+});
+
 /* ---------- The app: only runs read now count toward a sign-off ---------- */
 
 function checkInRuns(app) { return app.files('runs/check-in/').filter(p => /\/run\.json$/.test(p)); }
@@ -273,6 +283,48 @@ for (const how of ['replaced by another run\'s', 'gone']) rule('App: a run with 
   assert.ok(/2 of 3 clean runs/.test(readyText(app.html())), readyText(app.html()));
   app.click('open-run', 'check-in/third001'); await app.tick(40);
   assert.ok(/Third check-in/.test(app.html()) && /isn't saved/.test(app.html()), 'its unsaved work is still on screen');
+});
+
+async function threeCleanCheckIns() {
+  const app = await twoCleanCheckIns();
+  const runs = cleanCheckIns(app), third = JSON.parse(app.fs.files[runs[0]].t); third.id = 'third001'; third.title = 'Third check-in';
+  app.fs.files['runs/check-in/third001/run.json'] = { t: JSON.stringify(third), m: Date.now() };
+  app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/data-kind="signoff"/.test(app.html()), 'set-up: ready to sign off: ' + readyText(app.html()));
+  return app;
+}
+
+rule('App: while the runs folder can\'t be read, no run counts toward a sign-off and nothing is signed off', async () => {
+  const app = await threeCleanCheckIns();
+  const list = app.fs.list;
+  app.fs.list = function (p) { return p === 'runs' ? Promise.reject(new Error('offline')) : list.apply(this, arguments); };
+  app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(!/data-kind="signoff"/.test(app.html()) && /0 of 3 clean runs/.test(readyText(app.html())), readyText(app.html()));
+  app.click('pick', 'check-in', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'check-in'); await app.tick(80);
+  assert.deepStrictEqual(app.files('validations/'), [], 'no sign-off written');
+  app.fs.list = list;
+  app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/data-kind="signoff"/.test(app.html()), 'counted again once it reads');
+});
+
+rule('App: a run restored after its file went missing counts again at once', async () => {
+  const app = await threeCleanCheckIns();
+  // Whoever recorded it restores it.
+  app.choose(JSON.parse(app.fs.files['runs/check-in/third001/run.json'].t).recorder.person); await app.tick();
+  app.click('open-run', 'check-in/third001'); await app.tick(40);
+  app.files('runs/check-in/third001/').forEach(k => delete app.fs.files[k]);
+  app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/2 of 3 clean runs/.test(readyText(app.html())), 'set-up: not counted while gone: ' + readyText(app.html()));
+  app.click('open-run', 'check-in/third001'); await app.tick(40);
+  app.click('restore-missing'); await app.tick(80);
+  assert.ok(app.fs.files['runs/check-in/third001/run.json'], 'set-up: restored');
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/3 clean runs/.test(readyText(app.html())) && !/of 3 clean runs/.test(readyText(app.html())), readyText(app.html()));
 });
 
 run();

@@ -117,7 +117,7 @@
     get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
     run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
     /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
-       stays on screen, but isn't what the folder holds). */
+       stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
     countedRuns: countedRuns,
     recording: function (r) { return !!r && !!state.me && !r.ended && !r._unrunnable && r.recorder.person === state.me && r.recorder.session === SESSION; },
     /* Who may resolve conflict copies: the recorder's window while it runs; once it has ended, whoever recorded or ended it. */
@@ -655,6 +655,8 @@
   var notCounted = {};
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
   function countedRuns() {
+    /* While the runs folder itself can't be read, none of what's shown is what it holds now. */
+    if ((data.failed || {}).runs) return [];
     var u = (state.unread || {}).runs || {}, m = state.missing || {};
     return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k]; });
   }
@@ -703,7 +705,7 @@
     return res.run;
   }
   /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
-  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; if (kind === 'unread' || kind === 'missing') notCounted[key] = true; setRunStatus(key, kind, why); }
+  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; if (kind === 'unread' || kind === 'missing') notCounted[key] = true; else delete notCounted[key]; setRunStatus(key, kind, why); }
   /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
      gone only when the listing was complete; one never saved yet, or one the read may not replace, stays as it is. */
   function applyRunsRead(d, at) {
