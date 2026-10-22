@@ -19,6 +19,8 @@ PF.envelope = (function () {
   var PART4 = PART3.concat(['conditions']);
   /* 2.1 slice 4: staging. Only a publication record under staged/ names it (a stage); runs on a stage are slice 5. */
   var STAGED = PART4.concat(['staged']);
+  /* 2.1 slice 5: test runs. A run on a stage names staged and test-run, with test: true and stage: { folder } (PF.run). */
+  var TESTRUN = STAGED.concat(['test-run']);
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
 
   /* Every family, with the majors this copy reads and the features it knows in each, its legacy spelling, and whether this
@@ -28,7 +30,7 @@ PF.envelope = (function () {
   var FAMILIES = {
     'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART4 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
     'preflight-publication': { files: 'publications/<p>/<v>/publication.json, staged/<p>/<stage>/publication.json', majors: { 1: [], 2: STAGED }, rewrite: false, future: { 2: '2.0' } },
-    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART4 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
+    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: TESTRUN }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
     'flightdeck-step-type': { files: 'step-types/*.json', majors: { 1: [], 2: ['typed-evidence'] }, rewrite: true, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [], 3: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0' } },

@@ -317,7 +317,9 @@ PF.repo = (function () {
     return { kind: 'cached', fileHash: entry.fileHash, entry: entry, sig: sigOf(entry.fileHash, entry.notesSig, entry.conflicts, entry.unrunnable || badFor(cache, entry), entry.recheckAt),
       build: function () { return build(entry, cache); } };
   }
-  function badFor(cache, entry) { return (cache.bad || {})['publications/' + entry.process + '/' + entry.folder + '/'] || ''; }
+  /* A test run (2.1), as PF.run.isTest says it. */
+  function isTestRun(r) { return !!r && (r.test === true || r._test === true); }
+  function badFor(cache, entry) { return (cache.bad || {})[(P.STAGE.test(String(entry.folder)) ? 'staged/' : 'publications/') + entry.process + '/' + entry.folder + '/'] || ''; }
   /* What a displayed run and a cached result are compared by: the same file, notes, copies and read-only reason. */
   function sigOf(fileHash, notesSig, conflicts, unrunnable, recheckAt) { return [fileHash || '', notesSig || '', (conflicts || []).join('/'), unrunnable || '', recheckAt || ''].join('|'); }
   function runSig(run) { return sigOf(run._fileHash, run._notesSig, run._conflicts, run._unrunnable, run._recheckAt); }
@@ -370,7 +372,8 @@ PF.repo = (function () {
   var CHANGED = 'This version was changed in the folder after this copy checked it, so nothing can be recorded on it until it\'s checked again. Choose Refresh.';
   /* A run started from other contents than the version it names holds is refused, for that run only (never cached). */
   function runMismatch(run, info) { return info && (run.folder !== info.folder || (run.mapHash && run.mapHash !== info.mapHash) || (run.version && +run.version !== info.version)) ? CHANGED : ''; }
-  function pubProblem(fs, run, cacheIn) {
+  function pubProblem(fs, run, cacheIn, strict) {
+    if (run && isTestRun(run) && typeof run.process === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(run.process)) return stageOfRun(fs, run, cacheIn, strict);
     if (!run || typeof run.process !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(run.process) || typeof run.folder !== 'string' || !P.versionOf(run.folder)) return Promise.resolve('');
     var c = cacheIn || cacheOf(fs), dir = 'publications/' + run.process + '/' + run.folder + '/', rec = dir + 'publication.json';
     c.approved = c.approved || {}; c.bad = c.bad || {};
@@ -419,6 +422,32 @@ PF.repo = (function () {
     /* One without an ID isn't a run at all, and is refused as one; one without its own process can't be this folder's. */
     if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || (raw.process === proc && raw.id === id)) return '';
     return 'belongs to ' + (typeof raw.process === 'string' && raw.process ? raw.process.slice(0, 80) : '(no process)') + '/' + raw.id.slice(0, 40) + ', not to the folder it\'s in';
+  }
+  /* A test run's version is its stage (2.1): staged/<process>/<stage>/, verified by the stage rules (readStage) and approved
+     like a version while its record keeps its size and time. The number it proposes is the run's version. A stage not there
+     yet says nothing, as a version still syncing; one that can't be a stage makes the run read-only, named. */
+  /* strict (a new test run's first save): a stage not there, still syncing or not readable is a problem, never fine. */
+  function stageOfRun(fs, run, cacheIn, strict) {
+    if (typeof run.folder !== 'string' || !P.STAGE.test(run.folder)) return Promise.resolve(strict ? 'Its staged version isn\'t a stage folder.' : '');
+    var c = cacheIn || cacheOf(fs), dir = 'staged/' + run.process + '/' + run.folder + '/', rec = dir + 'publication.json';
+    var unsure = function (why) { return strict ? 'Its staged version can\'t be read now (' + why + '). Try again once the folder has synced.' : ''; };
+    var mismatch = function (info) { return run.folder !== info.folder || (run.mapHash && run.mapHash !== info.mapHash) || +run.version !== info.version ? CHANGED : ''; };
+    c.approved = c.approved || {}; c.bad = c.bad || {};
+    if (c.bad[dir]) return Promise.resolve(c.bad[dir]);
+    return fileStamp(fs, rec).then(function (stamp) {
+      var ok = c.approved[dir];
+      if (stamp && ok && ok.stamp === stamp && !strict) return mismatch(ok.info);
+      delete c.approved[dir];
+      return fs.read(rec).then(function (f) {
+        if (!f) return unsure('its record isn\'t there');
+        return readStage(fs, run.process, run.folder).then(function (v) {
+          if (!v.ok) return v.unusable || v.newer ? (c.bad[dir] = v.why) : unsure(v.why || 'not complete yet');
+          var info = { folder: v.info.folder, mapHash: v.info.mapHash, version: v.info.stage.proposed };
+          if (stamp) c.approved[dir] = { stamp: stamp, info: info };
+          return mismatch(info);
+        });
+      }).then(null, function (e) { return unsure(e && e.message || String(e)); });
+    });
   }
   /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
      one run (the open one) also checks its own publication. */
@@ -630,7 +659,7 @@ PF.repo = (function () {
   }
   /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked when its
      result is handed over. */
-  function markBad(x, cache) { if (x.kind !== 'fresh') return; var bad = cache.bad && cache.bad['publications/' + x.run.process + '/' + x.run.folder + '/']; if (bad && !x.run._unrunnable) x.run._unrunnable = bad; }
+  function markBad(x, cache) { if (x.kind !== 'fresh') return; var bad = cache.bad && cache.bad[(isTestRun(x.run) ? 'staged/' : 'publications/') + x.run.process + '/' + x.run.folder + '/']; if (bad && !x.run._unrunnable) x.run._unrunnable = bad; }
   /* Elapsed time on this computer, never the wall clock (which can be changed or roll back). */
   function elapsed() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); }
   /* opts: { deep: read everything again (Refresh), fresh: run keys to read in full whatever the cache says, clock: elapsed
@@ -681,6 +710,10 @@ PF.repo = (function () {
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
       var plans = groupPlans(r[6].plans, r[6].statuses);
+      /* A stage that can't be one (2.1) makes its test runs read-only, as an unusable version does its runs; one read again
+         and verified clears that. A stage still arriving says nothing. */
+      cache.bad = cache.bad || {};
+      Object.keys(r[16].procs).forEach(function (k) { r[16].procs[k].stages.forEach(function (st) { var dir = 'staged/' + k + '/' + st.folder + '/'; if (st.ok) delete cache.bad[dir]; else if (st.unusable || st.newer) cache.bad[dir] = st.why; }); });
       /* Runs and versions are read side by side, so a run read before its version was judged unusable is marked here. */
       keys.forEach(function (k) {
         var x = reads[k]; if (!x) return;
@@ -737,6 +770,8 @@ PF.repo = (function () {
       return Promise.all([runP, fuP, peopleP]).then(function () {
         /* The run's version, verified here so a failure is named, not taken as "nothing to say" (pubProblem's answer). */
         var r = out.run;
+        /* A test run's version is its stage (2.1), read by the stage rules. */
+        if (r && isTestRun(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return readStage(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
         if (!r || typeof r.folder !== 'string' || !P.versionOf(r.folder) || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return out;
         return readVersion(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
       });
@@ -1102,7 +1137,7 @@ PF.repo = (function () {
       return { workflows: Object.keys(c.workflows).length ? c.workflows : null, errors: c.errors };
     });
   }
-  function stripMeta(o) { var c = {}; Object.keys(o).forEach(function (k) { if (k[0] !== '_') c[k] = o[k]; }); return c; }
+  function stripMeta(o) { var c = {}; Object.keys(o).forEach(function (k) { if (k[0] !== '_') c[k] = o[k]; }); return R.testLast ? R.testLast(c) : c; }
 
   /* Save only if the file is exactly what this window last read (same fingerprint) and this window still records it.
      Anything else (another save, a OneDrive replacement, an unreadable file) is never overwritten. */
@@ -1123,11 +1158,13 @@ PF.repo = (function () {
     return checkAndWrite();
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
-    return pubProblem(fs, run).then(function (why) {
+    return pubProblem(fs, run, null, opts.strict).then(function (why) {
       if (why) { run._unrunnable = why; throw readOnly(why); }
       return fs.read(path);
     }).then(function (f) {
       var e;
+      /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
+      if (typeof opts.still === 'function' && !opts.still()) { e = new Error('dropped'); e.dropped = true; throw e; }
       if (f) {
         var disk = R.sanitize(json(f.text));
         if (!disk) { e = new Error('The run file is unreadable, so it wasn\'t overwritten.'); e.unreadable = true; throw e; }
@@ -1152,6 +1189,8 @@ PF.repo = (function () {
          therefore never lost: its candidate isn't in the list, so loadRun shows it as a conflict copy to compare and keep. */
       var saveId = U.randomId(8), tag = writer + '.' + saveId, dir = 'runs/' + run.process + '/' + run.id + '/';
       copy.lineage = (run.lineage || []).concat([tag]).slice(-LINEAGE_MAX);
+      /* A test run's frozen fields stay last (test/fixtures/v2 run-t). */
+      if (copy.test === true) { var tst = copy.stage; delete copy.test; delete copy.stage; copy.test = true; copy.stage = tst; }
       var text = JSON.stringify(copy, null, 2), cand = dir + 'candidate-' + writer + '-' + saveId + '.json';
       return fs.write(cand, text)
         .then(function () { return archiveOverflow(fs, run, writer); })
@@ -1468,6 +1507,40 @@ PF.repo = (function () {
   function stageLocked(o, proc, go) {
     var run = function () { return o && typeof o.still === 'function' && !o.still() ? { dropped: true } : go(); };
     return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, run) : Promise.resolve().then(run);
+  }
+  /* Start a test run on a stage (2.1): the stage read and verified now, and its decisions, so a stage retired, tied or
+     promoted (o.pubs: the versions as last read) takes no new test run; then, after every read and right before the write,
+     o.still() (the same folder and person) and o.make(stage) builds the run, which is saved as any new run is. Resolves to
+     { run } or { dropped: true }. */
+  function startTestRun(fs, proc, stageFolder, o) {
+    if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () { return startTestRunNow(fs, proc, stageFolder, o); });
+  }
+  function startTestRunNow(fs, proc, stageFolder, o) {
+    var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '), so it isn\'t known whether this stage is already the default. Nothing was started.'); });
+    return listing.then(function (vers) {
+      return Promise.all([
+        Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, proc, v.name); })),
+        readStage(fs, proc, stageFolder), stageState(fs, proc)
+      ]);
+    }).then(function (r) {
+      var pubs = r[0], st = r[1], sp = r[2];
+      if (!st.ok) throw new Error('This staged version can\'t be read now: ' + st.why);
+      var unread = pubs.filter(function (x) { return !x.info || typeof x.info !== 'object'; })[0];
+      if (unread) throw new Error('publications/' + proc + '/' + unread.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
+      var mine = pubs.filter(function (x) { return x.info.stagedFrom && x.info.stagedFrom.folder === stageFolder; })[0];
+      if (mine) throw new Error('It\'s already the default, v' + mine.info.version + '. Start an ordinary run on it.');
+      var whyNot = PF.staging.promoteWhy(PF.staging.status(st, sp.decisions, pubs));
+      if (whyNot) throw new Error(whyNot);
+      if (typeof o.still === 'function' && !o.still()) return { dropped: true };
+      var run = o.make(st);
+      /* Inside the stage lock, so no promote or decision from this computer lands between the check and the write; the
+         stage is read again strictly and o.still() asked once more right before the first write. */
+      return saveRun(fs, run, o.session, { writer: o.writer, lock: o.lock, strict: true, still: o.still }).then(function () { return { run: run }; }, function (e) {
+        if (e && e.dropped) return { dropped: true };
+        throw e;
+      });
+    });
   }
   function stillOk(o) { if (o && typeof o.still === 'function' && !o.still()) { var e = new Error('dropped'); e.dropped = true; throw e; } }
   function decideStage(fs, proc, stageFolder, status, o) {
@@ -2350,7 +2423,9 @@ PF.repo = (function () {
         var lineage = raw && typeof raw === 'object' && Array.isArray(raw.lineage) ? raw.lineage.filter(function (t) { return typeof t === 'string'; }) : null;
         /* A run.json that names another run is packed as it is, but nothing is taken from it as this folder's run. */
         p.foreign = raw && typeof raw === 'object' ? elsewhere(raw, proc, id) : '';
-        p.folder = !p.foreign && raw && typeof raw === 'object' && typeof raw.folder === 'string' && P.versionOf(raw.folder) ? raw.folder : '';
+        /* A test run's version is its stage (2.1), under staged/; any other run's, under publications/. */
+        p.test = !p.foreign && !!raw && typeof raw === 'object' && raw.test === true && typeof raw.folder === 'string' && P.STAGE.test(raw.folder);
+        p.folder = !p.foreign && raw && typeof raw === 'object' && typeof raw.folder === 'string' && (p.test || P.versionOf(raw.folder)) ? raw.folder : '';
         p.items.forEach(function (x) {
           var rel = x.path.slice(base.length + 1);
           if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
@@ -2445,7 +2520,7 @@ PF.repo = (function () {
           /* Where its corrections stand couldn't be worked out: every one of them says so, and the pack is partial. */
           if (ctx.why) Object.keys(p.ids.corr).forEach(function (cid) { p.claims.push({ correction: cid, group: '', text: 'Where it stands', folder: '', why: ctx.why }); });
           return Promise.all(Object.keys(vers).map(function (folder) {
-            var b = 'publications/' + proc + '/' + folder;
+            var b = (p.test && folder === p.folder ? 'staged/' : 'publications/') + proc + '/' + folder;
             /* The version the run ran is its payload (2.0): the screenshots it lists. One its payload doesn't list still goes in,
                labeled as not part of the version. */
             var mine = vers[folder] === 'publication' ? record(b + '/publication.json').then(function (x) { var i = x.text != null ? json(x.text) : null; return i && typeof i === 'object' && !Array.isArray(i) && !P.newerOf(i) ? P.payloadFiles(i) : null; }) : Promise.resolve(null);
@@ -2555,16 +2630,18 @@ PF.repo = (function () {
       if (p.ctx && p.ctx.why && Object.keys(p.ids.corr).length) { limits.push(p.ctx.why); col.unresolved.push(p.key + ': ' + p.ctx.why); }
       rc.fuDecisions = p.files.filter(function (f) { return f.role === 'followup'; }).map(function (f) { var o = json(textOf(f.path)); return o ? PF.followups.cleanDecision(o, p.process, f.path.split('/').pop()) : null; }).filter(Boolean);
       var pubTexts = {};
-      if (p.folder) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { var path = 'publications/' + p.process + '/' + p.folder + '/' + n, x = p.files.some(function (f) { return f.path === path; }) ? textOf(path) : null; if (x != null) pubTexts[n] = x; });
+      var pdir = (p.test ? 'staged/' : 'publications/') + p.process + '/' + p.folder + '/';
+      if (p.folder) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { var path = pdir + n, x = p.files.some(function (f) { return f.path === path; }) ? textOf(path) : null; if (x != null) pubTexts[n] = x; });
       /* The version's screenshots, as snapshotted for the pack: their SHA-256, and their bytes when kept. */
       var pubShots = {};
       if (p.folder) { var pinfo = pubTexts['publication.json'] != null ? json(pubTexts['publication.json']) : null; if (pinfo && typeof pinfo === 'object' && !Array.isArray(pinfo) && !P.newerOf(pinfo) && pinfo.images && typeof pinfo.images === 'object') Object.keys(pinfo.images).forEach(function (src) {
-        var path = 'publications/' + p.process + '/' + p.folder + '/' + src, x = done[path];
+        var path = pdir + src, x = done[path];
         if (x && !x.gone && x.sha256) pubShots[src] = { sha256: x.sha256, bytes: x.bytes ? E.join(x.bytes) : null };
       });
       /* The checklist's and step types' exact bytes, for a /2 version's payload. */
-      ['map.md', 'types.json'].forEach(function (n) { var x = done['publications/' + p.process + '/' + p.folder + '/' + n]; if (x && !x.gone && x.sha256) pubShots['\u0000' + n] = { sha256: x.sha256 }; }); }
-      rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null);
+      ['map.md', 'types.json'].forEach(function (n) { var x = done[pdir + n]; if (x && !x.gone && x.sha256) pubShots['\u0000' + n] = { sha256: x.sha256 }; }); }
+      rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null, p.test);
+      rc.test = p.test;
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
       rc.claims = p.claims.map(function (c) {
         var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + p.process + '/' + c.folder + '/' + n; }) : [];
@@ -2726,5 +2803,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

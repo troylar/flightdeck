@@ -182,7 +182,7 @@ PF.corrections = (function () {
       var map = null, mapOf = function () { return map || (map = PF.run.mapOf(r)); };
       (r._notes || []).forEach(function (n) {
         if (n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map') return;
-        var base = { id: n.id, process: process, run: r.id, runTitle: r.title, by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, runEnded: !!r.ended };
+        var base = { id: n.id, process: process, run: r.id, runTitle: r.title, by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, runEnded: !!r.ended, test: PF.run.isTest(r) };
         if (n.kind === 'correction') {
           if (n.replaces) gone[n.by + '|' + n.replaces] = true;
           /* One this copy can't fully read shows its own plain summary as the problem. */
@@ -642,7 +642,9 @@ PF.corrections = (function () {
     var r = g.decision && g.decision.result, s = resultStep(g, PF.outline.parse(text), r && r.step);
     return s ? s.id : '';
   }
-  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.version || 0; })); }
+  /* A test run's number is only what its stage proposes, so the version it's measured from is the one before (2.1): the stage's
+     own promotion can be the first to have the correction. */
+  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.test ? Math.max(0, (c.version || 0) - 1) : c.version || 0; })); }
   /* Which published version first has each applied group: the lowest version above the correction's own that names it (its
      publication.json lists the group, or a person's "It's in vN" names that folder) AND makes the change. Both, always: a
      later version with other edits never earns it by its number, and a listing whose step doesn't match doesn't count.
@@ -738,7 +740,7 @@ PF.corrections = (function () {
       var c = g.first, x = g.target.step && map && M.findStep(map, g.target.step);
       var tid = g.target.step || g.target.gate || g.target.phase;
       L.push('## ' + (i + 1) + '. ' + OP_LABEL[g.change.op] + ': ' + (x ? '"' + x.step.text + '"' : g.target.step ? 'step ' + tid : g.target.gate ? 'the note of the gate ' + tid : 'the note of the phase ' + tid) + ' {#' + tid + '}', '');
-      L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return nameOf(m.by) + ' in "' + m.runTitle + '" (v' + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
+      L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return nameOf(m.by) + ' in "' + m.runTitle + '" (' + (m.test ? 'test run, staged v' : 'v') + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
       if (g.from) L.push('- From (what v' + c.version + ' said):', quote(g.from));
       var p = proposal(c, map); if (p) L.push('- Proposed:', quote(p));
       if (g.change.op === 'screenshot' && g.change.shot) L.push('- Screenshot: `' + g.change.shot + '`');

@@ -148,7 +148,7 @@
     g.members.forEach(function (m) { h += V.attachments(ctx, m.id, m.files, m.fileInfo, 'corr'); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + g.members.map(function (m) {
-      return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · v' + esc(m.version) + '</li>';
+      return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
     if (d) h += '<div class="small">' + esc(d.addressed ? 'Marked as addressed differently' : { applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13', included: 'Said v' + d.version + ' has it' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
     if (g.landed) h += '<div class="small">v' + esc(g.landed.version) + ' has it' + (g.landed.at ? ', published ' + esc(U.day(g.landed.at)) : '') + '.</div>';
@@ -326,7 +326,7 @@
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = R.headline(r, R.mapOf(r));
-      return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? K.outcomeWord(r.ended.outcome) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · v' + esc(r.version) + '</span></button></li>';
+      return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? K.outcomeWord(r.ended.outcome) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
     }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this process</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
     return h + (mine ? '' : skillsFold(ctx, p, pub)) + '</aside></div>';
   }
@@ -361,7 +361,7 @@
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
       var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
       if (held) b = '';
-      else if (me && x.status === 'staged') b = '<button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
+      else if (me && x.status === 'staged') b = '<button class="mini" data-act="start-test" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Start a test run</button><button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
       else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
@@ -469,8 +469,21 @@
   }
   /* ---------- start a run, or plan one ---------- */
   /* The same form starts a run (from scratch or from a plan) or, with state.planning, saves a plan for later. */
+  /* A test run (2.1) starts from a stage's line, on that stage only: never a plan (D5), never another version. */
+  function testStage(ctx, p) {
+    var procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null;
+    var s = sp ? sp.stages.filter(function (x) { return x.folder === ctx.state.testStage; })[0] : null;
+    if (!s || !s.ok) return { why: 'This staged version isn\'t in the folder, or can\'t be read now.' };
+    var held = !!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); });
+    if (held) return { why: 'A decision on it can\'t be read now, so it isn\'t known whether it was retired. Try again once the folder has synced.' };
+    var x = PF.staging.status(s, sp.decisions, p.all);
+    if (x.status === 'promoted') return { why: 'It\'s already the default, v' + x.pub.info.version + '. Start an ordinary run on it.' };
+    if (x.status !== 'staged') return { why: PF.staging.promoteWhy(x) };
+    return { stage: s };
+  }
   function start(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
+    if (p && st.testStage) return startTest(ctx, p);
     var planning = st.planning && st.planning.process === st.processId ? st.planning : null;
     var plan = !planning && st.planId ? ctx.data.plans.filter(function (x) { return x.id === st.planId; })[0] : null;
     if (!p || !p.latest) return notices(ctx) + '<div class="panel">There\'s no published version of this process to run. <button class="mini" data-act="home">Back</button></div>';
@@ -536,5 +549,28 @@
     return h;
   }
 
+  function startTest(ctx, p) {
+    var st = ctx.state, ts = testStage(ctx, p), back = '<button class="mini" data-act="open-process" data-id="' + esc(p.id) + '">Back</button>';
+    if (!ts.stage) return notices(ctx) + '<div class="panel">' + esc(ts.why) + ' ' + back + '</div>';
+    var pub = ts.stage, meta = pub.map.meta, n = pub.info.stage.proposed, people = ctx.data.people.filter(function (x) { return !x.inactive; });
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · staged v' + esc(n) + '</div><h1 id="page-h" tabindex="-1">Start a test run</h1><div class="small">' + esc(pub.info.changes || '') + '</div></div></div>';
+    h += '<form class="panel stack" id="start-form" data-scope="' + esc('test:' + p.id + ':' + pub.folder) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.folder) + '" data-test="1"><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(meta.title + ' (test) · ' + U.day(new Date().toISOString())) + '"></label>';
+    var setBy = M.setBy(pub.map);
+    meta.context.filter(function (f) { return !Object.prototype.hasOwnProperty.call(setBy, f); }).forEach(function (f) {
+      var def = PF.run.typedDef({ snapshot: '' }, pub.map, 'details.' + f);
+      h += def ? '<div>' + K.typedField('detail-' + f, f, def, '', 'data-detail="' + esc(f) + '"') + '</div>' : '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value=""></label>';
+    });
+    h += '</div>';
+    if (meta.roles.length) {
+      h += '<div class="grid2">';
+      meta.roles.forEach(function (role) {
+        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === st.me ? ' selected' : '') + '>' + esc(PF.people.label(x, people)) + '</option>'; }).join('') + '</select></label>';
+      });
+      h += '</div>';
+    }
+    return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
+  }
+  V.testStage = testStage;
   V.process = process; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();

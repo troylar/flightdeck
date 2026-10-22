@@ -135,7 +135,14 @@ const BUDGETS = {
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
   'process page with a stage, its owner': { words: 415, buttons: 24, chips: 9 },
-  'process page with a stage, a non-owner': { words: 268, buttons: 13, chips: 3 }
+  'process page with a stage, a non-owner': { words: 268, buttons: 13, chips: 3 },
+  /* A process with a test run on its stage (2.1 slice 5): the test run is one more labeled line in Recent runs and one more
+     "you're recording" on Home, as any run being recorded is; its run page is the stage's checklist with its label. The
+     budgets above are unchanged. */
+  'run, a test run just started': { words: 326, buttons: 41, chips: 5 },
+  'home with a test run': { words: 159, buttons: 14, chips: 1 },
+  'process page with a test run, its owner': { words: 422, buttons: 24, chips: 9 },
+  'process page with a test run, a non-owner': { words: 275, buttons: 13, chips: 3 }
 };
 async function screens() {
   const app = boot(), out = {}; await app.tick(60);
@@ -154,7 +161,29 @@ async function screens() {
   app.click('ob-sel', 'first-step'); await app.tick(); take('builder, a step selected');
   await conditional(out);
   await withStage(out);
+  await withTestRun(out);
   return out;
+}
+/* Release with a stage and one test run on it (2.1 slice 5): the test run is labeled where it's listed, and never counted. */
+async function withTestRun(out) {
+  const app = boot(); await app.tick(60);
+  const take = name => { out[name] = measure(app.html()); };
+  app.choose('person-casey'); await app.tick();
+  const path = 'maps/drafts/release.md', md = app.fs.files[path].t;
+  await app.fs.write(path, md.replace(/\n(## [^\n]*\n)/, '\n$1- [ ] {confirm} Tell the on-call channel {#tell-oncall}\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  const folder = JSON.parse(app.fs.files[app.files('staged/release/').filter(f => /publication\.json$/.test(f))[0]].t).folder;
+  app.click('start-test', folder); await app.tick(); app.submitForm('start-form', {}); await app.tick(200);
+  assert.ok(app.files('runs/release/').some(f => /run\.json$/.test(f) && JSON.parse(app.fs.files[f].t).test === true), 'set-up: a test run');
+  take('run, a test run just started');
+  await app.fs.write(path, md); app.click('refresh'); await app.tick(80);
+  app.fire('toggle', { target: { dataset: { disc: 'vers:release' }, open: false } }); await app.tick();
+  app.click('nav', 'home'); await app.tick(); take('home with a test run');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  take('process page with a test run, its owner');
+  app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page with a test run, a non-owner');
 }
 /* Release with its draft staged as a version only test runs use. */
 async function withStage(out) {

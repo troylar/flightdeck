@@ -95,7 +95,7 @@
   /* Back and Forward (docs/design.md section 29): every field the location is built from bumps navSeq when it changes, so a
      person's move makes a new history entry and anything else (a folder read, typing) replaces at most. */
   var navSeq = 0;
-  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt'].forEach(function (name) {
+  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt', 'testStage'].forEach(function (name) {
     var v = state[name];
     Object.defineProperty(state, name, { enumerable: true, get: function () { return v; }, set: function (x) { if (x !== v) navSeq++; v = x; } });
   });
@@ -192,7 +192,7 @@
       if (r && /^images\//.test(src)) {
         /* The run itself records whether its publication froze screenshots, so a publication that's still syncing shows
            "Missing", never today's images/ file. Only runs of older publications fall back to images/. */
-        var own = 'publications/' + r.process + '/' + r.folder + '/' + src;
+        var own = R.pubDir(r) + src;
         var legacy = !r.shotsFrozen && legacyPub(r);
         paths = legacy ? [own, src] : [own]; key = r.process + '/' + r.folder + '|' + src + (legacy ? '|legacy' : '');
       }
@@ -476,7 +476,7 @@
         e.draftChanged = e.typesChanged.length > 0;
       }
     });
-    data.runs.forEach(function (r) { var e = by[r.process]; if (e && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
+    data.runs.forEach(function (r) { var e = by[r.process]; if (e && !R.isTest(r) && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
     /* Proposals from AI assistants, judged against the draft as this window last read or saved it; a process with only a
        proposal is listed too ("Proposed, not drafted yet"). Who else is editing, as far as this computer can see. */
     var PP = PF.proposals, procs = (data.proposed || {}).procs || {};
@@ -511,7 +511,7 @@
     var people = data.people.filter(function (p) { return !p.inactive; });
     if (!people.length) return null;
     var last = {};
-    data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
+    data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && !R.isTest(r) && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
     var best = people.slice().sort(function (a, b) { var la = last[a.id] || '', lb = last[b.id] || ''; return la === lb ? (a.name < b.name ? -1 : 1) : la < lb ? -1 : 1; })[0];
     return { person: best.id, why: last[best.id] ? 'last did it ' + U.day(last[best.id]) : 'hasn\'t done it yet' };
   }
@@ -3361,7 +3361,7 @@
   /* ---------- navigation ---------- */
   function openPlanForm(planning) {
     if (!planning.fs) planning.fs = fsKey();
-    setView('start'); state.processId = planning.process; state.planId = null; state.planning = planning; state.fieldErr = null;
+    setView('start'); state.processId = planning.process; state.planId = null; state.planning = planning; state.fieldErr = null; state.testStage = null;
     state.planFormReset = true; state.focus = 'run-title'; render(); window.scrollTo(0, 0);
   }
   function home() { releaseUrls(state.urls); setView('home'); state.processId = null; state.runKey = null; resetRunUi(); }
@@ -3641,6 +3641,11 @@
     if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('process', loc); return 'moved'; }
     var rf = state.runFilter;
     if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
+    /* A test run's form (2.1) comes back as a test run's form, never as an ordinary start. */
+    if (loc.sub === 'start' && loc.stage) {
+      if (p && state.me) { state.processId = pid; ACTIONS['start-test'](loc.stage); return 'moved'; }
+      loc = { view: 'process', process: pid };
+    }
     if (loc.sub === 'start') {
       if (p && p.latest && state.me) { var pl = state.planning; if (pl && pl.fs === fsKey() && pl.process === pid) openPlanForm(pl); else ACTIONS.start(pid); return 'moved'; }
       loc = { view: 'process', process: pid };
@@ -4213,8 +4218,10 @@
       render();
     },
     'open-run': function (id) { openRun(id); render(); },
-    'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; setView('start'); state.processId = p.process; state.planId = id; state.planning = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
-    start: function (id) { setView('start'); state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
+    'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; setView('start'); state.processId = p.process; state.planId = id; state.planning = null; state.testStage = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
+    start: function (id) { setView('start'); state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; state.testStage = null; render(); window.scrollTo(0, 0); },
+    /* A test run (2.1), from a stage's line under All versions on the open process. */
+    'start-test': function (folder) { var pid = state.processId; if (!pid || !PF.publish.STAGE.test(String(folder))) return; setView('start'); state.processId = pid; state.planId = null; state.planning = null; state.fieldErr = null; state.testStage = folder; render(); window.scrollTo(0, 0); },
     /* Plan a run for later: the start form, saving a plan instead of starting. */
     'plan-run': function (id) { openPlanForm({ process: id, from: null }); },
     /* Duplicate a run into a plan: its details and roles, never its answers, notes or gates. Details a step sets during the run
@@ -4458,7 +4465,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      recover(function () { var c = R.sanitize(local); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
+      recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -5309,6 +5316,7 @@
     if (e.target.id !== 'start-form') return;
     e.preventDefault();
     var p = processes().filter(function (x) { return x.id === e.target.dataset.process; })[0];
+    if (p && state.me && e.target.dataset.test === '1') { startTestRun(e.target, p); return; }
     if (!p || !p.latest || !state.me) return;
     var details = {}, roles = {};
     e.target.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = inputValue(el); });
@@ -5339,6 +5347,34 @@
     }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) { endBusy(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });
+
+  /* Start a test run (2.1) from its form: the stage and its decisions are read again when it's saved (repo.startTestRun), and
+     the run is built only then, after every read, in the name of the person who submitted, if they're still this window's. */
+  var testBusy = false;
+  function startTestRun(form, p) {
+    if (testBusy) return;
+    var ts = V.testStage(ctx, p), folder = form.dataset.folder;
+    if (!ts.stage || ts.stage.folder !== folder) { say(ts.why || 'The staged version changed while you were filling this in. Check the form, then start again.', 'warn'); render(); return; }
+    var details = {}, roles = {};
+    form.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = inputValue(el); });
+    form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
+    var title = val('run-title') || p.title, tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
+    var sfs = state.fs, sg = gen, who = state.me, made = null;
+    var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(stage) }); };
+    /* The form's values are checked now, so a typed detail that doesn't read is said before anything is read again. */
+    try { mk(ts.stage); } catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
+    testBusy = true;
+    var endBusy = busyStart(), held = holdNav(false), done = function () { testBusy = false; endBusy(); };
+    queued(function () {
+      return repo.startTestRun(sfs, p.id, folder, { session: SESSION, writer: WRITER, lock: LOCKS ? lock : null,
+        still: function () { return sg === gen && state.fs === sfs && state.me === who; }, make: function (stage) { made = mk(stage); return made; } });
+    }).then(function (res) {
+      done(); if (sg !== gen || (res && res.dropped)) { releaseNav(held); if (sg === gen) { say('Nothing was started: another folder was opened, or the person using this window changed.', 'warn'); render(); } return null; }
+      state.testStage = null;
+      return load(true).then(function () { return true; });
+    }).then(function (ok) { if (!ok) return; releaseNav(held); if (sg !== gen) return; openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
+      function (err) { done(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the test run: ' + err.message, 'bad'); render(); });
+  }
 
   /* Getting started's people, and Settings' Add a person. */
   document.addEventListener('submit', function (e) {

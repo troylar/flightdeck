@@ -129,6 +129,10 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 `only when` on a step or phase needs Flightdeck 2.1 on every computer that runs the checklist: a version that uses it shows on 2.0 and earlier as "needs Flightdeck 2.1" and won't start there, and its runs show by name only. Put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. The 1.21 step above still comes first for a team moving from 1.x; 2.1 doesn't change it. A checklist without `only when` publishes exactly as it does on 2.0.
 
+### Staging and test runs (2.1)
+
+A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but they count a test run in Home's running number until they update to 2.1. A version made the default from a stage is an ordinary version every copy from 1.11.1 on can run.
+
 ## Rolling back
 
 If an update goes wrong, install the older version over it:

@@ -120,6 +120,9 @@ PF.vk = (function () {
   /* An outcome as it reads on screen: US spelling for Cancelled, which run files keep as written. */
   function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
   function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }
+  /* A test run (2.1) says so wherever it's listed or opened, and its version is the stage's proposed number, never a version's. */
+  function testTag(r) { return PF.run.isTest(r) ? '<span class="badge b-test">Test run</span>' : ''; }
+  function verWord(r) { return PF.run.isTest(r) ? 'Test run · staged v' + r.version : 'v' + r.version; }
   function tagChips(tags) { return (tags || []).length ? '<span class="tags">' + tags.map(function (t) { return '<span class="tag">#' + esc(t) + '</span>'; }).join('') + '</span>' : ''; }
   /* A typed value's box (2.0): only a value with a kind gets one; a text value keeps its plain box, so a checklist without typed
      values looks exactly as before. Yes/no, and a choice of up to five, are radios in a fieldset whose legend is the label (its
@@ -146,7 +149,7 @@ PF.vk = (function () {
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE };
+  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

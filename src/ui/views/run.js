@@ -318,7 +318,7 @@
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
     var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
     var h = '<section class="rw-details" id="rw-details" aria-labelledby="rw-det-h"><h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details</h2>' +
-      '<p class="small">' + esc(map.meta.title) + ' · v' + esc(r.version) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
+      '<p class="small">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
       (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
       (rec ? '<p class="small">Changing a detail sends steps that used it back for a re-check, and gates that approved it need review.</p>' : '') + migrationsList(ctx, r, map);
     if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<p class="small">' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops). ' + (pr ? '<button class="linkish" data-act="open-run" data-id="' + esc(pk) + '">Open it</button>' : '') + '</p>'; }
@@ -424,7 +424,7 @@
     }
     g.members.forEach(function (m) { if (m.why) dl += '<dt>' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
     var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) {
-      return '<button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', v' + esc(m.version) + ')';
+      return '<button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
     }).join(', ') + '</p>';
     var who = d && d.by ? '<p class="small">' + (d.status === 'included' ? esc(nameOf(ctx, d.by)) + ' said v' + esc(d.version) + ' has it' : 'Applied by ' + esc(nameOf(ctx, d.by))) + (d.at ? ' ' + esc(U.day(d.at)) : '') + '.</p>' : '';
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
@@ -714,7 +714,7 @@
     var st = ctx.state, f = x.f, me = st.me, pick = st.fuPick && st.fuPick.key === x.key ? st.fuPick : null, days = PF.followups.ageDays(x, ctx.now());
     var meta = [];
     if (x.owner) meta.push(esc(nameOf(ctx, x.owner)));
-    if (opts.run) meta.push('<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
+    if (opts.run) meta.push((x.test ? 'Test run · ' : '') + '<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
     if (opts.age && x.status === 'open') meta.push(days === 0 ? 'added today' : 'open ' + days + ' day' + (days === 1 ? '' : 's'));
     var h = '<li class="fu" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + fuPill(x) +
       (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + fuDecided(ctx, x);
@@ -782,7 +782,7 @@
     /* The header: who it is, how far, and the tools. Three groups that never trade places. */
     var h = '<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h"><div class="fpe-id">' +
       '<button type="button" class="btn rw-back" data-act="nav" data-id="runs">' + I('back') + 'Runs</button>' +
-      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + '</h1><span class="small rw-sub">' + esc(map.meta.title) + ' · v' + esc(r.version) + ' · started ' + esc(U.when(r.created)) +
+      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + K.testTag(r) + '</h1><span class="small rw-sub">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) +
       (r.parent ? ' · part of <button class="linkish" data-act="open-run" data-id="' + esc(r.parent.process + '/' + r.parent.id) + '">' + esc((ctx.findRun(r.parent.process + '/' + r.parent.id) || {}).title || r.parent.process) + '</button>' : '') + '</span></div></div>' +
       '<div class="rw-prog"><span class="rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + t.total + '" aria-valuenow="' + t.done + '" aria-valuetext="' + t.done + ' of ' + t.total + ' steps answered"><i style="width:' + pct + '%"></i></span><b>' + t.done + '/' + t.total + '</b><span class="small">answered</span></div>' +
       '<div class="rw-tools"><button type="button" class="mini" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +

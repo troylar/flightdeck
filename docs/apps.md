@@ -32,8 +32,8 @@ Every command takes the team folder's path and `--json`. Without `--json` it exi
 | Command | `data` holds |
 |---|---|
 | `flightdeck processes <folder> --json` | Every process with its versions |
-| `flightdeck process <folder> <process> [--version N \| --folder v3-…] --json` | One version of a checklist: phases, steps, gates, run details, roles, step types, and the evidence each step can record. The latest usable version unless you name one. |
-| `flightdeck runs <folder> [--process <id>] [--status running\|planned\|ended\|all] --json` | Runs and planned runs (`all` unless you say) |
+| `flightdeck process <folder> <process> [--version N \| --folder v3-… \| --stage stage-…] --json` | One version of a checklist: phases, steps, gates, run details, roles, step types, and the evidence each step can record. The latest usable version unless you name one; `--stage` (contract 2) reads a staged version. |
+| `flightdeck runs <folder> [--process <id>] [--status running\|planned\|ended\|all] [--tests] --json` | Runs and planned runs (`all` unless you say); `--tests` (contract 2) lists test runs too |
 | `flightdeck run <folder> <process>/<run id> --json` | One run in full: each step's state, who and when, its values and the evidence this run asks for, gates, follow-ups |
 | `flightdeck next <folder> <process>/<run id> [--person <id>] --json` | What's waiting in the run and on whom; with `--person`, that person's own next step too |
 | `flightdeck followups <folder> [--process <id>] [--status open\|all] --json` | Every follow-up and what became of it |
@@ -193,7 +193,9 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
 - **`process`** adds `format`, `features` and `details` (each run detail's `name`, `type` and `options`), and each step's `evidence` entry adds `type`, `min`, `max` and `unit` (a number's limits, as text, or `null`).
 - **Conditions (Flightdeck 2.1, not released yet).** In `process`, each phase and each step adds `when`: its `only when` tests in their canonical spelling (`^risk is high`), `[]` when it has none. In `run`, each step adds `applies` (`true`, `false` when it's Not needed in this run, `null` when it can't tell yet) and `held` (why it's waiting, while `applies` is `null`; else `null`), and each gate adds `applies` (`false` when its phase is Not needed). A gate whose phase is Not needed has `status` `skipped`: it needs no pass, and it's never permission for anything. `applies` is read from the run's details as they are now, so it can change when a detail does.
 
-Contract 1's output doesn't change.
+- **Test runs (2.1).** A test run tries a staged version before it's the default, and is never counted as a real run. `runs` leaves test runs out unless you add `--tests`, and adds `testRunsLeftOut`: how many test runs matched but weren't listed. Each run in `runs` and `run` adds `test` (`true` for a test run) and `stage` (`{ "folder": "stage-..." }` for a test run, else `null`); a test run's `version` is the number its stage proposes, and its `folder` is the stage's. Each follow-up in `followups` and `run` adds `test`. `process <process> --stage stage-...` reads a staged version, with `stage` (`folder`, `proposed`, `stagedBy`, `stagedAt`; `null` for a version). `--tests` and `--stage` work with `--contract 2` only.
+
+Contract 1's output doesn't change: it names a test run `newer`, as Flightdeck 1.x did.
 
 ## A walkthrough
 

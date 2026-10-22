@@ -6,7 +6,7 @@
   /* ---------- home ---------- */
   function runCard(ctx, r) {
     var map = R.mapOf(r), hl = R.headline(r, map), t = R.totals(r, map);
-    return '<button class="card" data-act="open-run" data-id="' + esc(runKey(r)) + '"><div class="row between"><span class="cat">' + esc(ctx.processTitle(r.process)) + '</span>' + avatar(ctx, r.recorder.person) + '</div>' +
+    return '<button class="card" data-act="open-run" data-id="' + esc(runKey(r)) + '"><div class="row between"><span class="cat">' + esc(ctx.processTitle(r.process)) + K.testTag(r) + '</span>' + avatar(ctx, r.recorder.person) + '</div>' +
       '<span class="card-title">' + esc(r.title) + '</span><span class="state ' + hl.s + '">' + esc(K.hlText(r, hl)) + '</span>' +
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
       '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
@@ -71,8 +71,9 @@
     var repWait = me && ctx.reportsWaiting ? ctx.reportsWaiting() : {};
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
       var map = R.mapOf(r), hl = R.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
-      if (r.recorder.person === me) add('run', esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
-      else if (nx) add('run', esc(r.title) + ': you\'re up', esc(nx.step.text) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
+      var tt = R.isTest(r) ? 'Test run · ' : '';
+      if (r.recorder.person === me) add('run', tt + esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
+      else if (nx) add('run', tt + esc(r.title) + ': you\'re up', esc(nx.step.text) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
       if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
@@ -100,7 +101,8 @@
     if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
     h += acksPanel(ctx);
     h += myFollowUps(ctx);
-    var running = d.runs.filter(function (r) { return r.state === 'running'; });
+    /* Test runs (2.1) are never counted as real runs. */
+    var running = d.runs.filter(function (r) { return r.state === 'running' && !R.isTest(r); });
     h += '<section class="panel" aria-labelledby="go-h"><h2 id="go-h">At a glance</h2><div class="glance">' +
       '<button class="tile" data-act="nav" data-id="runs"><span class="big">' + running.length + '</span><span>running</span></button>' +
       /* Versions arrive with the first complete read, so until then the count isn't known. */
