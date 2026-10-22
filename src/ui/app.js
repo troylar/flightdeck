@@ -680,7 +680,7 @@
   /* What a sign-off's own reread of a run found, said as any read is, so a run it found gone or not itself stops counting
      on the page too. */
   /* Why a plan can't be started, declined or switched now: a decision on it can't be read ('' when none). */
-  function planHeld(plan) { var u = plan && plan._statusUnread || []; return u.length ? u[0] + ' couldn\'t be read, so it isn\'t known whether someone already started or declined this plan. Nothing was changed. Try again once that file has finished arriving.' : ''; }
+  function planHeld(plan) { return V.planHeldWhy(plan); }
   function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
@@ -2740,11 +2740,12 @@
      and all), and opening the type again picks it up. If the file changed since, earlier changes stay listed but can't be
      undone. */
   var typeTls = {};
-  function keepTypeTl(f, id, def, hash) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, hash: hash, tail: def ? typeTail(f) : null }; }
-  function resumeTypeTl(f, id, hash) {
+  /* text: the exact text of the step type's file the kept form was based on; it's resumed only over that same text. */
+  function keepTypeTl(f, id, def, text) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, text: text == null ? null : text, tail: def ? typeTail(f) : null }; }
+  function resumeTypeTl(f, id, text) {
     var k = typeTls[fsKey() + '\n' + id]; if (!k) return f;
     f.tl = k.tl;
-    if (k.def && k.hash === hash) { f.def = k.def; f.tlTail = k.tail; f.initial = V.typeFormSnapshot(f.def); }
+    if (k.def && k.text != null && k.text === text) { f.def = k.def; f.tlTail = k.tail; f.initial = V.typeFormSnapshot(f.def); }
     else TL.barrier(f.tl, 'The step type changed in the folder here. Earlier changes can\'t be undone.');
     return f;
   }
@@ -3327,7 +3328,7 @@
         /* The saved ID can differ from what was typed (spaces trimmed); the history keeps what was typed, so it still applies. */
         var tail = typeTail(f);
         f.existing = def.id; f.def.id = def.id; f.tlTail = tail; f.baseHash = res.hash; f.baseText = res.text; f.baseDef = def; f.initial = savedSnap; f.tried = false; f.idEdit = false; f.leaving = false; f.justSaved = Date.now();
-        keepTypeTl(f, def.id, savedDef, res.hash);
+        keepTypeTl(f, def.id, savedDef, res.text);
       }
       if (!here) return;
       if (open && f.closeAfterSave) { f.closeAfterSave = false; ACTIONS['type-cancel'](); }
@@ -3840,7 +3841,7 @@
       var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen, unk = PF.skills.signUnknown(data, pub);
-      if (unk) { say('Nothing was signed off: ' + unk + ', so it isn\'t known whether v' + pub.info.version + ' is already signed off. Try again once that file has finished arriving.', 'warn'); render(); return; }
+      if (unk) { say('Nothing was signed off: ' + unk + (PF.skills.signHold(data, pub).kind === 'newer' ? '. Update Flightdeck to see it.' : ', so it isn\'t known whether v' + pub.info.version + ' is already signed off. If that file stays this way, restore it from a backup or delete it.'), 'warn'); render(); return; }
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
       var by = state.me, still = function () { return sg === gen && state.fs === sfs && state.me === by; };
       queued(function () {
@@ -4180,7 +4181,7 @@
         var errs = o ? T.checkCustom(o) : ['it can\'t be read'];
         if (!o || errs.length) { say('step-types/' + id + '.json ' + (errs[0] || 'has a problem') + '. Fix the file, or ask your AI assistant to.', 'warn'); render(); return; }
         var tf = typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text), f.text); tf.baseDef = o;
-        setView('types'); state.typeForm = resumeTypeTl(tf, id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
+        setView('types'); state.typeForm = resumeTypeTl(tf, id, f.text); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
       }, function (e) { releaseNav(held); if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
     'tf-add': function (id, b) {
@@ -4251,7 +4252,7 @@
     'type-cancel': function () {
       var f = state.typeForm;
       /* Closing without saving: unsaved changes are dropped, so they can't be undone over the file when it's opened again. */
-      if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseHash); }
+      if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseText); }
       /* Leaving from the prompt Back showed lands on the list in that entry's place. */
       if (f && f.backLeave) H.mode = 'replace';
       state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
