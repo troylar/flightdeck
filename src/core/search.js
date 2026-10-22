@@ -192,6 +192,8 @@ PF.search = (function () {
     (map.phases || []).forEach(function (ph) {
       (ph.steps || []).forEach(function (s) {
         var sf = []; field(sf, s.text, 6); field(sf, s.note, 2); field(sf, s.id, 3);
+        /* Its conditions and its phase's (2.1), as written after "only when". */
+        field(sf, (ph.when || []).concat(s.when || []).map(function (w) { return w.text; }).join(' and '), 2);
         out.push({ id: 'step:' + proc + '/' + x.folder + '/' + s.id, kind: 'step', title: s.text, sub: (ph.title || '') + ' · ' + title, fields: sf, people: [], types: uniq([s.type]),
           at: x.info.publishedAt || '', process: proc, run: '', target: target({ view: 'process', process: proc, mapVer: x.folder, step: s.id }) });
       });

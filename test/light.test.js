@@ -122,7 +122,16 @@ const BUDGETS = {
   'new process': { words: 33, buttons: 6, inputs: 1, target: { inputs: 1 } },
   /* Raised by 3 on purpose: the builder banner now says the whole path (Save draft, then Done to publish). */
   'builder, a step selected': { words: 281, buttons: 35, target: { words: 350, buttons: 36 } },
-  'folder health': { words: 135, buttons: 6, target: { words: 110 } }
+  'folder health': { words: 135, buttons: 6, target: { words: 110 } },
+  /* The same screens for a checklist with conditions (2.1), Release with one on a step and one on a phase: each condition is
+     one muted line, and the builder's is one closed "Only when…" until it's used. The release builder without them is the
+     baseline: a step with a condition adds its open box and hint, and the outline's two condition lines. */
+  'builder, release, a step selected': { words: 467, buttons: 62, inputs: 10 },
+  'process page with conditions, its owner': { words: 404, buttons: 24, chips: 9 },
+  'process page with conditions, a non-owner': { words: 257, buttons: 13, chips: 3 },
+  'run with conditions, just started': { words: 349, buttons: 37, chips: 5 },
+  'builder with conditions, a step selected': { words: 487, buttons: 62, inputs: 11 },
+  'builder, a step without conditions selected': { words: 477, buttons: 62, inputs: 10 }
 };
 async function screens() {
   const app = boot(), out = {}; await app.tick(60);
@@ -139,7 +148,38 @@ async function screens() {
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick(); take('new process');
   app.set('np-id', 'onboard'); app.set('np-title', 'Onboard a new hire'); app.submit('new-process-form'); await app.tick(150);
   app.click('ob-sel', 'first-step'); await app.tick(); take('builder, a step selected');
+  await conditional(out);
   return out;
+}
+/* Release with a condition on a step and on a phase, published as its next version through the screens. */
+async function conditional(out) {
+  const app = boot(); await app.tick(60);
+  const take = name => { out[name] = measure(app.html()); };
+  app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick(); take('builder, release, a step selected');
+  app.click('ob-done'); await app.tick();
+  const path = 'maps/drafts/release.md', md = app.fs.files[path].t;
+  const cond = md.replace(/(\n- \[[ !~]\] [^\n]*\{#flags\}\n)/, '$1  only when ^environment is set\n').replace(/(\n## Verify in production[^\n]*\n)/, '$1  only when ^tag is set\n');
+  assert.ok(cond !== md && (cond.match(/only when/g) || []).length === 2, 'set-up: two conditions');
+  await app.fs.write(path, cond);
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Conditions'); app.click('publish', 'release'); await app.tick(200);
+  assert.ok(app.files('publications/release/').some(f => /map\.md$/.test(f) && /only when/.test(app.fs.files[f].t)), 'set-up: published with its conditions');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/class="pv-when"/.test(app.html()), 'set-up: the page shows them');
+  take('process page with conditions, its owner');
+  app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page with conditions, a non-owner');
+  app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80); take('run with conditions, just started');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags" open>/.test(app.html()), 'set-up: its condition is open');
+  take('builder with conditions, a step selected');
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:rollback"><summary>/.test(app.html()), 'set-up: closed');
+  take('builder, a step without conditions selected');
 }
 rule('Each screen keeps to its budget of visible words, buttons, boxes and chips', async () => {
   const got = await screens(), over = [];

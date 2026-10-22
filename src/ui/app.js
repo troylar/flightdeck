@@ -2895,12 +2895,14 @@
     if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
     if (id === 'ob-ph-note') return ph ? ph.note : '';
+    if (id === 'ob-when') return st ? st.when.join('\n') : '';
+    if (id === 'ob-ph-when') return ph ? ph.when.join('\n') : '';
     if (id === 'ob-tr-title') { var tr = ph && ph.tracks[+s.track]; return tr ? tr.title : ''; }
     if (id === 'ob-g-title' || id === 'ob-g-approves') return ph && ph.gate ? (id === 'ob-g-title' ? ph.gate.title : ph.gate.approves) : '';
     return '';
   }
   /* Boxes that hold several lines compare as written (only \r dropped); one-line boxes as the ops apply them (norm). */
-  var MULTI = /^ob-(note|ph-note|q-text)$/;
+  var MULTI = /^ob-(note|ph-note|q-text|when|ph-when)$/;
   function boxNorm(id, v) { return MULTI.test(id) ? String(v == null ? '' : v).replace(/\r/g, '') : norm(v); }
   /* Enter applies a one-line box; a box of several lines is applied when you leave it. */
   function applyHint(id) { return MULTI.test(id || '') ? '(leaving the box applies it)' : '(Enter applies it)'; }
@@ -3020,6 +3022,7 @@
       return obApplied(builderEdit({ op: 'questions', text: value }, id), id, null);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);
+    if (s.kind === 'step' && id === 'ob-when') return obApplied(builderEdit({ op: 'when', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step') {
       var st = o.steps.filter(function (x) { return x.key === s.key; })[0], mk = id === 'ob-mark' ? (value === 'must' ? '!' : value === 'planned' ? '~' : ' ') : null;
       var set = id === 'ob-text' ? { text: value, reid: !!(st && fresh(st.id)) } : mk ? { mark: mk } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
@@ -3037,6 +3040,7 @@
       if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', phase: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
       if (id === 'ob-ph-title') res = reid(ph && ph.id, builderEdit({ op: 'editPhase', phase: s.key, set: { title: value, reid: !!(ph && fresh(ph.id)) } }, id));
       else if (id === 'ob-ph-note') return obApplied(builderEdit({ op: 'phaseNote', phase: s.key, note: value }, id), id, null);
+      else if (id === 'ob-ph-when') return obApplied(builderEdit({ op: 'when', phase: s.key, text: value }, id), id, null);
       else if (id === 'ob-ph-mode') res = builderEdit({ op: 'editPhase', phase: s.key, set: { mode: value } }, id);
       else if (id === 'ob-g-title' || id === 'ob-g-owner' || id === 'ob-g-approves') {
         /* Leaving the "name a gate" box empty adds nothing. */
@@ -3062,7 +3066,7 @@
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
-  var OB_TYPED = /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx)$/;
+  var OB_TYPED = /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -3990,7 +3994,7 @@
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
       /* Another box that still holds typing (refused earlier, say) keeps the form open too. */
       var cp = currentProcess(); if (cp && obTyped(null, true) && obHeld(cp, 'then close the form', null, true)) return;
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
@@ -5386,7 +5390,7 @@
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;

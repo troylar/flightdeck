@@ -13,6 +13,14 @@
         "where": "Checklist format, Only when; the run screen and the receipt"
       },
       {
+        "kind": "new",
+        "area": "Builder",
+        "title": "Only when in the builder, and everywhere a checklist shows",
+        "now": "In the builder, a step's or phase's Only when edits its conditions, one a line. The process page and flight plan show each as one muted line, search finds them, Insights leaves out runs that didn't need a step, the evidence page says Not needed and why, and Ready for a skill? names conditional steps no clean run has needed yet.",
+        "before": "Conditions could be written only in Markdown, and only the run screen and the receipt showed them.",
+        "where": "Checklist format, Only when; the builder, the process page, Insights and Export evidence"
+      },
+      {
         "kind": "improved",
         "area": "Updating",
         "title": "A checklist with only when needs Flightdeck 2.1",

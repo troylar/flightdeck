@@ -7250,6 +7250,60 @@ rule('Builder: Checklist details adds and removes roles and run details, and set
   assert.deepStrictEqual(lineDelta(original, releaseText(app)), { gone: ['backup: person-avery', 'context: ticket, commit, environment, tag', 'owner: person-casey'], added: ['context: ticket, commit, environment, tag, region', 'owner: person-morgan'] });
 });
 
+rule('Builder conditions: one closed "Only when…" line until it is used; a step\'s and a phase\'s conditions round-trip through the text', async () => {
+  const app = await builderOn(), original = releaseText(app);
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags"><summary>Only when…<\/summary>/.test(app.html()), 'closed, one quiet line');
+  assert.ok(!/id="ob-when"[^>]*maxlength/.test(app.html()), 'no length limit below what four conditions can need');
+  assert.strictEqual((app.html().match(/Only when/g) || []).length, 1, 'said once');
+  leave(app, 'ob-when', '^ticket is set'); await app.tick();
+  assert.ok(/Changed when "Feature flags set in the deploy values" applies\. Undo available\./.test(app.live()), app.live());
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags" open>/.test(app.html()), 'open while it has one');
+  /* The browser reports the open it drew as a toggle: that is remembered for this step only, never for the next one. */
+  app.fire('toggle', { target: { dataset: { disc: 'ob-when:release:flags' }, open: true } }); await app.tick();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:rollback"><summary>/.test(app.html()), 'another step stays closed');
+  app.fire('toggle', { target: { dataset: { disc: 'ob-when:other:rollback' }, open: true } }); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:rollback"><summary>/.test(app.html()), 'a step with the same ID in another checklist doesn\'t open it');
+  app.click('ob-sel', 'flags'); await app.tick();
+  leave(app, 'ob-when', 'only when'); await app.tick();
+  assert.ok(/Write a condition as/.test(app.html()), 'refused beside the box, never read as no condition');
+  leave(app, 'ob-when', '^ticket is set'); await app.tick();
+  assert.strictEqual(app.draft('ob-when'), '^ticket is set');
+  leave(app, 'ob-when', '^nope is set'); await app.tick();
+  assert.ok(/isn&#39;t listed in context/.test(app.html()) && /id="ob-when"[^>]*aria-invalid="true"/.test(app.html()), 'refused beside the box');
+  assert.strictEqual(app.draft('ob-when'), '^nope is set', 'what was typed stays in the box');
+  leave(app, 'ob-when', '^tag is set'); await app.tick();
+  assert.ok(/later one \(sets:\)/.test(app.html()), 'a detail a later step sets is refused, with why');
+  leave(app, 'ob-when', '^ticket is set'); await app.tick();
+  app.click('ob-sel-phase', 'verify'); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-ph-when:release:verify"><summary>Only when…<\/summary>/.test(app.html()), 'the phase has the same closed line');
+  leave(app, 'ob-ph-when', 'only when ^tag is set'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const after = releaseText(app);
+  assert.deepStrictEqual(lineDelta(original, after), { gone: [], added: ['  only when ^tag is set', '  only when ^ticket is set'] });
+  assert.strictEqual(JSON.stringify(app.PF.map.parse(after).errors.map(e => e.msg)), '[]');
+  app.click('ob-sel', 'flags'); await app.tick();
+  leave(app, 'ob-when', ''); await app.tick();
+  app.click('ob-sel-phase', 'verify'); await app.tick();
+  leave(app, 'ob-ph-when', ''); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.strictEqual(releaseText(app), original, 'removing them gives the text back byte for byte');
+});
+
+rule('Builder conditions: a condition written another way is shown, read-only, and left to Markdown', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const md = app.fs.files['maps/drafts/release.md'].t, odd = md.replace(/(\n- \[[ !~]\] [^\n]*\{#flags\}\n)/, '$1  Only when ^ticket is set\n');
+  assert.notStrictEqual(odd, md, 'set-up');
+  await app.fs.write('maps/drafts/release.md', odd);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  const h = app.html();
+  assert.ok(!/id="ob-when"/.test(h) && /Edit them in Markdown/.test(h) && /<li>\^ticket is set<\/li>/.test(h), 'no box, the text, and where to change it');
+  assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags" open>/.test(h), 'open, since it has one');
+});
+
 rule('Builder: the step form edits its note; no "in Markdown" is left for roles, run details or notes', async () => {
   const app = await builderOn(), original = releaseText(app);
   app.click('ob-sel', 'flags'); await app.tick();

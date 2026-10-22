@@ -9,6 +9,7 @@ Steps and phases that only some runs need.
 ### New
 
 - **Only when: steps and phases that only some runs need** (Checklists). Put "only when ^risk is high" under a step, or right under a phase heading, and it applies only to runs whose details match. Everything else shows as Not needed with the reason, folded away, and a phase that isn't needed is skipped with its gate. A checklist without "only when" works as before. *Where:* Checklist format, Only when; the run screen and the receipt
+- **Only when in the builder, and everywhere a checklist shows** (Builder). In the builder, a step's or phase's Only when edits its conditions, one a line. The process page and flight plan show each as one muted line, search finds them, Insights leaves out runs that didn't need a step, the evidence page says Not needed and why, and Ready for a skill? names conditional steps no clean run has needed yet. *Where:* Checklist format, Only when; the builder, the process page, Insights and Export evidence
 
 ### Improved
 

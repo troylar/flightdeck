@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   var V = PF.views, U = PF.util, R = PF.run, T = PF.types, I = PF.icons.icon, esc = U.esc;
-  var MODE = PF.vk.MODE_WORD;
+  var MODE = PF.vk.MODE_WORD, K = PF.vk;
   /* Up to this many steps in the whole checklist, every phase's steps start open; a longer one starts as an overview. */
   var OPEN_MAX = 40;
 
@@ -55,9 +55,9 @@
   function stepLine(s, go, types, auto) {
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.map(function (n) { return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') +
-      (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '');
+      (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
     return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + esc(s.text) +
-      '<span class="sr">. Show it in the checklist</span></button>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+      '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
   }
   function stepList(steps, name, line) { return '<ol class="fp-sl" aria-label="Steps in ' + esc(name) + '">' + steps.map(line).join('') + '</ol>'; }
   /* The phase's steps behind a native disclosure, lanes side by side as in the card, and the gate as the last line. */
@@ -97,6 +97,7 @@
       if (count) lines += noteLine(x, count);
     });
     /* A marker for a phase's note and screenshots (2.0) and a gate's note, said in words; the run shows them. */
+    if (p.when) lines += '<div class="fp-line fp-when">' + I('fork') + '<span>' + K.whenWords(p) + '</span></div>';
     var marks = [];
     if (p.note) marks.push('a note');
     if ((p.shots || []).length) marks.push(plural(p.shots.length, 'screenshot'));

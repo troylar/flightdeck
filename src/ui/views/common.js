@@ -115,6 +115,8 @@ PF.vk = (function () {
       return i % 2 ? part : part.replace(/\^([A-Za-z][\w-]*)/g, '<b class="dname">$1</b>');
     }).join('');
   }
+  /* A phase's or step's conditions (2.1) in words: "Only when risk is high and ...", or '' without any. */
+  function whenWords(x) { return x && x.when && x.when.length ? detailWords(esc('Only when ' + x.when.map(function (w) { return w.text; }).join(' and '))) : ''; }
   /* An outcome as it reads on screen: US spelling for Cancelled, which run files keep as written. */
   function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
   function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }
@@ -144,7 +146,7 @@ PF.vk = (function () {
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE };
+  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE };
 })();
 (function () {
   'use strict';

@@ -166,6 +166,8 @@ During a run each condition is read again from the run's details whenever they c
 
 Changing a detail that a checked step's condition uses asks for a re-check of that step, and gates that approved it go back to review. A checklist with `only when` publishes a version that needs Flightdeck 2.1: every copy before 2.1, 2.0 included, names it and can't run it.
 
+In the builder, a step's or a phase's form has one closed **Only when…** line (shown once the checklist has run details). Open it and write one condition a line, as after `only when`; leaving the box applies it, and a condition that can't be read is refused beside it. The builder writes each as `  only when ` and what you typed, in place, and leaves every other line as it was. `only when` lines written another way (another indent, capitals, spaces at the end) are shown but not changed there: edit them in Markdown. The process page and the flight plan show each condition as one muted line.
+
 ## Reports from tools
 
 A tool that does a step's work can report it (docs/apps.md): the report names the step by its ID and its evidence by the step's evidence names (`flightdeck report targets` lists both). When a report depends on a run detail (a commit, a database), tie the step to that detail with `^detail` in its text: a later change to the detail then sends the step back for a re-check, in every copy. A step that isn't tied is only compared when the report is accepted.
