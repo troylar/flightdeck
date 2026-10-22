@@ -873,7 +873,11 @@ PF.run = (function () {
       return null;
     }
     map.phases.forEach(function (p, pi) {
+      /* Conditions (2.1): work that isn't needed in this run has no time to keep. */
+      var cond = !!p.when || p.steps.some(function (s) { return !!s.when; });
+      if (cond && applies(r, map, pi).applies === false) return;
       p.steps.forEach(function (st) {
+        if (cond && applies(r, map, pi, st).applies === false) return;
         var w = when(fieldsOf(r, st)); if (!w || isNaN(w.ms)) return;
         var a = r.steps[st.id], doneAt = a && (a.s === 'done' || a.s === 'na') ? new Date(a.at).getTime() : null;
         items.push({ what: 'step', id: st.id, title: st.text, phase: p.title, kind: w.kind, ms: w.ms, doneAt: doneAt, status: status(w, doneAt) });
@@ -995,7 +999,11 @@ PF.run = (function () {
     /* A carried value the child migrated (its own record, from the carried text) is the same value; one still waiting there
        keeps this step open. */
     var cm = Array.isArray(child.migrations) ? child.migrations : [], held = false;
+    /* A detail in the snapshot only because a condition tests it (2.1) was never passed to the child (with carry:), so the
+       child's own value of it says nothing. */
+    var condOnly = carried.length ? condFields(r, step).filter(function (k) { return carried.indexOf(k) < 0 && (step.binds || []).indexOf(k) < 0; }) : [];
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) {
+      if (condOnly.indexOf(k) >= 0) return false;
       if (!Object.prototype.hasOwnProperty.call(child.details || {}, k) || (child.details[k] || '') === (a.child.inputs[k] || '')) return false;
       var m = cm.filter(function (x) { return x && x.path === 'details.' + k && x.from === a.child.inputs[k]; })[0];
       if (m && isOpen(m)) { held = true; return false; }

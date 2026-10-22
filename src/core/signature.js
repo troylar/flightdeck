@@ -14,7 +14,7 @@ PF.signature = (function () {
      run details too (implicit carry); with carry: only on what it names, which its fields already say. */
   function texts(list) { return (list || []).map(function (w) { return w.text; }); }
   function conditional(q) { return !!q && (!!q.when || q.steps.some(function (s) { return !!s.when; })); }
-  function whenOf(q) { return conditional(q) ? [texts(q.when), q.steps.filter(function (s) { return !!s.when; }).map(function (s) { return [s.id, texts(s.when)]; })] : null; }
+  function whenOf(q) { return conditional(q) ? [texts(q.when), q.steps.map(function (s) { return [s.id, texts(s.when)]; })] : null; }
   function pinOf(pins, kind, id) { var p = pins && pins[kind] && own(pins[kind], id) ? pins[kind][id] : null; return p ? PF.publish.canonical(p) : null; }
   function steps(map, types, images, pins) {
     var o = Object.create(null), context = (map.meta && map.meta.context || []).slice();

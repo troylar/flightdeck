@@ -424,8 +424,30 @@ rule('Skill signatures: a step covers its own conditions and whether the gates a
   assert.notStrictEqual(sig(MD, 'ship'), sig(changed, 'ship'), 'a sibling decides whether the closing gate is needed');
   assert.notStrictEqual(sig(MD, 'lane'), sig(changed, 'lane'), 'the phase before decides whether the entry gate is needed');
   assert.strictEqual(sig(MD, 'page'), sig(changed, 'page'), 'unrelated phases are untouched');
+  const more = MD.replace('- [!] {confirm} Ship it ^ticket {#ship}', '- [!] {confirm} Ship it ^ticket {#ship}\n- [ ] {confirm} Tag it {#tagit}');
+  assert.notStrictEqual(sig(MD, 'lane'), sig(more, 'lane'), 'a step without a condition added before decides the entry gate too');
   const plain = MD.split('\n').filter(l => !/only when/.test(l)).join('\n');
   Object.keys(S.steps(M.parse(plain), {}, {}, null)).forEach(id => assert.ok(sig(plain, id).indexOf('"when"') < 0, id));
+});
+
+rule('Not needed work keeps no time: its steps and its skipped phase\'s gate are left out of the schedule', () => {
+  const md = MD.replace('- [!] {confirm} Page the on-call lead {#page}', '- [!] {confirm} Page the on-call lead {#page}\n  after: 1m').replace('## Decide · READ-DO {#decide}', '## Gate: Paged {#paged}\n  after: 2m\n\n## Decide · READ-DO {#decide}').replace('  only when ^risk is high', '  only when ^risk is high\n  after: 1m');
+  const r = start({ ticket: 'T-1', risk: 'low', hotfix: 'no', amount: '1' }, { md }), map = mapOf(r);
+  same(R.schedule(r, map, Date.parse(NOW) + 3600000).map(x => x.id), []);
+  const yes = start({ ticket: 'T-1', risk: 'high', hotfix: 'yes', amount: '1' }, { md });
+  same(R.schedule(yes, mapOf(yes), Date.parse(NOW) + 3600000).map(x => x.id).sort(), ['board', 'page', 'paged']);
+});
+
+rule('A child started with carry: is judged only on what it carried: a detail its step\'s condition tests isn\'t a value it was given', () => {
+  const md = MD.replace('- [ ] {confirm} Tell the change board {#board}\n  only when ^risk is high', '- [ ] {run.process} Run the board check {#board}\n  process: board-check\n  carry: ticket\n  only when ^risk is set');
+  const r = start({ ticket: 'T-1', risk: 'high', hotfix: 'no', amount: '1' }, { md }), map = mapOf(r);
+  upTo(r, 'release');
+  const step = map.phases[2].steps.find(s => s.id === 'board');
+  r.steps.board = { s: 'open', child: { process: 'board-check', id: 'kid1', inputs: { ticket: 'T-1', risk: 'high' } } };
+  const child = { process: 'board-check', id: 'kid1', details: { ticket: 'T-1', risk: '' }, ended: { outcome: 'Completed' } };
+  same(R.childVerdict(r, step, r.steps.board, child, () => null), { s: 'done' });
+  child.details.ticket = 'T-2';
+  assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'what it carried still counts');
 });
 
 run();

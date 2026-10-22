@@ -341,7 +341,7 @@ JS_DOT = "[^\n\r\u2028\u2029]"
 
 def _after(word, rest):
     """The text after a leading word and JavaScript white space (as /^word\\s+(.+)$/i reads it), or None."""
-    m = re.match("^" + word + JS_S + "+(" + JS_DOT + "+)$", rest, re.I)
+    m = re.match("^" + word + JS_S + "+(" + JS_DOT + "+)$", rest, re.I | re.A)
     return m.group(1) if m else None
 
 
@@ -476,7 +476,7 @@ def parse_map(md):
                 steps.append(step)
             i += 1
             continue
-        m = re.match("^" + JS_S + "{2,}only when\\b" + JS_S + "*(" + JS_DOT + "*)$", line, re.I)
+        m = re.match("^" + JS_S + "{2,}only when\\b" + JS_S + "*(" + JS_DOT + "*)$", line, re.I | re.A)
         if m:
             target = step or (phase if phase is not None and not gate and not track else None)
             if not target:
