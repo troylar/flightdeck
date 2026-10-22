@@ -382,6 +382,28 @@ rule('A routine refresh notices a held sign-off file that became stray JSON at t
   assert.ok(!/Can(&#39;|')t tell yet/.test(panel(app)) && /data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), panel(app));
 });
 
+rule('A routine refresh notices a sign-off from a newer Flightdeck arriving, and a claimed sign-off changing what it names', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const offered = () => /data-act="pick" data-kind="signoff" data-id="release"/.test(app.html());
+  assert.ok(offered(), 'set-up: offered');
+  const nw = 'validations/release.v3.w-new.json';
+  app.fs.files[nw] = { t: JSON.stringify({ format: 'flightdeck-validation/3', app: '2.2.0', process: 'release' }), m: Date.now() };
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(!offered() && /Signed off with a newer Flightdeck/.test(panel(app)), panel(app));
+  delete app.fs.files[nw];
+  app.click('refresh'); await app.tick(160);
+  assert.ok(offered(), 'set-up: offered again');
+  const v3 = app.files('publications/release/').map(f => f.split('/')[2]).filter(f => /^v3-/.test(f))[0];
+  const odd = 'validations/odd.json';
+  app.fs.files[odd] = { t: JSON.stringify({ kind: 'validation', process: 'other', folder: v3 }), m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  assert.ok(offered(), 'set-up: another process\'s claim holds nothing');
+  app.fs.files[odd] = { t: JSON.stringify({ kind: 'validation', process: 'release', folder: v3 }), m: Date.now() };
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(!offered() && /Can(&#39;|')t tell yet/.test(panel(app)), panel(app));
+});
+
 rule('A stage sign-off\'s reread holds on a file named for the stage that says it\'s a sign-off, as the page does', async () => {
   const { app, folder } = await staged('person-casey');
   await tested(app, folder, 3);

@@ -2263,7 +2263,14 @@ rule('Plans: while proposals/ can\'t be read, a plan kept from before can\'t be 
   app.submitForm('start-form'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const eyebrow = () => (app.html().match(/<div class="eyebrow">[^<]*/) || [''])[0];
+  const was = eyebrow();
+  assert.ok(/ · v1/.test(was), 'set-up: on v1: ' + was);
   app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.strictEqual(eyebrow(), was, 'not switched');
+  assert.ok(/data-act="plan-latest"/.test(app.html()), 'still asks');
   assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
 });
 
