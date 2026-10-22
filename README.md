@@ -554,7 +554,7 @@ roles: release-lead, qa, backend
 
 Publishing freezes a checklist as a numbered version, with who, when and why. Runs keep the version they started with, forever.
 
-**Steps only some runs need.** In a run whose details don't match, an `only when` step is Not needed: it isn't counted, nobody checks it, and its reason stays one click away. A phase that isn't needed is skipped with its gate. Branching is `sets:` plus `only when`: one step sets a detail, and a later phase applies only when it matches. The process page and the flight plan show each condition as one muted line, *Only when risk is high*. **How runs go** leaves a run out of a step's numbers (corrections included) when that run didn't need the step, and **Ready for a skill?** never holds such a step against a run. It names conditional steps no clean run has needed yet.
+**Steps only some runs need.** In a run whose details don't match, an `only when` step is Not needed: it isn't counted, nobody checks it, and its reason stays one click away. A phase that isn't needed is skipped with its gate. Branching is `sets:` plus `only when`: one step sets a detail, and a later phase applies only when it matches. The process page and the flight plan show each condition as one muted line, *Only when risk is high*. **How runs go** leaves a run out of a step's numbers (corrections included) when that run didn't need the step, and **Ready for a skill?** never holds Not needed itself against a run, though something that already happened on the step still counts (for example, a step done and then sent back for re-check when a detail changed). It names conditional steps no clean run has needed yet.
 
 Typed details, phase notes, phase and gate screenshots, and `version:` need Flightdeck 2.0; `only when` needs Flightdeck 2.1. Before you publish, the publish panel names what the draft uses under **Needs Flightdeck 2.0** or **Needs Flightdeck 2.1**, and teammates on an older copy see that version but can't run it. The full format is in [docs/map-format.md](https://github.com/troylar/flightdeck/blob/main/docs/map-format.md).
 
@@ -652,7 +652,7 @@ This is what Flightdeck is for. Outside the team it's usually called **SOP-to-sk
 - every gate on that work (and the one before it) was passed;
 - nothing was blocked, re-checked, marked N/A or done differently, even in answers since archived.
 
-A step the run didn't need (`only when`) is neither required nor held against it. A test run counts only for its staged version and the version made from exactly what was staged.
+A step the run didn't need (`only when`) isn't required, and being Not needed isn't held against the run; a re-check or other deviation recorded on it earlier still is. A test run counts only for its staged version and the version made from exactly what was staged.
 
 **2. Sign off.** With three clean runs, the process owner signs the version off. Only the owner's sign-off counts, and only for that exact published version, or for a staged version with **Sign off staged v3**, which counts for the version made from it.
 
@@ -711,7 +711,7 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 |---|---|
 | `flightdeck processes <folder> --json` | Every process and its versions |
 | `flightdeck process <folder> <process> --json` | One version of a checklist (the latest usable one, or `--version N`, or `--folder v3-…`, or a staged one with `--stage stage-…` and `--contract 2`): phases, steps, gates and the evidence each step can record |
-| `flightdeck runs <folder> --json` | Runs and planned runs, with `--process <id>` and `--status running\|planned\|ended\|all`. Test runs are left out and counted unless you add `--tests --contract 2` |
+| `flightdeck runs <folder> --json --contract 2` | Runs and planned runs, with `--process <id>` and `--status running\|planned\|ended\|all`. Test runs are left out and counted unless you add `--tests --contract 2` |
 | `flightdeck run <folder> <process>/<run id> --json` | One run in full: each step's state, who and when, what was recorded, gates and follow-ups. In the app, a run's **More** menu has **Copy run key** |
 | `flightdeck next <folder> <process>/<run id> --json` | What's waiting in a run and on whom; `--person <id>` adds that person's own next step |
 | `flightdeck followups <folder> --json` | Every follow-up and what became of it, with `--process <id>` and `--status open\|all` |
