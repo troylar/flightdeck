@@ -205,4 +205,38 @@ rule('A linked run started from a test run names no parent folder (a stage isn\'
   assert.strictEqual(kid2.parent.folder, 'v1-aaaa1111', 'a version folder is kept, as before');
 });
 
+rule('Evidence checks a test run\'s version against the number its stage proposes', () => {
+  const base = path.join(__dirname, 'fixtures', 'v2', 'folder', 'staged', 'backup', 'stage-aaaa1111');
+  const pub = { 'map.md': fsN.readFileSync(path.join(base, 'map.md'), 'utf8'), 'types.json': fsN.readFileSync(path.join(base, 'types.json'), 'utf8'), 'publication.json': fsN.readFileSync(path.join(base, 'publication.json'), 'utf8') };
+  const sha = (t) => require('crypto').createHash('sha256').update(t).digest('hex');
+  const images = { '\u0000map.md': { sha256: sha(pub['map.md']) }, '\u0000types.json': { sha256: sha(pub['types.json']) } };
+  const pc = (raw) => PF.evidence.checks(raw, pub, images, true).filter(c => c.id === 'publication')[0];
+  assert.ok(!/proposes/.test(pc(JSON.parse(RUN_T)).detail), 'run-t is on v3, as its stage proposes: ' + pc(JSON.parse(RUN_T)).detail);
+  const nine = pc(Object.assign(JSON.parse(RUN_T), { version: 9 }));
+  assert.ok(nine.ok === false && /proposes v3/.test(nine.detail), JSON.stringify(nine));
+});
+
+rule('A correction from a test run can land in the stage\'s own promotion, the version it proposes', () => {
+  const C = PF.corrections, pubs = [{ ok: true, md: '', info: { version: 2, folder: 'v2-aaaa1111' } }];
+  const g = (test) => ({ id: 'g1', status: 'applied', tie: false, members: [{ test, version: 2 }], decision: { status: 'included', folder: 'v2-aaaa1111' }, target: { step: 'x' }, change: { op: 'none' } });
+  assert.strictEqual((C.landing([g(true)], pubs)[0].landed || {}).version, 2, 'a test run on staged v2: published in v2');
+  assert.strictEqual(C.landing([g(false)], pubs)[0].landed, null, 'a run of v2: never "published in v2"');
+});
+
+rule('Role rotation never counts a test run', () => {
+  const t = R.sanitize(JSON.parse(RUN_T)), plain = Object.assign({}, t, { test: undefined, _test: undefined, id: 'run-p' });
+  t.roles = { lead: 'person-avery' }; plain.roles = { lead: 'person-blake' };
+  same(R.rotation([t, plain], 'backup').roles, ['lead']);
+  assert.ok(!R.rotation([t, plain], 'backup').grid['person-avery'] && R.rotation([t, plain], 'backup').grid['person-blake'], 'only the real run');
+});
+
+rule('The test-run form has its own address, with the stage, so Back and Forward bring the test-run form back', () => {
+  const N = PF.nav, h = N.format({ view: 'process', process: 'release', sub: 'start', stage: 'stage-abcd1234' });
+  assert.strictEqual(h, '#/process/release/start/stage-abcd1234');
+  same(N.parse(h), { view: 'process', process: 'release', sub: 'start', stage: 'stage-abcd1234' });
+  same(N.locate({ view: 'start', processId: 'release', planId: null, testStage: 'stage-abcd1234' }), { view: 'process', process: 'release', sub: 'start', stage: 'stage-abcd1234' });
+  same(N.locate({ view: 'start', processId: 'release', planId: null, testStage: null }), { view: 'process', process: 'release', sub: 'start' });
+  assert.strictEqual(N.parse('#/process/release/start/v2-aaaa1111'), null, 'only a stage folder');
+});
+
 run();

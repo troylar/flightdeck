@@ -2085,6 +2085,7 @@ PF.nav = (function () {
   var TABS = set(['edit', 'insights']), RUN_SUBS = set(['share', 'finish', 'receipt']);
 
   function isProcess(s) { return typeof s === 'string' && PF.map.PROCESS_ID.test(s); }
+  function isStage(s) { return typeof s === 'string' && /^stage-[a-z0-9]{8}$/.test(s); }
   function isRun(s) { return typeof s === 'string' && PF.run.RUN_ID.test(s); }
   function isType(s) { return typeof s === 'string' && s.length <= PF.types.ID_MAX && PF.types.ID.test(s); }
   function isVersion(s) { return typeof s === 'string' && PF.publish.versionOf(s) != null; }
@@ -2108,7 +2109,7 @@ PF.nav = (function () {
     if (v === 'process') {
       if (!isProcess(loc.process)) return join(['processes']);
       var p = ['process', loc.process];
-      if (loc.sub === 'start') p.push('start');
+      if (loc.sub === 'start') { p.push('start'); if (isStage(loc.stage)) p.push(loc.stage); }
       else if (typeof loc.tab === 'string' && TABS[loc.tab] === true) p.push(loc.tab);
       else if (loc.version === 'current') p.push('current');
       else if (isVersion(loc.version)) p.push('v', loc.version);
@@ -2139,7 +2140,7 @@ PF.nav = (function () {
       if (s.ptab === 'edit' || s.ptab === 'insights') loc.tab = s.ptab; else if (s.mapVer != null) loc.version = s.mapVer;
       return loc;
     }
-    if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : { view: 'process', process: s.processId, sub: 'start' };
+    if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : isStage(s.testStage) ? { view: 'process', process: s.processId, sub: 'start', stage: s.testStage } : { view: 'process', process: s.processId, sub: 'start' };
     if (Object.prototype.hasOwnProperty.call(RUN_VIEWS, v)) {
       var k = String(s.runKey || ''), i = k.indexOf('/'), r = { view: 'run', process: k.slice(0, i), run: k.slice(i + 1) };
       if (RUN_VIEWS[v]) r.sub = RUN_VIEWS[v];
@@ -2180,6 +2181,7 @@ PF.nav = (function () {
       if (n === 3 && TABS[s[2]] === true) { loc.tab = s[2]; return loc; }
       if (n === 3 && s[2] === 'current') { loc.version = 'current'; return loc; }
       if (n === 3 && s[2] === 'start') { loc.sub = 'start'; return loc; }
+      if (n === 4 && s[2] === 'start' && isStage(s[3])) { loc.sub = 'start'; loc.stage = s[3]; return loc; }
       if (n === 4 && s[2] === 'v' && isVersion(s[3])) { loc.version = s[3]; return loc; }
       return null;
     }
@@ -6653,7 +6655,7 @@ PF.run = (function () {
   /* ---------- Across runs: rotation history, and the Flight plan's analytics (an adapter over PF.insights) ---------- */
   function rotation(runs, processId) {
     var grid = Object.create(null), roles = [];
-    runs.filter(function (r) { return r.process === processId && r.state !== 'cancelled'; }).forEach(function (r) {
+    runs.filter(function (r) { return r.process === processId && r.state !== 'cancelled' && !isTest(r); }).forEach(function (r) {
       Object.keys(r.roles || {}).forEach(function (ro) {
         var p = r.roles[ro]; if (!p) return;
         if (roles.indexOf(ro) < 0) roles.push(ro);
@@ -7890,7 +7892,9 @@ PF.corrections = (function () {
     var r = g.decision && g.decision.result, s = resultStep(g, PF.outline.parse(text), r && r.step);
     return s ? s.id : '';
   }
-  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.version || 0; })); }
+  /* A test run's number is only what its stage proposes, so the version it's measured from is the one before (2.1): the stage's
+     own promotion can be the first to have the correction. */
+  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.test ? Math.max(0, (c.version || 0) - 1) : c.version || 0; })); }
   /* Which published version first has each applied group: the lowest version above the correction's own that names it (its
      publication.json lists the group, or a person's "It's in vN" names that folder) AND makes the change. Both, always: a
      later version with other edits never earns it by its number, and a listing whose step doesn't match doesn't count.
@@ -11260,7 +11264,10 @@ PF.evidence = (function () {
         var why = imageProblem(v.info, src, images[src] || null);
         if (why) shot = why; else if (why === null && !unsure) unsure = src;
       });
-      if (shot) add('publication', 'The version is complete and checks out', false, shot);
+      /* A stage's folder doesn't carry its number: the run's version must be the one the stage proposes. */
+      var proposed = stage && v.ok && v.info.stage ? v.info.stage.proposed : null;
+      if (proposed != null && +raw.version !== proposed) add('publication', 'The version is complete and checks out', false, 'The run says staged v' + raw.version + ', but its stage proposes v' + proposed + '.');
+      else if (shot) add('publication', 'The version is complete and checks out', false, shot);
       else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable || v.needsBytes ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
     }
     /* A run/3 keeps its version's payload (pins included) and the pins it started with: both checked by the one canonical
@@ -20828,7 +20835,7 @@ PF.examples = (function () {
   /* Back and Forward (docs/design.md section 29): every field the location is built from bumps navSeq when it changes, so a
      person's move makes a new history entry and anything else (a folder read, typing) replaces at most. */
   var navSeq = 0;
-  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt'].forEach(function (name) {
+  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt', 'testStage'].forEach(function (name) {
     var v = state[name];
     Object.defineProperty(state, name, { enumerable: true, get: function () { return v; }, set: function (x) { if (x !== v) navSeq++; v = x; } });
   });
@@ -21209,7 +21216,7 @@ PF.examples = (function () {
         e.draftChanged = e.typesChanged.length > 0;
       }
     });
-    data.runs.forEach(function (r) { var e = by[r.process]; if (e && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
+    data.runs.forEach(function (r) { var e = by[r.process]; if (e && !R.isTest(r) && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
     /* Proposals from AI assistants, judged against the draft as this window last read or saved it; a process with only a
        proposal is listed too ("Proposed, not drafted yet"). Who else is editing, as far as this computer can see. */
     var PP = PF.proposals, procs = (data.proposed || {}).procs || {};
@@ -21244,7 +21251,7 @@ PF.examples = (function () {
     var people = data.people.filter(function (p) { return !p.inactive; });
     if (!people.length) return null;
     var last = {};
-    data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
+    data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && !R.isTest(r) && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
     var best = people.slice().sort(function (a, b) { var la = last[a.id] || '', lb = last[b.id] || ''; return la === lb ? (a.name < b.name ? -1 : 1) : la < lb ? -1 : 1; })[0];
     return { person: best.id, why: last[best.id] ? 'last did it ' + U.day(last[best.id]) : 'hasn\'t done it yet' };
   }
@@ -24374,6 +24381,11 @@ PF.examples = (function () {
     if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('process', loc); return 'moved'; }
     var rf = state.runFilter;
     if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
+    /* A test run's form (2.1) comes back as a test run's form, never as an ordinary start. */
+    if (loc.sub === 'start' && loc.stage) {
+      if (p && state.me) { state.processId = pid; ACTIONS['start-test'](loc.stage); return 'moved'; }
+      loc = { view: 'process', process: pid };
+    }
     if (loc.sub === 'start') {
       if (p && p.latest && state.me) { var pl = state.planning; if (pl && pl.fs === fsKey() && pl.process === pid) openPlanForm(pl); else ACTIONS.start(pid); return 'moved'; }
       loc = { view: 'process', process: pid };

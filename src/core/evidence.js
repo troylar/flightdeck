@@ -177,7 +177,10 @@ PF.evidence = (function () {
         var why = imageProblem(v.info, src, images[src] || null);
         if (why) shot = why; else if (why === null && !unsure) unsure = src;
       });
-      if (shot) add('publication', 'The version is complete and checks out', false, shot);
+      /* A stage's folder doesn't carry its number: the run's version must be the one the stage proposes. */
+      var proposed = stage && v.ok && v.info.stage ? v.info.stage.proposed : null;
+      if (proposed != null && +raw.version !== proposed) add('publication', 'The version is complete and checks out', false, 'The run says staged v' + raw.version + ', but its stage proposes v' + proposed + '.');
+      else if (shot) add('publication', 'The version is complete and checks out', false, shot);
       else add('publication', 'The version is complete and checks out', v.ok ? true : v.unusable || v.needsBytes ? null : false, v.ok ? 'publication.json, map.md and types.json agree' + (images && v.info.images && Object.keys(v.info.images).length ? ', and so do its screenshots' + (unsure ? ' (except ' + unsure + ', too big to check here)' : '') : '') + '.' : v.why);
     }
     /* A run/3 keeps its version's payload (pins included) and the pins it started with: both checked by the one canonical

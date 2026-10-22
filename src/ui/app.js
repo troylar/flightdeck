@@ -95,7 +95,7 @@
   /* Back and Forward (docs/design.md section 29): every field the location is built from bumps navSeq when it changes, so a
      person's move makes a new history entry and anything else (a folder read, typing) replaces at most. */
   var navSeq = 0;
-  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt'].forEach(function (name) {
+  ['view', 'processId', 'runKey', 'ptab', 'mapVer', 'planId', 'skillFile', 'recoveryAt', 'testStage'].forEach(function (name) {
     var v = state[name];
     Object.defineProperty(state, name, { enumerable: true, get: function () { return v; }, set: function (x) { if (x !== v) navSeq++; v = x; } });
   });
@@ -476,7 +476,7 @@
         e.draftChanged = e.typesChanged.length > 0;
       }
     });
-    data.runs.forEach(function (r) { var e = by[r.process]; if (e && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
+    data.runs.forEach(function (r) { var e = by[r.process]; if (e && !R.isTest(r) && (!e.lastRun || r.created > e.lastRun)) e.lastRun = r.created; });
     /* Proposals from AI assistants, judged against the draft as this window last read or saved it; a process with only a
        proposal is listed too ("Proposed, not drafted yet"). Who else is editing, as far as this computer can see. */
     var PP = PF.proposals, procs = (data.proposed || {}).procs || {};
@@ -511,7 +511,7 @@
     var people = data.people.filter(function (p) { return !p.inactive; });
     if (!people.length) return null;
     var last = {};
-    data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
+    data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && !R.isTest(r) && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
     var best = people.slice().sort(function (a, b) { var la = last[a.id] || '', lb = last[b.id] || ''; return la === lb ? (a.name < b.name ? -1 : 1) : la < lb ? -1 : 1; })[0];
     return { person: best.id, why: last[best.id] ? 'last did it ' + U.day(last[best.id]) : 'hasn\'t done it yet' };
   }
@@ -3641,6 +3641,11 @@
     if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('process', loc); return 'moved'; }
     var rf = state.runFilter;
     if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
+    /* A test run's form (2.1) comes back as a test run's form, never as an ordinary start. */
+    if (loc.sub === 'start' && loc.stage) {
+      if (p && state.me) { state.processId = pid; ACTIONS['start-test'](loc.stage); return 'moved'; }
+      loc = { view: 'process', process: pid };
+    }
     if (loc.sub === 'start') {
       if (p && p.latest && state.me) { var pl = state.planning; if (pl && pl.fs === fsKey() && pl.process === pid) openPlanForm(pl); else ACTIONS.start(pid); return 'moved'; }
       loc = { view: 'process', process: pid };

@@ -642,7 +642,9 @@ PF.corrections = (function () {
     var r = g.decision && g.decision.result, s = resultStep(g, PF.outline.parse(text), r && r.step);
     return s ? s.id : '';
   }
-  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.version || 0; })); }
+  /* A test run's number is only what its stage proposes, so the version it's measured from is the one before (2.1): the stage's
+     own promotion can be the first to have the correction. */
+  function ownVersion(g) { return Math.min.apply(null, g.members.map(function (c) { return c.test ? Math.max(0, (c.version || 0) - 1) : c.version || 0; })); }
   /* Which published version first has each applied group: the lowest version above the correction's own that names it (its
      publication.json lists the group, or a person's "It's in vN" names that folder) AND makes the change. Both, always: a
      later version with other edits never earns it by its number, and a listing whose step doesn't match doesn't count.

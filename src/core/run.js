@@ -1120,7 +1120,7 @@ PF.run = (function () {
   /* ---------- Across runs: rotation history, and the Flight plan's analytics (an adapter over PF.insights) ---------- */
   function rotation(runs, processId) {
     var grid = Object.create(null), roles = [];
-    runs.filter(function (r) { return r.process === processId && r.state !== 'cancelled'; }).forEach(function (r) {
+    runs.filter(function (r) { return r.process === processId && r.state !== 'cancelled' && !isTest(r); }).forEach(function (r) {
       Object.keys(r.roles || {}).forEach(function (ro) {
         var p = r.roles[ro]; if (!p) return;
         if (roles.indexOf(ro) < 0) roles.push(ro);

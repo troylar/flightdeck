@@ -10,6 +10,7 @@ PF.nav = (function () {
   var TABS = set(['edit', 'insights']), RUN_SUBS = set(['share', 'finish', 'receipt']);
 
   function isProcess(s) { return typeof s === 'string' && PF.map.PROCESS_ID.test(s); }
+  function isStage(s) { return typeof s === 'string' && /^stage-[a-z0-9]{8}$/.test(s); }
   function isRun(s) { return typeof s === 'string' && PF.run.RUN_ID.test(s); }
   function isType(s) { return typeof s === 'string' && s.length <= PF.types.ID_MAX && PF.types.ID.test(s); }
   function isVersion(s) { return typeof s === 'string' && PF.publish.versionOf(s) != null; }
@@ -33,7 +34,7 @@ PF.nav = (function () {
     if (v === 'process') {
       if (!isProcess(loc.process)) return join(['processes']);
       var p = ['process', loc.process];
-      if (loc.sub === 'start') p.push('start');
+      if (loc.sub === 'start') { p.push('start'); if (isStage(loc.stage)) p.push(loc.stage); }
       else if (typeof loc.tab === 'string' && TABS[loc.tab] === true) p.push(loc.tab);
       else if (loc.version === 'current') p.push('current');
       else if (isVersion(loc.version)) p.push('v', loc.version);
@@ -64,7 +65,7 @@ PF.nav = (function () {
       if (s.ptab === 'edit' || s.ptab === 'insights') loc.tab = s.ptab; else if (s.mapVer != null) loc.version = s.mapVer;
       return loc;
     }
-    if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : { view: 'process', process: s.processId, sub: 'start' };
+    if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : isStage(s.testStage) ? { view: 'process', process: s.processId, sub: 'start', stage: s.testStage } : { view: 'process', process: s.processId, sub: 'start' };
     if (Object.prototype.hasOwnProperty.call(RUN_VIEWS, v)) {
       var k = String(s.runKey || ''), i = k.indexOf('/'), r = { view: 'run', process: k.slice(0, i), run: k.slice(i + 1) };
       if (RUN_VIEWS[v]) r.sub = RUN_VIEWS[v];
@@ -105,6 +106,7 @@ PF.nav = (function () {
       if (n === 3 && TABS[s[2]] === true) { loc.tab = s[2]; return loc; }
       if (n === 3 && s[2] === 'current') { loc.version = 'current'; return loc; }
       if (n === 3 && s[2] === 'start') { loc.sub = 'start'; return loc; }
+      if (n === 4 && s[2] === 'start' && isStage(s[3])) { loc.sub = 'start'; loc.stage = s[3]; return loc; }
       if (n === 4 && s[2] === 'v' && isVersion(s[3])) { loc.version = s[3]; return loc; }
       return null;
     }

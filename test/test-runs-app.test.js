@@ -120,4 +120,18 @@ rule('A follow-up from a test run is real and labeled where follow-ups are liste
   assert.ok(/Fix the staging smoke test/.test(html) && /Test run · <button class="linkish" data-act="open-run"/.test(html), 'listed, labeled');
 });
 
+rule('Back and Forward bring the test-run form back as a test-run form, never as an ordinary start', async () => {
+  const { app, folder } = await staged();
+  app.click('start-test', folder); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release/start/' + folder);
+  app.back(); await app.settle();
+  assert.ok(!/id="start-form"/.test(app.html()), 'Back leaves the form');
+  app.forward(); await app.settle();
+  assert.ok(/id="start-form"/.test(app.html()) && /data-test="1"/.test(app.html()) && new RegExp('data-folder="' + folder + '"').test(app.html()), 'Forward: the test-run form again');
+  const before = runFiles(app).length;
+  app.submitForm('start-form', {}); await app.tick(200);
+  assert.strictEqual(runFiles(app).length, before + 1);
+  assert.strictEqual(testRuns(app).length, 1, 'a test run, not a counted run');
+});
+
 run();
