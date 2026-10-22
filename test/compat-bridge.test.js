@@ -26,7 +26,7 @@ const RUN3 = ['run-c', 'run-t', 'run-e'];
 /* What this version reads since slice 2 part 2 (pins): exact skill registrations, plan/2 and its decisions, and the explicit
    2.0 run on a /1 version (run-e); since slice 3 (typed data) the typed version v2, its run run-c and the 2.0 step type.
    Everything else in the samples (stages, test runs) stays refused by name. */
-const MAIN_TOPS = NEW_TOPS.filter(x => ['skill-registrations/', 'reports/', 'report-decisions/', 'staged/'].indexOf(x) < 0), MAIN_RUN3 = ['run-t'];
+const MAIN_TOPS = NEW_TOPS.filter(x => ['skill-registrations/', 'reports/', 'report-decisions/', 'staged/'].indexOf(x) < 0);
 const snap = (m) => JSON.stringify(Object.keys(m.files).sort().map(p => [p, m.files[p].t]));
 function eachTag(name, fn, filter) {
   TAGS.filter(filter || (() => true)).forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': ' + name, async () => {
@@ -142,7 +142,10 @@ async function readsAsTwoZero(NEW, t) {
   const runs = Object.fromEntries(d.runs.map(r => [r.id, r]));
   assert.ok(!runs['run-c']._unrunnable && !runs['run-c']._invalid && runs['run-c'].details.rows === '1234.5' && runs['run-c'].migrations.length === 1, 'run-c is read in full: ' + runs['run-c']._unrunnable);
   assert.ok(!runs['run-e']._unrunnable && runs['run-e'].format === 'preflight-run/3', 'the explicit 2.0 run on a /1 version is read in full: ' + runs['run-e']._unrunnable);
-  assert.ok((NEW.staging ? /^Test run · needs Flightdeck 2\.1\./ : /^Test run · needs Flightdeck 2\.0\./).test(runs['run-t']._unrunnable) && runs['run-t']._test, runs['run-t']._unrunnable);
+  /* 2.1 slice 5: this version reads the test run in full, on its stage; 2.0.0 lists it by name only. */
+  const tests = !!(NEW.run && NEW.run.isTest), MAIN_RUN3 = tests ? [] : ['run-t'];
+  if (tests) assert.ok(!runs['run-t']._unrunnable && NEW.run.isTest(runs['run-t']) && runs['run-t'].stage.folder === S.STAGE && Object.keys(runs['run-t'].steps).length, 'run-t is read in full: ' + runs['run-t']._unrunnable);
+  else assert.ok(/^Test run · needs Flightdeck 2\.0\./.test(runs['run-t']._unrunnable) && runs['run-t']._test, runs['run-t']._unrunnable);
   MAIN_RUN3.forEach(id => assert.ok(!Object.keys(runs[id].steps).length && !Object.keys(runs[id].details).length, id + ': nothing it might misread'));
   const refused = Object.fromEntries(d.refused.map(r => [r.path, r]));
   ['validations/backup.' + S.STAGE + '.w-twozero.json']
@@ -169,9 +172,10 @@ rule('Folder health names what a newer Flightdeck wrote, by family and the versi
   const rep = NEW.health.check({ data: d, scan, me: 'person-avery', app: '1.21.0', connection: conn }, now);
   const newer = rep.issues.find(i => i.id === 'newer');
   assert.ok(newer, JSON.stringify(rep.issues.map(i => i.id)));
-  ['1 run made with Flightdeck 2.1 (1 test run) shows by name only', '1 sign-off needs Flightdeck 2.0']
+  ['1 sign-off needs Flightdeck 2.0']
     .forEach(x => assert.ok(newer.detail.indexOf(x) >= 0, x + ' in: ' + newer.detail));
-  ['plan needs', 'plan decision needs', 'skill registration needs', 'v2 of backup', 'step type needs'].forEach(x => assert.ok(newer.detail.indexOf(x) < 0, x + ' isn\'t refused here: ' + newer.detail));
+  /* 2.1 slice 5: the frozen test run is read here, so it isn't named as newer. */
+  ['test run', 'plan needs', 'plan decision needs', 'skill registration needs', 'v2 of backup', 'step type needs'].forEach(x => assert.ok(newer.detail.indexOf(x) < 0, x + ' isn\'t refused here: ' + newer.detail));
   d.refused.forEach(r => assert.ok(newer.paths.indexOf(r.path) >= 0, r.path));
   const ph = rep.issues.find(i => i.id === 'placeholder');
   assert.ok(ph && ph.paths.length === 1 && /replaced-w-old-/.test(ph.paths[0]) && /holds no answers/.test(ph.detail), JSON.stringify(ph));

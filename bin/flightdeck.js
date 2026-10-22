@@ -676,10 +676,13 @@ function badTimesWhy(b) {
    (unusable here, or changed since the run started: R's own reason comes first), then every problem of the run file
    and of that version. Sets r._unrunnable; returns the problems. */
 function judgeRun(PF, r, pub) {
-  const A = PF.appjson, out = [], valid = typeof r.folder === 'string' && !!PF.publish.versionOf(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
-  const dir = 'publications/' + r.process + '/' + r.folder + '/';
+  /* A test run's version is its stage (2.1): staged/<process>/<stage>/, whose proposed number is the run's version. */
+  const test = PF.run.isTest(r) && typeof r.folder === 'string' && PF.publish.STAGE.test(r.folder);
+  const A = PF.appjson, out = [], valid = typeof r.folder === 'string' && (test || !!PF.publish.versionOf(r.folder)) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
+  const dir = PF.run.pubDir(r);
   if (pub && valid && !pub._readFailed) {
-    const why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, pub.info) : '';
+    const info = pub.ok && test ? { folder: pub.info.folder, mapHash: pub.info.mapHash, version: pub.info.stage.proposed } : pub.info;
+    const why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, info) : '';
     if (why && !r._unrunnable) r._unrunnable = why;
     if (!pub.ok) { const x = A.pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
     /* The version is fine; the run doesn't match it. Named at the run, so the version is never taken as unreadable. */
@@ -688,7 +691,7 @@ function judgeRun(PF, r, pub) {
   return out.concat(runProblems(PF, r));
 }
 /* A version folder that isn't in the folder, as readVersion would find it: none of its files there. */
-function missingVersion(PF, r) { const v = PF.publish.verify(r.folder, { 'map.md': null, 'types.json': null, 'publication.json': null }); v.folder = r.folder; v.process = r.process; return v; }
+function missingVersion(PF, r) { const v = PF.publish.verify(r.folder, { 'map.md': null, 'types.json': null, 'publication.json': null }, null, PF.run.isTest(r) ? { stage: true } : null); v.folder = r.folder; v.process = r.process; return v; }
 /* What's wrong with people.json as a people list, or '' (no file is fine: names are then null). */
 function peopleWhy(p) {
   if (!p || p.hash == null) return '';
@@ -727,8 +730,8 @@ function adapterProblems(adapter) {
    part only (the plans are all read, since a plan's process is inside the file). */
 function needs(req) {
   const sub = (top) => top + (req.proc ? '/' + req.proc : '');
-  if (req.cmd === 'processes' || req.cmd === 'process') return [req.cmd === 'process' ? 'publications/' + req.proc : 'publications'];
-  if (req.cmd === 'runs') return [sub('runs'), 'proposals', sub('publications'), 'people.json'];
+  if (req.cmd === 'processes' || req.cmd === 'process') return [req.cmd === 'process' ? 'publications/' + req.proc : 'publications'].concat(req.stage ? ['staged/' + req.proc + '/' + req.stage] : []);
+  if (req.cmd === 'runs') return [sub('runs'), 'proposals', sub('publications'), 'people.json'].concat(req.tests ? [sub('staged')] : []);
   return [sub('followups'), sub('runs'), 'people.json'].concat(req.proc ? [sub('publications'), 'proposals'] : []);
 }
 /* A view of the folder that holds only those paths (and the folders above them, listed to reach them). Anything else
@@ -739,7 +742,7 @@ function covers(prefixes) { return (p) => { p = p || ''; return p === '' || pref
 /* What run and next depend on: the run's folder, its version once it's known, people.json, and that run's own follow-up
    decisions (the files named <run id>.*, not the other runs' in the same folder). */
 function runCovers(proc, id, r) {
-  const base = covers(['runs/' + proc + '/' + id, 'people.json'].concat(r && typeof r.folder === 'string' ? ['publications/' + r.process + '/' + r.folder] : []));
+  const base = covers(['runs/' + proc + '/' + id, 'people.json'].concat(r && typeof r.folder === 'string' ? [(r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder] : []));
   return (p) => base(p) || p === 'followups' || p === 'followups/' + proc || p === 'followups/' + proc + '/' || String(p).startsWith('followups/' + proc + '/' + id + '.');
 }
 function dependsOn(fs, prefixes) {
@@ -814,14 +817,37 @@ async function readData(eng, adapter, req) {
     if (!two) { d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean); }
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */
-    const pubOf = (r) => { const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r); };
-    d.runs.forEach((r) => take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)));
+    /* Test runs (2.1, flightdeck-read/2 only): left out of runs unless --tests asks for them (D3), and then judged against their
+       stage, read here as the app reads it. */
+    const stages = {};
+    if (two && req.cmd === 'runs' && req.tests) {
+      const want = {};
+      d.runs.forEach((r) => { if (PF.run.isTest(r) && PF.publish.STAGE.test(String(r.folder)) && PROC_ID.test(r.process)) want[r.process + '/' + r.folder] = r; });
+      for (const k of Object.keys(want).sort()) {
+        const r = want[k];
+        stages[k] = await repo.readStage(L.fs, r.process, r.folder).catch((e) => ({ ok: false, why: fileWhy(e && e.message || String(e)), folder: r.folder, process: r.process, _readFailed: true }));
+      }
+    }
+    const pubOf = (r) => {
+      if (PF.run.isTest(r)) return stages[r.process + '/' + r.folder] || null;
+      const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r);
+    };
+    const tested = (r) => !two || !!req.tests || !PF.run.isTest(r);
+    d.runs.forEach((r) => { if (req.cmd !== 'runs' || tested(r)) take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)); });
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
-    if (req.proc && !known(req.proc)) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
+    if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
     if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
     if (req.cmd === 'process') {
       const proc = d.processes.filter((x) => x.process === req.proc)[0];
+      /* A staged version (2.1, --stage): its checklist as a test run would run it, read by the stage rules. */
+      if (req.stage) {
+        const st = await repo.readStage(L.fs, req.proc, req.stage).catch((e) => ({ ok: false, why: fileWhy(e && e.message || String(e)), _readFailed: true }));
+        if (!st.ok && !st.info) return notFound('There\'s no staged version ' + req.stage + ' of ' + req.proc + ' in the team folder' + (st.why ? ' (' + st.why + ')' : '') + '.');
+        if (!st.ok) take([{ path: 'staged/' + req.proc + '/' + req.stage + '/', kind: A.pubProblem(st).kind, why: st.why }]);
+        st.stage = true; st.folder = req.stage;
+        return done(all, A.process2(proc || { process: req.proc, pubs: [], index: { latest: null, clashes: [] } }, st), d.readAt);
+      }
       if (!proc || !proc.pubs.length) return notFound('There\'s no published checklist for ' + req.proc + ' in the team folder.');
       let pub = null;
       const vOf = (p) => (p.info && typeof p.info.version === 'number' ? p.info.version : PF.publish.versionOf(p.folder));
@@ -833,16 +859,17 @@ async function readData(eng, adapter, req) {
     }
     if (req.cmd === 'runs') {
       const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
-      const list = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
+      const matching = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
+      const list = matching.filter(tested), leftOut = two ? matching.length - list.length : 0;
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */
       const probs = ledger(), unsure = (proc) => probs.some((x) => ['', 'publications', 'publications/'].indexOf(x.path) >= 0 || x.path === 'publications/' + proc || x.path.indexOf('publications/' + proc + '/') === 0);
-      return done(all, (two ? A.runs2 : A.runs)(list, plans, nameOf, d.processes, unsure), d.readAt);
+      return done(all, two ? A.runs2(list, plans, nameOf, d.processes, unsure, leftOut) : A.runs(list, plans, nameOf, d.processes, unsure), d.readAt);
     }
     /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
     const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));
-    return done(all, A.followUps(items, nameOf), d.readAt);
+    return done(all, (two ? A.followUps2 : A.followUps)(items, nameOf), d.readAt);
   } catch (e) {
     return err(EXIT.error, 'failed', 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
   }
@@ -850,7 +877,7 @@ async function readData(eng, adapter, req) {
 
 /* The command line around readData: flags, the folder, the engine, and JSON out. Usage problems before any reading exit 1. */
 async function readMain(argv) {
-  const VAL = ['--process', '--status', '--person', '--version', '--folder', '--contract'], val = {};
+  const VAL = ['--process', '--status', '--person', '--version', '--folder', '--contract', '--stage'], val = {};
   const usage = (why) => ({ out: JSON.stringify(failureJson(null, 'usage', why), null, 2), code: EXIT.error });
   const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
   const cmd = args[0], asJson = argv.includes('--json');
@@ -861,13 +888,18 @@ async function readMain(argv) {
     val[f] = argv[i + 1];
   }
   if (!asJson) fail(cmd + ' prints JSON for other apps. Add --json, for example: flightdeck ' + cmd + ' <team folder> --json');
-  const req = { cmd, proc: val['--process'] || null, status: val['--status'] || null, person: val['--person'] || null, version: val['--version'] || null, folder: val['--folder'] || null, contract: val['--contract'] || null };
+  const req = { cmd, proc: val['--process'] || null, status: val['--status'] || null, person: val['--person'] || null, version: val['--version'] || null, folder: val['--folder'] || null, contract: val['--contract'] || null, stage: val['--stage'] || null, tests: argv.includes('--tests') };
   if (cmd === 'process') { req.proc = args[2]; if (!req.proc || !PROC_ID.test(req.proc)) return usage('say which process, for example: flightdeck process <team folder> release --json'); }
   if (cmd === 'run' || cmd === 'next') { req.key = args[2]; if (!req.key || !RUN_KEY.test(req.key)) return usage('say which run as <process>/<run id>, for example: flightdeck ' + cmd + ' <team folder> release/k3m9p2q8 --json'); }
   if (req.proc && !PROC_ID.test(req.proc)) return usage('a process ID is lowercase letters, numbers and dashes.');
   if (req.version != null && !/^\d{1,6}$/.test(req.version)) return usage('--version is a version number, like 3.');
   if (req.folder != null && !/^v\d+-[a-z0-9]+$/.test(req.folder)) return usage('--folder is a version folder, like v3-k3m9p2q8.');
   if (req.contract != null && !/^\d{1,4}$/.test(req.contract)) return usage('--contract is a contract number, like 1.');
+  /* Test runs and stages (2.1) are flightdeck-read/2 only: contract 1 names a test run as newer, as 1.x did. */
+  if (req.tests && (cmd !== 'runs' || +req.contract !== 2)) return usage('--tests works with runs and --contract 2.');
+  if (req.stage != null && (cmd !== 'process' || +req.contract !== 2)) return usage('--stage works with process and --contract 2.');
+  if (req.stage != null && !/^stage-[a-z0-9]{8}$/.test(req.stage)) return usage('--stage is a staged version\'s folder, like stage-k3m9p2q8.');
+  if (req.stage != null && (req.version != null || req.folder != null)) return usage('--stage shows a staged version; leave out --version and --folder.');
   const statuses = cmd === 'runs' ? ['running', 'planned', 'ended', 'all'] : cmd === 'followups' ? ['open', 'all'] : null;
   if (req.status != null && (!statuses || statuses.indexOf(req.status) < 0)) return usage(statuses ? '--status is one of: ' + statuses.join(', ') + '.' : '--status works with runs and followups.');
   let eng, dir;
@@ -1558,11 +1590,11 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       (this computer's time zone unless you say)
   flightdeck processes <team folder> --json
                                       for other apps: every process and its versions, as JSON
-  flightdeck process <team folder> <process> [--version N | --folder v3-...] --json
+  flightdeck process <team folder> <process> [--version N | --folder v3-... | --stage stage-...] --json
                                       one version's phases, steps, gates and evidence (the latest usable one
-                                      unless you say)
-  flightdeck runs <team folder> [--process <id>] [--status running|planned|ended|all] --json
-                                      runs and planned runs
+                                      unless you say; --stage, with --contract 2: a staged version)
+  flightdeck runs <team folder> [--process <id>] [--status running|planned|ended|all] [--tests] --json
+                                      runs and planned runs (--tests, with --contract 2: test runs too)
   flightdeck run <team folder> <process>/<run id> --json
                                       one run: each step's state, who and when, its evidence, gates, follow-ups
   flightdeck next <team folder> <process>/<run id> [--person <id>] --json

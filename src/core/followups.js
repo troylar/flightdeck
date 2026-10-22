@@ -123,7 +123,7 @@ PF.followups = (function () {
     (runs || []).forEach(function (r) {
       (r.followUps || []).forEach(function (f) {
         var k = key(r.process, r.id, f.id), hit = cur[k], d = hit ? hit.d : null, tie = !!(hit && hit.tie), st = tie || !d ? 'open' : d.status;
-        out.push({ key: k, id: f.id, process: r.process, run: r.id, runKey: r.process + '/' + r.id, runTitle: r.title, runEnded: !!r.ended, f: f, text: f.text, owner: f.owner || '', at: f.at || (r.ended && r.ended.at) || r.created || '',
+        out.push({ key: k, id: f.id, process: r.process, run: r.id, runKey: r.process + '/' + r.id, runTitle: r.title, runEnded: !!r.ended, test: PF.run.isTest(r), f: f, text: f.text, owner: f.owner || '', at: f.at || (r.ended && r.ended.at) || r.created || '',
           status: st, decision: d, tie: tie, label: tie ? 'Needs review' : LABEL[st], decidable: decidable(r.process, r.id, f.id) });
       });
     });

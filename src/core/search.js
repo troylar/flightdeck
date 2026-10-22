@@ -136,6 +136,8 @@ PF.search = (function () {
   function runDoc(r) {
     var key = r.process + '/' + r.id, f = [];
     field(f, r.title, 8); field(f, r.category, 3); field(f, r.version ? 'v' + r.version : '', 2); field(f, r.ended && r.ended.outcome, 2);
+    /* A test run (2.1) is found by those words too, and says so in its line. */
+    if (PF.run.isTest(r)) field(f, 'test run staged', 3);
     Object.keys(r.details || {}).forEach(function (k) { field(f, r.details[k], 6); });
     Object.keys(r.steps || {}).slice(0, 500).forEach(function (id) {
       var a = r.steps[id];
@@ -144,7 +146,7 @@ PF.search = (function () {
     });
     var people = [r.recorder && r.recorder.person, r.createdBy, r.ended && r.ended.by];
     Object.keys(r.roles || {}).forEach(function (k) { people.push(r.roles[k]); });
-    return { id: 'run:' + key, kind: 'run', title: r.title, sub: 'v' + (r.version || '?') + ' · ' + (r.ended ? str(r.ended.outcome) || 'Ended' : 'Running'), fields: f,
+    return { id: 'run:' + key, kind: 'run', title: r.title, sub: (PF.run.isTest(r) ? 'Test run · staged v' : 'v') + (r.version || '?') + ' · ' + (r.ended ? str(r.ended.outcome) || 'Ended' : 'Running'), fields: f,
       people: uniq(people), types: [], at: r.savedAt || (r.ended && r.ended.at) || r.created || '', process: r.process, run: key, target: target({ view: 'run', run: key }) };
   }
   /* Each note's own signature, worked out once per note object (notes are built new from every read and never changed in
@@ -167,13 +169,13 @@ PF.search = (function () {
     var n = x.n, key = r.process + '/' + r.id, f = [], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
     field(f, n.text, 6); field(f, n.why, 4); field(f, n.happened, 4); field(f, n.change && typeof n.change.to === 'string' ? n.change.to : '', 4);
     fileNames(n).forEach(function (name) { field(f, name, 3); });
-    return { id: 'note:' + key + ':' + n.id + '#' + x.k, kind: corr ? 'correction' : 'note', title: clip(str(n.text).split('\n')[0], 120) || 'Note', sub: r.title, fields: f, people: uniq([n.by]), types: [],
+    return { id: 'note:' + key + ':' + n.id + '#' + x.k, kind: corr ? 'correction' : 'note', title: clip(str(n.text).split('\n')[0], 120) || 'Note', sub: (PF.run.isTest(r) ? 'Test run · ' : '') + r.title, fields: f, people: uniq([n.by]), types: [],
       at: n.at || '', process: r.process, run: key, target: target({ view: 'run', run: key, step: n.step, note: n.id }) };
   }
   function fuDoc(x) {
     var f = [], d = x.decision || {}, fu = x.f || {};
     field(f, x.text, 6); field(f, fu.ticket, 6); field(f, d.note, 4); field(f, d.reason, 4); field(f, d.ticket, 6); field(f, d.link, 2);
-    return { id: 'fu:' + x.key, kind: 'followup', title: x.text, sub: x.label + ' · ' + x.runTitle, fields: f, people: uniq([x.owner, fu.by, d.by]), types: [],
+    return { id: 'fu:' + x.key, kind: 'followup', title: x.text, sub: x.label + ' · ' + (x.test ? 'Test run · ' : '') + x.runTitle, fields: f, people: uniq([x.owner, fu.by, d.by]), types: [],
       at: x.at || '', process: x.process, run: x.runKey, target: target({ view: 'run', run: x.runKey, step: fu.step }) };
   }
   var DECIDED = { declined: 'Declined', applied: 'Applied', included: 'Published', withdrawn: 'Withdrawn', legacy: 'Accepted', open: 'Reopened', accepted: 'Accepted' };
@@ -262,7 +264,7 @@ PF.search = (function () {
        which costs no hashing and still changes with any change of content. */
     (input.followUps || []).forEach(function (x) {
       var fu = x.f || {}, d = x.decision;
-      var sig = [x.status, x.label, x.runTitle, x.at, x.owner, x.text, fu.ticket, fu.step, fu.by, d ? decisionPrint(d) : ''].join('\u0001');
+      var sig = [x.status, x.label, x.runTitle, !!x.test, x.at, x.owner, x.text, fu.ticket, fu.step, fu.by, d ? decisionPrint(d) : ''].join('\u0001');
       out.push({ id: 'fu:' + x.key, kind: 'followup', sig: sig, make: function () { return [fuDoc(x)]; } });
     });
     (input.corrDecisions || []).forEach(function (d) {

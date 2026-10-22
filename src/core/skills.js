@@ -323,7 +323,8 @@ PF.skills = (function () {
   /* Run evidence for a publication: completed runs, and which were clean on the given steps (no block, re-check, N/A or
      "did it differently", in any earlier answer either). */
   function readiness(runs, pub, ids) {
-    var mine = (runs || []).filter(function (r) { return r.process === pub.map.meta.process && r.folder === pub.info.folder && r.ended && r.ended.outcome === 'Completed'; });
+    /* Test runs (2.1) never count toward readiness here; slice 6 counts them only by the payload rule. */
+    var mine = (runs || []).filter(function (r) { return r.process === pub.map.meta.process && r.folder === pub.info.folder && !PF.run.isTest(r) && r.ended && r.ended.outcome === 'Completed'; });
     var deviations = [], clean = [];
     mine.forEach(function (r) {
       var bad = false;

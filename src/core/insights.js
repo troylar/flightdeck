@@ -42,6 +42,7 @@ PF.insights = (function () {
     missing: 'its file is gone from the team folder; its last copy isn\'t counted',
     newer: 'it\'s from a newer Flightdeck (or uses a checklist this copy can\'t read)',
     unknown: 'it couldn\'t be read, so which version it belongs to isn\'t known',
+    test: 'it\'s a test run, on a staged version',
     time: 'a time couldn\'t be read',
     future: 'a time is later than now',
     backward: 'the times go backward',
@@ -64,6 +65,7 @@ PF.insights = (function () {
     unread: function (n) { return n === 1 ? '1 run couldn\'t be read; its last copy isn\'t counted.' : runs(n) + ' couldn\'t be read; their last copies aren\'t counted.'; },
     missing: function (n) { return n === 1 ? '1 run\'s file is gone from the team folder; its last copy isn\'t counted.' : runs(n) + '\' files are gone from the team folder; their last copies aren\'t counted.'; },
     unknown: function (n) { return n === 1 ? '1 run of this process couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this process couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
+    test: function (n) { return n === 1 ? '1 test run not counted.' : num(n) + ' test runs not counted.'; },
     newer: function (n) { return n === 1 ? '1 run is from a newer Flightdeck (or uses a checklist this copy can\'t read); it isn\'t counted.' : runs(n) + ' are from a newer Flightdeck (or use a checklist this copy can\'t read); they aren\'t counted.'; }
   };
   function reason(why, whose) { return WHY[why] + (whose ? ', by ' + WHOSE[whose] : ''); }
@@ -116,7 +118,7 @@ PF.insights = (function () {
 
   /* Reasons that only restate a number's denominator (a run that never reached the step or the gate): the rest are runs a
      number should have counted and couldn't. A number with any of those, or with history incomplete, always says so. */
-  var DEFINITIONAL = { unreached: 1, unanswered: 1, nogate: 1, notneeded: 1 };
+  var DEFINITIONAL = { unreached: 1, unanswered: 1, nogate: 1, notneeded: 1, test: 1 };
   function hasProblems(q) { return !!q && (q.incomplete > 0 || q.excluded.some(function (g) { return !DEFINITIONAL[g.why]; })); }
 
   /* ---------- One time layer: every time Insights uses comes through here ---------- */
@@ -341,6 +343,8 @@ PF.insights = (function () {
     var runEx = [], base = [], baseSet = Object.create(null), known = Object.create(null), version = opts.version != null ? opts.version : null;
     (input.runs || []).forEach(function (r) {
       if (r) known[keyOf(r)] = true;
+      /* Test runs (2.1) are never counted: each of the process's is said once, on whichever version is shown. */
+      if (r && r.process === process && R.isTest(r)) { runEx.push({ why: 'test', key: keyOf(r) }); return; }
       if (!r || r.process !== process || r.folder !== folder) return;
       if (version == null && r.version != null) version = r.version;
       var k = keyOf(r), why = whyOut(r, status);
@@ -455,7 +459,7 @@ PF.insights = (function () {
     res.roles = R.rotation(base, process);
     /* What a drill-down compares to say a run changed: its file, plus its decisions and whether it can be read. */
     res.sig = {};
-    (input.runs || []).forEach(function (r) { if (r && r.process === process && r.folder === folder) { var k = keyOf(r); res.sig[k] = runSig(r) + '|' + whyOut(r, status) + '|' + (decSig[k] || ''); } });
+    (input.runs || []).forEach(function (r) { if (r && r.process === process && (r.folder === folder || R.isTest(r))) { var k = keyOf(r); res.sig[k] = runSig(r) + '|' + whyOut(r, status) + '|' + (decSig[k] || ''); } });
     return res;
   }
   /* Why a whole run is left out of every number, or ''. */
@@ -588,7 +592,8 @@ PF.insights = (function () {
     var by = Object.create(null), out = [];
     function add(folder, version) { if (!folder) return null; if (!by[folder]) out.push(by[folder] = { folder: folder, version: +version || 0, clash: false, runs: 0 }); return by[folder]; }
     (pubs || []).forEach(function (p) { if (p && p.info) add(p.info.folder, p.info.version); });
-    (all || []).forEach(function (r) { if (r && r.process === process) { var f = add(r.folder, r.version); if (f) f.runs++; } });
+    /* A test run's stage is never a version to choose (2.1). */
+    (all || []).forEach(function (r) { if (r && r.process === process && !R.isTest(r)) { var f = add(r.folder, r.version); if (f) f.runs++; } });
     var seen = {}; out.forEach(function (f) { seen[f.version] = (seen[f.version] || 0) + 1; });
     out.forEach(function (f) { f.clash = (clashes || []).indexOf(f.version) >= 0 || seen[f.version] > 1; });
     return out.sort(function (a, b) { return b.version - a.version || (a.folder < b.folder ? -1 : 1); });

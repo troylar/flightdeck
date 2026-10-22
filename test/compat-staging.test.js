@@ -2,7 +2,7 @@
 // version in the lowest format its content needs (here preflight-publication/1 with stagedFrom), and retires another with a
 // decision file. Every copy from 1.11.1 through 2.0.0 never lists staged/, takes the promoted version as an ordinary latest
 // version it can run, and writes nothing while reading. A stage's own record, read by an older copy as if it were a version,
-// is refused by name, never run.
+// is refused by name, never run. A test run on a stage (slice 5) is listed by name only and never saved there.
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
@@ -68,6 +68,37 @@ TAGS.forEach((t) => rule(t.tag + ': a stage\'s own record, read as a version, is
   const v = OLD.publish.verify(kept, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
   assert.ok(!v.ok, t.tag + ' would read a stage as a version');
   if (t.major >= 2) assert.ok(/needs Flightdeck 2\.1/i.test(v.why), 'and says which release reads it: ' + v.why);
+}));
+
+/* Test runs (2.1 slice 5): this version starts one on a staged version. Every copy from 1.11.1 through 2.0.0 lists it by name
+   only (2.0.0 as a test run that needs Flightdeck 2.1), never reads its steps, and refuses to save it, writing nothing. */
+let withTest = null;
+async function testFolder() {
+  if (withTest) return withTest;
+  const { files } = await folder(), NEW = H.loadMain({ at: AT, seed: 15 }), m = H.memFolder(NEW, files), repo = NEW.repo;
+  const d = await repo.loadAll(m), p = d.processes[0];
+  const customTypes = { 'team.restore': NEW.types.customType(G.STEP_TYPE) };
+  const st = await repo.stage(m, TRY, { people: G.PEOPLE, customTypes, workflows: {}, by: 'person-avery', changes: 'Try it in a test run', existing: p.index.all.map(x => x.info), now: AT, app: '2.1.0', rand: 'testccc3' });
+  const res = await repo.startTestRun(m, 'backup', st.folder, { pubs: p.pubs, session: 'w-avery', writer: 'w-avery', make: (stage) => NEW.run.create(stage, { test: true, title: 'Backup check (test)', details: { ticket: 'ABC-130' }, roles: { lead: 'person-avery', checker: 'person-blake' }, by: 'person-avery', session: 'w-avery', now: AT, app: '2.1.0', id: 'run-tst' }) });
+  assert.ok(res.run && res.run.test === true, 'set-up: a test run');
+  withTest = { files: H.filesOf(m), stage: st.folder };
+  return withTest;
+}
+rule('This version writes a test run as run/3 naming staged and test-run, on the stage, with test and stage last', async () => {
+  const { files, stage } = await testFolder(), r = JSON.parse(files['runs/backup/run-tst/run.json']);
+  same([r.format, r.features.slice(-2), r.folder, r.test, r.stage, Object.keys(r).slice(-2)], ['preflight-run/3', ['staged', 'test-run'], stage, true, { folder: stage }, ['test', 'stage']]);
+});
+TAGS.forEach((t) => rule(t.tag + ': a test run is listed by name only, never its steps, and saving it writes nothing', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const { files } = await testFolder(), m = H.memFolder(OLD, files), before = snap(m);
+  const d = await OLD.repo.loadAll(m, { deep: true }), r = d.runs.find(x => x.id === 'run-tst');
+  assert.strictEqual(snap(m), before, 'nothing written while reading');
+  assert.ok(r && r._unrunnable && !Object.keys(r.steps).length && !Object.keys(r.details || {}).length && r.title === 'Backup check (test)', 'name only: ' + (r && r._unrunnable));
+  if (t.major >= 2) assert.ok(/^Test run · needs Flightdeck 2\.1\./.test(r._unrunnable) && r._test, 'says it\'s a test run and what it needs: ' + r._unrunnable);
+  await assert.rejects(() => OLD.repo.saveRun(m, r, 'w-avery'));
+  assert.strictEqual(snap(m), before, 'nothing written');
+  const proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
+  assert.ok(proc.index.latest.info.folder === 'v2-promoted' && !(proc.pubs || []).some(x => /^stage-/.test(x.folder)), 'the test run\'s stage is never a version');
 }));
 
 /* A /1 record that carries the stage's payload (2.1 keeps it on promotion): every real older copy loads it, runs it and never

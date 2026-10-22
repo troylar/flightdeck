@@ -15,6 +15,10 @@ PF.run = (function () {
     var explicit = !two && !!o.explicit;
     var bad = !pub.info ? PF.publish.NEWER : PF.publish.newerOf(pub.info) || (pub.info.format !== PF.publish.FORMAT && !two ? PF.publish.NEWER : PF.publish.unrunnable(pub.md, pub.types));
     if (bad) throw new Error(bad);
+    /* A stage (2.1) takes test runs only, and a test run starts only on a stage: on its proposed number, never a version's. */
+    var staged = two && Array.isArray(pub.info.features) && pub.info.features.indexOf('staged') >= 0;
+    if (o.test && !(staged && pub.info.stage && typeof pub.info.stage.proposed === 'number' && PF.publish.STAGE.test(String(pub.info.folder)))) throw new Error('Only a staged version takes test runs.');
+    if (staged && !o.test) throw new Error('A staged version takes test runs only, until someone makes it the default.');
     var map = pub.map, details = {}, roles = {}, migs = [];
     map.meta.context.forEach(function (f) { details[f] = String((o.details || {})[f] || '').trim(); });
     /* Typed run details (2.0) are stored canonical. Text they came from (o.from: a plan, a carried value, a request) is
@@ -23,7 +27,7 @@ PF.run = (function () {
     map.meta.roles.forEach(function (r) { roles[r] = (o.roles || {})[r] || ''; });
     var id = o.id || U.randomId(8);
     var r = {
-      format: FORMAT, id: id, process: map.meta.process, version: pub.info.version, folder: pub.info.folder, mapHash: pub.info.mapHash,
+      format: FORMAT, id: id, process: map.meta.process, version: staged ? pub.info.stage.proposed : pub.info.version, folder: pub.info.folder, mapHash: pub.info.mapHash,
       title: String(o.title || map.meta.title).trim().slice(0, 100), category: map.meta.category || 'Other',
       snapshot: pub.md, types: pub.types, details: details, roles: roles,
       recorder: { person: o.by, session: o.session }, state: 'running', created: o.now, createdBy: o.by,
@@ -54,9 +58,30 @@ PF.run = (function () {
       if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
     }
     if (migs.length) { r.migrations = migs; r = withPins(r); }
-    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && typeof o.parent.folder === 'string' && o.parent.folder) r.parent.folder = o.parent.folder; }
-    addLog(r, o.by, o.now, 'Started the run');
+    /* A linked run started from a test run (2.1) names no parent folder: a stage's isn't a version, and 2.0.0 would read the
+       child read-only for it. */
+    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
+    addLog(r, o.by, o.now, staged ? 'Started the test run' : 'Started the run');
+    /* A test run: test-run named, and the frozen test and stage fields last (test/fixtures/v2 run-t). */
+    if (staged) { addFeature(r, 'test-run'); r.test = true; r.stage = { folder: pub.info.folder }; }
     return r;
+  }
+  /* Whether a run is a test run (2.1): one read in full (test: true), or one listed by name only that says it is. */
+  function isTest(r) { return !!r && (r.test === true || r._test === true); }
+  /* The folder a run's version lives in: its stage's under staged/ for a test run, else its publication's. */
+  function pubDir(r) { return (isTest(r) ? 'staged/' : 'publications/') + r.process + '/' + r.folder + '/'; }
+  /* Why a run/3's test-run fields aren't the frozen shape, or '': test: true, stage: { folder } naming the run's own stage
+     folder, staged and test-run both listed, and the stage's payload. Anything else is read-only here (never rewritten). */
+  function testProblem(o) {
+    var f = Array.isArray(o.features) ? o.features : [], has = own(o, 'test') || own(o, 'stage') || f.indexOf('test-run') >= 0 || f.indexOf('staged') >= 0;
+    if (!has) return '';
+    var st = o.stage;
+    if (o.test !== true) return 'its "test" isn\'t true';
+    if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder') return 'its "stage" isn\'t { folder }';
+    if (typeof st.folder !== 'string' || !PF.publish.STAGE.test(st.folder) || st.folder !== o.folder) return 'its stage isn\'t its own stage folder';
+    if (f.indexOf('staged') < 0 || f.indexOf('test-run') < 0) return 'it doesn\'t list staged and test-run';
+    if (o.payload == null) return 'it has no payload';
+    return '';
   }
 
 
@@ -1174,8 +1199,8 @@ PF.run = (function () {
      report on the run (PF.reports.lines). */
   function receipt(r, map, nameOf, now, notes, statusOf, fuStatusOf, reportOf) {
     var h = headline(r, map), lines = [];
-    lines.push('Flightdeck receipt: ' + r.title);
-    lines.push('Process: ' + map.meta.title + ' (v' + r.version + ')');
+    lines.push((isTest(r) ? 'Flightdeck receipt (TEST RUN): ' : 'Flightdeck receipt: ') + r.title);
+    lines.push('Process: ' + map.meta.title + ' (' + (isTest(r) ? 'test run on staged v' + r.version + ', not a published version' : 'v' + r.version) + ')');
     var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     if (det) lines.push(det);
     lines.push('Status: ' + (r.ended ? h.text : 'In progress. ' + h.text));
@@ -1256,7 +1281,7 @@ PF.run = (function () {
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
-  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations';
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage';
   KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired'; KNOWN.parent3 = KNOWN.parent + ' folder';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
@@ -1658,12 +1683,16 @@ PF.run = (function () {
       if (!tmap && Array.isArray(o.migrations) && o.migrations.length) return nameOnly(o, needs3(o));
       var inv = tmap ? invalidValues(r, tmap) : null;
       if (inv) r._invalid = inv;
+      /* A test run (2.1) keeps its frozen fields last; any other shape of them is read-only, still labeled when it says test. */
+      var tp = testProblem(o);
+      if (tp) { if (!r._unrunnable) r._unrunnable = 'This test run\'s record isn\'t one Flightdeck writes (' + tp + '), so it\'s shown read-only.'; if (o.test === true) r._test = true; }
+      else if (o.test === true) { r.test = true; r.stage = { folder: o.stage.folder }; }
     }
     return r;
   }
 
   return {
-    RUN_ID: RUN_ID,
+    RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,

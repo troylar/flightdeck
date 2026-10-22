@@ -71,15 +71,19 @@ PF.appjson = (function () {
   var PIN = { process: 'string', version: 'number', folder: 'string', mapHash: 'string', typesHash: 'string' };
   /* Conditions (2.1): whether a step or a phase (on its gate) applies in the run: true, false (Not needed) or null (held). */
   var APPLIES = { $or: ['boolean', 'null'] };
-  var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE) });
+  /* Test runs (2.1): test says a run is one; stage names its stage folder (null for any other run). */
+  var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE), test: 'boolean', stage: opt({ folder: 'string' }) });
+  var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
   var SCHEMA2 = {
-    envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: SCHEMA.followups, request: SCHEMA.request,
-    process: extend(SCHEMA.process, { format: 'string', features: ['string'], details: [{ name: 'string', type: 'string', options: ['string'] }],
+    envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
+    /* stage: the staged version shown (process --stage), else null. */
+    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ name: 'string', type: 'string', options: ['string'] }],
       phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
-    runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })] },
+    /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
+    runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
     run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
       steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') })],
-      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP] })) }
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) }
   };
   function extend(a, b) { var o = {}; Object.keys(a).forEach(function (k) { o[k] = a[k]; }); Object.keys(b).forEach(function (k) { o[k] = b[k]; }); return o; }
 
@@ -315,7 +319,8 @@ PF.appjson = (function () {
   }
   function details2(r, mp, nameOf) { var o = {}; Object.keys(r.details || {}).forEach(function (k) { o[k] = value(r, mp, 'details.' + k, r.details[k], nameOf); }); return o; }
   function head2(r, out) { out.format = s(r.format); out.features = Array.isArray(r.features) ? r.features.map(s) : []; return out; }
-  function summary2(r, nameOf) { var out = summary(r, nameOf); out.details = details2(r, R.mapOf(r), nameOf); return head2(r, out); }
+  function summary2(r, nameOf) { var out = summary(r, nameOf); out.details = details2(r, R.mapOf(r), nameOf); head2(r, out); out.test = R.isTest(r); out.stage = r.test === true && r.stage ? { folder: s(r.stage.folder) } : null; return out; }
+  function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }
   function evidence2(listIn) {
     return (listIn || []).map(function (d) {
       var e = evidence([d])[0]; e.type = (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) ? typeOf(d) : 'text';
@@ -323,8 +328,9 @@ PF.appjson = (function () {
     });
   }
   function process2(proc, pub) {
-    var out = process(proc, pub);
-    out.format = s(pub.info && pub.info.format); out.features = pub.info && Array.isArray(pub.info.features) ? pub.info.features.map(s) : [];
+    var out = process(proc, pub), si = pub.info || {};
+    out.format = s(si.format); out.features = Array.isArray(si.features) ? si.features.map(s) : [];
+    out.stage = pub.stage && si.stage ? { folder: s(si.folder), proposed: +si.stage.proposed || 0, stagedBy: s(si.stagedBy), stagedAt: s(si.stagedAt) } : null;
     out.details = [];
     if (!pub.ok) return out;
     var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
@@ -344,8 +350,9 @@ PF.appjson = (function () {
   function plannedPairs(plans, procs, unsure) {
     return (plans || []).map(function (p) { return { p: p, o: plan(p, procs, unsure) }; }).sort(function (a, b) { return a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : s(a.p._file) < s(b.p._file) ? -1 : 1; });
   }
-  function runs2(runList, plans, nameOf, procs, unsure) {
+  function runs2(runList, plans, nameOf, procs, unsure, leftOut) {
     var out = runs(runList, plans, nameOf, procs, unsure);
+    out.testRunsLeftOut = leftOut || 0;
     out.runs = (runList || []).map(function (r) { return summary2(r, nameOf); }).sort(byCreated);
     /* Each entry with its own plan (copies of one plan that differ share an ID, so never joined by ID). */
     out.planned = plannedPairs(plans, procs, unsure).map(function (x) {
@@ -362,8 +369,9 @@ PF.appjson = (function () {
   }
   function run2(r, items, nameOf) {
     var mp = R.mapOf(r), out = run(r, items, nameOf).run, base = summary2(r, nameOf);
-    out.details = base.details; head2(r, out);
+    out.details = base.details; head2(r, out); out.test = base.test; out.stage = base.stage;
     out.pins = {}; if (r.pins && r.pins.children) Object.keys(r.pins.children).forEach(function (k) { var c = r.pins.children[k]; out.pins[k] = { process: s(c.process), version: +c.version || 0, folder: s(c.folder), mapHash: s(c.mapHash), typesHash: s(c.typesHash) }; });
+    out.followUps.forEach(function (f) { f.test = R.isTest(r); });
     out.migrations = (r._archivedMigrations || []).concat(Array.isArray(r.migrations) ? r.migrations : []).map(function (m) { return migration(m, nameOf); });
     out.steps.forEach(function (st) {
       var x = M.findStep(mp, st.id), a = r.steps[st.id] || null, vals = {};
@@ -404,6 +412,6 @@ PF.appjson = (function () {
     }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };
   }
 
-  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
+  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
     v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

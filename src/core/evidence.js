@@ -151,7 +151,8 @@ PF.evidence = (function () {
     else if (!strong) return null;
     return '';
   }
-  function checks(raw, pub, images) {
+  /* stage (2.1): the run is a test run, so its version is its stage, checked by the stage rules. */
+  function checks(raw, pub, images, stage) {
     var out = [];
     function add(id, what, ok, detail) { out.push({ id: id, what: what, ok: ok, detail: detail || '' }); }
     var map = pub && pub['map.md'], types = pub && pub['types.json'], info = pub && pub['publication.json'];
@@ -169,7 +170,7 @@ PF.evidence = (function () {
       /* A /2 version by the SHA-256 of the exact bytes of its checklist and step types, as snapshotted for the pack. */
       var exact = {};
       if (images) ['map.md', 'types.json'].forEach(function (n) { var x = images['\u0000' + n]; if (x && x.sha256) exact[n] = x.sha256; });
-      var v = PF.publish.verify(raw.folder, pub, exact), shot = '', unsure = '';
+      var v = PF.publish.verify(raw.folder, pub, exact, stage ? { stage: true } : null), shot = '', unsure = '';
       /* Its screenshots too, by the bytes in the pack: the version is checked as the app checks it. */
       if (v.ok && images) Object.keys(v.info.images && typeof v.info.images === 'object' ? v.info.images : {}).forEach(function (src) {
         if (shot) return;
@@ -306,7 +307,7 @@ PF.evidence = (function () {
   }
   function runHtml(col, rc, opts) {
     var r = rc.run, raw = rc.raw || {}, h = '<h2>Run: ' + esc(rc.title || rc.key) + '</h2>';
-    h += '<p class="soft">' + esc(rc.key) + (raw.version != null ? ' · version ' + esc(raw.version) : '') + (raw.folder ? ' · <span class="mono">' + esc(raw.folder) + '</span>' : '') + ' · started ' + esc(when(raw.created)) +
+    h += (rc.test ? '<p><b>Test run</b> on a staged version. It isn\'t a run of a published version.</p>' : '') + '<p class="soft">' + esc(rc.key) + (raw.version != null ? (rc.test ? ' · staged version ' : ' · version ') + esc(raw.version) : '') + (raw.folder ? ' · <span class="mono">' + esc(raw.folder) + '</span>' : '') + ' · started ' + esc(when(raw.created)) +
       (r && r.ended ? ' · ended ' + esc(r.ended.outcome) + ' at ' + esc(when(r.ended.at)) : r ? ' · ' + esc(r.state) : '') + (raw.rev != null ? ' · revision ' + esc(raw.rev) : '') + '</p>';
     if (rc.limited) h += '<p class="warn">' + esc(rc.limited) + ' ' + esc(LIMITED) + '</p>';
     if (r) {

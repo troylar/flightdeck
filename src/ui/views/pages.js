@@ -11,7 +11,7 @@
     map.phases.some(function (p, pi) { var st = R.gateStatus(r, map, pi); if (st !== 'passed' && st !== 'waived') { cur = pi; return true; } return false; });
     /* Who records and whether it's paused stay visible during a call, with save and folder problems (notices) above. */
     var who = r.ended ? 'Ended' : r.paused ? 'Paused by ' + nameOf(ctx, r.paused.by) + ': ' + r.paused.reason : !r.recorder.session ? 'Waiting for ' + nameOf(ctx, r.recorder.person) + ' to pick up recording' : nameOf(ctx, r.recorder.person) + ' is recording' + (ctx.recording(r) ? ' (you, in this window)' : '');
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1><div class="m-rec">' + esc(who) + '</div><span id="fresh">' + freshness(ctx, r) + '</span></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1><div class="m-rec">' + esc(who) + '</div><span id="fresh">' + freshness(ctx, r) + '</span></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     h += '<div class="mission"><div class="stack"><div class="headline" data-s="' + hl.s + '"><div><div class="now">' + esc(K.hlText(r, hl)) + '</div><div>' + esc(hl.sub) + '</div></div></div>';
     if (cur != null) {
       var p = map.phases[cur];
@@ -34,7 +34,7 @@
     var r = ctx.run(); if (!r) return V.run(ctx);
     var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
     /* Only what has something in it: the follow-up form waits under Add a follow-up (opened by an error, or once opened). */
     var fuOpen = (s.disc || {})['fu-add'] || (s.fieldErr && s.fieldErr.id === 'followup');
@@ -94,7 +94,7 @@
       reportOf.lines.map(function (l) { return '<div class="rrow"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join('') + '</div>';
     if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4><ul class="corrlist">' + cor.map(function (c) { return V.corrRow(ctx, c, idx[c.id], { step: true }); }).join('') + '</ul></div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
-      '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
+      '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
       '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden>' + esc(R.receipt(r, map, function (id) { return nameOf(ctx, id); }, new Date(ctx.now()).toISOString(), r._notes, statusOf, fuStatusOf, reportOf)) + '</pre>';
   }
 

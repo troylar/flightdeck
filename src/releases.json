@@ -34,6 +34,14 @@
         "now": "On a process page, open All versions and choose Stage the draft for testing. Runs keep using the current default until someone chooses Make vN the default, which publishes exactly what was staged as the next version. A stage can be retired and reopened. Anyone can do these, and each is logged with their name.",
         "before": "Publishing made a version the default straight away.",
         "where": "The process page, All versions"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Test runs on a staged version",
+        "now": "Choose Start a test run on a staged version's line. A test run is labeled Test run everywhere it shows, and it isn't counted with real runs: How runs go says how many it left out, and Home and skill readiness skip them. Its follow-ups and corrections are real. Older copies show a test run by name only and never change it.",
+        "before": "A staged version couldn't be tried before it became the default.",
+        "where": "The process page, All versions; Runs"
       }
     ]
   },

@@ -718,19 +718,18 @@ rule('A registration with any revision this copy can\'t read (newer, malformed o
   assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
-rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions and staged versions; every later feature stays refused', () => {
+rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; every later feature stays refused', () => {
   const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions'];
   assert.deepStrictEqual(plain(E.FAMILIES['flightdeck-checklist'].majors[2]), want);
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-publication'].majors[2]), want.concat(['staged']));
-  assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want);
+  assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want.concat(['staged', 'test-run']));
   assert.ok(E.judge('flightdeck-plan', { format: 'flightdeck-plan/2' }).ok);
   assert.ok(E.judge('flightdeck-plan-status', { format: 'flightdeck-plan-status/2' }).ok);
   assert.ok(E.judge('flightdeck-skill', { format: 'flightdeck-skill/2' }).ok);
-  assert.ok(!E.judge('preflight-run', { format: 'preflight-run/3', features: ['staged'] }).ok);
-  ['test-run', 'extensions'].forEach(x => {
-    assert.ok(!E.judge('preflight-publication', { format: 'preflight-publication/2', features: [x] }).ok, x);
-    assert.ok(!E.judge('preflight-run', { format: 'preflight-run/3', features: [x] }).ok, x);
-  });
+  assert.ok(E.judge('preflight-run', { format: 'preflight-run/3', features: ['staged', 'test-run'] }).ok, '2.1 slice 5: test runs');
+  assert.ok(!E.judge('preflight-publication', { format: 'preflight-publication/2', features: ['test-run'] }).ok);
+  assert.ok(!E.judge('preflight-publication', { format: 'preflight-publication/2', features: ['extensions'] }).ok);
+  assert.ok(!E.judge('preflight-run', { format: 'preflight-run/3', features: ['extensions'] }).ok);
   assert.ok(!E.judge('flightdeck-plan', { format: 'flightdeck-plan/3' }).ok);
 });
 

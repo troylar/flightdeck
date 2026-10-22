@@ -1050,6 +1050,38 @@ rule('READ: contract 2 reads a typed run/3 and its version with typed values and
   assert.ok(one.json.data.run === null && one.json.problems.some(p => p.kind === 'newer' && /run-c/.test(p.path)), 'contract 1 is unchanged: ' + one.out.slice(0, 400));
 });
 
+rule('READ: test runs (2.1) are left out of runs unless --tests asks (testRunsLeftOut says how many), labeled with test and stage, judged against their stage; process --stage reads a stage; contract 1 names them newer', async () => {
+  const fsx = require('fs'), dir = tmp();
+  const copy = (from) => { (function walk(rel) { const abs = path.join(from, rel); for (const e of fsx.readdirSync(abs, { withFileTypes: true })) { const r2 = path.join(rel, e.name); if (e.isDirectory()) { fsx.mkdirSync(path.join(dir, r2), { recursive: true }); walk(r2); } else fsx.copyFileSync(path.join(from, r2), path.join(dir, r2)); } })(''); };
+  copy(path.join(__dirname, 'fixtures', 'folders', 'v1.18.0')); copy(path.join(__dirname, 'fixtures', 'v2', 'folder'));
+  const plain = agree(readCli('runs', dir, '--contract', '2', '--json'));
+  assert.deepStrictEqual(wrong(plain.json.data, AJ.SCHEMA2.runs), [], 'runs data');
+  assert.ok(!plain.json.data.runs.some(r => r.id === 'run-t') && plain.json.data.testRunsLeftOut === 1, 'left out, and counted: ' + plain.json.data.testRunsLeftOut);
+  assert.ok(plain.json.data.runs.every(r => r.test === false && r.stage === null));
+  assert.ok(!plain.json.problems.some(p => /run-t|staged\//.test(p.path)), 'nothing about it is a problem: ' + JSON.stringify(plain.json.problems));
+  const tests = agree(readCli('runs', dir, '--contract', '2', '--tests', '--json'));
+  assert.deepStrictEqual(wrong(tests.json.data, AJ.SCHEMA2.runs), [], 'runs --tests data');
+  const t = tests.json.data.runs.find(r => r.id === 'run-t');
+  assert.ok(t && t.test === true && t.stage.folder === 'stage-aaaa1111' && t.version === 3 && t.folder === 'stage-aaaa1111' && t.readOnly === null && tests.json.data.testRunsLeftOut === 0, JSON.stringify(t));
+  assert.ok(!tests.json.problems.some(p => /run-t|staged\//.test(p.path)), 'its stage verifies and matches: ' + JSON.stringify(tests.json.problems));
+  const ended = agree(readCli('runs', dir, '--contract', '2', '--status', 'ended', '--json'));
+  assert.strictEqual(ended.json.data.testRunsLeftOut, 0, 'only test runs the filters match are counted');
+  const one = agree(readCli('run', dir, 'backup/run-t', '--contract', '2', '--json'));
+  assert.deepStrictEqual(wrong(one.json.data, AJ.SCHEMA2.run), [], 'run data');
+  assert.ok(one.json.data.run.test === true && one.json.data.run.stage.folder === 'stage-aaaa1111' && !one.json.problems.some(p => /run-t|staged\//.test(p.path)), one.out.slice(0, 600));
+  const st = agree(readCli('process', dir, 'backup', '--stage', 'stage-aaaa1111', '--contract', '2', '--json'));
+  assert.deepStrictEqual(wrong(st.json.data, AJ.SCHEMA2.process), [], 'process --stage data');
+  assert.ok(st.json.data.stage && st.json.data.stage.proposed === 3 && st.json.data.usable && st.json.data.stage.folder === 'stage-aaaa1111', st.out.slice(0, 600));
+  assert.strictEqual(agree(readCli('process', dir, 'backup', '--contract', '2', '--json')).json.data.stage, null, 'a version is no stage');
+  assert.strictEqual(agree(readCli('process', dir, 'backup', '--stage', 'stage-zzzz0000', '--contract', '2', '--json')).code, 5, 'a stage that isn\'t there is not found');
+  const fu = agree(readCli('followups', dir, '--contract', '2', '--json'));
+  assert.deepStrictEqual(wrong(fu.json.data, AJ.SCHEMA2.followups), [], 'followups data, with test');
+  const v1 = agree(readCli('runs', dir, '--json'));
+  assert.ok(!v1.json.data.runs.some(r => r.id === 'run-t') && v1.json.problems.some(p => p.kind === 'newer' && /run-t/.test(p.path)) && !('testRunsLeftOut' in v1.json.data), 'contract 1: newer, as before');
+  [['runs', dir, '--tests', '--json'], ['runs', dir, '--tests', '--contract', '1', '--json'], ['process', dir, 'backup', '--stage', 'stage-aaaa1111', '--json'], ['process', dir, 'backup', '--stage', 'v3-aaaa1111', '--contract', '2', '--json'], ['runs', dir, '--stage', 'stage-aaaa1111', '--contract', '2', '--json']]
+    .forEach(a => { const r = readCli(...a); assert.ok(r.code === 1 && r.json && r.json.error.kind === 'usage', a.join(' ') + ': ' + r.out); });
+});
+
 rule('READ: without --json, or on a folder that can\'t be read, nothing is printed as data and the exit code is 1', async () => {
   const dir = await readFolder();
   let r = readCli('runs', dir);
