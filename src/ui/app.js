@@ -1138,10 +1138,13 @@
     if (!pid || !by || state.stageBusy) return;
     state.stageBusy = pid; render();
     queued(function () {
-      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION })
-        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION });
+      if (pg !== gen || state.fs !== sfs || state.me !== by) return { dropped: true };
+      var lk = LOCKS ? lock : null;
+      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk })
+        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk });
     }).then(function (res) {
       state.stageBusy = null; if (pg !== gen) return;
+      if (res && res.dropped) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); return; }
       say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
       return load(true);
     }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
@@ -4281,15 +4284,19 @@
       if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved yet, so nothing was staged. Save them first.', 'warn'); render(); return; }
       var shown = p.draft.md, sfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       state.stageBusy = id; render();
+      /* Bound to the folder it was asked in: another folder opened meanwhile drops it, before any read and before the write. */
+      var stale = function () { return pg !== gen || state.fs !== sfs; };
       queued(function () {
+        if (stale()) return { dropped: true };
         return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
+          if (stale()) return { dropped: true };
           if (!got[0] || got[0].text !== shown) return { changed: true };
           /* The corrections this exact text includes, as publishing records them, so promoting it keeps them. */
-          var inc = pg === gen ? PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list : [];
+          var inc = PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list;
           return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION });
         });
       }).then(function (res) {
-        state.stageBusy = null; if (pg !== gen) return;
+        state.stageBusy = null; if (pg !== gen || res.dropped) return;
         if (res.changed) { say('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.', 'warn'); return load(true); }
         if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
         state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;

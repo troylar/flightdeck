@@ -177,6 +177,18 @@ rule('Promote: the corrections a stage records are kept in the version it become
   same(JSON.parse(fs.files['publications/release/v2-prom0009/publication.json'].t).corrections.map(c => c.id), ['c-1']);
 });
 
+rule('Promote: two windows on this computer promoting the same stage at once publish it once (one lock per process, checks inside it)', async () => {
+  const fs = folder(); await staged(fs);
+  let tail = Promise.resolve();
+  const lock = (name, fn) => { const p = tail.then(() => fn()); tail = p.then(() => {}, () => {}); return p; };
+  const a = repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'conc0001', lock });
+  const b = repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-avery', now: LATER, app: '2.1.0', rand: 'conc0002', lock });
+  const res = await Promise.allSettled([a, b]);
+  same(res.map(r => r.status), ['fulfilled', 'rejected']);
+  assert.ok(/already/.test(res[1].reason.message), res[1].reason.message);
+  same(files(fs, /^publications\/release\/v\d-conc/).filter(p => /publication\.json$/.test(p)), ['publications/release/v2-conc0001/publication.json']);
+});
+
 /* ---------- The stage transaction ---------- */
 
 rule('Stage transaction: a write or read-back failure at each step stops it with the reason; the record is written last, so a half stage is never usable', async () => {

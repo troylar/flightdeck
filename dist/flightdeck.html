@@ -14510,8 +14510,15 @@ PF.repo = (function () {
     });
   }
   /* Retire or reopen a stage: a new decision file in this window's name, the rev after the latest read now. Never an edit. */
+  /* Promote and decide take one lock per process (o.lock: the app's cross-window lock on this computer), and check everything
+     again inside it, so two windows here never promote the same stage twice. Across computers, two at once is the clash
+     publishing already has (docs/design.md section 31). */
+  function stageLocked(o, proc, go) { return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, go) : go(); }
   function decideStage(fs, proc, stageFolder, status, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () { return decideStageNow(fs, proc, stageFolder, status, o); });
+  }
+  function decideStageNow(fs, proc, stageFolder, status, o) {
     return stageState(fs, proc).then(function (sp) {
       var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
       return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
@@ -14523,6 +14530,9 @@ PF.repo = (function () {
      or already promoted. Resolves to { version, folder, proposed, renumbered }. */
   function promote(fs, proc, stageFolder, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () { return promoteNow(fs, proc, stageFolder, o); });
+  }
+  function promoteNow(fs, proc, stageFolder, o) {
     var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '). Nothing was published.'); });
     return listing.then(function (vers) {
       return Promise.all([
@@ -16806,7 +16816,7 @@ PF.vk = (function () {
     var canStage = me && !!p.draft && !!p.draftChanged && !p.proposedOnly;
     if (!sp && !canStage) return '';
     /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
-    var held = !!sp && (!!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
+    var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
     var rows = (sp ? sp.stages : []).map(function (s) {
       if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
       if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
@@ -16817,7 +16827,8 @@ PF.vk = (function () {
       else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
-    return (sp && sp.unlisted ? '<p class="small">' + esc(sp.unlisted) + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
+    var gone = (ctx.data.failed || {}).stages;
+    return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
       (rows.length ? '<ul class="vlist compact">' + rows.join('') + '</ul>' : '') +
       (canStage ? '<p class="small"><button class="mini" data-act="stage-draft" data-id="' + esc(p.id) + '"' + (busy ? ' disabled' : '') + '>Stage the draft for testing</button> Only test runs use it until someone makes it the default.</p>' : '');
   }
@@ -21609,10 +21620,13 @@ PF.examples = (function () {
     if (!pid || !by || state.stageBusy) return;
     state.stageBusy = pid; render();
     queued(function () {
-      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION })
-        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION });
+      if (pg !== gen || state.fs !== sfs || state.me !== by) return { dropped: true };
+      var lk = LOCKS ? lock : null;
+      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk })
+        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk });
     }).then(function (res) {
       state.stageBusy = null; if (pg !== gen) return;
+      if (res && res.dropped) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); return; }
       say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
       return load(true);
     }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
@@ -24752,15 +24766,19 @@ PF.examples = (function () {
       if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved yet, so nothing was staged. Save them first.', 'warn'); render(); return; }
       var shown = p.draft.md, sfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       state.stageBusy = id; render();
+      /* Bound to the folder it was asked in: another folder opened meanwhile drops it, before any read and before the write. */
+      var stale = function () { return pg !== gen || state.fs !== sfs; };
       queued(function () {
+        if (stale()) return { dropped: true };
         return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
+          if (stale()) return { dropped: true };
           if (!got[0] || got[0].text !== shown) return { changed: true };
           /* The corrections this exact text includes, as publishing records them, so promoting it keeps them. */
-          var inc = pg === gen ? PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list : [];
+          var inc = PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list;
           return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION });
         });
       }).then(function (res) {
-        state.stageBusy = null; if (pg !== gen) return;
+        state.stageBusy = null; if (pg !== gen || res.dropped) return;
         if (res.changed) { say('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.', 'warn'); return load(true); }
         if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
         state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;

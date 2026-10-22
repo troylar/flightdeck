@@ -1441,8 +1441,15 @@ PF.repo = (function () {
     });
   }
   /* Retire or reopen a stage: a new decision file in this window's name, the rev after the latest read now. Never an edit. */
+  /* Promote and decide take one lock per process (o.lock: the app's cross-window lock on this computer), and check everything
+     again inside it, so two windows here never promote the same stage twice. Across computers, two at once is the clash
+     publishing already has (docs/design.md section 31). */
+  function stageLocked(o, proc, go) { return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, go) : go(); }
   function decideStage(fs, proc, stageFolder, status, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () { return decideStageNow(fs, proc, stageFolder, status, o); });
+  }
+  function decideStageNow(fs, proc, stageFolder, status, o) {
     return stageState(fs, proc).then(function (sp) {
       var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
       return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
@@ -1454,6 +1461,9 @@ PF.repo = (function () {
      or already promoted. Resolves to { version, folder, proposed, renumbered }. */
   function promote(fs, proc, stageFolder, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () { return promoteNow(fs, proc, stageFolder, o); });
+  }
+  function promoteNow(fs, proc, stageFolder, o) {
     var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '). Nothing was published.'); });
     return listing.then(function (vers) {
       return Promise.all([

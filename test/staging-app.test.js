@@ -121,4 +121,16 @@ rule('A decision that can\'t be read holds every stage of the process: no settle
   assert.ok(/needs Flightdeck/i.test(html) && !/is incomplete/.test(html), 'a newer stage is named as such');
 });
 
+rule('staged/ that can\'t be listed keeps the stages as last read, says so, and offers nothing to click', async () => {
+  const app = await withDraftChange('person-casey');
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  assert.ok(/data-act="promote-stage"/.test(app.html()));
+  const orig = app.fs.list.bind(app.fs);
+  app.fs.list = (x) => x === 'staged' ? Promise.reject(new Error('offline')) : orig(x);
+  app.click('refresh'); await app.tick(120);
+  const html = app.html();
+  assert.ok(!/data-act="(promote|retire|reopen)-stage"/.test(html), 'nothing to click');
+  assert.ok(/shown as last read/.test(html) && /Status unknown/.test(html), 'and it says so');
+});
+
 run();
