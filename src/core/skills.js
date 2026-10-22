@@ -411,6 +411,31 @@ PF.skills = (function () {
       return !isStage(pub) && v.folder === pub.info.folder;
     }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
+  /* Sign-off files that couldn't be read (repo.loadAll's valUnread) that could be pub's, by their names: <process>.v<N>.… for
+     a version, <process>.<stage>.… for a stage (and for the version made from it), and any name Flightdeck doesn't write,
+     which could be anyone's. One kept from the last read (kept) still counts as what it said then. */
+  var SIGN_NAME = /^([a-z0-9][a-z0-9-]{0,59})\.(v[1-9][0-9]*|stage-[a-z0-9]+)\.[^/]+\.json$/i;
+  /* The process a sign-off file's name says it's for, or '' for a name Flightdeck doesn't write. */
+  function signFileProcess(name) { var m = SIGN_NAME.exec(String(name)); return m ? m[1] : ''; }
+  function signoffsUnread(unread, pub) {
+    var proc = pub.map.meta.process, src = sourceStage(pub), mine = Object.create(null);
+    if (!isStage(pub)) mine['v' + pub.info.version] = true;
+    if (src) mine[src.info.folder] = true;
+    return (unread || []).filter(function (u) {
+      if (u.kept) return false;
+      var m = SIGN_NAME.exec(String(u._file));
+      /* A stage's sign-off is read only from a file named for it, so another name can't be a stage's. */
+      if (!m) return !isStage(pub);
+      return m[1] === proc && Object.prototype.hasOwnProperty.call(mine, m[2]);
+    });
+  }
+  /* Why it can't be told whether pub was signed off, or '' when it can: d is repo.loadAll's result (failed, valUnread). */
+  function signUnknown(d, pub) {
+    if (!d || !pub) return '';
+    if ((d.failed || {})['sign-offs']) return 'validations/ couldn\'t be read';
+    var u = signoffsUnread(d.valUnread, pub)[0];
+    return u ? u.path + ' couldn\'t be read' : '';
+  }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
      people.json (as read; peopleUnread: this read of it failed), and only while the backup is listed and active. Returns "owner", "backup" or "". */
   function signer(pub, people, me, peopleUnread) {
@@ -600,5 +625,5 @@ PF.skills = (function () {
     if (a.join('\n') !== b.join('\n') || a.some(function (k) { return !own.call(exact.images, k) || !own.call(sp.images, k) || exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
     return '';
   }
-  return { READY_RUNS: READY_RUNS, isStage: isStage, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

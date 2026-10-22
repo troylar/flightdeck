@@ -747,16 +747,17 @@ rule('A run whose file is gone from the folder is never written back by a save; 
 });
 
 /* ---------- people.json, the write test and answers (1.15) ---------- */
-rule('Folder: people keep their folder role, and the list carries the file\'s fingerprint for a checked save', async () => {
+rule('Folder: people keep their folder role, and the list carries the file\'s text and fingerprint for a checked save', async () => {
   const fs = folder(), d = await repo.loadAll(fs);
   same(d.people.map(p => p.folderRole), ['owner', 'backup', '', '']);
   assert.strictEqual(d.people.hash, PF.util.hash(people));
+  assert.strictEqual(d.people.text, people);
   same(d.people.doc, JSON.parse(people));
   const next = PF.people.add(d.people.doc, 'Jordan Lee', '').doc;
-  assert.ok((await repo.savePeople(fs, PF.people.text(next), d.people.hash)).ok);
+  assert.ok((await repo.savePeople(fs, PF.people.text(next), d.people.hash, { expectText: d.people.text })).ok);
   const theirs = (await fs.read('people.json')).text;
   await fs.write('people.json', theirs.replace('Jordan Lee', 'Jordan L.'));
-  const res = await repo.savePeople(fs, PF.people.text(next), d.people.hash);
+  const res = await repo.savePeople(fs, PF.people.text(next), PF.util.hash(PF.people.text(next)), { expectText: PF.people.text(next) });
   assert.ok(res.conflict, 'a list changed since it was read is never saved over');
   assert.ok(/Jordan L\./.test((await fs.read('people.json')).text));
 });

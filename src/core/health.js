@@ -68,6 +68,8 @@ PF.health = (function () {
     if (failed.length) add({ id: 'read-failed', severity: 'stop', area: 'Reading', title: 'Part of the team folder couldn\'t be read', detail: 'Flightdeck kept what it read before for ' + failed.join(', ') + '. ' + d.failed[failed[0]], paths: failed, action: help(HELP.syncing, 'What to do'), help: HELP.syncing });
     var unread = (d.unreadable || []).slice(), scanUnread = scan ? scan.unreadable || [] : [];
     (d.corrUnread || []).concat(d.fuUnread || []).forEach(function (u) { if (!u.kept) unread.push({ path: u.dir + '/' + u.process + '/' + u._file, why: 'couldn\'t be read' }); });
+    /* Sign-offs and plan decisions that won't read are always named: one kept from the last read could have changed since. */
+    (d.valUnread || []).concat(d.planUnread || []).forEach(function (u) { if (!unread.some(function (x) { return x.path === u.path; })) unread.push({ path: u.path, why: u.why + (u.kept ? '; what it said when it last read is shown' : '') }); });
     scanUnread.forEach(function (u) { if (!unread.some(function (x) { return x.path === u.path; })) unread.push(u); });
     var runUnread = unread.filter(function (u) { return /^runs\//.test(u.path) || u.path === 'people.json'; }), otherUnread = unread.filter(function (u) { return runUnread.indexOf(u) < 0; });
     if (runUnread.length) add({ id: 'unreadable-runs', severity: 'stop', area: 'Files', title: runUnread.length === 1 ? (runUnread[0].path === 'people.json' ? 'people.json can\'t be read' : 'A run file can\'t be read') : plural(runUnread.length, 'file') + ' that runs depend on can\'t be read',

@@ -120,11 +120,11 @@ rule('Saving a test run checks its stage under staged/: a matching stage saves, 
   const fs = folder(), { stage } = await staged(fs);
   const r = start(stage, { test: true });
   await repo.saveRun(fs, r, 'w-avery');
-  const again = R.sanitize(JSON.parse(fs.files['runs/release/run-test1/run.json'].t)); again._fileHash = PF.util.hash(fs.files['runs/release/run-test1/run.json'].t);
+  const again = R.sanitize(JSON.parse(fs.files['runs/release/run-test1/run.json'].t)); again._fileHash = repo.fileHash(fs.files['runs/release/run-test1/run.json'].t);
   again.title = 'Renamed'; await repo.saveRun(fs, again, 'w-avery');
   assert.ok(/Renamed/.test(fs.files['runs/release/run-test1/run.json'].t), 'a test run on its verified stage saves');
   /* A run whose checklist isn't its stage's is refused for that run. */
-  const other = R.sanitize(JSON.parse(fs.files['runs/release/run-test1/run.json'].t)); other._fileHash = PF.util.hash(fs.files['runs/release/run-test1/run.json'].t);
+  const other = R.sanitize(JSON.parse(fs.files['runs/release/run-test1/run.json'].t)); other._fileHash = repo.fileHash(fs.files['runs/release/run-test1/run.json'].t);
   other.mapHash = 'deadbeef'; other.title = 'Mismatch';
   const before = snap(fs);
   await assert.rejects(() => repo.saveRun(fs, other, 'w-avery'), e => e.unrunnable && /changed in the folder/.test(e.message));

@@ -281,4 +281,84 @@ rule('A test run a stage sign-off found gone stops counting on its line at once'
   assert.ok(/2 of 3 clean test runs/.test(line(app, folder)) && !/data-act="signoff-stage"/.test(app.html()), line(app, folder));
 });
 
+/* ---------- A stage sign-off's own reread is said at once, even when a refresh began while it waited (2.1.0) ---------- */
+
+rule('A stage sign-off that waited for the folder, with a refresh landing meanwhile, still stops counting a test run it found gone', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  const list = app.fs.list; let held = null, first = true;
+  app.fs.list = function (p) { const a = arguments, self = this; if (first && p === 'publications/release') { first = false; return new Promise((res, rej) => { held = () => list.apply(self, a).then(res, rej); }); } return list.apply(this, arguments); };
+  app.click('signoff-stage', folder); await app.tick(40);
+  assert.ok(held, 'set-up: the sign-off is waiting on its first read');
+  app.click('refresh'); await app.tick(200);
+  app.files('runs/release/run-try3/').forEach(f => { delete app.fs.files[f]; });
+  const before = app.files('validations/').length;
+  held(); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  assert.ok(/clean test runs; it has 2/.test(app.html()), 'it says why');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/2 of 3 clean test runs/.test(line(app, folder)) && !/data-act="signoff-stage"/.test(app.html()), line(app, folder));
+});
+
+/* ---------- A sign-off file that can't be read: can't tell, never "not signed off" (2.1.0) ---------- */
+
+rule('A stage sign-off file that can\'t be read: its line says it can\'t tell and offers no sign-off, and none is written', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  const torn = 'validations/release.' + folder + '.w-other.json';
+  app.fs.files[torn] = { t: '{"format": "flightdeck-validation/2", "app": "2.1', m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/Can(&#39;|')t tell whether it was signed off/.test(line(app, folder)) && line(app, folder).indexOf(torn) >= 0, line(app, folder));
+  assert.ok(!/data-act="signoff-stage"/.test(app.html()), 'no sign-off offered');
+  const before = app.files('validations/').length;
+  app.click('signoff-stage', folder); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  // Its own reread inside the lock refuses too, whatever the page drew.
+  const st = await app.PF.repo.readStage(app.fs, 'release', folder);
+  await assert.rejects(() => app.PF.repo.signOffStage(app.fs, 'release', folder, { window: 'w-x', by: 'person-casey', runIds: ['run-try1', 'run-try2', 'run-try3'],
+    check: () => ({ as: null, evidence: { completed: 3, clean: 3, runs: [] } }) }), new RegExp(torn.replace(/\./g, '\\.')));
+  assert.ok(st.ok, 'set-up: the stage reads');
+  assert.strictEqual(app.files('validations/').length, before, 'still nothing written');
+});
+
+rule('A version sign-off file that can\'t be read: Ready for a skill says it can\'t tell and names it, and nothing is signed off', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  assert.ok(/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'set-up: offered');
+  const torn = app.files('publications/release/').some(f => /\/v3-/.test(f)) ? 'validations/release.v3.w-other.json' : '';
+  assert.ok(torn, 'set-up: v3');
+  app.fs.files[torn] = { t: '{"kind": "validation", "proc', m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/Can(&#39;|')t tell yet/.test(panel(app)) && panel(app).indexOf(torn) >= 0, panel(app));
+  assert.ok(!/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'no sign-off offered');
+  const before = app.files('validations/').length;
+  app.click('signoff', 'release'); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  // Once it arrives whole, it's read: a sign-off by someone else counts for nothing, and the owner is offered it again.
+  app.fs.files[torn] = { t: JSON.stringify({ kind: 'validation', process: 'release', version: 3, folder: app.files('publications/release/').filter(f => /\/v3-[^/]+\/publication\.json$/.test(f))[0].split('/')[2], by: 'person-blake', at: '2026-10-22T10:00:00.000Z', note: '' }), m: Date.now() + 1 };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), panel(app));
+});
+
+rule('A sign-off read before keeps counting while its file can\'t be read, and Folder health names the file', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(200);
+  const mine = app.files('validations/').filter(f => /^validations\/release\.v3\./.test(f))[0];
+  assert.ok(mine, 'set-up: signed off');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/<b>Yes\.<\/b>/.test(panel(app)), 'set-up: ' + panel(app));
+  app.fs.files[mine] = { t: app.fs.files[mine].t.slice(0, 20), m: Date.now() + 1 };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/<b>Yes\.<\/b>/.test(panel(app)), 'what it said last time: ' + panel(app));
+  assert.ok(app.html().indexOf(mine) >= 0, 'the process page names it');
+  const rep = app.PF.health.check({ data: await app.PF.repo.loadAll(app.fs), scan: null, me: 'person-casey', app: '2.1.0' }, Date.now());
+  assert.ok(rep.issues.some(i => (i.paths || []).indexOf(mine) >= 0), JSON.stringify(rep.issues.map(i => i.detail)));
+});
+
 run();

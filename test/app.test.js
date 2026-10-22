@@ -2209,6 +2209,20 @@ rule('Plans: an older version can only be started through a plan that pins it, n
   assert.ok(/The version this plan starts on changed/.test(app.html()));
 });
 
+rule('Plans: a decision on the plan that can\'t be read holds it: the form says so and nothing starts (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const torn = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  app.fs.files[torn] = { t: '{"kind": "status", "proposal": "plan-rel', m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/isn(&#39;|')t known whether someone already started it/.test(app.html()) && app.html().indexOf(torn) >= 0, (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  assert.ok(!app.files('proposals/').some(f => /\.status-/.test(f) && f !== torn), 'no decision written');
+});
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();

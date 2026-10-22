@@ -66,8 +66,11 @@
     if (n) line += n + (stale ? ' · ' + stale + ' need' + (stale === 1 ? 's' : '') + ' attention' : '');
     else if (!pub) line += 'none yet';
     else if (PF.skills.signoffs(ctx.data.validations, pub).length) line += 'none yet (v' + pub.info.version + ' signed off)';
+    else if (PF.skills.signUnknown(ctx.data, pub)) line += 'none yet (can\'t tell whether v' + pub.info.version + ' is signed off)';
     else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
-    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
+    /* Open whenever it holds a warning: a sign-off file of this process that can't be read. */
+    var warn = signUnread(ctx, p).length > 0;
+    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] || warn ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
       readyPanel(ctx, p, pub, true) + skillsPanel(ctx, p, true) + '</details>';
   }
   /* The last brief copied, shown so it can be read or selected by hand if the clipboard isn't available. */
@@ -76,6 +79,16 @@
     var open = !st.disc || !Object.prototype.hasOwnProperty.call(st.disc, 'brief:' + key) || st.disc['brief:' + key];
     return '<details' + (open ? ' open' : '') + ' class="brief" data-disc="brief:' + esc(key) + '"><summary class="small" id="sum-brief"><span id="copy-msg" role="status"></span> The brief</summary><pre id="brief-pre" class="source" tabindex="0">' + esc(st.brief.text) + '</pre></details>';
   }
+  /* This process's sign-off files that couldn't be read, kept ones too (named on its page, as Folder health names them). */
+  function signUnread(ctx, p) {
+    return (ctx.data.valUnread || []).filter(function (u) { var proc = PF.skills.signFileProcess(u._file); return !proc || proc === p.id; });
+  }
+  function signUnreadNotice(ctx, p) {
+    var u = signUnread(ctx, p);
+    if (!u.length) return '';
+    return '<div class="notice warn" role="status"><span>Couldn\'t read ' + (u.length === 1 ? 'a sign-off file' : u.length + ' sign-off files') + ': ' + u.slice(0, 3).map(function (x) { return '<code>' + esc(x.path) + '</code>'; }).join(', ') + (u.length > 3 ? ' and ' + (u.length - 3) + ' more' : '') +
+      (u.every(function (x) { return x.kept; }) ? '. Showing what ' + (u.length === 1 ? 'it' : 'they') + ' said last time.' : '. It may still be arriving; Folder health names it.') + '</span></div>';
+  }
   /* Clean test runs counted for a version made from a stage (2.1 slice 6), said only when there are some. */
   function testWords(ready) { return ready.tests ? ' (' + ready.tests + (ready.tests === 1 ? ' is a test run' : ' are test runs') + ' from while it was staged)' : ''; }
   /* Is the current version ready to become a skill? One line of status and the one thing to do next. */
@@ -83,8 +96,13 @@
     if (!pub) return '';
     var st = ctx.state, ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
     var h = bare ? '<h3>Ready for a skill?</h3>' : '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
+    var unknown = PF.skills.signUnknown(ctx.data, pub);
+    h += signUnreadNotice(ctx, p);
     if (signs.length) {
       h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + (signs[0].stage ? ' while it was staged' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
+    } else if (unknown) {
+      /* A sign-off that can't be read could be this version's: never "not signed off" (and no Sign off) until it reads. */
+      h += '<p class="small"><b>Can\'t tell yet.</b> ' + esc(unknown) + ', so it isn\'t known whether v' + pub.info.version + ' was signed off. ' + ready.clean + ' of ' + ready.needed + ' clean runs' + testWords(ready) + '. Try again once the folder has synced.</p>';
     } else if (!ready.enough) {
       h += '<p class="small"><b>Not yet.</b> ' + ready.clean + ' of ' + ready.needed + ' clean runs of v' + pub.info.version + testWords(ready) + '.</p>';
     } else if (PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people)) {
@@ -368,7 +386,7 @@
       /* Its test runs (2.1 slice 6): said only once it has some, with its sign-off, and Sign off for its owner once enough are clean. */
       var sg = stageSign(ctx, p, s.folder), tw = '';
       var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
-      if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : '');
+      if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : sg.unknown ? ' · Can\'t tell whether it was signed off: ' + sg.unknown : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
@@ -472,7 +490,7 @@
   }
   function planChoice(ctx, plan) {
     var c = ctx.state.planPick;
-    return c && plan && c.plan === plan.id && c.hash === plan._hash && c.key === ctx.fsKey ? c.folder : null;
+    return c && plan && c.plan === plan.id && c.hash === plan._sha && c.key === ctx.fsKey ? c.folder : null;
   }
   /* ---------- start a run, or plan one ---------- */
   /* The same form starts a run (from scratch or from a plan) or, with state.planning, saves a plan for later. */
@@ -497,8 +515,10 @@
     var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, s, null), signs = PF.skills.signoffs(ctx.data.validations, s);
     var held = !!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); });
     var x = PF.staging.status(s, sp.decisions, p.all);
-    var as = !held && x.status === 'staged' && ready.enough && !signs.length ? PF.skills.signer(s, ctx.data.people, ctx.state.me, !!(ctx.data.failed || {}).people) : '';
-    return { stage: s, ready: ready, signs: signs, as: as, status: x.status };
+    /* A sign-off of it that can't be read could be there already: it's never offered again until that reads. */
+    var unknown = signs.length ? '' : PF.skills.signUnknown(ctx.data, s);
+    var as = !held && !unknown && x.status === 'staged' && ready.enough && !signs.length ? PF.skills.signer(s, ctx.data.people, ctx.state.me, !!(ctx.data.failed || {}).people) : '';
+    return { stage: s, ready: ready, signs: signs, as: as, status: x.status, unknown: unknown };
   }
   function start(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
@@ -517,6 +537,7 @@
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
     if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
+    if (plan && plan._statusUnread && plan._statusUnread.length) h += '<div class="notice bad" role="alert"><span><b>A decision on this plan can\'t be read</b> (' + plan._statusUnread.map(function (x) { return '<code>' + esc(x) + '</code>'; }).join(', ') + '), so it isn\'t known whether someone already started it. Nothing starts from it until that file reads; it may still be arriving.</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
@@ -529,7 +550,7 @@
     }
     else if (pick.chosen) h += '<div class="notice" role="status"><span>Switched to v' + pub.info.version + '. Check the roles and details still make sense.</span></div>';
     var formId = planning ? 'plan-form' : 'start-form', scope = planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '');
-    h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._hash) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';
+    h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._sha) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';
     /* A detail a step produces during the run (sets:) isn't asked for here; the form says which step fills it in. */
     var setBy = M.setBy(pub.map), given = pre.details && typeof pre.details === 'object' ? pre.details : {};
     var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && !(plan && given[f]); });
