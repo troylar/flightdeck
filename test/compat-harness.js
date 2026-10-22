@@ -3,7 +3,7 @@
 // A sandbox can be deterministic (opts.at): the clock starts there and moves one second per reading, and Math.random follows
 // a fixed seed, so a writer run twice writes the same bytes (tools/old-folders.js depends on it).
 'use strict';
-const fs = require('fs'), path = require('path'), vm = require('vm');
+const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
 const bundles = require('../tools/old-bundles');
 const { FILES } = require('./harness');
 const SRC = path.join(__dirname, '..', 'src');
@@ -99,4 +99,26 @@ function newer(t) {
   return { app: '2.0.0', needs: '2.0', run: ['typed-details'], pub: ['typed-details'], stepType: { format: 'flightdeck-step-type/2', features: ['typed-evidence'] } };
 }
 
-module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded, newer };
+/* A /2 publication record otherwise valid for files map and types and its screenshots (images: { 'images/x.png': bytes }, kept
+   with base's fingerprints for them): fingerprints by copy PF's own hash and a payload of the exact bytes. With features a 2.x
+   copy knows, that copy finds it usable (given exact2), so a refusal of the same record with a newer feature can only come
+   from that feature. */
+const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
+function pub2(PF, base, map, types, features, app, images) {
+  const info = Object.assign({}, base, { format: 'preflight-publication/2', features, app, mapHash: PF.util.hash(map), typesHash: PF.util.hash(types) });
+  const shots = {};
+  Object.keys(images || {}).sort().forEach((k) => { shots[k] = sha256(images[k]); });
+  info.payload = { map: sha256(map), types: sha256(types), images: shots, extensions: {}, pins: { children: {}, skills: {} } };
+  return info;
+}
+/* What verify takes as the exact bytes' SHA-256 for map and types (exactOf on 2.x copies). */
+const exact2 = (map, types) => ({ 'map.md': sha256(map), 'types.json': sha256(types) });
+/* A run file in run/3 with the given features, otherwise as a 2.0 copy writes a run of a /1 version (an explicit run/3: its
+   features and its types fingerprint, no payload), so a 2.x copy reads it in full when features holds nothing newer. */
+function run3(text, features, app, typesHash) {
+  const j = JSON.parse(text);
+  j.format = 'preflight-run/3'; j.features = features; j.app = app; j.typesHash = typesHash || j.typesHash || '00000000';
+  return JSON.stringify(j, null, 2);
+}
+
+module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded, newer, pub2, exact2, run3 };

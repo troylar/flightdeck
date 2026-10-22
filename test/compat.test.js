@@ -39,8 +39,9 @@ function eachTag(name, fn, filter) {
 /* A folder's files as text, under a prefix. */
 const under = (m, dir) => { const o = {}; Object.keys(m.files).filter(p => p.indexOf(dir) === 0).sort().forEach(p => { o[p] = m.files[p].t; }); return o; };
 /* A run file from this one, in a run format newer than the release t reads (H.newer: what 2.0 writes on a /2 version, for a
-   1.x copy; a run/3 with a feature only a later release builds, for a 2.0 copy). */
-function asRun3(text, t) { const j = JSON.parse(text), n = H.newer(t); j.format = 'preflight-run/3'; j.features = n.run; j.app = n.app; return JSON.stringify(j, null, 2); }
+   1.x copy; a run/3 with a feature only a later release builds, for a 2.0 copy). Otherwise a valid run/3 (H.run3), so a 2.x
+   copy refuses it for that feature alone; the control rule below reads it in full without it. */
+function asRun3(text, t) { const n = H.newer(t); return H.run3(text, n.run, n.app); }
 /* The words a copy at or after the bridge uses for a file that needs a newer release ("Flightdeck 2.0", or "2.1" for a 2.0 copy). */
 const needsWords = (t) => new RegExp('Flightdeck ' + H.newer(t).needs.replace('.', '\\.'));
 /* Whether a screen or message says a file needs a newer Flightdeck, in the words release t uses. */
@@ -287,17 +288,36 @@ eachTag('a preflight-run/3 file is shown by name only and never written; candida
   same(under(m, dir), before, 'nothing written; what was there is kept as it was');
 });
 
+eachTag('the run/3 the rule above refuses is otherwise valid: without the newer feature it opens in full and saves', async (OLD, t) => {
+  const m = H.memFolder(OLD, fixture(t.tag)), p = 'runs/backup/run-a/run.json';
+  m.files[p] = { t: H.run3(m.files[p].t, [], '2.0.0'), m: 2 };
+  const r = (await OLD.repo.loadAll(m)).runs.find(x => x.id === 'run-a');
+  assert.ok(r && !r._unrunnable && Object.keys(r.steps).length, 'read in full: ' + (r && r._unrunnable));
+  r.recorder = Object.assign({}, r.recorder, { session: 'w-avery' });
+  OLD.run.setDetail(r, OLD.run.mapOf(r), OLD.run.mapOf(r).meta.context[0], 'X-1', 'person-blake', AT);
+  await OLD.repo.saveRun(m, r, 'w-avery');
+  const back = JSON.parse(m.files[p].t);
+  same([back.format, back.features, back.details[OLD.run.mapOf(r).meta.context[0]]], ['preflight-run/3', [], 'X-1'], 'saved as run/3');
+}, (t) => t.major >= 2);
+
 eachTag('a preflight-publication/2 version is unusable: never the latest, and no run starts on it (before 1.11.1: usable, why the floor is 1.11.1)', async (OLD, t) => {
   const files = fixture(t.tag), pubDir = Object.keys(files).find(p => /publication\.json$/.test(p)).replace('publication.json', '');
   const info = JSON.parse(files[pubDir + 'publication.json']);
   const v2 = pubDir.replace(/v1-[a-z0-9]+\/$/, 'v2-zzzz2222/');
   files[v2 + 'map.md'] = files[pubDir + 'map.md']; Object.keys(files).filter(p => p.indexOf(pubDir + 'images/') === 0).forEach(p => { files[v2 + p.slice(pubDir.length)] = files[p]; }); files[v2 + 'types.json'] = files[pubDir + 'types.json'];
-  files[v2 + 'publication.json'] = JSON.stringify(Object.assign({}, info, { format: 'preflight-publication/2', features: H.newer(t).pub, app: H.newer(t).app, version: 2, folder: 'v2-zzzz2222' }), null, 2);
+  const map2 = files[v2 + 'map.md'], types2 = files[v2 + 'types.json'], base2 = Object.assign({}, info, { version: 2, folder: 'v2-zzzz2222' });
+  const shots2 = {}; Object.keys(info.images || {}).forEach((k) => { shots2[k] = files[v2 + k]; });
+  files[v2 + 'publication.json'] = JSON.stringify(H.pub2(OLD, base2, map2, types2, H.newer(t).pub, H.newer(t).app, shots2), null, 2);
   const proc = (await OLD.repo.loadAll(H.memFolder(OLD, files))).processes[0];
   if (below(t.version)) { assert.strictEqual(proc.index.latest.info.version, 2, 'below the floor, a /2 version is run as if it were /1'); return; }
   assert.strictEqual(proc.index.latest.info.version, 1, 'v1 stays the latest');
-  const v = OLD.publish.verify('v2-zzzz2222', { 'publication.json': files[v2 + 'publication.json'], 'map.md': files[v2 + 'map.md'], 'types.json': files[v2 + 'types.json'] });
+  const v = OLD.publish.verify('v2-zzzz2222', { 'publication.json': files[v2 + 'publication.json'], 'map.md': map2, 'types.json': types2 }, H.exact2(map2, types2));
   assert.ok(!v.ok && v.unusable && (bridged(t.version) ? needsWords(t).test(v.why) : v.why === OLD.publish.NEWER), v.why);
+  if (t.major >= 2) {
+    // The control: the same record without the newer feature is usable and the latest there, so the refusal is the feature's.
+    const ok = OLD.publish.verify('v2-zzzz2222', { 'publication.json': JSON.stringify(H.pub2(OLD, base2, map2, types2, [], '2.0.0', shots2)), 'map.md': map2, 'types.json': types2 }, H.exact2(map2, types2));
+    assert.ok(ok.ok, 'without ' + H.newer(t).pub + ': usable (' + ok.why + ')');
+  }
   assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[v2 + 'map.md']), md: files[v2 + 'map.md'], types: JSON.parse(files[v2 + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
 });
 
