@@ -15,6 +15,8 @@ PF.envelope = (function () {
   var PART2 = PART1.concat(['pinned-children', 'pinned-skills']);
   /* Slice 3: typed data. Typed run details (context: amount:number) and typed evidence (number, yes/no, date). */
   var PART3 = PART2.concat(['typed-details', 'typed-evidence']);
+  /* 2.1: conditions ("only when" on a phase or a step). */
+  var PART4 = PART3.concat(['conditions']);
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
 
   /* Every family, with the majors this copy reads and the features it knows in each, its legacy spelling, and whether this
@@ -22,9 +24,9 @@ PF.envelope = (function () {
        legacy.kind: the kind field that marks the family; legacy.field: the field that holds the major (missing = legacyMajor);
        unmarked: a file with no marker at all is major 1 (step types, people.json, skills, types.json entries). */
   var FAMILIES = {
-    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART3 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
-    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART3 }, rewrite: false, future: { 2: '2.0' } },
-    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART3 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
+    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART4 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
+    'preflight-publication': { files: 'publications/<p>/<v>/publication.json', majors: { 1: [], 2: PART4 }, rewrite: false, future: { 2: '2.0' } },
+    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: PART4 }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
     'flightdeck-step-type': { files: 'step-types/*.json', majors: { 1: [], 2: ['typed-evidence'] }, rewrite: true, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [], 3: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0' } },
@@ -48,7 +50,17 @@ PF.envelope = (function () {
     'flightdeck-report-decision': { files: 'report-decisions/<p>/*.json', majors: { 1: [] }, rewrite: false }
   };
   /* The 2.0 must-understand features, frozen by name (the 2.0 plan). No copy before 2.0 knows any of them. */
-  var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions'];
+  var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions'];
+  /* The first release that reads a feature, where it isn't 2.0 (every other frozen feature's). One table, so a feature that
+     moves to another release changes here only. */
+  var SINCE = { conditions: '2.1' };
+  function sinceOf(f) { return own(SINCE, f) ? SINCE[f] : '2.0'; }
+  /* The release that first reads every listed feature ('2.0', '2.1', ...), or '' for none. */
+  function minimum(features) {
+    var best = '';
+    (features || []).forEach(function (f) { if (FROZEN.indexOf(f) < 0) return; var v = sinceOf(f); if (!best || cmp(semver(v + '.0'), semver(best + '.0')) > 0) best = v; });
+    return best;
+  }
 
   /* Any JSON value as text for a message, without calling anything on it (a file can hold {"toString": null}). */
   function txt(v) { if (typeof v === 'string') return v; var t; try { t = JSON.stringify(v); } catch (e) { t = ''; } return typeof t === 'string' ? t : typeof v; }
@@ -63,11 +75,11 @@ PF.envelope = (function () {
   /* The version a file needs, in words: its own app field when that says a version, else the version the contract gives
      the major or the feature, else none. */
   function needsOf(fam, major, features, o) {
-    var a = semver(o && o.app);
-    if (a && a[0] >= 2) return a[0] + '.' + a[1];
+    var a = semver(o && o.app), least = features ? minimum(features) : '';
+    /* The file's own app names the version, unless a feature it uses needs a later one (a file can't need less). */
+    if (a && a[0] >= 2) return least && cmp(semver(least + '.0'), [a[0], a[1], 0]) > 0 ? least : a[0] + '.' + a[1];
     if (fam && fam.future && major != null && own(fam.future, major)) return fam.future[major];
-    if (features && features.some(function (f) { return FROZEN.indexOf(f) >= 0; })) return '2.0';
-    return '';
+    return least;
   }
   function needsText(needs) { return needs ? 'Needs Flightdeck ' + needs + '.' : 'Needs a newer Flightdeck.'; }
   function refuse(kind, why, extra) { var r = { ok: false, kind: kind, why: why }; if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; }); return r; }
@@ -179,6 +191,6 @@ PF.envelope = (function () {
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
   function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
-  return { FAMILIES: FAMILIES, FROZEN: FROZEN, PART1: PART1, PART2: PART2, PART3: PART3, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
+  return { FAMILIES: FAMILIES, FROZEN: FROZEN, SINCE: SINCE, minimum: minimum, PART1: PART1, PART2: PART2, PART3: PART3, PART4: PART4, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
     txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();

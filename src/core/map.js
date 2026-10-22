@@ -85,6 +85,18 @@ PF.map = (function () {
         phase.steps.push(step);
         continue;
       }
+      /* A condition (2.1): "only when ^risk is high" under a phase heading (before its first step or track) or a step. Older
+         copies refuse the line as not understood. */
+      if ((m = /^\s{2,}only when\b\s*(.*)$/i.exec(line))) {
+        var target = step || (phase && !gate && !track ? phase : null);
+        if (!target) { err(i, gate ? 'A gate can\'t have "only when"; put it on the phase or its steps.' : track ? 'A track can\'t have "only when"; put it on its steps or on the phase.' : '"only when" must come right under a phase heading or a step.'); continue; }
+        var cond = PF.conditions.parse(m[1], meta.context, meta.detailTypes);
+        if (cond.why) { err(i, cond.why); continue; }
+        if ((target.when || []).length >= PF.conditions.MAX) { err(i, 'A ' + (target === step ? 'step' : 'phase') + ' can have at most ' + PF.conditions.MAX + ' "only when" lines.'); continue; }
+        cond.test.line = i + 1;
+        (target.when = target.when || []).push(cond.test);
+        continue;
+      }
       /* Notes and screenshots belong to the step or gate above, or to the phase when they come right under its heading, before
          its first step or track (2.0: phase notes, phase and gate screenshots; older copies refuse those lines). */
       var owner2 = step || gate || (phase && !track ? phase : null);
@@ -108,6 +120,13 @@ PF.map = (function () {
       err(i, 'Not understood, so it was skipped: "' + line.trim().slice(0, 60) + '"');
     }
 
+    /* Forward only (2.1): a condition may test a detail a step sets (sets:) only when that step is in an earlier phase, so
+       whether something applies is known before anyone reaches it. */
+    phases.forEach(function (p, pi) {
+      var later = function (name) { return phases.slice(pi).some(function (q) { return q.steps.some(function (s) { return list(s.fields.sets).indexOf(name) >= 0; }); }); };
+      [p].concat(p.steps).forEach(function (t) { (t.when || []).forEach(function (w) { if (later(w.name)) err(w.line - 1, '^' + w.name + ' is set in this phase or a later one (sets:), so it can\'t decide whether this applies. Only a step in an earlier phase can set it.'); }); });
+    });
+    errors.sort(function (a, b) { return a.line - b.line; });
     phases.forEach(function (p) {
       if (!p.gate) p.gate = { id: p.id ? p.id + '-confirm' : '', title: 'Confirm ' + p.title, owner: null, approves: '', binds: [], note: '', shots: [], implicit: true, fields: {} };
     });
@@ -273,7 +292,7 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     (map.phases || []).forEach(function (p) {
@@ -284,6 +303,8 @@ PF.map = (function () {
         if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;
+      /* Conditions (2.1): an "only when" line on the phase or a step. */
+      if (p.when || p.steps.some(function (s) { return !!s.when; })) has.conditions = true;
       if (p.shots && p.shots.length) has['phase-shots'] = true;
       if (p.gate && p.gate.shots && p.gate.shots.length) has['gate-shots'] = true;
     });

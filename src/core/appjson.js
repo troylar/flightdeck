@@ -69,15 +69,17 @@ PF.appjson = (function () {
   var VALUE = { type: 'string', text: 'string', value: { $or: ['string', 'boolean', 'null'] }, valid: 'boolean', migration: opt(MIGRATION) };
   var EVIDENCE2 = extend(EVIDENCE, { type: 'string' });
   var PIN = { process: 'string', version: 'number', folder: 'string', mapHash: 'string', typesHash: 'string' };
+  /* Conditions (2.1): whether a step or a phase (on its gate) applies in the run: true, false (Not needed) or null (held). */
+  var APPLIES = { $or: ['boolean', 'null'] };
   var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE) });
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: SCHEMA.followups, request: SCHEMA.request,
     process: extend(SCHEMA.process, { format: 'string', features: ['string'], details: [{ name: 'string', type: 'string', options: ['string'] }],
-      phases: [extend(SCHEMA.process.phases[0], { steps: [extend(SCHEMA.process.phases[0].steps[0], { evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
+      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
     runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })] },
     run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
-      steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2] })],
-      gates: SCHEMA.run.run.$or[0].gates, followUps: [FOLLOWUP] })) }
+      steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') })],
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP] })) }
   };
   function extend(a, b) { var o = {}; Object.keys(a).forEach(function (k) { o[k] = a[k]; }); Object.keys(b).forEach(function (k) { o[k] = b[k]; }); return o; }
 
@@ -328,7 +330,10 @@ PF.appjson = (function () {
     var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
     out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; return { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [] }; });
     out.phases.forEach(function (ph, pi) {
+      var when = function (o) { return (o.when || []).map(function (w) { return s(w.text); }); };
+      ph.when = when(mp.phases[pi]);
       ph.steps.forEach(function (st, si) {
+        st.when = when(mp.phases[pi].steps[si]);
         var x = mp.phases[pi].steps[si], t = T.get(x.type, types), list = t ? T.recordFields(t, x.fields) : [];
         st.evidence = evidence2(list).map(function (e, i) { var d = list[i]; e.min = d.kind === 'number' && d.min != null ? s(d.min) : null; e.max = d.kind === 'number' && d.max != null ? s(d.max) : null; e.unit = d.kind === 'number' && d.unit != null ? s(d.unit) : null; return e; });
       });
@@ -364,7 +369,10 @@ PF.appjson = (function () {
       var x = M.findStep(mp, st.id), a = r.steps[st.id] || null, vals = {};
       Object.keys((a && a.values) || {}).forEach(function (k) { vals[k] = value(r, mp, 'steps.' + st.id + '.values.' + k, a.values[k], nameOf); });
       st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
+      var ap = x ? R.applies(r, mp, x.phaseIndex, x.step) : { applies: true };
+      st.applies = ap.applies; st.held = ap.applies === null ? s(ap.why) : null;
     });
+    out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
     return { run: out };
   }
 

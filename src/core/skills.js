@@ -327,15 +327,20 @@ PF.skills = (function () {
     var deviations = [], clean = [];
     mine.forEach(function (r) {
       var bad = false;
+      var R = PF.run;
       M.steps(pub.map).forEach(function (x) {
         if (ids && ids.indexOf(x.step.id) < 0) return;
+        /* Conditions (2.1): a step Not needed in this run is neither required nor a deviation (its marks still count); one
+           waiting for a detail (held) means the run wasn't clean. */
+        var ap = R.applies(r, pub.map, x.phaseIndex, x.step);
+        if (ap.applies === null) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: 'held', note: ap.why }); }
         var a = r.steps[x.step.id], marks = r.marks && Object.prototype.hasOwnProperty.call(r.marks, x.step.id) ? r.marks[x.step.id] : [];
         /* Deviations whose answers were archived out of run.json still count: the run keeps a mark for each. */
         var shown = [];
         if (a) [a].concat(a.history || []).forEach(function (h) { if (h.s) shown.push(h.s); if (h.differently) shown.push('differently'); });
         marks.forEach(function (k) { if (shown.indexOf(k) < 0) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: { blocked: 'blocked', recheck: 're-checked', na: 'marked N/A', differently: 'did it differently' }[k] + ' (earlier answer)', note: '' }); } });
         /* Clean means every covered step was actually done: a skipped step is missing evidence, not a clean pass. */
-        if (!a || (a.s !== 'done' && a.s !== 'na')) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: a ? 'left ' + a.s : 'not answered', note: '' }); }
+        if (ap.applies !== false && (!a || (a.s !== 'done' && a.s !== 'na'))) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: a ? 'left ' + a.s : 'not answered', note: '' }); }
         if (!a) return;
         [a].concat(a.history || []).forEach(function (h) {
           var kind = h.s === 'blocked' ? 'blocked' : h.s === 'recheck' ? 're-checked' : h.s === 'na' ? 'marked N/A' : null;
@@ -346,10 +351,15 @@ PF.skills = (function () {
       /* A gate that was waived or failed on the covered work means people didn't approve it the normal way. */
       /* The gates on covered phases, and each covered phase's entry gate (the one before it), as the brief names them. */
       var covers = function (p) { return !ids || p.steps.some(function (s) { return ids.indexOf(s.id) >= 0; }); };
+      /* Only a checklist with conditions reads gates through R.gateStatus here; any other reads its records as before. */
+      var conditional = PF.conditions.any(pub.map);
       pub.map.phases.forEach(function (p, pi) {
         if (!covers(p) && !(pub.map.phases[pi + 1] && covers(pub.map.phases[pi + 1]))) return;
-        var g = r.gates && r.gates[p.gate.id];
-        if (!g || (g.s !== 'passed')) { bad = true; deviations.push({ run: r.title, step: p.gate.id, text: p.gate.title, kind: g ? 'gate ' + g.s : 'gate never passed', note: g && g.reason || '' }); }
+        /* With conditions, the gate's status as the run reads it now, not only its record: a skipped gate (its phase not
+           needed) is fine; a passed record whose phase now holds a step is review, not clean. */
+        var g = r.gates && r.gates[p.gate.id], st = conditional ? R.gateStatus(r, pub.map, pi) : g && g.s;
+        if (st === 'skipped') return;
+        if (!g || g.s !== 'passed' || st !== 'passed') { bad = true; deviations.push({ run: r.title, step: p.gate.id, text: p.gate.title, kind: g ? 'gate ' + (g.s === 'passed' ? st : g.s) : 'gate never passed', note: g && g.reason || '' }); }
       });
       if ((r._conflicts || []).length) { bad = true; deviations.push({ run: r.title, step: '', text: '', kind: 'has other versions not resolved yet', note: 'resolve its conflict copies first' }); }
       /* Only a run that kept its deviation marks from the start can prove it was clean: earlier runs (before 1.9.0), or ones
@@ -387,6 +397,8 @@ PF.skills = (function () {
     if (ev.length) lines.push('  - evidence: ' + ev.map(function (d) { return d.label + ' (' + d.name + ', ' + (d.kind || 'text') + (d.options && d.options.length ? ': one of ' + d.options.join(' / ') : '') + (d.long ? ', long text' : '') + (d.required ? ', required' : '') + ')'; }).join('; '));
     Object.keys(f).forEach(function (k) { lines.push('  - ' + k + ': ' + f[k]); });
     if (s.roles && s.roles.length) lines.push('  - who: ' + s.roles.join(', '));
+    /* Conditions (2.1): the step's own; its phase's are printed with the phase. */
+    if (s.when) lines.push('  - only when: ' + s.when.map(function (w) { return w.text; }).join(' and ') + ' (otherwise it isn\'t needed in the run: skip it; while the detail is waiting for a person, the step is held and can\'t be answered)');
     if (s.binds && s.binds.length) lines.push('  - tied to run details: ' + s.binds.map(function (b) { return '^' + b; }).join(', ') + ' (if one changes, the step must be redone)');
     if (s.note) lines.push('  - note: ' + s.note.replace(/\n/g, ' '));
     (s.shots || []).forEach(function (sh) { lines.push(shotLine('  - ', sh)); });
@@ -422,17 +434,21 @@ PF.skills = (function () {
   /* The process as a skill must follow it: phases in order with their mode, tracks, steps, and the gate that closes each. */
   function structure(map, ids, types) {
     var out = [];
-    var gateLine = function (p, g, lead) { return lead + '**Gate: ' + (g.implicit ? 'confirm "' + p.title + '" together' : g.title) + '**' + (g.owner ? ' (owner: ' + g.owner + ')' : '') + (g.approves ? ', approves ' + g.approves : '') + (g.note ? '. ' + g.note.replace(/\n/g, ' ') : '') + ['at', 'due', 'after'].filter(function (f) { return g.fields && g.fields[f]; }).map(function (f) { return '. ' + { at: 'At ', due: 'Due by ', after: 'Due within this long after the run starts: ' }[f] + g.fields[f]; }).join('') + '. Stop here until a person passes it; never pass it for them.' + (g.shots || []).map(function (sh) { return '\n' + shotLine('- ', sh); }).join(''); };
+    /* A phase that may not be needed in a run (2.1): its own condition, or one on any of its steps. */
+    var conditional = function (p) { return !!p.when || p.steps.some(function (s) { return !!s.when; }); };
+    var stopLine = function (p) { return conditional(p) ? ' If this phase isn\'t needed in the run, its gate shows Not needed and needs no pass; otherwise stop here until a person passes it; never pass it for them.' : ' Stop here until a person passes it; never pass it for them.'; };
+    var gateLine = function (p, g, lead) { return lead + '**Gate: ' + (g.implicit ? 'confirm "' + p.title + '" together' : g.title) + '**' + (g.owner ? ' (owner: ' + g.owner + ')' : '') + (g.approves ? ', approves ' + g.approves : '') + (g.note ? '. ' + g.note.replace(/\n/g, ' ') : '') + ['at', 'due', 'after'].filter(function (f) { return g.fields && g.fields[f]; }).map(function (f) { return '. ' + { at: 'At ', due: 'Due by ', after: 'Due within this long after the run starts: ' }[f] + g.fields[f]; }).join('') + '.' + stopLine(p) + (g.shots || []).map(function (sh) { return '\n' + shotLine('- ', sh); }).join(''); };
     var included = [];
     map.phases.forEach(function (p, pi) {
       var steps = p.steps.filter(function (s) { return !ids || ids.indexOf(s.id) >= 0; });
       if (!steps.length) return;
       var prev = pi > 0 ? map.phases[pi - 1] : null;
       /* Whenever covered work starts after a phase the skill doesn't do, the gate closing that phase is its entry condition. */
-      if (prev && included.indexOf(pi - 1) < 0) out.push(gateLine(prev, prev.gate || {}, 'Before starting: ') + ' Check it has been passed in the run first.', '');
+      if (prev && included.indexOf(pi - 1) < 0) out.push(gateLine(prev, prev.gate || {}, 'Before starting: ') + (prev.when ? ' Its phase "' + prev.title + '" applies only when ' + prev.when.map(function (w) { return w.text; }).join(' and ') + '.' : '') + (conditional(prev) ? ' Check it has been passed, or shows Not needed, in the run first.' : ' Check it has been passed in the run first.'), '');
       included.push(pi);
       out.push('### Phase: ' + p.title + (p.mode ? ' (' + p.mode + ': ' + (p.mode === 'READ-DO' ? 'read each step, then do it, in order' : 'do the work, then confirm each step') + ')' : ''));
       /* The phase's own note and screenshots (2.0): instructions for every step in it. */
+      if (p.when) out.push('Only when ' + p.when.map(function (w) { return w.text; }).join(' and ') + ': otherwise the whole phase isn\'t needed in the run; skip it and its gate.');
       if (p.note) out.push('Note for the phase: ' + p.note.replace(/\n/g, ' '));
       (p.shots || []).forEach(function (sh) { out.push(shotLine('- ', sh)); });
       var track = null;

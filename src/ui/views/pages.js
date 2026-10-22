@@ -62,15 +62,21 @@
     var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
     var reportOf = function (id) { return PF.reports.provenance(r, id, who, rb ? rb.archived : null); };
     reportOf.lines = PF.reports.lines(reps, rb ? rb.cur : null, r, map, who);
+    /* Conditions (2.1): what wasn't needed is listed once, with why, after the phases. */
+    var notNeeded = [];
     var body = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
+      if (gst === 'skipped') { notNeeded.push(p.title + ' (phase): ' + R.applies(r, map, pi).why); return ''; }
       return '<div><h4><span>' + esc(p.title) + '</span><span class="pill ' + gst + '">' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + gst + '</span></h4>' + p.steps.map(function (s) {
+        var ap = R.applies(r, map, pi, s);
+        if (ap.applies === false) { notNeeded.push(s.text + ': ' + ap.why); return ''; }
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open';
         var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return esc(d.label) + ': ' + esc(R.shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }).join(' · ') : '';
         var from = a && a.s === 'done' ? reportOf(s.id) : '';
-        return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + esc(s.text) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + (from ? '<span class="small" style="display:block">' + esc(from[0].toUpperCase() + from.slice(1)) + '</span>' : '') + '</span><span class="small">' + esc(a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
+        return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + esc(s.text) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + (from ? '<span class="small" style="display:block">' + esc(from[0].toUpperCase() + from.slice(1)) + '</span>' : '') + '</span><span class="small">' + esc(ap.applies === null ? ap.why : a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
       }).join('') + '</div>';
     }).join('');
+    if (notNeeded.length) body += '<div class="r-nn"><h4><span>Not needed in this run</span></h4>' + notNeeded.map(function (x) { return '<div class="rrow"><span class="ric open">–</span><span class="small">' + esc(x.replace(/\^/g, '')) + '</span></div>'; }).join('') + '</div>';
     var fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
     var statusOf = function (c) { var g = idx[c.id]; return c.oneOff ? 'One-off' : g ? PF.corrections.label(g) + (g.status === 'declined' && g.decision && g.decision.reason ? ': ' + g.decision.reason : '') : 'Open'; };
     var pz = (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: null, by: r.paused.by, reason: r.paused.reason }] : []);

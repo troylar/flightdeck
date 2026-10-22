@@ -6,6 +6,7 @@ node test/rules.test.js
 node test/envelope.test.js
 node test/pins.test.js
 node test/typed.test.js
+node test/conditions.test.js
 node test/reports.test.js
 node test/insights.test.js
 node test/outline.test.js
@@ -26,6 +27,7 @@ node test/compat-bridge.test.js
 node test/compat-formats.test.js
 node test/compat-pins.test.js
 node test/compat-typed.test.js
+node test/compat-conditions.test.js
 node test/skills-parity.test.js
 node test/build.test.js
 node test/readers.test.js

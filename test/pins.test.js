@@ -718,8 +718,8 @@ rule('A registration with any revision this copy can\'t read (newer, malformed o
   assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
-rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; every later feature stays refused', () => {
-  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence'];
+rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions; every later feature stays refused', () => {
+  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions'];
   ['flightdeck-checklist', 'preflight-publication'].forEach(f => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[2]), want, f));
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want);
   assert.ok(E.judge('flightdeck-plan', { format: 'flightdeck-plan/2' }).ok);

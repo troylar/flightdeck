@@ -266,6 +266,73 @@ PF.run = (function () {
     if (r.log.length > LOG_MAX) r.log.splice(0, r.log.length - LOG_MAX).forEach(function (l) { archive(r, { kind: 'log', at: l.at, by: l.by, what: l.what }); });
   }
 
+  /* ---------- Conditions (2.1): whether a phase or step applies, from the run's own details on every read ---------- */
+  var C = PF.conditions;
+  /* One test's verdict: true, false or null (the detail is waiting for a person, or its stored value isn't valid). */
+  function testOf(r, map, w) {
+    var def = detailValueDef(map, w.name) || { kind: 'text', label: w.name }, v = own(r.details, w.name) ? r.details[w.name] : '';
+    var open = openMigrations(r).some(function (m) { return m.path === 'details.' + w.name; });
+    return C.evaluate(w, typeof v === 'string' ? v : '', def, open);
+  }
+  /* A list of tests combined (three-valued AND), with the first test that decided it. */
+  function verdictOf(r, map, tests) {
+    var vs = tests.map(function (w) { return testOf(r, map, w); }), v = C.combine(vs), at = -1;
+    for (var i = 0; i < vs.length && at < 0; i++) if (vs[i] === v || (v === null && vs[i] !== true)) at = i;
+    return { v: v, test: at >= 0 ? tests[at] : null };
+  }
+  function cap(s) { s = String(s); return s.charAt(0).toUpperCase() + s.slice(1); }
+  /* Why a decided-false test is false ("only when ^risk is high (risk is low)") or why an unresolved one waits. */
+  function whyOf(r, map, v, w) {
+    if (!w) return '';
+    var val = own(r.details, w.name) ? String(r.details[w.name] || '') : '';
+    if (v === false) return 'only when ' + w.text + ' (' + w.name + ' is ' + (val || 'not set') + ')';
+    var waiting = consumption(r, [w.name]);
+    return (waiting || cap(w.name) + ' has a value that isn\'t valid ("' + val.slice(0, 60) + '").') + ' Set it in the run\'s details first.';
+  }
+  /* Whether a phase (no step) or a step applies in this run: { applies: true | false | null, why }. A phase is Not needed
+     when its own conditions are false or every one of its steps is Not needed; a step when its phase's and its own are. */
+  function applies(r, map, pi, step) {
+    var p = map.phases[pi];
+    if (!p) return { applies: true, why: '' };
+    if (step) {
+      if (!p.when && !step.when) return { applies: true, why: '' };
+      var sv = verdictOf(r, map, (p.when || []).concat(step.when || []));
+      return { applies: sv.v, why: sv.v === true ? '' : whyOf(r, map, sv.v, sv.test) };
+    }
+    var pv = p.when ? verdictOf(r, map, p.when) : { v: true, test: null };
+    if (pv.v === false) return { applies: false, why: whyOf(r, map, false, pv.test) };
+    if (p.steps.length && p.steps.every(function (s) { return !!(s.when || p.when) && applies(r, map, pi, s).applies === false; })) return { applies: false, why: 'none of its steps is needed in this run' };
+    return { applies: pv.v, why: pv.v === true ? '' : whyOf(r, map, pv.v, pv.test) };
+  }
+  /* Why a step that applies can't be answered yet (its condition is unresolved), or ''. */
+  function held(r, map, step) {
+    var x = M.findStep(map, step && step.id);
+    if (!x) return '';
+    var a = applies(r, map, x.phaseIndex, x.step);
+    return a.applies === null ? a.why : '';
+  }
+  /* Edit permission only: '' when the step's conditions are resolved and true, else why not. Asked by every write on a step. */
+  function stepNeeded(r, map, id) {
+    var x = M.findStep(map, id);
+    if (!x) return '';
+    var a = applies(r, map, x.phaseIndex, x.step);
+    if (a.applies === false) return 'This step isn\'t needed in this run: ' + a.why + '.';
+    return a.applies === null ? a.why : '';
+  }
+  /* Whether a linked run can be started for a step right now: '' or why not. Asked before the first write and again when the
+     queued write runs. */
+  function canStartChild(r, map, id) {
+    var x = M.findStep(map, id);
+    if (!x) return 'Unknown step.';
+    if (r.state !== 'running') return 'This run has ended.';
+    if (r.paused) return 'The run is paused. Resume it to change steps.';
+    var why = stepNeeded(r, map, id);
+    if (why) return why;
+    return phaseOpen(r, map, x.phaseIndex) ? '' : 'That phase isn\'t open.';
+  }
+  /* Whether a phase's or step's conditions test this run detail. */
+  function condUses(phase, step, field) { return C.names(phase, step).indexOf(field) >= 0; }
+
   /* ---------- Reading state ---------- */
   function answered(r, s) {
     var a = r.steps[s.id];
@@ -275,10 +342,18 @@ PF.run = (function () {
     return a.s === 'done' || (a.s === 'na' && !s.must);
   }
   function phaseInfo(r, map, pi) {
-    var p = map.phases[pi], info = { total: p.steps.length, done: 0, left: 0, mustLeft: 0, blocked: [], recheck: 0 };
+    var p = map.phases[pi], cond = !!p.when || p.steps.some(function (s) { return !!s.when; });
+    var info = { total: cond ? 0 : p.steps.length, done: 0, left: 0, mustLeft: 0, blocked: [], recheck: 0 };
+    /* Conditions (2.1): a Not needed step isn't counted at all; a held one (unresolved) counts as left and must-do left,
+       whatever its answer, so a passed or waived gate on its phase needs review. */
+    if (cond) { info.held = []; info.notNeeded = []; info.skipped = applies(r, map, pi).applies === false; }
     p.steps.forEach(function (s) {
+      var ap = cond ? applies(r, map, pi, s).applies : true;
+      if (ap === false) { info.notNeeded.push(s); return; }
+      if (cond) info.total++;
       var a = r.steps[s.id];
-      if (answered(r, s)) info.done++;
+      if (ap === null) { info.held.push(s); info.left++; info.mustLeft++; }
+      else if (answered(r, s)) info.done++;
       else { info.left++; if (s.must) info.mustLeft++; }
       if (a && a.s === 'blocked') info.blocked.push(s);
       if (a && a.s === 'recheck') info.recheck++;
@@ -296,11 +371,13 @@ PF.run = (function () {
     if (ka.length !== kb.length) return false;
     return ka.every(function (k) { return (a[k] || '') === (b[k] || ''); });
   }
-  function gateOk(st) { return st === 'passed' || st === 'waived'; }
+  function gateOk(st) { return st === 'passed' || st === 'waived' || st === 'skipped'; }
 
-  /* passed | waived | failed | review | ready | open | locked */
+  /* passed | waived | failed | review | ready | open | locked, and skipped (2.1): the phase isn't needed in this run. */
   function gateStatus(r, map, pi) {
+    /* An earlier gate that isn't through locks this phase whether or not it's needed: skipping never opens the way past it. */
     if (pi > 0 && !gateOk(gateStatus(r, map, pi - 1))) return 'locked';
+    if (map.phases[pi] && phaseSkipped(r, map, pi)) return 'skipped';
     var g = map.phases[pi].gate, rec = r.gates[g.id], info = phaseInfo(r, map, pi);
     if (rec && rec.s === 'failed') return 'failed';
     if (rec && rec.s === 'review') return 'review';
@@ -316,18 +393,24 @@ PF.run = (function () {
     if (r.state !== 'running') return false;
     if (pi > 0 && !gateOk(gateStatus(r, map, pi - 1))) return false;
     var st = gateStatus(r, map, pi);
-    return st !== 'passed' && st !== 'waived';
+    return st !== 'passed' && st !== 'waived' && st !== 'skipped';
+  }
+  /* A phase that isn't needed in this run (2.1); never one without conditions. */
+  function phaseSkipped(r, map, pi) {
+    var p = map.phases[pi];
+    if (!p.when && !p.steps.some(function (s) { return !!s.when; })) return false;
+    return applies(r, map, pi).applies === false;
   }
   function blockedSteps(r, map) {
     var out = [];
-    M.steps(map).forEach(function (x) { var a = r.steps[x.step.id]; if (a && a.s === 'blocked') out.push(x); });
+    M.steps(map).forEach(function (x) { var a = r.steps[x.step.id]; if (a && a.s === 'blocked' && applies(r, map, x.phaseIndex, x.step).applies !== false) out.push(x); });
     return out;
   }
   function canPass(r, map, pi) { var st = gateStatus(r, map, pi); return r.state === 'running' && (st === 'ready' || (st === 'review' && phaseInfo(r, map, pi).left === 0 && !phaseInfo(r, map, pi).blocked.length)); }
   function canWaive(r, map, pi) {
     var st = gateStatus(r, map, pi);
     var info = phaseInfo(r, map, pi);
-    return r.state === 'running' && st !== 'locked' && st !== 'passed' && st !== 'waived' && info.mustLeft === 0 && !info.blocked.length;
+    return r.state === 'running' && st !== 'locked' && st !== 'passed' && st !== 'waived' && st !== 'skipped' && info.mustLeft === 0 && !info.blocked.length;
   }
   function allGatesOk(r, map) { for (var i = 0; i < map.phases.length; i++) if (!gateOk(gateStatus(r, map, i))) return false; return true; }
 
@@ -339,7 +422,7 @@ PF.run = (function () {
     if (blocked.length) { var b = blocked[0], a = r.steps[b.step.id]; return { s: 'stopped', text: 'Stopped: ' + b.step.text, sub: 'Blocked (' + a.reason + '). Resolve it before anyone moves on.', step: b.step.id }; }
     for (var pi = 0; pi < map.phases.length; pi++) {
       var st = gateStatus(r, map, pi), g = map.phases[pi].gate, info = phaseInfo(r, map, pi);
-      if (st === 'passed' || st === 'waived') continue;
+      if (gateOk(st)) continue;
       if (st === 'failed') return { s: 'stopped', text: 'Gate failed: ' + g.title, sub: 'Reopen it once the problem is fixed, or end the run.', gate: g.id };
       if (st === 'review') return { s: 'working', text: 'Needs review: ' + g.title, sub: 'Something it approved has changed. Check again, then pass it.', gate: g.id };
       if (st === 'ready') return { s: 'ready', text: 'Ready: ' + g.title, sub: g.implicit ? 'Every step is answered. Confirm ' + (solo(r) ? 'it' : 'together') + ', then move on.' : 'Every step is answered. ' + (g.approves ? 'It approves ' + fill(g.approves, r.details) + '.' : 'Confirm it to move on.'), gate: g.id };
@@ -360,6 +443,8 @@ PF.run = (function () {
   function guardStep(r, map, id) {
     var x = M.findStep(map, id);
     if (!x) throw new Error('Unknown step.');
+    var nw = stepNeeded(r, map, id);
+    if (nw) throw new Error(nw);
     if (!phaseOpen(r, map, x.phaseIndex)) throw new Error('That phase isn\'t open.');
     if (r.paused) throw new Error('The run is paused. Resume it to change steps.');
     return x;
@@ -397,6 +482,7 @@ PF.run = (function () {
     if (jp) throw new Error(jp);
     var cur = r.steps[id];
     if (x.step.type === 'run.process' && !(cur && cur.child)) throw new Error('Start the ' + (fieldsOf(r, x.step).process || 'linked') + ' run for this step; the step is checked when it completes.');
+    if (x.step.type === 'run.process' && cur && cur.child && cur.child.retired && values && values._child) throw new Error(RETIRED);
     if (x.step.type === 'run.process' && cur && cur.child && !(values && values._child === cur.child.id)) {
       throw new Error(childCurrent(r, x.step, cur) ? 'This step is checked when its ' + cur.child.process + ' run completes.' : 'Its ' + cur.child.process + ' run was for different details. Start a new one; this step is checked when it completes.');
     }
@@ -445,6 +531,10 @@ PF.run = (function () {
   function setFields(r, map, id, fields, values, who, now) {
     var x = M.findStep(map, id);
     if (!x) throw new Error('Unknown step.');
+    /* Edit permission (2.1): a step that isn't needed, or whose condition waits for a detail, takes nothing. No phase-open
+       check: Fill in after a gate passes keeps working. */
+    var nw = stepNeeded(r, map, id);
+    if (nw) throw new Error(nw);
     if (r.state !== 'running') throw new Error('This run has ended.');
     notPaused(r);
     var t = PF.types.get(x.step.type, r.types), allowed = PF.types.editable(t), changed = [], checked = r.steps[id] && r.steps[id].s === 'done';
@@ -515,6 +605,8 @@ PF.run = (function () {
   }
   function differently(r, map, id, note, who, now) {
     notPaused(r);
+    var nw = stepNeeded(r, map, id);
+    if (nw) throw new Error(nw);
     var a = r.steps[id];
     if (!a || a.s !== 'done') throw new Error('Mark the step done first.');
     a.differently = { note: String(note || '').slice(0, 500), by: who, at: now };
@@ -523,6 +615,8 @@ PF.run = (function () {
   /* Done differently answers the step: every rule of Done applies first (required evidence, a child run, a pause, must-do),
      so it's never a way around them. What happened is required. A step already done just gains the note. */
   function doneDifferently(r, map, id, happened, who, now, values) {
+    var nw = stepNeeded(r, map, id);
+    if (nw) throw new Error(nw);
     var note = String(happened || '').replace(/\s+/g, ' ').trim();
     if (!note) { var e = new Error('Say what happened.'); e.field = 'corr-happened'; throw e; }
     var a = r.steps[id];
@@ -554,6 +648,7 @@ PF.run = (function () {
     notPaused(r);
     var g = map.phases[pi].gate;
     if (gateStatus(r, map, pi) === 'locked') throw new Error('That gate isn\'t open yet.');
+    if (gateStatus(r, map, pi) === 'skipped') throw new Error('That phase isn\'t needed in this run.');
     r.gates[g.id] = { s: 'failed', reason: String(reason || 'Failed').slice(0, 200), by: who, at: now };
     addLog(r, who, now, 'Failed gate "' + g.title + '": ' + r.gates[g.id].reason);
   }
@@ -570,6 +665,8 @@ PF.run = (function () {
     if (map.meta.context.indexOf(field) < 0) throw new Error('Unknown run detail.');
     var old = String(r.details[field] || '').trim(), v = String(value || '').trim().slice(0, 120), def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
     if (def) { var p = V.parse(def, value == null ? '' : value, { max: 120 }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
+    /* Conditions (2.1) that test this detail: what applies before the change (a held step included), for the log line. */
+    var tested = M.steps(map).filter(function (x) { return condUses(x.phase, x.step, field); }), before = tested.map(function (x) { return applies(r, map, x.phaseIndex, x.step).applies; });
     /* Filling in a value that didn't migrate resolves its record, once; later changes change the value only. */
     var waiting = def && v ? openMigrations(r).filter(function (m) { return m.path === 'details.' + field; })[0] : null;
     if (waiting) waiting.resolved = { by: who, at: now, value: v };
@@ -579,16 +676,32 @@ PF.run = (function () {
     M.steps(map).forEach(function (x) {
       var a = r.steps[x.step.id];
       var viaChild = x.step.type === 'run.process' && a && a.child && Object.prototype.hasOwnProperty.call(childInputs(r, x.step, a.child.inputs), field);
-      if (x.step.id !== except && (x.step.binds.indexOf(field) >= 0 || viaChild) && a && (a.s === 'done' || a.s === 'na')) { if (viaChild) viaChildren.push(x.step.id); answer(r, x.step.id, { s: 'recheck', reason: field + ' changed' + (viaChild ? ': its ' + a.child.process + ' run was for the old value' : ''), by: who, at: now }); n++; }
+      /* A detail a condition tests counts as a binding: an answered step goes back for a re-check (2.1). */
+      var byCond = condUses(x.phase, x.step, field);
+      if (x.step.id !== except && (x.step.binds.indexOf(field) >= 0 || viaChild || byCond) && a && (a.s === 'done' || a.s === 'na')) { if (viaChild) viaChildren.push(x.step.id); answer(r, x.step.id, { s: 'recheck', reason: field + ' changed' + (viaChild ? ': its ' + a.child.process + ' run was for the old value' : x.step.binds.indexOf(field) < 0 && byCond ? ': this step\'s condition uses it' : ''), by: who, at: now }); n++;
+      }
+      /* One rule (2.1): when a detail a step's condition tests changes and the step is answered or waiting for a re-check, its
+         linked child is retired, whether or not it also carries or binds that detail. Retirement is saved on the link: no
+         path settles the step from that child again; a person, or a new child, does. */
+      var ra = r.steps[x.step.id];
+      if (x.step.id !== except && byCond && ra && ra.child && (ra.s === 'recheck' || ra.s === 'done' || ra.s === 'na')) retire(ra.child);
     });
-    /* Gates that approved the old value, or whose phase now has a re-check, stay "needs review" until someone passes them again. */
+    /* Conditions: what applies now, and the steps that weren't needed before and are now (needed or held). */
+    var after = tested.map(function (x) { return applies(r, map, x.phaseIndex, x.step).applies; });
+    var became = tested.filter(function (x, k) { return before[k] === false && after[k] !== false; }).map(function (x) { return x.step.id; });
+    /* Gates that approved the old value, whose phase now has a re-check, or whose phase has work it didn't have when it was
+       passed, stay "needs review" until someone passes them again. */
     map.phases.forEach(function (p) {
       var g = r.gates[p.gate.id];
       if (!g || (g.s !== 'passed' && g.s !== 'waived')) return;
-      var tied = p.gate.binds.indexOf(field) >= 0 || p.steps.some(function (st) { var a = r.steps[st.id]; return a && a.s === 'recheck' && (st.binds.indexOf(field) >= 0 || viaChildren.indexOf(st.id) >= 0); });
+      var tied = p.gate.binds.indexOf(field) >= 0 || p.steps.some(function (st) { var a = r.steps[st.id]; return became.indexOf(st.id) >= 0 || (a && a.s === 'recheck' && (st.binds.indexOf(field) >= 0 || viaChildren.indexOf(st.id) >= 0 || condUses(p, st, field))); });
       if (tied) r.gates[p.gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: field + ' changed', approved: g.approved };
     });
-    addLog(r, who, now, 'Changed ' + field + (old ? ' from ' + old : '') + ' to ' + (v || '(empty)') + (n ? '; ' + n + ' step' + (n === 1 ? '' : 's') + ' need a re-check' : ''));
+    var nowNeeded = 0, notNeeded = 0;
+    tested.forEach(function (x, k) { if (after[k] !== before[k]) { if (after[k] === false) notNeeded++; else if (before[k] === false) nowNeeded++; } });
+    var plural = function (k, what) { return k + ' step' + (k === 1 ? '' : 's') + ' ' + what; };
+    var parts = [n ? plural(n, 'need a re-check') : '', nowNeeded ? plural(nowNeeded, 'now needed') : '', notNeeded ? plural(notNeeded, 'not needed now') : ''].filter(Boolean);
+    addLog(r, who, now, 'Changed ' + field + (old ? ' from ' + old : '') + ' to ' + (v || '(empty)') + (parts.length ? '; ' + parts.join(', ') : ''));
     return n;
   }
   function setRole(r, map, role, person, who, now) {
@@ -683,7 +796,10 @@ PF.run = (function () {
     /* Every deviation either version shows (in its marks, its answers or their earlier answers), taken before the copy's
        answers replace this version's, so a run from before marks existed can't lose a block by being recovered. */
     var seenMarks = [cur, copy].map(function (v) { var m = {}; Object.keys(v.marks || {}).forEach(function (k) { m[k] = (v.marks[k] || []).slice(); }); Object.keys(v.steps || {}).forEach(function (k) { var a = v.steps[k] || {}; [a].concat(a.history || []).forEach(function (h) { var kind = h.s === 'blocked' || h.s === 'recheck' || h.s === 'na' ? h.s : null; [kind, h.differently ? 'differently' : null].forEach(function (x) { if (!x) return; var l = Object.prototype.hasOwnProperty.call(m, k) ? m[k] : (m[k] = []); if (l.indexOf(x) < 0) l.push(x); }); }); }); return m; });
+    /* A retired child link (2.1) stays retired in whichever version is kept: retirement is never undone by a copy. */
+    var retired = [cur, copy].map(function (v) { var o = Object.create(null); Object.keys(v.steps || {}).forEach(function (k) { var c = v.steps[k] && v.steps[k].child; if (c && c.retired) o[k] = c.process + '/' + c.id; }); return o; });
     ['steps', 'gates', 'fields', 'details', 'roles', 'followUps', 'title', 'state', 'ended', 'tz', 'shotsFrozen', 'paused', 'pauses', 'jira', 'parent'].forEach(function (k) { cur[k] = JSON.parse(JSON.stringify(copy[k] == null ? (k === 'ended' || k === 'paused' || k === 'parent' ? null : cur[k]) : copy[k])); });
+    Object.keys(cur.steps || {}).forEach(function (k) { var c = cur.steps[k] && cur.steps[k].child; if (c && retired.some(function (o) { return o[k] === c.process + '/' + c.id; })) retire(c); });
     /* A run/3's migration records come with the copy taken over (they sit before its steps). */
     if (cur.format === FORMAT3 && (copy.migrations || cur.migrations)) { if (Array.isArray(copy.migrations)) cur.migrations = JSON.parse(JSON.stringify(copy.migrations)); else delete cur.migrations; }
     /* A child pinned when it first started (linkChild) is in only the version that started it: the copy's pins win for the
@@ -767,7 +883,11 @@ PF.run = (function () {
       return null;
     }
     map.phases.forEach(function (p, pi) {
+      /* Conditions (2.1): work that isn't needed in this run has no time to keep. */
+      var cond = !!p.when || p.steps.some(function (s) { return !!s.when; });
+      if (cond && applies(r, map, pi).applies === false) return;
       p.steps.forEach(function (st) {
+        if (cond && applies(r, map, pi, st).applies === false) return;
         var w = when(fieldsOf(r, st)); if (!w || isNaN(w.ms)) return;
         var a = r.steps[st.id], doneAt = a && (a.s === 'done' || a.s === 'na') ? new Date(a.at).getTime() : null;
         items.push({ what: 'step', id: st.id, title: st.text, phase: p.title, kind: w.kind, ms: w.ms, doneAt: doneAt, status: status(w, doneAt) });
@@ -793,12 +913,15 @@ PF.run = (function () {
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
     if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
+    var nw = stepNeeded(r, map, stepId);
+    if (nw) throw new Error(nw);
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
     var o = opts || {}, pinNow = childPin(r, stepId);
     /* A link whose run is here and fails the pin doesn't hold the step: a new run on the pin replaces it. One not visible yet
        (still syncing) still holds it. */
     var had = pinNow && a.child && typeof o.findRun === 'function' ? o.findRun(a.child.process + '/' + a.child.id) : null, offPin = !!had && !!PF.pins.childMatch(pinNow, had, o.procOf);
     if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin) throw new Error('This step already started a run.');
+    if (a.child && a.child.retired && a.child.process === child.process && a.child.id === child.id) throw new Error(RETIRED);
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
@@ -810,7 +933,7 @@ PF.run = (function () {
       var pm = PF.pins.childMatch(use, o.run, o.procOf); if (pm) throw new Error(pm);
     }
     if (a.child) {
-      addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.failed ? 'it didn\'t complete' : 'its details changed'));
+      addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.retired ? 'its link was retired when a detail its condition tests changed' : a.child.failed ? 'it didn\'t complete' : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
       if (a.s !== 'open') { answer(r, stepId, { s: 'open' }); a = r.steps[stepId]; }
     }
@@ -842,6 +965,16 @@ PF.run = (function () {
     if (!want.length) want = (childContext || []).filter(function (k) { return Object.prototype.hasOwnProperty.call(r.details, k); });
     want.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
     return out;
+  }
+  /* A retired link (2.1): saved as failed (so every path that skips a failed link skips it) and retired (so it says why). */
+  function retire(link) { link.failed = true; link.retired = true; }
+  var RETIRED = 'This step\'s linked run was retired when a detail its condition tests changed. Start or link a new run, or answer it yourself.';
+  /* The run details a step's conditions and its phase's test (2.1). */
+  function condFields(r, step) {
+    if (!step || !r) return [];
+    var map; try { map = mapOf(r); } catch (e) { return []; }
+    var x = map && M.findStep(map, step.id);
+    return x ? C.names(x.phase, x.step) : [];
   }
   function childInputs(r, step, snapshot) {
     var f = fieldsOf(r, step), want = snapshot ? Object.keys(snapshot) : String(f.carry || '').split(/[,\s]+/).filter(Boolean), out = {};
@@ -894,6 +1027,9 @@ PF.run = (function () {
   function settleChild(r, map, id, child, who, now, procOf) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || !a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id) throw new Error('That isn\'t the run linked to this step.');
+    if (a.child.retired) throw new Error(RETIRED);
+    var nw = stepNeeded(r, map, id);
+    if (nw) throw new Error(nw);
     var held = childHeld(r, id, child, procOf); if (held) throw new Error(held);
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
     var v = childVerdict(r, x.step, a, child, procOf);
@@ -990,7 +1126,7 @@ PF.run = (function () {
     var mine = Object.keys(r.roles).filter(function (k) { return r.roles[k] === personId; });
     var rec = r.recorder.person === personId, out = null;
     M.steps(map).some(function (x) {
-      if (!phaseOpen(r, map, x.phaseIndex) || answered(r, x.step)) return false;
+      if (!phaseOpen(r, map, x.phaseIndex) || answered(r, x.step) || applies(r, map, x.phaseIndex, x.step).applies !== true) return false;
       var assigned = x.step.roles.some(function (ro) { return mine.indexOf(ro) >= 0; });
       if (assigned || (rec && !x.step.roles.length)) { out = x; return true; }
       return false;
@@ -1011,7 +1147,7 @@ PF.run = (function () {
     }
     if (hl.phase == null) return { kind: 'complete', hl: hl };
     var p = map.phases[hl.phase], mine = Object.keys(r.roles).filter(function (k) { return r.roles[k] === personId; }), rec = !!personId && r.recorder.person === personId;
-    var waiting = p.steps.filter(function (s) { var a = r.steps[s.id]; return !answered(r, s) && !(a && a.s === 'blocked'); });
+    var waiting = p.steps.filter(function (s) { var a = r.steps[s.id]; return !answered(r, s) && !(a && a.s === 'blocked') && applies(r, map, hl.phase, s).applies === true; });
     var forMe = waiting.filter(function (s) { return s.roles.some(function (ro) { return mine.indexOf(ro) >= 0; }) || (rec && !s.roles.length); })[0];
     /* The recorder reads the list in order; anyone else is pointed at their own work first. */
     var step = (rec ? waiting[0] : forMe || waiting[0]) || null;
@@ -1027,7 +1163,7 @@ PF.run = (function () {
   function nextInPhase(r, map, id) {
     var x = M.findStep(map, id); if (!x) return null;
     var steps = map.phases[x.phaseIndex].steps, i = steps.map(function (s) { return s.id; }).indexOf(id);
-    var open = function (s) { var a = r.steps[s.id]; return !answered(r, s) && !(a && a.s === 'blocked'); };
+    var open = function (s) { var a = r.steps[s.id]; return !answered(r, s) && !(a && a.s === 'blocked') && applies(r, map, x.phaseIndex, s).applies === true; };
     return steps.slice(i + 1).filter(open)[0] || steps.slice(0, i).filter(open)[0] || null;
   }
   function totals(r, map) { var d = 0, n = 0; map.phases.forEach(function (p, pi) { var i = phaseInfo(r, map, pi); d += i.done; n += i.total; }); return { done: d, total: n }; }
@@ -1046,11 +1182,16 @@ PF.run = (function () {
     var roles = map.meta.roles.filter(function (ro) { return r.roles[ro]; }).map(function (ro) { return ro + ': ' + nameOf(r.roles[ro]); }).join(' · ');
     if (roles) lines.push('Roles: ' + roles);
     lines.push('Started ' + U.when(r.created) + ' · captured ' + U.when(now) + ' · run ' + r.id, '');
+    /* Conditions (2.1): what wasn't needed, with why, in one short block after the phases. */
+    var notNeeded = [];
     map.phases.forEach(function (p, pi) {
       var g = p.gate, gr = r.gates[g.id], st = gateStatus(r, map, pi);
+      if (st === 'skipped') { lines.push(p.title + ' (not needed)', ''); notNeeded.push(p.title + ' (phase): ' + applies(r, map, pi).why); return; }
       lines.push(p.title);
       p.steps.forEach(function (s) {
-        var a = r.steps[s.id], word = !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
+        var ap = applies(r, map, pi, s);
+        if (ap.applies === false) { notNeeded.push(s.text + ': ' + ap.why); return; }
+        var a = r.steps[s.id], word = ap.applies === null ? 'WAITING - ' + ap.why : !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
         var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
         lines.push('  [' + word + '] ' + s.text + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
         if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
@@ -1058,6 +1199,7 @@ PF.run = (function () {
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');
     });
+    if (notNeeded.length) { lines.push('Not needed in this run'); notNeeded.forEach(function (x) { lines.push('  - ' + x); }); lines.push(''); }
     if ((r.pauses || []).length) { lines.push('Pauses'); r.pauses.forEach(function (p) { lines.push('  ' + U.hm(p.from) + '-' + U.hm(p.to) + ' ' + nameOf(p.by) + ': ' + p.reason); }); lines.push(''); }
     var reps = reportOf && reportOf.lines ? reportOf.lines : [];
     if (reps.length) { lines.push('Reports · ' + reps.length); reps.forEach(function (x) { lines.push('  - ' + x); }); lines.push(''); }
@@ -1115,7 +1257,7 @@ PF.run = (function () {
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
   KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations';
-  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired'; KNOWN.parent3 = KNOWN.parent + ' folder';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -1453,7 +1595,7 @@ PF.run = (function () {
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
       if (a.values) c.values = values(a.values);
-      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; }
+      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
       if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
       r.steps[k] = c;
@@ -1496,7 +1638,7 @@ PF.run = (function () {
   return {
     RUN_ID: RUN_ID,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
-    phaseOpen: phaseOpen, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
+    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,

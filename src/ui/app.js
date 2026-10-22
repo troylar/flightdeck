@@ -1656,6 +1656,9 @@
     if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childHeld(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return;
     /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */
     if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return; }
+    /* Conditions (2.1): the step must be needed and its phase open, now and again when the queued write runs. */
+    var cw = R.canStartChild(parent, map, stepId);
+    if (cw) { say(cw, 'warn'); render(); return; }
     var cp = R.childProblem(parent, x.step, pub.map.meta.context);
     if (cp) { say(cp, 'warn'); render(); return; }
     var details = R.childDetails(parent, x.step, pub.map.meta.context), roles = {};
@@ -1675,7 +1678,11 @@
     var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart();
     state.startingChild[rkey] = true;
     var done = function () { endBusy(); delete state.startingChild[rkey]; };
-    queued(function () { child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
+    queued(function () {
+      var cur = findRun(key), why = cur ? R.canStartChild(cur, R.mapOf(cur), stepId) : 'The run isn\'t in the folder anymore.';
+      if (why) throw new Error(why);
+      child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null });
+    }).then(function () {
       if (sg !== gen) { done(); return; }
       return mutateRun(key, sg, function (r, m, me, now) { R.linkChild(r, m, stepId, link, me, now, lopts); }).then(function (ok) {
         done();

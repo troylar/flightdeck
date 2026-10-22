@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.1.0",
+    "date": "2026-10-21",
+    "headline": "Steps and phases that only some runs need",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Only when: steps and phases that only some runs need",
+        "now": "Put \"only when ^risk is high\" under a step, or right under a phase heading, and it applies only to runs whose details match. Everything else shows as Not needed with the reason, folded away, and a phase that isn't needed is skipped with its gate. A checklist without \"only when\" works as before.",
+        "before": "Every step and phase applied to every run.",
+        "where": "Checklist format, Only when; the run screen and the receipt"
+      },
+      {
+        "kind": "improved",
+        "area": "Updating",
+        "title": "A checklist with only when needs Flightdeck 2.1",
+        "now": "A version that uses only when needs Flightdeck 2.1 on every computer that runs it. The publish panel says so before you publish, and 2.0 names the version and says it needs 2.1.",
+        "where": "Updating Flightdeck, Using conditions"
+      }
+    ]
+  },
+  {
     "version": "2.0.0",
     "date": "2026-10-21",
     "headline": "Typed values, exact versions and reports from tools, in a lighter Flightdeck. Move every computer to 1.21 or later first",

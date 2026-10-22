@@ -290,6 +290,113 @@ def detail_types(entries):
     return names, typed, errors
 
 
+# Conditions (2.1, PF.conditions in the app): "only when ^detail is value" on a phase or a step. Same tests, same words.
+COND_MAX = 4
+COND_WORDS = {"set": "is set", "notset": "is not set", "is": "is", "isnot": "is not", "oneof": "is one of", "atleast": "is at least", "atmost": "is at most"}
+COND_ALLOWED = {"is": {"number", "yes-no", "date", "choice"}, "isnot": {"number", "yes-no", "date", "choice"}, "oneof": {"choice"}, "atleast": {"number", "date"}, "atmost": {"number", "date"}}
+KIND_LABELS = {"text": "text", "number": "number", "yes-no": "yes/no", "choice": "choice", "date": "date", "url": "link"}
+
+
+def _to_number(t):
+    m = re.fullmatch(r"([+-]?)([0-9]+)(?:\.([0-9]+))?", t)
+    if not m:
+        return None
+    whole, frac = re.sub(r"^0+(?=[0-9])", "", m.group(2)), (m.group(3) or "").rstrip("0")
+    out = whole + ("." + frac if frac else "")
+    return "0" if out == "0" else ("-" if m.group(1) == "-" else "") + out
+
+
+def _is_date(s):
+    m = re.fullmatch(r"([0-9]{4})-([0-9]{2})-([0-9]{2})", s)
+    if not m:
+        return False
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+    days = [31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    return y >= 1 and 1 <= mo <= 12 and 1 <= d <= days[mo - 1]
+
+
+def _value(kind, options, raw):
+    """PF.values.parse for a run detail: its canonical text, "" when empty, or None when it isn't one."""
+    t = raw.strip(VALUE_WS)
+    if not t:
+        return ""
+    if kind == "number":
+        n = None if any(c in VALUE_WS for c in t) else _to_number(t)
+        return n if n is not None and js_len(n) <= 30 else None
+    if kind == "yes-no":
+        return t.lower() if t.lower() in ("yes", "no") else None
+    if kind == "date":
+        return t if _is_date(t) else None
+    if kind == "choice":
+        hits = [o for o in options if o.lower() == t.lower()]
+        return hits[0] if len(hits) == 1 else None
+    return t
+
+
+# JavaScript's \s and . (Python's differ: \s takes \x1c-\x1f and \x85 but not \ufeff; . takes \r, \u2028 and \u2029).
+JS_S = "[" + re.escape(JS_WS) + "]"
+JS_DOT = "[^\n\r\u2028\u2029]"
+
+
+def _after(word, rest):
+    """The text after a leading word and JavaScript white space (as /^word\\s+(.+)$/i reads it), or None."""
+    m = re.match("^" + word + JS_S + "+(" + JS_DOT + "+)$", rest, re.I | re.A)
+    return m.group(1) if m else None
+
+
+def parse_condition(text, context, typed):
+    """(test, why) for one "only when" line's text, as PF.conditions.parse reads it."""
+    t = js_trim(text)
+    m = re.match("^\\^((?:%s|-){1,60})%s+is%s+(%s+)$" % (W, JS_S, JS_S, JS_DOT), t)
+    if not m:
+        return None, "Write a condition as \"only when ^detail is value\" (or is set, is not set, is one of a|b, is at least, is at most)."
+    name, rest = m.group(1), js_trim(m.group(2))
+    if name not in context:
+        return None, "Only when uses ^%s, which isn't listed in context." % name
+    low, raw = rest.lower(), []
+    if low == "set":
+        op = "set"
+    elif low == "not set":
+        op = "notset"
+    elif _after("one of", rest) is not None:
+        op, raw = "oneof", [js_trim(x) for x in _after("one of", rest).split("|")]
+    elif _after("at least", rest) is not None:
+        op, raw = "atleast", [js_trim(_after("at least", rest))]
+    elif _after("at most", rest) is not None:
+        op, raw = "atmost", [js_trim(_after("at most", rest))]
+    elif _after("not", rest) is not None:
+        op, raw = "isnot", [js_trim(_after("not", rest))]
+    else:
+        op, raw = "is", [rest]
+    d = typed.get(name) or {"kind": "text"}
+    kind = "url" if d["kind"] == "link" else d["kind"]
+    options = d.get("options") or []
+    if op in COND_ALLOWED and kind not in COND_ALLOWED[op]:
+        if kind == "choice":
+            tests = "is, is not, is one of, is set or is not set"
+        elif kind in COND_ALLOWED["atleast"]:
+            tests = "is, is not, is at least, is at most, is set or is not set"
+        elif kind in COND_ALLOWED["is"]:
+            tests = "is, is not, is set or is not set"
+        else:
+            tests = "is set or is not set"
+        return None, "^%s is %s, so it can only be tested with %s." % (name, "text" if kind == "text" else "a " + KIND_LABELS[kind], tests)
+    if op == "oneof" and not 2 <= len(raw) <= 20:
+        return None, "Is one of needs 2 to 20 values, separated by |."
+    values = []
+    for r in raw:
+        if not r:
+            return None, "A value after \"%s\" is empty." % COND_WORDS[op]
+        v = _value(kind, options, r)
+        if not v:
+            return None, "\"%s\" isn't %s." % (r[:40], "one of ^%s's choices (%s)" % (name, ", ".join(options)) if kind == "choice" else "a " + KIND_LABELS[kind])
+        if v in values:
+            return None, "\"%s\" is listed twice." % v
+        values.append(v)
+    return {"name": name, "op": op, "values": values}, ""
+
+
 def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
@@ -365,8 +472,24 @@ def parse_map(md):
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
                 rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": []}
+                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": [], "phase": len(phases) - 1}
                 steps.append(step)
+            i += 1
+            continue
+        m = re.match("^" + JS_S + "{2,}only when\\b" + JS_S + "*(" + JS_DOT + "*)$", line, re.I | re.A)
+        if m:
+            target = step or (phase if phase is not None and not gate and not track else None)
+            if not target:
+                err(i, "A gate can't have \"only when\"; put it on the phase or its steps." if gate else "A track can't have \"only when\"; put it on its steps or on the phase." if track else "\"only when\" must come right under a phase heading or a step.")
+            else:
+                test, why = parse_condition(m.group(1), names, typed)
+                if why:
+                    err(i, why)
+                elif len(target.get("when", [])) >= COND_MAX:
+                    err(i, "A %s can have at most %d \"only when\" lines." % ("step" if target is step else "phase", COND_MAX))
+                else:
+                    test["line"] = i + 1
+                    target.setdefault("when", []).append(test)
             i += 1
             continue
         # Notes and screenshots belong to the step or gate above, or to the phase right under its heading (2.0).
@@ -403,6 +526,14 @@ def parse_map(md):
                 continue
         err(i, "Not understood, so it was skipped: \"%s\"" % line.strip()[:60])
         i += 1
+    # Forward only: a condition may test a detail a step sets only when that step is in an earlier phase.
+    for pi, p in enumerate(phases):
+        later = {f for s in steps if s["phase"] >= pi for f in js_list(s["fields"].get("sets", ""))}
+        for t in [p] + [s for s in steps if s["phase"] == pi]:
+            for w in t.get("when", []):
+                if w["name"] in later:
+                    err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
+    errors.sort(key=lambda e: e["line"])
     return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed}
 
 
@@ -468,6 +599,10 @@ def features(parsed, types):
             has.add("phase-shots")
         if p["gate"] and p["gate"]["shots"]:
             has.add("gate-shots")
+        if p.get("when"):
+            has.add("conditions")
+    if any(s.get("when") for s in parsed["steps"]):
+        has.add("conditions")
     for t in {s["type"] for s in parsed["steps"] if s["type"]}:
         d = types.get(t) if isinstance(types, dict) else None
         v = d.get("version") if isinstance(d, dict) else None
@@ -616,7 +751,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
@@ -627,7 +762,15 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-plan-status", "flightdeck-validation", "flightdeck-followup-decision", "flightdeck-correction-decision", "flightdeck-fix-decision", "flightdeck-proposal",
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
-FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions"]
+FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions"]
+# The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
+SINCE = {"conditions": "2.1"}
+
+
+def _minimum(features):
+    """PF.envelope.minimum: the release that first reads every listed feature, or ""."""
+    vs = [SINCE.get(f, "2.0") for f in (features or []) if f in FROZEN]
+    return max(vs, key=lambda v: [int(x) for x in v.split(".")]) if vs else ""
 
 
 def _semver(v):
@@ -637,13 +780,12 @@ def _semver(v):
 
 def _needs(fam, major, features, o):
     a = _semver(o.get("app") if isinstance(o, dict) else None)
+    least = _minimum(features)
     if a and a[0] >= 2:
-        return "%d.%d" % (a[0], a[1])
+        return least if least and [int(x) for x in least.split(".")] > [a[0], a[1]] else "%d.%d" % (a[0], a[1])
     if fam and major is not None and major in fam["future"]:
         return fam["future"][major]
-    if any(f in FROZEN for f in (features or [])):
-        return "2.0"
-    return ""
+    return least
 
 
 def judge(family, o):

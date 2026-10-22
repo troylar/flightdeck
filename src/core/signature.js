@@ -12,10 +12,14 @@ PF.signature = (function () {
   /* pins: the version's resolved pins (payload.pins): a linked step follows the exact child it pins, a skill step the skill
      version it pins. A {run.process} step without carry: passes on every run detail its child shares, so it depends on the
      run details too (implicit carry); with carry: only on what it names, which its fields already say. */
+  function texts(list) { return (list || []).map(function (w) { return w.text; }); }
+  function conditional(q) { return !!q && (!!q.when || q.steps.some(function (s) { return !!s.when; })); }
+  function whenOf(q) { return conditional(q) ? [texts(q.when), q.steps.map(function (s) { return [s.id, texts(s.when)]; })] : null; }
   function pinOf(pins, kind, id) { var p = pins && pins[kind] && own(pins[kind], id) ? pins[kind][id] : null; return p ? PF.publish.canonical(p) : null; }
   function steps(map, types, images, pins) {
     var o = Object.create(null), context = (map.meta && map.meta.context || []).slice();
     map.phases.forEach(function (p, pi) {
+      var prev = pi > 0 ? map.phases[pi - 1] : null;
       var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
       var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
       p.steps.forEach(function (s) {
@@ -24,6 +28,9 @@ PF.signature = (function () {
         var pin = s.type === 'run.process' ? pinOf(pins, 'children', s.id) : s.type === 'run.skill' ? pinOf(pins, 'skills', s.id) : null;
         if (pin) parts.push(['pin', pin]);
         if (s.type === 'run.process' && !String((s.fields || {}).carry || '').trim()) parts.push(['carry', context]);
+        /* Conditions (2.1): whether the step applies, and whether the gate before its phase and the one closing it need a pass
+           (a phase whose condition fails, or whose steps all aren't needed, is skipped with its gate). */
+        if (conditional(p) || conditional(prev)) parts.push(['when', whenOf(prev), whenOf(p)]);
         o[s.id] = { step: s, phase: p, sig: JSON.stringify(parts) };
       });
     });

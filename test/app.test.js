@@ -7437,4 +7437,75 @@ rule('Builder: Done with typing in two boxes applies neither over the other and 
   assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
 });
 
+/* A release version whose child-run step applies only when ^environment is set, and a run of it Casey records. */
+async function conditionalRelease(cond) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const d = await app.PF.repo.loadAll(app.fs), rel = d.processes.find(p => p.process === 'release');
+  const md = rel.index.latest.md.replace('{#notes}\n', '{#notes}\n  only when ' + (cond || '^environment is set') + '\n');
+  assert.notStrictEqual(md, rel.index.latest.md, 'set-up: a condition');
+  const res = await app.PF.repo.publish(app.fs, md, { people: d.people, customTypes: d.stepTypes.types, workflows: {}, by: 'person-avery', changes: 'Conditions', existing: rel.index.all.map(p => p.info), now: new Date().toISOString(), app: '2.1.0' });
+  assert.ok(res && !res.blockers, JSON.stringify(res && res.blockers));
+  app.click('refresh'); await app.tick(80);
+  const before = releaseRuns(app);
+  app.click('start', 'release'); await app.tick();
+  app.set('run-title', 'Conditional release'); app.set('detail-ticket', 'T-1'); app.set('detail-commit', 'f00d123'); app.set('detail-environment', 'production');
+  app.submitForm('start-form'); await app.tick(120);
+  const made = releaseRuns(app).filter(p => before.indexOf(p) < 0);
+  assert.strictEqual(made.length, 1, 'set-up: started');
+  const r = JSON.parse(app.fs.files[made[0]].t);
+  assert.ok(r.features.indexOf('conditions') >= 0 && r.details.environment === 'production', 'set-up: a run of the conditional version');
+  app._runPath = made[0];
+  app.click('open-run', 'release/' + r.id); await app.tick();
+  assert.ok(/data-act="start-step"/.test(app.html()), 'set-up: recording here');
+  return app;
+}
+
+rule('Conditions (2.1): a child run is never started for a step that isn\'t needed, even when its detail changes while the start waits to be written', async () => {
+  const app = await conditionalRelease();
+  const children = () => app.files('runs/check-in/').filter(p => /run\.json$/.test(p)).length, before = children();
+  const orig = app.PF.repo.saveRun, g = gate(); let held = false;
+  app.PF.repo.saveRun = function (fs, run) { const args = arguments; if (!held && run.process === 'release') { held = true; return g.p.then(() => orig.apply(this, args)); } return orig.apply(this, args); };
+  // A write already waiting (a follow-up), then Start, then the detail cleared: the start's own write comes after the change.
+  app.set('fu-text', 'Check the dashboards'); app.click('add-followup'); await app.tick(5);
+  assert.ok(held, 'set-up: the first write waits');
+  app.click('start-child', 'notes'); await app.tick(5);
+  app.click('edit', 'detail:environment'); app.set('edit-input', ''); app.click('save-edit'); await app.tick(5);
+  g.open(); await app.tick(160);
+  app.PF.repo.saveRun = orig;
+  const j = app.run().json;
+  assert.strictEqual(j.details.environment, '', 'set-up: the detail was cleared');
+  assert.strictEqual(children(), before, 'no child run written');
+  assert.ok(!(j.steps.notes && j.steps.notes.child), 'and nothing linked');
+  assert.ok(/isn(&#39;|')t needed in this run/.test(app.html() + (app.live ? app.live() : '')), 'says why');
+  app.click('start-child', 'notes'); await app.tick(80);
+  assert.strictEqual(children(), before, 'refused straight away once the detail is empty');
+  app.click('edit', 'detail:environment'); app.set('edit-input', 'production'); app.click('save-edit'); await app.tick(40);
+  app.click('start-child', 'notes'); await app.tick(120);
+  assert.strictEqual(children(), before + 1, 'needed again, it starts');
+});
+
+rule('Conditions (2.1): a child-run step whose condition tests a carried detail changed A to B to A stays in re-check after Refresh, and a new child replaces the retired link', async () => {
+  const app = await conditionalRelease('^commit is set');
+  app.click('start-child', 'notes'); await app.tick(120);
+  let j = app.run().json, link = j.steps.notes.child;
+  assert.ok(link && link.inputs.commit === 'f00d123', 'set-up: a child for commit f00d123');
+  const cpath = 'runs/check-in/' + link.id + '/run.json', child = JSON.parse(app.fs.files[cpath].t);
+  child.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; child.state = 'completed'; child.rev = (child.rev || 0) + 1;
+  await app.fs.write(cpath, JSON.stringify(child));
+  app.click('refresh'); await app.tick(120);
+  assert.strictEqual(app.run().json.steps.notes.s, 'done', 'set-up: the child checked the step');
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'beef456'); app.click('save-edit'); await app.tick(60);
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'f00d123'); app.click('save-edit'); await app.tick(60);
+  app.click('refresh'); await app.tick(160);
+  j = app.run().json;
+  assert.strictEqual(j.steps.notes.s, 'recheck', 'never checked again by the original child');
+  assert.ok(j.steps.notes.child.retired && j.steps.notes.child.failed && j.steps.notes.child.id === link.id, 'its link is retired, in the file');
+  app.click('start-child', 'notes'); await app.tick(160);
+  j = app.run().json;
+  assert.ok(j.steps.notes.child.id !== link.id && !j.steps.notes.child.retired, 'a new child replaces it');
+  const said = j.log.filter(l => /Replaced/.test(l.what)).pop();
+  assert.ok(said && /retired/.test(said.what) && !/didn't complete/.test(said.what), said && said.what);
+});
+
 run();
