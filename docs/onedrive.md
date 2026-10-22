@@ -1,6 +1,18 @@
 # Flightdeck and OneDrive
 
+> **For:** whoever sets up a team folder, and anyone curious how a shared folder can be a safe backend.
+>
+> **You'll get:** the setup, the rules that keep runs safe while OneDrive syncs, what refreshing costs, and the limits nobody can engineer away.
+
 Flightdeck reads and writes files in the team folder on your computer. OneDrive carries them between computers, usually within seconds, sometimes a minute or more. Flightdeck can't make that faster, so it's honest about it.
+
+In short:
+
+- **Every file has one writer**, so OneDrive never has to merge two saves.
+- **Every save checks first and leaves a receipt**, so a save that loses a race is kept as a copy, never silently dropped.
+- **A gate is a record, not a lock.** It means "passed for this commit, by this person, at this time."
+
+**On this page:** [Set up](onedrive.md#set-up) · [What keeps runs safe](onedrive.md#what-keeps-runs-safe) · [What refreshing costs](onedrive.md#what-refreshing-costs) · [What it can't promise](onedrive.md#what-it-cant-promise) · [Older copies](onedrive.md#older-copies) · [Who writes the other files](onedrive.md#who-writes-the-other-files) · [Release gate: the two-computer rehearsal](onedrive.md#release-gate-the-two-computer-rehearsal)
 
 ## Set up
 
