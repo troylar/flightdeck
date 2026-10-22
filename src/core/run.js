@@ -81,7 +81,17 @@ PF.run = (function () {
     if (typeof st.folder !== 'string' || !PF.publish.STAGE.test(st.folder) || st.folder !== o.folder) return 'its stage isn\'t its own stage folder';
     if (f.indexOf('staged') < 0 || f.indexOf('test-run') < 0) return 'it doesn\'t list staged and test-run';
     if (o.payload == null) return 'it has no payload';
+    if (typeof o.version !== 'number' || o.version < 1 || Math.floor(o.version) !== o.version) return 'its version isn\'t the number its stage proposes';
+    var ks = Object.keys(o);
+    if (ks[ks.length - 2] !== 'test' || ks[ks.length - 1] !== 'stage') return 'its "test" and "stage" aren\'t its last fields';
     return '';
+  }
+  /* A copy of a run with its test and stage fields moved last, the frozen order (anything added after them moves before). */
+  function testLast(o) {
+    if (!o || typeof o !== 'object' || !own(o, 'test')) return o;
+    var c = {}; Object.keys(o).forEach(function (k) { if (k !== 'test' && k !== 'stage') c[k] = o[k]; });
+    c.test = o.test; if (own(o, 'stage')) c.stage = o.stage;
+    return c;
   }
 
 
@@ -349,6 +359,7 @@ PF.run = (function () {
   function canStartChild(r, map, id) {
     var x = M.findStep(map, id);
     if (!x) return 'Unknown step.';
+    if (isTest(r)) return 'A test run doesn\'t start linked runs: they would be real runs, counted with the others. Mark this step done differently or not needed for the test.';
     if (r.state !== 'running') return 'This run has ended.';
     if (r.paused) return 'The run is paused. Resume it to change steps.';
     var why = stepNeeded(r, map, id);
@@ -1692,7 +1703,7 @@ PF.run = (function () {
   }
 
   return {
-    RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem,
+    RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,

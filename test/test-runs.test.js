@@ -85,7 +85,11 @@ rule('Any other shape of the test-run fields is read-only, labeled a test run wh
     'without staged': Object.assign({}, base, { features: ['typed-details', 'typed-evidence', 'test-run'] }),
     'features but no test fields': (() => { const o = Object.assign({}, base); delete o.test; delete o.stage; return o; })(),
     'no payload': (() => { const o = Object.assign({}, base); delete o.payload; return o; })(),
-    'features out of order': Object.assign({}, base, { features: ['typed-details', 'typed-evidence', 'test-run', 'staged'] })
+    'features out of order': Object.assign({}, base, { features: ['typed-details', 'typed-evidence', 'test-run', 'staged'] }),
+    'version 0': Object.assign({}, base, { version: 0 }),
+    'version as text': Object.assign({}, base, { version: '3' }),
+    'test and stage first': (() => { const o = { test: true, stage: base.stage }; Object.keys(base).forEach(k => { if (k !== 'test' && k !== 'stage') o[k] = base[k]; }); return o; })(),
+    'a field after stage': Object.assign({}, base, { extra: 1 })
   };
   const fs = new PF.fs.MemoryFS('bad:' + Math.random(), null);
   for (const name of Object.keys(bad)) {
@@ -166,7 +170,31 @@ rule('startTestRun reads the stage and its decisions again, builds the run only 
   await repo.decideStage(fs, 'release', 'stage-abcd1234', 'reopened', { by: 'person-blake', now: NOW, window: 'w-blake', app: '2.1.0' });
   await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: NOW, app: '2.1.0', rand: 'promoted' });
   const after = await repo.loadAll(fs, { deep: true });
-  await assert.rejects(() => repo.startTestRun(fs, 'release', 'stage-abcd1234', { pubs: after.processes[0].pubs, session: 'w-avery', make }), /already the default/);
+  assert.ok(after.processes[0].pubs.length > pubs.length);
+  await assert.rejects(() => repo.startTestRun(fs, 'release', 'stage-abcd1234', { pubs, session: 'w-avery', make }), /already the default/, 'promoted after the versions were last read: the listing is read again');
+});
+
+rule('startTestRun refuses when the stage can\'t be read at the save, and asks still() again right before the first write', async () => {
+  const fs = folder(), { stage } = await staged(fs);
+  const pj = 'staged/release/stage-abcd1234/publication.json', orig = fs.read.bind(fs);
+  let n = 0;
+  fs.read = (p, o) => (p === pj && ++n >= 2 ? Promise.reject(new Error('offline')) : orig(p, o));
+  const before = snap(fs);
+  await assert.rejects(() => repo.startTestRun(fs, 'release', 'stage-abcd1234', { session: 'w-avery', make: (st) => start(st, { test: true, id: 'run-test3' }) }), /can.t be read now/);
+  fs.read = orig;
+  assert.strictEqual(snap(fs), before, 'a failed read is never fine: nothing written');
+  let asks = 0;
+  const still = () => ++asks < 2;
+  const res = await repo.startTestRun(fs, 'release', 'stage-abcd1234', { session: 'w-avery', still, make: (st) => start(st, { test: true, id: 'run-test4' }) });
+  assert.ok(res.dropped && asks >= 2 && snap(fs) === before, 'the person changed while the run file was checked: nothing written');
+  void stage;
+});
+
+rule('A test run starts no linked runs: they would be real, counted runs', async () => {
+  const fs = folder(), { stage } = await staged(fs);
+  const r = start(stage, { test: true }), map = R.mapOf(r);
+  const step = map.phases[0].steps[0].id;
+  assert.ok(/test run doesn.t start linked runs/.test(R.canStartChild(r, map, step)));
 });
 
 rule('A linked run started from a test run names no parent folder (a stage isn\'t a version), so every 2.0 copy reads it in full', async () => {

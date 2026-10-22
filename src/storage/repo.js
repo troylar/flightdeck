@@ -372,8 +372,8 @@ PF.repo = (function () {
   var CHANGED = 'This version was changed in the folder after this copy checked it, so nothing can be recorded on it until it\'s checked again. Choose Refresh.';
   /* A run started from other contents than the version it names holds is refused, for that run only (never cached). */
   function runMismatch(run, info) { return info && (run.folder !== info.folder || (run.mapHash && run.mapHash !== info.mapHash) || (run.version && +run.version !== info.version)) ? CHANGED : ''; }
-  function pubProblem(fs, run, cacheIn) {
-    if (run && isTestRun(run) && typeof run.process === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(run.process)) return stageOfRun(fs, run, cacheIn);
+  function pubProblem(fs, run, cacheIn, strict) {
+    if (run && isTestRun(run) && typeof run.process === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(run.process)) return stageOfRun(fs, run, cacheIn, strict);
     if (!run || typeof run.process !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(run.process) || typeof run.folder !== 'string' || !P.versionOf(run.folder)) return Promise.resolve('');
     var c = cacheIn || cacheOf(fs), dir = 'publications/' + run.process + '/' + run.folder + '/', rec = dir + 'publication.json';
     c.approved = c.approved || {}; c.bad = c.bad || {};
@@ -426,24 +426,27 @@ PF.repo = (function () {
   /* A test run's version is its stage (2.1): staged/<process>/<stage>/, verified by the stage rules (readStage) and approved
      like a version while its record keeps its size and time. The number it proposes is the run's version. A stage not there
      yet says nothing, as a version still syncing; one that can't be a stage makes the run read-only, named. */
-  function stageOfRun(fs, run, cacheIn) {
-    if (typeof run.folder !== 'string' || !P.STAGE.test(run.folder)) return Promise.resolve('');
+  /* strict (a new test run's first save): a stage not there, still syncing or not readable is a problem, never fine. */
+  function stageOfRun(fs, run, cacheIn, strict) {
+    if (typeof run.folder !== 'string' || !P.STAGE.test(run.folder)) return Promise.resolve(strict ? 'Its staged version isn\'t a stage folder.' : '');
     var c = cacheIn || cacheOf(fs), dir = 'staged/' + run.process + '/' + run.folder + '/', rec = dir + 'publication.json';
+    var unsure = function (why) { return strict ? 'Its staged version can\'t be read now (' + why + '). Try again once the folder has synced.' : ''; };
+    var mismatch = function (info) { return run.folder !== info.folder || (run.mapHash && run.mapHash !== info.mapHash) || +run.version !== info.version ? CHANGED : ''; };
     c.approved = c.approved || {}; c.bad = c.bad || {};
     if (c.bad[dir]) return Promise.resolve(c.bad[dir]);
     return fileStamp(fs, rec).then(function (stamp) {
       var ok = c.approved[dir];
-      if (stamp && ok && ok.stamp === stamp) return runMismatch(run, ok.info);
+      if (stamp && ok && ok.stamp === stamp && !strict) return mismatch(ok.info);
       delete c.approved[dir];
       return fs.read(rec).then(function (f) {
-        if (!f) return '';
+        if (!f) return unsure('its record isn\'t there');
         return readStage(fs, run.process, run.folder).then(function (v) {
-          if (!v.ok) return v.unusable || v.newer ? (c.bad[dir] = v.why) : '';
+          if (!v.ok) return v.unusable || v.newer ? (c.bad[dir] = v.why) : unsure(v.why || 'not complete yet');
           var info = { folder: v.info.folder, mapHash: v.info.mapHash, version: v.info.stage.proposed };
           if (stamp) c.approved[dir] = { stamp: stamp, info: info };
-          return runMismatch(run, info);
+          return mismatch(info);
         });
-      }).then(null, function () { return ''; });
+      }).then(null, function (e) { return unsure(e && e.message || String(e)); });
     });
   }
   /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
@@ -1134,7 +1137,7 @@ PF.repo = (function () {
       return { workflows: Object.keys(c.workflows).length ? c.workflows : null, errors: c.errors };
     });
   }
-  function stripMeta(o) { var c = {}; Object.keys(o).forEach(function (k) { if (k[0] !== '_') c[k] = o[k]; }); return c; }
+  function stripMeta(o) { var c = {}; Object.keys(o).forEach(function (k) { if (k[0] !== '_') c[k] = o[k]; }); return R.testLast ? R.testLast(c) : c; }
 
   /* Save only if the file is exactly what this window last read (same fingerprint) and this window still records it.
      Anything else (another save, a OneDrive replacement, an unreadable file) is never overwritten. */
@@ -1155,11 +1158,13 @@ PF.repo = (function () {
     return checkAndWrite();
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
-    return pubProblem(fs, run).then(function (why) {
+    return pubProblem(fs, run, null, opts.strict).then(function (why) {
       if (why) { run._unrunnable = why; throw readOnly(why); }
       return fs.read(path);
     }).then(function (f) {
       var e;
+      /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
+      if (typeof opts.still === 'function' && !opts.still()) { e = new Error('dropped'); e.dropped = true; throw e; }
       if (f) {
         var disk = R.sanitize(json(f.text));
         if (!disk) { e = new Error('The run file is unreadable, so it wasn\'t overwritten.'); e.unreadable = true; throw e; }
@@ -1509,16 +1514,32 @@ PF.repo = (function () {
      { run } or { dropped: true }. */
   function startTestRun(fs, proc, stageFolder, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
-    return Promise.all([readStage(fs, proc, stageFolder), stageState(fs, proc)]).then(function (r) {
-      var st = r[0], sp = r[1];
+    return stageLocked(o, proc, function () { return startTestRunNow(fs, proc, stageFolder, o); });
+  }
+  function startTestRunNow(fs, proc, stageFolder, o) {
+    var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '), so it isn\'t known whether this stage is already the default. Nothing was started.'); });
+    return listing.then(function (vers) {
+      return Promise.all([
+        Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, proc, v.name); })),
+        readStage(fs, proc, stageFolder), stageState(fs, proc)
+      ]);
+    }).then(function (r) {
+      var pubs = r[0], st = r[1], sp = r[2];
       if (!st.ok) throw new Error('This staged version can\'t be read now: ' + st.why);
-      var s = PF.staging.status(st, sp.decisions, o.pubs || []);
-      if (s.status === 'promoted') throw new Error('It\'s already the default, v' + s.pub.info.version + '. Start an ordinary run on it.');
-      var whyNot = PF.staging.promoteWhy(s);
+      var unread = pubs.filter(function (x) { return !x.info || typeof x.info !== 'object'; })[0];
+      if (unread) throw new Error('publications/' + proc + '/' + unread.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
+      var mine = pubs.filter(function (x) { return x.info.stagedFrom && x.info.stagedFrom.folder === stageFolder; })[0];
+      if (mine) throw new Error('It\'s already the default, v' + mine.info.version + '. Start an ordinary run on it.');
+      var whyNot = PF.staging.promoteWhy(PF.staging.status(st, sp.decisions, pubs));
       if (whyNot) throw new Error(whyNot);
       if (typeof o.still === 'function' && !o.still()) return { dropped: true };
       var run = o.make(st);
-      return saveRun(fs, run, o.session, { writer: o.writer, lock: o.lock }).then(function () { return { run: run }; });
+      /* Inside the stage lock, so no promote or decision from this computer lands between the check and the write; the
+         stage is read again strictly and o.still() asked once more right before the first write. */
+      return saveRun(fs, run, o.session, { writer: o.writer, lock: o.lock, strict: true, still: o.still }).then(function () { return { run: run }; }, function (e) {
+        if (e && e.dropped) return { dropped: true };
+        throw e;
+      });
     });
   }
   function stillOk(o) { if (o && typeof o.still === 'function' && !o.still()) { var e = new Error('dropped'); e.dropped = true; throw e; } }

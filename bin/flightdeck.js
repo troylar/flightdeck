@@ -1168,8 +1168,10 @@ async function reportData(eng, adapter, req, write) {
       const d = await repo.loadAll(dependsOn(L.fs, scope), { readOnly: true, explain: true, deep: true });
       take(folderProblems(PF, d));
       const pubOf = (r) => { const proc = d.processes.filter((x) => x.process === r.process)[0], p = proc && proc.pubs.filter((x) => x.folder === r.folder)[0]; return p || missingVersion(PF, r); };
-      d.runs.forEach((r) => take(judgeRun(PF, r, pubOf(r))));
-      let runs = d.runs.filter((r) => !r._unrunnable && !r.ended && r.state === 'running' && (!req.proc || r.process === req.proc));
+      /* A test run (2.1) is never a target: reports go to real runs. */
+      const real = d.runs.filter((r) => !PF.run.isTest(r));
+      real.forEach((r) => take(judgeRun(PF, r, pubOf(r))));
+      let runs = real.filter((r) => !r._unrunnable && !r.ended && r.state === 'running' && (!req.proc || r.process === req.proc));
       if (req.key) {
         runs = runs.filter((r) => r.process + '/' + r.id === req.key);
         if (!runs.length) return err(EXIT.notFound, 'not-found', 'There\'s no running run ' + req.key + ' in the team folder.');

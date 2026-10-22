@@ -1076,6 +1076,12 @@ rule('READ: test runs (2.1) are left out of runs unless --tests asks (testRunsLe
   assert.strictEqual(agree(readCli('process', dir, 'backup', '--stage', 'stage-zzzz0000', '--contract', '2', '--json')).code, 5, 'a stage that isn\'t there is not found');
   const fu = agree(readCli('followups', dir, '--contract', '2', '--json'));
   assert.deepStrictEqual(wrong(fu.json.data, AJ.SCHEMA2.followups), [], 'followups data, with test');
+  const tg = readCli('report', 'targets', dir, '--json');
+  assert.ok(tg.json && tg.json.data && !tg.json.data.runs.some(r => /run-t/.test(r.key)) && !tg.json.problems.some(p => /run-t|staged\//.test(p.path)), 'a test run is never a report target: ' + tg.out.slice(0, 400));
+  const rc = readCli('report', 'check', repFile({ format: 'flightdeck-report/1', run: 'backup/run-t', publication: { folder: 'stage-aaaa1111' }, step: 'read', verdict: 'pass', evidence: {}, inputs: [], producer: { name: 'ci-check', version: '1.0.0' }, created: '2026-10-22T09:00:00Z', id: 'k3m9p2q8x7' }), '--folder', dir, '--json');
+  assert.ok(rc.json && rc.json.error && rc.json.error.kind === 'invalid' && rc.code === 1, 'a report can\'t name a stage, so none is accepted for a test run: ' + rc.out.slice(0, 600));
+  const rv = readCli('report', 'check', repFile({ format: 'flightdeck-report/1', run: 'backup/run-t', publication: { folder: 'v3-aaaa1111' }, step: 'read', verdict: 'pass', evidence: {}, inputs: [], producer: { name: 'ci-check', version: '1.0.0' }, created: '2026-10-22T09:00:00Z', id: 'k3m9p2q8x7' }), '--folder', dir, '--json');
+  assert.ok(rv.json && (rv.json.error || rv.json.data.report.status !== 'valid' || rv.json.data.report.applies === false), 'nor one naming a version: ' + rv.out.slice(0, 600));
   const v1 = agree(readCli('runs', dir, '--json'));
   assert.ok(!v1.json.data.runs.some(r => r.id === 'run-t') && v1.json.problems.some(p => p.kind === 'newer' && /run-t/.test(p.path)) && !('testRunsLeftOut' in v1.json.data), 'contract 1: newer, as before');
   [['runs', dir, '--tests', '--json'], ['runs', dir, '--tests', '--contract', '1', '--json'], ['process', dir, 'backup', '--stage', 'stage-aaaa1111', '--json'], ['process', dir, 'backup', '--stage', 'v3-aaaa1111', '--contract', '2', '--json'], ['runs', dir, '--stage', 'stage-aaaa1111', '--contract', '2', '--json']]

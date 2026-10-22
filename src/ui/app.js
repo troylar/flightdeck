@@ -4460,7 +4460,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      recover(function () { var c = R.sanitize(local); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
+      recover(function () { var c = R.sanitize(R.testLast(local)); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -5354,21 +5354,21 @@
     form.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = inputValue(el); });
     form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var title = val('run-title') || p.title, tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    var sfs = state.fs, sg = gen, who = state.me, pubs = p.all || [], made = null;
+    var sfs = state.fs, sg = gen, who = state.me, made = null;
     var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(stage) }); };
     /* The form's values are checked now, so a typed detail that doesn't read is said before anything is read again. */
     try { mk(ts.stage); } catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     testBusy = true;
-    var endBusy = busyStart(), held = holdNav(false), done = function () { testBusy = false; endBusy(); releaseNav(held); };
+    var endBusy = busyStart(), held = holdNav(false), done = function () { testBusy = false; endBusy(); };
     queued(function () {
-      return repo.startTestRun(sfs, p.id, folder, { pubs: pubs, session: SESSION, writer: WRITER, lock: LOCKS ? lock : null,
+      return repo.startTestRun(sfs, p.id, folder, { session: SESSION, writer: WRITER, lock: LOCKS ? lock : null,
         still: function () { return sg === gen && state.fs === sfs && state.me === who; }, make: function (stage) { made = mk(stage); return made; } });
     }).then(function (res) {
-      done(); if (sg !== gen) return;
-      if (res && res.dropped) { say('Nothing was started: another folder was opened, or the person using this window changed.', 'warn'); render(); return; }
+      done(); if (sg !== gen || (res && res.dropped)) { releaseNav(held); if (sg === gen) { say('Nothing was started: another folder was opened, or the person using this window changed.', 'warn'); render(); } return null; }
       state.testStage = null;
-      return load(true).then(function () { if (sg !== gen) return; openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); });
-    }, function (err) { done(); if (sg !== gen) return; say('Couldn\'t start the test run: ' + err.message, 'bad'); render(); });
+      return load(true).then(function () { return true; });
+    }).then(function (ok) { if (!ok) return; releaseNav(held); if (sg !== gen) return; openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
+      function (err) { done(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the test run: ' + err.message, 'bad'); render(); });
   }
 
   /* Getting started's people, and Settings' Add a person. */
