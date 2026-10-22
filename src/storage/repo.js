@@ -1538,7 +1538,7 @@ PF.repo = (function () {
      reads but is incomplete (no process, number, folder or fingerprints, or a stagedFrom that names no stage folder). A
      partial record could be the promotion, so it leaves the answer unknown, never "not this stage". { pub, why } or null. */
   function promotionUnknown(pubs) {
-    var sfOk = function (sf) { return !!sf && typeof sf === 'object' && !Array.isArray(sf) && typeof sf.folder === 'string'; };
+    var sfOk = function (sf) { return !!sf && typeof sf === 'object' && !Array.isArray(sf) && typeof sf.folder === 'string' && PF.publish.STAGE.test(sf.folder); };
     for (var k = 0; k < pubs.length; k++) {
       var x = pubs[k], i = x.info;
       if (!i || typeof i !== 'object' || Array.isArray(i)) return { pub: x, why: x.why };

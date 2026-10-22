@@ -174,7 +174,7 @@ rule('Promote and test runs: a version record that reads but is incomplete leave
   const fs = folder(); await staged(fs);
   await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0010' });
   const pj = 'publications/release/v2-prom0010/publication.json', keep = fs.files[pj].t;
-  for (const partial of [{ format: 'preflight-publication/1' }, Object.assign(JSON.parse(keep), { stagedFrom: 'stage-abcd1234' })]) {
+  for (const partial of [{ format: 'preflight-publication/1' }, Object.assign(JSON.parse(keep), { stagedFrom: 'stage-abcd1234' }), Object.assign(JSON.parse(keep), { stagedFrom: { folder: '' } }), Object.assign(JSON.parse(keep), { stagedFrom: { folder: 'stage-x' } })]) {
     fs.files[pj].t = JSON.stringify(partial);
     const before = JSON.stringify(Object.keys(fs.files).sort());
     await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0011' }), /v2-prom0010.*isn't known whether this stage was already published/);
