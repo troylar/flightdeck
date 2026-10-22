@@ -664,13 +664,18 @@
   /* The last read of the whole folder failed: what's shown is from before it. */
   var folderUnread = false;
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
-  function countedRuns() {
+  function countedRuns() { return data.runs.filter(counted); }
+  /* Whether a run (on screen, or just read again) counts toward a sign-off now. */
+  function counted(r) {
     /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
-    if (folderUnread || (data.failed || {}).runs) return [];
+    if (folderUnread || (data.failed || {}).runs) return false;
     /* Nor is a run with a change that couldn't be saved. */
-    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {};
-    return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k] && !un[r.id]; });
+    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {}, k = r.process + '/' + r.id;
+    return !u[k] && !m[k] && !notCounted[k] && !un[r.id];
   }
+  /* What a sign-off's own reread of a run found, said as any read is, so a run it found gone or not itself stops counting
+     on the page too. */
+  function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
     var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
@@ -3835,10 +3840,19 @@
            now, and the count worked out again from them, before anything is written. */
         /* Only test runs counted now (2.0.1) are read again, and only runs counted now join them. */
         var st = pub.fromStage && pub.fromStage.stage, tests = st ? countedRuns().filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
-        var ids = tests.map(function (r) { return r.id; });
-        return Promise.all([st ? repo.stageCarried(sfs, pub, st) : Promise.resolve('Its stage isn\'t known.'), Promise.all(ids.map(function (rid) { return repo.loadRun(sfs, id, rid, null, true); }))]).then(function (f) {
+        var ids = tests.map(function (r) { return r.id; }), at = startRead();
+        var reread = function (rid) {
+          var bad = [];
+          return repo.loadRun(sfs, id, rid, null, true, false, bad).then(function (r) {
+            if (r && r.process === id && r.id === rid) return r;
+            if (sg === gen) rereadOutcome(id + '/' + rid, at, bad.length ? { kind: 'unreadable', why: bad[0].why } : { kind: 'missing' });
+            return null;
+          }, function (e) { if (sg === gen) rereadOutcome(id + '/' + rid, at, { kind: 'unreadable', why: 'couldn\'t be read (' + (e && e.message || String(e)) + ')' }); throw e; });
+        };
+        return Promise.all([st ? repo.stageCarried(sfs, pub, st) : Promise.resolve('Its stage isn\'t known.'), Promise.all(ids.map(reread))]).then(function (f) {
           if (f[0]) throw new Error(f[0]);
-          var fresh = f[1].filter(function (r, i) { return r && r.process === id && r.id === ids[i]; });
+          /* Read again now, and still counted now (2.0.1): a refresh that landed meanwhile may have found the folder unreadable. */
+          var fresh = f[1].filter(function (r) { return r && counted(r); });
           var onSt = function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; };
           var again = PF.skills.readiness(countedRuns().filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
           if (!again.enough) throw new Error('It needs ' + again.needed + ' clean completed runs; it has ' + again.clean + ' now.');
@@ -4376,9 +4390,12 @@
         /* The stage, its decisions, the versions, its test runs, people.json and its sign-offs are read again inside the stage
            lock; eligibility is worked out again from what was read, with the person who clicked. */
         var ids = countedRuns().filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
+        var at = startRead();
         return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still, runIds: ids,
+          outcome: function (rid, res) { if (pg === gen) rereadOutcome(pid + '/' + rid, at, res); },
           check: function (st, now) {
-            var r = PF.skills.readiness(now.runs, st, null), as = PF.skills.signer(st, now.people, by, false);
+            /* Read again now, and still counted now (2.0.1). */
+            var r = PF.skills.readiness(now.runs.filter(counted), st, null), as = PF.skills.signer(st, now.people, by, false);
             if (!r.enough) throw new Error('It needs ' + r.needed + ' clean test runs; it has ' + r.clean + '.');
             if (!as) throw new Error('Only the process owner signs off a staged version.');
             if (PF.skills.signoffs(now.validations, st).length) throw new Error('It\'s already signed off.');

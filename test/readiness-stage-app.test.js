@@ -227,4 +227,58 @@ rule('Signing off the default version on test runs never counts a run on screen 
   assert.ok(/it has 2 now/.test(app.html()), 'it says why');
 });
 
+/* Holds every read of a test run's run.json until released. */
+function holdTestRuns(app) {
+  const read = app.fs.read, pending = [];
+  app.fs.read = function (p) { const a = arguments, self = this; return /^runs\/release\/run-try\d\/run\.json$/.test(p) ? new Promise((res, rej) => pending.push(() => read.apply(self, a).then(res, rej))) : read.apply(self, a); };
+  return { pending, release() { app.fs.read = read; pending.splice(0).forEach(go => go()); } };
+}
+function runsUnlisted(app) { const list = app.fs.list; app.fs.list = function (p) { return p === 'runs' ? Promise.reject(new Error('offline')) : list.apply(this, arguments); }; return () => { app.fs.list = list; }; }
+
+rule('A refresh that can\'t list the runs folder while a version sign-off reads its test runs again signs nothing', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const before = app.files('validations/').length, h = holdTestRuns(app);
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(40);
+  assert.ok(h.pending.length >= 3, 'set-up: the reread is waiting (' + h.pending.length + ')');
+  runsUnlisted(app);
+  app.click('refresh'); await app.tick(200);
+  h.release(); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+});
+
+rule('A refresh that can\'t list the runs folder while a stage sign-off reads its test runs again signs nothing', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  const before = app.files('validations/').length, h = holdTestRuns(app);
+  app.click('signoff-stage', folder); await app.tick(40);
+  assert.ok(h.pending.length >= 3, 'set-up: the reread is waiting (' + h.pending.length + ')');
+  runsUnlisted(app);
+  app.click('refresh'); await app.tick(200);
+  h.release(); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+});
+
+rule('A test run a version sign-off found gone stops counting on the page at once', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  app.files('runs/release/run-try3/').forEach(f => { delete app.fs.files[f]; });
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(200);
+  assert.ok(/it has 2 now/.test(app.html()), 'set-up: refused');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(!/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), panel(app));
+});
+
+rule('A test run a stage sign-off found gone stops counting on its line at once', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  app.files('runs/release/run-try3/').forEach(f => { delete app.fs.files[f]; });
+  app.click('signoff-stage', folder); await app.tick(200);
+  assert.ok(/clean test runs; it has 2/.test(app.html()), 'set-up: refused');
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/2 of 3 clean test runs/.test(line(app, folder)) && !/data-act="signoff-stage"/.test(app.html()), line(app, folder));
+});
+
 run();

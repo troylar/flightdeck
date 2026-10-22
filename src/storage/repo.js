@@ -1699,9 +1699,19 @@ PF.repo = (function () {
         var signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }).then(function (vs) {
           return vs.map(function (v) { var c = PF.skills.cleanValidation(v); return c.ok ? c.rec : null; }).filter(Boolean);
         });
-        return Promise.all([Promise.all(ids.map(function (id) { return loadRun(fs, proc, id, null, true); })), loadPeople(fs), signs]).then(function (f) {
-          /* Only a run whose own record names this process and the folder it was read from. */
-          var c = o.check(st, { runs: f[0].filter(function (r, i) { return r && r.process === proc && r.id === ids[i]; }), people: f[1], validations: f[2] });
+        /* Each run's outcome is told (o.outcome(id, { kind, why })) when it's gone or isn't itself, before anything is judged. */
+        var said = function (id, res) { if (typeof o.outcome === 'function') o.outcome(id, res); };
+        var one = function (id) {
+          var bad = [];
+          return loadRun(fs, proc, id, null, true, false, bad).then(function (r) {
+            /* Only a run whose own record names this process and the folder it was read from. */
+            if (r && r.process === proc && r.id === id) return r;
+            said(id, bad.length ? { kind: 'unreadable', why: bad[0].why } : { kind: 'missing' });
+            return null;
+          }, function (e) { said(id, { kind: 'unreadable', why: 'couldn\'t be read (' + why(e) + ')' }); throw e; });
+        };
+        return Promise.all([Promise.all(ids.map(one)), loadPeople(fs), signs]).then(function (f) {
+          var c = o.check(st, { runs: f[0].filter(Boolean), people: f[1], validations: f[2] });
           if (typeof o.still === 'function' && !o.still()) return { dropped: true };
           return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
         }, function (e) { throw new Error('What it would be signed off on couldn\'t be read now (' + why(e) + '). Nothing was signed off.'); });
