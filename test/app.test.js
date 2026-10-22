@@ -7438,11 +7438,11 @@ rule('Builder: Done with typing in two boxes applies neither over the other and 
 });
 
 /* A release version whose child-run step applies only when ^environment is set, and a run of it Casey records. */
-async function conditionalRelease() {
+async function conditionalRelease(cond) {
   const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   const d = await app.PF.repo.loadAll(app.fs), rel = d.processes.find(p => p.process === 'release');
-  const md = rel.index.latest.md.replace('{#notes}\n', '{#notes}\n  only when ^environment is set\n');
+  const md = rel.index.latest.md.replace('{#notes}\n', '{#notes}\n  only when ' + (cond || '^environment is set') + '\n');
   assert.notStrictEqual(md, rel.index.latest.md, 'set-up: a condition');
   const res = await app.PF.repo.publish(app.fs, md, { people: d.people, customTypes: d.stepTypes.types, workflows: {}, by: 'person-avery', changes: 'Conditions', existing: rel.index.all.map(p => p.info), now: new Date().toISOString(), app: '2.1.0' });
   assert.ok(res && !res.blockers, JSON.stringify(res && res.blockers));
@@ -7483,6 +7483,29 @@ rule('Conditions (2.1): a child run is never started for a step that isn\'t need
   app.click('edit', 'detail:environment'); app.set('edit-input', 'production'); app.click('save-edit'); await app.tick(40);
   app.click('start-child', 'notes'); await app.tick(120);
   assert.strictEqual(children(), before + 1, 'needed again, it starts');
+});
+
+rule('Conditions (2.1): a child-run step whose condition tests a carried detail changed A to B to A stays in re-check after Refresh, and a new child replaces the retired link', async () => {
+  const app = await conditionalRelease('^commit is set');
+  app.click('start-child', 'notes'); await app.tick(120);
+  let j = app.run().json, link = j.steps.notes.child;
+  assert.ok(link && link.inputs.commit === 'f00d123', 'set-up: a child for commit f00d123');
+  const cpath = 'runs/check-in/' + link.id + '/run.json', child = JSON.parse(app.fs.files[cpath].t);
+  child.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; child.state = 'completed'; child.rev = (child.rev || 0) + 1;
+  await app.fs.write(cpath, JSON.stringify(child));
+  app.click('refresh'); await app.tick(120);
+  assert.strictEqual(app.run().json.steps.notes.s, 'done', 'set-up: the child checked the step');
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'beef456'); app.click('save-edit'); await app.tick(60);
+  app.click('edit', 'detail:commit'); app.set('edit-input', 'f00d123'); app.click('save-edit'); await app.tick(60);
+  app.click('refresh'); await app.tick(160);
+  j = app.run().json;
+  assert.strictEqual(j.steps.notes.s, 'recheck', 'never checked again by the original child');
+  assert.ok(j.steps.notes.child.retired && j.steps.notes.child.failed && j.steps.notes.child.id === link.id, 'its link is retired, in the file');
+  app.click('start-child', 'notes'); await app.tick(160);
+  j = app.run().json;
+  assert.ok(j.steps.notes.child.id !== link.id && !j.steps.notes.child.retired, 'a new child replaces it');
+  const said = j.log.filter(l => /Replaced/.test(l.what)).pop();
+  assert.ok(said && /retired/.test(said.what) && !/didn't complete/.test(said.what), said && said.what);
 });
 
 run();

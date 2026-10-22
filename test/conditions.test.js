@@ -461,4 +461,41 @@ rule('A child is judged on exactly what it was started with: a carried detail cl
   assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'what it carried still counts');
 });
 
+/* ---------- Retired child links: saved state, honored on every path ---------- */
+
+const CHILDMD = MD.replace('- [ ] {confirm} Tell the change board {#board}\n  only when ^risk is high', '- [ ] {run.process} Run the board check ^ticket {#board}\n  process: board-check\n  carry: ticket\n  only when ^ticket is set');
+function settledBoard(ticket) {
+  const r = start({ ticket: ticket || 'A', risk: 'high', hotfix: 'no', amount: '1' }, { md: CHILDMD }), map = mapOf(r);
+  upTo(r, 'release');
+  r.steps.board = { s: 'open', child: { process: 'board-check', id: 'kid1', inputs: { ticket: ticket || 'A' } } };
+  const child = { process: 'board-check', id: 'kid1', details: { ticket: ticket || 'A' }, ended: { outcome: 'Completed' } };
+  assert.strictEqual(R.settleChild(r, map, 'board', child, 'person-avery', NOW, () => null), 'done', 'set-up: the child checks the step');
+  return { r, map, child };
+}
+
+rule('A detail a child-run step carries, binds and tests changing A to B to A: the re-check stays, and the original child never checks the step again', () => {
+  const { r, map, child } = settledBoard('A');
+  R.setDetail(r, map, 'ticket', 'B', 'person-avery', LATER);
+  assert.strictEqual(r.steps.board.s, 'recheck');
+  same([r.steps.board.child.failed, r.steps.board.child.retired], [true, true], 'retired, though ticket is carried and bound');
+  R.setDetail(r, map, 'ticket', 'A', 'person-avery', LATER);
+  assert.ok(R.childCurrent(r, map.phases[2].steps.find(s => s.id === 'board'), r.steps.board), 'set-up: the child is current again by its inputs');
+  assert.ok(/retired/.test(errOf(() => R.settleChild(r, map, 'board', child, 'person-avery', LATER, () => null))), 'never settled by it again');
+  assert.ok(/retired/.test(errOf(() => R.done(r, map, 'board', 'person-avery', LATER, { _child: 'kid1' }))), 'nor checked as if by it');
+  assert.ok(/retired/.test(errOf(() => R.linkChild(r, map, 'board', { process: 'board-check', id: 'kid1', inputs: { ticket: 'A' } }, 'person-avery', LATER))), 'nor linked again');
+  assert.strictEqual(r.steps.board.s, 'recheck', 'still waiting for a person');
+});
+
+rule('A retired link survives a reload and a conflict copy that still has it unretired', () => {
+  const { r, map } = settledBoard('A');
+  const before = JSON.parse(JSON.stringify(r));
+  R.setDetail(r, map, 'ticket', 'B', 'person-avery', LATER);
+  const back = R.sanitize(JSON.parse(JSON.stringify(r)));
+  same([back.steps.board.child.failed, back.steps.board.child.retired], [true, true], 'kept on reload');
+  assert.ok(!back._unrunnable && !(back._dropped || []).length, 'a field this copy reads');
+  // A conflict copy written before the change: the person keeps the copy, the retirement of the same child stays.
+  R.adopt(r, before, 'person-avery', LATER);
+  same([r.steps.board.child.id, r.steps.board.child.failed, r.steps.board.child.retired], ['kid1', true, true], 'retirement is never undone by a copy');
+});
+
 run();
