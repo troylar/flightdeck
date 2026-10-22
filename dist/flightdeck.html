@@ -576,6 +576,9 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; }
 .tile:hover { border-color: var(--ink); }
+/* A staged version's line: its buttons go under its words, so the words keep the column's width. */
+.vlist li.stg { grid-template-columns: auto minmax(0, 1fr); }
+.vlist li.stg > .row { grid-column: 2; }
 .vlist.compact .clip { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 details.panel > summary { cursor: pointer; list-style: revert; }
 .fold > summary > h2 { margin: 0; }
@@ -9448,6 +9451,9 @@ PF.skills = (function () {
      page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. Who
      signed, and the process and version it names, are kept exactly as written: they're compared with the owner and the
      version, so one cut to fit could count as someone else's or another version's (2.0.1). */
+  /* What a file in validations/ must look like to be read as a sign-off at all, for the folder's read and a stage sign-off's
+     reread alike: kind "validation", or a flightdeck-validation format of any version. Other JSON there is stray. */
+  function signoffShaped(o) { return !!o && typeof o === 'object' && !Array.isArray(o) && (o.kind === 'validation' || (typeof o.format === 'string' && /^flightdeck-validation\//.test(o.format))); }
   function cleanValidation(v) {
     var env = PF.envelope.judge('flightdeck-validation', v);
     if (!env.ok) return { ok: false, kind: env.kind, why: env.kind === 'newer' ? 'is a sign-off made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why, needs: env.needs || '' };
@@ -9509,7 +9515,7 @@ PF.skills = (function () {
     if (a.join('\n') !== b.join('\n') || a.some(function (k) { return !own.call(exact.images, k) || !own.call(sp.images, k) || exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
     return '';
   }
-  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signHold: signHold, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signoffShaped: signoffShaped, signHold: signHold, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();
 
 /* Files attached to notes and suggested fixes: which ones are allowed, the name each gets in the run's files/ folder, and how
@@ -13908,8 +13914,9 @@ PF.repo = (function () {
   /* bad (reading for other apps): each file that won't read, parse or check is named there, and the rest still load.
      Without it, as the app reads: what doesn't parse or check is left out of the result, and a file that won't read fails
      the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
-     still arriving could be the record that decides something. */
-  function loadJsonDir(fs, dir, ok, bad, only, torn) {
+     still arriving could be the record that decides something. perFile (with torn): a read that's refused is named there
+     too, by itself, instead of failing the part; only a folder that can't be listed fails it. */
+  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
@@ -13920,7 +13927,7 @@ PF.repo = (function () {
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
-        });
+        }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
         return fs.read(path).then(function (f) {
           if (!f) return null;
           var o = json(f.text);
@@ -14006,7 +14013,7 @@ PF.repo = (function () {
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed, null, opts.contract2),
       loadStepTypes(fs), loadWorkflows(fs),
-      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }, null, null, valTorn),
+      loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, null, valTorn, true),
       loadCorrectionDecisions(fs, cache, sched),
       loadFollowUpDecisions(fs, cache, sched, !!opts.explain),
       /* Proposals and presence, only where those folders are (an ordinary folder costs nothing more), and never for other
@@ -15036,7 +15043,7 @@ PF.repo = (function () {
            people.json and this stage's sign-offs. A read that fails signs nothing. */
         var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
         /* A sign-off of this stage that can't be read could be the one already there: nothing is signed off until it reads. */
-        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn).then(function (vs) {
+        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn, true).then(function (vs) {
           var out = vs.map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok) (c.kind === 'newer' ? newer : torn).push({ path: 'validations/' + v._file, needs: c.needs || '' }); return c.ok ? c.rec : null; }).filter(Boolean);
           /* JSON that isn't a sign-off at all is ignored; one that won't parse, or says it's one but doesn't check, could be. */
           torn = torn.filter(function (t) { return !t.parsed; });
@@ -17335,8 +17342,8 @@ PF.vk = (function () {
     /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
     var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
     var rows = (sp ? sp.stages : []).map(function (s) {
-      if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
-      if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
+      if (s.newer) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
+      if (!s.ok) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
       var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
       if (held) b = '';
@@ -17347,7 +17354,7 @@ PF.vk = (function () {
       var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
       if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : sg.hold && sg.hold.kind === 'newer' ? ' · Signed off with a newer Flightdeck: update to see it' : sg.unknown ? ' · Can\'t tell whether it was signed off: ' + sg.unknown : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
-      return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+      return '<li class="stg"><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
     var gone = (ctx.data.failed || {}).stages;
     return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
@@ -17449,7 +17456,8 @@ PF.vk = (function () {
   }
   /* Why a plan can't be started, declined or switched now, or '': a decision on it that can't be read (it may still be
      arriving), that a newer Flightdeck made, or that isn't one this copy can read. Each says what to do about it. */
-  function planHeldWhy(plan) {
+  function planHeldWhy(plan, data) {
+    if (plan && data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals')) return 'proposals/ couldn\'t be read just now, so it isn\'t known whether someone already started it. Until it reads, this plan can\'t be started, declined or switched here. Try again once the folder can be read.';
     var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
     if (!x) return '';
     var held = ' Until then this plan can\'t be started, declined or switched here.';
@@ -17506,7 +17514,7 @@ PF.vk = (function () {
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
     if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
-    if (plan && planHeldWhy(plan)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan)) + '</span></div>';
+    if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
@@ -21588,7 +21596,7 @@ PF.examples = (function () {
   function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok + (x.fromStage ? ':' + x.fromStage.folder + x.fromStage.ok : ''); }); }),
-      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }), (d.valUnread || []).map(function (u) { return u.path; }), (d.planUnread || []).map(function (u) { return u.path; }),
+      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }), (d.valUnread || []).map(function (u) { return u.path + ':' + !!u.ignored + !!u.claimed; }), (d.planUnread || []).map(function (u) { return u.path + ':' + u.kind; }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
@@ -21682,7 +21690,7 @@ PF.examples = (function () {
       if (fresh('follow-ups')) (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
       if (fresh('report decisions')) (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
       /* A sign-off read before whose file can't be read now (still syncing) keeps counting as what it said then. */
-      if (fresh('sign-offs')) (d.valUnread || []).forEach(function (u) { (data.validations || []).forEach(function (x) { if (x._file === u._file && !u.kept) { d.validations.push(x); u.kept = true; } }); });
+      if (fresh('sign-offs')) (d.valUnread || []).forEach(function (u) { (data.validations || []).forEach(function (x) { if (x._file === u._file && !u.kept && !u.ignored) { d.validations.push(x); u.kept = true; } }); });
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
@@ -21746,7 +21754,7 @@ PF.examples = (function () {
   /* What a sign-off's own reread of a run found, said as any read is, so a run it found gone or not itself stops counting
      on the page too. */
   /* Why a plan can't be started, declined or switched now: a decision on it can't be read ('' when none). */
-  function planHeld(plan) { return V.planHeldWhy(plan); }
+  function planHeld(plan) { return V.planHeldWhy(plan, data); }
   function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {

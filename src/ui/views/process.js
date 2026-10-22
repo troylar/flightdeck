@@ -378,8 +378,8 @@
     /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
     var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
     var rows = (sp ? sp.stages : []).map(function (s) {
-      if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
-      if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
+      if (s.newer) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
+      if (!s.ok) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
       var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
       if (held) b = '';
@@ -390,7 +390,7 @@
       var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
       if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : sg.hold && sg.hold.kind === 'newer' ? ' · Signed off with a newer Flightdeck: update to see it' : sg.unknown ? ' · Can\'t tell whether it was signed off: ' + sg.unknown : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
-      return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+      return '<li class="stg"><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
     var gone = (ctx.data.failed || {}).stages;
     return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
