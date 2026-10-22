@@ -931,7 +931,7 @@ Moving from 1.x to 2.0: put Flightdeck 1.21 or later on every computer first, th
 
 Moving from 2.0 to 2.1: put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. Flightdeck 2.0 shows such a version as "needs Flightdeck 2.1" and can't run it. Staged versions and test runs show only on 2.1, and a version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it (one with `only when` needs 2.1).
 
-**Known issue:** an older copy shows a test run by name only and never changes it, but counts it in Home's running number until it updates to 2.1.
+**Known issue:** an older copy shows a test run by name only and never changes it, but counts it in Home's running number, and How runs go and Compare versions list its stage as one more version (marked Clash once that stage is made the default). Updating to 2.1 fixes both.
 
 </details>
 

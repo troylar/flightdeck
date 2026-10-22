@@ -170,6 +170,44 @@ rule('Promote: refused while a listed version\'s record can\'t be read (it could
   await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0008' }), /already/);
 });
 
+rule('Promote and test runs: a version record that reads but is incomplete leaves "already promoted?" unknown, so both are refused and write nothing', async () => {
+  const fs = folder(); await staged(fs);
+  await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0010' });
+  const pj = 'publications/release/v2-prom0010/publication.json', keep = fs.files[pj].t;
+  for (const partial of [{ format: 'preflight-publication/1' }, Object.assign(JSON.parse(keep), { stagedFrom: 'stage-abcd1234' }), Object.assign(JSON.parse(keep), { stagedFrom: { folder: '' } }), Object.assign(JSON.parse(keep), { stagedFrom: { folder: 'stage-x' } }), (() => { const o = JSON.parse(keep); delete o.format; delete o.stagedFrom; return o; })(), Object.assign((() => { const o = JSON.parse(keep); delete o.stagedFrom; return o; })(), { format: 'preflight-publication/9' }), Object.assign((() => { const o = JSON.parse(keep); delete o.stagedFrom; return o; })(), { features: ['future-feature'] }), Object.assign((() => { const o = JSON.parse(keep); delete o.stagedFrom; return o; })(), { process: 'beta' }), Object.assign((() => { const o = JSON.parse(keep); delete o.stagedFrom; return o; })(), { mapHash: '' }), Object.assign((() => { const o = JSON.parse(keep); delete o.stagedFrom; return o; })(), { version: 7 })]) {
+    fs.files[pj].t = JSON.stringify(partial);
+    const before = JSON.stringify(Object.keys(fs.files).sort());
+    await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0011' }), /v2-prom0010.*isn't known whether this stage was already published/);
+    await assert.rejects(() => repo.startTestRun(fs, 'release', 'stage-abcd1234', { session: 'w-avery', make: () => { throw new Error('never built'); } }), /v2-prom0010.*isn't known whether this stage is already the default/);
+    assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
+  }
+  fs.files[pj].t = keep;
+  same((await repo.loadAll(fs, { deep: true })).processes[0].index.all.map(p => p.info.version), [2, 1], 'published once');
+});
+
+rule('A stage in another process\'s folder (its record or its checklist names another process) is refused by name: nothing starts or promotes from it', async () => {
+  const fs = folder(); await staged(fs);
+  const from = 'staged/release/stage-abcd1234/', to = 'staged/beta/stage-abcd1234/';
+  const copy = (edit) => Object.keys(fs.files).filter(p => p.indexOf(from) === 0).forEach(p => { fs.files[to + p.slice(from.length)] = { t: edit && /publication\.json$/.test(p) ? edit(fs.files[p].t) : fs.files[p].t }; });
+  const cases = [
+    [null, /release/],
+    [(t) => JSON.stringify(Object.assign(JSON.parse(t), { process: 'beta' })), /checklist/i]
+  ];
+  for (const [edit, why] of cases) {
+    copy(edit);
+    const st = await repo.readStage(fs, 'beta', 'stage-abcd1234');
+    assert.ok(!st.ok && st.incomplete && /beta/.test(st.why) && why.test(st.why), JSON.stringify([st.ok, st.why]));
+    const d = await repo.loadAll(fs, { deep: true });
+    same(d.stages.procs.beta.stages.map(s => [s.folder, s.ok]), [['stage-abcd1234', false]]);
+    assert.ok(PF.health.stages(d.stages).some(x => x.path === to && /beta/.test(x.why)), JSON.stringify(PF.health.stages(d.stages)));
+    const before = JSON.stringify(Object.keys(fs.files).sort());
+    await assert.rejects(() => repo.startTestRun(fs, 'beta', 'stage-abcd1234', { session: 'w-avery', make: () => { throw new Error('never built'); } }), /can't be read now/);
+    await assert.rejects(() => repo.promote(fs, 'beta', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0012' }), /can't be read now/);
+    assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
+  }
+  assert.ok((await repo.readStage(fs, 'release', 'stage-abcd1234')).ok, 'the original stage is untouched');
+});
+
 rule('Promote: the corrections a stage records are kept in the version it becomes', async () => {
   const fs = folder(); const d = await v1(fs), p = d.processes[0];
   const corr = [{ id: 'c-1', result: { step: 'flags', sig: 'abc' } }];

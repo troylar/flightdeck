@@ -1472,10 +1472,16 @@ PF.repo = (function () {
     });
   }
   /* One stage folder, verified by the stage rules and its screenshots. Anything short of a verified stage is incomplete. */
+  /* A stage is its folder's process's: one whose record or checklist names another process (copied in by hand) is
+     unusable, named, so no test run or version is ever written for the wrong process. */
   function readStage(fs, proc, folder) {
     var base = 'staged/' + proc + '/' + folder + '/';
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
       return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text }, { stage: true });
+    }).then(function (res) {
+      if (res.ok && res.info.process !== proc) res = { ok: false, why: 'It\'s a stage of ' + String(res.info.process) + ', in ' + proc + '\'s folder. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
+      else if (res.ok && res.map.meta.process !== proc) res = { ok: false, why: 'Its checklist is for ' + String(res.map.meta.process) + ', not ' + proc + '. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
+      return res;
     }).then(function (res) {
       res.folder = folder; res.process = proc;
       return checkImages(fs, base, res);
@@ -1528,6 +1534,27 @@ PF.repo = (function () {
       return sp;
     });
   }
+  /* The first version that can't say whether it is a given stage's promotion: one that can't be read, reads incomplete (no
+     format this copy reads, process, number, folder or fingerprints, or a stagedFrom that names no stage folder), names
+     another process, or doesn't verify. Any of these could be the promotion, so the answer is unknown, never "not this
+     stage". A version that names this stage is its promotion whatever else is wrong with it: the caller says so. */
+  function promotionUnknown(pubs, stage) {
+    var sfOk = function (sf) { return !!sf && typeof sf === 'object' && !Array.isArray(sf) && typeof sf.folder === 'string' && P.STAGE.test(sf.folder); };
+    if (pubs.some(function (x) { return namesStage(x, stage); })) return null;
+    for (var k = 0; k < pubs.length; k++) {
+      var x = pubs[k], i = x.info;
+      if (!i || typeof i !== 'object' || Array.isArray(i)) return { pub: x, why: x.why };
+      if ((i.format !== P.FORMAT && i.format !== P.FORMAT2) || typeof i.process !== 'string' || typeof i.version !== 'number' || i.folder !== x.folder || typeof i.mapHash !== 'string' || typeof i.typesHash !== 'string' ||
+        (Object.prototype.hasOwnProperty.call(i, 'stagedFrom') && !sfOk(i.stagedFrom))) return { pub: x, why: 'its publication.json is incomplete' };
+      if (i.process !== x.process) return { pub: x, why: 'its publication.json is for ' + i.process };
+      if (!x.ok) return { pub: x, why: x.why || 'it doesn\'t verify' };
+    }
+    return null;
+  }
+  function namesStage(x, stage) {
+    var sf = x.info && typeof x.info === 'object' ? x.info.stagedFrom : null;
+    return !!sf && typeof sf === 'object' && sf.folder === stage;
+  }
   /* Retire or reopen a stage: a new decision file in this window's name, the rev after the latest read now. Never an edit. */
   /* Promote and decide take one lock per process (o.lock: the app's cross-window lock on this computer), and check everything
      again inside it, so two windows here never promote the same stage twice. Across computers, two at once is the clash
@@ -1556,9 +1583,9 @@ PF.repo = (function () {
     }).then(function (r) {
       var pubs = r[0], st = r[1], sp = r[2];
       if (!st.ok) throw new Error('This staged version can\'t be read now: ' + st.why);
-      var unread = pubs.filter(function (x) { return !x.info || typeof x.info !== 'object'; })[0];
-      if (unread) throw new Error('publications/' + proc + '/' + unread.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
-      var mine = pubs.filter(function (x) { return x.info.stagedFrom && x.info.stagedFrom.folder === stageFolder; })[0];
+      var unread = promotionUnknown(pubs, stageFolder);
+      if (unread) throw new Error('publications/' + proc + '/' + unread.pub.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
+      var mine = pubs.filter(function (x) { return namesStage(x, stageFolder); })[0];
       if (mine) throw new Error('It\'s already the default, v' + mine.info.version + '. Start an ordinary run on it.');
       var whyNot = PF.staging.promoteWhy(PF.staging.status(st, sp.decisions, pubs));
       if (whyNot) throw new Error(whyNot);
@@ -1601,11 +1628,11 @@ PF.repo = (function () {
       ]).then(function (r) {
         var pubs = r[0], sp = r[1], st = r[2];
         if (!st.ok) throw new Error('This stage can\'t be read now: ' + st.why);
-        /* A version whose record can't be read could be this stage's promotion: never promote past one. One that names this
-           stage, complete or not, already is. */
-        var unread = pubs.filter(function (x) { return !x.info || typeof x.info !== 'object'; })[0];
-        if (unread) throw new Error('publications/' + proc + '/' + unread.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage was already published. Try again once the folder has synced.');
-        var mine = pubs.filter(function (x) { return x.info.stagedFrom && x.info.stagedFrom.folder === stageFolder; })[0];
+        /* A version whose record can't be read, or reads incomplete, could be this stage's promotion: never promote past one.
+           One that names this stage, complete or not, already is. */
+        var unread = promotionUnknown(pubs, stageFolder);
+        if (unread) throw new Error('publications/' + proc + '/' + unread.pub.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage was already published. Try again once the folder has synced.');
+        var mine = pubs.filter(function (x) { return namesStage(x, stageFolder); })[0];
         if (mine) throw new Error('It\'s already the default: it was published as ' + mine.folder + (mine.ok ? '.' : ', which isn\'t complete yet (' + mine.why + ').'));
         var s = PF.staging.status(st, sp.decisions, pubs), whyNot = PF.staging.promoteWhy(s);
         if (whyNot) throw new Error(whyNot);

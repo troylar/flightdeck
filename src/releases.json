@@ -39,7 +39,7 @@
         "kind": "new",
         "area": "Runs",
         "title": "Test runs on a staged version",
-        "now": "Choose Start a test run on a staged version's line. A test run is labeled Test run everywhere it shows, and it isn't counted with real runs: How runs go says how many it left out, and Home skips them. Its follow-ups and corrections are real. Older copies show a test run by name only and never change it, but they count it in Home's running number until they update to 2.1.",
+        "now": "Choose Start a test run on a staged version's line. A test run is labeled Test run everywhere it shows, and it isn't counted with real runs: How runs go says how many it left out, and Home skips them. Its follow-ups and corrections are real. Until they update to 2.1, older copies show it by name only, count it in Home's running number and list its stage as a version in How runs go.",
         "before": "A staged version couldn't be tried before it became the default.",
         "where": "The process page, All versions; Runs"
       },

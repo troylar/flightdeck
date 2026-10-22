@@ -130,7 +130,7 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 ### Staging and test runs (2.1)
 
-A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but they count a test run in Home's running number until they update to 2.1. A version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it, so one with `only when` needs 2.1.
+A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but until they update to 2.1 they count a test run in Home's running number, and How runs go and Compare versions list its stage as one more version with the number it proposes. Once that stage is made the default, an older copy shows the stage and the new version as two folders with the same number, marked Clash. Updating to 2.1 fixes both. A version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it, so one with `only when` needs 2.1.
 
 ### Two things to know when moving to 2.1
 
