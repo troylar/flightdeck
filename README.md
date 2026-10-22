@@ -701,8 +701,8 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | Command | Does |
 |---|---|
 | `flightdeck draft read <folder> <process> --json` | The draft's exact text and revision, who has it open, and this session's proposals |
-| `flightdeck draft save <folder> <process> --expect <rev\|none> --from <file\|-> --json` | Writes the draft only when nobody has it open and it's exactly what was read; otherwise writes a proposal a person applies in the app |
-| `flightdeck draft propose …` | The same arguments, `--json` included; always writes a proposal |
+| `flightdeck draft save <folder> <process> --expect <rev\|none> --from <file\|-> [--base <file>] --json` | Writes the draft only when nobody has it open and it's exactly what was read; otherwise writes a proposal a person applies in the app. If the text you started from is gone (someone changed the draft since you read it), it writes nothing and asks for it with `--base` |
+| `flightdeck draft propose …` | The same arguments, `--json` included; writes a proposal instead of the draft, with the same `--base` rule |
 | `flightdeck skill register <folder> --from <file\|->` | Registers a skill against the exact version it was built from (versions made with Flightdeck 2.0). The only writer of `skill-registrations/` |
 
 **Options:**
