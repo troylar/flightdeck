@@ -165,10 +165,10 @@ rule('2.0.0 has its own release entry, in plain US English, naming the notes and
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 
-rule('2.1.0 has its own release entry above 2.0.0: only when, and that a version using it needs Flightdeck 2.1', () => {
+rule('2.1.0 has its own release entry above 2.0.1 and 2.0.0: only when, and that a version using it needs Flightdeck 2.1', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
   assert.strictEqual(r.version, '2.1.0');
-  assert.strictEqual(rel[1].version, '2.0.0');
+  assert.deepStrictEqual(rel.slice(1, 3).map(x => x.version), ['2.0.1', '2.0.0'], '2.0.1\'s notes ship with 2.1');
   const text = JSON.stringify(r);
   assert.ok(/only when/i.test(text) && /Not needed/.test(text) && /needs Flightdeck 2\.1/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
