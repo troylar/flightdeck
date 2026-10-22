@@ -555,9 +555,11 @@ rule('The checker reads conditions (2.1) like the app: the same parse errors, th
       await forge(13, swap('only when ^due is at most 2026-12-31', 'only when ^due is at most 2026-02-30')),
       await forge(14, swap('only when ^path is fast', 'only when ^path is fast\n  only when ^hot is yes\n  only when ^risk is high\n  only when ^amount is set\n  only when ^due is set')),
       await forge(15, swap('- [ ] {confirm} Pick the path {#pick}\n', '- [ ] {confirm} Pick the path {#pick}\n  only when ^ticket is one of a | b\n')),
-      await forge(16, swap('## Decide {#decide}\n', '## Decide {#decide}\n\nonly when ^hot is yes\n'))
+      await forge(16, swap('## Decide {#decide}\n', '## Decide {#decide}\n\nonly when ^hot is yes\n')),
+      await forge(18, swap('only when ^hot is not no', 'only when ^hot is\u0085no')),
+      await forge(19, swap('only when ^amount is at least 010.50', 'only when ^amount is at least\u001c10'))
     ];
-    const good = [await forge(17, md)];
+    const good = [await forge(17, md), await forge(20, swap('only when ^hot is not no', 'only when ^hot is\ufeffnot\u3000no')), await forge(21, swap('  only when ^runbook is set', '\u00a0 only when ^runbook is set'))];
     const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
     const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
     const ver = out.publications.x;

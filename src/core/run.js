@@ -375,8 +375,9 @@ PF.run = (function () {
 
   /* passed | waived | failed | review | ready | open | locked, and skipped (2.1): the phase isn't needed in this run. */
   function gateStatus(r, map, pi) {
-    if (map.phases[pi] && phaseSkipped(r, map, pi)) return 'skipped';
+    /* An earlier gate that isn't through locks this phase whether or not it's needed: skipping never opens the way past it. */
     if (pi > 0 && !gateOk(gateStatus(r, map, pi - 1))) return 'locked';
+    if (map.phases[pi] && phaseSkipped(r, map, pi)) return 'skipped';
     var g = map.phases[pi].gate, rec = r.gates[g.id], info = phaseInfo(r, map, pi);
     if (rec && rec.s === 'failed') return 'failed';
     if (rec && rec.s === 'review') return 'review';
@@ -678,15 +679,19 @@ PF.run = (function () {
       var byCond = condUses(x.phase, x.step, field);
       if (x.step.id !== except && (x.step.binds.indexOf(field) >= 0 || viaChild || byCond) && a && (a.s === 'done' || a.s === 'na')) { if (viaChild) viaChildren.push(x.step.id); answer(r, x.step.id, { s: 'recheck', reason: field + ' changed' + (viaChild ? ': its ' + a.child.process + ' run was for the old value' : x.step.binds.indexOf(field) < 0 && byCond ? ': this step\'s condition uses it' : ''), by: who, at: now }); n++; }
     });
-    /* Gates that approved the old value, or whose phase now has a re-check, stay "needs review" until someone passes them again. */
+    /* Conditions: what applies now, and the steps that weren't needed before and are now (needed or held). */
+    var after = tested.map(function (x) { return applies(r, map, x.phaseIndex, x.step).applies; });
+    var became = tested.filter(function (x, k) { return before[k] === false && after[k] !== false; }).map(function (x) { return x.step.id; });
+    /* Gates that approved the old value, whose phase now has a re-check, or whose phase has work it didn't have when it was
+       passed, stay "needs review" until someone passes them again. */
     map.phases.forEach(function (p) {
       var g = r.gates[p.gate.id];
       if (!g || (g.s !== 'passed' && g.s !== 'waived')) return;
-      var tied = p.gate.binds.indexOf(field) >= 0 || p.steps.some(function (st) { var a = r.steps[st.id]; return a && a.s === 'recheck' && (st.binds.indexOf(field) >= 0 || viaChildren.indexOf(st.id) >= 0 || condUses(p, st, field)); });
+      var tied = p.gate.binds.indexOf(field) >= 0 || p.steps.some(function (st) { var a = r.steps[st.id]; return became.indexOf(st.id) >= 0 || (a && a.s === 'recheck' && (st.binds.indexOf(field) >= 0 || viaChildren.indexOf(st.id) >= 0 || condUses(p, st, field))); });
       if (tied) r.gates[p.gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: field + ' changed', approved: g.approved };
     });
     var nowNeeded = 0, notNeeded = 0;
-    tested.forEach(function (x, k) { var after = applies(r, map, x.phaseIndex, x.step).applies; if (after !== before[k]) { if (after === false) notNeeded++; else if (before[k] === false) nowNeeded++; } });
+    tested.forEach(function (x, k) { if (after[k] !== before[k]) { if (after[k] === false) notNeeded++; else if (before[k] === false) nowNeeded++; } });
     var plural = function (k, what) { return k + ' step' + (k === 1 ? '' : 's') + ' ' + what; };
     var parts = [n ? plural(n, 'need a re-check') : '', nowNeeded ? plural(nowNeeded, 'now needed') : '', notNeeded ? plural(notNeeded, 'not needed now') : ''].filter(Boolean);
     addLog(r, who, now, 'Changed ' + field + (old ? ' from ' + old : '') + ' to ' + (v || '(empty)') + (parts.length ? '; ' + parts.join(', ') : ''));
@@ -946,12 +951,20 @@ PF.run = (function () {
     want.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
     return out;
   }
+  /* The run details a step's conditions and its phase's test (2.1): a child run counts only for the values it was started
+     with, as for the details the step is bound to. */
+  function condFields(r, step) {
+    if (!step || !r) return [];
+    var map; try { map = mapOf(r); } catch (e) { return []; }
+    var x = map && M.findStep(map, step.id);
+    return x ? C.names(x.phase, x.step) : [];
+  }
   function childInputs(r, step, snapshot) {
     var f = fieldsOf(r, step), want = snapshot ? Object.keys(snapshot) : String(f.carry || '').split(/[,\s]+/).filter(Boolean), out = {};
     if (!snapshot && !want.length) want = Object.keys(r.details);
     /* What the step itself produces (sets:) is its output, not something its child was started for. */
     var own = String(f.sets || '').split(',').map(function (x) { return x.trim(); });
-    (step.binds || []).concat(want).filter(function (k) { return own.indexOf(k) < 0; }).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
+    (step.binds || []).concat(condFields(r, step), want).filter(function (k) { return own.indexOf(k) < 0; }).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
     return out;
   }
   function childCurrent(r, step, a) {
@@ -1607,7 +1620,7 @@ PF.run = (function () {
   return {
     RUN_ID: RUN_ID,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
-    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
+    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,

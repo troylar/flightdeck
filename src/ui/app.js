@@ -1666,7 +1666,7 @@
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* The child counts for exactly the details it was started with: snapshot them now, before any save can let them change. */
     var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
-    var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
+    var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).concat(R.condFields(parent, x.step)).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
     own.forEach(function (k) { delete inputs[k]; });
     var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { say(err.message, 'warn'); render(); return; }

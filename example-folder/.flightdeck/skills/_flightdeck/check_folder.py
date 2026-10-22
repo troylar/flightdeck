@@ -334,10 +334,21 @@ def _value(kind, options, raw):
     return t
 
 
+# JavaScript's \s and . (Python's differ: \s takes \x1c-\x1f and \x85 but not \ufeff; . takes \r, \u2028 and \u2029).
+JS_S = "[" + re.escape(JS_WS) + "]"
+JS_DOT = "[^\n\r\u2028\u2029]"
+
+
+def _after(word, rest):
+    """The text after a leading word and JavaScript white space (as /^word\\s+(.+)$/i reads it), or None."""
+    m = re.match("^" + word + JS_S + "+(" + JS_DOT + "+)$", rest, re.I)
+    return m.group(1) if m else None
+
+
 def parse_condition(text, context, typed):
     """(test, why) for one "only when" line's text, as PF.conditions.parse reads it."""
     t = js_trim(text)
-    m = re.match(r"^\^((?:%s|-){1,60})\s+is\s+(.+)$" % W, t)
+    m = re.match("^\\^((?:%s|-){1,60})%s+is%s+(%s+)$" % (W, JS_S, JS_S, JS_DOT), t)
     if not m:
         return None, "Write a condition as \"only when ^detail is value\" (or is set, is not set, is one of a|b, is at least, is at most)."
     name, rest = m.group(1), js_trim(m.group(2))
@@ -348,14 +359,14 @@ def parse_condition(text, context, typed):
         op = "set"
     elif low == "not set":
         op = "notset"
-    elif re.match(r"^one of\s+(.+)$", rest, re.I):
-        op, raw = "oneof", [js_trim(x) for x in re.match(r"^one of\s+(.+)$", rest, re.I).group(1).split("|")]
-    elif re.match(r"^at least\s+(.+)$", rest, re.I):
-        op, raw = "atleast", [js_trim(re.match(r"^at least\s+(.+)$", rest, re.I).group(1))]
-    elif re.match(r"^at most\s+(.+)$", rest, re.I):
-        op, raw = "atmost", [js_trim(re.match(r"^at most\s+(.+)$", rest, re.I).group(1))]
-    elif re.match(r"^not\s+(.+)$", rest, re.I):
-        op, raw = "isnot", [js_trim(re.match(r"^not\s+(.+)$", rest, re.I).group(1))]
+    elif _after("one of", rest) is not None:
+        op, raw = "oneof", [js_trim(x) for x in _after("one of", rest).split("|")]
+    elif _after("at least", rest) is not None:
+        op, raw = "atleast", [js_trim(_after("at least", rest))]
+    elif _after("at most", rest) is not None:
+        op, raw = "atmost", [js_trim(_after("at most", rest))]
+    elif _after("not", rest) is not None:
+        op, raw = "isnot", [js_trim(_after("not", rest))]
     else:
         op, raw = "is", [rest]
     d = typed.get(name) or {"kind": "text"}
@@ -465,7 +476,7 @@ def parse_map(md):
                 steps.append(step)
             i += 1
             continue
-        m = re.match(r"^\s{2,}only when\b\s*(.*)$", line, re.I)
+        m = re.match("^" + JS_S + "{2,}only when\\b" + JS_S + "*(" + JS_DOT + "*)$", line, re.I)
         if m:
             target = step or (phase if phase is not None and not gate and not track else None)
             if not target:

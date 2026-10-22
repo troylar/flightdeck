@@ -7483,6 +7483,8 @@ rule('Conditions (2.1): a child run is never started for a step that isn\'t need
   app.click('edit', 'detail:environment'); app.set('edit-input', 'production'); app.click('save-edit'); await app.tick(40);
   app.click('start-child', 'notes'); await app.tick(120);
   assert.strictEqual(children(), before + 1, 'needed again, it starts');
+  const link = app.run().json.steps.notes.child;
+  assert.strictEqual(link && link.inputs.environment, 'production', 'the child counts for the value its condition tested');
 });
 
 run();

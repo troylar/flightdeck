@@ -179,7 +179,8 @@ rule('What applies is read from the run\'s details: Not needed steps aren\'t cou
   assert.strictEqual(R.phaseOpen(r, map, 1), true, 'the next phase opens');
   const info = R.phaseInfo(r, map, 2);
   same([info.total, info.left, info.mustLeft, info.notNeeded.map(s => s.id), info.held.length], [1, 1, 1, ['board', 'finance'], 0]);
-  assert.strictEqual(R.gateStatus(r, map, 3), 'skipped', 'the path isn\'t fast (not chosen yet)');
+  assert.strictEqual(R.gateStatus(r, map, 3), 'locked', 'behind an open gate, a phase that isn\'t needed is still locked');
+  assert.strictEqual(R.phaseInfo(r, map, 3).skipped, true, 'the path isn\'t fast (not chosen yet)');
   same(R.totals(r, map), { done: 0, total: 2 }, 'pick and ship');
 });
 
@@ -231,7 +232,7 @@ rule('A changed detail sends answered steps its conditions use back for a re-che
 
 rule('A detail set by an earlier step (sets:) decides a later phase, and changing it re-checks what it decided', () => {
   const r = start({ ticket: 'T-1', risk: 'low', hotfix: 'no', amount: '1' }), map = mapOf(r);
-  assert.strictEqual(R.gateStatus(r, map, 3), 'skipped', 'path is empty: not needed yet');
+  assert.strictEqual(R.phaseInfo(r, map, 3).skipped, true, 'path is empty: not needed yet');
   upTo(r, 'decide');
   R.done(r, map, 'pick', 'person-avery', NOW, { [R.detailKey('path')]: 'fast' });
   assert.strictEqual(r.details.path, 'fast');
@@ -375,6 +376,56 @@ rule('READ/2: a process lists each phase\'s and step\'s conditions; a run says w
   assert.ok(/12a/.test(st('finance').held), st('finance').held);
   same([st('page').held, st('board').held, st('ship').held], [null, null, null]);
   same(o.run.gates.map(g => g.applies), [false, true, true, false], "path is empty, so the fast lane is not needed");
+});
+
+rule('Skipping never opens the way past an earlier gate: a phase after a skipped one stays locked until that earlier gate is through', () => {
+  const r = start({ ticket: 'T-1', risk: 'low', hotfix: 'no', amount: '1' }), map = mapOf(r);
+  // hotfix (not needed), decide (open), release, fast (not needed: the path isn't fast).
+  assert.strictEqual(R.gateStatus(r, map, 1), 'open');
+  assert.strictEqual(R.gateStatus(r, map, 3), 'locked', 'not needed, but behind an open gate');
+  assert.ok(!R.gateOk(R.gateStatus(r, map, 3)), 'so nothing after it could open');
+  upTo(r, 'fast');
+  assert.strictEqual(R.gateStatus(r, map, 3), 'skipped', 'every gate before it through: now it is skipped');
+  // With release's gate failed, the skipped phase after it is locked again.
+  r.gates[map.phases[2].gate.id] = { s: 'failed', by: 'person-avery', at: LATER, reason: 'x', approved: {} };
+  assert.strictEqual(R.gateStatus(r, map, 3), 'locked');
+});
+
+rule('A phase passed while a step wasn\'t needed goes to review when that step becomes needed, and stays in review after it is answered', () => {
+  const r = start({ ticket: 'T-1', risk: 'low', hotfix: 'no', amount: '1' }), map = mapOf(r);
+  upTo(r, 'release');
+  R.done(r, map, 'ship', 'person-avery', NOW);
+  R.pass(r, map, 2, 'person-avery', NOW);
+  assert.strictEqual(R.gateStatus(r, map, 2), 'passed');
+  R.setDetail(r, map, 'risk', 'high', 'person-avery', LATER);
+  assert.strictEqual(r.gates[map.phases[2].gate.id].s, 'review', 'the record says review');
+  R.done(r, map, 'board', 'person-avery', LATER);
+  assert.strictEqual(R.gateStatus(r, map, 2), 'review', 'never passed again by itself');
+});
+
+rule('A child run counts only for the values its step\'s conditions tested: changing one re-checks the step and the child no longer checks it', () => {
+  const md = MD.replace('- [ ] {confirm} Tell the change board {#board}\n  only when ^risk is high', '- [ ] {run.process} Run the board check {#board}\n  process: board-check\n  carry: ticket\n  only when ^risk is set');
+  const r = start({ ticket: 'T-1', risk: 'high', hotfix: 'no', amount: '1' }, { md }), map = mapOf(r);
+  upTo(r, 'release');
+  const step = map.phases[2].steps.find(s => s.id === 'board');
+  same(R.condFields(r, step), ['risk']);
+  r.steps.board = { s: 'done', by: 'person-avery', at: NOW, child: { process: 'board-check', id: 'kid1', inputs: { ticket: 'T-1', risk: 'high' } } };
+  assert.ok(R.childCurrent(r, step, r.steps.board), 'current for the values it was started with');
+  R.setDetail(r, map, 'risk', 'low', 'person-avery', LATER);
+  assert.strictEqual(R.applies(r, map, 2, step).applies, true, 'still needed');
+  assert.strictEqual(r.steps.board.s, 'recheck');
+  assert.ok(!R.childCurrent(r, step, r.steps.board), 'the child was for risk high, so it can\'t check the step again');
+});
+
+rule('Skill signatures: a step covers its own conditions and whether the gates around it need a pass; a checklist without conditions signs as before', () => {
+  const S = PF.signature, sig = (md, id) => S.steps(M.parse(md), {}, {}, null)[id].sig;
+  const changed = MD.replace('  only when ^amount is at least 10000', '  only when ^amount is at least 20000');
+  assert.notStrictEqual(sig(MD, 'finance'), sig(changed, 'finance'), 'its own condition');
+  assert.notStrictEqual(sig(MD, 'ship'), sig(changed, 'ship'), 'a sibling decides whether the closing gate is needed');
+  assert.notStrictEqual(sig(MD, 'lane'), sig(changed, 'lane'), 'the phase before decides whether the entry gate is needed');
+  assert.strictEqual(sig(MD, 'page'), sig(changed, 'page'), 'unrelated phases are untouched');
+  const plain = MD.split('\n').filter(l => !/only when/.test(l)).join('\n');
+  Object.keys(S.steps(M.parse(plain), {}, {}, null)).forEach(id => assert.ok(sig(plain, id).indexOf('"when"') < 0, id));
 });
 
 run();
