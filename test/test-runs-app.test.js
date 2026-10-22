@@ -134,4 +134,17 @@ rule('Back and Forward bring the test-run form back as a test-run form, never as
   assert.strictEqual(testRuns(app).length, 1, 'a test run, not a counted run');
 });
 
+rule('A test run kept in this browser restores as a test run: the window\'s own fields never refuse it', async () => {
+  const { app, r } = await started();
+  const path = 'runs/release/' + r.id + '/run.json', o = JSON.parse(app.fs.files[path].t);
+  const local = Object.assign({}, o, { title: 'Kept here', _path: path, _fileHash: 'x' });
+  app.store['preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + r.id] = JSON.stringify(local);
+  app.click('nav', 'runs'); await app.tick(); app.click('open-run', 'release/' + r.id); await app.tick(40);
+  assert.ok(/data-act="restore-local"/.test(app.html()), 'offered: ' + (app.html().match(/kept in this browser[^<]*/) || [''])[0]);
+  app.click('restore-local'); await app.tick(200);
+  const back = JSON.parse(app.fs.files[path].t);
+  assert.ok(back.title === 'Kept here' && back.test === true, 'restored: ' + app.live());
+  assert.deepStrictEqual(Object.keys(back).slice(-2), ['test', 'stage']);
+});
+
 run();

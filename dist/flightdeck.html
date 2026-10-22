@@ -5609,7 +5609,7 @@ PF.run = (function () {
      folder, staged and test-run both listed, and the stage's payload. Anything else is read-only here (never rewritten). */
   function testProblem(o) {
     var f = Array.isArray(o.features) ? o.features : [], has = own(o, 'test') || own(o, 'stage') || f.indexOf('test-run') >= 0 || f.indexOf('staged') >= 0;
-    if (!has) return '';
+    if (!has) return typeof o.folder === 'string' && PF.publish.STAGE.test(o.folder) ? 'its folder is a stage, but it isn\'t a test run' : '';
     var st = o.stage;
     if (o.test !== true) return 'its "test" isn\'t true';
     if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder') return 'its "stage" isn\'t { folder }';
@@ -7229,9 +7229,10 @@ PF.run = (function () {
       if (!tmap && Array.isArray(o.migrations) && o.migrations.length) return nameOnly(o, needs3(o));
       var inv = tmap ? invalidValues(r, tmap) : null;
       if (inv) r._invalid = inv;
-      /* A test run (2.1) keeps its frozen fields last; any other shape of them is read-only, still labeled when it says test. */
+      /* A test run (2.1) keeps its frozen fields last; any other shape of them is read-only. */
       var tp = testProblem(o);
-      if (tp) { if (!r._unrunnable) r._unrunnable = 'This test run\'s record isn\'t one Flightdeck writes (' + tp + '), so it\'s shown read-only.'; if (o.test === true) r._test = true; }
+      /* Anything that claims a test run's fields or a stage is read-only and labeled a test run, so it's never counted. */
+      if (tp) { if (!r._unrunnable) r._unrunnable = 'This test run\'s record isn\'t one Flightdeck writes (' + tp + '), so it\'s shown read-only.'; r._test = true; }
       else if (o.test === true) { r.test = true; r.stage = { folder: o.stage.folder }; }
     }
     return r;
@@ -8771,7 +8772,7 @@ PF.insights = (function () {
     function add(folder, version) { if (!folder) return null; if (!by[folder]) out.push(by[folder] = { folder: folder, version: +version || 0, clash: false, runs: 0 }); return by[folder]; }
     (pubs || []).forEach(function (p) { if (p && p.info) add(p.info.folder, p.info.version); });
     /* A test run's stage is never a version to choose (2.1). */
-    (all || []).forEach(function (r) { if (r && r.process === process && !R.isTest(r)) { var f = add(r.folder, r.version); if (f) f.runs++; } });
+    (all || []).forEach(function (r) { if (r && r.process === process && !R.isTest(r) && !PF.publish.STAGE.test(String(r.folder))) { var f = add(r.folder, r.version); if (f) f.runs++; } });
     var seen = {}; out.forEach(function (f) { seen[f.version] = (seen[f.version] || 0) + 1; });
     out.forEach(function (f) { f.clash = (clashes || []).indexOf(f.version) >= 0 || seen[f.version] > 1; });
     return out.sort(function (a, b) { return b.version - a.version || (a.folder < b.folder ? -1 : 1); });
@@ -25205,7 +25206,7 @@ PF.examples = (function () {
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      recover(function () { var c = R.sanitize(R.testLast(local)); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
+      recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {

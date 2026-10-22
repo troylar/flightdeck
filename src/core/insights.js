@@ -593,7 +593,7 @@ PF.insights = (function () {
     function add(folder, version) { if (!folder) return null; if (!by[folder]) out.push(by[folder] = { folder: folder, version: +version || 0, clash: false, runs: 0 }); return by[folder]; }
     (pubs || []).forEach(function (p) { if (p && p.info) add(p.info.folder, p.info.version); });
     /* A test run's stage is never a version to choose (2.1). */
-    (all || []).forEach(function (r) { if (r && r.process === process && !R.isTest(r)) { var f = add(r.folder, r.version); if (f) f.runs++; } });
+    (all || []).forEach(function (r) { if (r && r.process === process && !R.isTest(r) && !PF.publish.STAGE.test(String(r.folder))) { var f = add(r.folder, r.version); if (f) f.runs++; } });
     var seen = {}; out.forEach(function (f) { seen[f.version] = (seen[f.version] || 0) + 1; });
     out.forEach(function (f) { f.clash = (clashes || []).indexOf(f.version) >= 0 || seen[f.version] > 1; });
     return out.sort(function (a, b) { return b.version - a.version || (a.folder < b.folder ? -1 : 1); });

@@ -89,14 +89,17 @@ rule('Any other shape of the test-run fields is read-only, labeled a test run wh
     'version 0': Object.assign({}, base, { version: 0 }),
     'version as text': Object.assign({}, base, { version: '3' }),
     'test and stage first': (() => { const o = { test: true, stage: base.stage }; Object.keys(base).forEach(k => { if (k !== 'test' && k !== 'stage') o[k] = base[k]; }); return o; })(),
-    'a field after stage': Object.assign({}, base, { extra: 1 })
+    'a field after stage': Object.assign({}, base, { extra: 1 }),
+    'no test, stage kept': (() => { const o = Object.assign({}, base); delete o.test; const st = o.stage; delete o.stage; o.stage = st; return o; })(),
+    'an ordinary run on a stage folder': (() => { const o = Object.assign({}, base, { features: ['typed-details', 'typed-evidence'] }); delete o.test; delete o.stage; return o; })()
   };
   const fs = new PF.fs.MemoryFS('bad:' + Math.random(), null);
   for (const name of Object.keys(bad)) {
     const r = R.sanitize(JSON.parse(JSON.stringify(bad[name])));
     assert.ok(r && r._unrunnable, name + ': read-only');
     assert.ok(!('test' in r) || r._unrunnable, name);
-    if (bad[name].test === true) assert.ok(R.isTest(r), name + ': still labeled a test run');
+    assert.ok(R.isTest(r), name + ': labeled a test run, so it\'s never counted');
+    assert.ok(!PF.insights.folders([r], r.process, [], []).some(f => /^stage-/.test(f.folder)), name + ': never a version to choose');
     fs.reset({ ['runs/backup/run-t/run.json']: JSON.stringify(bad[name], null, 2) });
     const before = snap(fs);
     await assert.rejects(() => repo.saveRun(fs, r, 'w-avery'), e => e.unrunnable, name);

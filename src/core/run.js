@@ -74,7 +74,7 @@ PF.run = (function () {
      folder, staged and test-run both listed, and the stage's payload. Anything else is read-only here (never rewritten). */
   function testProblem(o) {
     var f = Array.isArray(o.features) ? o.features : [], has = own(o, 'test') || own(o, 'stage') || f.indexOf('test-run') >= 0 || f.indexOf('staged') >= 0;
-    if (!has) return '';
+    if (!has) return typeof o.folder === 'string' && PF.publish.STAGE.test(o.folder) ? 'its folder is a stage, but it isn\'t a test run' : '';
     var st = o.stage;
     if (o.test !== true) return 'its "test" isn\'t true';
     if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder') return 'its "stage" isn\'t { folder }';
@@ -1694,9 +1694,10 @@ PF.run = (function () {
       if (!tmap && Array.isArray(o.migrations) && o.migrations.length) return nameOnly(o, needs3(o));
       var inv = tmap ? invalidValues(r, tmap) : null;
       if (inv) r._invalid = inv;
-      /* A test run (2.1) keeps its frozen fields last; any other shape of them is read-only, still labeled when it says test. */
+      /* A test run (2.1) keeps its frozen fields last; any other shape of them is read-only. */
       var tp = testProblem(o);
-      if (tp) { if (!r._unrunnable) r._unrunnable = 'This test run\'s record isn\'t one Flightdeck writes (' + tp + '), so it\'s shown read-only.'; if (o.test === true) r._test = true; }
+      /* Anything that claims a test run's fields or a stage is read-only and labeled a test run, so it's never counted. */
+      if (tp) { if (!r._unrunnable) r._unrunnable = 'This test run\'s record isn\'t one Flightdeck writes (' + tp + '), so it\'s shown read-only.'; r._test = true; }
       else if (o.test === true) { r.test = true; r.stage = { folder: o.stage.folder }; }
     }
     return r;
