@@ -19,8 +19,8 @@ const sha = (text) => crypto.createHash('sha256').update(text, 'utf8').digest('h
 const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 function git(...a) { return cp.execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1048576, stdio: ['ignore', 'pipe', 'ignore'] }); }
 function record() { return JSON.parse(fs.readFileSync(RECORD, 'utf8')); }
-/* Every recorded tag, oldest first, with whether it's at or above the floor. */
-function tags() { return Object.keys(record().tags).sort((a, b) => cmp(a.slice(1), b.slice(1))).map((tag) => ({ tag, version: tag.slice(1), supported: cmp(tag.slice(1), FLOOR) >= 0 })); }
+/* Every recorded tag, oldest first, with its major version and whether it's at or above the floor. */
+function tags() { return Object.keys(record().tags).sort((a, b) => cmp(a.slice(1), b.slice(1))).map((tag) => ({ tag, version: tag.slice(1), major: +tag.slice(1).split('.')[0], supported: cmp(tag.slice(1), FLOOR) >= 0 })); }
 
 /* build.py joins source files with "\n" and escapes "</script" in every block; so does this, to find them in the shipped page. */
 const safe = (s) => s.replace(/<\/script/g, '<\\/script');

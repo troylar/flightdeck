@@ -47,10 +47,17 @@ rule('This version publishes a typed checklist as /2 naming typed-details and ty
   same([r.format, r.features, r.details.rows, r.migrations.map(x => [x.path, x.verdict])], ['preflight-run/3', ['typed-details', 'typed-evidence'], '', [['details.rows', 'ambiguous']]]);
 });
 
-TAGS.forEach((t) => rule(t.tag + ': names the typed /2 version unusable, lists the typed run/3 by name only, can\'t use the 2.0 step type, and writes nothing', async () => {
+TAGS.forEach((t) => rule(t.tag + ': names the typed /2 version unusable, lists the typed run/3 by name only, can\'t use the 2.0 step type, and writes nothing (2.0.0: reads and uses all three)', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files, folder: f2 } = await folder(), m = H.memFolder(OLD, files);
   const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
+  if (t.major >= 2) {
+    assert.strictEqual(proc.index.latest.info.version, 2, 'the typed version is the latest');
+    const y2 = d.runs.find(r => r.id === 'run-y');
+    assert.ok(y2 && !y2._unrunnable && y2.migrations.length === 1 && y2.details.rows === '', 'the typed run, in full, with its open migration: ' + (y2 && y2._unrunnable));
+    same(OLD.types.checkCustom(COUNT), [], 'the 2.0 step type is usable');
+    return;
+  }
   assert.strictEqual(proc.index.latest.info.version, 1, 'the /1 version stays the latest');
   const v2 = (proc.pubs || []).find(x => x.folder === f2);
   assert.ok(v2 && !v2.ok && v2.unusable, 'the typed version is unusable: ' + JSON.stringify(v2 && v2.why));
@@ -63,8 +70,13 @@ TAGS.forEach((t) => rule(t.tag + ': names the typed /2 version unusable, lists t
   assert.ok(OLD.types.checkCustom(COUNT).length > 0, t.tag + ' would use the 2.0 step type');
 }));
 
-TAGS.forEach((t) => rule(t.tag + ': a typed draft is one it won\'t publish (its context line or its evidence is refused)', () => {
+TAGS.forEach((t) => rule(t.tag + ': a typed draft is one it won\'t publish (its context line or its evidence is refused; 2.0.0 publishes it)', () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  if (t.major >= 2) {
+    const ok = OLD.map.parse(TYPED), types = { 'team.restore': OLD.types.customType(G.STEP_TYPE), 'team.count': OLD.types.customType(COUNT) };
+    same((ok.errors || []).map(e => e.msg).concat(OLD.map.check(ok, { people: G.PEOPLE, types }).blockers), [], 'nothing stops it');
+    return;
+  }
   const map = OLD.map.parse(TYPED), types = { 'team.restore': OLD.types.customType(G.STEP_TYPE) };
   const errors = (map.errors || []).map(e => e.msg || e.message || String(e)).concat(OLD.map.check(map, { people: G.PEOPLE, types }).blockers);
   assert.ok(errors.length, t.tag + ' would publish a typed draft');

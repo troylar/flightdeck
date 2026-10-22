@@ -3,7 +3,7 @@
 // A sandbox can be deterministic (opts.at): the clock starts there and moves one second per reading, and Math.random follows
 // a fixed seed, so a writer run twice writes the same bytes (tools/old-folders.js depends on it).
 'use strict';
-const fs = require('fs'), path = require('path'), vm = require('vm');
+const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
 const bundles = require('../tools/old-bundles');
 const { FILES } = require('./harness');
 const SRC = path.join(__dirname, '..', 'src');
@@ -90,4 +90,37 @@ function writeTree(dir, files) {
   });
 }
 
-module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded };
+/* What is newer than a release, for the rules that show it refuses a newer file: to a 1.x copy, what 2.0 writes (a run/3 or a
+   /2 version with typed details); to a 2.0 copy, what only a later release writes (a feature 2.0 knows only by name: staged
+   versions, test runs). app: the release named in the file, which the copy's message names; needs: the version the message
+   names (the bridge and later); stepType: an envelope that copy can't read for a step type. */
+function newer(t) {
+  if (t.major >= 2) return { app: '2.1.0', needs: '2.1', run: ['test-run'], pub: ['staged'], stepType: { format: 'flightdeck-step-type/3', features: [] } };
+  return { app: '2.0.0', needs: '2.0', run: ['typed-details'], pub: ['typed-details'], stepType: { format: 'flightdeck-step-type/2', features: ['typed-evidence'] } };
+}
+
+/* A /2 publication record otherwise valid for files map and types and its screenshots (images: { 'images/x.png': bytes or a data URL }, kept
+   with base's fingerprints for them): fingerprints by copy PF's own hash and a payload of the exact bytes. With features a 2.x
+   copy knows, that copy finds it usable (given exact2), so a refusal of the same record with a newer feature can only come
+   from that feature. */
+const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
+/* A screenshot's exact bytes: the harness keeps binary files as data URLs, so decode one; anything else is its own bytes. */
+const bytesOf = (v) => { const m = typeof v === 'string' && /^data:[^;,]*;base64,(.*)$/s.exec(v); return m ? Buffer.from(m[1], 'base64') : v; };
+function pub2(PF, base, map, types, features, app, images) {
+  const info = Object.assign({}, base, { format: 'preflight-publication/2', features, app, mapHash: PF.util.hash(map), typesHash: PF.util.hash(types) });
+  const shots = {};
+  Object.keys(images || {}).sort().forEach((k) => { shots[k] = sha256(bytesOf(images[k])); });
+  info.payload = { map: sha256(map), types: sha256(types), images: shots, extensions: {}, pins: { children: {}, skills: {} } };
+  return info;
+}
+/* What verify takes as the exact bytes' SHA-256 for map and types (exactOf on 2.x copies). */
+const exact2 = (map, types) => ({ 'map.md': sha256(map), 'types.json': sha256(types) });
+/* A run file in run/3 with the given features, otherwise as a 2.0 copy writes a run of a /1 version (an explicit run/3: its
+   features and its types fingerprint, no payload), so a 2.x copy reads it in full when features holds nothing newer. */
+function run3(text, features, app, typesHash) {
+  const j = JSON.parse(text);
+  j.format = 'preflight-run/3'; j.features = features; j.app = app; j.typesHash = typesHash || j.typesHash || '00000000';
+  return JSON.stringify(j, null, 2);
+}
+
+module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded, newer, pub2, exact2, run3 };

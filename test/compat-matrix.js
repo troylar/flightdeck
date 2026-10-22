@@ -9,17 +9,32 @@ const { cmp } = require('../tools/old-bundles');
 const fn = (o, k) => !!o && typeof o[k] === 'function';
 const repoHas = (...ks) => (PF) => ks.every(k => fn(PF.repo, k));
 
-/* A /2 publication record beside matching files: is it set aside as unusable? */
+const H = require('./compat-harness');
+/* Whether PF is a 2.x copy, which runs /2 versions and run/3 files itself. */
+const twoX = (PF) => +String(PF.__version || '0').split('.')[0] >= 2;
+
+/* A /2 publication record, otherwise valid for its files, using a feature no released copy builds yet (staged versions): is
+   it set aside as unusable? (For 1.x any /2 is newer; for 2.x the feature is, and the same record without it must be usable
+   there, so the refusal can't come from a malformed record.) */
 function refusesNewerPublication(PF) {
   const map = '---\nprocess: p\ntitle: P\n---\n\n## One {#one}\n- [ ] {confirm} A {#a}\n', types = '{}';
-  const info = { format: 'preflight-publication/2', process: 'p', title: 'P', version: 1, folder: 'v1-aaaa', mapHash: PF.util.hash(map), typesHash: PF.util.hash(types) };
-  const v = PF.publish.verify('v1-aaaa', { 'publication.json': JSON.stringify(info), 'map.md': map, 'types.json': types });
-  return !v.ok && !!v.unusable;
+  const base = { process: 'p', title: 'P', version: 1, folder: 'v1-aaaa' };
+  const check = (features) => PF.publish.verify('v1-aaaa', { 'publication.json': JSON.stringify(H.pub2(PF, base, map, types, features, features.length ? '2.1.0' : '2.0.0')), 'map.md': map, 'types.json': types }, H.exact2(map, types));
+  const v = check(['staged']);
+  return !v.ok && !!v.unusable && (!twoX(PF) || check([]).ok);
 }
-/* A preflight-run/3 file: kept by name only, and never writable? */
+/* A preflight-run/3 file, otherwise one a 2.x copy wrote, with a feature no released copy builds yet (test runs): kept by name
+   only, and never writable? (On 2.x, the same file without it must read in full.) */
 function namesNewerRun(PF) {
-  const r = PF.run.sanitize({ format: 'preflight-run/3', id: 'r1', process: 'p', title: 'T', version: 1, folder: 'v1-aaaa', state: 'running' });
-  return !!(r && r._unrunnable);
+  if (!fn(PF.run, 'create')) return false;
+  const md = '---\nprocess: p\ntitle: P\n---\n\n## One {#one}\n- [ ] {confirm} A {#a}\n';
+  const pub = { info: { format: PF.publish.FORMAT, version: 1, folder: 'v1-aaaa', mapHash: PF.util.hash(md), typesHash: PF.util.hash('{}') }, map: PF.map.parse(md), md, types: {} };
+  let text; try { text = JSON.stringify(PF.run.create(pub, { by: 'person-avery', session: 's1', now: '2026-01-01T00:00:00.000Z', id: 'r1' })); } catch (e) { return false; }
+  const r = PF.run.sanitize(JSON.parse(H.run3(text, ['test-run'], '2.1.0', PF.util.hash('{}'))));
+  if (!(r && r._unrunnable)) return false;
+  if (!twoX(PF)) return true;
+  const plain = PF.run.sanitize(JSON.parse(H.run3(text, [], '2.0.0', PF.util.hash('{}'))));
+  return !!(plain && !plain._unrunnable);
 }
 /* A run/2 with a field this copy doesn't know: opened read-only rather than having the field dropped? */
 function readOnlyOnUnknownField(PF) {

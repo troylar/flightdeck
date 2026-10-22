@@ -38,8 +38,14 @@ function eachTag(name, fn, filter) {
 }
 /* A folder's files as text, under a prefix. */
 const under = (m, dir) => { const o = {}; Object.keys(m.files).filter(p => p.indexOf(dir) === 0).sort().forEach(p => { o[p] = m.files[p].t; }); return o; };
-/* A run file from this one, in a newer run format (what 2.0 writes on a /2 version). */
-function asRun3(text) { const j = JSON.parse(text); j.format = 'preflight-run/3'; j.features = ['typed-details']; j.app = '2.0.0'; return JSON.stringify(j, null, 2); }
+/* A run file from this one, in a run format newer than the release t reads (H.newer: what 2.0 writes on a /2 version, for a
+   1.x copy; a run/3 with a feature only a later release builds, for a 2.0 copy). Otherwise a valid run/3 (H.run3), so a 2.x
+   copy refuses it for that feature alone; the control rule below reads it in full without it. */
+function asRun3(text, t) { const n = H.newer(t); return H.run3(text, n.run, n.app); }
+/* The words a copy at or after the bridge uses for a file that needs a newer release ("Flightdeck 2.0", or "2.1" for a 2.0 copy). */
+const needsWords = (t) => new RegExp('Flightdeck ' + H.newer(t).needs.replace('.', '\\.'));
+/* Whether a screen or message says a file needs a newer Flightdeck, in the words release t uses. */
+const saysNewer = (t, text) => /newer copy of Flightdeck/.test(text) || needsWords(t).test(text);
 
 /* ---------- The releases themselves ---------- */
 
@@ -266,7 +272,7 @@ eachTag('a preflight-run/3 file is shown by name only and never written; candida
   const mine = (await OLD.repo.loadAll(m)).runs.find(r => r.id === 'run-a');
   m.files[dir + 'run.conflict-w-other-1.json'] = { t: m.files[p].t, m: 1 };
   m.files[dir + 'candidate-w-other-aaaa1111.json'] = { t: '{"left":"by another window"}', m: 1 };
-  m.files[p] = { t: asRun3(m.files[p].t), m: 2 };
+  m.files[p] = { t: asRun3(m.files[p].t, t), m: 2 };
   const before = under(m, dir), d = await OLD.repo.loadAll(m), r = d.runs.find(x => x.id === 'run-a');
   if (below(t.version)) {
     // No format check before 1.11.1: the run isn't listed at all, not even as unreadable.
@@ -282,17 +288,39 @@ eachTag('a preflight-run/3 file is shown by name only and never written; candida
   same(under(m, dir), before, 'nothing written; what was there is kept as it was');
 });
 
+eachTag('the run/3 the rule above refuses is otherwise valid: without the newer feature it opens in full and saves', async (OLD, t) => {
+  const m = H.memFolder(OLD, fixture(t.tag)), p = 'runs/backup/run-a/run.json';
+  m.files[p] = { t: H.run3(m.files[p].t, [], '2.0.0'), m: 2 };
+  const r = (await OLD.repo.loadAll(m)).runs.find(x => x.id === 'run-a');
+  assert.ok(r && !r._unrunnable && Object.keys(r.steps).length, 'read in full: ' + (r && r._unrunnable));
+  r.recorder = Object.assign({}, r.recorder, { session: 'w-avery' });
+  OLD.run.setDetail(r, OLD.run.mapOf(r), OLD.run.mapOf(r).meta.context[0], 'X-1', 'person-blake', AT);
+  await OLD.repo.saveRun(m, r, 'w-avery');
+  const back = JSON.parse(m.files[p].t);
+  same([back.format, back.features, back.details[OLD.run.mapOf(r).meta.context[0]]], ['preflight-run/3', [], 'X-1'], 'saved as run/3');
+}, (t) => t.major >= 2);
+
 eachTag('a preflight-publication/2 version is unusable: never the latest, and no run starts on it (before 1.11.1: usable, why the floor is 1.11.1)', async (OLD, t) => {
   const files = fixture(t.tag), pubDir = Object.keys(files).find(p => /publication\.json$/.test(p)).replace('publication.json', '');
   const info = JSON.parse(files[pubDir + 'publication.json']);
   const v2 = pubDir.replace(/v1-[a-z0-9]+\/$/, 'v2-zzzz2222/');
   files[v2 + 'map.md'] = files[pubDir + 'map.md']; Object.keys(files).filter(p => p.indexOf(pubDir + 'images/') === 0).forEach(p => { files[v2 + p.slice(pubDir.length)] = files[p]; }); files[v2 + 'types.json'] = files[pubDir + 'types.json'];
-  files[v2 + 'publication.json'] = JSON.stringify(Object.assign({}, info, { format: 'preflight-publication/2', features: ['typed-details'], app: '2.0.0', version: 2, folder: 'v2-zzzz2222' }), null, 2);
+  const map2 = files[v2 + 'map.md'], types2 = files[v2 + 'types.json'], base2 = Object.assign({}, info, { version: 2, folder: 'v2-zzzz2222' });
+  const shots2 = {}; Object.keys(info.images || {}).forEach((k) => { shots2[k] = files[v2 + k]; });
+  files[v2 + 'publication.json'] = JSON.stringify(H.pub2(OLD, base2, map2, types2, H.newer(t).pub, H.newer(t).app, shots2), null, 2);
   const proc = (await OLD.repo.loadAll(H.memFolder(OLD, files))).processes[0];
   if (below(t.version)) { assert.strictEqual(proc.index.latest.info.version, 2, 'below the floor, a /2 version is run as if it were /1'); return; }
   assert.strictEqual(proc.index.latest.info.version, 1, 'v1 stays the latest');
-  const v = OLD.publish.verify('v2-zzzz2222', { 'publication.json': files[v2 + 'publication.json'], 'map.md': files[v2 + 'map.md'], 'types.json': files[v2 + 'types.json'] });
-  assert.ok(!v.ok && v.unusable && (bridged(t.version) ? /Flightdeck 2\.0/.test(v.why) : v.why === OLD.publish.NEWER), v.why);
+  const v = OLD.publish.verify('v2-zzzz2222', { 'publication.json': files[v2 + 'publication.json'], 'map.md': map2, 'types.json': types2 }, H.exact2(map2, types2));
+  assert.ok(!v.ok && v.unusable && (bridged(t.version) ? needsWords(t).test(v.why) : v.why === OLD.publish.NEWER), v.why);
+  if (t.major >= 2) {
+    // The control: the same record without the newer feature is usable and the latest there, so the refusal is the feature's.
+    const ok = OLD.publish.verify('v2-zzzz2222', { 'publication.json': JSON.stringify(H.pub2(OLD, base2, map2, types2, [], '2.0.0', shots2)), 'map.md': map2, 'types.json': types2 }, H.exact2(map2, types2));
+    assert.ok(ok.ok, 'without ' + H.newer(t).pub + ': usable (' + ok.why + ')');
+    const plain = Object.assign({}, files, { [v2 + 'publication.json']: JSON.stringify(H.pub2(OLD, base2, map2, types2, [], '2.0.0', shots2), null, 2) });
+    const latest = (await OLD.repo.loadAll(H.memFolder(OLD, plain))).processes[0].index.latest;
+    assert.strictEqual(latest && latest.info.version, 2, 'without ' + H.newer(t).pub + ': loaded as the latest');
+  }
   assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[v2 + 'map.md']), md: files[v2 + 'map.md'], types: JSON.parse(files[v2 + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
 });
 
@@ -313,11 +341,21 @@ eachTag('a run/2 with a field this copy doesn\'t know, at the top, in a step, a 
   }
 });
 
-eachTag('a draft in 2.0 syntax can\'t be published, and a step type with a 2.0 kind is refused and never saved over', async (OLD, t) => {
+eachTag('a draft in 2.0 syntax can\'t be published (2.0.0: publishes it as /2, and refuses an extension\'s step type, which only a later release reads), and a step type with a 2.0 kind and no envelope is refused and never saved over', async (OLD, t) => {
   const typed = G.CHECKLIST.replace('context: ticket', 'context: ticket, amount:number');
-  assert.ok(OLD.map.check(OLD.map.parse(typed), { people: G.PEOPLE, types: { 'team.restore': OLD.types.customType(G.STEP_TYPE) } }).blockers.length, 'typed details are a blocker');
+  if (t.major >= 2) {
+    const m2 = H.memFolder(OLD, fixture(t.tag)), opts = { people: G.PEOPLE, customTypes: { 'team.restore': OLD.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Typed', existing: [], now: AT };
+    const ok2 = await OLD.repo.publish(m2, typed, opts);
+    assert.ok(ok2 && !ok2.blockers, 'typed details publish: ' + JSON.stringify(ok2 && ok2.blockers));
+    const pubs = Object.keys(m2.files).filter(p => /^publications\/backup\/v[0-9]+-[^/]+\/publication\.json$/.test(p)).map(p => JSON.parse(m2.files[p].t));
+    assert.ok(pubs.some(i => i.format === 'preflight-publication/2' && i.features.indexOf('typed-details') >= 0), 'as /2 with typed-details');
+    const ext = G.CHECKLIST.replace('{confirm} File the report', '{acme:change.request} File the report');
+    assert.ok(OLD.map.check(OLD.map.parse(ext), { people: G.PEOPLE, types: { 'team.restore': OLD.types.customType(G.STEP_TYPE) } }).blockers.length, 'an extension\'s step type is a blocker');
+    const before = JSON.stringify(H.filesOf(m2)), res2 = await OLD.repo.publish(m2, ext, Object.assign({}, opts, { changes: 'Extension' }));
+    assert.ok(res2.blockers && res2.blockers.length && JSON.stringify(H.filesOf(m2)) === before, 'publish refuses and writes nothing');
+  } else assert.ok(OLD.map.check(OLD.map.parse(typed), { people: G.PEOPLE, types: { 'team.restore': OLD.types.customType(G.STEP_TYPE) } }).blockers.length, 'typed details are a blocker');
   const m = H.memFolder(OLD, fixture(t.tag)), res = await OLD.repo.publish(m, typed, { people: G.PEOPLE, customTypes: { 'team.restore': OLD.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Typed', existing: [], now: AT });
-  assert.ok(res.blockers && res.blockers.length, 'publish refuses');
+  if (t.major < 2) assert.ok(res.blockers && res.blockers.length, 'publish refuses');
   const def = JSON.parse(JSON.stringify(G.STEP_TYPE)); def.record.push({ name: 'rows', label: 'Rows', kind: 'number' });
   assert.ok(OLD.types.checkCustom(def).length, 'a number kind is refused');
   const was = m.files['step-types/team.restore.json'].t;
@@ -379,7 +417,7 @@ eachTag('Known: a plan whose version number is gone, or whose chosen folder is g
   same([gone.pub.info.version, gone.missing, folderGone.pub.info.version, folderGone.missing], [1, true, 1, true]);
 }, (t) => expects('plans', t.version));
 
-eachTag('Known: a run/2 parent settles its step from a name-only preflight-run/3 child: done when it completed, blocked for carry: (2.0 never links one)', async (OLD) => {
+eachTag('Known: a run/2 parent settles its step from a name-only preflight-run/3 child: done when it completed, blocked for carry: (2.0 never links one; 2.0.0 refuses it)', async (OLD, t) => {
   const CHILD = '---\nprocess: verify\ntitle: Verify\ncontext: ticket\n---\n\n## One {#one}\n- [ ] {confirm} Look {#look}\n';
   const PARENT = (carry) => '---\nprocess: parent\ntitle: Parent\ncontext: ticket\n---\n\n## One {#one}\n- [ ] {run.process} Verify the copy {#v}\n  process: verify\n' + (carry ? '  carry: ticket\n' : '');
   const verdict = async (carry) => {
@@ -388,10 +426,17 @@ eachTag('Known: a run/2 parent settles its step from a name-only preflight-run/3
     const pub = (await OLD.repo.loadAll(m)).processes.map(p => p.index.latest).find(p => p.info.process === 'parent');
     const r = OLD.run.create(pub, { details: { ticket: 'ABC-1' }, by: 'person-avery', session: 's', now: AT, id: 'p1' }), map = OLD.run.mapOf(r), step = OLD.map.findStep(map, 'v').step;
     OLD.run.linkChild(r, map, 'v', { process: 'verify', id: 'c1', inputs: OLD.run.childDetails(r, step, Object.keys(r.details)) }, 'person-avery', AT);
-    const child = OLD.run.sanitize({ format: 'preflight-run/3', id: 'c1', process: 'verify', title: 'Verify', version: 1, folder: 'v1-zzzz', state: 'completed', ended: { outcome: 'Completed', by: 'person-avery', at: AT }, details: { ticket: 'ABC-1' }, recorder: { person: 'person-avery' } });
+    const n = H.newer(t), child = OLD.run.sanitize({ format: 'preflight-run/3', features: n.run, app: n.app, id: 'c1', process: 'verify', title: 'Verify', version: 1, folder: 'v1-zzzz', state: 'completed', ended: { outcome: 'Completed', by: 'person-avery', at: AT }, details: { ticket: 'ABC-1' }, recorder: { person: 'person-avery' } });
     assert.ok(child && child._unrunnable && !Object.keys(child.details || {}).length, 'the child is name only');
+    if (t.major >= 2) assert.ok(OLD.run.childHeld(r, 'v', child), 'a run/2 parent never takes a 2.0 child (rule c)');
     return OLD.run.childVerdict(r, step, r.steps.v, child);
   };
+  if (t.major >= 2) {
+    // 2.0.0 closed this: the run/2 parent refuses the run/3 child, so nothing settles the step.
+    assert.strictEqual(await verdict(false), null, 'never settled from a child it reads by name only');
+    assert.strictEqual(await verdict(true), null);
+    return;
+  }
   assert.strictEqual((await verdict(false)).s, 'done', 'settled from the outcome alone');
   assert.ok(/has no ticket to carry/.test((await verdict(true)).reason));
 }, (t) => !below(t.version));
@@ -438,7 +483,7 @@ eachTag('READ/1: its command names a run/3 newer (exit 4) and a plan/2 malformed
     for (const cmd of ['processes', 'runs']) { const r = read(staged, cmd); assert.strictEqual(r.code, 0, cmd + ': ' + JSON.stringify(r.json.problems)); }
     // A run/3 and a plan/2 in the folders it reads.
     const newer = path.join(root, 'newer'), files = fixture(t.tag);
-    files['runs/backup/run-a/run.json'] = asRun3(files['runs/backup/run-a/run.json']);
+    files['runs/backup/run-a/run.json'] = asRun3(files['runs/backup/run-a/run.json'], t);
     files['proposals/plan-backup-pinned.json'] = JSON.stringify({ format: 'flightdeck-plan/2', id: 'plan-backup-pinned', process: 'backup', folder: 'v1-ab9ysnqh', title: 'Pinned' });
     put(newer, files);
     const r = read(newer, 'runs');
@@ -469,27 +514,27 @@ eachTag('In its app, a save that meets a preflight-run/3 on disk writes nothing;
   // Another computer: a conflict copy and a candidate already there, then a 2.0 copy saves the run as preflight-run/3.
   app.fs.files[dir + 'run.conflict-w-other-1.json'] = { t: app.fs.files[r.path].t, m: Date.now() };
   app.fs.files[dir + 'candidate-w-other-aaaa1111.json'] = { t: '{"left":"by another window"}', m: Date.now() };
-  app.fs.files[r.path] = { t: asRun3(app.fs.files[r.path].t), m: Date.now() };
+  app.fs.files[r.path] = { t: asRun3(app.fs.files[r.path].t, t), m: Date.now() };
   const before = filesUnder(app, dir);
   let saves = 0; const save = app.PF.repo.saveRun; app.PF.repo.saveRun = function () { saves++; return save.apply(this, arguments); };
   app.click('toggle', id); await app.tick(80);
   assert.ok(saves >= 1, 'set-up: the change was saved');
   same(filesUnder(app, dir), before, 'zero writes');
-  if (!below(t.version)) assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0/.test(app.html() + app.live()), 'and it says why');
+  if (!below(t.version)) assert.ok(saysNewer(t, app.html() + app.live()), 'and it says why');
 });
 
 eachTag('In its app, keeping a conflict copy that is preflight-run/3 is refused and changes nothing', async (OLD, t) => {
   const app = H.bootCopy(t.tag); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   const r = app.run(), dir = r.path.replace('run.json', ''), name = 'run.conflict-w-other-2.json';
-  app.fs.files[dir + name] = { t: asRun3(app.fs.files[r.path].t), m: Date.now() };
+  app.fs.files[dir + name] = { t: asRun3(app.fs.files[r.path].t, t), m: Date.now() };
   app.click('refresh'); await app.tick(80);
   app.click('open-run', r.key); await app.tick(); app.click('pickup'); await app.tick(40);
   assert.ok(app.html().indexOf(name) >= 0, 'set-up: the copy is listed');
   const before = filesUnder(app, dir);
   app.click('use-copy', name); await app.tick(120);
   same(filesUnder(app, dir), before, 'nothing kept, replaced or removed');
-  assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0|can.t be read/.test(app.live() + app.html()), 'and it says why');
+  assert.ok((saysNewer(t, app.live() + app.html()) || /can.t be read/.test(app.live() + app.html())), 'and it says why');
 });
 
 /* A step on the recorded run that a plain click answers (no evidence form, no child run). */
@@ -506,7 +551,7 @@ eachTag('In its app, a refused change is kept only in that window: on screen, ne
   app.choose('person-casey'); await app.tick();
   let r = app.run(); app.click('open-run', r.key); await app.tick(); app.click('pickup'); await app.tick(40); r = app.run();
   const id = plainStep(app, r.json), done = new RegExp('"' + id + '"\\s*:\\s*\\{\\s*"s"\\s*:\\s*"done"');
-  app.fs.files[r.path] = { t: asRun3(app.fs.files[r.path].t), m: Date.now() }; app.fs.persist();
+  app.fs.files[r.path] = { t: asRun3(app.fs.files[r.path].t, t), m: Date.now() }; app.fs.persist();
   const folder = JSON.stringify(Object.keys(app.fs.files).sort().map(p => [p, app.fs.files[p].t]));
   app.click('toggle', id); await app.tick(80);
   same(JSON.stringify(Object.keys(app.fs.files).sort().map(p => [p, app.fs.files[p].t])), folder, 'nothing on disk');
@@ -528,7 +573,7 @@ eachTag('In its app, a refused change is kept only in that window: on screen, ne
   const page = b.html(), before = snap();
   assert.ok(!/data-act="restore-local"/.test(page), 'no Restore it here');
   if (below(t.version)) assert.ok(!/A copy kept in this browser/.test(page), 'below the floor the run isn\'t listed, so neither is the copy');
-  else assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0/.test(page) && /A copy kept in this browser/.test(page) && /data-act="discard-local"/.test(page), 'listed with Discard only');
+  else assert.ok(saysNewer(t, page) && /A copy kept in this browser/.test(page) && /data-act="discard-local"/.test(page), 'listed with Discard only');
   // Known: the action has no button here, but called anyway (1.11.1 on) it keeps "the version it replaces" first, which is the
   // name-only view of the run/3: a replaced-*.json in preflight-run/2 with no steps and no checklist. run.json is never touched.
   b.click('restore-local'); await b.tick(120);
@@ -538,7 +583,7 @@ eachTag('In its app, a refused change is kept only in that window: on screen, ne
   const rec = JSON.parse(after[changed[0]]);
   assert.ok(/\/replaced-[^/]+\.json$/.test(changed[0]) && rec.format === 'preflight-run/2' && !Object.keys(rec.steps).length && rec.snapshot === '', 'a name-only record');
   assert.strictEqual(after[r.path], before[r.path], 'run.json untouched');
-  assert.ok(/newer copy of Flightdeck|Flightdeck 2\.0/.test(b.live()), 'and it says why: ' + b.live());
+  assert.ok(saysNewer(t, b.live()), 'and it says why: ' + b.live());
 });
 
 eachTag('In its builder, a draft with 2.0 lines opens, and a builder edit saves only that change: every line it doesn\'t understand is kept as written', async (OLD, t) => {
@@ -562,15 +607,15 @@ eachTag('In its builder, a draft with 2.0 lines opens, and a builder edit saves 
   assert.notStrictEqual(saved.join('\n'), md, 'set-up: the move was saved');
 }, (t) => expects('builder', t.version));
 
-eachTag('In its step-type editor, a step type with a format envelope (with or without a 2.0 kind) is listed as broken, doesn\'t open, and is never saved over', async (OLD, t) => {
+eachTag('In its step-type editor, a step type with a format envelope it can\'t read (with or without a 2.0 kind; for 2.0.0, a newer major) is listed as broken, doesn\'t open, and is never saved over', async (OLD, t) => {
   for (const kind of ['number', null]) {
     const app = H.bootCopy(t.tag); await app.tick(60); app.choose('person-casey'); await app.tick();
     const f = 'step-types/change.request.json', def = JSON.parse(app.fs.files[f].t);
-    const env = Object.assign({ format: 'flightdeck-step-type/2', features: kind ? ['typed-evidence'] : [], app: '2.0.0' }, def);
+    const n = H.newer(t), env = Object.assign({ format: n.stepType.format, features: t.major >= 2 ? n.stepType.features : kind ? ['typed-evidence'] : [], app: n.app }, def);
     if (kind) env.record = def.record.concat([{ name: 'rows', label: 'Rows', kind }]);
     const text = JSON.stringify(env, null, 2); app.fs.files[f] = { t: text, m: Date.now() };
     app.click('refresh'); await app.tick(80); app.click('nav', 'types'); await app.tick();
-    assert.ok(bridged(t.version) ? /This step type needs Flightdeck 2\.0/.test(app.html()) : /unknown field\(s\): format, features, app/.test(app.html()), (kind || 'envelope only') + ': listed with what it can\'t read');
+    assert.ok(bridged(t.version) ? new RegExp('This step type needs ' + needsWords(t).source).test(app.html()) : /unknown field\(s\): format, features, app/.test(app.html()), (kind || 'envelope only') + ': listed with what it can\'t read');
     app.click('edit-type', 'change.request'); await app.tick(40);
     assert.ok(!/id="tf-label"/.test(app.html()) && /Fix the file/.test(app.live()), 'the editor doesn\'t open it');
     app.click('new-type'); await app.tick(); app.set('tf-id', 'change.request'); app.set('tf-label', 'Mine'); app.submit('type-form'); await app.tick(120);
