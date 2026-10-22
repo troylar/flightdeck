@@ -9408,20 +9408,21 @@ PF.skills = (function () {
   }
   /* A stage sign-off (flightdeck-validation/2, 2.1), exactly the frozen shape: { format, app, process, stage: { folder, proposed },
      payload, by, at, note, evidence, as? }, in validations/<process>.<stage>.<window>.json. Anything else is unreadable. */
-  var V2_KEYS = { format: 1, app: 1, process: 1, stage: 1, payload: 1, by: 1, at: 1, note: 1, evidence: 1, as: 1 };
+  var V2_ORDER = 'format,app,process,stage,payload,by,at,note,evidence';
+  function count(n) { return typeof n === 'number' && n >= 0 && Math.floor(n) === n; }
   function cleanStageValidation(v) {
     var bad = { ok: false, kind: 'malformed', why: 'isn\'t a stage sign-off this copy can read', needs: '' }, st = v.stage, ev = v.evidence;
-    if (Object.keys(v).some(function (k) { return k !== '_file' && !Object.prototype.hasOwnProperty.call(V2_KEYS, k); })) return bad;
-    if (typeof v.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(v.process) || typeof v.by !== 'string' || !v.by || typeof v.at !== 'string' || !v.at) return bad;
+    var keys = Object.keys(v).filter(function (k) { return k !== '_file'; }).join();
+    if (keys !== V2_ORDER && keys !== V2_ORDER + ',as') return bad;
+    if (typeof v.app !== 'string' || typeof v.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(v.process) || typeof v.by !== 'string' || !v.by || typeof v.at !== 'string' || !v.at || typeof v.note !== 'string') return bad;
     if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder,proposed' || !PF.publish.STAGE.test(String(st.folder))) return bad;
     if (typeof st.proposed !== 'number' || st.proposed < 1 || Math.floor(st.proposed) !== st.proposed) return bad;
     if (typeof v.payload !== 'string' || !/^[0-9a-f]{64}$/.test(v.payload)) return bad;
-    if (v.note != null && typeof v.note !== 'string') return bad;
-    if (ev != null && (typeof ev !== 'object' || Array.isArray(ev))) return bad;
-    if (v.as != null && v.as !== 'backup') return bad;
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev) || Object.keys(ev).join() !== 'completed,clean,runs' || !count(ev.completed) || !count(ev.clean) || !Array.isArray(ev.runs) || ev.runs.some(function (x) { return typeof x !== 'string'; })) return bad;
+    if (keys === V2_ORDER + ',as' && v.as !== 'backup') return bad;
     if (typeof v._file === 'string' && v._file.indexOf(v.process + '.' + st.folder + '.') !== 0) return bad;
     var o = { kind: 'validation', format: 2, process: v.process, folder: '', stage: st.folder, proposed: st.proposed, payload: v.payload, by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: st.proposed, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
-    if (ev) o.evidence = { completed: typeof ev.completed === 'number' ? ev.completed : 0, clean: typeof ev.clean === 'number' ? ev.clean : 0, runs: Array.isArray(ev.runs) ? ev.runs.filter(function (x) { return typeof x === 'string'; }).slice(0, 50) : [] };
+    o.evidence = { completed: ev.completed, clean: ev.clean, runs: ev.runs.slice(0, 50) };
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
@@ -14920,13 +14921,34 @@ PF.repo = (function () {
     var s = PF.skills.stageSignoff(stage, { window: o.window, by: o.by, at: o.now || new Date().toISOString(), note: o.note, evidence: o.evidence, as: o.as, app: o.app });
     return fs.write(s.path, s.text).then(function () { return s.rec; });
   }
+  /* Sign off a stage from the app (2.1 slice 6): under the same per-process lock as promote and retire, the stage, its
+     decisions and publications/<process>/ are read again; it must still be staged. o.check(stage) says who signs and with
+     what evidence ({ as, evidence }, or throws why not); o.still() is asked right before the write. */
+  function signOffStage(fs, proc, stageFolder, o) {
+    if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () {
+      var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '). Nothing was signed off.'); });
+      return listing.then(function (vers) {
+        return Promise.all([Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, proc, v.name); })), readStage(fs, proc, stageFolder), stageState(fs, proc)]);
+      }).then(function (r) {
+        var pubs = r[0], st = r[1], sp = r[2];
+        if (!st.ok) throw new Error('This staged version can\'t be read now: ' + st.why);
+        if (pubs.some(function (x) { return !x.info || typeof x.info !== 'object'; })) throw new Error('A version of this process can\'t be read now, so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
+        var x = PF.staging.status(st, sp.decisions, pubs);
+        if (x.status !== 'staged') throw new Error(x.status === 'promoted' ? 'It\'s already the default.' : PF.staging.promoteWhy(x) || 'It isn\'t staged now.');
+        var c = o.check(st);
+        if (typeof o.still === 'function' && !o.still()) return { dropped: true };
+        return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
+      });
+    });
+  }
   /* The payload rule for a promoted version (2.1): the SHA-256 of its own exact bytes, read now (cached while every file
      keeps its size and time), checked against its stage by PF.skills.carries. Resolves to '' or why not. */
   function stageCarried(fs, pub, stage, cacheIn) {
     var dir = 'publications/' + pub.info.process + '/' + pub.info.folder + '/', names = ['map.md', 'types.json'].concat(Object.keys(pub.info.images && typeof pub.info.images === 'object' ? pub.info.images : {}).sort());
     var c = cacheIn || cacheOf(fs); c.exact = c.exact || {};
     return Promise.all(names.map(function (n) { return fileStamp(fs, dir + n); })).then(function (stamps) {
-      var key = stamps.join('|'), was = c.exact[dir];
+      var key = names.map(function (n, i) { return n + '=' + stamps[i]; }).join('|'), was = c.exact[dir];
       if (was && was.key === key && stamps.every(Boolean)) return was.exact;
       return Promise.all(names.map(function (n) { return fs.blob(dir + n).then(function (b) { return b ? bytesOf(b) : null; }); })).then(function (bs) {
         if (bs.some(function (b) { return !b; })) return null;
@@ -14948,9 +14970,12 @@ PF.repo = (function () {
         if (!sf || typeof sf !== 'object') return;
         var proc = pub.info.process, key = 'publications/' + proc + '/' + pub.info.folder + '/', folder = String(sf.folder || '');
         var sp = Object.prototype.hasOwnProperty.call(procs, proc) ? procs[proc] : null, st = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
-        if ((!st || !st.ok) && ('stages' in out.failed || (sp && sp.unlisted)) && cache.carried[key]) { pub.fromStage = cache.carried[key]; return; }
+        /* A stage that couldn't be read this time: the one verified before, never the old verdict, and this version's own
+           bytes checked against it again. */
+        var was = cache.carried[key];
+        if ((!st || !st.ok) && ('stages' in out.failed || (sp && sp.unlisted)) && was && was.stage && was.folder === folder) st = was.stage;
         if (!st) { pub.fromStage = { folder: folder, ok: false, why: 'Its stage isn\'t in the folder.', stage: null }; return; }
-        jobs.push(stageCarried(fs, pub, st, cache).then(function (w) { pub.fromStage = cache.carried[key] = { folder: folder, ok: !w, why: w, stage: st }; }));
+        jobs.push(stageCarried(fs, pub, st, cache).then(function (w) { pub.fromStage = { folder: folder, ok: !w, why: w, stage: st }; if (st.ok) cache.carried[key] = pub.fromStage; }));
       });
     });
     return Promise.all(jobs);
@@ -16087,7 +16112,7 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
 
 </script>
@@ -17167,7 +17192,8 @@ PF.vk = (function () {
       else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
       /* Its test runs (2.1 slice 6): said only once it has some, with its sign-off, and Sign off for its owner once enough are clean. */
       var sg = stageSign(ctx, p, s.folder), tw = '';
-      if (sg.ready && sg.ready.completed) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : '');
+      var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
+      if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
@@ -25219,15 +25245,25 @@ PF.examples = (function () {
       if (!p || !state.me || state.stageBusy) return;
       var sg = V.stageSign(ctx, p, folder);
       if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the process owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
-      var sfs = state.fs, pg = gen, by = state.me, r = sg.ready, stage = sg.stage, as = sg.as;
-      state.stageBusy = p.id; render();
+      var sfs = state.fs, pg = gen, by = state.me, pid = p.id, proposed = sg.stage.info.stage.proposed;
+      var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
+      state.stageBusy = pid; render();
       queued(function () {
-        if (!(pg === gen && state.fs === sfs && state.me === by)) return { dropped: true };
-        return repo.recordStageValidation(sfs, stage, { window: WRITER, by: by, note: '', evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds }, as: as === 'backup' ? 'backup' : null, app: APP_VERSION });
+        if (!still()) return { dropped: true };
+        /* The stage, its decisions and the versions are read again inside the stage lock; eligibility is worked out again from
+           what was read, with the person who clicked. */
+        return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still,
+          check: function (st) {
+            var r = PF.skills.readiness(data.runs, st, null), as = PF.skills.signer(st, data.people, by, !!(data.failed || {}).people);
+            if (!r.enough) throw new Error('It needs ' + r.needed + ' clean test runs; it has ' + r.clean + '.');
+            if (!as) throw new Error('Only the process owner signs off a staged version.');
+            if (PF.skills.signoffs(data.validations, st).length) throw new Error('It\'s already signed off.');
+            return { as: as === 'backup' ? 'backup' : null, evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds } };
+          } });
       }).then(function (res) {
         state.stageBusy = null; if (pg !== gen) return;
         if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
-        say('Signed off staged v' + stage.info.stage.proposed + '. It counts for the version made from it.', 'good'); return load(true);
+        say('Signed off staged v' + proposed + '. It counts for the version made from it.', 'good'); return load(true);
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
     'reopen-stage': function (folder) { stageAct(folder, 'reopened'); },

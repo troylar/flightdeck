@@ -367,7 +367,8 @@
       else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
       /* Its test runs (2.1 slice 6): said only once it has some, with its sign-off, and Sign off for its owner once enough are clean. */
       var sg = stageSign(ctx, p, s.folder), tw = '';
-      if (sg.ready && sg.ready.completed) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : '');
+      var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
+      if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });

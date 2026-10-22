@@ -148,11 +148,13 @@ async function readsAsTwoZero(NEW, t) {
   else assert.ok(/^Test run · needs Flightdeck 2\.0\./.test(runs['run-t']._unrunnable) && runs['run-t']._test, runs['run-t']._unrunnable);
   MAIN_RUN3.forEach(id => assert.ok(!Object.keys(runs[id].steps).length && !Object.keys(runs[id].details).length, id + ': nothing it might misread'));
   const refused = Object.fromEntries(d.refused.map(r => [r.path, r]));
-  ['validations/backup.' + S.STAGE + '.w-twozero.json']
-    .forEach(p => assert.ok(refused[p] && refused[p].kind === 'newer' && refused[p].needs === '2.0', p + ': ' + JSON.stringify(refused[p])));
+  /* 2.1 slice 6: this version reads the stage sign-off; 2.0.0 refuses it by name. */
+  const signs = !!(NEW.skills && NEW.skills.stageSignoff), sv = 'validations/backup.' + S.STAGE + '.w-twozero.json';
+  if (signs) assert.ok(!refused[sv] && d.validations.some(v => v.stage === S.STAGE && v._file === sv.split('/').pop()), 'the stage sign-off is read: ' + JSON.stringify(refused[sv]));
+  else assert.ok(refused[sv] && refused[sv].kind === 'newer' && refused[sv].needs === '2.0', sv + ': ' + JSON.stringify(refused[sv]));
   ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skills/release-notes.json', 'step-types/team.count.json'].forEach(p => assert.ok(!refused[p], p + ' is read here'));
   const pinned = d.plans.find(p => p.id === 'plan-backup-pinned');
-  assert.ok(pinned && pinned.format === 'flightdeck-plan/2' && !d.validations.some(v => /stage/.test(v._file)));
+  assert.ok(pinned && pinned.format === 'flightdeck-plan/2' && (signs || !d.validations.some(v => /stage/.test(v._file))));
   assert.strictEqual(NEW.plans.pick({ latest: proc.index.latest, all: proc.index.all, clashes: proc.index.clashes, broken: proc.pubs.filter(x => !x.ok) }, pinned, null).pub.info.folder, 'v1-ab9ysnqh', 'a plan/2 starts on its pin');
   assert.ok(d.stepTypes.types['team.count'] && !d.stepTypes.errors.some(e => e.file === 'team.count.json'), 'the 2.0 step type is read');
   const notes = d.skills.filter(s => (s.skill && s.skill.name === 'release-notes') || s.file === 'release-notes.json');
@@ -166,13 +168,15 @@ async function readsAsTwoZero(NEW, t) {
 TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses each 2.0 file it doesn\'t build by name, with the Flightdeck it needs, reads the typed data and pins it builds, and writes nothing', () => readsAsTwoZero(H.loadMain(), t)));
 
 rule('Folder health names what a newer Flightdeck wrote, by family and the version each needs, the placeholder an old Restore left, and older copies seen lately', async () => {
-  const NEW = H.loadMain(), files = Object.assign(fixture('v1.18.0'), V2), m = H.memFolder(NEW, files);
+  /* 2.1 reads every 2.0 sample, so a sign-off from a later Flightdeck (2.2) stands in for what it can't read. */
+  const LATER = { 'validations/backup.v1.w-later.json': JSON.stringify({ format: 'flightdeck-validation/3', app: '2.2.0', process: 'backup' }) };
+  const NEW = H.loadMain(), files = Object.assign(fixture('v1.18.0'), V2, LATER), m = H.memFolder(NEW, files);
   const d = await NEW.repo.loadAll(m, { deep: true }), scan = await NEW.repo.scan(m), now = Date.parse(AT);
   const conn = { probes: [{ app: '1.19.0', at: AT, writer: 'w-old', device: 'x', _file: 'a.json' }, { app: '1.10.0', at: AT, writer: 'w-older', device: 'y', _file: 'b.json' }, { app: '1.12.0', at: '2026-09-01T00:00:00.000Z', writer: 'w-gone', device: 'z', _file: 'c.json' }], acks: [] };
   const rep = NEW.health.check({ data: d, scan, me: 'person-avery', app: '1.21.0', connection: conn }, now);
   const newer = rep.issues.find(i => i.id === 'newer');
   assert.ok(newer, JSON.stringify(rep.issues.map(i => i.id)));
-  ['1 sign-off needs Flightdeck 2.0']
+  ['1 sign-off needs Flightdeck 2.2']
     .forEach(x => assert.ok(newer.detail.indexOf(x) >= 0, x + ' in: ' + newer.detail));
   /* 2.1 slice 5: the frozen test run is read here, so it isn't named as newer. */
   ['test run', 'plan needs', 'plan decision needs', 'skill registration needs', 'v2 of backup', 'step type needs'].forEach(x => assert.ok(newer.detail.indexOf(x) < 0, x + ' isn\'t refused here: ' + newer.detail));

@@ -544,20 +544,21 @@ PF.skills = (function () {
   }
   /* A stage sign-off (flightdeck-validation/2, 2.1), exactly the frozen shape: { format, app, process, stage: { folder, proposed },
      payload, by, at, note, evidence, as? }, in validations/<process>.<stage>.<window>.json. Anything else is unreadable. */
-  var V2_KEYS = { format: 1, app: 1, process: 1, stage: 1, payload: 1, by: 1, at: 1, note: 1, evidence: 1, as: 1 };
+  var V2_ORDER = 'format,app,process,stage,payload,by,at,note,evidence';
+  function count(n) { return typeof n === 'number' && n >= 0 && Math.floor(n) === n; }
   function cleanStageValidation(v) {
     var bad = { ok: false, kind: 'malformed', why: 'isn\'t a stage sign-off this copy can read', needs: '' }, st = v.stage, ev = v.evidence;
-    if (Object.keys(v).some(function (k) { return k !== '_file' && !Object.prototype.hasOwnProperty.call(V2_KEYS, k); })) return bad;
-    if (typeof v.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(v.process) || typeof v.by !== 'string' || !v.by || typeof v.at !== 'string' || !v.at) return bad;
+    var keys = Object.keys(v).filter(function (k) { return k !== '_file'; }).join();
+    if (keys !== V2_ORDER && keys !== V2_ORDER + ',as') return bad;
+    if (typeof v.app !== 'string' || typeof v.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(v.process) || typeof v.by !== 'string' || !v.by || typeof v.at !== 'string' || !v.at || typeof v.note !== 'string') return bad;
     if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder,proposed' || !PF.publish.STAGE.test(String(st.folder))) return bad;
     if (typeof st.proposed !== 'number' || st.proposed < 1 || Math.floor(st.proposed) !== st.proposed) return bad;
     if (typeof v.payload !== 'string' || !/^[0-9a-f]{64}$/.test(v.payload)) return bad;
-    if (v.note != null && typeof v.note !== 'string') return bad;
-    if (ev != null && (typeof ev !== 'object' || Array.isArray(ev))) return bad;
-    if (v.as != null && v.as !== 'backup') return bad;
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev) || Object.keys(ev).join() !== 'completed,clean,runs' || !count(ev.completed) || !count(ev.clean) || !Array.isArray(ev.runs) || ev.runs.some(function (x) { return typeof x !== 'string'; })) return bad;
+    if (keys === V2_ORDER + ',as' && v.as !== 'backup') return bad;
     if (typeof v._file === 'string' && v._file.indexOf(v.process + '.' + st.folder + '.') !== 0) return bad;
     var o = { kind: 'validation', format: 2, process: v.process, folder: '', stage: st.folder, proposed: st.proposed, payload: v.payload, by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: st.proposed, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
-    if (ev) o.evidence = { completed: typeof ev.completed === 'number' ? ev.completed : 0, clean: typeof ev.clean === 'number' ? ev.clean : 0, runs: Array.isArray(ev.runs) ? ev.runs.filter(function (x) { return typeof x === 'string'; }).slice(0, 50) : [] };
+    o.evidence = { completed: ev.completed, clean: ev.clean, runs: ev.runs.slice(0, 50) };
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }

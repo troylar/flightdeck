@@ -91,4 +91,26 @@ rule('A version made the default without its stage\'s exact bytes counts none of
   assert.ok(!/signed off by [^<]* while it was staged/.test(html) && !/test run/i.test((html.match(/Ready for a skill\?[\s\S]{0,400}/) || [''])[0]), (html.match(/Ready for a skill\?[\s\S]{0,400}/) || [''])[0]);
 });
 
+rule('A stage whose only test run is still going says 0 of 3 clean, and offers no sign-off', async () => {
+  const { app, folder } = await staged('person-casey');
+  const PF = app.PF, st = await PF.repo.readStage(app.fs, 'release', folder);
+  const r = PF.run.create(st, { test: true, title: 'Going', id: 'run-going', details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: ROLES, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' });
+  await PF.repo.saveRun(app.fs, r, 'w');
+  app.click('refresh'); await app.tick(120);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/0 of 3 clean test runs/.test(line(app, folder)), line(app, folder));
+  assert.ok(!/data-act="signoff-stage"/.test(app.html()));
+});
+
+rule('A stage retired in another window after the page was drawn is not signed off', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  assert.ok(/data-act="signoff-stage"/.test(app.html()), 'set-up: offered');
+  await app.PF.repo.decideStage(app.fs, 'release', folder, 'retired', { by: 'person-blake', now: '2026-10-22T10:00:00.000Z', window: 'w-blake', reason: 'Not this one', app: '2.1.0' });
+  const before = app.files('validations/').length;
+  app.click('signoff-stage', folder); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  assert.ok(/save the sign-off/.test(app.html()), (app.html().match(/class="[^"]*(bad|warn)[^"]*"[^>]*>[^<]*/g) || []).join(' | '));
+});
+
 run();

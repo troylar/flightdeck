@@ -41,7 +41,16 @@ rule('Any other shape of a stage sign-off is never counted: named as unreadable,
     'no by': (() => { const o = Object.assign({}, base); delete o.by; return o; })(),
     'an unknown field': Object.assign({}, base, { extra: 1 }),
     'a kind': Object.assign({}, base, { kind: 'validation' }),
-    'a folder': Object.assign({}, base, { folder: 'v3-aaaa1111' })
+    'a folder': Object.assign({}, base, { folder: 'v3-aaaa1111' }),
+    'no app': (() => { const o = Object.assign({}, base); delete o.app; return o; })(),
+    'no note': (() => { const o = Object.assign({}, base); delete o.note; return o; })(),
+    'no evidence': (() => { const o = Object.assign({}, base); delete o.evidence; return o; })(),
+    'evidence that isn\'t counts': Object.assign({}, base, { evidence: { completed: 'three', clean: 3, runs: [] } }),
+    'evidence with a fraction': Object.assign({}, base, { evidence: { completed: 2.5, clean: 2, runs: [] } }),
+    'evidence runs that aren\'t names': Object.assign({}, base, { evidence: { completed: 2, clean: 2, runs: [1, 2] } }),
+    'evidence with an extra key': Object.assign({}, base, { evidence: Object.assign({}, base.evidence, { x: 1 }) }),
+    'an as that isn\'t backup': Object.assign({}, base, { as: 'owner' }),
+    'keys in another order': (() => { const o = {}; Object.keys(base).reverse().forEach(k => { o[k] = base[k]; }); return o; })()
   };
   Object.keys(bad).forEach(name => {
     const c = S.cleanValidation(Object.assign(clone(bad[name]), { _file: file }));
@@ -143,6 +152,43 @@ rule('loadAll marks a promoted version with the stage it carries; anything that 
   assert.ok(/byte for byte/.test(why), 'the bytes are read, never the text: ' + why);
   const again = (await repo.loadAll(fs, { deep: true })).processes[0].pubs.find(x => x.info.folder === pub.info.folder);
   assert.ok(again && (!again.ok || (again.fromStage && !again.fromStage.ok)), 'never carried: ' + JSON.stringify(again && again.fromStage && again.fromStage.why));
+});
+
+rule('The bytes behind a carried stage are checked by file name too: a screenshot renamed with the same bytes is not the stage\'s', async () => {
+  const fs = folder(), stage = await staged(fs);
+  const { pub } = await promoted(fs, stage);
+  const names = Object.keys(pub.info.images || {});
+  const cache = {};
+  assert.strictEqual(await repo.stageCarried(fs, pub, stage, cache), '', 'set-up: carried');
+  if (!names.length) {
+    /* No screenshots in this checklist: an extra name with the checklist's own bytes stands in for a rename. */
+    const dir = 'publications/release/' + pub.info.folder + '/';
+    await fs.write(dir + 'images/x.png', fs.files[dir + 'map.md'].t);
+    const moved = clone(pub); moved.info.images = { 'images/x.png': { sha256: sha(fs.files[dir + 'map.md'].t) } };
+    assert.ok(await repo.stageCarried(fs, moved, stage, cache), 'not the stage\'s screenshots');
+    return;
+  }
+  const dir = 'publications/release/' + pub.info.folder + '/', from = names[0], to = from.replace(/(\.[a-z]+)$/, '-moved$1');
+  await fs.write(dir + to, fs.files[dir + from].t);
+  const moved = clone(pub); moved.info.images = {}; Object.keys(pub.info.images).forEach(k => { moved.info.images[k === from ? to : k] = pub.info.images[k]; });
+  assert.ok(await repo.stageCarried(fs, moved, stage, cache), 'renamed: not the stage\'s');
+});
+
+rule('While the stages can\'t be listed, a promotion keeps the stage it carried, and its own bytes are still checked', async () => {
+  const fs = folder(), stage = await staged(fs);
+  const runs = [1, 2, 3].map(i => completeRun(PF, testRun(stage, i), NOW));
+  await promoted(fs, stage);
+  const orig = fs.list.bind(fs);
+  fs.list = (x) => /^staged\/release/.test(x) ? Promise.reject(new Error('offline')) : orig(x);
+  const d = await repo.loadAll(fs, { deep: true }), pub = d.processes[0].latest || d.processes[0].index.latest;
+  assert.ok(pub.info.stagedFrom, 'set-up: the promotion');
+  assert.ok(pub.fromStage && pub.fromStage.ok, 'unchanged bytes: still carried, ' + JSON.stringify(pub.fromStage && pub.fromStage.why));
+  same(S.readiness(runs, pub, null).clean, 3);
+  const mp = 'publications/release/' + pub.info.folder + '/map.md';
+  await fs.write(mp, fs.files[mp].t + '\n');
+  const d2 = await repo.loadAll(fs, { deep: true }), again = d2.processes[0].pubs.find(x => x.info.folder === pub.info.folder && x.map);
+  assert.ok(!again || !again.ok || !again.fromStage || !again.fromStage.ok, 'changed bytes: never the old verdict');
+  same(again ? S.readiness(runs, again, null).completed : 0, 0, 'and none of its stage\'s test runs count');
 });
 
 rule('A promoted version counts the finished, clean test runs on its stage\'s exact payload, labeled; nothing else from a test run', async () => {

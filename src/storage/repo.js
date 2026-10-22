@@ -1678,13 +1678,34 @@ PF.repo = (function () {
     var s = PF.skills.stageSignoff(stage, { window: o.window, by: o.by, at: o.now || new Date().toISOString(), note: o.note, evidence: o.evidence, as: o.as, app: o.app });
     return fs.write(s.path, s.text).then(function () { return s.rec; });
   }
+  /* Sign off a stage from the app (2.1 slice 6): under the same per-process lock as promote and retire, the stage, its
+     decisions and publications/<process>/ are read again; it must still be staged. o.check(stage) says who signs and with
+     what evidence ({ as, evidence }, or throws why not); o.still() is asked right before the write. */
+  function signOffStage(fs, proc, stageFolder, o) {
+    if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () {
+      var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '). Nothing was signed off.'); });
+      return listing.then(function (vers) {
+        return Promise.all([Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, proc, v.name); })), readStage(fs, proc, stageFolder), stageState(fs, proc)]);
+      }).then(function (r) {
+        var pubs = r[0], st = r[1], sp = r[2];
+        if (!st.ok) throw new Error('This staged version can\'t be read now: ' + st.why);
+        if (pubs.some(function (x) { return !x.info || typeof x.info !== 'object'; })) throw new Error('A version of this process can\'t be read now, so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
+        var x = PF.staging.status(st, sp.decisions, pubs);
+        if (x.status !== 'staged') throw new Error(x.status === 'promoted' ? 'It\'s already the default.' : PF.staging.promoteWhy(x) || 'It isn\'t staged now.');
+        var c = o.check(st);
+        if (typeof o.still === 'function' && !o.still()) return { dropped: true };
+        return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
+      });
+    });
+  }
   /* The payload rule for a promoted version (2.1): the SHA-256 of its own exact bytes, read now (cached while every file
      keeps its size and time), checked against its stage by PF.skills.carries. Resolves to '' or why not. */
   function stageCarried(fs, pub, stage, cacheIn) {
     var dir = 'publications/' + pub.info.process + '/' + pub.info.folder + '/', names = ['map.md', 'types.json'].concat(Object.keys(pub.info.images && typeof pub.info.images === 'object' ? pub.info.images : {}).sort());
     var c = cacheIn || cacheOf(fs); c.exact = c.exact || {};
     return Promise.all(names.map(function (n) { return fileStamp(fs, dir + n); })).then(function (stamps) {
-      var key = stamps.join('|'), was = c.exact[dir];
+      var key = names.map(function (n, i) { return n + '=' + stamps[i]; }).join('|'), was = c.exact[dir];
       if (was && was.key === key && stamps.every(Boolean)) return was.exact;
       return Promise.all(names.map(function (n) { return fs.blob(dir + n).then(function (b) { return b ? bytesOf(b) : null; }); })).then(function (bs) {
         if (bs.some(function (b) { return !b; })) return null;
@@ -1706,9 +1727,12 @@ PF.repo = (function () {
         if (!sf || typeof sf !== 'object') return;
         var proc = pub.info.process, key = 'publications/' + proc + '/' + pub.info.folder + '/', folder = String(sf.folder || '');
         var sp = Object.prototype.hasOwnProperty.call(procs, proc) ? procs[proc] : null, st = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
-        if ((!st || !st.ok) && ('stages' in out.failed || (sp && sp.unlisted)) && cache.carried[key]) { pub.fromStage = cache.carried[key]; return; }
+        /* A stage that couldn't be read this time: the one verified before, never the old verdict, and this version's own
+           bytes checked against it again. */
+        var was = cache.carried[key];
+        if ((!st || !st.ok) && ('stages' in out.failed || (sp && sp.unlisted)) && was && was.stage && was.folder === folder) st = was.stage;
         if (!st) { pub.fromStage = { folder: folder, ok: false, why: 'Its stage isn\'t in the folder.', stage: null }; return; }
-        jobs.push(stageCarried(fs, pub, st, cache).then(function (w) { pub.fromStage = cache.carried[key] = { folder: folder, ok: !w, why: w, stage: st }; }));
+        jobs.push(stageCarried(fs, pub, st, cache).then(function (w) { pub.fromStage = { folder: folder, ok: !w, why: w, stage: st }; if (st.ok) cache.carried[key] = pub.fromStage; }));
       });
     });
     return Promise.all(jobs);
@@ -2845,5 +2869,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

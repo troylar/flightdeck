@@ -4344,15 +4344,25 @@
       if (!p || !state.me || state.stageBusy) return;
       var sg = V.stageSign(ctx, p, folder);
       if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the process owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
-      var sfs = state.fs, pg = gen, by = state.me, r = sg.ready, stage = sg.stage, as = sg.as;
-      state.stageBusy = p.id; render();
+      var sfs = state.fs, pg = gen, by = state.me, pid = p.id, proposed = sg.stage.info.stage.proposed;
+      var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
+      state.stageBusy = pid; render();
       queued(function () {
-        if (!(pg === gen && state.fs === sfs && state.me === by)) return { dropped: true };
-        return repo.recordStageValidation(sfs, stage, { window: WRITER, by: by, note: '', evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds }, as: as === 'backup' ? 'backup' : null, app: APP_VERSION });
+        if (!still()) return { dropped: true };
+        /* The stage, its decisions and the versions are read again inside the stage lock; eligibility is worked out again from
+           what was read, with the person who clicked. */
+        return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still,
+          check: function (st) {
+            var r = PF.skills.readiness(data.runs, st, null), as = PF.skills.signer(st, data.people, by, !!(data.failed || {}).people);
+            if (!r.enough) throw new Error('It needs ' + r.needed + ' clean test runs; it has ' + r.clean + '.');
+            if (!as) throw new Error('Only the process owner signs off a staged version.');
+            if (PF.skills.signoffs(data.validations, st).length) throw new Error('It\'s already signed off.');
+            return { as: as === 'backup' ? 'backup' : null, evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds } };
+          } });
       }).then(function (res) {
         state.stageBusy = null; if (pg !== gen) return;
         if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
-        say('Signed off staged v' + stage.info.stage.proposed + '. It counts for the version made from it.', 'good'); return load(true);
+        say('Signed off staged v' + proposed + '. It counts for the version made from it.', 'good'); return load(true);
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
     'reopen-stage': function (folder) { stageAct(folder, 'reopened'); },
