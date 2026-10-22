@@ -2249,6 +2249,134 @@ rule('Plans: a decision on the plan that can\'t be read holds it: the form says 
   assert.ok(!app.files('proposals/').some(f => /\.status-/.test(f) && f !== torn), 'no decision written');
 });
 
+rule('Plans: while proposals/ can\'t be read, a plan kept from before can\'t be started, declined or switched (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const dec = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  app.fs.files[dec] = { t: JSON.stringify({ kind: 'status' }), m: Date.now() };
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === dec ? Promise.reject(new Error('locked')) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/isn(&#39;|')t known whether someone already started it/.test(app.html()), (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+  const before = releaseRuns(app), decs = app.files('proposals/').length;
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const eyebrow = () => (app.html().match(/<div class="eyebrow">[^<]*/) || [''])[0];
+  const was = eyebrow();
+  assert.ok(/ · v1/.test(was), 'set-up: on v1: ' + was);
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.strictEqual(eyebrow(), was, 'not switched');
+  assert.ok(/data-act="plan-latest"/.test(app.html()), 'still asks');
+  assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
+});
+
+rule('Plans: a decision listed but gone when read holds its plan: nothing starts (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const dec = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  app.fs.files[dec] = { t: '{}', m: Date.now() };
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === dec ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+});
+
+rule('Plans: a plan whose own file is listed but gone when read stays shown and held: nothing starts on another version (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const file = 'proposals/plan-release-2026-10-24.json', read = app.fs.read;
+  assert.ok(app.fs.files[file], 'set-up: the plan\'s file');
+  app.fs.read = function (p) { return p === file ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/can(&#39;|')t be read/.test(app.html()) && app.html().indexOf(file) >= 0, (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+});
+
+rule('Plans: when one of two differing copies of a started plan reads back as gone, the other copy is held: nothing starts (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const file = 'proposals/plan-release-2026-10-24.json', copy = 'proposals/plan-release-2026-10-24 (1).json';
+  const o = JSON.parse(app.fs.files[file].t); o.title = o.title + ' (edited)';
+  app.fs.files[copy] = { t: JSON.stringify(o, null, 2), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  const both = (await app.PF.repo.loadAll(app.fs)).plans.find(p => p.id === 'plan-release-2026-10-24');
+  assert.ok(both && both._copiesDiffer, 'set-up: two differing copies');
+  await app.PF.repo.recordPlanStatus(app.fs, Object.assign({}, both, { _hash: app.PF.util.hash(app.fs.files[file].t) }), 'w-other', 'accepted', 'run-elsewhere', 'person-avery', null, '2.1.0');
+  app.click('refresh'); await app.tick(80);
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === file ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = releaseRuns(app), decs = app.files('proposals/').length;
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
+  assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
+});
+
+rule('Plans: two differing copies of a started plan, one gone when read, through two refreshes: the open form starts nothing (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const file = 'proposals/plan-release-2026-10-24.json', copy = 'proposals/plan-release-2026-10-24 (1).json';
+  const o = JSON.parse(app.fs.files[file].t); o.title = o.title + ' (edited)';
+  app.fs.files[copy] = { t: JSON.stringify(o, null, 2), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  const both = (await app.PF.repo.loadAll(app.fs)).plans.find(p => p.id === 'plan-release-2026-10-24' && p._file === 'plan-release-2026-10-24.json');
+  await app.PF.repo.recordPlanStatus(app.fs, both, 'w-other', 'accepted', 'run-elsewhere', 'person-avery', null, '2.1.0');
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === file ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = releaseRuns(app), decs = app.files('proposals/').length;
+  const form = /id="start-form"/.test(app.html());
+  if (form) { app.submitForm('start-form'); await app.tick(120); }
+  app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
+});
+
+rule('Plans: a form left open after another window started or declined the plan starts nothing (2.1.0)', async () => {
+  for (const status of ['accepted', 'declined']) {
+    const app = boot(); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+    const d = await app.PF.repo.loadAll(app.fs), plan = d.plans.find(p => p.id === 'plan-release-2026-10-24');
+    await app.PF.repo.recordPlanStatus(app.fs, plan, 'w-other', status, status === 'accepted' ? 'run-elsewhere' : null, 'person-avery', null, '2.1.0');
+    app.click('refresh'); await app.tick(80);
+    const before = releaseRuns(app), decs = app.files('proposals/').length;
+    app.submitForm('start-form'); await app.tick(120);
+    assert.deepStrictEqual(releaseRuns(app), before, status + ': nothing started');
+    app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+    assert.strictEqual(app.files('proposals/').length, decs, status + ': no decision written');
+  }
+});
+
+rule('Plans: without cross-window locks, a decline clicked right after Start waits its turn: one decision is written, the start (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  let writes = 0; const write = app.fs.write;
+  app.fs.write = function (p) { if (/^proposals\/.*\.status-/.test(p)) writes++; return write.apply(this, arguments); };
+  app.submitForm('start-form');
+  app.click('decline-plan', 'plan-release-2026-10-24');
+  await app.tick(200);
+  assert.strictEqual(writes, 1, 'one decision write');
+  const st = app.files('proposals/').filter(p => /status/.test(p)).map(p => JSON.parse(app.fs.files[p].t).status);
+  assert.deepStrictEqual(st, ['accepted']);
+});
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
@@ -6104,6 +6232,23 @@ rule('Pins: a plan/2 starts on its exact folder; offering the latest is an expli
   assert.strictEqual(st.format, 'flightdeck-plan-status/2'); assert.strictEqual(st.status, 'accepted'); assert.strictEqual(st.run, run.id);
 });
 
+rule('Pins: a routine refresh shows a switch made in another window, and two switches that disagree, on the open plan (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  await exactPlan(app);
+  const v1 = pubFolder(app, 1), v2 = pubFolder(app, 2);
+  app.click('review-plan', 'plan-release-exact'); await app.tick();
+  const eyebrow = () => (app.html().match(/<div class="eyebrow">[^<]*/) || [''])[0];
+  assert.ok(/ · v1/.test(eyebrow()), 'set-up: on v1: ' + eyebrow());
+  const p0 = () => app.PF.repo.loadAll(app.fs).then(d => d.plans.find(p => p.id === 'plan-release-exact'));
+  await app.PF.repo.recordPlanStatus(app.fs, await p0(), 'w-avery', 'retargeted', null, 'person-avery', { folder: v2, version: 2 }, '2.1.0');
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(/ · v2/.test(eyebrow()), 'the switch shows: ' + eyebrow());
+  await app.PF.repo.recordPlanStatus(app.fs, await p0(), 'w-blake', 'retargeted', null, 'person-blake', { folder: v1, version: 1 }, '2.1.0');
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(/two people switched it to different versions/.test(app.html()) && !/id="start-form"/.test(app.html()), (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+});
+
 rule('Pins: a plan/2 whose folder is gone asks and starts nothing; "Start on v2 instead" writes the switch (plan-status/2, retargeted) and then starts on v2', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
@@ -6329,6 +6474,31 @@ rule('Pins: a plan switch waiting behind another write is dropped, and says so, 
     assert.ok(!Object.keys(app.fs.files).some(p => /^proposals\/plan-release-exact\.status-/.test(p)), change + ': nothing in this folder');
     assert.ok(!Object.keys(oldFs.files).some(p => /^proposals\/plan-release-exact\.status-/.test(p)), change + ': nor in the first');
     assert.ok(/wasn(&#39;|')t switched/.test(app.html()), change + ': it says so');
+  }
+});
+
+rule('Plans: a decline waiting behind another write is dropped, and says so, if the folder or the person changes first; it never lands in another folder (2.1.0)', async () => {
+  for (const change of ['folder', 'person']) {
+    const app = boot(); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    const oldFs = app.fs, mine = fs => Object.keys(fs.files).filter(p => /^proposals\/plan-release-2026-10-24\.status-/.test(p)).length, had = mine(oldFs);
+    app.click('open-process', 'check-in'); await app.tick();
+    const orig = app.PF.repo.publish, g = gate(); let first = true;
+    app.PF.repo.publish = function () { const a = arguments; if (!first) return orig.apply(this, a); first = false; return g.p.then(() => orig.apply(this, a)); };
+    app.set('change-note', 'A change'); app.click('publish', 'check-in'); await app.tick();
+    const calls = [], rec = app.PF.repo.recordPlanStatus;
+    app.PF.repo.recordPlanStatus = function (fs, plan, w, status) { calls.push(status); return rec.apply(this, arguments); };
+    app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick();
+    if (change === 'folder') { app.click('reset-examples'); await app.tick(60); app.choose('person-blake'); await app.tick(); }
+    else { app.choose('person-blake'); await app.tick(); }
+    const now = mine(app.fs);
+    g.open(); await app.tick(120);
+    app.PF.repo.publish = orig; app.PF.repo.recordPlanStatus = rec;
+    if (change === 'folder') assert.ok(app.fs !== oldFs, 'set-up: another folder');
+    assert.deepStrictEqual(calls.filter(s => s === 'declined'), [], change + ': nothing recorded');
+    assert.strictEqual(mine(app.fs), now, change + ': nothing in this folder');
+    assert.strictEqual(mine(oldFs), had, change + ': nor in the first');
+    assert.ok(/wasn(&#39;|')t declined/.test(app.html() + app.live()), change + ': it says so');
   }
 });
 

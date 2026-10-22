@@ -27,6 +27,7 @@ const RAW = [
   { file: 'src/storage/repo.js', has: 'var disk = R.sanitize', why: 'R.sanitize' },
   { file: 'src/storage/repo.js', has: "var x = line.trim() && json(line)", why: 'run archives: R.cleanArchive, line by line' },
   { file: 'src/storage/repo.js', has: "var o = json(r.text);", why: 'Folder health\'s scan: installed.json through PF.contract.cleanInstalled, replaced-*.json through R.isPlaceholder; others only whether they parse' },
+  { file: 'src/storage/repo.js', has: 'o: f ? json(f.text) : undefined, gone: !f', why: 'the plan write-time gate (decidePlan): each file through PF.plans.familyOf and PF.plans.clean before any field counts' },
   { file: 'src/storage/repo.js', has: 'function detach(o)', why: 'Evidence: a copy of a value already cleaned' },
   { file: 'src/storage/repo.js', has: 'created = o && typeof o === \'object\' && typeof o.created', why: 'Evidence: a run\'s start time, only to choose which runs a date range covers (the raw bytes are packed whatever it says)' },
   { file: 'src/storage/repo.js', has: "var raw = r.text == null ? undefined : json(r.text);", why: 'Evidence: the run\'s lineage and folder (bytes packed as they are), then R.sanitize for its own groups' },

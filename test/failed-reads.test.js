@@ -136,6 +136,58 @@ rule('A sign-off made with a newer Flightdeck: Ready for a skill says so, says t
   assert.ok(!/data-kind="signoff"/.test(html) && !/data-act="signoff"/.test(html), 'no sign-off offered');
 });
 
+rule('JSON in another format, named like a sign-off, is stray JSON: named, never "signed off with a newer Flightdeck"', async () => {
+  const fs = folder(), pub = await publish(fs);
+  put(fs, 'validations/release.v1.w-notes.json', JSON.stringify({ format: 'notes/1', text: 'team notes' }));
+  const d = await repo.loadAll(fs);
+  assert.ok(!d.refused.some(x => x.path === 'validations/release.v1.w-notes.json'), 'not refused as a newer sign-off');
+  assert.strictEqual(S.signHold(d, pub), null);
+  assert.ok((d.valUnread || []).some(u => u._file === 'release.v1.w-notes.json' && u.ignored), JSON.stringify(d.valUnread));
+  assert.ok(named(health(d), 'validations/release.v1.w-notes.json'));
+});
+
+rule('One sign-off file whose read is refused is named by itself and holds only its own version, not every sign-off', async () => {
+  const fs = folder(), pub = await publish(fs);
+  put(fs, 'validations/other.v9.w-z.json', JSON.stringify({ kind: 'validation' }));
+  put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));
+  const read = fs.read.bind(fs);
+  fs.read = (p, o) => p === 'validations/other.v9.w-z.json' ? Promise.reject(new Error('locked')) : read(p, o);
+  let d = await repo.loadAll(fs);
+  assert.ok(!('sign-offs' in d.failed), 'the part still reads');
+  assert.ok(d.valUnread.some(u => u.path === 'validations/other.v9.w-z.json' && !u.ignored && /locked/.test(u.why)), JSON.stringify(d.valUnread));
+  assert.strictEqual(S.signUnknown(d, pub), '', 'release v1 isn\'t held');
+  assert.strictEqual(S.signoffs(d.validations, pub).length, 1);
+  assert.ok(named(health(d), 'validations/other.v9.w-z.json'));
+  fs.read = (p, o) => p === 'validations/release.v1.w-own.json' ? Promise.reject(new Error('locked')) : read(p, o);
+  d = await repo.loadAll(fs);
+  assert.ok(/release\.v1\.w-own\.json/.test(S.signUnknown(d, pub)), 'its own version is held: ' + S.signUnknown(d, pub));
+});
+
+rule('A file listed in validations/ or proposals/ that\'s gone when read is named and holds what it could decide', async () => {
+  const fs = folder(), pub = await publish(fs), plan = JSON.parse(example('proposals/plan-release-2026-10-24.json'));
+  put(fs, 'proposals/plan-release-2026-10-24.json', JSON.stringify(plan));
+  put(fs, 'validations/release.v1.w-gone.json', '{}');
+  put(fs, 'proposals/plan-release-2026-10-24.status-w-gone.json', '{}');
+  const read = fs.read.bind(fs), gone = ['validations/release.v1.w-gone.json', 'proposals/plan-release-2026-10-24.status-w-gone.json'];
+  fs.read = (p, o) => gone.indexOf(p) >= 0 ? Promise.resolve(null) : read(p, o);
+  const d = await repo.loadAll(fs);
+  assert.ok(/release\.v1\.w-gone\.json/.test(S.signUnknown(d, pub)), 'the version is held: ' + JSON.stringify(d.valUnread));
+  const p = d.plans.filter(x => x.id === 'plan-release-2026-10-24')[0];
+  same(p._statusUnread, ['proposals/plan-release-2026-10-24.status-w-gone.json']);
+  assert.ok(named(health(d), 'validations/release.v1.w-gone.json') && named(health(d), 'proposals/plan-release-2026-10-24.status-w-gone.json'));
+});
+
+rule('A correction or follow-up decision listed but gone when read is unread, never "no decision"', async () => {
+  const H = require('./compat-harness'), path = require('path'), files = H.readTree(path.join(__dirname, 'fixtures', 'folders', 'v2.0.1'));
+  const fu = 'followups/backup/run-b.ejt2c7tv.w-avery.1.json', co = 'corrections/backup/g11454c9769ea41f9.w-avery.1.json';
+  assert.ok(files[fu] && files[co], 'set-up: the fixture has both');
+  const m = H.memFolder(PF, files), read = m.read.bind(m);
+  m.read = (p, o) => p === fu || p === co ? Promise.resolve(null) : read(p, o);
+  const d = await repo.loadAll(m);
+  assert.ok(d.fuUnread.some(u => u._file === 'run-b.ejt2c7tv.w-avery.1.json'), JSON.stringify(d.fuUnread));
+  assert.ok(d.corrUnread.some(u => u._file === 'g11454c9769ea41f9.w-avery.1.json'), JSON.stringify(d.corrUnread));
+});
+
 rule('Sign-offs that couldn\'t be listed or read at all leave readiness unanswered too', async () => {
   const fs = folder(), pub = await publish(fs);
   put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));
@@ -187,6 +239,100 @@ rule('A plan decision held for a newer Flightdeck says to update; one that isn\'
   put(fs, sp, '{"kind": "sta');
   p = (await PFV.repo.loadAll(fs)).plans.filter(x => x.id === 'plan-release-2026-10-24')[0];
   assert.ok(/restore it from a backup or delete it/.test(V.planHeldWhy(p)), V.planHeldWhy(p));
+});
+
+/* ---------- 1c. The write-time gate: a plan is started, declined or switched only on a fresh read of all of its files ---------- */
+
+const PLAN = 'plan-release-2026-10-24';
+async function planFolder() {
+  const fs = folder(), plan = JSON.parse(example('proposals/' + PLAN + '.json'));
+  await publish(fs);
+  put(fs, 'proposals/' + PLAN + '.json', JSON.stringify(plan, null, 2));
+  const page = (await repo.loadAll(fs)).plans.find(p => p.id === PLAN);
+  assert.ok(page, 'set-up: the plan');
+  return { fs, page };
+}
+/* What the page would ask: the plan as it last read it (stale on purpose), and a write that only counts. */
+function ask(fs, page, action, extra) {
+  const wrote = { n: 0 };
+  const p = repo.decidePlan(fs, page, Object.assign({ action, sha: page._sha, folder: 'v1-x', write: () => { wrote.n++; return repo.recordPlanStatus(fs, page, 'w-me', action === 'start' ? 'accepted' : action, action === 'start' ? 'run-me' : null, 'person-casey', action === 'retargeted' ? { folder: 'v2-x', version: 2 } : null, '2.1.0'); } }, extra || {}));
+  return { p, wrote };
+}
+async function refused(fs, page, action, re, extra) {
+  const before = Object.keys(fs.files).sort().join('\n'), { p, wrote } = ask(fs, page, action, extra);
+  await assert.rejects(p, re);
+  assert.strictEqual(wrote.n, 0, action + ': nothing written');
+  assert.strictEqual(Object.keys(fs.files).sort().join('\n'), before, action + ': no file added');
+}
+
+rule('Plan gate: a clean plan is decided, once; the decision is written by the gate\'s caller only after every check', async () => {
+  const { fs, page } = await planFolder(), { p, wrote } = ask(fs, page, 'declined');
+  await p;
+  assert.strictEqual(wrote.n, 1);
+  for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /already/);
+});
+
+rule('Plan gate: proposals/ that can\'t be listed refuses all three', async () => {
+  const { fs, page } = await planFolder(), list = fs.list.bind(fs);
+  fs.list = (p) => p === 'proposals' ? Promise.reject(new Error('offline')) : list(p);
+  for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /proposals\/ couldn't be read/);
+});
+
+rule('Plan gate: a file of the plan listed but unreadable, gone, torn, newer or malformed refuses all three', async () => {
+  const cases = [
+    ['gone', (fs, path) => { const read = fs.read.bind(fs); fs.read = (p, o) => p === path ? Promise.resolve(null) : read(p, o); }],
+    ['refused read', (fs, path) => { const read = fs.read.bind(fs); fs.read = (p, o) => p === path ? Promise.reject(new Error('locked')) : read(p, o); }],
+    ['torn', (fs, path) => put(fs, path, '{"kind": "sta')],
+    ['newer', (fs, path) => put(fs, path, JSON.stringify({ format: 'flightdeck-plan-status/9', app: '9.0.0', proposal: PLAN }))],
+    ['malformed', (fs, path) => put(fs, path, JSON.stringify({ kind: 'status', proposal: PLAN }))]
+  ];
+  for (const [what, make] of cases) {
+    for (const path of ['proposals/' + PLAN + '.status-w-other.json', 'proposals/' + PLAN + '.json']) {
+      const { fs, page } = await planFolder();
+      if (!fs.files[path]) put(fs, path, '{}');
+      make(fs, path);
+      for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /can't be (read|used)/, {}).catch(e => { throw new Error(what + ' ' + path + ' ' + a + ': ' + e.message); });
+    }
+  }
+});
+
+rule('Plan gate: a decision the page didn\'t see (accepted, declined or switched) refuses; a switch to the version started on doesn\'t block that start', async () => {
+  for (const status of ['accepted', 'declined']) {
+    const { fs, page } = await planFolder();
+    await repo.recordPlanStatus(fs, page, 'w-other', status, status === 'accepted' ? 'run-other' : null, 'person-avery', null, '2.1.0');
+    for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /already/);
+  }
+  // A switch is a plan/2's: one pinned to v1's exact folder.
+  const fs = folder(), pub = await publish(fs);
+  const exact = PF.plans.make(pub, { id: 'plan-release-exact', process: 'release', title: 'Release exact', details: {}, roles: {}, by: 'person-avery', created: NOW }, true, '2.1.0');
+  put(fs, 'proposals/plan-release-exact.json', JSON.stringify(exact, null, 2));
+  const page = (await repo.loadAll(fs)).plans.find(p => p.id === 'plan-release-exact');
+  await repo.recordPlanStatus(fs, page, 'w-other', 'retargeted', null, 'person-avery', { folder: 'v2-x', version: 2 }, '2.1.0');
+  await refused(fs, page, 'retargeted', /already switched/);
+  await refused(fs, page, 'start', /switched/, { folder: 'v1-x' });
+  const { p, wrote } = ask(fs, page, 'start', { folder: 'v2-x' });
+  await p; assert.strictEqual(wrote.n, 1, 'started on the version it was switched to');
+});
+
+rule('Plan gate: copies that differ, a plan changed since the form, or a plan gone refuses all three', async () => {
+  let { fs, page } = await planFolder();
+  const o = JSON.parse(fs.files['proposals/' + PLAN + '.json'].t);
+  put(fs, 'proposals/' + PLAN + ' (1).json', JSON.stringify(Object.assign({}, o, { title: 'Edited' })));
+  for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /different copies/);
+  ({ fs, page } = await planFolder());
+  put(fs, 'proposals/' + PLAN + '.json', JSON.stringify(Object.assign({}, o, { title: 'Edited' })));
+  for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /changed/);
+  ({ fs, page } = await planFolder());
+  delete fs.files['proposals/' + PLAN + '.json'];
+  for (const a of ['start', 'declined', 'retargeted']) await refused(fs, page, a, /isn't in the folder/);
+});
+
+rule('Plan gate: another plan\'s files, readable or not, never hold this one', async () => {
+  const { fs, page } = await planFolder();
+  put(fs, 'proposals/plan-other.status-w-x.json', '{"kind": "sta');
+  put(fs, 'proposals/notes.json', JSON.stringify({ hello: 'world' }));
+  const { p, wrote } = ask(fs, page, 'declined');
+  await p; assert.strictEqual(wrote.n, 1);
 });
 
 /* ---------- 2. Saves compare the exact text (or SHA-256), never a 32-bit FNV ---------- */

@@ -596,19 +596,21 @@ PF.repo = (function () {
   /* bad (reading for other apps): each file that won't read, parse or check is named there, and the rest still load.
      Without it, as the app reads: what doesn't parse or check is left out of the result, and a file that won't read fails
      the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
-     still arriving could be the record that decides something. */
-  function loadJsonDir(fs, dir, ok, bad, only, torn) {
+     still arriving could be the record that decides something. perFile (with torn): a read that's refused is named there
+     too, by itself, instead of failing the part; only a folder that can't be listed fails it. */
+  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
-          if (!f) return null;
+          /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
+          if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           var o = json(f.text);
           if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
-        });
+        }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
         return fs.read(path).then(function (f) {
           if (!f) return null;
           var o = json(f.text);
@@ -694,7 +696,7 @@ PF.repo = (function () {
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed, null, opts.contract2),
       loadStepTypes(fs), loadWorkflows(fs),
-      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }, null, null, valTorn),
+      loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, null, valTorn, true),
       loadCorrectionDecisions(fs, cache, sched),
       loadFollowUpDecisions(fs, cache, sched, !!opts.explain),
       /* Proposals and presence, only where those folders are (an ordinary folder costs nothing more), and never for other
@@ -823,7 +825,9 @@ PF.repo = (function () {
       var hit = dec[x.path];
       if (sched && !sched.deep && hit && !due[x.path]) return { x: x, f: { text: hit.text } };
       return fs.read(x.path).then(function (f) {
-        if (f && sched) dec[x.path] = { text: f.text, at: sched.now }; else delete dec[x.path];
+        /* Listed but gone when read: it may be moving, so it's unread like one that won't read, never "no decision". */
+        if (!f) { delete dec[x.path]; return { x: x, failed: true }; }
+        if (sched) dec[x.path] = { text: f.text, at: sched.now }; else delete dec[x.path];
         return { x: x, f: f };
       }, function () { delete dec[x.path]; return { x: x, failed: true }; });
     });
@@ -1724,7 +1728,7 @@ PF.repo = (function () {
            people.json and this stage's sign-offs. A read that fails signs nothing. */
         var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
         /* A sign-off of this stage that can't be read could be the one already there: nothing is signed off until it reads. */
-        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn).then(function (vs) {
+        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn, true).then(function (vs) {
           var out = vs.map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok) (c.kind === 'newer' ? newer : torn).push({ path: 'validations/' + v._file, needs: c.needs || '' }); return c.ok ? c.rec : null; }).filter(Boolean);
           /* JSON that isn't a sign-off at all is ignored; one that won't parse, or says it's one but doesn't check, could be. */
           torn = torn.filter(function (t) { return !t.parsed; });
@@ -1812,6 +1816,57 @@ PF.repo = (function () {
     return saveChecked(fs, 'proposals/' + plan.id + '.json', JSON.stringify(plan, null, 2) + '\n', null, opts);
   }
   /* to: for a plan/2 switched to another version (status retargeted), the exact version folder { folder, version }. */
+  /* The write-time gate for a plan (2.1): start, decline or switch it only on a fresh read of every file that is this plan's,
+     whatever the page last read. Under o.lock (the app's cross-window lock on this computer) it lists proposals/ now, reads
+     every .json there, and refuses (rejects, nothing written) when the listing fails; when a file of this plan (named for it,
+     or a copy or decision that says it's for it) is listed but gone, won't read or parse, or is refused or malformed; when
+     its copies differ or none of them is the one the form showed (o.sha); or when a decision on it already exists (one
+     started or declined; for a switch, any switch; for a start, a switch to another version than o.folder). Only then
+     o.write() runs. o: { action: 'start' | 'declined' | 'retargeted', sha, folder, lock, write }. Across computers OneDrive
+     has no lock: two at once is the clash groupPlans shows as decisions that disagree. */
+  function decidePlan(fs, plan, o) {
+    var id = plan && plan.id;
+    if (typeof id !== 'string' || !id) return Promise.reject(new Error('No such plan.'));
+    var go = function () { return planGate(fs, plan, o).then(function () { return o.write(); }); };
+    return typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go);
+  }
+  function planGate(fs, plan, o) {
+    var id = plan.id, said = ' Nothing was written.';
+    var mine = function (n) { if (n.indexOf(id) !== 0) return false; var c = n.charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; };
+    return fs.list('proposals').then(null, function (e) { throw new Error('proposals/ couldn\'t be read (' + why(e) + '), so it isn\'t known whether this plan was already decided.' + said); }).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
+      return Promise.all(names.map(function (n) {
+        var path = 'proposals/' + n;
+        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
+      }));
+    }).then(function (files) {
+      var copies = [], decisions = [];
+      files.forEach(function (x) {
+        var o2 = x.o, ours = mine(x.name);
+        if (o2 === undefined || o2 === null || typeof o2 !== 'object' || Array.isArray(o2)) {
+          if (ours) throw new Error(x.path + ' can\'t be read now (' + (x.gone ? 'it was listed but gone when read' : x.err || 'it isn\'t complete JSON') + '), so it isn\'t known whether this plan was already decided.' + said);
+          return;
+        }
+        var k = PF.plans.familyOf(o2, x.name), about = k === 'status' ? o2.proposal === id : k === 'plan' ? o2.id === id : false;
+        if (!ours && !about) return;
+        var v = PF.plans.clean(o2, x.name, false);
+        if (!v.ok || v.why) throw new Error(x.path + ' can\'t be used here: it ' + (v.why || 'isn\'t a file this copy can read here').replace(/\.$/, '') + '. Until it can, this plan can\'t be started, declined or switched.' + said);
+        if (!about) return;
+        if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
+      });
+      if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
+      var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
+      if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
+      if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
+      var hashes = texts.map(function (t) { return U.hash(t); });
+      var on = decisions.filter(function (d) { return hashes.indexOf(d.proposalHash) >= 0; });
+      var done = on.filter(function (d) { return d.status !== 'retargeted'; })[0];
+      if (done) throw new Error(done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' + said : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.' + said);
+      var moves = on.filter(function (d) { return d.status === 'retargeted'; });
+      if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
+      if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);
+    });
+  }
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app);
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
@@ -2932,5 +2987,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

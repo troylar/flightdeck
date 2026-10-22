@@ -481,6 +481,9 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; }
 .tile:hover { border-color: var(--ink); }
+/* A staged version's line: its buttons go under its words, so the words keep the column's width. */
+.vlist li.stg { grid-template-columns: auto minmax(0, 1fr); }
+.vlist li.stg > .row { grid-column: 2; }
 .vlist.compact .clip { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 details.panel > summary { cursor: pointer; list-style: revert; }
 .fold > summary > h2 { margin: 0; }

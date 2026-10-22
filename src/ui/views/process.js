@@ -378,8 +378,8 @@
     /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
     var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
     var rows = (sp ? sp.stages : []).map(function (s) {
-      if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
-      if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
+      if (s.newer) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
+      if (!s.ok) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
       var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
       if (held) b = '';
@@ -390,7 +390,7 @@
       var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
       if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : sg.hold && sg.hold.kind === 'newer' ? ' · Signed off with a newer Flightdeck: update to see it' : sg.unknown ? ' · Can\'t tell whether it was signed off: ' + sg.unknown : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
-      return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+      return '<li class="stg"><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
     var gone = (ctx.data.failed || {}).stages;
     return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
@@ -492,12 +492,15 @@
   }
   /* Why a plan can't be started, declined or switched now, or '': a decision on it that can't be read (it may still be
      arriving), that a newer Flightdeck made, or that isn't one this copy can read. Each says what to do about it. */
-  function planHeldWhy(plan) {
+  function planHeldWhy(plan, data) {
+    if (plan && data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals')) return 'proposals/ couldn\'t be read just now, so it isn\'t known whether someone already started it. Until it reads, this plan can\'t be started, declined or switched here. Try again once the folder can be read.';
+    if (plan && plan._status) return plan._status.status === 'accepted' ? 'This plan was already started' + (typeof plan._status.run === 'string' ? ' (' + plan._status.run + ')' : '') + ', so it won\'t start again here. Find its run on Runs.' : 'This plan was ' + (plan._status.status === 'declined' ? 'declined' : 'decided on') + ' elsewhere, so it can\'t be started, declined or switched here.';
     var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
     if (!x) return '';
     var held = ' Until then this plan can\'t be started, declined or switched here.';
     if (x.kind === 'newer') return 'A decision on this plan (' + x.path + ') was made with a newer Flightdeck, so it isn\'t known here whether it was started. ' + PF.envelope.needsText(x.needs) + ' Update Flightdeck to see it.' + held;
     if (x.kind === 'malformed') return 'A decision on this plan (' + x.path + ') isn\'t one this copy can read, so it isn\'t known whether it was started. Fix or delete that file.' + held;
+    if (!/\.status-[^/]*$/.test(x.path)) return 'This plan\'s file (' + x.path + ') can\'t be read now, so what it says may have changed and it isn\'t known whether it was started. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
     return 'A decision on this plan (' + x.path + ') can\'t be read, so it isn\'t known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
   }
   function planChoice(ctx, plan) {
@@ -549,7 +552,7 @@
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
     if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
-    if (plan && planHeldWhy(plan)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan)) + '</span></div>';
+    if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +

@@ -584,6 +584,9 @@ PF.skills = (function () {
      page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. Who
      signed, and the process and version it names, are kept exactly as written: they're compared with the owner and the
      version, so one cut to fit could count as someone else's or another version's (2.0.1). */
+  /* What a file in validations/ must look like to be read as a sign-off at all, for the folder's read and a stage sign-off's
+     reread alike: kind "validation", or a flightdeck-validation format of any version. Other JSON there is stray. */
+  function signoffShaped(o) { return !!o && typeof o === 'object' && !Array.isArray(o) && (o.kind === 'validation' || (typeof o.format === 'string' && /^flightdeck-validation\//.test(o.format))); }
   function cleanValidation(v) {
     var env = PF.envelope.judge('flightdeck-validation', v);
     if (!env.ok) return { ok: false, kind: env.kind, why: env.kind === 'newer' ? 'is a sign-off made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why, needs: env.needs || '' };
@@ -645,5 +648,5 @@ PF.skills = (function () {
     if (a.join('\n') !== b.join('\n') || a.some(function (k) { return !own.call(exact.images, k) || !own.call(sp.images, k) || exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
     return '';
   }
-  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signHold: signHold, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signoffShaped: signoffShaped, signHold: signHold, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();
