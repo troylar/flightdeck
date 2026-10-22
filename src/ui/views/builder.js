@@ -264,10 +264,10 @@
      Markdown, never rewritten. */
   function whenSection(ctx, t, id, meta) {
     if (!t.when.length && (!meta.context.length || t.odd)) return '';
-    var fe = ctx.state.fieldErr, err = !!(fe && fe.id === 'ob' && fe.field === id), open = t.when.length || err || (ctx.state.disc || {})[id] === true;
-    var h = '<details class="ob-when" data-disc="' + id + '"' + (open ? ' open' : '') + '><summary>Only when…</summary>';
+    var fe = ctx.state.fieldErr, err = !!(fe && fe.id === 'ob' && fe.field === id), dk = id + ':' + t.key, open = t.when.length || err || (ctx.state.disc || {})[dk] === true;
+    var h = '<details class="ob-when" data-disc="' + esc(dk) + '"' + (open ? ' open' : '') + '><summary>Only when…</summary>';
     if (t.whenOdd || t.odd) return h + '<ul class="small">' + t.when.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul><p class="small">Written in a way the builder can\'t keep exactly. Edit them in Markdown.</p></details>';
-    return h + '<label class="field" for="' + id + '"><span class="small">One a line, like ^' + esc(meta.context[0] || 'detail') + ' is set; otherwise Not needed.</span><textarea id="' + id + '" rows="2" maxlength="1000"' + errAt(ctx, id) + '>\n' + esc(t.when.join('\n')) + '</textarea></label>' + errMsg(ctx, id) + '</details>';
+    return h + '<label class="field" for="' + id + '"><span class="small">One a line, like ^' + esc(meta.context[0] || 'detail') + ' is set; otherwise Not needed.</span><textarea id="' + id + '" rows="2"' + errAt(ctx, id) + '>\n' + esc(t.when.join('\n')) + '</textarea></label>' + errMsg(ctx, id) + '</details>';
   }
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its

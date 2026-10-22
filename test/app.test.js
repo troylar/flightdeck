@@ -7253,11 +7253,20 @@ rule('Builder: Checklist details adds and removes roles and run details, and set
 rule('Builder conditions: one closed "Only when…" line until it is used; a step\'s and a phase\'s conditions round-trip through the text', async () => {
   const app = await builderOn(), original = releaseText(app);
   app.click('ob-sel', 'flags'); await app.tick();
-  assert.ok(/<details class="ob-when" data-disc="ob-when"><summary>Only when…<\/summary>/.test(app.html()), 'closed, one quiet line');
+  assert.ok(/<details class="ob-when" data-disc="ob-when:flags"><summary>Only when…<\/summary>/.test(app.html()), 'closed, one quiet line');
+  assert.ok(!/id="ob-when"[^>]*maxlength/.test(app.html()), 'no length limit below what four conditions can need');
   assert.strictEqual((app.html().match(/Only when/g) || []).length, 1, 'said once');
   leave(app, 'ob-when', '^ticket is set'); await app.tick();
   assert.ok(/Changed when "Feature flags set in the deploy values" applies\. Undo available\./.test(app.live()), app.live());
-  assert.ok(/<details class="ob-when" data-disc="ob-when" open>/.test(app.html()), 'open while it has one');
+  assert.ok(/<details class="ob-when" data-disc="ob-when:flags" open>/.test(app.html()), 'open while it has one');
+  /* The browser reports the open it drew as a toggle: that is remembered for this step only, never for the next one. */
+  app.fire('toggle', { target: { dataset: { disc: 'ob-when:flags' }, open: true } }); await app.tick();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/<details class="ob-when" data-disc="ob-when:rollback"><summary>/.test(app.html()), 'another step stays closed');
+  app.click('ob-sel', 'flags'); await app.tick();
+  leave(app, 'ob-when', 'only when'); await app.tick();
+  assert.ok(/Write a condition as/.test(app.html()), 'refused beside the box, never read as no condition');
+  leave(app, 'ob-when', '^ticket is set'); await app.tick();
   assert.strictEqual(app.draft('ob-when'), '^ticket is set');
   leave(app, 'ob-when', '^nope is set'); await app.tick();
   assert.ok(/isn&#39;t listed in context/.test(app.html()) && /id="ob-when"[^>]*aria-invalid="true"/.test(app.html()), 'refused beside the box');
@@ -7266,7 +7275,7 @@ rule('Builder conditions: one closed "Only when…" line until it is used; a ste
   assert.ok(/later one \(sets:\)/.test(app.html()), 'a detail a later step sets is refused, with why');
   leave(app, 'ob-when', '^ticket is set'); await app.tick();
   app.click('ob-sel-phase', 'verify'); await app.tick();
-  assert.ok(/<details class="ob-when" data-disc="ob-ph-when"><summary>Only when…<\/summary>/.test(app.html()), 'the phase has the same closed line');
+  assert.ok(/<details class="ob-when" data-disc="ob-ph-when:verify"><summary>Only when…<\/summary>/.test(app.html()), 'the phase has the same closed line');
   leave(app, 'ob-ph-when', 'only when ^tag is set'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const after = releaseText(app);
@@ -7290,7 +7299,7 @@ rule('Builder conditions: a condition written another way is shown, read-only, a
   app.click('ob-sel', 'flags'); await app.tick();
   const h = app.html();
   assert.ok(!/id="ob-when"/.test(h) && /Edit them in Markdown/.test(h) && /<li>\^ticket is set<\/li>/.test(h), 'no box, the text, and where to change it');
-  assert.ok(/<details class="ob-when" data-disc="ob-when" open>/.test(h), 'open, since it has one');
+  assert.ok(/<details class="ob-when" data-disc="ob-when:flags" open>/.test(h), 'open, since it has one');
 });
 
 rule('Builder: the step form edits its note; no "in Markdown" is left for roles, run details or notes', async () => {

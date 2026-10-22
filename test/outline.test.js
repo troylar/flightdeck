@@ -1049,6 +1049,14 @@ rule('Builder conditions: a wrong condition, a fifth one, or one a later phase s
   assert.ok(/at most 4/.test(O.apply(CW, { op: 'when', step: 'beta', text: '^risk is high\n^hot is yes\n^amount is set\n^path is set\n^risk is set' }).error));
   assert.ok(/later one \(sets:\)/.test(O.apply(CW, { op: 'when', phase: 'second', text: '^path is fast' }).error), 'forward only');
   assert.ok(/later one \(sets:\)/.test(O.apply(CW, { op: 'when', step: 'beta', text: '^path is fast' }).error));
+  assert.ok(/Write a condition as/.test(O.apply(CW, { op: 'when', step: 'alpha', text: 'only when' }).error), 'a line with only "only when" is refused, never read as removing the condition');
+  assert.ok(/Write a condition as/.test(O.apply(CW, { op: 'when', step: 'alpha', text: '^risk is high\n  only when  ' }).error));
+  /* A draft already holding a forward-only error: changing that condition to another one on the same detail is still refused. */
+  const bad = CW.replace('- [ ] {confirm} Alpha {#alpha}\n  only when ^risk is high', '- [ ] {confirm} Alpha {#alpha}\n  only when ^risk is high\n  sets: risk');
+  assert.ok(M.parse(bad).errors.some(e => /later one/.test(e.msg)), 'set-up');
+  assert.ok(/later one \(sets:\)/.test(O.apply(bad, { op: 'when', step: 'alpha', text: '^risk is low' }).error));
+  const long = '^risk is one of ' + Array.from({ length: 2 }, () => 'low').join('|');
+  assert.ok(O.apply(CW, { op: 'when', step: 'beta', text: long }).error, 'set-up: a value listed twice');
 });
 
 rule('Builder conditions: lines written another way, or a block the builder can\'t change safely, are never rewritten', () => {

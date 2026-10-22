@@ -938,13 +938,21 @@ PF.outline = (function () {
     if (t.odd) return { error: ERR.odd };
     if (t.whenOdd) return { error: ERR.whenOdd };
     var want = [];
-    value.replace(/\r\n?/g, '\n').split('\n').forEach(function (l) { var w = l.replace(/^\s*only when\b/i, '').trim(); if (w) want.push(w); });
+    /* A line holding only "only when" is a condition not finished, refused below, never read as no condition. */
+    value.replace(/\r\n?/g, '\n').split('\n').forEach(function (l) { if (l.trim()) want.push(l.replace(/^\s*only when\b/i, '').trim()); });
     if (want.length > PF.conditions.MAX) return { error: 'A ' + kind + ' can have at most ' + PF.conditions.MAX + ' "only when" lines.' };
-    var meta = M.parse(text).meta, canon = [];
-    for (var k = 0; k < want.length; k++) {
+    var meta = M.parse(text).meta, canon = [], k;
+    for (k = 0; k < want.length; k++) {
       var c = PF.conditions.parse(want[k], meta.context, meta.detailTypes);
       if (c.why) return { error: c.why };
       canon.push(c.test.text);
+    }
+    /* Forward only, checked here too: a draft that already breaks the rule would otherwise let a new break through. */
+    var mp = M.parse(text), pi = kind === 'phase' ? t.index : t.phase.index, later = Object.create(null);
+    mp.phases.slice(pi).forEach(function (q) { q.steps.forEach(function (st) { String(st.fields.sets || '').split(',').forEach(function (x) { if (x.trim()) later[x.trim()] = true; }); }); });
+    for (k = 0; k < want.length; k++) {
+      var nm = PF.conditions.parse(want[k], meta.context, meta.detailTypes).test.name;
+      if (later[nm]) return { error: '^' + nm + ' is set in this phase or a later one (sets:), so it can\'t decide whether this applies. Only a step in an earlier phase can set it.' };
     }
     if (json(want) === json(t.when)) return { text: text, at: t.line, same: true };
     var lines = o.lines.slice(), W = t.whenLines, cr = crOf(o, t.line), n = Math.min(W.length, want.length);

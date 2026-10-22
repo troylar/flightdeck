@@ -175,10 +175,10 @@ async function conditional(out) {
   app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80); take('run with conditions, just started');
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
   app.click('ob-sel', 'flags'); await app.tick();
-  assert.ok(/<details class="ob-when" data-disc="ob-when" open>/.test(app.html()), 'set-up: its condition is open');
+  assert.ok(/<details class="ob-when" data-disc="ob-when:flags" open>/.test(app.html()), 'set-up: its condition is open');
   take('builder with conditions, a step selected');
   app.click('ob-sel', 'rollback'); await app.tick();
-  assert.ok(/<details class="ob-when" data-disc="ob-when"><summary>/.test(app.html()), 'set-up: closed');
+  assert.ok(/<details class="ob-when" data-disc="ob-when:rollback"><summary>/.test(app.html()), 'set-up: closed');
   take('builder, a step without conditions selected');
 }
 rule('Each screen keeps to its budget of visible words, buttons, boxes and chips', async () => {
