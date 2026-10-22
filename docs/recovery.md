@@ -139,7 +139,7 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 **A sign-off, a plan or a staged version.** These hold up only what they belong to, never the whole folder:
 
-- A sign-off file (`validations/`) that can't be read: until it reads, **Ready for a skill?** and a staged version's line say they can't tell whether that version was signed off, and **Sign off** isn't offered for it.
+- A sign-off file (`validations/`) that can't be read: if this window read it before, what it said still counts and Folder health names the file. Otherwise, until it reads, **Ready for a skill?** and a staged version's line say they can't tell whether that version was signed off, and **Sign off** isn't offered for it.
 - A decision on a planned run that can't be read: that plan can't be started, declined or switched until it reads.
 - A staged version without its finished record, or a retire or reopen decision that can't be read: nothing runs from that staged version, and **All versions** offers no change to it until it reads. Stage the draft again if it stays that way.
 
