@@ -114,6 +114,13 @@ rule('Runs: a run naming its recorder, or who ended it, by an ID over 80 charact
     const ok = R.sanitize(JSON.parse(JSON.stringify(base)));
     assert.ok(!ok._unrunnable, what + ': an ordinary run is not');
   });
+  // However the file holds its answers, gates and roles (a list where a map belongs is still read entry by entry).
+  const first = Object.keys(base.steps)[0], gate = Object.keys(base.gates)[0];
+  [['an answer in a list', o => { o.steps = [Object.assign({}, o.steps[first], { by: P81 })]; }], ['a gate in a list', o => { o.gates = [Object.assign({}, o.gates[gate], { by: P81 })]; }],
+    ['roles in a list', o => { o.roles = [P81]; }], ['an earlier answer', o => { o.steps[first].history = [{ s: 'done', by: P81, at: NOW }]; }]].forEach(([what, edit]) => {
+    const o = JSON.parse(JSON.stringify(base)); edit(o);
+    assert.ok(/longer than the 80 characters/.test(R.sanitize(o)._unrunnable || ''), what);
+  });
   const o = JSON.parse(JSON.stringify(base)); o.recorder.person = P81; put(fs, 'runs/release/run1/run.json', JSON.stringify(o));
   const d = await repo.loadAll(fs), got = d.runs[0];
   assert.ok(got._unrunnable, 'read-only when read from the folder');
@@ -302,6 +309,22 @@ rule('App: while the runs folder can\'t be read, no run counts toward a sign-off
   app.click('refresh'); await app.tick(120);
   app.click('open-process', 'check-in'); await app.tick();
   assert.ok(!/data-kind="signoff"/.test(app.html()) && /0 of 3 clean runs/.test(readyText(app.html())), readyText(app.html()));
+  app.click('pick', 'check-in', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'check-in'); await app.tick(80);
+  assert.deepStrictEqual(app.files('validations/'), [], 'no sign-off written');
+  app.fs.list = list;
+  app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/data-kind="signoff"/.test(app.html()), 'counted again once it reads');
+});
+
+rule('App: while the whole team folder can\'t be read, no run counts toward a sign-off and nothing is signed off', async () => {
+  const app = await threeCleanCheckIns();
+  const list = app.fs.list;
+  app.fs.list = function (p) { return !p ? Promise.reject(new Error('offline')) : list.apply(this, arguments); };
+  app.click('refresh'); await app.tick(120);
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(!/data-kind="signoff"/.test(app.html()), readyText(app.html()));
   app.click('pick', 'check-in', { kind: 'signoff' }); await app.tick();
   app.click('signoff', 'check-in'); await app.tick(80);
   assert.deepStrictEqual(app.files('validations/'), [], 'no sign-off written');

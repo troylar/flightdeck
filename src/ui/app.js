@@ -612,14 +612,14 @@
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
       (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
       (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
-      data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
+      data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
       if (changed || force || wasErr) render(); else renderTop();
       navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
       finishAccepts();
-    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); navLoadFailed(); });
+    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -653,10 +653,12 @@
   /* Runs whose latest read failed (unreadable, or gone), whatever is on screen: a run kept on screen for its unsaved work still
      isn't counted toward a sign-off while its file can't be read as it (2.0.1). */
   var notCounted = {};
+  /* The last read of the whole folder failed: what's shown is from before it. */
+  var folderUnread = false;
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
   function countedRuns() {
-    /* While the runs folder itself can't be read, none of what's shown is what it holds now. */
-    if ((data.failed || {}).runs) return [];
+    /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
+    if (folderUnread || (data.failed || {}).runs) return [];
     var u = (state.unread || {}).runs || {}, m = state.missing || {};
     return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k]; });
   }
@@ -868,7 +870,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();

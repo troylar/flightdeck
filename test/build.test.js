@@ -158,10 +158,21 @@ rule('1.21.0 has its own release entry, in plain words, naming no employer, prod
 });
 
 rule('2.0.0 has its own release entry, in plain US English, naming the notes and screenshots older copies can\'t run', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '2.0.0');
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '2.0.0')[0];
+  assert.ok(r, '2.0.0 is listed');
   const text = JSON.stringify(r);
   assert.ok(/phase/i.test(text) && /gate/i.test(text) && /screenshot/i.test(text) && /1\.22 or earlier/.test(text) && !/1\.21 or earlier/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
+});
+
+rule('2.0.1 has its own release entry above 2.0.0: fixes only, in plain US English', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
+  assert.strictEqual(r.version, '2.0.1');
+  assert.strictEqual(rel[1].version, '2.0.0');
+  assert.ok(r.date >= rel[1].date, 'dated on or after 2.0.0');
+  assert.ok(r.changes.every(c => c.kind === 'fixed'), 'a patch: fixes only');
+  const text = JSON.stringify(r);
+  assert.ok(/own folder/.test(text) && /counts? twice/.test(text) && /exact/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 

@@ -1215,23 +1215,25 @@ PF.run = (function () {
     var where = '';
     function id(v, w) { if (!where && typeof v === 'string' && v.length > 80) where = w; }
     function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+    /* Every shape cleaning reads entries from by name: a list read that way (Object.keys) is checked too. */
+    function keyed(v) { return !!v && typeof v === 'object'; }
     function each(list, f) { if (Array.isArray(list)) list.forEach(function (x) { if (obj(x)) f(x); }); }
     if (obj(o.recorder)) { id(o.recorder.person, 'its recorder'); if (obj(o.recorder.handoff)) id(o.recorder.handoff.from, 'its hand-off'); }
     if (obj(o.ended)) id(o.ended.by, 'who ended it');
     id(o.createdBy, 'who started it');
     if (obj(o.paused)) id(o.paused.by, 'who paused it');
     each(o.pauses, function (p) { id(p.by, 'a pause'); });
-    if (obj(o.roles)) Object.keys(o.roles).forEach(function (k) { id(o.roles[k], 'a role'); });
+    if (keyed(o.roles)) Object.keys(o.roles).forEach(function (k) { id(o.roles[k], 'a role'); });
     each(o.followUps, function (f) { id(f.owner, 'a follow-up\'s owner'); id(f.by, 'a follow-up'); });
     each(o.log, function (l) { id(l.by, 'its log'); });
-    if (obj(o.steps)) Object.keys(o.steps).forEach(function (k) {
-      var a = o.steps[k]; if (!obj(a)) return;
+    if (keyed(o.steps)) Object.keys(o.steps).forEach(function (k) {
+      var a = o.steps[k]; if (!keyed(a)) return;
       [a].concat(Array.isArray(a.history) ? a.history : []).forEach(function (h) {
-        if (!obj(h)) return;
+        if (!keyed(h)) return;
         id(h.by, 'an answer'); if (obj(h.started)) id(h.started.by, 'an answer'); if (obj(h.deadline)) id(h.deadline.by, 'a deadline'); if (obj(h.differently)) id(h.differently.by, 'an answer');
       });
     });
-    if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) { if (obj(o.gates[k])) id(o.gates[k].by, 'a gate'); });
+    if (keyed(o.gates)) Object.keys(o.gates).forEach(function (k) { if (keyed(o.gates[k])) id(o.gates[k].by, 'a gate'); });
     return where ? 'It names someone (' + where + ') by an ID longer than the 80 characters Flightdeck keeps, so this copy shows it but can\'t record it or save over it.' : '';
   }
   /* A run file in a run format this copy doesn't know (a newer Flightdeck's) is listed by name, read-only, with no steps:
