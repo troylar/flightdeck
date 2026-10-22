@@ -403,18 +403,22 @@ rule('A phase passed while a step wasn\'t needed goes to review when that step b
   assert.strictEqual(R.gateStatus(r, map, 2), 'review', 'never passed again by itself');
 });
 
-rule('A child run counts only for the values its step\'s conditions tested: changing one re-checks the step and the child no longer checks it', () => {
+rule('A detail its condition tests changing re-checks a child-run step, and the linked child no longer checks it by itself', () => {
   const md = MD.replace('- [ ] {confirm} Tell the change board {#board}\n  only when ^risk is high', '- [ ] {run.process} Run the board check {#board}\n  process: board-check\n  carry: ticket\n  only when ^risk is set');
   const r = start({ ticket: 'T-1', risk: 'high', hotfix: 'no', amount: '1' }, { md }), map = mapOf(r);
   upTo(r, 'release');
   const step = map.phases[2].steps.find(s => s.id === 'board');
   same(R.condFields(r, step), ['risk']);
-  r.steps.board = { s: 'done', by: 'person-avery', at: NOW, child: { process: 'board-check', id: 'kid1', inputs: { ticket: 'T-1', risk: 'high' } } };
-  assert.ok(R.childCurrent(r, step, r.steps.board), 'current for the values it was started with');
+  r.steps.board = { s: 'done', by: 'person-avery', at: NOW, child: { process: 'board-check', id: 'kid1', inputs: { ticket: 'T-1' } } };
   R.setDetail(r, map, 'risk', 'low', 'person-avery', LATER);
   assert.strictEqual(R.applies(r, map, 2, step).applies, true, 'still needed');
   assert.strictEqual(r.steps.board.s, 'recheck');
-  assert.ok(!R.childCurrent(r, step, r.steps.board), 'the child was for risk high, so it can\'t check the step again');
+  assert.strictEqual(r.steps.board.child.failed, true, 'the sync that settles linked children skips it; a new run can replace it');
+  same(r.steps.board.child.inputs, { ticket: 'T-1' }, 'what it carried is unchanged');
+  // Already in re-check for a carried detail: a condition change still retires the child.
+  r.steps.board = { s: 'recheck', by: 'person-avery', at: NOW, reason: 'ticket changed', child: { process: 'board-check', id: 'kid2', inputs: { ticket: 'T-1' } } };
+  R.setDetail(r, map, 'risk', 'high', 'person-avery', LATER);
+  assert.strictEqual(r.steps.board.child.failed, true, 'a re-check already waiting');
 });
 
 rule('Skill signatures: a step covers its own conditions and whether the gates around it need a pass; a checklist without conditions signs as before', () => {
@@ -438,19 +442,23 @@ rule('Not needed work keeps no time: its steps and its skipped phase\'s gate are
   same(R.schedule(yes, mapOf(yes), Date.parse(NOW) + 3600000).map(x => x.id).sort(), ['board', 'page', 'paged']);
 });
 
-rule('A child started with carry: is judged only on what it carried: a detail its step\'s condition tests isn\'t a value it was given', () => {
+rule('A child is judged on exactly what it was started with: a carried detail cleared or changed blocks it; a detail only its condition tests is not in its inputs', () => {
   const md = MD.replace('- [ ] {confirm} Tell the change board {#board}\n  only when ^risk is high', '- [ ] {run.process} Run the board check {#board}\n  process: board-check\n  carry: ticket\n  only when ^risk is set');
   const r = start({ ticket: 'T-1', risk: 'high', hotfix: 'no', amount: '1' }, { md }), map = mapOf(r);
   upTo(r, 'release');
   const step = map.phases[2].steps.find(s => s.id === 'board');
   r.steps.board = { s: 'open', child: { process: 'board-check', id: 'kid1', inputs: { ticket: 'T-1', risk: 'high' } } };
+  // A child that carried risk (carry: edited since) and cleared it, or changed it, is never done.
   const child = { process: 'board-check', id: 'kid1', details: { ticket: 'T-1', risk: '' }, ended: { outcome: 'Completed' } };
+  assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'cleared');
+  child.details.risk = 'low';
+  assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'changed');
+  // Started as the app starts it now: only what it carries is in its inputs, so a detail only its condition tests isn't compared.
+  r.steps.board = { s: 'open', child: { process: 'board-check', id: 'kid1', inputs: { ticket: 'T-1' } } };
+  child.details.risk = '';
   same(R.childVerdict(r, step, r.steps.board, child, () => null), { s: 'done' });
   child.details.ticket = 'T-2';
   assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'what it carried still counts');
-  // carry: edited during the run to drop a detail it did carry: a child that ends with another value of it is never done.
-  child.details.ticket = 'T-1'; child.details.risk = 'low';
-  assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'a value it holds is compared');
 });
 
 run();

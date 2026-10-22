@@ -677,7 +677,12 @@ PF.run = (function () {
       var viaChild = x.step.type === 'run.process' && a && a.child && Object.prototype.hasOwnProperty.call(childInputs(r, x.step, a.child.inputs), field);
       /* A detail a condition tests counts as a binding: an answered step goes back for a re-check (2.1). */
       var byCond = condUses(x.phase, x.step, field);
-      if (x.step.id !== except && (x.step.binds.indexOf(field) >= 0 || viaChild || byCond) && a && (a.s === 'done' || a.s === 'na')) { if (viaChild) viaChildren.push(x.step.id); answer(r, x.step.id, { s: 'recheck', reason: field + ' changed' + (viaChild ? ': its ' + a.child.process + ' run was for the old value' : x.step.binds.indexOf(field) < 0 && byCond ? ': this step\'s condition uses it' : ''), by: who, at: now }); n++; }
+      if (x.step.id !== except && (x.step.binds.indexOf(field) >= 0 || viaChild || byCond) && a && (a.s === 'done' || a.s === 'na')) { if (viaChild) viaChildren.push(x.step.id); answer(r, x.step.id, { s: 'recheck', reason: field + ' changed' + (viaChild ? ': its ' + a.child.process + ' run was for the old value' : x.step.binds.indexOf(field) < 0 && byCond ? ': this step\'s condition uses it' : ''), by: who, at: now }); n++;
+      }
+      /* A re-check a condition asked for (2.1), or one already waiting for another reason, is a person's: the linked child no
+         longer settles the step by itself, and a new run can replace it. Its inputs (what it carried) stay as they were. */
+      var ra = r.steps[x.step.id];
+      if (x.step.id !== except && byCond && !viaChild && x.step.binds.indexOf(field) < 0 && ra && ra.child && (ra.s === 'recheck' || ra.s === 'done' || ra.s === 'na')) ra.child.failed = true;
     });
     /* Conditions: what applies now, and the steps that weren't needed before and are now (needed or held). */
     var after = tested.map(function (x) { return applies(r, map, x.phaseIndex, x.step).applies; });
@@ -955,8 +960,7 @@ PF.run = (function () {
     want.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
     return out;
   }
-  /* The run details a step's conditions and its phase's test (2.1): a child run counts only for the values it was started
-     with, as for the details the step is bound to. */
+  /* The run details a step's conditions and its phase's test (2.1). */
   function condFields(r, step) {
     if (!step || !r) return [];
     var map; try { map = mapOf(r); } catch (e) { return []; }
@@ -968,7 +972,7 @@ PF.run = (function () {
     if (!snapshot && !want.length) want = Object.keys(r.details);
     /* What the step itself produces (sets:) is its output, not something its child was started for. */
     var own = String(f.sets || '').split(',').map(function (x) { return x.trim(); });
-    (step.binds || []).concat(condFields(r, step), want).filter(function (k) { return own.indexOf(k) < 0; }).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
+    (step.binds || []).concat(want).filter(function (k) { return own.indexOf(k) < 0; }).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
     return out;
   }
   function childCurrent(r, step, a) {
@@ -999,12 +1003,7 @@ PF.run = (function () {
     /* A carried value the child migrated (its own record, from the carried text) is the same value; one still waiting there
        keeps this step open. */
     var cm = Array.isArray(child.migrations) ? child.migrations : [], held = false;
-    /* A detail in the snapshot only because a condition tests it (2.1) wasn't passed to the child (with carry:): while the
-       child has no value of its own for it, there's nothing to compare. carry: can be edited during the run, so a child that
-       does hold a value (it may have been carried then) is compared as usual: a mismatch blocks, never a silent done. */
-    var condOnly = carried.length ? condFields(r, step).filter(function (k) { return carried.indexOf(k) < 0 && (step.binds || []).indexOf(k) < 0; }) : [];
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) {
-      if (condOnly.indexOf(k) >= 0 && !(child.details && child.details[k])) return false;
       if (!Object.prototype.hasOwnProperty.call(child.details || {}, k) || (child.details[k] || '') === (a.child.inputs[k] || '')) return false;
       var m = cm.filter(function (x) { return x && x.path === 'details.' + k && x.from === a.child.inputs[k]; })[0];
       if (m && isOpen(m)) { held = true; return false; }
