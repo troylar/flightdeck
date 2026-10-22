@@ -14790,10 +14790,16 @@ PF.repo = (function () {
     });
   }
   /* One stage folder, verified by the stage rules and its screenshots. Anything short of a verified stage is incomplete. */
+  /* A stage is its folder's process's: one whose record or checklist names another process (copied in by hand) is
+     unusable, named, so no test run or version is ever written for the wrong process. */
   function readStage(fs, proc, folder) {
     var base = 'staged/' + proc + '/' + folder + '/';
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
       return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text }, { stage: true });
+    }).then(function (res) {
+      if (res.ok && res.info.process !== proc) res = { ok: false, why: 'It\'s a stage of ' + String(res.info.process) + ', in ' + proc + '\'s folder. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
+      else if (res.ok && res.map.meta.process !== proc) res = { ok: false, why: 'Its checklist is for ' + String(res.map.meta.process) + ', not ' + proc + '. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
+      return res;
     }).then(function (res) {
       res.folder = folder; res.process = proc;
       return checkImages(fs, base, res);

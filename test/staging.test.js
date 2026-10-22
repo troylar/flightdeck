@@ -170,6 +170,29 @@ rule('Promote: refused while a listed version\'s record can\'t be read (it could
   await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0008' }), /already/);
 });
 
+rule('A stage in another process\'s folder (its record or its checklist names another process) is refused by name: nothing starts or promotes from it', async () => {
+  const fs = folder(); await staged(fs);
+  const from = 'staged/release/stage-abcd1234/', to = 'staged/beta/stage-abcd1234/';
+  const copy = (edit) => Object.keys(fs.files).filter(p => p.indexOf(from) === 0).forEach(p => { fs.files[to + p.slice(from.length)] = { t: edit && /publication\.json$/.test(p) ? edit(fs.files[p].t) : fs.files[p].t }; });
+  const cases = [
+    [null, /release/],
+    [(t) => JSON.stringify(Object.assign(JSON.parse(t), { process: 'beta' })), /checklist/i]
+  ];
+  for (const [edit, why] of cases) {
+    copy(edit);
+    const st = await repo.readStage(fs, 'beta', 'stage-abcd1234');
+    assert.ok(!st.ok && st.incomplete && /beta/.test(st.why) && why.test(st.why), JSON.stringify([st.ok, st.why]));
+    const d = await repo.loadAll(fs, { deep: true });
+    same(d.stages.procs.beta.stages.map(s => [s.folder, s.ok]), [['stage-abcd1234', false]]);
+    assert.ok(PF.health.stages(d.stages).some(x => x.path === to && /beta/.test(x.why)), JSON.stringify(PF.health.stages(d.stages)));
+    const before = JSON.stringify(Object.keys(fs.files).sort());
+    await assert.rejects(() => repo.startTestRun(fs, 'beta', 'stage-abcd1234', { session: 'w-avery', make: () => { throw new Error('never built'); } }), /can't be read now/);
+    await assert.rejects(() => repo.promote(fs, 'beta', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0012' }), /can't be read now/);
+    assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
+  }
+  assert.ok((await repo.readStage(fs, 'release', 'stage-abcd1234')).ok, 'the original stage is untouched');
+});
+
 rule('Promote: the corrections a stage records are kept in the version it becomes', async () => {
   const fs = folder(); const d = await v1(fs), p = d.processes[0];
   const corr = [{ id: 'c-1', result: { step: 'flags', sig: 'abc' } }];
