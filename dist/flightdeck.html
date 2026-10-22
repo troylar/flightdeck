@@ -14853,14 +14853,14 @@ PF.repo = (function () {
     });
   }
   /* The first version whose record can't say whether it is a given stage's promotion: one that can't be read, or one that
-     reads but is incomplete (no process, number, folder or fingerprints, or a stagedFrom that names no stage folder). A
+     reads but is incomplete (no format this copy reads, process, number, folder or fingerprints, or a stagedFrom that names no stage folder). A
      partial record could be the promotion, so it leaves the answer unknown, never "not this stage". { pub, why } or null. */
   function promotionUnknown(pubs) {
     var sfOk = function (sf) { return !!sf && typeof sf === 'object' && !Array.isArray(sf) && typeof sf.folder === 'string' && PF.publish.STAGE.test(sf.folder); };
     for (var k = 0; k < pubs.length; k++) {
       var x = pubs[k], i = x.info;
       if (!i || typeof i !== 'object' || Array.isArray(i)) return { pub: x, why: x.why };
-      if (typeof i.process !== 'string' || typeof i.version !== 'number' || i.folder !== x.folder || typeof i.mapHash !== 'string' || typeof i.typesHash !== 'string' ||
+      if ((i.format !== P.FORMAT && i.format !== P.FORMAT2) || typeof i.process !== 'string' || typeof i.version !== 'number' || i.folder !== x.folder || typeof i.mapHash !== 'string' || typeof i.typesHash !== 'string' ||
         (Object.prototype.hasOwnProperty.call(i, 'stagedFrom') && !sfOk(i.stagedFrom))) return { pub: x, why: 'its publication.json is incomplete' };
     }
     return null;
