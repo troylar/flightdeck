@@ -190,6 +190,34 @@ rule('A screenshot named __proto__ is a name like any other: a version with one 
   assert.ok(S.carries(pub, stage, exact), 'and PF.skills.carries says so');
 });
 
+rule('A stage read now and failing is never replaced by the one worked out before, even while its decisions can\'t be listed', async () => {
+  const fs = folder(), stage = await staged(fs);
+  const runs = [1, 2, 3].map(i => completeRun(PF, testRun(stage, i), NOW));
+  await promoted(fs, stage);
+  const sm = 'staged/release/stage-abcd1234/map.md';
+  await fs.write(sm, fs.files[sm].t + '\n');
+  await fs.write('staged/release/decisions/x.json', '{}');
+  const orig = fs.list.bind(fs);
+  fs.list = (x) => x === 'staged/release/decisions' ? Promise.reject(new Error('offline')) : orig(x);
+  const d = await repo.loadAll(fs, { deep: true }), pub = d.processes[0].latest || d.processes[0].index.latest;
+  assert.ok(pub.fromStage && !pub.fromStage.ok, 'the stage fails now: ' + JSON.stringify(pub.fromStage && pub.fromStage.why));
+  same(S.readiness(runs, pub, null).completed, 0);
+  /* Gone from a listing that worked, then the listing fails: still not carried. */
+  fs.list = orig;
+  Object.keys(fs.files).filter(f => f.indexOf('staged/release/stage-abcd1234/') === 0).forEach(f => { delete fs.files[f]; });
+  await repo.loadAll(fs, { deep: true });
+  fs.list = (x) => x === 'staged/release' ? Promise.reject(new Error('offline')) : orig(x);
+  const d3 = await repo.loadAll(fs, { deep: true }), p3 = d3.processes[0].latest || d3.processes[0].index.latest;
+  assert.ok(!p3.fromStage || !p3.fromStage.ok, 'a stage known gone never comes back from memory');
+});
+
+rule('A copy of a test run in another run folder counts once', async () => {
+  const fs = folder(), stage = await staged(fs);
+  const one = completeRun(PF, testRun(stage, 1), NOW);
+  const rd = S.readiness([one, clone(one), clone(one)], stage, null);
+  same([rd.completed, rd.clean, rd.cleanIds], [1, 1, ['run-try1']]);
+});
+
 rule('While the stages can\'t be listed, a promotion keeps the stage it carried, and its own bytes are still checked', async () => {
   const fs = folder(), stage = await staged(fs);
   const runs = [1, 2, 3].map(i => completeRun(PF, testRun(stage, i), NOW));

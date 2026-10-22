@@ -124,4 +124,16 @@ rule('A test run that changed in the folder after the page was drawn is judged a
   assert.ok(/clean test runs; it has 2/.test(app.html()), 'it says why');
 });
 
+rule('Copies of one test run in other run folders never make enough for a sign-off', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 1);
+  for (const id of ['run-copy2', 'run-copy3']) app.files('runs/release/run-try1/').forEach(f => { app.fs.files[f.replace('/run-try1/', '/' + id + '/')] = Object.assign({}, app.fs.files[f]); });
+  app.click('refresh'); await app.tick(120);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(!/data-act="signoff-stage"/.test(app.html()), line(app, folder));
+  const before = app.files('validations/').length;
+  app.click('signoff-stage', folder); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+});
+
 run();

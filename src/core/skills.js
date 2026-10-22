@@ -337,9 +337,14 @@ PF.skills = (function () {
      it (sourceStage), and only finished ones on the stage's exact payload; they're labeled "Test run:" and counted in tests. */
   function readiness(runs, pub, ids) {
     var src = sourceStage(pub), want = src ? PF.publish.payloadHash(src.info.payload) : '', stage = isStage(pub);
+    var seen = Object.create(null);
     var mine = (runs || []).filter(function (r) {
       if (r.process !== pub.map.meta.process || !r.ended || r.ended.outcome !== 'Completed') return false;
-      return !stage && r.folder === pub.info.folder && !PF.run.isTest(r) || onStage(r, src, want);
+      if (!stage && r.folder === pub.info.folder && !PF.run.isTest(r)) return true;
+      /* A test run counts once by its ID, so a copy of one in another run folder never adds to the count. */
+      if (!onStage(r, src, want) || seen[r.id]) return false;
+      seen[r.id] = true;
+      return true;
     });
     var deviations = [], clean = [];
     mine.forEach(function (r) {

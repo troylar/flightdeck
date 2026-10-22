@@ -1695,12 +1695,13 @@ PF.repo = (function () {
         if (x.status !== 'staged') throw new Error(x.status === 'promoted' ? 'It\'s already the default.' : PF.staging.promoteWhy(x) || 'It isn\'t staged now.');
         /* What it is judged on is read again now too: the test runs named (o.runIds, the ones on this stage as last read),
            people.json and this stage's sign-offs. A read that fails signs nothing. */
-        var ids = (o.runIds || []).filter(function (id) { return typeof id === 'string' && R.RUN_ID.test(id); });
+        var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
         var signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }).then(function (vs) {
           return vs.map(function (v) { var c = PF.skills.cleanValidation(v); return c.ok ? c.rec : null; }).filter(Boolean);
         });
         return Promise.all([Promise.all(ids.map(function (id) { return loadRun(fs, proc, id, null, true); })), loadPeople(fs), signs]).then(function (f) {
-          var c = o.check(st, { runs: f[0].filter(Boolean), people: f[1], validations: f[2] });
+          /* Only a run whose own record names this process and the folder it was read from. */
+          var c = o.check(st, { runs: f[0].filter(function (r, i) { return r && r.process === proc && r.id === ids[i]; }), people: f[1], validations: f[2] });
           if (typeof o.still === 'function' && !o.still()) return { dropped: true };
           return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
         }, function (e) { throw new Error('What it would be signed off on couldn\'t be read now (' + why(e) + '). Nothing was signed off.'); });
@@ -1737,8 +1738,10 @@ PF.repo = (function () {
         var sp = Object.prototype.hasOwnProperty.call(procs, proc) ? procs[proc] : null, st = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
         /* A stage that couldn't be read this time: the one verified before, never the old verdict, and this version's own
            bytes checked against it again. */
-        var was = cache.carried[key];
-        if ((!st || !st.ok) && ('stages' in out.failed || (sp && sp.unlisted)) && was && was.stage && was.folder === folder) st = was.stage;
+        var was = cache.carried[key], unlisted = 'stages' in out.failed || !!(sp && sp.unlisted && /^staged\/[^/]+\/ /.test(sp.unlisted));
+        /* Only a stage that wasn't listed this time; one read and failing, or listed as gone, forgets what was worked out. */
+        if (!st && unlisted && was && was.stage && was.folder === folder) st = was.stage;
+        else if (!st || !st.ok) delete cache.carried[key];
         if (!st) { pub.fromStage = { folder: folder, ok: false, why: 'Its stage isn\'t in the folder.', stage: null }; return; }
         jobs.push(stageCarried(fs, pub, st, cache).then(function (w) { pub.fromStage = { folder: folder, ok: !w, why: w, stage: st }; if (st.ok) cache.carried[key] = pub.fromStage; }));
       });
