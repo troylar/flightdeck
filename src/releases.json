@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.0.1",
+    "date": "2026-10-22",
+    "headline": "Each run counts once, and a sign-off or correction counts only from the exact person who made it",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A copy of a run in another run folder no longer counts twice",
+        "before": "A run.json copied into another run's folder was read as a second run with the same ID. It counted twice toward signing off a version, in Insights and in the run lists, and saving it wrote into the real run's folder.",
+        "now": "A run.json counts only in its own folder (runs/<process>/<run ID>/). A copy anywhere else is listed with the files that can't be read, with where it belongs, and is never counted or opened. Nothing is removed: move or delete the copy yourself.",
+        "where": "Folder health and Refresh list the copy. Evidence packs include such a folder as it is and say so"
+      },
+      {
+        "kind": "fixed",
+        "area": "Skills",
+        "title": "Sign-offs count only from the owner's exact ID",
+        "before": "A sign-off's person ID was cut to 80 characters before it was compared, so someone whose ID started with the owner's could count as the owner, and an owner with a longer ID never could.",
+        "now": "The ID on a sign-off, and the process and version it names, are compared exactly. The same goes for who wrote a correction, so only its author can withdraw or revise it. A run that names someone by an ID over 80 characters opens read-only.",
+        "where": "A process page, Ready for a skill?"
+      },
+      {
+        "kind": "fixed",
+        "area": "Skills",
+        "title": "Only runs read now count toward a sign-off",
+        "before": "A run whose file couldn't be read, or was gone, still counted toward signing off from its last copy on screen.",
+        "now": "Such a run stays on screen, with any change you haven't saved, but isn't counted toward a sign-off until its file reads again.",
+        "where": "A process page, Ready for a skill?, and Home"
+      }
+    ]
+  },
+  {
     "version": "2.0.0",
     "date": "2026-10-21",
     "headline": "Typed values, exact versions and reports from tools, in a lighter Flightdeck. Move every computer to 1.21 or later first",

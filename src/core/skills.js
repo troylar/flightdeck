@@ -485,12 +485,14 @@ PF.skills = (function () {
   }
 
   /* A sign-off (validations/*.json), checked: { ok: true, rec } with plain strings and numbers only, so odd values can't break a
-     page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. */
+     page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. Who
+     signed, and the process and version it names, are kept exactly as written: they're compared with the owner and the
+     version, so one cut to fit could count as someone else's or another version's (2.0.1). */
   function cleanValidation(v) {
     var env = PF.envelope.judge('flightdeck-validation', v);
     if (!env.ok) return { ok: false, kind: env.kind, why: env.kind === 'newer' ? 'is a sign-off made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why, needs: env.needs || '' };
     if (typeof v.process !== 'string' || typeof v.folder !== 'string' || typeof v.by !== 'string' || typeof v.at !== 'string') return { ok: false, kind: 'malformed', why: 'isn\'t a sign-off this copy can read', needs: '' };
-    var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
+    var o = { kind: 'validation', process: v.process, folder: v.folder, by: v.by, at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }

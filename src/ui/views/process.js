@@ -66,7 +66,7 @@
     if (n) line += n + (stale ? ' · ' + stale + ' need' + (stale === 1 ? 's' : '') + ' attention' : '');
     else if (!pub) line += 'none yet';
     else if (PF.skills.signoffs(ctx.data.validations, pub).length) line += 'none yet (v' + pub.info.version + ' signed off)';
-    else { var ready = PF.skills.readiness(ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
+    else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
     return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
       readyPanel(ctx, p, pub, true) + skillsPanel(ctx, p, true) + '</details>';
   }
@@ -79,7 +79,7 @@
   /* Is the current version ready to become a skill? One line of status and the one thing to do next. */
   function readyPanel(ctx, p, pub, bare) {
     if (!pub) return '';
-    var st = ctx.state, ready = PF.skills.readiness(ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
+    var st = ctx.state, ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
     var h = bare ? '<h3>Ready for a skill?</h3>' : '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
     if (signs.length) {
       h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);

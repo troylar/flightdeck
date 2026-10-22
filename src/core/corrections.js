@@ -235,7 +235,8 @@ PF.corrections = (function () {
     return out;
   }
 
-  /* A decision file read from disk, or null if it isn't one. Decisions on suggested fixes from before 1.13 are read too. */
+  /* A decision file read from disk, or null if it isn't one. Decisions on suggested fixes from before 1.13 are read too. Who
+     decided is kept exactly: a withdrawal counts only from the exact author of what it withdraws. */
   /* The envelope's verdict on a decision file: dv above 2, or a feature this copy doesn't know, is a decision from a newer
      Flightdeck, refused for every consumer, never read with today's meaning. */
   function verdict(o) { return PF.envelope.judge(o && o.kind === 'fix-decision' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', o); }
@@ -243,7 +244,7 @@ PF.corrections = (function () {
     if (!o || typeof o !== 'object') return null;
     if ((o.kind === 'correction-decision' || o.kind === 'fix-decision') && !verdict(o).ok) return null;
     if (typeof o.at !== 'string' || typeof o.by !== 'string') return null;
-    var d = { process: process, reason: str(o.reason, REASON_MAX), by: o.by.slice(0, 80), at: o.at.slice(0, 40), rev: whole(o.rev), seen: typeof o.seen === 'string' && FILE.test(o.seen) ? o.seen : null };
+    var d = { process: process, reason: str(o.reason, REASON_MAX), by: o.by, at: o.at.slice(0, 40), rev: whole(o.rev), seen: typeof o.seen === 'string' && FILE.test(o.seen) ? o.seen : null };
     if (o.kind === 'fix-decision') {
       if (typeof o.suggestion !== 'string' || !ID.test(o.suggestion) || ['open', 'accepted', 'declined'].indexOf(o.status) < 0) return null;
       return Object.assign(d, { kind: 'fix-decision', legacy: true, suggestion: o.suggestion, status: o.status === 'accepted' ? 'legacy' : o.status });
