@@ -130,7 +130,7 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 ### Staging and test runs (2.1)
 
-A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but they count a test run in Home's running number until they update to 2.1. A version made the default from a stage is an ordinary version every copy from 1.11.1 on can run.
+A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but they count a test run in Home's running number until they update to 2.1. A version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it, so one with `only when` needs 2.1.
 
 ### Two things to know when moving to 2.1
 

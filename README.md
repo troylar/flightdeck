@@ -608,7 +608,7 @@ A stage is a safe rehearsal: the next version, tried by test runs, while every r
 3. **Prove it.** Once the staged version has test runs, its line says how many are clean ("2 of 3 clean test runs"). With three, its owner (or the backup owner while the owner is away) gets **Sign off staged v3**.
 4. **Make it the default.** **Make v3 the default** publishes exactly what was staged as the next version. If someone published meanwhile, it takes the next number and says so. **Ready for a skill?** then counts those clean test runs and that sign-off for v3, and says they're from while it was staged. Nothing from a test run counts for any other version.
 
-**Retire** sets a stage aside and **Reopen** brings it back. Anyone can stage, make a stage the default, retire or reopen, and each is logged with their name. It all lives inside the closed **All versions**, out of the way until someone stages. Plans never start a test run, and a test run starts no linked runs, so a checklist with a linked-run step never has a clean test run.
+**Retire** sets a stage aside and **Reopen** brings it back. Anyone can stage, make a stage the default, retire or reopen, and each is logged with their name. It all lives inside the closed **All versions**, out of the way until someone stages. Plans never start a test run, and a test run starts no linked runs, so a test run that needs a linked-run step never counts as clean (one where that step is Not needed can).
 
 <p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/testrun-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/testrun-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/testrun-light.png" alt="A test run of staged v3: Test run beside its name and 'Test run · staged v3' under it, risk low among the run's details, and at the end of the first phase '1 step not needed', open to show the change request step applies only when risk is high (risk is low). The next phase, behind its gate, offers Preview steps." width="1000"></picture></a></p>
 
@@ -710,8 +710,8 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | Command | Does |
 |---|---|
 | `flightdeck processes <folder> --json` | Every process and its versions |
-| `flightdeck process <folder> <process> --json` | One version of a checklist (the latest usable one, or `--version N`, or `--folder v3-…`, or a staged one with `--stage stage-…`): phases, steps, gates and the evidence each step can record |
-| `flightdeck runs <folder> --json` | Runs and planned runs, with `--process <id>` and `--status running\|planned\|ended\|all`. Test runs are left out and counted unless you add `--tests` |
+| `flightdeck process <folder> <process> --json` | One version of a checklist (the latest usable one, or `--version N`, or `--folder v3-…`, or a staged one with `--stage stage-…` and `--contract 2`): phases, steps, gates and the evidence each step can record |
+| `flightdeck runs <folder> --json` | Runs and planned runs, with `--process <id>` and `--status running\|planned\|ended\|all`. Test runs are left out and counted unless you add `--tests --contract 2` |
 | `flightdeck run <folder> <process>/<run id> --json` | One run in full: each step's state, who and when, what was recorded, gates and follow-ups. In the app, a run's **More** menu has **Copy run key** |
 | `flightdeck next <folder> <process>/<run id> --json` | What's waiting in a run and on whom; `--person <id>` adds that person's own next step |
 | `flightdeck followups <folder> --json` | Every follow-up and what became of it, with `--process <id>` and `--status open\|all` |
@@ -835,7 +835,7 @@ AGENTS.md              the rules any AI assistant follows in this folder (your o
 - **No server to run, no accounts to manage.** Your data is files in a folder you already control.
 - **One writer per file, and checked saves.** Before a run is saved, this window checks a SHA-256 of its file's exact text; if it changed since this window read it, this window's version is kept beside it as a copy to compare and keep. Every run save first leaves its own receipt, so if a computer that can't see the change replaces it anyway, the replaced save shows up in the run as a copy, never silently lost. A draft save that finds a change writes nothing and reports the conflict (see [docs/onedrive.md](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md)).
 - **Built for OneDrive.** Folders that sync a minute late are expected. A gate means "passed for this commit, by this person," never a live lock.
-- **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, writes whole files atomically, and never replaces a newer version without `--force`.
+- **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, replaces an existing file only with a complete copy, and never replaces a newer version without `--force`.
 - **Accessible.** Every control has a label, errors sit next to their field, shortcuts can be turned off, and it works with a keyboard.
 
 <br>
@@ -929,7 +929,7 @@ A version or run saved by a newer copy, with checklist features this copy doesn'
 
 Moving from 1.x to 2.0: put Flightdeck 1.21 or later on every computer first, then 2.0, and only then start using 2.0 features. **Settings → Folder health** names older copies it saw in the last 7 days. [Updating Flightdeck](https://github.com/troylar/flightdeck/blob/main/docs/updating.md#when-computers-run-different-versions) has the details.
 
-Moving from 2.0 to 2.1: put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. Flightdeck 2.0 shows such a version as "needs Flightdeck 2.1" and can't run it. Staged versions and test runs show only on 2.1, and a version made the default from a stage is an ordinary version every copy from 1.11.1 on can run.
+Moving from 2.0 to 2.1: put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. Flightdeck 2.0 shows such a version as "needs Flightdeck 2.1" and can't run it. Staged versions and test runs show only on 2.1, and a version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it (one with `only when` needs 2.1).
 
 **Known issue:** an older copy shows a test run by name only and never changes it, but counts it in Home's running number until it updates to 2.1.
 
