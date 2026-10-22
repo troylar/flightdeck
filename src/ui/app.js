@@ -3833,13 +3833,14 @@
         if (!ready.tests) return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null);
         /* It leans on test runs (2.1): the version's bytes are checked against its stage again and those test runs read again
            now, and the count worked out again from them, before anything is written. */
-        var st = pub.fromStage && pub.fromStage.stage, tests = st ? data.runs.filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
+        /* Only test runs counted now (2.0.1) are read again, and only runs counted now join them. */
+        var st = pub.fromStage && pub.fromStage.stage, tests = st ? countedRuns().filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
         var ids = tests.map(function (r) { return r.id; });
         return Promise.all([st ? repo.stageCarried(sfs, pub, st) : Promise.resolve('Its stage isn\'t known.'), Promise.all(ids.map(function (rid) { return repo.loadRun(sfs, id, rid, null, true); }))]).then(function (f) {
           if (f[0]) throw new Error(f[0]);
           var fresh = f[1].filter(function (r, i) { return r && r.process === id && r.id === ids[i]; });
           var onSt = function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; };
-          var again = PF.skills.readiness(data.runs.filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
+          var again = PF.skills.readiness(countedRuns().filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
           if (!again.enough) throw new Error('It needs ' + again.needed + ' clean completed runs; it has ' + again.clean + ' now.');
           if (!still()) return { dropped: true };
           return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: again.completed, clean: again.clean, runs: again.cleanRuns }, as === 'backup' ? 'backup' : null);
@@ -4374,7 +4375,7 @@
         if (!still()) return { dropped: true };
         /* The stage, its decisions, the versions, its test runs, people.json and its sign-offs are read again inside the stage
            lock; eligibility is worked out again from what was read, with the person who clicked. */
-        var ids = (data.runs || []).filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
+        var ids = countedRuns().filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
         return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still, runIds: ids,
           check: function (st, now) {
             var r = PF.skills.readiness(now.runs, st, null), as = PF.skills.signer(st, now.people, by, false);

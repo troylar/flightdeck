@@ -341,7 +341,8 @@ PF.skills = (function () {
     var mine = (runs || []).filter(function (r) {
       if (r.process !== pub.map.meta.process || !r.ended || r.ended.outcome !== 'Completed') return false;
       if (!stage && r.folder === pub.info.folder && !PF.run.isTest(r)) return true;
-      /* A test run counts once by its ID, so a copy of one in another run folder never adds to the count. */
+      /* A test run counts once by its ID. A copy in another run folder never reaches here (a run is read only from its own
+         folder, 2.0.1); this keeps any list handed in, read or not, from counting one twice. */
       if (!onStage(r, src, want) || seen[r.id]) return false;
       seen[r.id] = true;
       return true;

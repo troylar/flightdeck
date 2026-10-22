@@ -193,4 +193,38 @@ rule('A refresh landing while the test runs are read again never brings back the
   assert.strictEqual(recs.length, 0, 'never signed on 3 clean: ' + JSON.stringify(recs) + ' ' + JSON.stringify(JSON.parse(app.fs.files[rp].t).ended));
 });
 
+/* ---------- With 2.0.1's rule: only runs read cleanly now count ---------- */
+
+rule('A stage\'s test run whose file was replaced by another run\'s stops counting on its line, though its last copy stays on screen', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  assert.ok(/data-act="signoff-stage"/.test(app.html()), 'set-up: offered');
+  app.fs.files['runs/release/run-try3/run.json'] = { t: app.fs.files['runs/release/run-try1/run.json'].t, m: Date.now() + 1 };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/2 of 3 clean test runs/.test(line(app, folder)) && !/data-act="signoff-stage"/.test(app.html()), line(app, folder));
+});
+
+rule('Signing off the default version on test runs never counts a run on screen whose latest read wasn\'t it', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const PF = app.PF, d = await PF.repo.loadAll(app.fs), pub = d.processes.filter(p => p.process === 'release')[0].index.latest;
+  assert.strictEqual(pub.info.version, 3, 'set-up: v3 is the default');
+  const r = completeRun(PF, PF.run.create(pub, { title: 'Real one', id: 'run-real1', details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: ROLES, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' }), '2026-10-22T09:00:00.000Z');
+  await PF.repo.saveRun(app.fs, r, 'w');
+  app.click('refresh'); await app.tick(160);
+  // Its file is then replaced by another run's: it stays on screen, but no longer counts.
+  app.fs.files['runs/release/run-real1/run.json'] = { t: app.fs.files['runs/release/run-try1/run.json'].t, m: Date.now() + 1 };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'set-up: offered on its 3 test runs: ' + panel(app));
+  // One test run is gone by the time it's read again: 2 are left, and the run on screen mustn't make up the third.
+  app.files('runs/release/run-try3/').forEach(f => { delete app.fs.files[f]; });
+  const before = app.files('validations/').length;
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written: ' + JSON.stringify(app.files('validations/').map(f => JSON.parse(app.fs.files[f].t).evidence || null)));
+  assert.ok(/it has 2 now/.test(app.html()), 'it says why');
+});
+
 run();

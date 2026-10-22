@@ -494,7 +494,7 @@
     var procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null;
     var s = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
     if (!s || !s.ok) return { why: 'This staged version isn\'t in the folder, or can\'t be read now.' };
-    var ready = PF.skills.readiness(ctx.data.runs, s, null), signs = PF.skills.signoffs(ctx.data.validations, s);
+    var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, s, null), signs = PF.skills.signoffs(ctx.data.validations, s);
     var held = !!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); });
     var x = PF.staging.status(s, sp.decisions, p.all);
     var as = !held && x.status === 'staged' && ready.enough && !signs.length ? PF.skills.signer(s, ctx.data.people, ctx.state.me, !!(ctx.data.failed || {}).people) : '';
