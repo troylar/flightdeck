@@ -20371,7 +20371,7 @@ PF.examples = (function () {
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
     /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
        runs whose cached copy turned out older than the one shown. */
-    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache));
+    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache), Object.keys(notCounted));
     staleCache = {};
     var at = { seq: seq, revs: before };
     var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
@@ -20444,8 +20444,9 @@ PF.examples = (function () {
   function countedRuns() {
     /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
     if (folderUnread || (data.failed || {}).runs) return [];
-    var u = (state.unread || {}).runs || {}, m = state.missing || {};
-    return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k]; });
+    /* Nor is a run with a change that couldn't be saved. */
+    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {};
+    return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k] && !un[r.id]; });
   }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
@@ -20461,7 +20462,8 @@ PF.examples = (function () {
     var id = key.slice(key.indexOf('/') + 1);
     if (!res || res.kind === 'pending') return null;
     if ((applied[key] || 0) > at.seq) return null;
-    if (res.kind === 'unreadable' || res.kind === 'missing') notCounted[key] = true; else delete notCounted[key];
+    /* Only a real read clears it, never what the cache remembers. */
+    if (res.kind === 'unreadable' || res.kind === 'missing') notCounted[key] = true; else if (res.kind === 'fresh') delete notCounted[key];
     if (res.kind === 'cached') {
       var shown = findRun(key);
       if (shown && repo.runSig(shown) === res.sig) return null;
@@ -21422,8 +21424,11 @@ PF.examples = (function () {
         /* "Before" is this save's own revision: if the person changed anything after it, the newer change stays on screen. */
         var mineAt = {}; mineAt[r.id] = rev; mineAt['~' + r.id] = edits('~' + r.id);
         var at = { seq: ++readsStarted, revs: mineAt };
-        return repo.loadRun(fs, r.process, r.id).then(function (fresh) {
+        var reread = [];
+        return repo.loadRun(fs, r.process, r.id, null, false, false, reread).then(null, function (e) { reread.push({ why: 'couldn\'t be read (' + (e && e.message || String(e)) + ')' }); return null; }).then(function (fresh) {
           if (g !== gen) return false;
+          /* A reread that isn't this run (unreadable, gone, or another run's file) is said, so what's on screen stops counting. */
+          if (!fresh) applyRunRead(r.process + '/' + r.id, at, reread.length ? { kind: 'unreadable', why: reread[0].why } : { kind: 'missing' });
           var replaced = !!fresh && !!applyRunRead(r.process + '/' + r.id, at, { kind: 'fresh', run: fresh });
           if (replaced) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
           say(V.nameOf(ctx, e.disk.recorder.person) + ' saved this run from another window or computer, so your change wasn\'t written over theirs. ' +

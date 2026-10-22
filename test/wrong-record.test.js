@@ -285,9 +285,13 @@ for (const how of ['replaced by another run\'s', 'gone']) rule('App: a run with 
   if (/gone/.test(how)) app.files('runs/check-in/third001/').forEach(k => delete app.fs.files[k]);
   else app.fs.files[path] = { t: app.fs.files[runs[1]].t, m: Date.now() + 1 };
   app.click('refresh'); await app.tick(120);
-  app.PF.repo.saveRun = orig;
   app.click('open-process', 'check-in'); await app.tick();
   assert.ok(/2 of 3 clean runs/.test(readyText(app.html())), readyText(app.html()));
+  // Routine refreshes, from memory where they can, never count it again while its file still isn't it.
+  for (let i = 0; i < 2; i++) { app.focus(); await app.tick(120); }
+  app.PF.repo.saveRun = orig;
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/2 of 3 clean runs/.test(readyText(app.html())), 'after routine refreshes: ' + readyText(app.html()));
   app.click('open-run', 'check-in/third001'); await app.tick(40);
   assert.ok(/Third check-in/.test(app.html()) && /isn't saved/.test(app.html()), 'its unsaved work is still on screen');
 });
@@ -348,6 +352,27 @@ rule('App: a run restored after its file went missing counts again at once', asy
   assert.ok(app.fs.files['runs/check-in/third001/run.json'], 'set-up: restored');
   app.click('open-process', 'check-in'); await app.tick();
   assert.ok(/3 clean runs/.test(readyText(app.html())) && !/of 3 clean runs/.test(readyText(app.html())), readyText(app.html()));
+});
+
+rule('App: finishing a run whose file was replaced by another run\'s keeps your version aside, and it doesn\'t count toward a sign-off', async () => {
+  const app = await twoCleanCheckIns();
+  const runs = cleanCheckIns(app), third = JSON.parse(app.fs.files[runs[0]].t), path = 'runs/check-in/third001/run.json';
+  third.id = 'third001'; third.title = 'Third check-in'; delete third.ended; third.state = 'running'; third.recorder = { person: 'person-avery', session: null };
+  app.fs.files[path] = { t: JSON.stringify(third), m: Date.now() };
+  app.click('refresh'); await app.tick(120);
+  app.click('open-run', 'check-in/third001'); await app.tick(40);
+  app.click('pickup'); await app.tick(40);
+  assert.strictEqual(JSON.parse(app.fs.files[path].t).recorder.person, 'person-avery', 'set-up: Avery records it here');
+  const other = app.fs.files[runs[1]].t;
+  app.fs.files[path] = { t: other, m: Date.now() + 1 };
+  app.click('finish'); await app.tick();
+  app.click('end', 'Completed'); await app.tick(80);
+  assert.strictEqual(app.fs.files[path].t, other, 'the file there is never written over');
+  app.click('open-process', 'check-in'); await app.tick();
+  assert.ok(/2 of 3 clean runs/.test(readyText(app.html())) && !/data-kind="signoff"/.test(app.html()), readyText(app.html()));
+  app.click('pick', 'check-in', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'check-in'); await app.tick(80);
+  assert.deepStrictEqual(app.files('validations/'), [], 'no sign-off written');
 });
 
 run();
