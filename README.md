@@ -73,7 +73,7 @@ context: commit
   command: npm run docs:publish
 ```
 
-Two phases, three steps, one gate. `[!]` is a must-do. `{run.command}` is the step's type, so the run shows the command with a Copy button. `^commit` ties a step to a run detail. The gate approves exactly one thing: publishing that commit.
+Two phases, three steps, one gate (plus the final confirmation every checklist gets). `[!]` is a must-do. `{run.command}` is the step's type, so the run shows the command with a Copy button. `^commit` ties a step to a run detail. The gate approves exactly one thing: publishing that commit.
 
 **2. Publish it.** Flightdeck freezes it as **v1**. Runs always keep the version they started on.
 
@@ -238,9 +238,9 @@ flowchart LR
 <details>
 <summary><b>Six design choices worth knowing</b></summary>
 
-- **A failed read is never "nothing there."** If OneDrive hasn't finished syncing a file, or it can't be read, Flightdeck says so by name. It never treats the file as empty. A run whose latest read failed stays on screen, but it doesn't count toward a sign-off until it reads again.
+- **A failed run read is never "nothing there."** If OneDrive hasn't finished syncing a run, or it can't be read, Flightdeck says so by name. It never treats the run as empty. A run whose latest read failed stays on screen, but it doesn't count toward a sign-off until it reads again.
 - **Every save leaves a receipt first.** Before writing `run.json`, a window writes its version to its own `candidate-<window>-<save>.json`, and `run.json` lists the saves it includes. If two computers that can't see each other both save, the replaced save isn't on the list, so it shows up in the run as a copy to compare. It's never silently lost.
-- **A save checks the file it's about to replace.** Before every save, Flightdeck compares the file's exact contents with what it read. If anything changed, it writes its version beside the file as a conflict copy instead. Nothing is ever merged automatically.
+- **A save checks the file it's about to replace.** Before every save, Flightdeck compares a fingerprint of the file with the one it read. If the fingerprint changed, it writes its version beside the file as a conflict copy instead. Nothing is ever merged automatically.
 - **An older copy can't damage what a newer copy wrote.** A run with fields an older Flightdeck doesn't understand opens read-only there, and a version that needs a newer Flightdeck says "Update Flightdeck to run it." Dropping unknown fields on save would erase someone's work, so the older copy never saves.
 - **A gate is a record, not a live lock.** A synced folder can be a minute behind, so a gate means "passed for this commit, by Casey, at 9:52," never "safe right now." Irreversible actions always keep a person's confirmation.
 - **The run carries its own checklist.** `run.json` holds a snapshot of the exact checklist and step types it started on, so a run reads the same years later, whatever happened to the process since.
@@ -884,7 +884,7 @@ Select the step and choose **Correct this step** (or press C): change its wordin
 <details>
 <summary><b>What happens if two people open the same run?</b></summary>
 
-Both see it. Only the recorder's window writes the run; every other window rereads it every few seconds and adds notes and files in its own file. To change who records, use **Hand off** (the run names the exact revision passed on) or **Pick up**. If two computers that can't see each other both save, the second save never overwrites the first: it's kept beside the run as a copy, and the run shows a panel to compare and keep the right one.
+Both see it. Only the recorder's window writes the run; every other window rereads it every few seconds and adds notes and files in its own file. To change who records, use **Hand off** (the run names the exact revision passed on) or **Pick up**. If two computers that can't see each other both save, one save can replace the other in `run.json`, but the replaced save is never lost: its receipt stays beside the run, and the run shows a panel to compare and keep the right one.
 
 </details>
 
