@@ -155,7 +155,7 @@ The app, its fonts and its built-in examples are all inside `flightdeck.html`. I
 
 ### 3. A checklist is twenty readable lines
 
-A checklist is Markdown that a person can read and an AI assistant can write. Phases end at gates. Steps have types, so each one asks for the right evidence: a build number, a PR link, a decision. Publishing freezes it as a numbered version, with who, when and why. See [The checklist format](#the-checklist-format).
+A checklist is Markdown that a person can read and an AI assistant can write. Phases end at gates. Steps have types, so each one asks for the right evidence: a build number, a PR link, a decision. Publishing freezes it as a numbered version, with who, when and why. To rehearse a change first, **stage** it: test runs try the staged version while every real run stays on the current default, and **Make v3 the default** publishes exactly what was rehearsed. See [The checklist format](#the-checklist-format) and [Staging and test runs](#staging-and-test-runs).
 
 ### 4. A run is a recording
 
@@ -238,9 +238,9 @@ flowchart LR
 <details>
 <summary><b>Six design choices worth knowing</b></summary>
 
-- **A failed run read is never "nothing there."** If OneDrive hasn't finished syncing a run, or it can't be read, Flightdeck says so by name. It never treats the run as empty. A run whose latest read failed stays on screen, but it doesn't count toward a sign-off until it reads again.
+- **A failed run read is never "nothing there."** If OneDrive hasn't finished syncing a run, or it can't be read, Flightdeck says so by name. It never treats the run as empty. A run whose latest read failed stays on screen, but it doesn't count toward a sign-off until it reads again. A sign-off that can't be read is named; if this window read it before, what it said still counts, and otherwise Flightdeck says it can't tell yet and doesn't offer Sign off. A plan decision that can't be read is named and holds its plan: it can't be started, declined or switched until the decision reads again.
 - **Every save leaves a receipt first.** Before writing `run.json`, a window writes its version to its own `candidate-<window>-<save>.json`, and `run.json` lists the saves it includes. If two computers that can't see each other both save, the replaced save isn't on the list, so it shows up in the run as a copy to compare. It's never silently lost.
-- **A run save checks the file it's about to replace.** Before every `run.json` save, Flightdeck compares a fingerprint of the file with the one it read. If the fingerprint changed, it writes its version beside the file as a conflict copy instead. Nothing is ever merged automatically.
+- **A run save checks the file it's about to replace.** Before every `run.json` save, Flightdeck compares a SHA-256 of the file's exact text with the one it read. If it changed, it writes its version beside the file as a conflict copy instead. Nothing is ever merged automatically.
 - **An older copy can't damage what a newer copy wrote.** A run with fields an older Flightdeck doesn't understand opens read-only there, and a version that needs a newer Flightdeck says "Update Flightdeck to run it." Dropping unknown fields on save would erase someone's work, so the older copy never saves.
 - **A gate is a record, not a live lock.** A synced folder can be a minute behind, so a gate means "passed for this commit, by Casey, at 9:52," never "safe right now." Irreversible actions always keep a person's confirmation.
 - **The run carries its own checklist.** `run.json` holds a snapshot of the exact checklist and step types it started on, so a run reads the same years later, whatever happened to the process since.
@@ -401,10 +401,10 @@ A run fills the window, like the editor.
 
 | Part | What it shows |
 |---|---|
-| **Header** | How far it is (`7/15 answered`), **Details**, **Screen share**, **Receipt** and **More** (with **Copy run key**). |
+| **Header** | How far it is (`7/15 answered`), **Details**, **Screen share**, **Receipt** and **More** (with **Copy run key**). A test run says **Test run** beside its name. |
 | **Recording strip** | Who's recording, with **Pause** and **Hand off** (or **Pick up**, **Record here**, **Take over**), the run's details, and what this window saved and when it last checked the folder. |
 | **Phases** | Each phase and its gate's state, plus the day timeline and follow-ups. A phase shows its note and screenshots under its heading. |
-| **Checklist** | Every step, with **Next up** pinned at the top. A gate shows its note above **Pass the gate**. |
+| **Checklist** | Every step, with **Next up** pinned at the top. A gate shows its note above **Pass the gate**. A phase still behind its gate offers **Preview steps**, and a finished one folds to a tally with **Show steps**. Steps this run doesn't need fold into one line at the end of their phase, **1 step not needed**, each with its reason; a phase it doesn't need is one **Not needed** line, gate included. The receipt lists them under **Not needed in this run**. |
 | **Selected step** | How to do it, the values to copy, the evidence to record, then **Done**, **Done differently**, **Blocked** and **N/A**, and the step's corrections and notes. |
 
 <details>
@@ -475,7 +475,7 @@ A step can start another process as a linked child run, passing on the details i
 <td valign="top">
 
 ### Values that flow
-A step can **set** a run detail: the merge step records the release tag, and every later `^tag` in commands, messages and Jira fields uses it. Correct it later and the steps that used the old value come back for a re-check. Run details can be typed too, so a number or a date is checked when it's entered.
+A step can **set** a run detail: the merge step records the release tag, and every later `^tag` in commands, messages and Jira fields uses it. Correct it later and the steps that used the old value come back for a re-check. Run details can be typed too, so a number or a date is checked when it's entered. With `only when`, a later step or phase applies only when a value matches, so one checklist covers both paths.
 
 </td>
 <td valign="top">
@@ -516,13 +516,15 @@ title: Production release
 group: Engineering / Releases
 tags: production, deploy
 owner: person-casey
-context: ticket, commit, environment, tag
+context: ticket, commit, environment, tag, risk:choice(low|high)
 roles: release-lead, qa, backend
 ---
 
 ## Before production changes · DO-CONFIRM {#prep}
 - [!] {ci.gate} Full test gate green on the release commit ^commit {#tests}
   require: run
+- [!] {confirm} Change board approved the release ^ticket {#cab}
+  only when ^risk is high
 
 ## Gate: Ready to deploy · owner @release-lead {#ready}
   approves: deploy of `^commit` to ^environment
@@ -541,6 +543,7 @@ roles: release-lead, qa, backend
 | `{type}` | What kind of step, so it knows its fields and evidence |
 | `@role` · `^detail` | Who does it · a run detail it depends on (change the detail, redo the step) |
 | `sets: tag` | This step produces a run detail later steps use |
+| `only when ^risk is high` | Under a step, or right under a phase heading: it applies only to runs whose details match. Otherwise it's Not needed, with the reason |
 | `## Gate:` · `approves:` | The pause point, and exactly what passing it approves |
 | `### Track: Name @role` | Parallel work inside a phase |
 | `at:` · `due:` · `after:` | A clock time, a deadline, or a due time after the run starts |
@@ -551,7 +554,9 @@ roles: release-lead, qa, backend
 
 Publishing freezes a checklist as a numbered version, with who, when and why. Runs keep the version they started with, forever.
 
-Typed details, phase notes, phase and gate screenshots, and `version:` need Flightdeck 2.0. The publish panel says so, and teammates on 1.x see that version but can't run it. The full format is in [docs/map-format.md](https://github.com/troylar/flightdeck/blob/main/docs/map-format.md).
+**Steps only some runs need.** In a run whose details don't match, an `only when` step is Not needed: it isn't counted, nobody checks it, and its reason stays one click away. A phase that isn't needed is skipped with its gate. Branching is `sets:` plus `only when`: one step sets a detail, and a later phase applies only when it matches. The process page and the flight plan show each condition as one muted line, *Only when risk is high*. **How runs go** leaves a run out of a step's numbers (corrections included) when that run didn't need the step, and **Ready for a skill?** never holds Not needed itself against a run, though something that already happened on the step still counts (for example, a step done and then sent back for re-check when a detail changed). It names conditional steps no clean run has needed yet.
+
+Typed details, phase notes, phase and gate screenshots, and `version:` need Flightdeck 2.0; `only when` needs Flightdeck 2.1. Before you publish, the publish panel names what the draft uses under **Needs Flightdeck 2.0** or **Needs Flightdeck 2.1**, and teammates on an older copy see that version but can't run it. The full format is in [docs/map-format.md](https://github.com/troylar/flightdeck/blob/main/docs/map-format.md).
 
 <br>
 
@@ -562,9 +567,10 @@ A process is one page, with its checklist in the middle.
 | To | Do this |
 |---|---|
 | **Read it** | The **Checklist** view shows it the way a run does; **Markdown** shows the source to copy. |
-| **See its shape** | **Flight plan**: phases as waypoints, gates as checkpoints, tracks as parallel lanes, linked processes as connecting flights. From that version's runs and skills it adds typical times, autopilot (steps skills cover) and turbulence (steps that go off-script most). Choose a phase to jump to it. |
+| **See its shape** | **Flight plan**: phases as waypoints, gates as checkpoints, tracks as parallel lanes, linked processes as connecting flights. From that version's runs and skills it adds typical times, autopilot (steps skills cover) and turbulence (steps that go off-script most). Each phase's steps open under it, or all at once with **Show all steps** and **Hide all steps**. Choose a phase to jump to it. |
 | **Edit it** | **Edit** opens the draft on a page of its own, with the **Builder** or the **Markdown** beside a live check (what blocks publishing, and what's just a tip) and a preview. |
-| **Look back** | The Versions panel shows the newest, with the rest under **Earlier versions**. An older version shows a way back to the current one and **Restore as draft**. |
+| **Look back** | The Versions panel shows the newest, with every version under **All versions**. An older version shows a way back to the current one and **Restore as draft**. |
+| **Try it first** | Under **All versions**, **Stage the draft for testing**, then **Start a test run** on the staged line. Real runs stay on the current default until someone chooses **Make v3 the default**. See [Staging and test runs](#staging-and-test-runs). |
 | **See how runs go** | **How runs go**: typical time per phase, the steps that go off-script most, and who has held each role. |
 | **Plan ahead** | **Plan a run**, next to **Start a run**: a name, the details you know, who does what and an optional time. |
 
@@ -574,6 +580,7 @@ A process is one page, with its checklist in the middle.
 - **Layout.** Parts, the outline, and an inspector with Selected, Checks and Preview tabs, each scrolling on its own.
 - **Builder.** Phases are cards, steps are rows, parallel lanes sit side by side, and gates are striped bars. The parts box starts with Phase, Gate, Step and Must-do; every other part is under **All parts**. Add a part by dragging it, or by choosing a part and a place with the arrow keys. Drag a step or press Alt+Up / Alt+Down to move it. **Undo** and **Redo** step through builder changes.
 - **The side form** edits a step's text, type, roles, run details, fields, notes and screenshots, or a lane's name and role. The builder also edits the checklist's own details.
+- **Only when…** In a step's or a phase's form, once the checklist has run details. Write one condition a line, like `^risk is high`; one that can't be read is refused beside the box. Lines written another way are shown, and left to the Markdown view.
 - **Same Markdown.** Both views edit the same file. The builder changes only the lines you touch, never a step ID, and keeps comments and lines it doesn't understand.
 - **Saving and publishing.** **Save draft**, then **Done**. **Publish** appears when the draft has saved changes, and stays off while there are unsaved edits.
 
@@ -591,6 +598,19 @@ A process is one page, with its checklist in the middle.
 </details>
 
 **New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
+
+### Staging and test runs
+
+A stage is a safe rehearsal: the next version, tried by test runs, while every real run stays on the current default.
+
+1. **Stage it.** With a changed draft, open **All versions** on the process page, write the change note, and choose **Stage the draft for testing**. It's written once to `staged/` and never edited.
+2. **Try it.** **Start a test run** on the staged line opens its own start form. A test run is recorded like any run, but it's labeled **Test run** everywhere it shows (Runs, Home, Recent runs, the run header, the receipt, search and evidence) and it's never counted as a real run: **How runs go** says how many it left out, and Home's running number, last-run dates and role rotation skip it. Its follow-ups and corrections are real.
+3. **Prove it.** Once the staged version has test runs, its line says how many are clean ("2 of 3 clean test runs"). With three, its owner (or the backup owner while the owner is away) gets **Sign off staged v3**.
+4. **Make it the default.** **Make v3 the default** publishes exactly what was staged as the next version. If someone published meanwhile, it takes the next number and says so. **Ready for a skill?** then counts those clean test runs and that sign-off for v3, and says they're from while it was staged. Nothing from a test run counts for any other version.
+
+**Retire** sets a stage aside and **Reopen** brings it back. Anyone can stage, make a stage the default, retire or reopen, and each is logged with their name. It all lives inside the closed **All versions**, out of the way until someone stages. Plans never start a test run, and a test run starts no linked runs, so a test run that needs a linked-run step never counts as clean (one where that step is Not needed can).
+
+<p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/testrun-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/testrun-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/testrun-light.png" alt="A test run of staged v3: Test run beside its name and 'Test run · staged v3' under it, risk low among the run's details, and at the end of the first phase '1 step not needed', open to show the change request step applies only when risk is high (risk is low). The next phase, behind its gate, offers Preview steps." width="1000"></picture></a></p>
 
 <br>
 
@@ -632,7 +652,9 @@ This is what Flightdeck is for. Outside the team it's usually called **SOP-to-sk
 - every gate on that work (and the one before it) was passed;
 - nothing was blocked, re-checked, marked N/A or done differently, even in answers since archived.
 
-**2. Sign off.** With three clean runs, the process owner signs the version off. Only the owner's sign-off counts, and only for that exact published version.
+A step the run didn't need (`only when`) isn't required, and being Not needed isn't held against the run; a re-check or other deviation recorded on it earlier still is. A test run counts only for its staged version and the version made from exactly what was staged.
+
+**2. Sign off.** With three clean runs, the process owner signs the version off. Only the owner's sign-off counts, and only for that exact published version, or for a staged version with **Sign off staged v3**, which counts for the version made from it.
 
 **3. Brief your AI assistant.** One click copies a brief with the process in order: phases and their mode, tracks, every step with its fields, evidence and screenshots, every gate with what it approves, the run details it receives, and what people actually did differently.
 
@@ -688,8 +710,8 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | Command | Does |
 |---|---|
 | `flightdeck processes <folder> --json` | Every process and its versions |
-| `flightdeck process <folder> <process> --json` | One version of a checklist (the latest usable one, or `--version N`, or `--folder v3-…`): phases, steps, gates and the evidence each step can record |
-| `flightdeck runs <folder> --json` | Runs and planned runs, with `--process <id>` and `--status running\|planned\|ended\|all` |
+| `flightdeck process <folder> <process> --json` | One version of a checklist (the latest usable one, or `--version N`, or `--folder v3-…`, or a staged one with `--stage stage-…` and `--contract 2`): phases, steps, gates and the evidence each step can record |
+| `flightdeck runs <folder> --json --contract 2` | Runs and planned runs, with `--process <id>` and `--status running\|planned\|ended\|all`. Test runs are left out and counted unless you add `--tests --contract 2` |
 | `flightdeck run <folder> <process>/<run id> --json` | One run in full: each step's state, who and when, what was recorded, gates and follow-ups. In the app, a run's **More** menu has **Copy run key** |
 | `flightdeck next <folder> <process>/<run id> --json` | What's waiting in a run and on whom; `--person <id>` adds that person's own next step |
 | `flightdeck followups <folder> --json` | Every follow-up and what became of it, with `--process <id>` and `--status open\|all` |
@@ -717,7 +739,7 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 <details>
 <summary><b>Exit codes and guarantees</b></summary>
 
-**The JSON commands** only read, never through a link, and never change a file in the team folder. Every result says which contract it follows (`flightdeck-read/1`; `--contract 2` adds Flightdeck 2.0's typed values) and names, file by file, anything it couldn't read. Exit code 0: complete; 4: partial (the data is still printed, with each problem listed); 1: no data; 5: no such process, version or run. People-directory email fields are omitted. See [Using Flightdeck from other apps](https://github.com/troylar/flightdeck/blob/main/docs/apps.md).
+**The JSON commands** only read, never through a link, and never change a file in the team folder. Every result says which contract it follows (`flightdeck-read/1`; `--contract 2` adds typed values, conditions and test runs) and names, file by file, anything it couldn't read. Exit code 0: complete; 4: partial (the data is still printed, with each problem listed); 1: no data; 5: no such process, version or run. People-directory email fields are omitted. See [Using Flightdeck from other apps](https://github.com/troylar/flightdeck/blob/main/docs/apps.md).
 
 **`flightdeck plan request`** lets another app ask for a run, the way a teammate would put one on the calendar. A monthly script asks for the backup check with `--key 2026-11`; asking again with the same key and the same request changes nothing, and the same key with other details is refused. The request shows under **Runs** as a planned run, "requested by" the tool, by its own account: the name is what the file says, not proof of who wrote it. Nothing starts by itself; a person starts it, changes it or declines it. It writes only in `proposals/`, never through a link. Exit 0 when written, 4 when something it depends on couldn't be read and nothing was written, 1 when it's refused, 5 when there's no such process or version.
 
@@ -749,7 +771,7 @@ flowchart LR
     P(["People, in the app"]) --> people["people.json"] & val["validations/"] & dec["corrections/ · followups/<br/>report-decisions/"]
     P & AI(["Your AI assistant"]) --> drafts["maps/drafts/"] & types["step-types/"] & prop["proposals/"]
     AI --> skills["skills/ · skill-registrations/"] & jira["jira/workflows.json"] & proposed["proposed/"]
-    FD(["Flightdeck, when people<br/>publish and run"]) --> pubs["publications/"] & runs["runs/"]
+    FD(["Flightdeck, when people<br/>publish, stage and run"]) --> pubs["publications/"] & staged["staged/"] & runs["runs/"]
     T(["Other apps"]) --> reports["reports/"] & prop
 ```
 
@@ -760,10 +782,11 @@ flowchart LR
 people.json            who's on the team, with the folder owner and backup owner
 maps/drafts/           checklists being written (Markdown)
 publications/          published versions, frozen (Flightdeck writes these)
+staged/                staged versions only test runs use, and each retire or reopen, written once
 runs/                  one folder per run: run.json, everyone's notes and corrections, attached files
 skills/                skill registrations: each skill's source, what it implements
 skill-registrations/   skills registered with flightdeck skill register (Flightdeck 2.0)
-validations/           owners' sign-offs that a version is ready for a skill
+validations/           owners' sign-offs that a version, or a staged version, is ready for a skill
 corrections/           decisions on corrections (applied, declined, reopened, withdrawn), each a file written once
 followups/             what became of each follow-up (done, moved, won't do, reopened), each a file written once
 suggestions/           decisions on suggested fixes from before 1.13 (still read)
@@ -810,9 +833,9 @@ AGENTS.md              the rules any AI assistant follows in this folder (your o
 
 - **Nothing leaves your machine.** The app makes no network requests and loads nothing from the internet; its fonts and code are inside the file.
 - **No server to run, no accounts to manage.** Your data is files in a folder you already control.
-- **One writer per file, and checked saves.** Before a run is saved, this window checks a fingerprint of its file; if it changed since this window read it, this window's version is kept beside it as a copy to compare and keep. Every run save first leaves its own receipt, so if a computer that can't see the change replaces it anyway, the replaced save shows up in the run as a copy, never silently lost. A draft save that finds a change writes nothing and reports the conflict (see [docs/onedrive.md](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md)).
+- **One writer per file, and checked saves.** Before a run is saved, this window checks a SHA-256 of its file's exact text; if it changed since this window read it, this window's version is kept beside it as a copy to compare and keep. Every run save first leaves its own receipt, so if a computer that can't see the change replaces it anyway, the replaced save shows up in the run as a copy, never silently lost. A draft save that finds a change writes nothing and reports the conflict (see [docs/onedrive.md](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md)).
 - **Built for OneDrive.** Folders that sync a minute late are expected. A gate means "passed for this commit, by this person," never a live lock.
-- **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, writes whole files atomically, and never replaces a newer version without `--force`.
+- **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, replaces an existing file only with a complete copy, and never replaces a newer version without `--force`.
 - **Accessible.** Every control has a label, errors sit next to their field, shortcuts can be turned off, and it works with a keyboard.
 
 <br>
@@ -905,6 +928,10 @@ Keep secrets, tokens and customer data out of checklists, notes and attachments.
 A version or run saved by a newer copy, with checklist features this copy doesn't understand, is shown with the reason and "Update Flightdeck to run it." It can't be started here, and a run on it opens read-only, so an older copy never records over what a newer one wrote. Put the newest `flightdeck.html` in the team folder; anyone on an older copy sees that a newer one is there.
 
 Moving from 1.x to 2.0: put Flightdeck 1.21 or later on every computer first, then 2.0, and only then start using 2.0 features. **Settings → Folder health** names older copies it saw in the last 7 days. [Updating Flightdeck](https://github.com/troylar/flightdeck/blob/main/docs/updating.md#when-computers-run-different-versions) has the details.
+
+Moving from 2.0 to 2.1: put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. Flightdeck 2.0 shows such a version as "needs Flightdeck 2.1" and can't run it. Staged versions and test runs show only on 2.1, and a version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it (one with `only when` needs 2.1).
+
+**Known issue:** an older copy shows a test run by name only and never changes it, but counts it in Home's running number until it updates to 2.1.
 
 </details>
 
