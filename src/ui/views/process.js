@@ -76,21 +76,23 @@
     var open = !st.disc || !Object.prototype.hasOwnProperty.call(st.disc, 'brief:' + key) || st.disc['brief:' + key];
     return '<details' + (open ? ' open' : '') + ' class="brief" data-disc="brief:' + esc(key) + '"><summary class="small" id="sum-brief"><span id="copy-msg" role="status"></span> The brief</summary><pre id="brief-pre" class="source" tabindex="0">' + esc(st.brief.text) + '</pre></details>';
   }
+  /* Clean test runs counted for a version made from a stage (2.1 slice 6), said only when there are some. */
+  function testWords(ready) { return ready.tests ? ' (' + ready.tests + (ready.tests === 1 ? ' is a test run' : ' are test runs') + ' from while it was staged)' : ''; }
   /* Is the current version ready to become a skill? One line of status and the one thing to do next. */
   function readyPanel(ctx, p, pub, bare) {
     if (!pub) return '';
     var st = ctx.state, ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
     var h = bare ? '<h3>Ready for a skill?</h3>' : '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
     if (signs.length) {
-      h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
+      h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + (signs[0].stage ? ' while it was staged' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
     } else if (!ready.enough) {
-      h += '<p class="small"><b>Not yet.</b> ' + ready.clean + ' of ' + ready.needed + ' clean runs of v' + pub.info.version + '.</p>';
+      h += '<p class="small"><b>Not yet.</b> ' + ready.clean + ' of ' + ready.needed + ' clean runs of v' + pub.info.version + testWords(ready) + '.</p>';
     } else if (PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people)) {
       var asBackup = PF.skills.signer(pub, ctx.data.people, st.me, !!(ctx.data.failed || {}).people) === 'backup';
-      h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs of v' + pub.info.version + '. ' + (asBackup ? 'Its owner, ' + esc(nameOf(ctx, owner)) + ', is inactive or no longer on the team, so as its backup owner, you sign it off.' : 'As its owner, you sign it off.') + '</p>' + (st.pick && st.pick.kind === 'signoff'
+      h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs of v' + pub.info.version + testWords(ready) + '. ' + (asBackup ? 'Its owner, ' + esc(nameOf(ctx, owner)) + ', is inactive or no longer on the team, so as its backup owner, you sign it off.' : 'As its owner, you sign it off.') + '</p>' + (st.pick && st.pick.kind === 'signoff'
         ? '<div class="row" data-scope="signoff"><label class="sr" for="pick-input">Note for the sign-off</label><input id="pick-input" maxlength="300" placeholder="Optional note" data-enter="signoff" data-id="' + esc(p.id) + '"><button class="btn go" data-act="signoff" data-id="' + esc(p.id) + '">Sign off</button><button class="mini" data-act="unpick">Cancel</button></div>'
         : '<button class="btn go" data-act="pick" data-kind="signoff" data-id="' + esc(p.id) + '">Sign off v' + pub.info.version + '</button>');
-    } else h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs. ' + esc(nameOf(ctx, owner)) + ', the owner, signs it off' + (pub.map.meta.backup && pub.map.meta.backup !== owner ? ' (or ' + esc(nameOf(ctx, pub.map.meta.backup)) + ', the backup owner, while the owner is away)' : '') + '.</p>';
+    } else h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs' + testWords(ready) + '. ' + esc(nameOf(ctx, owner)) + ', the owner, signs it off' + (pub.map.meta.backup && pub.map.meta.backup !== owner ? ' (or ' + esc(nameOf(ctx, pub.map.meta.backup)) + ', the backup owner, while the owner is away)' : '') + '.</p>';
     /* Conditions (2.1), information only: steps that apply only sometimes and that no clean run has needed yet. */
     var un = ready.clean ? ready.unseen || [] : [];
     if (un.length) h += '<p class="small">Not yet seen in a clean run: ' + esc(un.slice(0, 5).map(function (x) { return x.text; }).join(', ')) + (un.length > 5 ? ' and ' + (un.length - 5) + ' more' : '') + '.</p>';
@@ -363,7 +365,11 @@
       if (held) b = '';
       else if (me && x.status === 'staged') b = '<button class="mini" data-act="start-test" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Start a test run</button><button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
       else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
-      return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+      /* Its test runs (2.1 slice 6): said only once it has some, with its sign-off, and Sign off for its owner once enough are clean. */
+      var sg = stageSign(ctx, p, s.folder), tw = '';
+      if (sg.ready && sg.ready.completed) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : '');
+      if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
+      return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
     var gone = (ctx.data.failed || {}).stages;
     return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
@@ -481,6 +487,18 @@
     if (x.status !== 'staged') return { why: PF.staging.promoteWhy(x) };
     return { stage: s };
   }
+  /* A stage's readiness and sign-off (2.1 slice 6), as its line shows them: { ready, signs, as } where as is who may sign it
+     off now ("owner", "backup" or ""), only while it's staged, its decisions read and enough of its test runs are clean. */
+  function stageSign(ctx, p, folder) {
+    var procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null;
+    var s = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
+    if (!s || !s.ok) return { why: 'This staged version isn\'t in the folder, or can\'t be read now.' };
+    var ready = PF.skills.readiness(ctx.data.runs, s, null), signs = PF.skills.signoffs(ctx.data.validations, s);
+    var held = !!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); });
+    var x = PF.staging.status(s, sp.decisions, p.all);
+    var as = !held && x.status === 'staged' && ready.enough && !signs.length ? PF.skills.signer(s, ctx.data.people, ctx.state.me, !!(ctx.data.failed || {}).people) : '';
+    return { stage: s, ready: ready, signs: signs, as: as, status: x.status };
+  }
   function start(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (p && st.testStage) return startTest(ctx, p);
@@ -572,5 +590,6 @@
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
   }
   V.testStage = testStage;
+  V.stageSign = stageSign;
   V.process = process; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();

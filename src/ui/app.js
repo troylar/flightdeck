@@ -521,7 +521,7 @@
      changes _notesSig, never the count), notes added here since the read, and its conflict copies by name. */
   function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
-    return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
+    return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok + (x.fromStage ? ':' + x.fromStage.folder + x.fromStage.ok : ''); }); }),
       d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
@@ -4337,6 +4337,24 @@
     },
     'promote-stage': function (folder) { stageAct(folder, 'promote'); },
     'retire-stage': function (folder) { stageAct(folder, 'retired'); },
+    /* Sign off a staged version (2.1 slice 6): its owner, once enough of its test runs are clean; the person is checked again
+       right before the write. */
+    'signoff-stage': function (folder) {
+      var p = processes().filter(function (x) { return x.id === state.processId; })[0];
+      if (!p || !state.me || state.stageBusy) return;
+      var sg = V.stageSign(ctx, p, folder);
+      if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the process owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
+      var sfs = state.fs, pg = gen, by = state.me, r = sg.ready, stage = sg.stage, as = sg.as;
+      state.stageBusy = p.id; render();
+      queued(function () {
+        if (!(pg === gen && state.fs === sfs && state.me === by)) return { dropped: true };
+        return repo.recordStageValidation(sfs, stage, { window: WRITER, by: by, note: '', evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds }, as: as === 'backup' ? 'backup' : null, app: APP_VERSION });
+      }).then(function (res) {
+        state.stageBusy = null; if (pg !== gen) return;
+        if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
+        say('Signed off staged v' + stage.info.stage.proposed + '. It counts for the version made from it.', 'good'); return load(true);
+      }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
+    },
     'reopen-stage': function (folder) { stageAct(folder, 'reopened'); },
     /* The check on a row, Done in the inspector, Space and X: one step, one path (answerStep). A done step unchecks. */
     toggle: function (id) {

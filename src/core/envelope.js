@@ -36,7 +36,7 @@ PF.envelope = (function () {
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [], 3: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0' } },
     'flightdeck-plan': { files: 'proposals/plan-*.json', majors: { 1: [], 2: [] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [], 2: [] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0' } },
-    'flightdeck-validation': { files: 'validations/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['validation'] }, legacyMajor: 1, future: { 2: '2.0' } },
+    'flightdeck-validation': { files: 'validations/*.json', majors: { 1: [], 2: [] }, rewrite: false, legacy: { kinds: ['validation'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-followup-decision': { files: 'followups/<p>/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['followup-decision'], field: 'fv' }, legacyMajor: 1 },
     /* dv 0 (missing) and 1 are decisions from before results were recorded; 2 is today's. */
     'flightdeck-correction-decision': { files: 'corrections/<p>/*.json', majors: { 0: [], 1: [], 2: [] }, rewrite: false, legacy: { kinds: ['correction-decision'], field: 'dv' }, legacyMajor: 0 },

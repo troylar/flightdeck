@@ -74,7 +74,8 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   no('preflight-run', { format: 'preflight-run/4' }, 'newer', '');
   no('flightdeck-plan', { format: 'flightdeck-plan/3' }, 'newer', '');
   no('flightdeck-plan-status', { format: 'flightdeck-plan-status/3' }, 'newer', '');
-  no('flightdeck-validation', { format: 'flightdeck-validation/2' }, 'newer', '2.0');
+  ok('flightdeck-validation', { format: 'flightdeck-validation/2' });
+  no('flightdeck-validation', { format: 'flightdeck-validation/3' }, 'newer', '');
   no('flightdeck-step-type', { format: 'flightdeck-step-type/3' }, 'newer', '');
   no('flightdeck-types', { version: 4 }, 'newer', '');
   no('flightdeck-skill', { format: 'flightdeck-skill/3' }, 'newer', '');
@@ -89,13 +90,13 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   no('flightdeck-people', { format: 'flightdeck-people/2', people: [] }, 'newer');
   no('flightdeck-installed', { format: 'flightdeck-installed/2' }, 'newer');
   assert.strictEqual(E.judge('preflight-publication', { format: 'preflight-publication/2', features: ['test-run'] }).why, 'uses test-run, which this copy doesn\'t understand. Needs Flightdeck 2.1.');
-  assert.strictEqual(E.judge('flightdeck-validation', { format: 'flightdeck-validation/2' }).why, 'was made with a newer Flightdeck (flightdeck-validation/2). Needs Flightdeck 2.0.');
+  assert.strictEqual(E.judge('flightdeck-validation', { format: 'flightdeck-validation/3', app: '2.2.0' }).why, 'was made with a newer Flightdeck (flightdeck-validation/3). Needs Flightdeck 2.2.');
 });
 
 rule('The writer\'s own app version names the version needed (2.1 reading as 2.1), never a version older than 2.0', () => {
   no('preflight-run', { format: 'preflight-run/4', app: '2.1.3' }, 'newer', '2.1');
   no('preflight-run', { format: 'preflight-run/4', app: '1.9.0' }, 'newer', '');
-  no('flightdeck-validation', { format: 'flightdeck-validation/2', app: 'not a version' }, 'newer', '2.0');
+  no('flightdeck-validation', { format: 'flightdeck-validation/3', app: 'not a version' }, 'newer', '');
 });
 
 rule('An unknown feature is refused even when the major is known', () => {
@@ -201,7 +202,9 @@ rule('The committed 2.0 samples and probes are exactly what tools/v2-samples.js 
    slice 3 adds the typed /2 version, its typed run/3 with migration records, and the 2.0 step type. */
 const PART2_READS = ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skill-registrations/release-notes/sk-aaaa1111.1.w-twozero.json', 'runs/backup/run-e/run.json',
   'publications/backup/v2-zzzz2222/publication.json', 'runs/backup/run-c/run.json', 'step-types/team.count.json',
-  'staged/backup/stage-aaaa1111/publication.json', 'staged/backup/decisions/stage-aaaa1111.w-twozero.1.json', 'runs/backup/run-t/run.json'];
+  'staged/backup/stage-aaaa1111/publication.json', 'staged/backup/decisions/stage-aaaa1111.w-twozero.1.json', 'runs/backup/run-t/run.json',
+  /* The stage sign-off (2.1 slice 6). */
+  'validations/backup.stage-aaaa1111.w-twozero.json'];
 /* What slice 2b reads: a report and a decision on it, through the reports reader itself. */
 const REPORT_READS = ['reports/backup/run-c.count.row-counter.k3m9p2q8.json', 'report-decisions/backup/run-c.' + S.decisionHash('backup/run-c/count/row-counter/k3m9p2q8') + '.w-twozero.1.json'];
 rule('Every 2.0 sample this slice doesn\'t build is refused by its family\'s verdict in this copy, every probe too, and the ones it builds are read', () => {

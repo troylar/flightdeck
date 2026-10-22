@@ -322,9 +322,25 @@ PF.skills = (function () {
 
   /* Run evidence for a publication: completed runs, and which were clean on the given steps (no block, re-check, N/A or
      "did it differently", in any earlier answer either). */
+  /* A stage (2.1): a staged version, read and verified by the stage rules. */
+  function isStage(pub) { return !!pub && !!pub.info && PF.publish.STAGE.test(String(pub.info.folder)) && !!pub.info.stage; }
+  /* The stage whose test runs and sign-offs count for pub (2.1, the payload rule): the stage itself, or the one a promoted
+     version carries (pub.fromStage, worked out by repo.loadAll from the exact bytes). Otherwise none. */
+  function sourceStage(pub) { return isStage(pub) ? pub : pub && pub.fromStage && pub.fromStage.ok && pub.fromStage.stage && pub.fromStage.stage.ok ? pub.fromStage.stage : null; }
+  /* A test run on that stage's exact payload, readable here. */
+  function onStage(r, src, want) {
+    return !!src && PF.run.isTest(r) && !r._unrunnable && r.folder === src.info.folder && r.mapHash === src.info.mapHash && !!r.payload && typeof r.payload === 'object' && PF.publish.payloadHash(r.payload) === want;
+  }
+  function runName(r) { return PF.run.isTest(r) ? 'Test run: ' + r.title : r.title; }
+  /* Run evidence for a publication: completed runs, and which were clean on the given steps (no block, re-check, N/A or
+     "did it differently", in any earlier answer either). Test runs (2.1) count only for a stage and the version that carries
+     it (sourceStage), and only finished ones on the stage's exact payload; they're labeled "Test run:" and counted in tests. */
   function readiness(runs, pub, ids) {
-    /* Test runs (2.1) never count toward readiness here; slice 6 counts them only by the payload rule. */
-    var mine = (runs || []).filter(function (r) { return r.process === pub.map.meta.process && r.folder === pub.info.folder && !PF.run.isTest(r) && r.ended && r.ended.outcome === 'Completed'; });
+    var src = sourceStage(pub), want = src ? PF.publish.payloadHash(src.info.payload) : '', stage = isStage(pub);
+    var mine = (runs || []).filter(function (r) {
+      if (r.process !== pub.map.meta.process || !r.ended || r.ended.outcome !== 'Completed') return false;
+      return !stage && r.folder === pub.info.folder && !PF.run.isTest(r) || onStage(r, src, want);
+    });
     var deviations = [], clean = [];
     mine.forEach(function (r) {
       var bad = false;
@@ -334,19 +350,19 @@ PF.skills = (function () {
         /* Conditions (2.1): a step Not needed in this run is neither required nor a deviation (its marks still count); one
            waiting for a detail (held) means the run wasn't clean. */
         var ap = R.applies(r, pub.map, x.phaseIndex, x.step);
-        if (ap.applies === null) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: 'held', note: ap.why }); }
+        if (ap.applies === null) { bad = true; deviations.push({ run: runName(r), step: x.step.id, text: x.step.text, kind: 'held', note: ap.why }); }
         var a = r.steps[x.step.id], marks = r.marks && Object.prototype.hasOwnProperty.call(r.marks, x.step.id) ? r.marks[x.step.id] : [];
         /* Deviations whose answers were archived out of run.json still count: the run keeps a mark for each. */
         var shown = [];
         if (a) [a].concat(a.history || []).forEach(function (h) { if (h.s) shown.push(h.s); if (h.differently) shown.push('differently'); });
-        marks.forEach(function (k) { if (shown.indexOf(k) < 0) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: { blocked: 'blocked', recheck: 're-checked', na: 'marked N/A', differently: 'did it differently' }[k] + ' (earlier answer)', note: '' }); } });
+        marks.forEach(function (k) { if (shown.indexOf(k) < 0) { bad = true; deviations.push({ run: runName(r), step: x.step.id, text: x.step.text, kind: { blocked: 'blocked', recheck: 're-checked', na: 'marked N/A', differently: 'did it differently' }[k] + ' (earlier answer)', note: '' }); } });
         /* Clean means every covered step was actually done: a skipped step is missing evidence, not a clean pass. */
-        if (ap.applies !== false && (!a || (a.s !== 'done' && a.s !== 'na'))) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: a ? 'left ' + a.s : 'not answered', note: '' }); }
+        if (ap.applies !== false && (!a || (a.s !== 'done' && a.s !== 'na'))) { bad = true; deviations.push({ run: runName(r), step: x.step.id, text: x.step.text, kind: a ? 'left ' + a.s : 'not answered', note: '' }); }
         if (!a) return;
         [a].concat(a.history || []).forEach(function (h) {
           var kind = h.s === 'blocked' ? 'blocked' : h.s === 'recheck' ? 're-checked' : h.s === 'na' ? 'marked N/A' : null;
-          if (kind) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: kind, note: h.reason || '' }); }
-          if (h.differently) { bad = true; deviations.push({ run: r.title, step: x.step.id, text: x.step.text, kind: 'did it differently', note: h.differently.note || '' }); }
+          if (kind) { bad = true; deviations.push({ run: runName(r), step: x.step.id, text: x.step.text, kind: kind, note: h.reason || '' }); }
+          if (h.differently) { bad = true; deviations.push({ run: runName(r), step: x.step.id, text: x.step.text, kind: 'did it differently', note: h.differently.note || '' }); }
         });
       });
       /* A gate that was waived or failed on the covered work means people didn't approve it the normal way. */
@@ -360,12 +376,12 @@ PF.skills = (function () {
            needed) is fine; a passed record whose phase now holds a step is review, not clean. */
         var g = r.gates && r.gates[p.gate.id], st = conditional ? R.gateStatus(r, pub.map, pi) : g && g.s;
         if (st === 'skipped') return;
-        if (!g || g.s !== 'passed' || st !== 'passed') { bad = true; deviations.push({ run: r.title, step: p.gate.id, text: p.gate.title, kind: g ? 'gate ' + (g.s === 'passed' ? st : g.s) : 'gate never passed', note: g && g.reason || '' }); }
+        if (!g || g.s !== 'passed' || st !== 'passed') { bad = true; deviations.push({ run: runName(r), step: p.gate.id, text: p.gate.title, kind: g ? 'gate ' + (g.s === 'passed' ? st : g.s) : 'gate never passed', note: g && g.reason || '' }); }
       });
-      if ((r._conflicts || []).length) { bad = true; deviations.push({ run: r.title, step: '', text: '', kind: 'has other versions not resolved yet', note: 'resolve its conflict copies first' }); }
+      if ((r._conflicts || []).length) { bad = true; deviations.push({ run: runName(r), step: '', text: '', kind: 'has other versions not resolved yet', note: 'resolve its conflict copies first' }); }
       /* Only a run that kept its deviation marks from the start can prove it was clean: earlier runs (before 1.9.0), or ones
          recovered from such a run, may have archived a block that run.json no longer shows. */
-      if (r.marksFrom !== 'start') { bad = true; deviations.push({ run: r.title, step: '', text: '', kind: 'started before Flightdeck kept a full record of deviations', note: 'can\'t confirm it was clean' }); }
+      if (r.marksFrom !== 'start') { bad = true; deviations.push({ run: runName(r), step: '', text: '', kind: 'started before Flightdeck kept a full record of deviations', note: 'can\'t confirm it was clean' }); }
       if (!bad) clean.push(r);
     });
     /* Conditions (2.1): a covered step that only applies sometimes and that no clean run has needed yet (information only). */
@@ -374,14 +390,20 @@ PF.skills = (function () {
       if ((ids && ids.indexOf(x.step.id) < 0) || !(x.step.when || pub.map.phases[x.phaseIndex].when)) return;
       if (!clean.some(function (r) { return PF.run.applies(r, pub.map, x.phaseIndex, x.step).applies === true; })) unseen.push({ id: x.step.id, text: x.step.text });
     });
-    return { completed: mine.length, clean: clean.length, cleanRuns: clean.map(function (r) { return r.title; }), needed: READY_RUNS, enough: clean.length >= READY_RUNS, deviations: deviations, unseen: unseen };
+    return { completed: mine.length, clean: clean.length, cleanRuns: clean.map(runName), cleanIds: clean.map(function (r) { return r.id; }), tests: clean.filter(PF.run.isTest).length, needed: READY_RUNS, enough: clean.length >= READY_RUNS, deviations: deviations, unseen: unseen };
   }
   /* The sign-offs for a publication (validations/<process>.v<N>.<writer>.json), newest first. A sign-off counts only for the
      exact publication folder it was made on, and only by its owner, or by its backup owner (as: "backup"), which Flightdeck
      offers only while the owner is inactive or gone from people.json. Copies before 1.15 count only the owner's. */
   function signoffs(all, pub) {
-    var owner = pub.map.meta.owner, backup = pub.map.meta.backup;
-    return (all || []).filter(function (v) { return v.process === pub.map.meta.process && v.folder === pub.info.folder && (!owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup)); }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+    var owner = pub.map.meta.owner, backup = pub.map.meta.backup, src = sourceStage(pub), sp = src ? stagePayloadHash(src.info) : '';
+    var who = function (v) { return !owner || v.by === owner || (!!backup && backup !== owner && v.as === 'backup' && v.by === backup); };
+    return (all || []).filter(function (v) {
+      if (v.process !== pub.map.meta.process || !who(v)) return false;
+      /* A stage sign-off (2.1) counts for its stage and the version that carries it, on the stage's payload and number. */
+      if (v.stage) return !!src && v.stage === src.info.folder && v.payload === sp && v.proposed === src.info.stage.proposed;
+      return !isStage(pub) && v.folder === pub.info.folder;
+    }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
      people.json (as read; peopleUnread: this read of it failed), and only while the backup is listed and active. Returns "owner", "backup" or "". */
@@ -514,10 +536,59 @@ PF.skills = (function () {
   function cleanValidation(v) {
     var env = PF.envelope.judge('flightdeck-validation', v);
     if (!env.ok) return { ok: false, kind: env.kind, why: env.kind === 'newer' ? 'is a sign-off made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why, needs: env.needs || '' };
+    if (env.major === 2) return cleanStageValidation(v);
     if (typeof v.process !== 'string' || typeof v.folder !== 'string' || typeof v.by !== 'string' || typeof v.at !== 'string') return { ok: false, kind: 'malformed', why: 'isn\'t a sign-off this copy can read', needs: '' };
     var o = { kind: 'validation', process: v.process, folder: v.folder, by: v.by, at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
-  return { READY_RUNS: READY_RUNS, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  /* A stage sign-off (flightdeck-validation/2, 2.1), exactly the frozen shape: { format, app, process, stage: { folder, proposed },
+     payload, by, at, note, evidence, as? }, in validations/<process>.<stage>.<window>.json. Anything else is unreadable. */
+  var V2_KEYS = { format: 1, app: 1, process: 1, stage: 1, payload: 1, by: 1, at: 1, note: 1, evidence: 1, as: 1 };
+  function cleanStageValidation(v) {
+    var bad = { ok: false, kind: 'malformed', why: 'isn\'t a stage sign-off this copy can read', needs: '' }, st = v.stage, ev = v.evidence;
+    if (Object.keys(v).some(function (k) { return k !== '_file' && !Object.prototype.hasOwnProperty.call(V2_KEYS, k); })) return bad;
+    if (typeof v.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(v.process) || typeof v.by !== 'string' || !v.by || typeof v.at !== 'string' || !v.at) return bad;
+    if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder,proposed' || !PF.publish.STAGE.test(String(st.folder))) return bad;
+    if (typeof st.proposed !== 'number' || st.proposed < 1 || Math.floor(st.proposed) !== st.proposed) return bad;
+    if (typeof v.payload !== 'string' || !/^[0-9a-f]{64}$/.test(v.payload)) return bad;
+    if (v.note != null && typeof v.note !== 'string') return bad;
+    if (ev != null && (typeof ev !== 'object' || Array.isArray(ev))) return bad;
+    if (v.as != null && v.as !== 'backup') return bad;
+    if (typeof v._file === 'string' && v._file.indexOf(v.process + '.' + st.folder + '.') !== 0) return bad;
+    var o = { kind: 'validation', format: 2, process: v.process, folder: '', stage: st.folder, proposed: st.proposed, payload: v.payload, by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: st.proposed, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
+    if (ev) o.evidence = { completed: typeof ev.completed === 'number' ? ev.completed : 0, clean: typeof ev.clean === 'number' ? ev.clean : 0, runs: Array.isArray(ev.runs) ? ev.runs.filter(function (x) { return typeof x === 'string'; }).slice(0, 50) : [] };
+    if (v.as === 'backup') o.as = 'backup';
+    return { ok: true, rec: o };
+  }
+  /* The fingerprint a stage sign-off names: SHA-256 of the stage's payload as its record writes it (the frozen sample's). */
+  function stagePayloadHash(info) { return PF.sha256.hex(JSON.stringify(info.payload, null, 2) + '\n'); }
+  /* A stage sign-off to write: { path, text, rec }. o: { window, by, at, note, evidence: { completed, clean, runs }, as, app }. */
+  function stageSignoff(stage, o) {
+    var i = stage.info, rec = { format: 'flightdeck-validation/2', app: o.app || '', process: i.process, stage: { folder: i.folder, proposed: i.stage.proposed }, payload: stagePayloadHash(i), by: o.by, at: o.at, note: String(o.note || '').slice(0, 300), evidence: { completed: o.evidence.completed, clean: o.evidence.clean, runs: o.evidence.runs.slice(0, 50) } };
+    if (o.as === 'backup') rec.as = 'backup';
+    return { path: 'validations/' + i.process + '.' + i.folder + '.' + o.window + '.json', text: JSON.stringify(rec, null, 2) + '\n', rec: rec };
+  }
+  function filled(o) { return !!o && typeof o === 'object' && Object.keys(o).some(function (k) { var x = o[k]; return x && typeof x === 'object' ? filled(x) : x != null; }); }
+  /* The payload rule (2.1): '' when a promoted version is exactly its stage, else why not. exact: the SHA-256 of the version's
+     own bytes, { 'map.md', 'types.json', images: { src: sha } }, read from the folder (never assumed). A /2 version's payload
+     must also be the stage's by P.payloadHash; a /1 version carries no pins or extensions, so its stage must have none. */
+  function carries(pub, stage, exact) {
+    var P = PF.publish;
+    if (!pub || !pub.ok || !pub.info) return 'The version isn\'t verified here.';
+    var sf = pub.info.stagedFrom;
+    if (!sf || typeof sf !== 'object' || !stage || !stage.info) return 'It wasn\'t made from a stage.';
+    if (!stage.ok) return 'Its stage can\'t be read or doesn\'t verify' + (stage.why ? ' (' + stage.why + ')' : '') + '.';
+    if (sf.folder !== stage.info.folder || pub.info.process !== stage.info.process) return 'It names another stage.';
+    var sp = stage.info.payload;
+    if (!sp || typeof sp !== 'object') return 'Its stage has no payload.';
+    if (pub.info.format === P.FORMAT2) { if (!pub.info.payload || P.payloadHash(pub.info.payload) !== P.payloadHash(sp)) return 'Its payload isn\'t the stage\'s.'; }
+    else if (filled(sp.pins) || filled(sp.extensions)) return 'Its stage has pins or extensions this version doesn\'t carry.';
+    if (!exact) return 'Its exact bytes haven\'t been read.';
+    if (exact['map.md'] !== sp.map || exact['types.json'] !== sp.types) return 'Its checklist or step types aren\'t byte for byte the stage\'s.';
+    var a = Object.keys(exact.images || {}).sort(), b = Object.keys(sp.images || {}).sort();
+    if (a.join('\n') !== b.join('\n') || a.some(function (k) { return exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
+    return '';
+  }
+  return { READY_RUNS: READY_RUNS, isStage: isStage, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

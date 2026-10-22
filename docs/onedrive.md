@@ -75,6 +75,9 @@ So move every computer to 1.21 before anyone records on a Flightdeck 2.0 version
 | `people.json` | One named person on the team. Edit it, save, and let it sync before anyone else edits it. |
 | `proposals/*.json` | An AI assistant writes its plans; a window writes each plan a person makes as a new file, once, and never over one that's there; `flightdeck plan request` writes each request from another app (`req-<tool>-<hash>.json`) once, never over a file that's there. Each person's decision is its own `*.status-<window>.json`. Two computers that request the same key while disconnected each write it, and OneDrive keeps both (see *A planned run arrived twice* in docs/recovery.md). |
 | `publications/` | Flightdeck, one new folder per publish. Never edited. |
+| `staged/<process>/stage-<random>/` | Flightdeck, one new folder per stage (2.1). Never edited; made the default by copying it into `publications/`. |
+| `staged/<process>/decisions/<stage>.<window>.<rev>.json` | Each retire or reopen is a new file named for the window and the decision's number (2.1). Never edited. |
+| `validations/<process>.v<N>.<window>.json`, `validations/<process>.<stage>.<window>.json` | The window that signed off a version, or a staged version (2.1), named for that window. |
 | `step-types/*.json` | One person in Flightdeck's Step types form, or an AI assistant. Saved only over the file the form opened. |
 | `runs/<process>/<id>/notes-<window>.jsonl` | The window it's named for: its notes and its corrections (a correction is a note with `kind: "correction"`). Older copies show a correction as a plain note and keep its files; 1.13 to 1.21 show a correction on a phase's or a gate's note (2.0, `cv: 2`) as a described problem. |
 | `runs/<process>/<id>/files/*` | The window that attached the file, named with the time, a random part and that window, so two windows never write the same name. Written once. |
