@@ -426,6 +426,9 @@ PF.reports = (function () {
     if (String(R.fieldsOf(r, x.step).sets || '').trim()) return no('This step sets run details. Check it yourself; reports can\'t set details yet.');
     if (r.ended || r.state !== 'running') return no('The run has ended.');
     if (r.paused) return no('The run is paused. Resume it first.');
+    /* Conditions (2.1): a step that isn't needed, or whose condition waits for a detail, takes no report. */
+    var nw = R.stepNeeded(r, map, x.step.id);
+    if (nw) return no(nw);
     if (!R.phaseOpen(r, map, x.phaseIndex)) return no('That phase isn\'t open yet.');
     /* A run detail the step uses, still waiting on a migration, stops an acceptance as it stops Done (R.consumption). */
     var waiting = R.consumption(r, x.step.binds || []);

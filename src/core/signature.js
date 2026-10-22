@@ -24,6 +24,8 @@ PF.signature = (function () {
         var pin = s.type === 'run.process' ? pinOf(pins, 'children', s.id) : s.type === 'run.skill' ? pinOf(pins, 'skills', s.id) : null;
         if (pin) parts.push(['pin', pin]);
         if (s.type === 'run.process' && !String((s.fields || {}).carry || '').trim()) parts.push(['carry', context]);
+        /* Conditions (2.1): whether the step applies is part of what a skill must follow. */
+        if (p.when || s.when) parts.push(['when', (p.when || []).map(function (w) { return w.text; }), (s.when || []).map(function (w) { return w.text; })]);
         o[s.id] = { step: s, phase: p, sig: JSON.stringify(parts) };
       });
     });

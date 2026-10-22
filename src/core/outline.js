@@ -194,10 +194,11 @@ PF.outline = (function () {
       meta: map.meta, questions: map.questions, errors: map.errors.map(function (e) { return e.msg; }).sort(),
       phases: map.phases.map(function (p) {
         var g = p.gate;
-        return lined({ id: p.id, title: p.title, mode: p.mode, note: p.note, shots: p.shots,
+        var when = function (x) { return (x.when || []).map(function (w) { return w.text; }); };
+        return lined({ id: p.id, title: p.title, mode: p.mode, note: p.note, shots: p.shots, when: when(p),
           gate: { id: g.id, title: g.title, owner: g.owner, approves: g.approves, binds: g.binds, note: g.note, shots: g.shots, fields: g.fields, implicit: g.implicit },
           tracks: p.tracks.map(function (t) { return [t.id, t.title, t.roles]; }),
-          steps: p.steps.map(function (s) { return lined({ id: s.id, type: s.type, text: s.text, must: s.must, planned: s.planned, roles: s.roles, binds: s.binds, fields: s.fields, note: s.note, shots: s.shots, track: s.track }, s.line); }) }, p.line);
+          steps: p.steps.map(function (s) { return lined({ id: s.id, type: s.type, text: s.text, must: s.must, planned: s.planned, roles: s.roles, binds: s.binds, fields: s.fields, note: s.note, shots: s.shots, track: s.track, when: when(s) }, s.line); }) }, p.line);
       })
     };
   }

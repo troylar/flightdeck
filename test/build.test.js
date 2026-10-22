@@ -158,10 +158,19 @@ rule('1.21.0 has its own release entry, in plain words, naming no employer, prod
 });
 
 rule('2.0.0 has its own release entry, in plain US English, naming the notes and screenshots older copies can\'t run', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '2.0.0');
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel.filter(x => x.version === '2.0.0')[0];
+  assert.ok(r, '2.0.0 is listed');
   const text = JSON.stringify(r);
   assert.ok(/phase/i.test(text) && /gate/i.test(text) && /screenshot/i.test(text) && /1\.22 or earlier/.test(text) && !/1\.21 or earlier/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
+});
+
+rule('2.1.0 has its own release entry above 2.0.0: only when, and that a version using it needs Flightdeck 2.1', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
+  assert.strictEqual(r.version, '2.1.0');
+  assert.strictEqual(rel[1].version, '2.0.0');
+  const text = JSON.stringify(r);
+  assert.ok(/only when/i.test(text) && /Not needed/.test(text) && /needs Flightdeck 2\.1/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 

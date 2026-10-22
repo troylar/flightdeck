@@ -8,7 +8,7 @@
   var ATT_HELP = 'Images, PDF, text, logs and .zip, up to 10 MB each.';
   var BLOCK_REASONS = ['Failed', 'Waiting on someone', 'Not sure it passed'];
   var STATE_WORD = { open: 'not checked', done: 'done', na: 'not applicable', blocked: 'blocked', recheck: 'needs a re-check' };
-  var GATE_WORD = { passed: 'Passed', waived: 'Waived', failed: 'Failed', review: 'Needs review', ready: 'Ready', open: 'Waiting on steps', locked: 'Locked' };
+  var GATE_WORD = { passed: 'Passed', waived: 'Waived', failed: 'Failed', review: 'Needs review', ready: 'Ready', open: 'Waiting on steps', locked: 'Locked', skipped: 'Not needed' };
   /* The error points at its own field when core named one; otherwise at every field in the form. */
   function errFor(st, stepId, inputId) { var e = st.fieldErr; return e && e.id === stepId && (!e.field || e.field === inputId) ? 'ferr-' + stepId : ''; }
   function ferr(st, id) { return st.fieldErr && st.fieldErr.id === id ? '<p class="ferr" id="ferr-' + esc(id) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : ''; }
@@ -75,6 +75,9 @@
       (aState === 'na' ? '<span class="badge b-ref">N/A</span>' : '') +
       (a && a.differently ? '<span class="badge b-diff" title="' + esc(a.differently.note) + '">Done differently</span>' : '') +
       (x.sched ? schedBadge(x.sched) : '') + timerOf(ctx, r, s, a, now);
+    /* Conditions (2.1): a step whose condition waits for a detail says why, as a bound step does. */
+    var heldWhy = s.when || x.phase.when ? R.held(r, map, s) : '';
+    if (heldWhy) badges += '<span class="badge b-warn">Waiting · ' + esc(heldWhy) + '</span>';
     var notes = (r._notes || []).filter(function (n) { return n.step === s.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; }).length, dr = ctx.stepDraft && ctx.stepDraft(s.id);
     var nc = (r._notes || []).filter(function (n) { return n.step === s.id && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); }).length;
     if (nc) badges += '<span class="badge b-corr">' + (nc === 1 ? 'Correction proposed' : nc + ' corrections') + '</span>';
@@ -84,7 +87,7 @@
     if (notes) badges += '<span class="s-notes">' + I('note') + notes + '<span class="sr"> note' + (notes === 1 ? '' : 's') + '</span></span>';
     var stamp = a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
-    var canCheck = rec && open && t.id !== 'run.process';
+    var canCheck = rec && open && t.id !== 'run.process' && !heldWhy;
     return '<li class="step' + (sel ? ' sel' : '') + (isNext ? ' next' : '') + (flash ? ' flash' : '') + '" data-a="' + esc(aState) + '" id="step-' + esc(s.id) + '">' +
       '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(s.text) + ', ' + esc(STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
       '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + inlineText(s.text) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
@@ -202,7 +205,7 @@
           h += '<button class="btn" disabled aria-describedby="gwhy-' + esc(g.id) + '">' + (g.implicit ? 'Confirm' : 'Pass the gate') + '</button><span class="small" id="gwhy-' + esc(g.id) + '">' + esc(why) + '</span>';
         }
         if (R.canWaive(r, map, pi) && st !== 'ready') h += '<button class="mini" data-act="pick" data-kind="waive" data-id="' + esc(g.id) + '">Waive</button>';
-        if (st !== 'locked' && st !== 'failed' && st !== 'passed' && st !== 'waived') h += '<button class="mini" data-act="pick" data-kind="fail" data-id="' + esc(g.id) + '">Fail</button>';
+        if (st !== 'locked' && st !== 'failed' && st !== 'passed' && st !== 'waived' && st !== 'skipped') h += '<button class="mini" data-act="pick" data-kind="fail" data-id="' + esc(g.id) + '">Fail</button>';
         if (st === 'passed' || st === 'waived' || st === 'failed' || st === 'review') h += '<button class="mini" data-act="reopen" data-id="' + pi + '">Reopen</button>';
       }
     }
@@ -750,20 +753,23 @@
     return h + '<div class="row"><button class="btn primary" data-act="fu-save" data-id="' + esc(x.key) + '"' + (saving ? ' disabled' : '') + '>' + (saving ? 'Saving…' : 'Save') + '</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
   }
   /* Steps outside any track first, then the phase's tracks side by side: parallel work, all finished before the gate. */
-  function stepsHtml(ctx, r, p, row) {
-    var loose = p.steps.filter(function (st) { return !st.track; }), h = loose.length ? '<ul class="steps">' + loose.map(row).join('') + '</ul>' : '';
-    if (!p.tracks || !p.tracks.length) return h;
+  function stepsHtml(ctx, r, p, row, map, pi) {
+    /* Conditions (2.1): steps that aren't needed in this run fold to one quiet line at the end of the phase. */
+    var nn = map ? (R.phaseInfo(r, map, pi).notNeeded || []) : [], needed = function (st) { return nn.indexOf(st) < 0; };
+    var loose = p.steps.filter(function (st) { return !st.track && needed(st); }), h = loose.length ? '<ul class="steps">' + loose.map(row).join('') + '</ul>' : '';
+    var folded = nn.length ? '<details class="folded not-needed"><summary class="small">' + nn.length + ' step' + (nn.length === 1 ? '' : 's') + ' not needed</summary><ul class="small">' + nn.map(function (st) { return '<li>' + inlineText(st.text) + ' · ' + esc(R.applies(r, map, pi, st).why.replace(/\^/g, '')) + '</li>'; }).join('') + '</ul></details>' : '';
+    if (!p.tracks || !p.tracks.length) return h + folded;
     return h + '<div class="tracks">' + p.tracks.map(function (t) {
-      var steps = p.steps.filter(function (st) { return st.track === t.id; }), done = steps.filter(function (st) { return R.answered(r, st); }).length;
+      var steps = p.steps.filter(function (st) { return st.track === t.id && needed(st); }), done = steps.filter(function (st) { return R.answered(r, st); }).length;
       var who = t.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : esc(ro); }).join(', ');
       return '<section class="track" aria-labelledby="tr-' + esc(t.id) + '"><div class="track-head"><h3 id="tr-' + esc(t.id) + '">' + esc(t.title) + '</h3><span class="small">' + (who ? who + ' · ' : '') + done + '/' + steps.length + '</span></div><ul class="steps">' + steps.map(row).join('') + '</ul></section>';
-    }).join('') + '<p class="small tracks-note">Finish every track before the gate.</p></div>';
+    }).join('') + '<p class="small tracks-note">Finish every track before the gate.</p></div>' + folded;
   }
   /* "5 done · 1 N/A" for a folded phase. */
-  function tally(r, p) {
-    var c = { done: 0, na: 0, other: 0 };
-    p.steps.forEach(function (s) { var a = r.steps[s.id]; if (a && a.s === 'done') c.done++; else if (a && a.s === 'na') c.na++; else c.other++; });
-    return [c.done ? c.done + ' done' : '', c.na ? c.na + ' N/A' : '', c.other ? c.other + ' not answered' : ''].filter(Boolean).join(' · ');
+  function tally(r, p, info) {
+    var c = { done: 0, na: 0, other: 0 }, nn = (info && info.notNeeded) || [];
+    p.steps.forEach(function (s) { if (nn.indexOf(s) >= 0) return; var a = r.steps[s.id]; if (a && a.s === 'done') c.done++; else if (a && a.s === 'na') c.na++; else c.other++; });
+    return [c.done ? c.done + ' done' : '', c.na ? c.na + ' N/A' : '', c.other ? c.other + ' not answered' : '', nn.length ? nn.length + ' not needed' : ''].filter(Boolean).join(' · ');
   }
 
   function run(ctx) {
@@ -817,13 +823,15 @@
       /* Finished phases and phases that can't start yet fold to one line, so the current phase gets the attention. */
       var open = R.phaseOpen(r, map, pi), folded = (done || locked) && !s.unfold[p.id];
       var one = alone, hint = p.mode === 'READ-DO' ? (one ? 'Read each step, then do it.' : 'Read each step aloud, then do it.') : p.mode === 'DO-CONFIRM' ? (one ? 'Do the work, then stop and confirm each step.' : 'Do the work, then stop and confirm each step together.') : '';
+      /* Conditions (2.1): a phase that isn't needed is its heading and one line saying why; no steps, no gate. */
+      if (gst === 'skipped') { deck += '<section class="phase" id="phase-' + esc(p.id) + '" data-s="done" aria-labelledby="ph-' + esc(p.id) + '"><div class="placard"><span class="p-label">Phase ' + (pi + 1) + '</span><h2 class="p-title" id="ph-' + esc(p.id) + '" tabindex="-1">' + esc(p.title) + '</h2></div><div class="folded"><span>Not needed · ' + esc(R.applies(r, map, pi).why.replace(/\^/g, '')) + '</span></div></section>'; return; }
       deck += '<section class="phase" id="phase-' + esc(p.id) + '" data-s="' + (done ? 'done' : locked ? 'locked' : 'open') + '"' + (pi === cur ? ' data-cur="true"' : '') + ' aria-labelledby="ph-' + esc(p.id) + '"><div class="placard"><span class="p-label">Phase ' + (pi + 1) + '</span><h2 class="p-title" id="ph-' + esc(p.id) + '" tabindex="-1">' + esc(p.title) + '</h2><span class="p-count">' + info.done + '/' + info.total + '</span>' +
         (hint && !folded ? '<span class="mode-hint">' + hint + '</span>' : '') + '</div>';
-      if (folded) deck += '<div class="folded"><span>' + (locked ? info.total + ' step' + (info.total === 1 ? '' : 's') + ', after the gate above' : tally(r, p)) + '</span><button class="mini" data-act="unfold" data-id="' + esc(p.id) + '" aria-expanded="false" aria-controls="phase-' + esc(p.id) + '">' + (locked ? 'Preview steps' : 'Show steps') + '</button></div>';
+      if (folded) deck += '<div class="folded"><span>' + (locked ? info.total + ' step' + (info.total === 1 ? '' : 's') + ', after the gate above' : tally(r, p, info)) + '</span><button class="mini" data-act="unfold" data-id="' + esc(p.id) + '" aria-expanded="false" aria-controls="phase-' + esc(p.id) + '">' + (locked ? 'Preview steps' : 'Show steps') + '</button></div>';
       else {
         deck += phaseNote(ctx, p);
-        if ((done || locked) && s.unfold[p.id]) deck += '<div class="folded"><span>' + (locked ? 'A preview: these open after the gate above.' : tally(r, p)) + '</span><button class="mini" data-act="fold" data-id="' + esc(p.id) + '" aria-expanded="true" aria-controls="phase-' + esc(p.id) + '">Hide steps</button></div>';
-        deck += stepsHtml(ctx, r, p, row(p, pi, open));
+        if ((done || locked) && s.unfold[p.id]) deck += '<div class="folded"><span>' + (locked ? 'A preview: these open after the gate above.' : tally(r, p, info)) + '</span><button class="mini" data-act="fold" data-id="' + esc(p.id) + '" aria-expanded="true" aria-controls="phase-' + esc(p.id) + '">Hide steps</button></div>';
+        deck += stepsHtml(ctx, r, p, row(p, pi, open), map, pi);
       }
       deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id], folded && locked && !(s.noteCorrs || {})[ctx.fsKey + '\n' + runKey(r) + '|nc:gate:' + p.gate.id]) + '</section>';
     });

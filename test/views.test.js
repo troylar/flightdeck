@@ -2705,4 +2705,32 @@ rule('Home: an owner ID that names something every object has (constructor, toSt
   });
 });
 
+rule('Conditions (2.1): a phase not needed shows one line why, steps not needed fold away with their reasons, a held step says what it waits for, and the receipt lists them; a run without conditions shows none of it', () => {
+  const plain = setup(), words = /[Nn]ot needed|Waiting ·|only when/;
+  assert.ok(!words.test(V.run(plain.ctx)), 'nothing about conditions on a run without any');
+  plain.state.view = 'receipt';
+  assert.ok(!words.test(V.receipt(plain.ctx)), 'nor on its receipt');
+  const md = ['---', 'process: rel', 'title: Release', 'context: ticket, risk:choice(low|high), hotfix:yes-no, amount:number', 'roles: release-lead', '---', '',
+    '## Hotfix {#hotfix}', '  only when ^hotfix is yes', '- [ ] {confirm} Page the on-call lead {#page}', '',
+    '## Release {#release}', '- [ ] {confirm} Tell the <b>change</b> board {#board}', '  only when ^risk is high',
+    '- [ ] {confirm} Get finance sign-off {#finance}', '  only when ^amount is at least 10000', '- [ ] {confirm} Ship it ^ticket {#ship}', ''].join('\n');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'cond0001', app: '2.1.0' });
+  assert.ok(!b.blockers, String(b.blockers));
+  const pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
+  const r = R.create(pub, { title: 'Release', details: { ticket: 'T-1', risk: 'low', hotfix: 'no', amount: '' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id: 'runc' });
+  r.details.amount = '12a'; r._notes = []; r._conflicts = [];
+  const { ctx, state } = setup();
+  ctx.run = () => r; ctx.data.runs = [r]; ctx.data.processes = [{ process: 'rel', pubs: [pub], index: { latest: pub } }];
+  let html = V.run(ctx);
+  assert.ok(/Not needed · only when hotfix is yes \(hotfix is no\)/.test(html), 'the skipped phase says why');
+  assert.ok(!/Page the on-call lead/.test(html), 'and lists no steps');
+  assert.ok(/<details class="folded not-needed"><summary class="small">1 step not needed<\/summary>/.test(html), 'one step folds away');
+  assert.ok(/Tell the &lt;b&gt;change&lt;\/b&gt; board · only when risk is high \(risk is low\)/.test(html) && !/<b>change<\/b>/.test(html), 'with its reason, escaped');
+  assert.ok(/Waiting · [^<]*12a/.test(html), 'a held step names the value it waits on');
+  state.view = 'receipt';
+  html = V.receipt(ctx);
+  assert.ok(/Not needed in this run/.test(html) && /only when risk is high \(risk is low\)/.test(html), 'the receipt lists what was not needed');
+  assert.ok(/class="r-nn"/.test(html) && !/Page the on-call lead/.test(html) && !/<b>change<\/b>/.test(html));
+});
+
 run();

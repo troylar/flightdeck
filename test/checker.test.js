@@ -520,4 +520,58 @@ rule('The checker agrees with the app on typed run details and typed evidence: d
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker reads conditions (2.1) like the app: the same parse errors, the conditions feature listed, a conditional version complete', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-cond-'));
+  try {
+    const d = new DiskFS(root), U = PF.util, sha = (t) => require('crypto').createHash('sha256').update(t, 'utf8').digest('hex');
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\ncontext: ticket, risk:choice(low|high), hot:yes-no, amount:number, due:date, path:choice(slow|fast), runbook:link\n---\n## Decide {#decide}\n- [ ] {confirm} Pick the path {#pick}\n  sets: path\n\n## Release {#rel}\n  only when ^hot is not no\n- [ ] {confirm} Tell the board {#board}\n  only when ^risk is one of HIGH | low\n- [ ] {confirm} Finance {#fin}\n  only when ^amount is at least 010.50\n  only when ^due is at most 2026-12-31\n- [ ] {confirm} Fast {#fast}\n  only when ^path is fast\n- [ ] {confirm} Link {#ln}\n  only when ^runbook is set\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.1.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const base = 'publications/x/' + v.folder + '/', info = JSON.parse(fs.readFileSync(path.join(root, ...base.split('/'), 'publication.json'), 'utf8')), types0 = fs.readFileSync(path.join(root, ...base.split('/'), 'types.json'), 'utf8');
+    assert.ok(info.features.indexOf('conditions') >= 0, 'set-up');
+    const forge = async (n, text, editInfo) => {
+      const folder = 'v' + n + '-cond000' + n, dst = 'publications/x/' + folder + '/', i = JSON.parse(JSON.stringify(info));
+      Object.assign(i, { version: n, folder, mapHash: U.hash(text), typesHash: U.hash(types0) }); i.payload.map = sha(text); i.payload.types = sha(types0);
+      if (editInfo) editInfo(i);
+      await d.write(dst + 'map.md', text); await d.write(dst + 'types.json', types0); await d.write(dst + 'publication.json', JSON.stringify(i, null, 2));
+      return folder;
+    };
+    const swap = (a, b) => { assert.ok(md.indexOf(a) >= 0, a); return md.replace(a, b); };
+    const bad = [
+      await forge(2, md, (i) => { i.features = i.features.filter(f => f !== 'conditions'); }),
+      await forge(3, swap('## Gate: Ready {#ready}\n', '## Gate: Ready {#ready}\n  only when ^hot is yes\n')),
+      await forge(4, swap('only when ^hot is not no', 'only when ^nope is yes')),
+      await forge(5, swap('only when ^runbook is set', 'only when ^runbook is https://x.test')),
+      await forge(6, swap('only when ^risk is one of HIGH | low', 'only when ^risk is one of high')),
+      await forge(7, swap('only when ^risk is one of HIGH | low', 'only when ^risk is one of high | | low')),
+      await forge(8, swap('only when ^risk is one of HIGH | low', 'only when ^risk is one of high | High')),
+      await forge(9, swap('only when ^amount is at least 010.50', 'only when ^amount is at least ten')),
+      await forge(10, swap('only when ^hot is not no', 'only when ^hot is maybe')),
+      await forge(11, swap('## Decide {#decide}\n', '## Decide {#decide}\n  only when ^path is fast\n')),
+      await forge(12, swap('only when ^hot is not no', 'only when hot is yes')),
+      await forge(13, swap('only when ^due is at most 2026-12-31', 'only when ^due is at most 2026-02-30')),
+      await forge(14, swap('only when ^path is fast', 'only when ^path is fast\n  only when ^hot is yes\n  only when ^risk is high\n  only when ^amount is set\n  only when ^due is set')),
+      await forge(15, swap('- [ ] {confirm} Pick the path {#pick}\n', '- [ ] {confirm} Pick the path {#pick}\n  only when ^ticket is one of a | b\n')),
+      await forge(16, swap('## Decide {#decide}\n', '## Decide {#decide}\n\nonly when ^hot is yes\n'))
+    ];
+    const good = [await forge(17, md)];
+    const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
+    const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const ver = out.publications.x;
+    for (const folder of bad) {
+      const mine = ver.versions.find(x => x.folder === folder), theirs = pubs.find(p => p.folder === folder);
+      assert.ok(!theirs.ok && theirs.unusable, folder + ': the app refuses it as unusable: ' + theirs.why);
+      assert.strictEqual(mine.status, 'unusable', folder + ': ' + mine.status + ' ' + mine.why);
+      assert.strictEqual(mine.why, theirs.why, folder + ': same reason');
+    }
+    for (const folder of good.concat([v.folder])) {
+      assert.ok(pubs.find(p => p.folder === folder).ok, folder + ' runs in the app');
+      assert.strictEqual(ver.versions.find(x => x.folder === folder).status, 'complete', folder);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

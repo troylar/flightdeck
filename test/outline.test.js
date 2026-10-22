@@ -974,4 +974,26 @@ rule('Questions: Remove section takes out exactly its lines, at the end or befor
   assert.strictEqual(ok(O.apply(crlf, { op: 'removeQuestions' })), crlf.slice(0, crlf.indexOf('## Questions')));
 });
 
+rule('Builder: "only when" lines stay with their phase or step through moves, adds and deletes', () => {
+  const md = ['---', 'process: c', 'title: C', 'context: risk:choice(low|high), hot:yes-no', '---', '',
+    '## First {#first}', '  only when ^hot is yes', '- [ ] {confirm} Alpha {#alpha}', '  only when ^risk is high', '- [ ] {confirm} Beta {#beta}', '',
+    '## Second {#second}', '- [ ] {confirm} Gamma {#gamma}', '  only when ^risk is low', '- [ ] {confirm} Delta {#delta}', ''].join('\n');
+  const whens = (t) => { const m = M.parse(t); same(m.errors.map(e => e.msg), []); const o = {}; m.phases.forEach(p => { o[p.id] = (p.when || []).map(w => w.text); p.steps.forEach(x => { o[x.id] = (x.when || []).map(w => w.text); }); }); return JSON.stringify(o); };
+  const want = (t, o) => { const got = JSON.parse(whens(t)); Object.keys(o).forEach(k => assert.deepStrictEqual(got[k], o[k], k + ' in\n' + t)); };
+  want(md, { first: ['^hot is yes'], alpha: ['^risk is high'], beta: [], gamma: ['^risk is low'], delta: [] });
+  const down = ok(O.moveStep(md, 'alpha', 1));
+  want(down, { first: ['^hot is yes'], alpha: ['^risk is high'], beta: [] });
+  same(ids(down).slice(0, 2), ['beta', 'alpha']);
+  const across = ok(O.moveStep(md, 'gamma', -1));
+  want(across, { first: ['^hot is yes'], gamma: ['^risk is low'], second: [] });
+  const phases = ok(O.movePhase(md, 'second', -1));
+  want(phases, { first: ['^hot is yes'], second: [], alpha: ['^risk is high'], gamma: ['^risk is low'] });
+  const added = ok(O.addStep(md, { phase: 'first', where: 'end' }, { text: 'Epsilon', type: 'confirm' }));
+  want(added, { first: ['^hot is yes'], alpha: ['^risk is high'], beta: [], epsilon: [] });
+  const gone = ok(O.deleteStep(md, 'alpha'));
+  assert.ok(!/\^risk is high/.test(gone), 'the step\'s condition goes with it');
+  want(gone, { first: ['^hot is yes'], beta: [] });
+  assert.strictEqual(ok(O.moveStep(down, 'alpha', -1)), md, 'and back again gives the original');
+});
+
 run();

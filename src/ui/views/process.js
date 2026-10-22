@@ -261,7 +261,9 @@
   function publishNeeds(ctx, p) {
     var map = M.parse(p.draft.md), n = PF.publish.needs(map, PF.types.freeze(M.usedTypes(map), (ctx.data.stepTypes || {}).types)); if (!n) return '';
     var list = n.names.length === 1 ? n.names[0] : n.names.slice(0, -1).join(', ') + ' and ' + n.names[n.names.length - 1];
-    return '<p class="small pub-needs" role="note"><b>Needs Flightdeck 2.0:</b> ' + esc(list) + '. Teammates on Flightdeck 1.22 or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
+    /* The release that first runs all of it (PF.envelope.minimum), and the last one that can't. */
+    var need = n.needs || '2.0', nm = need.split('.'), before = +nm[1] > 0 ? nm[0] + '.' + (+nm[1] - 1) : '1.22';
+    return '<p class="small pub-needs" role="note"><b>Needs Flightdeck ' + esc(need) + ':</b> ' + esc(list) + '. Teammates on Flightdeck ' + esc(before) + ' or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
   }
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];

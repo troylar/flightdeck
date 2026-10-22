@@ -108,11 +108,11 @@ PF.publish = (function () {
     return f;
   }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)' };
+  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)' };
   function needs(map, types) {
     var f = features(map, types); if (!f.length) return null;
     var typed = Object.keys((map.meta && map.meta.detailTypes) || {});
-    return { features: f, names: f.map(function (x) { return x === 'typed-details' ? FEATURE_NAMES[x] + ' (' + typed.join(', ') + ')' : FEATURE_NAMES[x] || x; }) };
+    return { features: f, needs: PF.envelope.minimum(f), names: f.map(function (x) { return x === 'typed-details' ? FEATURE_NAMES[x] + ' (' + typed.join(', ') + ')' : FEATURE_NAMES[x] || x; }) };
   }
 
   function sha(data) { return PF.sha256.create().update(data).digest(); }

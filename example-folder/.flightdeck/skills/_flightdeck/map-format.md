@@ -90,6 +90,7 @@ When a run starts from text (a plan, or a detail carried from a parent run), eac
 | `  due: 17:30` | On a step or gate: it should be done by that clock time on the run's day. |
 | `  sets: tag` | On a step: it produces these run details (comma-separated, each listed in `context`). Checking it asks for them; later `^tag` uses the value, and the start form leaves them out. Correcting the value re-checks later steps tied to it. |
 | `  after: 2h` | On a step or gate: it should be done within that long after the run starts. |
+| `  only when ^detail is value` | On a step, or right under a phase heading: it applies only when the run detail matches (Needs Flightdeck 2.1; see Only when). |
 
 Clock times are read in the time zone of whoever started the run, so everyone sees the same moment in their own time. Give a step or gate one of `at:`, `due:` or `after:`, not more than one.
 
@@ -131,6 +132,39 @@ A checklist that uses nothing on this list publishes as before, and every teamma
 - `skillVersion:` on a `{run.skill}` step (see Skill versions).
 
 A gate's note isn't on this list: every copy since 1.10 publishes it, and 2.0 shows it for every version.
+
+## Only when
+
+A step, or a whole phase, can apply only to some runs (Flightdeck 2.1). Put `only when` under the step, or right under the phase heading before its first step:
+
+```markdown
+## Hotfix · DO-CONFIRM {#hotfix}
+  only when ^hotfix is yes
+- [!] {confirm} Page the on-call lead {#page}
+
+## Release · READ-DO {#release}
+- [ ] {confirm} Tell the change board {#board}
+  only when ^risk is high
+- [ ] {confirm} Get finance sign-off {#finance}
+  only when ^amount is at least 10000
+```
+
+| Test | Works on |
+|---|---|
+| `^d is set`, `^d is not set` | Every detail, text and links included |
+| `^d is v`, `^d is not v` | `number`, `yes-no`, `date`, `choice` |
+| `^d is one of a\|b` | `choice` (2 to 20 values) |
+| `^d is at least v`, `^d is at most v` | `number`, `date` |
+
+The detail must be listed in `context:`; values are written as the detail's kind reads them (`High` is the choice `high`, `010.50` is `10.5`). Up to 4 `only when` lines on a step or phase, and all of them must match. A gate or a track can't have one: put it on the phase or its steps. A detail that a step sets (`sets:`) can decide only phases after that step's phase.
+
+During a run each condition is read again from the run's details whenever they change:
+
+- Matches: the step or phase applies as usual.
+- Doesn't match: it's **Not needed**. It isn't counted, nobody checks it, and its reason is shown folded away. A phase whose own condition doesn't match, or whose steps are all Not needed, is skipped with its gate. An empty detail doesn't match any comparison, so `is not` matches it.
+- Can't tell yet: when the detail is waiting for a person (a converted value to confirm) or holds a value that isn't valid, the step is **Waiting**: it counts as left to do and can't be checked until the detail is filled in.
+
+Changing a detail that a checked step's condition uses asks for a re-check of that step, and gates that approved it go back to review. A checklist with `only when` publishes a version that needs Flightdeck 2.1: every copy before 2.1, 2.0 included, names it and can't run it.
 
 ## Reports from tools
 
@@ -252,6 +286,6 @@ A `{jira.issue}` step with `action: transition` must move to a status the workfl
 
 ## What stops a checklist from publishing
 
-A line Flightdeck doesn't understand, a missing or duplicate ID, a missing or unknown type, a field the type doesn't have, a value outside a field's choices (`action:`, `evidence:`, `runs:`), `require:` naming evidence the type doesn't record, a role or detail that isn't declared, a bad `expect:`, `deadline:`, `at:`, `due:` or `after:`, a track with no steps or an unknown role, a `{run.process}` step that runs its own process or carries a detail it doesn't have, a Jira transition the team's workflow doesn't have, a screenshot outside `images/` or missing from the folder, or a `## Questions` section. Suggestions (phase types, step length, filler words like "make sure", a usual field left out) don't stop it.
+A line Flightdeck doesn't understand, a missing or duplicate ID, a missing or unknown type, a field the type doesn't have, a value outside a field's choices (`action:`, `evidence:`, `runs:`), `require:` naming evidence the type doesn't record, a role or detail that isn't declared, a bad `expect:`, `deadline:`, `at:`, `due:` or `after:`, a track with no steps or an unknown role, a `{run.process}` step that runs its own process or carries a detail it doesn't have, a Jira transition the team's workflow doesn't have, a screenshot outside `images/` or missing from the folder, an `only when` that can't be read or tests a detail the wrong way, or a `## Questions` section. Suggestions (phase types, step length, filler words like "make sure", a usual field left out) don't stop it.
 
 Only the syntax on this page is understood. Anything else (a field a step type doesn't have, a heading Flightdeck doesn't know) stops publishing, and a published version that contains it, written by hand or by a newer Flightdeck, shows as "can't be used here": this copy won't start or plan a run on it. Never edit a published version; publish a new one.
