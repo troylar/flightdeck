@@ -15134,6 +15134,57 @@ PF.repo = (function () {
     return saveChecked(fs, 'proposals/' + plan.id + '.json', JSON.stringify(plan, null, 2) + '\n', null, opts);
   }
   /* to: for a plan/2 switched to another version (status retargeted), the exact version folder { folder, version }. */
+  /* The write-time gate for a plan (2.1): start, decline or switch it only on a fresh read of every file that is this plan's,
+     whatever the page last read. Under o.lock (the app's cross-window lock on this computer) it lists proposals/ now, reads
+     every .json there, and refuses (rejects, nothing written) when the listing fails; when a file of this plan (named for it,
+     or a copy or decision that says it's for it) is listed but gone, won't read or parse, or is refused or malformed; when
+     its copies differ or none of them is the one the form showed (o.sha); or when a decision on it already exists (one
+     started or declined; for a switch, any switch; for a start, a switch to another version than o.folder). Only then
+     o.write() runs. o: { action: 'start' | 'declined' | 'retargeted', sha, folder, lock, write }. Across computers OneDrive
+     has no lock: two at once is the clash groupPlans shows as decisions that disagree. */
+  function decidePlan(fs, plan, o) {
+    var id = plan && plan.id;
+    if (typeof id !== 'string' || !id) return Promise.reject(new Error('No such plan.'));
+    var go = function () { return planGate(fs, plan, o).then(function () { return o.write(); }); };
+    return typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go);
+  }
+  function planGate(fs, plan, o) {
+    var id = plan.id, said = ' Nothing was written.';
+    var mine = function (n) { if (n.indexOf(id) !== 0) return false; var c = n.charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; };
+    return fs.list('proposals').then(null, function (e) { throw new Error('proposals/ couldn\'t be read (' + why(e) + '), so it isn\'t known whether this plan was already decided.' + said); }).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
+      return Promise.all(names.map(function (n) {
+        var path = 'proposals/' + n;
+        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
+      }));
+    }).then(function (files) {
+      var copies = [], decisions = [];
+      files.forEach(function (x) {
+        var o2 = x.o, ours = mine(x.name);
+        if (o2 === undefined || o2 === null || typeof o2 !== 'object' || Array.isArray(o2)) {
+          if (ours) throw new Error(x.path + ' can\'t be read now (' + (x.gone ? 'it was listed but gone when read' : x.err || 'it isn\'t complete JSON') + '), so it isn\'t known whether this plan was already decided.' + said);
+          return;
+        }
+        var k = PF.plans.familyOf(o2, x.name), about = k === 'status' ? o2.proposal === id : k === 'plan' ? o2.id === id : false;
+        if (!ours && !about) return;
+        var v = PF.plans.clean(o2, x.name, false);
+        if (!v.ok || v.why) throw new Error(x.path + ' can\'t be used here: it ' + (v.why || 'isn\'t a file this copy can read here').replace(/\.$/, '') + '. Until it can, this plan can\'t be started, declined or switched.' + said);
+        if (!about) return;
+        if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
+      });
+      if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
+      var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
+      if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
+      if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
+      var hashes = texts.map(function (t) { return U.hash(t); });
+      var on = decisions.filter(function (d) { return hashes.indexOf(d.proposalHash) >= 0; });
+      var done = on.filter(function (d) { return d.status !== 'retargeted'; })[0];
+      if (done) throw new Error(done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' + said : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.' + said);
+      var moves = on.filter(function (d) { return d.status === 'retargeted'; });
+      if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
+      if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);
+    });
+  }
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app);
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
@@ -16254,7 +16305,7 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
 
 </script>
@@ -25405,7 +25456,7 @@ PF.examples = (function () {
       var rfs = state.fs, rkey = fsKey(), who = state.me;
       queued(function () {
         if (state.fs !== rfs || fsKey() !== rkey || state.me !== who) return { dropped: true };
-        return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION);
+        return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
       }).then(function (res) {
         state.planRetargeting = false;
         if (res && res.dropped) { say('The plan wasn\'t switched: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
@@ -25413,7 +25464,7 @@ PF.examples = (function () {
         return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me, null, APP_VERSION).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, who = state.me; repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -26521,8 +26572,16 @@ PF.examples = (function () {
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
-    queued(function () { r.recorder.session = SESSION; return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
-      return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION) : null;
+    /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
+       plan's lock, whatever this page last read; the run and its decision are written only then. */
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder;
+    queued(function () {
+      r.recorder.session = SESSION;
+      var save = function () { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); };
+      if (!plan) return save();
+      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, write: function () {
+        return save().then(function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION); });
+      } });
     }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) { endBusy(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });

@@ -4326,7 +4326,7 @@
       var rfs = state.fs, rkey = fsKey(), who = state.me;
       queued(function () {
         if (state.fs !== rfs || fsKey() !== rkey || state.me !== who) return { dropped: true };
-        return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION);
+        return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
       }).then(function (res) {
         state.planRetargeting = false;
         if (res && res.dropped) { say('The plan wasn\'t switched: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
@@ -4334,7 +4334,7 @@
         return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me, null, APP_VERSION).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, who = state.me; repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -5442,8 +5442,16 @@
     var endBusy = busyStart();
     var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
-    queued(function () { r.recorder.session = SESSION; return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
-      return plan ? repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION) : null;
+    /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
+       plan's lock, whatever this page last read; the run and its decision are written only then. */
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder;
+    queued(function () {
+      r.recorder.session = SESSION;
+      var save = function () { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); };
+      if (!plan) return save();
+      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, write: function () {
+        return save().then(function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION); });
+      } });
     }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) { endBusy(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
   });

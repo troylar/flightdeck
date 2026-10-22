@@ -1816,6 +1816,57 @@ PF.repo = (function () {
     return saveChecked(fs, 'proposals/' + plan.id + '.json', JSON.stringify(plan, null, 2) + '\n', null, opts);
   }
   /* to: for a plan/2 switched to another version (status retargeted), the exact version folder { folder, version }. */
+  /* The write-time gate for a plan (2.1): start, decline or switch it only on a fresh read of every file that is this plan's,
+     whatever the page last read. Under o.lock (the app's cross-window lock on this computer) it lists proposals/ now, reads
+     every .json there, and refuses (rejects, nothing written) when the listing fails; when a file of this plan (named for it,
+     or a copy or decision that says it's for it) is listed but gone, won't read or parse, or is refused or malformed; when
+     its copies differ or none of them is the one the form showed (o.sha); or when a decision on it already exists (one
+     started or declined; for a switch, any switch; for a start, a switch to another version than o.folder). Only then
+     o.write() runs. o: { action: 'start' | 'declined' | 'retargeted', sha, folder, lock, write }. Across computers OneDrive
+     has no lock: two at once is the clash groupPlans shows as decisions that disagree. */
+  function decidePlan(fs, plan, o) {
+    var id = plan && plan.id;
+    if (typeof id !== 'string' || !id) return Promise.reject(new Error('No such plan.'));
+    var go = function () { return planGate(fs, plan, o).then(function () { return o.write(); }); };
+    return typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go);
+  }
+  function planGate(fs, plan, o) {
+    var id = plan.id, said = ' Nothing was written.';
+    var mine = function (n) { if (n.indexOf(id) !== 0) return false; var c = n.charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; };
+    return fs.list('proposals').then(null, function (e) { throw new Error('proposals/ couldn\'t be read (' + why(e) + '), so it isn\'t known whether this plan was already decided.' + said); }).then(function (items) {
+      var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
+      return Promise.all(names.map(function (n) {
+        var path = 'proposals/' + n;
+        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
+      }));
+    }).then(function (files) {
+      var copies = [], decisions = [];
+      files.forEach(function (x) {
+        var o2 = x.o, ours = mine(x.name);
+        if (o2 === undefined || o2 === null || typeof o2 !== 'object' || Array.isArray(o2)) {
+          if (ours) throw new Error(x.path + ' can\'t be read now (' + (x.gone ? 'it was listed but gone when read' : x.err || 'it isn\'t complete JSON') + '), so it isn\'t known whether this plan was already decided.' + said);
+          return;
+        }
+        var k = PF.plans.familyOf(o2, x.name), about = k === 'status' ? o2.proposal === id : k === 'plan' ? o2.id === id : false;
+        if (!ours && !about) return;
+        var v = PF.plans.clean(o2, x.name, false);
+        if (!v.ok || v.why) throw new Error(x.path + ' can\'t be used here: it ' + (v.why || 'isn\'t a file this copy can read here').replace(/\.$/, '') + '. Until it can, this plan can\'t be started, declined or switched.' + said);
+        if (!about) return;
+        if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
+      });
+      if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
+      var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
+      if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
+      if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
+      var hashes = texts.map(function (t) { return U.hash(t); });
+      var on = decisions.filter(function (d) { return hashes.indexOf(d.proposalHash) >= 0; });
+      var done = on.filter(function (d) { return d.status !== 'retargeted'; })[0];
+      if (done) throw new Error(done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' + said : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.' + said);
+      var moves = on.filter(function (d) { return d.status === 'retargeted'; });
+      if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
+      if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);
+    });
+  }
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app);
     return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
@@ -2936,5 +2987,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

@@ -2325,6 +2325,28 @@ rule('Plans: when one of two differing copies of a started plan reads back as go
   assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
 });
 
+rule('Plans: two differing copies of a started plan, one gone when read, through two refreshes: the open form starts nothing (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const file = 'proposals/plan-release-2026-10-24.json', copy = 'proposals/plan-release-2026-10-24 (1).json';
+  const o = JSON.parse(app.fs.files[file].t); o.title = o.title + ' (edited)';
+  app.fs.files[copy] = { t: JSON.stringify(o, null, 2), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  const both = (await app.PF.repo.loadAll(app.fs)).plans.find(p => p.id === 'plan-release-2026-10-24' && p._file === 'plan-release-2026-10-24.json');
+  await app.PF.repo.recordPlanStatus(app.fs, both, 'w-other', 'accepted', 'run-elsewhere', 'person-avery', null, '2.1.0');
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === file ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = releaseRuns(app), decs = app.files('proposals/').length;
+  const form = /id="start-form"/.test(app.html());
+  if (form) { app.submitForm('start-form'); await app.tick(120); }
+  app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
+});
+
 rule('Plans: a form left open after another window started or declined the plan starts nothing (2.1.0)', async () => {
   for (const status of ['accepted', 'declined']) {
     const app = boot(); await app.tick(60);
