@@ -170,6 +170,21 @@ rule('Promote: refused while a listed version\'s record can\'t be read (it could
   await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0008' }), /already/);
 });
 
+rule('Promote and test runs: a version record that reads but is incomplete leaves "already promoted?" unknown, so both are refused and write nothing', async () => {
+  const fs = folder(); await staged(fs);
+  await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0010' });
+  const pj = 'publications/release/v2-prom0010/publication.json', keep = fs.files[pj].t;
+  for (const partial of [{ format: 'preflight-publication/1' }, Object.assign(JSON.parse(keep), { stagedFrom: 'stage-abcd1234' })]) {
+    fs.files[pj].t = JSON.stringify(partial);
+    const before = JSON.stringify(Object.keys(fs.files).sort());
+    await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0011' }), /v2-prom0010.*isn't known whether this stage was already published/);
+    await assert.rejects(() => repo.startTestRun(fs, 'release', 'stage-abcd1234', { session: 'w-avery', make: () => { throw new Error('never built'); } }), /v2-prom0010.*isn't known whether this stage is already the default/);
+    assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
+  }
+  fs.files[pj].t = keep;
+  same((await repo.loadAll(fs, { deep: true })).processes[0].index.all.map(p => p.info.version), [2, 1], 'published once');
+});
+
 rule('A stage in another process\'s folder (its record or its checklist names another process) is refused by name: nothing starts or promotes from it', async () => {
   const fs = folder(); await staged(fs);
   const from = 'staged/release/stage-abcd1234/', to = 'staged/beta/stage-abcd1234/';
