@@ -68,14 +68,25 @@ PF.health = (function () {
     if (failed.length) add({ id: 'read-failed', severity: 'stop', area: 'Reading', title: 'Part of the team folder couldn\'t be read', detail: 'Flightdeck kept what it read before for ' + failed.join(', ') + '. ' + d.failed[failed[0]], paths: failed, action: help(HELP.syncing, 'What to do'), help: HELP.syncing });
     var unread = (d.unreadable || []).slice(), scanUnread = scan ? scan.unreadable || [] : [];
     (d.corrUnread || []).concat(d.fuUnread || []).forEach(function (u) { if (!u.kept) unread.push({ path: u.dir + '/' + u.process + '/' + u._file, why: 'couldn\'t be read' }); });
-    /* Sign-offs and plan decisions that won't read are always named: one kept from the last read could have changed since. */
-    (d.valUnread || []).concat(d.planUnread || []).forEach(function (u) { if (!unread.some(function (x) { return x.path === u.path; })) unread.push({ path: u.path, why: u.why + (u.kept ? '; what it said when it last read is shown' : '') }); });
-    scanUnread.forEach(function (u) { if (!unread.some(function (x) { return x.path === u.path; })) unread.push(u); });
+    /* Sign-offs and plans that won't read get their own issues below, saying what each one holds; the scan's copy of the same
+       path isn't named twice. */
+    var vals = (d.valUnread || []).filter(function (u) { return !u.ignored; }), plansU = (d.planUnread || []).filter(function (u) { return u.kind !== 'ignored'; });
+    var ignored = (d.valUnread || []).filter(function (u) { return u.ignored; }).concat((d.planUnread || []).filter(function (u) { return u.kind === 'ignored'; }));
+    var own = Object.create(null); vals.concat(plansU, ignored).forEach(function (u) { own[u.path] = true; });
+    scanUnread.forEach(function (u) { if (!own[u.path] && !unread.some(function (x) { return x.path === u.path; })) unread.push(u); });
     var runUnread = unread.filter(function (u) { return /^runs\//.test(u.path) || u.path === 'people.json'; }), otherUnread = unread.filter(function (u) { return runUnread.indexOf(u) < 0; });
     if (runUnread.length) add({ id: 'unreadable-runs', severity: 'stop', area: 'Files', title: runUnread.length === 1 ? (runUnread[0].path === 'people.json' ? 'people.json can\'t be read' : 'A run file can\'t be read') : plural(runUnread.length, 'file') + ' that runs depend on can\'t be read',
       detail: runUnread[0].path + ' ' + runUnread[0].why + (/^(belongs to|names a process longer)/.test(runUnread[0].why) ? '. It\'s left as it is: move it to its own folder, or delete it if it\'s a stray copy.' : '. It may still be arriving; if it stays this way, restore it from a backup.'), paths: runUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
     if (otherUnread.length) add({ id: 'unreadable', severity: 'warn', area: 'Files', title: plural(otherUnread.length, 'file') + ' can\'t be read', detail: otherUnread[0].path + ' ' + otherUnread[0].why + '. Flightdeck skips ' + (otherUnread.length === 1 ? 'it' : 'them') + ' and shows everything else.', paths: otherUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
-    if (!failed.length && !unread.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
+    if (vals.length) add({ id: 'unreadable-signoffs', severity: 'warn', area: 'Skills', title: vals.length === 1 ? 'A sign-off file can\'t be read' : plural(vals.length, 'sign-off file') + ' can\'t be read',
+      detail: vals[0].path + ' ' + vals[0].why + '. ' + (vals.every(function (u) { return u.kept; }) ? 'What it said when it last read still counts. ' : 'Until it reads, Flightdeck can\'t tell whether the version it names was signed off, and doesn\'t offer Sign off for it. ') + 'It may still be arriving; if it stays this way, restore it from a backup or delete it.',
+      paths: vals.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    if (plansU.length) add({ id: 'unreadable-plans', severity: 'warn', area: 'Plans', title: plansU.length === 1 ? 'A plan file can\'t be read' : plural(plansU.length, 'plan file') + ' can\'t be read',
+      detail: plansU[0].path + ' ' + plansU[0].why + '. A plan that can\'t be read isn\'t shown; a decision on a plan that can\'t be read holds that plan, so it can\'t be started, declined or switched. It may still be arriving; if it stays this way, restore it from a backup or delete it.',
+      paths: plansU.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    if (ignored.length) add({ id: 'ignored-files', severity: 'info', area: 'Files', title: plural(ignored.length, 'file') + ' in validations/ or proposals/ ' + (ignored.length === 1 ? 'isn\'t' : 'aren\'t') + ' Flightdeck\'s',
+      detail: ignored[0].path + ' is JSON, but not a sign-off or plan, so Flightdeck ignores it. Move it out of that folder.', paths: ignored.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    if (!failed.length && !unread.length && !vals.length && !plansU.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
 
     /* ---- people ---- */
     var ids = Object.create(null), dup = [];

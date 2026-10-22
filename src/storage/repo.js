@@ -605,7 +605,8 @@ PF.repo = (function () {
           if (!f) return null;
           var o = json(f.text);
           if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
-          if (torn) torn.push({ path: path, _file: i.name, why: o === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a file this copy can read here' });
+          /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
+          if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
         });
         return fs.read(path).then(function (f) {
@@ -715,10 +716,11 @@ PF.repo = (function () {
       r[9] = r[9].map(function (v) {
         var c = PF.skills.cleanValidation(v);
         if (!c.ok && c.kind === 'newer') refused.push(PF.envelope.refusal('validations/' + v._file, 'flightdeck-validation', c));
-        else if (!c.ok) valTorn.push({ path: 'validations/' + v._file, _file: v._file, why: c.why || 'isn\'t a sign-off this copy can read' });
+        /* It says it's a sign-off but doesn't check: it may be anyone's, so what it names (process, version, stage) is kept. */
+        else if (!c.ok) valTorn.push({ path: 'validations/' + v._file, _file: v._file, why: 'says it\'s a sign-off but isn\'t one this copy can read', process: typeof v.process === 'string' ? v.process : '', folder: typeof v.folder === 'string' ? v.folder : '', stage: v.stage && typeof v.stage === 'object' && typeof v.stage.folder === 'string' ? v.stage.folder : '' });
         return c.ok ? c.rec : null;
       }).filter(Boolean);
-      var valUnread = 'sign-offs' in failed ? [] : valTorn.map(function (u) { return { _unread: true, path: u.path, _file: u._file, why: u.why }; }).sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; });
+      var valUnread = 'sign-offs' in failed ? [] : valTorn.map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why }; if (u.parsed) x.ignored = true; if (u.process != null) { x.claimed = true; x.process = u.process; x.folder = u.folder; x.stage = u.stage; } return x; }).sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; });
       r[10].concat(r[11]).forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, u.dir === 'followups' ? 'flightdeck-followup-decision' : u.dir === 'suggestions' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', u)); });
       r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
@@ -727,9 +729,9 @@ PF.repo = (function () {
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
-      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { return { _unread: true, path: u.path, _file: u._file, why: u.why }; });
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; return x; });
       /* A plan decision refused here (a newer Flightdeck's, or not in its format) holds its plan as one still arriving does. */
-      var planHolds = planUnread.concat((r[6].refused || []).filter(function (x) { return x.family === 'flightdeck-plan-status'; }).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length) }; }));
+      var planHolds = planUnread.filter(function (u) { return u.kind === 'unreadable'; }).concat((r[6].refused || []).filter(function (x) { return x.family === 'flightdeck-plan-status'; }).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
       var plans = groupPlans(r[6].plans, r[6].statuses, planHolds);
       /* A stage that can't be one (2.1) makes its test runs read-only, as an unusable version does its runs; one read again
          and verified clears that. A stage still arriving says nothing. */
@@ -1722,9 +1724,13 @@ PF.repo = (function () {
            people.json and this stage's sign-offs. A read that fails signs nothing. */
         var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
         /* A sign-off of this stage that can't be read could be the one already there: nothing is signed off until it reads. */
-        var torn = [], signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn).then(function (vs) {
-          var out = vs.map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok && c.kind !== 'newer') torn.push({ path: 'validations/' + v._file }); return c.ok ? c.rec : null; }).filter(Boolean);
-          if (torn.length) { var e = new Error(torn[0].path + ' couldn\'t be read, so it isn\'t known whether it\'s already signed off. Nothing was signed off. Try again once the folder has synced.'); e.said = true; throw e; }
+        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn).then(function (vs) {
+          var out = vs.map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok) (c.kind === 'newer' ? newer : torn).push({ path: 'validations/' + v._file, needs: c.needs || '' }); return c.ok ? c.rec : null; }).filter(Boolean);
+          /* JSON that isn't a sign-off at all is ignored; one that won't parse, or says it's one but doesn't check, could be. */
+          torn = torn.filter(function (t) { return !t.parsed; });
+          var e;
+          if (newer.length) { e = new Error(newer[0].path + ' is a sign-off of it made with a newer Flightdeck. ' + PF.envelope.needsText(newer[0].needs) + ' Nothing was signed off.'); e.said = true; throw e; }
+          if (torn.length) { e = new Error(torn[0].path + ' couldn\'t be read, so it isn\'t known whether it\'s already signed off. Nothing was signed off. If it doesn\'t finish arriving, restore it from a backup or delete it.'); e.said = true; throw e; }
           return out;
         });
         /* Each run's outcome is told (o.outcome(id, { kind, why })) when it's gone or isn't itself, before anything is judged. */
@@ -2191,7 +2197,9 @@ PF.repo = (function () {
         p._status = match.length && !p._conflicting ? match[0] : null;
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
         p._copies = g.length; p._copiesDiffer = !alike; p._files = files;
-        p._statusUnread = (unread || []).filter(function (u) { return String(u._file).indexOf(p.id + '.status-') === 0; }).map(function (u) { return u.path; });
+        /* _statusHeld: { path, kind (unreadable, newer or malformed), needs }; _statusUnread: their paths. */
+        p._statusHeld = (unread || []).filter(function (u) { return String(u._file).indexOf(p.id + '.status-') === 0; }).map(function (u) { return { path: u.path, kind: u.kind || 'unreadable', needs: u.needs || '' }; });
+        p._statusUnread = p._statusHeld.map(function (u) { return u.path; });
         out.push(p);
       });
     });

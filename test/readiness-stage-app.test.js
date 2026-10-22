@@ -322,6 +322,30 @@ rule('A stage sign-off file that can\'t be read: its line says it can\'t tell an
   assert.strictEqual(app.files('validations/').length, before, 'still nothing written');
 });
 
+rule('A stage sign-off made with a newer Flightdeck: its line says so and to update, no sign-off is offered, and its own reread refuses', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  const newer = 'validations/release.' + folder + '.w-other.json';
+  app.fs.files[newer] = { t: JSON.stringify({ format: 'flightdeck-validation/3', app: '2.2.0', process: 'release', folder }), m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/Signed off with a newer Flightdeck: update to see it/.test(line(app, folder)), line(app, folder));
+  assert.ok(!/data-act="signoff-stage"/.test(app.html()), 'no sign-off offered');
+  const before = app.files('validations/').length;
+  await assert.rejects(() => app.PF.repo.signOffStage(app.fs, 'release', folder, { window: 'w-x', by: 'person-casey', runIds: ['run-try1', 'run-try2', 'run-try3'],
+    check: () => ({ as: null, evidence: { completed: 3, clean: 3, runs: [] } }) }), /newer Flightdeck/);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+});
+
+rule('JSON named like a stage sign-off that isn\'t one is ignored: the stage can still be signed off', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  app.fs.files['validations/release.' + folder + '.w-other.json'] = { t: JSON.stringify({ hello: 'world' }), m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/data-act="signoff-stage"/.test(app.html()), 'offered: ' + line(app, folder));
+});
+
 rule('A version sign-off file that can\'t be read: Ready for a skill says it can\'t tell and names it, and nothing is signed off', async () => {
   const { app, folder } = await staged('person-casey');
   await promotedTested(app, folder);

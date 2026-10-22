@@ -20,8 +20,8 @@ Steps and phases that only some runs need.
 
 ### Fixed
 
-- **A sign-off still syncing is named, never taken as missing** (Skills). A sign-off file that can't be read yet is named in Folder health and on the process page. Until it reads, Ready for a skill? and a staged version's line say they can't tell whether it was signed off, and Sign off isn't offered.
-- **A plan whose decision can't be read isn't started again** (Plans). When a decision on a planned run can't be read yet, Folder health names it and the plan can't be started, declined or switched until it reads.
+- **A sign-off still syncing is named, never taken as missing** (Skills). A sign-off file that can't be read yet is named in Folder health. Until it reads, Ready for a skill? and a staged version's line say they can't tell, and Sign off isn't offered; if it stays that way, restore or delete it. One from a newer Flightdeck says to update. Other JSON in validations/ is named as ignored.
+- **A plan whose decision can't be read isn't started again** (Plans). When a decision on a planned run can't be read yet, Folder health names it and the plan can't be started, declined or switched until it reads. One made with a newer Flightdeck says to update; one this copy can't read says to fix or delete the file.
 - **A save never writes over a run that changed elsewhere** (Runs). Saving a run, people.json or a step type compares the whole file with what was read, so a change made elsewhere is always kept: as a conflict copy for a run, or shown to you for the others.
 - **A test run that's gone stops counting as soon as a stage sign-off finds it** (Skills). When Sign off staged vN finds one of its test runs gone, the stage's line stops counting it at once, even if a refresh started while the sign-off waited.
 - **A copied test run is labeled in an evidence pack** (Evidence). A test run's file found in another run's folder is labeled Test run in an evidence pack, with its staged version.

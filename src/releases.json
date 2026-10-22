@@ -55,14 +55,14 @@
         "kind": "fixed",
         "area": "Skills",
         "title": "A sign-off still syncing is named, never taken as missing",
-        "now": "A sign-off file that can't be read yet is named in Folder health and on the process page. Until it reads, Ready for a skill? and a staged version's line say they can't tell whether it was signed off, and Sign off isn't offered.",
+        "now": "A sign-off file that can't be read yet is named in Folder health. Until it reads, Ready for a skill? and a staged version's line say they can't tell, and Sign off isn't offered; if it stays that way, restore or delete it. One from a newer Flightdeck says to update. Other JSON in validations/ is named as ignored.",
         "before": "A sign-off file that was still syncing was skipped without a word, so the version looked not signed off."
       },
       {
         "kind": "fixed",
         "area": "Plans",
         "title": "A plan whose decision can't be read isn't started again",
-        "now": "When a decision on a planned run can't be read yet, Folder health names it and the plan can't be started, declined or switched until it reads.",
+        "now": "When a decision on a planned run can't be read yet, Folder health names it and the plan can't be started, declined or switched until it reads. One made with a newer Flightdeck says to update; one this copy can't read says to fix or delete the file.",
         "before": "The decision was skipped without a word, so a plan someone had already started could look open and be started twice."
       },
       {

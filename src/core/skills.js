@@ -411,30 +411,50 @@ PF.skills = (function () {
       return !isStage(pub) && v.folder === pub.info.folder;
     }).sort(function (a, b) { return a.at < b.at ? 1 : -1; });
   }
-  /* Sign-off files that couldn't be read (repo.loadAll's valUnread) that could be pub's, by their names: <process>.v<N>.… for
-     a version, <process>.<stage>.… for a stage (and for the version made from it), and any name Flightdeck doesn't write,
-     which could be anyone's. One kept from the last read (kept) still counts as what it said then. */
+  /* Sign-off files that couldn't be read or were refused, as they bear on pub. A file Flightdeck names
+     <process>.v<N>.<window>.json (a version's) or <process>.<stage>.<window>.json (a stage's, which also counts for the version
+     made from it) keeps that name while it's still arriving, so the name says whose it could be. */
   var SIGN_NAME = /^([a-z0-9][a-z0-9-]{0,59})\.(v[1-9][0-9]*|stage-[a-z0-9]+)\.[^/]+\.json$/i;
   /* The process a sign-off file's name says it's for, or '' for a name Flightdeck doesn't write. */
   function signFileProcess(name) { var m = SIGN_NAME.exec(String(name)); return m ? m[1] : ''; }
-  function signoffsUnread(unread, pub) {
-    var proc = pub.map.meta.process, src = sourceStage(pub), mine = Object.create(null);
+  function signTargets(pub) {
+    var src = sourceStage(pub), mine = Object.create(null);
     if (!isStage(pub)) mine['v' + pub.info.version] = true;
     if (src) mine[src.info.folder] = true;
+    return mine;
+  }
+  function namedFor(name, pub, mine) { var m = SIGN_NAME.exec(String(name)); return !!m && m[1] === pub.map.meta.process && Object.prototype.hasOwnProperty.call(mine, m[2]); }
+  /* valUnread entries that could be pub's sign-off: one named for it that won't parse (still arriving, or damaged), or one that
+     says it's a sign-off (by its kind or format) for it but doesn't check. JSON that isn't a sign-off (ignored) never counts,
+     nor does one kept from the last read (it still counts as what it said then). */
+  function signoffsUnread(unread, pub) {
+    var mine = signTargets(pub);
     return (unread || []).filter(function (u) {
-      if (u.kept) return false;
-      var m = SIGN_NAME.exec(String(u._file));
-      /* A stage's sign-off is read only from a file named for it, so another name can't be a stage's. */
-      if (!m) return !isStage(pub);
-      return m[1] === proc && Object.prototype.hasOwnProperty.call(mine, m[2]);
+      if (u.kept || u.ignored) return false;
+      if (namedFor(u._file, pub, mine)) return true;
+      if (!u.claimed || SIGN_NAME.test(String(u._file)) || u.process !== pub.map.meta.process) return false;
+      return isStage(pub) ? false : u.folder === pub.info.folder || (!!u.stage && Object.prototype.hasOwnProperty.call(mine, u.stage));
     });
   }
-  /* Why it can't be told whether pub was signed off, or '' when it can: d is repo.loadAll's result (failed, valUnread). */
-  function signUnknown(d, pub) {
-    if (!d || !pub) return '';
-    if ((d.failed || {})['sign-offs']) return 'validations/ couldn\'t be read';
+  /* Why it can't be said that pub isn't signed off, or null: { kind: 'failed' (validations/ couldn't be read), 'newer' (a
+     sign-off named for it was made with a newer Flightdeck: update to see it) or 'unreadable' (one that could be its won't
+     read: wait, or restore or delete it), path, needs }. d is repo.loadAll's result. */
+  function signHold(d, pub) {
+    if (!d || !pub) return null;
+    if ((d.failed || {})['sign-offs']) return { kind: 'failed', path: 'validations/', needs: '' };
+    var mine = signTargets(pub);
+    var nw = (d.refused || []).filter(function (x) { return x.family === 'flightdeck-validation' && x.kind === 'newer' && namedFor(String(x.path).replace(/^validations\//, ''), pub, mine); })[0];
+    if (nw) return { kind: 'newer', path: nw.path, needs: nw.needs || '' };
     var u = signoffsUnread(d.valUnread, pub)[0];
-    return u ? u.path + ' couldn\'t be read' : '';
+    return u ? { kind: 'unreadable', path: u.path, needs: '' } : null;
+  }
+  /* The same, said in one sentence ('' when it can be told). */
+  function signUnknown(d, pub) {
+    var h = signHold(d, pub);
+    if (!h) return '';
+    if (h.kind === 'failed') return 'validations/ couldn\'t be read';
+    if (h.kind === 'newer') return h.path + ' is a sign-off made with a newer Flightdeck (' + PF.envelope.needsText(h.needs).replace(/\.$/, '').toLowerCase() + ')';
+    return h.path + ' couldn\'t be read';
   }
   /* Who may sign off a version now: its owner (anyone, without one), or its backup owner while the owner is inactive or not in
      people.json (as read; peopleUnread: this read of it failed), and only while the backup is listed and active. Returns "owner", "backup" or "". */
@@ -625,5 +645,5 @@ PF.skills = (function () {
     if (a.join('\n') !== b.join('\n') || a.some(function (k) { return !own.call(exact.images, k) || !own.call(sp.images, k) || exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
     return '';
   }
-  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
+  return { READY_RUNS: READY_RUNS, isStage: isStage, signoffsUnread: signoffsUnread, signHold: signHold, signUnknown: signUnknown, signFileProcess: signFileProcess, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };
 })();

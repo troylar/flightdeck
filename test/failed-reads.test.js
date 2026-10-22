@@ -85,13 +85,55 @@ rule('Which unreadable sign-offs leave a version unanswered: its own and odd nam
   let d = await repo.loadAll(fs);
   assert.strictEqual(d.valUnread.length, 3);
   assert.strictEqual(S.signUnknown(d, pub), '', 'none of them can be v1\'s');
+  // A torn file not named by Flightdeck is named in Folder health, but holds nothing: it would hold every version forever.
   put(fs, 'validations/copy of sign-off.json', torn);
   d = await repo.loadAll(fs);
-  assert.ok(/copy of sign-off\.json/.test(S.signUnknown(d, pub)), 'a file not named by Flightdeck could be anyone\'s');
+  assert.strictEqual(S.signUnknown(d, pub), '', 'a file not named like v1\'s sign-off holds nothing');
+  assert.ok(named(health(d), 'validations/copy of sign-off.json'), 'but it is named');
+  // One that reads and says it's a sign-off of this version, whatever it's called, holds.
+  put(fs, 'validations/copy 2.json', JSON.stringify({ kind: 'validation', process: 'release', folder: pub.info.folder }));
+  d = await repo.loadAll(fs);
+  assert.ok(/copy 2\.json/.test(S.signUnknown(d, pub)), 'it says it is v1\'s sign-off: ' + JSON.stringify(d.valUnread));
+  delete fs.files['validations/copy 2.json'];
   // A sign-off that is there and reads still answers yes: one that can't be read changes nothing then.
   put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));
   d = await repo.loadAll(fs);
   assert.strictEqual(S.signoffs(d.validations, pub).length, 1);
+});
+
+rule('JSON in validations/ that isn\'t a sign-off is named as ignored and never holds a sign-off: Sign off is still offered', async () => {
+  const PFV = load(true), V = PFV.views, fs = folder(), pub = await publish(fs);
+  for (const id of ['run1', 'run2', 'run3']) await cleanRun(fs, pub, id);
+  put(fs, 'validations/notes.json', JSON.stringify({ hello: 'world' }));
+  put(fs, 'validations/release.v1.w-x.json', JSON.stringify({ hello: 'world' }));
+  const d = await PFV.repo.loadAll(fs);
+  assert.strictEqual(PFV.skills.signUnknown(d, pub), '', 'nothing held');
+  const rep = health(d), ign = rep.issues.filter(i => i.id === 'ignored-files')[0];
+  assert.ok(ign && ign.severity === 'info' && (ign.paths || []).indexOf('validations/notes.json') >= 0 && /ignores it/.test(ign.detail), JSON.stringify(rep.issues));
+  assert.ok(!rep.issues.some(i => i.id === 'unreadable-signoffs'), 'not called an unreadable sign-off');
+  const p = { id: 'release', title: 'Release', latest: d.processes[0].index.latest, all: [d.processes[0].index.latest], skills: [], draft: null };
+  const ctx = { data: d, state: { me: pub.map.meta.owner || 'person-casey', disc: {} }, processes: () => [p], countedRuns: () => d.runs };
+  assert.ok(/data-kind="signoff"/.test(V.readyPanel(ctx, p, p.latest)), 'Sign off is offered');
+});
+
+rule('Folder health says what an unreadable sign-off does: Sign off isn\'t offered, and restore or delete it if it stays', async () => {
+  const fs = folder(); await publish(fs);
+  put(fs, 'validations/release.v1.w-other.json', '{"kind": "valid');
+  const i = health(await repo.loadAll(fs)).issues.filter(x => x.id === 'unreadable-signoffs')[0];
+  assert.ok(i && /doesn't offer Sign off/.test(i.detail) && /restore it from a backup or delete it/.test(i.detail) && i.action, JSON.stringify(i));
+});
+
+rule('A sign-off made with a newer Flightdeck: Ready for a skill says so, says to update, and offers no Sign off', async () => {
+  const PFV = load(true), V = PFV.views, fs = folder(), pub = await publish(fs);
+  for (const id of ['run1', 'run2', 'run3']) await cleanRun(fs, pub, id);
+  put(fs, 'validations/release.v1.w-new.json', JSON.stringify({ format: 'flightdeck-validation/3', app: '2.2.0', process: 'release' }));
+  const d = await PFV.repo.loadAll(fs);
+  assert.strictEqual((PFV.skills.signHold(d, pub) || {}).kind, 'newer');
+  const p = { id: 'release', title: 'Release', latest: d.processes[0].index.latest, all: [d.processes[0].index.latest], skills: [], draft: null };
+  const ctx = { data: d, state: { me: pub.map.meta.owner || 'person-casey', disc: {} }, processes: () => [p], countedRuns: () => d.runs };
+  const html = V.readyPanel(ctx, p, p.latest);
+  assert.ok(/Signed off with a newer Flightdeck/.test(html) && /Update Flightdeck/.test(html) && !/Can(&#39;|')t tell yet/.test(html), html);
+  assert.ok(!/data-kind="signoff"/.test(html) && !/data-act="signoff"/.test(html), 'no sign-off offered');
 });
 
 rule('Sign-offs that couldn\'t be listed or read at all leave readiness unanswered too', async () => {
@@ -128,6 +170,23 @@ rule('A plan decision that can\'t be read is named and holds its plan: it isn\'t
   same(p._statusUnread, ['proposals/plan-release-2026-10-24.status-w-other.json']);
   assert.ok((d.planUnread || []).some(u => u.path === 'proposals/plan-release-2026-10-24.status-w-other.json'));
   assert.ok(named(health(d), 'proposals/plan-release-2026-10-24.status-w-other.json'), JSON.stringify(health(d).issues.map(i => i.detail)));
+});
+
+rule('A plan decision held for a newer Flightdeck says to update; one that isn\'t one this copy can read says to fix or delete it', async () => {
+  const PFV = load(true), V = PFV.views, plan = JSON.parse(example('proposals/plan-release-2026-10-24.json'));
+  const fs = folder(), sp = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  put(fs, 'proposals/plan-release-2026-10-24.json', JSON.stringify(plan));
+  put(fs, sp, JSON.stringify({ format: 'flightdeck-plan-status/9', app: '9.0.0' }));
+  let p = (await PFV.repo.loadAll(fs)).plans.filter(x => x.id === 'plan-release-2026-10-24')[0];
+  same(p._statusHeld.map(h => h.kind), ['newer']);
+  assert.ok(/newer Flightdeck/.test(V.planHeldWhy(p)) && /Update Flightdeck/.test(V.planHeldWhy(p)), V.planHeldWhy(p));
+  put(fs, sp, JSON.stringify({ format: 'flightdeck-plan-status/1', kind: 'status' }));
+  p = (await PFV.repo.loadAll(fs)).plans.filter(x => x.id === 'plan-release-2026-10-24')[0];
+  same(p._statusHeld.map(h => h.kind), ['malformed']);
+  assert.ok(/Fix or delete that file/.test(V.planHeldWhy(p)) && !/Update Flightdeck/.test(V.planHeldWhy(p)), V.planHeldWhy(p));
+  put(fs, sp, '{"kind": "sta');
+  p = (await PFV.repo.loadAll(fs)).plans.filter(x => x.id === 'plan-release-2026-10-24')[0];
+  assert.ok(/restore it from a backup or delete it/.test(V.planHeldWhy(p)), V.planHeldWhy(p));
 });
 
 /* ---------- 2. Saves compare the exact text (or SHA-256), never a 32-bit FNV ---------- */

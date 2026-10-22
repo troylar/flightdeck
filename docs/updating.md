@@ -133,6 +133,11 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but they count a test run in Home's running number until they update to 2.1. A version made the default from a stage is an ordinary version every copy from 1.11.1 on can run.
 
+### Two things to know when moving to 2.1
+
+- **A run open in a browser since before 2.1 makes one conflict copy.** 2.1 compares a run's whole file before saving over it. A run that was already open in a browser tab from before the update has only the older, shorter fingerprint, so its first save keeps your change as a conflict copy instead of writing over the run. Reopen the run and carry on; later saves work as usual.
+- **Known issue: plan decisions and edit history still use the shorter fingerprint.** The fingerprint a plan decision records for its plan (`proposalHash`) and the from and to of each History entry stay 32-bit in 2.1, so files already in team folders keep reading. In the rare case two versions of a plan or a file share that fingerprint, those records can't tell them apart.
+
 ## Rolling back
 
 If an update goes wrong, install the older version over it:
