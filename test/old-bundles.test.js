@@ -9,9 +9,10 @@ const { rule, run } = require('./harness');
 const { boot } = require('./app-harness');
 
 const ROOT = path.join(__dirname, '..');
-/* Every release since request files can meet them (1.13 onward); 1.19.0 is merged but not tagged yet, so its merge commit. */
-const BUNDLES = [['1.13.0', 'v1.13.0'], ['1.13.1', 'v1.13.1'], ['1.14.0', 'v1.14.0'], ['1.15.0', 'v1.15.0'], ['1.16.0', 'v1.16.0'], ['1.16.1', 'v1.16.1'],
-  ['1.17.0', 'v1.17.0'], ['1.18.0', 'v1.18.0'], ['1.19.0', 'f5021b6']];
+/* Every recorded release since request files can meet them (1.13 onward), from the record the cross-version tests share
+   (test/fixtures/old-bundles/record.json), so a newly recorded release is run here too. */
+const OB = require('../tools/old-bundles');
+const BUNDLES = OB.tags().filter(t => OB.cmp(t.version, '1.13.0') >= 0).map(t => [t.version, t.tag]);
 
 function bundle(name, ref) {
   let html;
@@ -53,7 +54,9 @@ BUNDLES.forEach(([name, ref]) => {
     app.click('nav', 'runs'); await app.tick();
     const page = app.html();
     assert.ok(page.includes('data-act="review-plan" data-id="' + req.id + '"'), name + ': listed as a planned run');
-    assert.ok(/Requested release/.test(page) && /ci-check 1\.4\.0 \(a tool\)/.test(page), name + ': its title, and who asked, as the plan says');
+    /* Before 1.20 the producer is named with its version as a tool; from 1.20 on, as a requester by its own account. */
+    const asked = OB.cmp(name, '1.20.0') >= 0 ? /requested by ci-check, by its own account/ : /ci-check 1\.4\.0 \(a tool\)/;
+    assert.ok(/Requested release/.test(page) && asked.test(page), name + ': its title, and who asked, as the plan says');
     const before = runsOf(app);
     app.click('review-plan', req.id); await app.tick();
     assert.ok(/id="detail-ticket"[^>]*value="ABC-555"/.test(app.html()), name + ': its details on the start form');

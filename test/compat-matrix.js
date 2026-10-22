@@ -9,16 +9,17 @@ const { cmp } = require('../tools/old-bundles');
 const fn = (o, k) => !!o && typeof o[k] === 'function';
 const repoHas = (...ks) => (PF) => ks.every(k => fn(PF.repo, k));
 
-/* A /2 publication record beside matching files: is it set aside as unusable? */
+/* A /2 publication record beside matching files, using a feature no released copy builds yet (staged versions): is it set
+   aside as unusable? (For 1.x any /2 is newer; for 2.0 the feature is.) */
 function refusesNewerPublication(PF) {
   const map = '---\nprocess: p\ntitle: P\n---\n\n## One {#one}\n- [ ] {confirm} A {#a}\n', types = '{}';
-  const info = { format: 'preflight-publication/2', process: 'p', title: 'P', version: 1, folder: 'v1-aaaa', mapHash: PF.util.hash(map), typesHash: PF.util.hash(types) };
+  const info = { format: 'preflight-publication/2', features: ['staged'], app: '2.1.0', process: 'p', title: 'P', version: 1, folder: 'v1-aaaa', mapHash: PF.util.hash(map), typesHash: PF.util.hash(types) };
   const v = PF.publish.verify('v1-aaaa', { 'publication.json': JSON.stringify(info), 'map.md': map, 'types.json': types });
   return !v.ok && !!v.unusable;
 }
-/* A preflight-run/3 file: kept by name only, and never writable? */
+/* A preflight-run/3 file with a feature no released copy builds yet (test runs): kept by name only, and never writable? */
 function namesNewerRun(PF) {
-  const r = PF.run.sanitize({ format: 'preflight-run/3', id: 'r1', process: 'p', title: 'T', version: 1, folder: 'v1-aaaa', state: 'running' });
+  const r = PF.run.sanitize({ format: 'preflight-run/3', features: ['test-run'], app: '2.1.0', id: 'r1', process: 'p', title: 'T', version: 1, folder: 'v1-aaaa', state: 'running' });
   return !!(r && r._unrunnable);
 }
 /* A run/2 with a field this copy doesn't know: opened read-only rather than having the field dropped? */

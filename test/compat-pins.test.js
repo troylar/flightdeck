@@ -77,7 +77,7 @@ rule('This version writes a /2 version for version:, run/2 parents with a pendin
   assert.ok(sk.length === 1 && sk[0].skill.regId === 'sk-cccc3333' && !sk[0].errors.length, JSON.stringify(sk.map(s => [s.file, s.errors])));
 });
 
-TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': refuses the pinned /2 version by name, never shows the plan/2, refuses the tombstoned skill, reads the run/3 continuation by name only, and records the run/2 parents this version wrote', async () => {
+TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': refuses the pinned /2 version by name, never shows the plan/2, refuses the tombstoned skill, reads the run/3 continuation by name only (2.0.0: reads all of them), and records the run/2 parents this version wrote', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files, v2, plan } = await folder(), m = H.memFolder(OLD, files);
   const d = await OLD.repo.loadAll(m, { deep: true });
@@ -89,23 +89,35 @@ TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': 
     assert.ok(!d.plans.some(p => p.id === plan), 'below the floor the plan/2 isn\'t a plan either');
     return;
   }
-  // The pinned /2 version: unusable, named with the Flightdeck it needs, and never the latest.
-  const pub = (backup.pubs || []).find(x => x.folder === v2.folder);
-  assert.ok(pub && !pub.ok && pub.unusable && /needs Flightdeck 2\.0|newer Flightdeck|Update Flightdeck/.test(pub.why), JSON.stringify(pub && pub.why));
-  assert.strictEqual(backup.index.latest.info.version, 1);
-  // plan/2: not a plan here, so it can never start on the latest.
-  assert.ok(!d.plans.some(p => p.id === plan), 'the plan/2 is never shown');
-  // The tombstone: never matched to a version by number.
-  const sk = d.skills.find(s => s.file === 'backup-report.json');
-  assert.ok(sk && sk.errors.length, 'the tombstone is refused: ' + JSON.stringify(sk));
-  assert.ok(!d.skills.some(s => s.skill && s.skill.name === 'backup-report' && !(s.errors || []).length), 'no copy of the skill is matched');
-  // The run/3 continuation: its name only; the old parent, fully, with its step blocked where it continued.
   const x = runs['run-x'], q = runs['run-q'];
-  assert.ok(x && x._unrunnable && !Object.keys(x.steps).length, 'run/3: its name only');
-  assert.ok(q && !q._unrunnable && q.steps.verify.s === 'blocked' && q.steps.verify.reason === 'Continued in run nightly/run-x', JSON.stringify(q && q.steps.verify));
-  const before = snap(m);
-  await assert.rejects(() => OLD.repo.saveRun(m, x, 'w-avery'));
-  assert.strictEqual(snap(m), before, 'nothing written');
+  if (t.major >= 2) {
+    // 2.0.0 built pins: the pinned version is usable and the latest, the plan/2 is a plan, the registration stands for the
+    // skill its tombstone moved, and the continuation is read in full; the old parent's step stays blocked where it continued.
+    const pub = (backup.pubs || []).find(y => y.folder === v2.folder);
+    assert.ok(pub && pub.ok, JSON.stringify(pub && pub.why));
+    assert.strictEqual(backup.index.latest.info.version, 2);
+    assert.ok(d.plans.some(y => y.id === plan && y.format === 'flightdeck-plan/2'), 'the plan/2 is a plan');
+    assert.ok(d.skills.some(y => y.skill && y.skill.name === 'backup-report' && !(y.errors || []).length), 'the skill is matched through its registration');
+    assert.ok(x && !x._unrunnable && x.format === 'preflight-run/3', 'the continuation is read in full: ' + (x && x._unrunnable));
+    assert.ok(q && !q._unrunnable && q.steps.verify.s === 'blocked' && q.steps.verify.reason === 'Continued in run nightly/run-x', JSON.stringify(q && q.steps.verify));
+  } else {
+    // The pinned /2 version: unusable, named with the Flightdeck it needs, and never the latest.
+    const pub = (backup.pubs || []).find(x => x.folder === v2.folder);
+    assert.ok(pub && !pub.ok && pub.unusable && /needs Flightdeck 2\.0|newer Flightdeck|Update Flightdeck/.test(pub.why), JSON.stringify(pub && pub.why));
+    assert.strictEqual(backup.index.latest.info.version, 1);
+    // plan/2: not a plan here, so it can never start on the latest.
+    assert.ok(!d.plans.some(p => p.id === plan), 'the plan/2 is never shown');
+    // The tombstone: never matched to a version by number.
+    const sk = d.skills.find(s => s.file === 'backup-report.json');
+    assert.ok(sk && sk.errors.length, 'the tombstone is refused: ' + JSON.stringify(sk));
+    assert.ok(!d.skills.some(s => s.skill && s.skill.name === 'backup-report' && !(s.errors || []).length), 'no copy of the skill is matched');
+    // The run/3 continuation: its name only; the old parent, fully, with its step blocked where it continued.
+      assert.ok(x && x._unrunnable && !Object.keys(x.steps).length, 'run/3: its name only');
+    assert.ok(q && !q._unrunnable && q.steps.verify.s === 'blocked' && q.steps.verify.reason === 'Continued in run nightly/run-x', JSON.stringify(q && q.steps.verify));
+    const before = snap(m);
+    await assert.rejects(() => OLD.repo.saveRun(m, x, 'w-avery'));
+    assert.strictEqual(snap(m), before, 'nothing written');
+  }
   // The run/2 parent with its child pending: this copy takes over recording and saves; this version reads it back, still
   // linked, and can hand it on (the child is a run/2); the older copy picks it up again.
   const p = runs['run-p'];

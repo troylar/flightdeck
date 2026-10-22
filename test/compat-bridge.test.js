@@ -46,7 +46,8 @@ const mainFiles = async () => (mainFolder = mainFolder || await G.main());
 
 /* ---------- Matrix A, "today": each release reading what 2.0 writes ---------- */
 
-eachTag('reads the 2.0 samples as matrix A says: /2 unusable, run/3 name only, plan/2 and stage sign-offs not shown, 2.0 kinds broken, tombstones refused, new folders never listed; saving any of it writes nothing', async (OLD, t) => {
+eachTag('reads the 2.0 samples as matrix A says: /2 unusable, run/3 name only, plan/2 and stage sign-offs not shown, 2.0 kinds broken, tombstones refused, new folders never listed; saving any of it writes nothing (2.0.0: as this version reads them)', async (OLD, t) => {
+  if (t.major >= 2) return readsAsTwoZero(OLD, t);
   const m = H.memFolder(OLD, Object.assign(fixture(t.tag), V2)), w = watch(m);
   w.on.v = true; const d = await OLD.repo.loadAll(m, { deep: true }); w.on.v = false;
   const touched = w.seen.filter(p => NEW_TOPS.some(x => (p + '/').indexOf(x) === 0));
@@ -81,9 +82,9 @@ eachTag('reads the 2.0 samples as matrix A says: /2 unusable, run/3 name only, p
   assert.strictEqual(snap(m), before, 'nothing written');
 });
 
-eachTag('starting a run is refused on the /2 version, and a plan for it can\'t fall back (it\'s never listed)', async (OLD, t) => {
+eachTag('starting a run is refused on the /2 version (2.0.0: on the staged version), and a plan for it can\'t fall back (it\'s never listed)', async (OLD, t) => {
   const files = Object.assign(fixture(t.tag), V2), m = H.memFolder(OLD, files);
-  const b = 'publications/backup/' + S.PUB2 + '/', v = OLD.publish.verify(S.PUB2, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
+  const two = t.major >= 2, b = two ? 'staged/backup/' + S.STAGE + '/' : 'publications/backup/' + S.PUB2 + '/', v = OLD.publish.verify(two ? S.STAGE : S.PUB2, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
   assert.ok(!v.ok && v.unusable);
   assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[b + 'map.md']), md: files[b + 'map.md'], types: JSON.parse(files[b + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
   const before = snap(m); await OLD.repo.loadAll(m); assert.strictEqual(snap(m), before);
@@ -107,7 +108,8 @@ eachTag('reads a run/2 whose step was checked from an accepted report in full an
   assert.strictEqual(saved.format, 'preflight-run/2', 'the lowest sufficient format');
   const after = H.filesOf(mn), m = H.memFolder(OLD, after), w = watch(m);
   w.on.v = true; const d = await OLD.repo.loadAll(m, { deep: true }); w.on.v = false;
-  assert.deepStrictEqual(w.seen.filter(p => /^report(s|-decisions)(\/|$)/.test(p)), [], 'never lists reports/');
+  if (t.major >= 2) assert.ok(d.reports.files.some(f => f.name === 'run-a.read.spec-tool.spec0001.json'), '2.0.0 lists reports/ as its own');
+  else assert.deepStrictEqual(w.seen.filter(p => /^report(s|-decisions)(\/|$)/.test(p)), [], 'never lists reports/');
   const old = d.runs.find(x => x.id === 'run-a');
   assert.ok(old && !old._unrunnable, 'writable: ' + (old && old._unrunnable));
   assert.strictEqual(old.steps.read.s, 'done');
@@ -120,8 +122,11 @@ eachTag('reads a run/2 whose step was checked from an accepted report in full an
 
 /* ---------- The bridge: this version reading the same folders ---------- */
 
-TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses each 2.0 file it doesn\'t build by name, with the Flightdeck it needs, reads the typed data and pins it builds, and writes nothing', async () => {
-  const NEW = H.loadMain(), m = H.memFolder(NEW, Object.assign(fixture(t.tag), V2)), w = watch(m);
+/* How a 2.0 copy reads the 2.0 samples over release t's folder: what it builds (typed data, pins, reports) in full, and what
+   only a later release builds (stages, test runs, stage sign-offs) refused by name, with nothing written. NEW: that copy's code
+   (this version, or the tagged 2.0.0). */
+async function readsAsTwoZero(NEW, t) {
+  const m = H.memFolder(NEW, Object.assign(fixture(t.tag), V2)), w = watch(m);
   w.on.v = true; const d = await NEW.repo.loadAll(m, { deep: true }); w.on.v = false;
   assert.deepStrictEqual(w.seen.filter(p => MAIN_TOPS.some(x => (p + '/').indexOf(x) === 0)), [], 'new folders never listed by ordinary loaders');
   // Slice 2b: report names and decisions are listed, never a report's contents (read for the open run only).
@@ -150,7 +155,9 @@ TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses ea
   const before = snap(m);
   for (const id of MAIN_RUN3) await assert.rejects(() => NEW.repo.saveRun(m, runs[id], 'w-avery'), e => e.unrunnable);
   assert.strictEqual(snap(m), before, 'nothing written');
-}));
+}
+
+TAGS.forEach((t) => rule(t.tag + ' folder + 2.0 samples: this version refuses each 2.0 file it doesn\'t build by name, with the Flightdeck it needs, reads the typed data and pins it builds, and writes nothing', () => readsAsTwoZero(H.loadMain(), t)));
 
 rule('Folder health names what a newer Flightdeck wrote, by family and the version each needs, the placeholder an old Restore left, and older copies seen lately', async () => {
   const NEW = H.loadMain(), files = Object.assign(fixture('v1.18.0'), V2), m = H.memFolder(NEW, files);

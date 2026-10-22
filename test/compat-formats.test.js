@@ -51,7 +51,7 @@ rule('This version writes /1 and run/2 for a checklist that uses nothing new, an
   same(['run-a', 'run-b', 'run-n'].map(id => JSON.parse(files['runs/backup/' + id + '/run.json']).format), ['preflight-run/2', 'preflight-run/2', 'preflight-run/3']);
 });
 
-TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': reads and records the /1 version and its run/2 this version wrote, and refuses the /2 version and run/3 by name, writing nothing', async () => {
+TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': reads and records the /1 version and its run/2 this version wrote, and refuses the /2 version and run/3 by name, writing nothing (2.0.0: reads them, as it wrote the same formats)', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files, folder: f2 } = await folder(), m = H.memFolder(OLD, files);
   const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
@@ -62,18 +62,26 @@ TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': 
     assert.ok(!runs['run-n'], 'below the floor, run/3 is left out without a word');
     return;
   }
-  assert.strictEqual(proc.index.latest.info.version, 1, 'the /1 version stays the latest');
-  const v2 = (proc.pubs || []).find(x => x.folder === f2);
-  assert.ok(v2 && !v2.ok && v2.unusable, 'the /2 version is unusable: ' + JSON.stringify(v2 && v2.why));
-  const n = runs['run-n'];
-  assert.ok(n && n._unrunnable && !Object.keys(n.steps).length && n.title === 'Backup check October', 'run/3: its name only, read-only');
-  // Zero writes: saving the run/3, or starting a run on the /2 version, is refused.
-  const before = snap(m);
-  await assert.rejects(() => OLD.repo.saveRun(m, n, 'w-avery'));
-  const b = 'publications/backup/' + f2 + '/', v = OLD.publish.verify(f2, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
-  assert.ok(!v.ok && v.unusable);
-  assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[b + 'map.md']), md: files[b + 'map.md'], types: JSON.parse(files[b + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
-  assert.strictEqual(snap(m), before, 'nothing written');
+  const v2 = (proc.pubs || []).find(x => x.folder === f2), n = runs['run-n'];
+  if (t.major >= 2) {
+    // 2.0.0 wrote these formats itself: the /2 version is usable and the latest, and the run/3 is read in full and writable.
+    assert.strictEqual(proc.index.latest.info.version, 2, 'the /2 version is the latest');
+    assert.ok(v2 && v2.ok, 'the /2 version is usable: ' + JSON.stringify(v2 && v2.why));
+    assert.ok(n && !n._unrunnable && n.format === 'preflight-run/3', 'run/3 read in full: ' + (n && n._unrunnable));
+    await OLD.repo.saveRun(m, n, n.recorder.session);
+    assert.strictEqual(JSON.parse(m.files['runs/backup/run-n/run.json'].t).format, 'preflight-run/3', 'saved in its own format');
+  } else {
+    assert.strictEqual(proc.index.latest.info.version, 1, 'the /1 version stays the latest');
+    assert.ok(v2 && !v2.ok && v2.unusable, 'the /2 version is unusable: ' + JSON.stringify(v2 && v2.why));
+    assert.ok(n && n._unrunnable && !Object.keys(n.steps).length && n.title === 'Backup check October', 'run/3: its name only, read-only');
+    // Zero writes: saving the run/3, or starting a run on the /2 version, is refused.
+    const before = snap(m);
+    await assert.rejects(() => OLD.repo.saveRun(m, n, 'w-avery'));
+    const b = 'publications/backup/' + f2 + '/', v = OLD.publish.verify(f2, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
+    assert.ok(!v.ok && v.unusable);
+    assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[b + 'map.md']), md: files[b + 'map.md'], types: JSON.parse(files[b + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
+    assert.strictEqual(snap(m), before, 'nothing written');
+  }
   // The run/2 on the /1 version: this copy records a step, and this version reads back exactly what it saved.
   const a = runs['run-a'];
   assert.ok(!a._unrunnable, t.tag + ' can record it: ' + a._unrunnable);

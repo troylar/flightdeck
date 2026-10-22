@@ -90,4 +90,13 @@ function writeTree(dir, files) {
   });
 }
 
-module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded };
+/* What is newer than a release, for the rules that show it refuses a newer file: to a 1.x copy, what 2.0 writes (a run/3 or a
+   /2 version with typed details); to a 2.0 copy, what only a later release writes (a feature 2.0 knows only by name: staged
+   versions, test runs). app: the release named in the file, which the copy's message names; needs: the version the message
+   names (the bridge and later); stepType: an envelope that copy can't read for a step type. */
+function newer(t) {
+  if (t.major >= 2) return { app: '2.1.0', needs: '2.1', run: ['test-run'], pub: ['staged'], stepType: { format: 'flightdeck-step-type/3', features: [] } };
+  return { app: '2.0.0', needs: '2.0', run: ['typed-details'], pub: ['typed-details'], stepType: { format: 'flightdeck-step-type/2', features: ['typed-evidence'] } };
+}
+
+module.exports = { bundles, loadCopy, loadMain, bootCopy, memFolder, filesOf, readTree, writeTree, seeded, newer };
