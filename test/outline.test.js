@@ -996,4 +996,75 @@ rule('Builder: "only when" lines stay with their phase or step through moves, ad
   assert.strictEqual(ok(O.moveStep(down, 'alpha', -1)), md, 'and back again gives the original');
 });
 
+/* ---------- Conditions in the builder (2.1): a phase's or step's "only when" lines, edited in place ---------- */
+const CW = ['---', 'process: c', 'title: C', 'context: risk:choice(low|high), hot:yes-no, amount:number, path:choice(slow|fast)', '---', '',
+  '## First {#first}', '  only when ^hot is yes', '  > Read this first.', '- [ ] {confirm} Alpha {#alpha}', '  only when ^risk is high', '  > A note.', '- [ ] {confirm} Beta {#beta}', '',
+  '## Second {#second}', '- [ ] {confirm} Gamma {#gamma}', '  sets: path', '- [ ] {confirm} Delta {#delta}', ''].join('\n');
+const whenOf = (t, id) => { let w = null; M.parse(t).phases.forEach(p => { if (p.id === id) w = p.when; p.steps.forEach(x => { if (x.id === id) w = x.when; }); }); return (w || []).map(x => x.text); };
+
+rule('Builder conditions: the outline reads each phase\'s and step\'s "only when" texts, as written', () => {
+  const o = O.parse(CW), first = o.phases[0], alpha = o.steps[0], beta = o.steps[1];
+  same(first.when, ['^hot is yes']); same(alpha.when, ['^risk is high']); same(beta.when, []);
+  assert.ok(!first.whenOdd && !alpha.whenOdd, 'written the usual way');
+  const odd = O.parse(CW.replace('  only when ^risk is high', '    Only When   ^risk is high'));
+  same(odd.steps[0].when, ['^risk is high']); assert.ok(odd.steps[0].whenOdd, 'written another way: shown, never rewritten');
+});
+
+rule('Builder conditions: add, change and remove on a step and a phase change only those lines, and round-trip exactly', () => {
+  const add = ok(O.apply(CW, { op: 'when', step: 'beta', text: '^risk is low' }));
+  same(changes(CW, add), { removed: [], added: ['  only when ^risk is low'] });
+  assert.strictEqual(lines(add)[lines(add).indexOf('- [ ] {confirm} Beta {#beta}') + 1], '  only when ^risk is low', 'right under the step');
+  same(whenOf(add, 'beta'), ['^risk is low']);
+  assert.strictEqual(ok(O.apply(add, { op: 'when', step: 'beta', text: '' })), CW, 'removing it gives the original back');
+  const two = ok(O.apply(CW, { op: 'when', step: 'alpha', text: '^risk is high\n\nonly when ^amount is at least 10000\n' }));
+  same(changes(CW, two), { removed: [], added: ['  only when ^amount is at least 10000'] });
+  same(whenOf(two, 'alpha'), ['^risk is high', '^amount is at least 10000']);
+  const changed = ok(O.apply(two, { op: 'when', step: 'alpha', text: '^risk is low\n^amount is at least 10000' }));
+  same(changes(two, changed), { removed: ['  only when ^risk is high'], added: ['  only when ^risk is low'] });
+  const ph = ok(O.apply(CW, { op: 'when', phase: 'second', text: '^hot is no' }));
+  same(changes(CW, ph), { removed: [], added: ['  only when ^hot is no'] });
+  assert.strictEqual(lines(ph)[lines(ph).indexOf('## Second {#second}') + 1], '  only when ^hot is no', 'right under the heading');
+  assert.strictEqual(ok(O.apply(ph, { op: 'when', phase: 'second', text: '  ' })), CW);
+  const off = ok(O.apply(CW, { op: 'when', phase: 'first', text: '' }));
+  same(changes(CW, off), { removed: ['  only when ^hot is yes'], added: [] });
+  const sameRes = O.apply(CW, { op: 'when', step: 'alpha', text: '^risk is high' });
+  assert.ok(sameRes.same && sameRes.text === CW, 'unchanged text is no edit');
+  assert.ok(O.apply(CW, { op: 'when', step: 'alpha', text: 'only when ^risk is high\n' }).same, '"only when" typed in front is the same condition');
+});
+
+rule('Builder conditions: what it writes is what was typed (not respelled), and CRLF files keep CRLF', () => {
+  const typed = ok(O.apply(CW, { op: 'when', step: 'beta', text: '^risk is HIGH' }));
+  same(changes(CW, typed).added, ['  only when ^risk is HIGH']);
+  same(whenOf(typed, 'beta'), ['^risk is high'], 'read canonically, written as typed');
+  const crlf = CW.replace(/\n/g, '\r\n'), c2 = ok(O.apply(crlf, { op: 'when', step: 'beta', text: '^risk is low' }));
+  assert.ok(/Beta \{#beta\}\r\n  only when \^risk is low\r\n/.test(c2), JSON.stringify(c2));
+  assert.strictEqual(c2.split('\n').filter(l => !/\r$/.test(l)).length, 1, 'every line but the last ends in CRLF');
+  assert.strictEqual(ok(O.apply(c2, { op: 'when', step: 'beta', text: '' })), crlf);
+});
+
+rule('Builder conditions: a wrong condition, a fifth one, or one a later phase sets is refused with the reason', () => {
+  assert.ok(/isn't listed in context/.test(O.apply(CW, { op: 'when', step: 'beta', text: '^nope is set' }).error));
+  assert.ok(/choices \(low, high\)/.test(O.apply(CW, { op: 'when', step: 'beta', text: '^risk is medium' }).error));
+  assert.ok(/Write a condition as/.test(O.apply(CW, { op: 'when', step: 'beta', text: 'risk is high' }).error));
+  assert.ok(/at most 4/.test(O.apply(CW, { op: 'when', step: 'beta', text: '^risk is high\n^hot is yes\n^amount is set\n^path is set\n^risk is set' }).error));
+  assert.ok(/later one \(sets:\)/.test(O.apply(CW, { op: 'when', phase: 'second', text: '^path is fast' }).error), 'forward only');
+  assert.ok(/later one \(sets:\)/.test(O.apply(CW, { op: 'when', step: 'beta', text: '^path is fast' }).error));
+});
+
+rule('Builder conditions: lines written another way, or a block the builder can\'t change safely, are never rewritten', () => {
+  const odd = CW.replace('  only when ^risk is high', '    only when ^risk is high');
+  assert.ok(/Edit (it|them) in Markdown/.test(O.apply(odd, { op: 'when', step: 'alpha', text: '^risk is low' }).error));
+  const caps = CW.replace('  only when ^hot is yes', '  Only when ^hot is yes');
+  assert.ok(/Edit (it|them) in Markdown/.test(O.apply(caps, { op: 'when', phase: 'first', text: '' }).error));
+  const trail = CW.replace('  only when ^risk is high', '  only when ^risk is high  ');
+  assert.ok(/Edit (it|them) in Markdown/.test(O.apply(trail, { op: 'when', step: 'alpha', text: '^risk is high\n^hot is yes' }).error));
+  assert.ok(O.apply(odd, { op: 'when', step: 'beta', text: '^risk is low' }).text, 'another step is fine');
+  assert.ok(O.apply(CW, { op: 'when', step: 'nope', text: '^risk is low' }).error, 'gone');
+});
+
+rule('Builder conditions: a step moved keeps its conditions', () => {
+  const down = ok(O.moveStep(CW, 'alpha', 1));
+  same(whenOf(down, 'alpha'), ['^risk is high']);
+});
+
 run();

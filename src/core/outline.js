@@ -11,9 +11,12 @@ PF.outline = (function () {
   var MODES = ['READ-DO', 'DO-CONFIRM'];
   /* A heading and a track line as map.js reads them. */
   var HEAD = /^##\s+(.+?)\s*$/, TRACK = /^###\s+Track:\s*(.+?)\s*$/i;
+  /* A condition line as map.js reads it (2.1), and the one way the builder writes it. */
+  var WHEN = /^\s{2,}only when\b\s*(.*)$/i, WHEN_SET = /^  only when (\S(?:.*\S)?)$/;
   var ERR = {
     gone: 'That isn\'t in the draft anymore. It may have just changed.',
     odd: 'This part of the draft has lines the builder can\'t change safely. Edit it in Markdown.',
+    whenOdd: 'These "only when" lines are written in a way the builder can\'t keep exactly. Edit them in Markdown.',
     meaning: 'That change would also change what other lines mean, so it wasn\'t made. Edit it in Markdown.',
     first: 'It\'s already first.', last: 'It\'s already last.'
   };
@@ -80,7 +83,7 @@ PF.outline = (function () {
           continue;
         }
         var pm = /^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$/.exec(head.rest);
-        phase = { id: head.id, idSuffix: head.suffix, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', line: i, end: i + 1, notes: 0, noteLines: [], note: '', shots: [], odd: false, steps: [], tracks: [], gate: null, index: o.phases.length };
+        phase = { id: head.id, idSuffix: head.suffix, title: (pm ? pm[1] : head.rest).trim(), mode: pm ? pm[2] : '', line: i, end: i + 1, notes: 0, noteLines: [], note: '', shots: [], when: [], whenLines: [], whenOdd: false, odd: false, steps: [], tracks: [], gate: null, index: o.phases.length };
         o.phases.push(phase); blk = phase;
         continue;
       }
@@ -89,10 +92,14 @@ PF.outline = (function () {
         if (!phase || gate) continue;
         var sp = stepParts(line);
         step = { id: sp.id, type: sp.type, text: sp.text, must: sp.mark === '!', planned: sp.mark === '~', roles: sp.roles, binds: sp.binds, parts: sp,
-          fields: {}, fieldLines: {}, notes: 0, note: '', noteLines: [], shots: [], line: i, end: i + 1, odd: false, phase: phase, track: track ? track.index : -1, index: o.steps.length };
+          fields: {}, fieldLines: {}, notes: 0, note: '', noteLines: [], shots: [], when: [], whenLines: [], whenOdd: false, line: i, end: i + 1, odd: false, phase: phase, track: track ? track.index : -1, index: o.steps.length };
         phase.steps.push(step); o.steps.push(step); blk = step;
         continue;
       }
+      /* As map.js: a condition belongs to the step above, or to the phase before its first step or track (2.1). Each is
+         kept as written; one not written the builder's way is shown but never rewritten. */
+      var wt = step || (phase && !gate && !track ? phase : null);
+      if (wt && (m = WHEN.exec(line))) { own(wt, i); wt.whenLines.push(i); wt.when.push(m[1].trim()); if (!WHEN_SET.test(line)) wt.whenOdd = true; continue; }
       /* As map.js: notes and screenshots belong to the step or gate above, or to the phase right under its heading (2.0). */
       var tg = step || gate || (phase && !track ? phase : null);
       if (/^\s{2,}>\s?(.*)$/.test(line)) {
@@ -281,7 +288,7 @@ PF.outline = (function () {
       var x = pull(A, oldLine), y = pull(B, newLine);
       if (!x || !y || y.phase !== want) return false;
       /* Its own content is the same; only its place (and roles it takes from a track) may differ. */
-      var keep = function (st) { return json({ id: st.id, type: st.type, text: st.text, must: st.must, planned: st.planned, binds: st.binds, fields: st.fields, note: st.note, shots: st.shots }); };
+      var keep = function (st) { return json({ id: st.id, type: st.type, text: st.text, must: st.must, planned: st.planned, binds: st.binds, fields: st.fields, note: st.note, shots: st.shots, when: st.when }); };
       return keep(x.step) === keep(y.step);
     }, at);
   }
@@ -920,6 +927,41 @@ PF.outline = (function () {
     }, at);
   }
 
+  /* ---------- conditions: a phase's or step's "  only when" lines (2.1) ---------- */
+  /* value: one condition per line ("only when" in front is optional). Each line that stays in its place keeps its bytes; a
+     changed one is rewritten in place, extra ones go after the last (or right under the step or heading), and removed ones
+     go. Lines written another way than the builder writes them, or a block it can't change safely, are left to Markdown. */
+  function editWhen(text, kind, key, value) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    if (typeof value !== 'string') return { error: 'Write each condition on its own line.' };
+    var o = g.o, t = kind === 'phase' ? phaseBy(o, key) : stepBy(o, key); if (!t) return { error: ERR.gone };
+    if (t.odd) return { error: ERR.odd };
+    if (t.whenOdd) return { error: ERR.whenOdd };
+    var want = [];
+    value.replace(/\r\n?/g, '\n').split('\n').forEach(function (l) { var w = l.replace(/^\s*only when\b/i, '').trim(); if (w) want.push(w); });
+    if (want.length > PF.conditions.MAX) return { error: 'A ' + kind + ' can have at most ' + PF.conditions.MAX + ' "only when" lines.' };
+    var meta = M.parse(text).meta, canon = [];
+    for (var k = 0; k < want.length; k++) {
+      var c = PF.conditions.parse(want[k], meta.context, meta.detailTypes);
+      if (c.why) return { error: c.why };
+      canon.push(c.test.text);
+    }
+    if (json(want) === json(t.when)) return { text: text, at: t.line, same: true };
+    var lines = o.lines.slice(), W = t.whenLines, cr = crOf(o, t.line), n = Math.min(W.length, want.length);
+    for (k = 0; k < n; k++) if (want[k] !== t.when[k]) lines[W[k]] = '  only when ' + want[k] + crOf(o, W[k]);
+    for (k = W.length - 1; k >= want.length; k--) lines.splice(W[k], 1);
+    if (want.length > W.length) lines.splice.apply(lines, [W.length ? W[W.length - 1] + 1 : t.line + 1, 0].concat(want.slice(W.length).map(function (w) { return '  only when ' + w + cr; })));
+    var line = t.line + 1, after = lines.join('\n'), res = done(o, text, lines, function (A) {
+      var x = null;
+      A.phases.forEach(function (ph) { if (kind === 'phase' && ph._line === line) x = ph; ph.steps.forEach(function (st) { if (kind !== 'phase' && st._line === line) x = st; }); });
+      if (!x) return false;
+      x.when = canon;
+    }, t.line);
+    /* A refusal from the checks says what's wrong with the new line when there is one (a later phase sets the detail). */
+    if (res.error) { var was = M.parse(text).errors.map(function (e) { return e.msg; }), now = M.parse(after).errors.filter(function (e) { return was.indexOf(e.msg) < 0; })[0]; if (now) return { error: now.msg }; }
+    return res;
+  }
+
   /* ---------- the Questions section ---------- */
   /* Its text under the heading; a line that would end the section or be read as a lane is refused. */
   function editQuestions(text, value) {
@@ -979,6 +1021,7 @@ PF.outline = (function () {
       case 'gateNote': return gateNote(text, op.phase, op.note);
       case 'meta': return editMeta(text, op.key, op.set);
       case 'note': return editNote(text, op.step, op.text);
+      case 'when': return op.step != null ? editWhen(text, 'step', op.step, op.text) : editWhen(text, 'phase', op.phase, op.text);
       case 'questions': return editQuestions(text, op.text);
       case 'removeQuestions': return removeQuestions(text);
     }

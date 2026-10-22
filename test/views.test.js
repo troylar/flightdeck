@@ -2432,6 +2432,47 @@ rule('Flight plan: a phase\'s note and screenshots and a gate\'s note get a mark
 });
 
 
+/* ---------- Conditions (2.1): one muted line on the process page and the flight plan ---------- */
+const CONDMD = ['---', 'process: cond', 'title: Cond', 'context: risk:choice(low|high), ticket', '---', '',
+  '## Hotfix · READ-DO {#hot}', '  only when ^ticket is set', '- [ ] {confirm} Page the lead {#page}', '',
+  '## Release · READ-DO {#rel}', '- [ ] {confirm} Tell the board {#board}', '  only when ^risk is high', '- [ ] {confirm} Ship it {#ship}', ''].join('\n');
+rule('Conditions: the process page and the flight plan show each condition as one muted line, and nothing without one', () => {
+  const map = PF.map.parse(CONDMD);
+  const pv = V.mapPreview(map, {}, [], 'cl-ph-');
+  assert.strictEqual((pv.match(/class="pv-when"/g) || []).length, 2, 'the phase and the step');
+  assert.ok(/<p class="pv-when">Only when <b class="dname">ticket<\/b> is set<\/p>/.test(pv), pv);
+  assert.ok(/<span class="pv-when">Only when <b class="dname">risk<\/b> is high<\/span>/.test(pv), pv);
+  const { ctx } = flightSetup();
+  const fp = V.flightPlan(ctx, { id: 'cond', title: 'Cond', skills: [] }, map, null);
+  assert.ok(/<div class="fp-line fp-when">[\s\S]*?<span>Only when <b class="dname">ticket<\/b> is set<\/span><\/div>/.test(fp), 'the phase, on its card');
+  assert.ok(/<span class="pv-when">Only when <b class="dname">risk<\/b> is high<\/span>/.test(fp), 'the step, in its list');
+  const plain = PF.map.parse(CONDMD.split('\n').filter(l => !/only when/.test(l)).join('\n'));
+  assert.ok(!/when/i.test(V.mapPreview(plain, {}, [], 'cl-ph-')) && !/Only when|fp-when/.test(V.flightPlan(ctx, { id: 'cond', title: 'Cond', skills: [] }, plain, null)), 'nothing without conditions');
+  const hostile = PF.map.parse(CONDMD.replace('context: risk:choice(low|high), ticket', 'context: risk:choice(low|<b>x</b>|high), ticket').replace('^risk is high', '^risk is one of <b>x</b>|high'));
+  assert.ok(!/<b>x<\/b>/.test(V.mapPreview(hostile, {}, [], 'cl-ph-')), 'escaped');
+});
+
+rule('Conditions: the readiness panel names a conditional step no clean run has needed yet, escaped, and says nothing otherwise', () => {
+  const md = CONDMD.replace('Tell the board', 'Tell the <b>board</b>');
+  const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'cond0001', app: '2.1.0' });
+  assert.ok(!b.blockers, (b.blockers || []).join(' | '));
+  const pub = P.verify(b.folder, b.files, exactOf(PF, b.files));
+  const done = (k, risk) => {
+    const r = R.create(pub, { title: 'R' + k, details: { ticket: 'T', risk }, roles: {}, by: 'person-casey', session: 'me', now: NOW, id: 'run-' + k, app: '2.1.0' }), map = R.mapOf(r);
+    map.phases.forEach((ph, i) => { ph.steps.forEach(s => { if (R.applies(r, map, i, s).applies === true) R.done(r, map, s.id, 'person-casey', NOW, {}); }); R.pass(r, map, i, 'person-casey', NOW); });
+    R.end(r, map, 'Completed', 'person-casey', 'Casey', NOW); r.marksFrom = 'start'; r._conflicts = [];
+    return r;
+  };
+  const { ctx } = flightSetup();
+  ctx.data.runs = [done('a', 'low')];
+  const h = V.readyPanel(ctx, { id: 'cond' }, pub);
+  assert.ok(/<p class="small">Not yet seen in a clean run: Tell the &lt;b&gt;board&lt;\/b&gt;\.<\/p>/.test(h), h);
+  ctx.data.runs.push(done('b', 'high'));
+  assert.ok(!/Not yet seen/.test(V.readyPanel(ctx, { id: 'cond' }, pub)), 'seen once a clean run needed it');
+  ctx.data.runs = [];
+  assert.ok(!/Not yet seen/.test(V.readyPanel(ctx, { id: 'cond' }, pub)), 'no clean runs: the count says it');
+});
+
 /* ---------- 2.0 pins and skills: every value from a file is escaped (review round 5) ---------- */
 const HOSTILE = '<img src=x onerror=alert(1)>"><svg onload=1>javascript:alert(\'x\')';
 const HOSTILE1 = '<img/src=x/onerror=alert(1)>"><svg/onload=1>';

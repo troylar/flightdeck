@@ -52,6 +52,7 @@ PF.insights = (function () {
     earlier: 'an earlier gate isn\'t settled, was reopened or has a time that can\'t be used',
     unreached: 'it didn\'t reach the step',
     unanswered: 'the step has no current answer',
+    notneeded: 'the step wasn\'t needed in it',
     nogate: 'there\'s no record of the gate',
     shared: 'its log says a gate with this title failed, and another gate shares the title',
     undecided: 'its decisions disagree (two with the same rev)',
@@ -114,7 +115,7 @@ PF.insights = (function () {
 
   /* Reasons that only restate a number's denominator (a run that never reached the step or the gate): the rest are runs a
      number should have counted and couldn't. A number with any of those, or with history incomplete, always says so. */
-  var DEFINITIONAL = { unreached: 1, unanswered: 1, nogate: 1 };
+  var DEFINITIONAL = { unreached: 1, unanswered: 1, nogate: 1, notneeded: 1 };
   function hasProblems(q) { return !!q && (q.incomplete > 0 || q.excluded.some(function (g) { return !DEFINITIONAL[g.why]; })); }
 
   /* ---------- One time layer: every time Insights uses comes through here ---------- */
@@ -184,6 +185,18 @@ PF.insights = (function () {
     var s = ev.set, hit = metric === 'offScript' ? !!(s.blocked || s.recheck || s.na || s.differently) : !!s[EVER[metric]];
     if (hit) return 'hit';
     return r.marksFrom === 'start' ? 'clean' : 'incomplete';
+  }
+  /* The steps a run's own checklist says it didn't need (2.1 conditions), by ID; none without conditions. */
+  function notNeededIds(r, m) {
+    var out = Object.create(null);
+    if (!m || !PF.conditions.any(m)) return out;
+    m.phases.forEach(function (p, pi) {
+      p.steps.forEach(function (s) {
+        if (!(s.when || p.when)) return;
+        try { if (R.applies(r, m, pi, s).applies === false) out[s.id] = true; } catch (e) { /* counted as before */ }
+      });
+    });
+    return out;
   }
   /* hit, clean, or '' when the step has no current answer. */
   function skipped(ev) {
@@ -380,8 +393,12 @@ PF.insights = (function () {
         acc.waived.counted.push(k); if (g.waived) acc.waived.keys.push(k);
         if (g.shared) acc.failed.ex.push({ why: 'shared', key: k }); else { acc.failed.counted.push(k); if (g.failed) acc.failed.keys.push(k); }
       });
+      var nn = notNeededIds(r, m);
       Object.keys(stepAcc).forEach(function (sid) {
-        var acc = stepAcc[sid], ev = evidence(r, sid), sk = skipped(ev);
+        var acc = stepAcc[sid];
+        /* Conditions (2.1): a step this run didn't need isn't in its numbers at all. */
+        if (nn[sid]) { ['skipped'].concat(EVER_KEYS).forEach(function (metric) { acc[metric].ex.push({ why: 'notneeded', key: k }); }); return; }
+        var ev = evidence(r, sid), sk = skipped(ev);
         if (sk) { acc.skipped.counted.push(k); if (sk === 'hit') acc.skipped.keys.push(k); } else acc.skipped.ex.push({ why: 'unanswered', key: k });
         EVER_KEYS.forEach(function (metric) {
           var v = ever(r, ev, metric), x = acc[metric];
@@ -551,6 +568,7 @@ PF.insights = (function () {
     if (p[0] === 'phase') { x = phaseTimes(r, now)[p[1]]; return !!x && !x.why; }
     if (p[0] === 'gate') { m = mapOf(r); if (!m) return false; for (var i = 0; i < m.phases.length; i++) if (m.phases[i].id === p[1]) { x = gateKinds(r, m, i); return !!x.reached && !!x[p[2]]; } return false; }
     if (p[0] === 'step') {
+      if (notNeededIds(r, mapOf(r))[p[1]]) return false;
       var ev = evidence(r, p[1]);
       if (p[2] === 'skipped') return skipped(ev) === 'hit';
       if (!own(EVER_WORDS, p[2])) return false;

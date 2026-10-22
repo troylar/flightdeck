@@ -367,7 +367,13 @@ PF.skills = (function () {
       if (r.marksFrom !== 'start') { bad = true; deviations.push({ run: r.title, step: '', text: '', kind: 'started before Flightdeck kept a full record of deviations', note: 'can\'t confirm it was clean' }); }
       if (!bad) clean.push(r);
     });
-    return { completed: mine.length, clean: clean.length, cleanRuns: clean.map(function (r) { return r.title; }), needed: READY_RUNS, enough: clean.length >= READY_RUNS, deviations: deviations };
+    /* Conditions (2.1): a covered step that only applies sometimes and that no clean run has needed yet (information only). */
+    var unseen = [];
+    M.steps(pub.map).forEach(function (x) {
+      if ((ids && ids.indexOf(x.step.id) < 0) || !(x.step.when || pub.map.phases[x.phaseIndex].when)) return;
+      if (!clean.some(function (r) { return PF.run.applies(r, pub.map, x.phaseIndex, x.step).applies === true; })) unseen.push({ id: x.step.id, text: x.step.text });
+    });
+    return { completed: mine.length, clean: clean.length, cleanRuns: clean.map(function (r) { return r.title; }), needed: READY_RUNS, enough: clean.length >= READY_RUNS, deviations: deviations, unseen: unseen };
   }
   /* The sign-offs for a publication (validations/<process>.v<N>.<writer>.json), newest first. A sign-off counts only for the
      exact publication folder it was made on, and only by its owner, or by its backup owner (as: "backup"), which Flightdeck

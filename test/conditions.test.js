@@ -498,4 +498,55 @@ rule('A retired link survives a reload and a conflict copy that still has it unr
   same([r.steps.board.child.id, r.steps.board.child.failed, r.steps.board.child.retired], ['kid1', true, true], 'retirement is never undone by a copy');
 });
 
+/* ---------- Slice 3: readiness, Insights, search and the evidence page ---------- */
+
+rule('Readiness: a conditional step no clean run has needed yet is named (information only); one a clean run needed is not', () => {
+  const pub = publish(MD).v, low = ['a', 'b', 'c'].map(k => Object.assign(completed({ ticket: 'T-' + k, risk: 'low', hotfix: 'no', amount: '1' }), { id: 'run-' + k, title: 'Run ' + k }));
+  const r1 = PF.skills.readiness(low, pub, null);
+  same(r1.clean, 3);
+  same(r1.unseen.map(x => x.id), ['page', 'board', 'finance', 'lane'], 'every conditional step, in order');
+  same(r1.unseen[1].text, 'Tell the change board');
+  const high = Object.assign(completed({ ticket: 'T-d', risk: 'high', hotfix: 'no', amount: '1' }), { id: 'run-d', title: 'Run d' });
+  same(PF.skills.readiness(low.concat([high]), pub, null).unseen.map(x => x.id), ['page', 'finance', 'lane']);
+  same(PF.skills.readiness(low, pub, ['ship']).unseen, [], 'only covered steps');
+  const plain = publish(MD.split('\n').filter(l => !/only when/.test(l)).join('\n')).v;
+  same(PF.skills.readiness([], plain, null).unseen, [], 'none without conditions');
+});
+
+rule('Insights: a step that wasn\'t needed in a run is left out of its per-step numbers, and its drill-down never lists that run', () => {
+  const pub = publish(MD).v;
+  const runs = [['a', 'high'], ['b', 'low'], ['c', 'low']].map(([k, risk]) => Object.assign(completed({ ticket: 'T-' + k, risk, hotfix: 'no', amount: '1' }), { id: 'run-' + k, title: 'Run ' + k }));
+  runs.forEach(r => { r.marksFrom = 'start'; });
+  const res = PF.insights.forProcess({ runs }, 'rel', { now: Date.parse(LATER), folder: pub.info.folder });
+  const board = res.steps.filter(x => x.id === 'board')[0], ship = res.steps.filter(x => x.id === 'ship')[0];
+  same([board.skipped.n, board.blocked.n, board.offScript.n], [1, 1, 1], 'only the run that needed it');
+  assert.ok(board.blocked.q.excluded.some(g => g.why === 'notneeded' && g.n === 2), JSON.stringify(board.blocked.q.excluded));
+  assert.ok(!PF.insights.hasProblems(board.blocked.q), 'not a problem with the data');
+  same([ship.skipped.n, ship.blocked.n], [3, 3], 'a step without conditions counts every run');
+  runs[1].steps.board = { s: 'na', by: 'person-avery', at: NOW, reason: 'x' };
+  const sp = { process: 'rel', folder: pub.info.folder, path: 'step:board:skipped', asOf: Date.parse(LATER) };
+  assert.ok(!PF.insights.matches(runs[1], sp, {}), 'a drill-down never lists a run that didn\'t need the step');
+});
+
+rule('Search: a step is found by its own condition and its phase\'s', () => {
+  const S = PF.search, pub = publish(MD).v;
+  pub.folder = pub.info.folder; pub.process = 'rel';
+  const inp = { runs: [], people: [], pubs: [{ process: 'rel', pubs: [pub], index: P.index([pub]) }], drafts: [], skills: [], stepTypes: {}, corrDecisions: [], followUps: [] };
+  const ix = S.create(); S.sync(ix, S.docs(inp), inp);
+  const ids = res => res.groups.reduce((a, g) => a.concat(g.items.map(x => x.id)), []);
+  assert.ok(ids(S.query(ix, 'amount at least')).some(id => /\/finance$/.test(id)), 'its own');
+  assert.ok(ids(S.query(ix, 'hotfix yes')).some(id => /\/page$/.test(id)), 'its phase\'s');
+});
+
+rule('Evidence page: Not needed steps and phases say so, with why, never "not checked"', () => {
+  const pub = publish(MD).v, r = completed({ ticket: 'T-1', risk: 'low', hotfix: 'no', amount: '1' });
+  const html = PF.evidence.stepRows({ people: {} }, { run: r, map: mapOf(r) });
+  assert.ok(html, 'the steps table renders');
+  const row = id => { const i = html.indexOf('>' + id + '<'); return html.slice(html.lastIndexOf('<tr>', i), html.indexOf('</tr>', i)); };
+  assert.ok(/Not needed: only when \^risk is high \(risk is low\)/.test(row('board')), row('board'));
+  assert.ok(!/not checked/.test(row('board')));
+  assert.ok(/gate [^:]*: not needed/.test(html), 'the skipped phase\'s gate');
+  assert.ok(/done/.test(row('ship')));
+});
+
 run();

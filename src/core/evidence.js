@@ -238,10 +238,12 @@ PF.evidence = (function () {
     if (!run || !map) return '';
     var h = '<h3>Steps</h3>';
     map.phases.forEach(function (p, pi) {
-      var g = R.gateStatus(run, map, pi), gate = run.gates[p.gate.id];
-      h += '<div class="card"><b>' + esc(p.title) + '</b> <span class="soft">· gate ' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + esc(g) + (gate && gate.by ? ' by ' + esc(nameOf(col, gate.by)) + ' at ' + esc(when(gate.at)) : '') + (gate && gate.reason ? ' · ' + esc(gate.reason) : '') + '</span><table><tr><th>Step</th><th>Answer</th><th>Who and when</th></tr>';
+      var g = R.gateStatus(run, map, pi), gate = run.gates[p.gate.id], cond = !!p.when || p.steps.some(function (s) { return !!s.when; });
+      h += '<div class="card"><b>' + esc(p.title) + '</b> <span class="soft">· gate ' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + esc(g === 'skipped' ? 'not needed (' + R.applies(run, map, pi).why + ')' : g) + (gate && gate.by ? ' by ' + esc(nameOf(col, gate.by)) + ' at ' + esc(when(gate.at)) : '') + (gate && gate.reason ? ' · ' + esc(gate.reason) : '') + '</span><table><tr><th>Step</th><th>Answer</th><th>Who and when</th></tr>';
       p.steps.forEach(function (s) {
-        var a = run.steps[s.id], st = a && a.s !== 'open' ? a.s : 'not checked', ev = [];
+        var a = run.steps[s.id], ap = cond ? R.applies(run, map, pi, s) : null, st = a && a.s !== 'open' ? a.s : ap && ap.applies === false ? 'Not needed: ' + ap.why : 'not checked', ev = [];
+        /* Conditions (2.1): an answer kept from before the step stopped applying is still shown, after why it isn't needed. */
+        if (a && a.s !== 'open' && ap && ap.applies === false) st = 'Not needed: ' + ap.why + '. Earlier answer: ' + a.s;
         if (a && a.values) R.evidenceFor(run, s).list.forEach(function (d) { if (a.values[d.name]) ev.push(d.label + ': ' + R.shown(run, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); });
         var marks = run.marks && run.marks[s.id] ? run.marks[s.id] : [];
         h += '<tr><td>' + esc(s.text) + ' <span class="soft mono">' + esc(s.id) + '</span></td><td>' + esc(st) + (a && a.reason ? ': ' + esc(a.reason) : '') + (a && a.differently ? '<br>Done differently: ' + esc(a.differently.note) : '') +
@@ -372,7 +374,7 @@ PF.evidence = (function () {
   }
   function estimate(files, cap) { return Z.plan(files.map(function (f) { return { name: f.pack, size: f.size }; }).concat(generatedUpper(files)), { cap: cap }); }
 
-  return { FORMAT: FORMAT, CSP: CSP, PRIVACY: PRIVACY, VERIFY: VERIFY, LIMITED: LIMITED, CAPS: CAPS, capFor: capFor, size: size, dayRange: dayRange, inRange: inRange, zoneOk: zoneOk,
+  return { stepRows: stepRows, FORMAT: FORMAT, CSP: CSP, PRIVACY: PRIVACY, VERIFY: VERIFY, LIMITED: LIMITED, CAPS: CAPS, capFor: capFor, size: size, dayRange: dayRange, inRange: inRange, zoneOk: zoneOk,
     join: join, text: text, base64: base64, imageType: imageType, canonical: canonical, localDay: localDay, candidateTag: candidateTag, classify: classify, notesFile: notesFile, checks: checks,
     page: page, readme: readme, generate: generate, generatedUpper: generatedUpper, estimate: estimate, packName: packName, title: title };
 })();

@@ -16,9 +16,9 @@
     var step = function (s) {
       var t = T.get(s.type, types), hs = hl && hl.line === s.line;
       var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
-        (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id);
+        (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
-      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.detailWords(U.mdInline(s.text)) + '</span>' + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.detailWords(U.mdInline(s.text)) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
     /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
     return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
@@ -28,7 +28,7 @@
       if (lanes.length) body += '<div class="pv-lanes"><p class="pv-lanes-h">Do all lanes</p>' + lanes.map(function (l) {
         return '<div class="pv-lane"><p class="pv-lane-h">' + esc(l.t.title || 'Untitled lane') + (l.t.roles.length ? ' <span class="pv-role">@' + esc(l.t.roles.join(' @')) + '</span>' : '') + '</p><ul>' + l.steps.map(step).join('') + '</ul></div>';
       }).join('') + '</div>';
-      return '<div class="ph' + (hp ? ' pv-sel" id="pv-sel' : '') + '"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + esc(K.modeWord(p.mode)) + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3>' + body +
+      return '<div class="ph' + (hp ? ' pv-sel" id="pv-sel' : '') + '"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat">' + esc(K.modeWord(p.mode)) + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3>' + (p.when ? '<p class="pv-when">' + K.whenWords(p) + '</p>' : '') + body +
         '<div class="g">' + I('gate') + '<span class="pv-gate-copy">Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + K.detailWords(U.mdInline(p.gate.approves)) : '') + '</span></div></div>';
     }).join('');
   }
@@ -91,6 +91,9 @@
         ? '<div class="row" data-scope="signoff"><label class="sr" for="pick-input">Note for the sign-off</label><input id="pick-input" maxlength="300" placeholder="Optional note" data-enter="signoff" data-id="' + esc(p.id) + '"><button class="btn go" data-act="signoff" data-id="' + esc(p.id) + '">Sign off</button><button class="mini" data-act="unpick">Cancel</button></div>'
         : '<button class="btn go" data-act="pick" data-kind="signoff" data-id="' + esc(p.id) + '">Sign off v' + pub.info.version + '</button>');
     } else h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs. ' + esc(nameOf(ctx, owner)) + ', the owner, signs it off' + (pub.map.meta.backup && pub.map.meta.backup !== owner ? ' (or ' + esc(nameOf(ctx, pub.map.meta.backup)) + ', the backup owner, while the owner is away)' : '') + '.</p>';
+    /* Conditions (2.1), information only: steps that apply only sometimes and that no clean run has needed yet. */
+    var un = ready.clean ? ready.unseen || [] : [];
+    if (un.length) h += '<p class="small">Not yet seen in a clean run: ' + esc(un.slice(0, 5).map(function (x) { return x.text; }).join(', ')) + (un.length > 5 ? ' and ' + (un.length - 5) + ' more' : '') + '.</p>';
     var devOpen = st.disc && st.disc['dev:' + p.id] === true;
     if (ready.deviations.length) h += '<details' + (devOpen ? ' open' : '') + ' data-disc="dev:' + esc(p.id) + '"><summary class="small" id="sum-dev">Why some runs don\'t count (' + ready.deviations.length + ')</summary><ul class="small">' + ready.deviations.slice(0, 20).map(function (d) { return '<li>' + esc(d.run) + ': ' + (d.text ? '"' + esc(d.text) + '" ' : '') + esc(d.kind) + (d.note ? ': ' + esc(d.note) : '') + '</li>'; }).join('') + '</ul></details>';
     return h + (bare ? '' : '</section>');
@@ -508,5 +511,5 @@
     return h;
   }
 
-  V.process = process; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
+  V.process = process; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();
