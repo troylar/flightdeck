@@ -958,7 +958,14 @@ PF.outline = (function () {
     var lines = o.lines.slice(), W = t.whenLines, cr = crOf(o, t.line), n = Math.min(W.length, want.length);
     for (k = 0; k < n; k++) if (want[k] !== t.when[k]) lines[W[k]] = '  only when ' + want[k] + crOf(o, W[k]);
     for (k = W.length - 1; k >= want.length; k--) lines.splice(W[k], 1);
-    if (want.length > W.length) lines.splice.apply(lines, [W.length ? W[W.length - 1] + 1 : t.line + 1, 0].concat(want.slice(W.length).map(function (w) { return '  only when ' + w + cr; })));
+    var ins = W.length ? W[W.length - 1] + 1 : t.line + 1, lastCr = /\r$/.test(o.lines[o.lines.length - 1]);
+    if (want.length > W.length) {
+      /* Added after the file's last line: that line now needs its line ending, as the others have. */
+      if (ins === o.lines.length && o.cr && !lastCr) lines[ins - 1] += o.cr;
+      lines.splice.apply(lines, [ins, 0].concat(want.slice(W.length).map(function (w) { return '  only when ' + w + cr; })));
+    }
+    /* The file's last line keeps the ending it had (none, when the file doesn't end with a line break). */
+    if (!lastCr) lines[lines.length - 1] = bare(lines[lines.length - 1]);
     var line = t.line + 1, after = lines.join('\n'), res = done(o, text, lines, function (A) {
       var x = null;
       A.phases.forEach(function (ph) { if (kind === 'phase' && ph._line === line) x = ph; ph.steps.forEach(function (st) { if (kind !== 'phase' && st._line === line) x = st; }); });

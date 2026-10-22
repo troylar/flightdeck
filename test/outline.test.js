@@ -1040,6 +1040,14 @@ rule('Builder conditions: what it writes is what was typed (not respelled), and 
   assert.ok(/Beta \{#beta\}\r\n  only when \^risk is low\r\n/.test(c2), JSON.stringify(c2));
   assert.strictEqual(c2.split('\n').filter(l => !/\r$/.test(l)).length, 1, 'every line but the last ends in CRLF');
   assert.strictEqual(ok(O.apply(c2, { op: 'when', step: 'beta', text: '' })), crlf);
+  /* CRLF without a final line break: the last step gets a condition, changed and removed, and every result stays CRLF. */
+  const end = crlf.replace(/\r\n$/, ''), noCr = t => assert.ok(!/\r(?!\n)/.test(t), JSON.stringify(t.slice(-80)));
+  const e1 = ok(O.apply(end, { op: 'when', step: 'delta', text: '^risk is low' }));
+  noCr(e1); assert.ok(/Delta \{#delta\}\r\n  only when \^risk is low$/.test(e1), JSON.stringify(e1.slice(-60)));
+  const e2 = ok(O.apply(e1, { op: 'when', step: 'delta', text: '^risk is high' })); noCr(e2); assert.ok(/  only when \^risk is high$/.test(e2));
+  const e3 = ok(O.apply(e2, { op: 'when', step: 'delta', text: '^risk is high\n^hot is yes' })); noCr(e3); assert.ok(/high\r\n  only when \^hot is yes$/.test(e3));
+  assert.strictEqual(ok(O.apply(e3, { op: 'when', step: 'delta', text: '' })), end, 'removed: the original, byte for byte');
+  assert.ok(!O.parse(e3).unsupported);
 });
 
 rule('Builder conditions: a wrong condition, a fifth one, or one a later phase sets is refused with the reason', () => {

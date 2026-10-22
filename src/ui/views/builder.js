@@ -259,12 +259,13 @@
     if (!id) return '<p class="small">No ID yet. Add one in Markdown, like {#' + esc(fallback) + '}.</p>';
     return '<p class="small">ID <code>' + esc(id) + '</code>. ' + (fresh ? 'It follows the name until you save the draft; after that it never changes.' : 'It never changes, so runs and skills keep finding this ' + what + '.') + '</p>';
   }
-  /* Conditions (2.1): one quiet "Only when…" line, opened when there are conditions, a refusal, or someone opened it. One
+  /* Conditions (2.1): one quiet "Only when…" line, opened when there are conditions, a refusal, or someone opened it (kept per
+     checklist and item, so a step with the same ID elsewhere doesn't open with it). One
      condition a line, as the checklist writes them after "only when". Lines written another way are shown and left to
      Markdown, never rewritten. */
-  function whenSection(ctx, t, id, meta) {
+  function whenSection(ctx, p, t, id, meta) {
     if (!t.when.length && (!meta.context.length || t.odd)) return '';
-    var fe = ctx.state.fieldErr, err = !!(fe && fe.id === 'ob' && fe.field === id), dk = id + ':' + t.key, open = t.when.length || err || (ctx.state.disc || {})[dk] === true;
+    var fe = ctx.state.fieldErr, err = !!(fe && fe.id === 'ob' && fe.field === id), dk = id + ':' + p.id + ':' + t.key, open = t.when.length || err || (ctx.state.disc || {})[dk] === true;
     var h = '<details class="ob-when" data-disc="' + esc(dk) + '"' + (open ? ' open' : '') + '><summary>Only when…</summary>';
     if (t.whenOdd || t.odd) return h + '<ul class="small">' + t.when.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul><p class="small">Written in a way the builder can\'t keep exactly. Edit them in Markdown.</p></details>';
     return h + '<label class="field" for="' + id + '"><span class="small">One a line, like ^' + esc(meta.context[0] || 'detail') + ' is set; otherwise Not needed.</span><textarea id="' + id + '" rows="2"' + errAt(ctx, id) + '>\n' + esc(t.when.join('\n')) + '</textarea></label>' + errMsg(ctx, id) + '</details>';
@@ -300,7 +301,7 @@
       h += '<h3 class="ob-sec">Fields</h3>' + (names.length ? names.map(function (f) { return fieldRow(ctx, def, s, f); }).join('') : '<p class="small">This type asks for nothing more.</p>');
       /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
       h += '<label class="field" for="ob-note">Note <span class="small">shown with the step during a run; Markdown works</span><textarea id="ob-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-note') + '>\n' + esc(s.note) + '</textarea></label>' + errMsg(ctx, 'ob-note');
-      h += whenSection(ctx, s, 'ob-when', meta);
+      h += whenSection(ctx, p, s, 'ob-when', meta);
       h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
@@ -329,7 +330,7 @@
       '<label class="field" for="ob-ph-title">Name<input id="ob-ph-title" maxlength="120" data-enter="ob-commit" value="' + esc(ph.title) + '"' + errAt(ctx, 'ob-ph-title') + '></label>' + errMsg(ctx, 'ob-ph-title') +
       '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>Read, then do: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>Do, then confirm: do the work, then confirm together</option></select></label>' +
       '<label class="field" for="ob-ph-note">Note for the phase <span class="small">shown at the top of the phase in runs. Needs Flightdeck 2.0 to run.</span><textarea id="ob-ph-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-ph-note') + '>' + esc(ph.note || '') + '</textarea></label>' + errMsg(ctx, 'ob-ph-note') +
-      whenSection(ctx, ph, 'ob-ph-when', meta) +
+      whenSection(ctx, p, ph, 'ob-ph-when', meta) +
       (ph.odd ? '<p class="small">This phase has lines under its heading the builder can\'t change safely. Edit its note and screenshots in Markdown.</p>' : shotsSection(ctx, p, ph, 'phase')) +
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button><button type="button" class="mini" data-act="ob-ask" data-id="phase">Delete this phase</button>' +
