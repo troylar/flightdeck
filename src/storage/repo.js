@@ -825,7 +825,9 @@ PF.repo = (function () {
       var hit = dec[x.path];
       if (sched && !sched.deep && hit && !due[x.path]) return { x: x, f: { text: hit.text } };
       return fs.read(x.path).then(function (f) {
-        if (f && sched) dec[x.path] = { text: f.text, at: sched.now }; else delete dec[x.path];
+        /* Listed but gone when read: it may be moving, so it's unread like one that won't read, never "no decision". */
+        if (!f) { delete dec[x.path]; return { x: x, failed: true }; }
+        if (sched) dec[x.path] = { text: f.text, at: sched.now }; else delete dec[x.path];
         return { x: x, f: f };
       }, function () { delete dec[x.path]; return { x: x, failed: true }; });
     });

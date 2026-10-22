@@ -494,11 +494,13 @@
      arriving), that a newer Flightdeck made, or that isn't one this copy can read. Each says what to do about it. */
   function planHeldWhy(plan, data) {
     if (plan && data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals')) return 'proposals/ couldn\'t be read just now, so it isn\'t known whether someone already started it. Until it reads, this plan can\'t be started, declined or switched here. Try again once the folder can be read.';
+    if (plan && plan._status) return plan._status.status === 'accepted' ? 'This plan was already started' + (typeof plan._status.run === 'string' ? ' (' + plan._status.run + ')' : '') + ', so it won\'t start again here. Find its run on Runs.' : 'This plan was ' + (plan._status.status === 'declined' ? 'declined' : 'decided on') + ' elsewhere, so it can\'t be started, declined or switched here.';
     var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
     if (!x) return '';
     var held = ' Until then this plan can\'t be started, declined or switched here.';
     if (x.kind === 'newer') return 'A decision on this plan (' + x.path + ') was made with a newer Flightdeck, so it isn\'t known here whether it was started. ' + PF.envelope.needsText(x.needs) + ' Update Flightdeck to see it.' + held;
     if (x.kind === 'malformed') return 'A decision on this plan (' + x.path + ') isn\'t one this copy can read, so it isn\'t known whether it was started. Fix or delete that file.' + held;
+    if (!/\.status-[^/]*$/.test(x.path)) return 'This plan\'s file (' + x.path + ') can\'t be read now, so what it says may have changed and it isn\'t known whether it was started. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
     return 'A decision on this plan (' + x.path + ') can\'t be read, so it isn\'t known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
   }
   function planChoice(ctx, plan) {

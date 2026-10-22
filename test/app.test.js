@@ -2288,6 +2288,36 @@ rule('Plans: a decision listed but gone when read holds its plan: nothing starts
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
 });
 
+rule('Plans: a plan whose own file is listed but gone when read stays shown and held: nothing starts on another version (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const file = 'proposals/plan-release-2026-10-24.json', read = app.fs.read;
+  assert.ok(app.fs.files[file], 'set-up: the plan\'s file');
+  app.fs.read = function (p) { return p === file ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  assert.ok(/can(&#39;|')t be read/.test(app.html()) && app.html().indexOf(file) >= 0, (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+});
+
+rule('Plans: a form left open after another window started or declined the plan starts nothing (2.1.0)', async () => {
+  for (const status of ['accepted', 'declined']) {
+    const app = boot(); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+    const d = await app.PF.repo.loadAll(app.fs), plan = d.plans.find(p => p.id === 'plan-release-2026-10-24');
+    await app.PF.repo.recordPlanStatus(app.fs, plan, 'w-other', status, status === 'accepted' ? 'run-elsewhere' : null, 'person-avery', null, '2.1.0');
+    app.click('refresh'); await app.tick(80);
+    const before = releaseRuns(app), decs = app.files('proposals/').length;
+    app.submitForm('start-form'); await app.tick(120);
+    assert.deepStrictEqual(releaseRuns(app), before, status + ': nothing started');
+    app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+    assert.strictEqual(app.files('proposals/').length, decs, status + ': no decision written');
+  }
+});
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();

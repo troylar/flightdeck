@@ -617,6 +617,15 @@
       if (fresh('report decisions')) (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
       /* A sign-off read before whose file can't be read now (still syncing) keeps counting as what it said then. */
       if (fresh('sign-offs')) (d.valUnread || []).forEach(function (u) { (data.validations || []).forEach(function (x) { if (x._file === u._file && !u.kept && !u.ignored) { d.validations.push(x); u.kept = true; } }); });
+      /* A plan whose own file can't be read now stays shown as last read, held until it reads: it may have been started. */
+      if (fresh('proposals')) (d.planUnread || []).forEach(function (u) {
+        if (u.kind !== 'unreadable' || /\.status-/.test(u._file)) return;
+        (data.plans || []).forEach(function (x) {
+          if ((x._files || []).indexOf(u._file) < 0 || d.plans.some(function (y) { return y.id === x.id; })) return;
+          var c = Object.assign({}, x); c._statusHeld = [{ path: u.path, kind: 'unreadable', needs: '' }].concat(x._statusHeld || []); c._statusUnread = c._statusHeld.map(function (h) { return h.path; });
+          d.plans.push(c); u.kept = true;
+        });
+      });
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
@@ -5407,6 +5416,8 @@
     e.target.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = inputValue(el); });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var plan = state.planId && data.plans.filter(function (x) { return x.id === state.planId; })[0];
+    /* A plan that isn't there now (gone, or its file can't be read) never becomes an ordinary run. */
+    if (state.planId && !plan) { say('This plan isn\'t in the folder as read now, so nothing was started. Check Folder health, then open it again.', 'warn'); render(); return; }
     /* Start exactly what was reviewed: the same published version and, for a plan, the same plan content. Only a plan can start
        an older version (the one it was planned on), and only until the person switches to the latest. */
     var pick = plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)) : null, pub = plan ? pick.pub : p.latest;

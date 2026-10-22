@@ -177,6 +177,17 @@ rule('A file listed in validations/ or proposals/ that\'s gone when read is name
   assert.ok(named(health(d), 'validations/release.v1.w-gone.json') && named(health(d), 'proposals/plan-release-2026-10-24.status-w-gone.json'));
 });
 
+rule('A correction or follow-up decision listed but gone when read is unread, never "no decision"', async () => {
+  const H = require('./compat-harness'), path = require('path'), files = H.readTree(path.join(__dirname, 'fixtures', 'folders', 'v2.0.1'));
+  const fu = 'followups/backup/run-b.ejt2c7tv.w-avery.1.json', co = 'corrections/backup/g11454c9769ea41f9.w-avery.1.json';
+  assert.ok(files[fu] && files[co], 'set-up: the fixture has both');
+  const m = H.memFolder(PF, files), read = m.read.bind(m);
+  m.read = (p, o) => p === fu || p === co ? Promise.resolve(null) : read(p, o);
+  const d = await repo.loadAll(m);
+  assert.ok(d.fuUnread.some(u => u._file === 'run-b.ejt2c7tv.w-avery.1.json'), JSON.stringify(d.fuUnread));
+  assert.ok(d.corrUnread.some(u => u._file === 'g11454c9769ea41f9.w-avery.1.json'), JSON.stringify(d.corrUnread));
+});
+
 rule('Sign-offs that couldn\'t be listed or read at all leave readiness unanswered too', async () => {
   const fs = folder(), pub = await publish(fs);
   put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));
