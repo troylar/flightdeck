@@ -133,9 +133,11 @@ A checklist that uses nothing on this list publishes as before, and every teamma
 
 A gate's note isn't on this list: every copy since 1.10 publishes it, and 2.0 shows it for every version.
 
+`only when` goes one step further: a version that uses it needs Flightdeck 2.1, and the publish panel says **Needs Flightdeck 2.1** instead (see Only when).
+
 ## Only when
 
-A step, or a whole phase, can apply only to some runs (Flightdeck 2.1). Put `only when` under the step, or right under the phase heading before its first step:
+A step, or a whole phase, can apply only to some runs. Put `only when` under the step, or right under the phase heading before its first step:
 
 ```markdown
 ## Hotfix · DO-CONFIRM {#hotfix}
@@ -164,7 +166,7 @@ During a run each condition is read again from the run's details whenever they c
 - Doesn't match: it's **Not needed**. It isn't counted, nobody checks it, and its reason is shown folded away. A phase whose own condition doesn't match, or whose steps are all Not needed, is skipped with its gate. An empty detail doesn't match any comparison, so `is not` matches it.
 - Can't tell yet: when the detail is waiting for a person (a converted value to confirm) or holds a value that isn't valid, the step is **Waiting**: it counts as left to do and can't be checked until the detail is filled in.
 
-Changing a detail that a checked step's condition uses asks for a re-check of that step, and gates that approved it go back to review. A checklist with `only when` publishes a version that needs Flightdeck 2.1: every copy before 2.1, 2.0 included, names it and can't run it.
+Changing a detail that a checked step's condition uses asks for a re-check of that step, and gates that approved it go back to review. A checklist with `only when` publishes a version that needs Flightdeck 2.1: the publish panel says so before you publish, and every copy before 2.1, 2.0 included, names it and can't run it.
 
 In the builder, a step's or a phase's form has one closed **Only when…** line (shown once the checklist has run details). Open it and write one condition a line, as after `only when`; leaving the box applies it, and a condition that can't be read is refused beside it. The builder writes each as `  only when ` and what you typed, in place, and leaves every other line as it was. `only when` lines written another way (another indent, capitals, spaces at the end) are shown but not changed there: edit them in Markdown. The process page and the flight plan show each condition as one muted line.
 

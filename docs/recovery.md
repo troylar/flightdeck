@@ -10,7 +10,7 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What you see:** a run shows a panel listing other versions, with **Compare copies**. In the folder, the run has files like `run.conflict-<window>-<time>.json`, `run-<COMPUTER>.json` or `candidate-*.json` next to `run.json`.
 
-**What it means:** two windows saved the run without seeing each other's change, usually because OneDrive was paused, offline or slow on one computer, or someone used **Take over**. Flightdeck refused to overwrite and kept the other version beside it.
+**What it means:** two windows saved the run without seeing each other's change, usually because OneDrive was paused, offline or slow on one computer, or someone used **Take over**. Flightdeck refused to overwrite and kept the other version beside it. Right after a team moves to Flightdeck 2.1, a run that was already open in a browser tab makes one conflict copy on its first save (see [Updating Flightdeck](updating.md#two-things-to-know-when-moving-to-21)); compare it as below.
 
 **What to do:**
 
@@ -137,6 +137,14 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 2. If it stays unreadable, make sure the folder is set to **Always keep on this device** (see [OneDrive isn't syncing](#onedrive-isnt-syncing)).
 3. Still unreadable: restore that one file as in [Restoring from a backup](#restoring-from-a-backup). For a run's `run.json`, put the backup next to it as `run.conflict-restored.json`, never over it.
 
+**A sign-off, a plan or a staged version.** These hold up only what they belong to, never the whole folder:
+
+- A sign-off file (`validations/`) that can't be read: until it reads, **Ready for a skill?** and a staged version's line say they can't tell whether that version was signed off, and **Sign off** isn't offered for it.
+- A decision on a planned run that can't be read: that plan can't be started, declined or switched until it reads.
+- A staged version without its finished record, or a retire or reopen decision that can't be read: nothing runs from that staged version, and **All versions** offers no change to it until it reads. Stage the draft again if it stays that way.
+
+Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is named as ignored: move it out of that folder.
+
 **What not to do:** don't fix the JSON by hand in a text editor, and don't delete the file. A run file someone fixed by hand may open read-only.
 
 ## Leftover files
@@ -217,7 +225,7 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 ## A newer Flightdeck wrote files
 
-**What you see:** "v5 needs Flightdeck 2.0" on a version, "Made with Flightdeck 2.0" on a run that shows its name only, "needs a newer Flightdeck" on a plan, a sign-off, a decision or a step type, or "Flightdeck X is in the team folder" in the top bar. Folder health lists each of these files under "A newer Flightdeck wrote some of these files".
+**What you see:** "v5 needs Flightdeck 2.0" (or 2.1) on a version, "Made with Flightdeck 2.0" on a run that shows its name only, "Test run · needs Flightdeck 2.1" on a test run, "needs a newer Flightdeck" on a plan, a sign-off, a decision or a step type, or "Flightdeck X is in the team folder" in the top bar. Folder health lists each of these files under "A newer Flightdeck wrote some of these files".
 
 **What it means:** someone used a newer copy of Flightdeck, and it wrote files this copy doesn't fully understand. This copy shows them by name and leaves them alone rather than risk misreading or erasing what it can't read. It never counts them as if they were something it knows.
 
@@ -227,7 +235,7 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 
 ## A teammate can't run a version
 
-**What you see:** a teammate sees "v5 needs Flightdeck 2.0" (or, on Flightdeck 1.20 and earlier, "Update Flightdeck to run it") where you can start runs on v5.
+**What you see:** a teammate sees "v5 needs Flightdeck 2.0" or "v5 needs Flightdeck 2.1" (or, on Flightdeck 1.20 and earlier, "Update Flightdeck to run it") where you can start runs on v5.
 
 **What it means:** v5 uses something their copy of Flightdeck can't read. Their copy shows it but won't run it, so runs already going on older versions aren't affected.
 

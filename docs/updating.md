@@ -101,9 +101,10 @@ For a while after an update, some people will still have the older copy open. Co
 
 | A newer copy wrote | An older copy (1.11.1 on) |
 |---|---|
-| A published version with new step types or syntax | Shows "Update Flightdeck to run it" and won't start it. From 1.21 on it says which version it needs: "v5 needs Flightdeck 2.0" |
+| A published version with new step types or syntax | Shows "Update Flightdeck to run it" and won't start it. From 1.21 on it says which version it needs: "v5 needs Flightdeck 2.0" (or 2.1) |
 | A run with fields it doesn't know | Opens the run read-only |
 | A run in a newer run format (made with Flightdeck 2.0) | Shows its name only and won't change it. From 1.21 on: "Made with Flightdeck 2.0" |
+| A staged version or a test run (2.1) | Never lists `staged/`. Shows a test run by name only and won't change it (2.0: "Test run · needs Flightdeck 2.1"), but counts it in Home's running number |
 | A plan, a sign-off, a step type or a decision in a newer format | Doesn't use it. From 1.21 on, Folder health lists it with the version it needs |
 | A note of a new kind (a correction, read by a copy older than 1.13) | Shows it as a plain note and keeps its files |
 | A draft that uses new checklist syntax | Shows errors on the draft; publish it from the newer copy |
@@ -121,11 +122,9 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 1. Put Flightdeck 1.21 in the team folder and have everyone reopen it from there. Check Folder health: "Teammates are using an older Flightdeck" should be gone once every computer has answered a connection check or opened a draft with 1.21.
 2. Then put Flightdeck 2.0 in the team folder.
-3. Only then start using 2.0 features (notes and screenshots on phases and gates, exact versions of linked checklists and skills, typed run details and evidence, reports from tools). Staging and test runs come in 2.1. A checklist that uses none of them still publishes as a version every copy from 1.11.1 on can run.
+3. Only then start using 2.0 features (notes and screenshots on phases and gates, exact versions of linked checklists and skills, typed run details and evidence, reports from tools). `only when`, staging and test runs are 2.1 features (below). A checklist that uses none of them still publishes as a version every copy from 1.11.1 on can run.
 
 ### Using conditions (2.1)
-
-> **Not released yet.** This applies once Flightdeck 2.1 is out. 2.0.x is the version on npm today.
 
 `only when` on a step or phase needs Flightdeck 2.1 on every computer that runs the checklist: a version that uses it shows on 2.0 and earlier as "needs Flightdeck 2.1" and won't start there, and its runs show by name only. Put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. The 1.21 step above still comes first for a team moving from 1.x; 2.1 doesn't change it. A checklist without `only when` publishes exactly as it does on 2.0.
 

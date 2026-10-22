@@ -4,13 +4,13 @@
 >
 > - **The model** (processes, checklists, versions, runs, gates): sections [1](#1-what-flightdeck-is), [3](#3-concepts), [7](#7-runs-v1) and [8](#8-gates).
 > - **How a shared folder stays safe**: [4. Team folder and writers](#4-team-folder-and-writers), then [docs/onedrive.md](onedrive.md).
-> - **Skills and traceability**: [13](#13-process-to-skill-traceability-190) and corrections in [19](#19-versions-and-staging-staging-planned-for-21).
+> - **Skills and traceability**: [13](#13-process-to-skill-traceability-190) and corrections in [19](#19-versions-and-staging-staging-built-in-21).
 > - **Other apps and AI assistants**: [26](#26-other-apps-read-118-request-120-and-report-20) and [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2).
 > - **File formats and older copies**: [28](#28-file-formats-and-compatibility-the-cross-version-harness-20-slice-1a-and-the-121-bridge-slice-1b).
 >
-> Sections 30 and 31 describe Flightdeck 2.1 work that isn't released yet.
+> Sections 30 to 33 describe Flightdeck 2.1: conditions, staging, test runs, and readiness from test runs. Data-only extensions moved to 2.2.
 
-Status: **describes Flightdeck 1.17.0** (large-folder slices 1a and 1b, search, insights and evidence export), **1.18's first slice, reading for other apps** (section 26), **1.19's first two slices, proposals and the soft lock, and live apply in the main editor** (section 27), **1.20's first slice, asking for a run from another app** (section 26), **the cross-version harness of 2.0's first slice, and the 1.21 bridge that refuses 2.0 files precisely** (section 28), **1.22's Back and Forward** (section 29), **2.0.0: new file formats with phase and gate notes and screenshots, exact versions (pins), typed values and READ/2, reports from tools, and the lightness pass** (sections 26 and 28; staging, test runs and data-only extensions are planned for 2.1). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
+Status: **describes Flightdeck 1.17.0** (large-folder slices 1a and 1b, search, insights and evidence export), **1.18's first slice, reading for other apps** (section 26), **1.19's first two slices, proposals and the soft lock, and live apply in the main editor** (section 27), **1.20's first slice, asking for a run from another app** (section 26), **the cross-version harness of 2.0's first slice, and the 1.21 bridge that refuses 2.0 files precisely** (section 28), **1.22's Back and Forward** (section 29), **2.0.0: new file formats with phase and gate notes and screenshots, exact versions (pins), typed values and READ/2, reports from tools, and the lightness pass** (sections 26 and 28), and **2.1.0: conditions, staging, test runs, and readiness and sign-offs from test runs** (sections 30 to 33; data-only extensions are planned for 2.2). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
 
 ## 1. What Flightdeck is
 
@@ -330,9 +330,9 @@ Nothing is open right now. New questions go here.
 - **"Checklist", not "map" (2026-10-18):** everything people see calls a process's written-down steps a checklist (the process page, the editor, the docs, the skills for AI assistants). Internal names keep "map": code identifiers, the `maps/` folder, `map.md`, `docs/map-format.md` and the file formats, so existing team folders keep working.
 
 
-## 19. Versions and staging (staging planned for 2.1)
+## 19. Versions and staging (staging built in 2.1)
 
-Decided 2026-10-18. Of this section, 1.11 shipped only the items marked built: planned and duplicated runs, suggested fixes, and step types in groups with tags. 2.0 adds exact versions for linked runs, plans and skill registrations (section 28, *Pins*). Staging, test runs and versioned step types are **not in 2.0**: the owner moved them to 2.1 on 2026-10-21, with data-only extensions, so 2.0 could ship lighter and sooner. 2.0 knows their file names only to refuse them (section 28). Nothing refers to "whatever is there now": every reference names an exact version, and every kind of thing can be tried before it's used for real.
+Decided 2026-10-18. Of this section, 1.11 shipped only the items marked built: planned and duplicated runs, suggested fixes, and step types in groups with tags. 2.0 adds exact versions for linked runs, plans and skill registrations (section 28, *Pins*). Staging, test runs and versioned step types are **not in 2.0**: the owner moved them to 2.1 on 2026-10-21, with data-only extensions, so 2.0 could ship lighter and sooner. 2.0 knows their file names only to refuse them (section 28). 2.1 builds staging and test runs (sections 31 to 33); data-only extensions moved to 2.2. Nothing refers to "whatever is there now": every reference names an exact version, and every kind of thing can be tried before it's used for real.
 
 - **Planned: one lifecycle for processes, step types and skills:** Draft → Staged → Published → Retired. Anyone can stage; only the owner publishes. Step types and skill registrations gain an `owner`, as processes have.
 - **Planned: staging freezes a numbered version** (v3, marked staged). Only test runs can use it. A test run is labeled as one everywhere it shows: lists, the run screen, the receipt.
