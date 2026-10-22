@@ -448,6 +448,9 @@ rule('A child started with carry: is judged only on what it carried: a detail it
   same(R.childVerdict(r, step, r.steps.board, child, () => null), { s: 'done' });
   child.details.ticket = 'T-2';
   assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'what it carried still counts');
+  // carry: edited during the run to drop a detail it did carry: a child that ends with another value of it is never done.
+  child.details.ticket = 'T-1'; child.details.risk = 'low';
+  assert.strictEqual(R.childVerdict(r, step, r.steps.board, child, () => null).s, 'blocked', 'a value it holds is compared');
 });
 
 run();

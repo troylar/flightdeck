@@ -6355,11 +6355,12 @@ PF.run = (function () {
     /* A carried value the child migrated (its own record, from the carried text) is the same value; one still waiting there
        keeps this step open. */
     var cm = Array.isArray(child.migrations) ? child.migrations : [], held = false;
-    /* A detail in the snapshot only because a condition tests it (2.1) was never passed to the child (with carry:), so the
-       child's own value of it says nothing. */
+    /* A detail in the snapshot only because a condition tests it (2.1) wasn't passed to the child (with carry:): while the
+       child has no value of its own for it, there's nothing to compare. carry: can be edited during the run, so a child that
+       does hold a value (it may have been carried then) is compared as usual: a mismatch blocks, never a silent done. */
     var condOnly = carried.length ? condFields(r, step).filter(function (k) { return carried.indexOf(k) < 0 && (step.binds || []).indexOf(k) < 0; }) : [];
     var changed = Object.keys(a.child.inputs || {}).filter(function (k) {
-      if (condOnly.indexOf(k) >= 0) return false;
+      if (condOnly.indexOf(k) >= 0 && !(child.details && child.details[k])) return false;
       if (!Object.prototype.hasOwnProperty.call(child.details || {}, k) || (child.details[k] || '') === (a.child.inputs[k] || '')) return false;
       var m = cm.filter(function (x) { return x && x.path === 'details.' + k && x.from === a.child.inputs[k]; })[0];
       if (m && isOpen(m)) { held = true; return false; }
