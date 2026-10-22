@@ -265,7 +265,7 @@ rule('App: a counted run whose file is replaced by another run\'s stops counting
   assert.ok(/2 of 3 clean runs/.test(readyText(app.html())) && !/data-kind="signoff"/.test(app.html()), readyText(app.html()));
 });
 
-for (const how of ['replaced by another run\'s', 'gone']) rule('App: a run with unsaved work whose file is ' + how + ' stops counting at the next read, though it stays on screen', async () => {
+for (const how of ['replaced by another run\'s', 'gone']) rule('App: a run with a change that couldn\'t be saved doesn\'t count, nor once its file is ' + how + ', though it stays on screen', async () => {
   const app = await twoCleanCheckIns();
   const runs = cleanCheckIns(app), third = JSON.parse(app.fs.files[runs[0]].t), path = 'runs/check-in/third001/run.json';
   // A third check-in, every step done, waiting for someone to pick up recording; Avery does, in this window.
@@ -280,8 +280,12 @@ for (const how of ['replaced by another run\'s', 'gone']) rule('App: a run with 
   app.click('finish'); await app.tick();
   app.click('end', 'Completed'); await app.tick(60);
   assert.ok(/isn't saved/.test(app.html()), 'set-up: ending it isn\'t saved');
+  // A change that couldn't be saved isn't what the folder holds, so it doesn't count, before or after the file changes.
   app.click('open-process', 'check-in'); await app.tick();
-  assert.ok(/3 clean runs/.test(readyText(app.html())), 'set-up: it counts as the third: ' + readyText(app.html()));
+  assert.ok(/2 of 3 clean runs/.test(readyText(app.html())) && !/data-kind="signoff"/.test(app.html()), 'unsaved, not counted: ' + readyText(app.html()));
+  app.click('pick', 'check-in', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'check-in'); await app.tick(80);
+  assert.deepStrictEqual(app.files('validations/'), [], 'no sign-off written');
   if (/gone/.test(how)) app.files('runs/check-in/third001/').forEach(k => delete app.fs.files[k]);
   else app.fs.files[path] = { t: app.fs.files[runs[1]].t, m: Date.now() + 1 };
   app.click('refresh'); await app.tick(120);
