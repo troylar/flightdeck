@@ -1,8 +1,21 @@
 # Using Flightdeck from other apps
 
-Flightdeck is a checklist tool for people: a monthly backup check, a quarterly access review, onboarding a new hire, closing the month, a release. Other apps can work beside a run the way a teammate would: look at it, then let the people decide. Since 1.18 an app can **read** checklists, runs, what's waiting and on whom, and follow-ups as JSON, through the `flightdeck` command. It works offline, on the team folder itself. There's no server and nothing to sign in to.
+> **For:** anyone writing a script, bot or tool that works with a Flightdeck team folder, and AI assistants that edit checklists.
+>
+> **You'll get:** the commands, the exact JSON they print, what each exit code means, and the promises behind them.
 
-Since 1.20 an app can also **ask for a run** with `flightdeck plan request`: it writes a planned run that a person reviews and starts in the app (see *Asking for a run*, below). Since 2.0 an app can also **report** the work it did on a step with `flightdeck report`: a person accepts the report (the step is checked with its evidence) or declines it (see *Reporting work*, below). A report never checks a step by itself. Since 1.19, AI assistants can also read and save **drafts** of checklists with `flightdeck draft` (contract `flightdeck-draft/1`, at the end of this page). `plan request` and the draft commands change the team folder; the reading commands never do.
+Flightdeck is a checklist tool for people: a monthly backup check, a quarterly access review, onboarding a new hire, closing the month, a release. Other apps can work beside a run the way a teammate would: look at it, then let the people decide. Everything works offline, on the team folder itself, through the `flightdeck` command. There's no server and nothing to sign in to.
+
+| An app can | With | Since | Changes the folder? |
+|---|---|---|---|
+| **Read** checklists, runs, what's waiting and on whom, and follow-ups as JSON | `flightdeck processes`, `process`, `runs`, `run`, `next`, `followups` | 1.18 | Never |
+| **Ask for a run**: a planned run that a person reviews and starts in the app ([Asking for a run](#asking-for-a-run)) | `flightdeck plan request` | 1.20 | Writes one file in `proposals/` |
+| **Report** the work it did on a step: a person accepts it (the step is checked with its evidence) or declines it ([Reporting work](#reporting-work)) | `flightdeck report` | 2.0 | Writes one file in `reports/` |
+| **Read and save drafts** of checklists (AI assistants; contract `flightdeck-draft/1`, [at the end of this page](#writing-drafts-for-ai-assistants)) | `flightdeck draft` | 1.19 | Writes the draft or a proposal |
+
+A report never checks a step by itself, and a request never starts a run by itself. A person always decides.
+
+**On this page:** [What reading promises](#what-reading-promises) · [Commands](#commands) · [The envelope](#the-envelope) · [The data](#the-data) · [Contract 2](#contract-2-flightdeck-20) · [A walkthrough](#a-walkthrough) · [Asking for a run](#asking-for-a-run) · [Reporting work](#reporting-work) · [Writing drafts](#writing-drafts-for-ai-assistants) · [Registering a skill](#registering-a-skill-for-ai-assistants)
 
 ## What reading promises
 
@@ -178,7 +191,7 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
 - **`run`** adds `format`, `features` (what the run needs from Flightdeck, in order), `pins` (each linked step's pinned version: `process`, `version`, `folder`, `mapHash`, `typesHash`) and `migrations` (every record, archived ones first). Each step's `evidence` entry adds its `type`: how its values are checked and reported, the same `type` as each of its values. Evidence a 1.x step type records as a choice or a link (`kind` `choice` or `url`) is `text`: its values were never checked as typed values.
 - **`runs`** adds `format` and `features` to each run, and each planned run's `format` and `pin` (`folder` and `version` of the exact version a 2.0 plan starts on, or `null`). A 2.0 plan never falls back to the latest version: when its version can't be used, `startsOn` is `null` and `versionMissing` is `true`.
 - **`process`** adds `format`, `features` and `details` (each run detail's `name`, `type` and `options`), and each step's `evidence` entry adds `type`, `min`, `max` and `unit` (a number's limits, as text, or `null`).
-- **Conditions (2.1).** In `process`, each phase and each step adds `when`: its `only when` tests in their canonical spelling (`^risk is high`), `[]` when it has none. In `run`, each step adds `applies` (`true`, `false` when it's Not needed in this run, `null` when it can't tell yet) and `held` (why it's waiting, while `applies` is `null`; else `null`), and each gate adds `applies` (`false` when its phase is Not needed). A gate whose phase is Not needed has `status` `skipped`: it needs no pass, and it's never permission for anything. `applies` is read from the run's details as they are now, so it can change when a detail does.
+- **Conditions (Flightdeck 2.1, not released yet).** In `process`, each phase and each step adds `when`: its `only when` tests in their canonical spelling (`^risk is high`), `[]` when it has none. In `run`, each step adds `applies` (`true`, `false` when it's Not needed in this run, `null` when it can't tell yet) and `held` (why it's waiting, while `applies` is `null`; else `null`), and each gate adds `applies` (`false` when its phase is Not needed). A gate whose phase is Not needed has `status` `skipped`: it needs no pass, and it's never permission for anything. `applies` is read from the run's details as they are now, so it can change when a detail does.
 
 Contract 1's output doesn't change.
 

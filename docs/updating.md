@@ -1,6 +1,12 @@
 # Updating Flightdeck
 
-For the person who keeps a team's Flightdeck up to date, usually the team lead. One person does this for each team folder, so two updates never cross.
+> **For:** the person who keeps a team's Flightdeck up to date, usually the team lead.
+>
+> **You'll get:** seven steps from "is there a new release?" to "the team is on it," plus what to do when computers run different versions and how to roll back.
+
+One person does this for each team folder, so two updates never cross.
+
+**On this page:** [1. Learn about new releases](updating.md#1-learn-about-new-releases) · [2. Read What's new](updating.md#2-read-whats-new) · [3. Pick a time](updating.md#3-pick-a-time) · [4. Back up](updating.md#4-back-up) · [5. Install](updating.md#5-install) · [6. Verify](updating.md#6-verify) · [7. Tell the team](updating.md#7-tell-the-team) · [When computers run different versions](updating.md#when-computers-run-different-versions) · [Rolling back](updating.md#rolling-back)
 
 An update has two parts. `flightdeck.html` is the app everyone opens. `AGENTS.md` and the skills in `.flightdeck/skills/` are the contract your team's AI assistants follow. `flightdeck install` updates both, and never replaces a file your team changed without asking.
 
@@ -118,6 +124,8 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 3. Only then start using 2.0 features (notes and screenshots on phases and gates, exact versions of linked checklists and skills, typed run details and evidence, reports from tools). Staging and test runs come in 2.1. A checklist that uses none of them still publishes as a version every copy from 1.11.1 on can run.
 
 ### Using conditions (2.1)
+
+> **Not released yet.** This applies once Flightdeck 2.1 is out. 2.0.x is the version on npm today.
 
 `only when` on a step or phase needs Flightdeck 2.1 on every computer that runs the checklist: a version that uses it shows on 2.0 and earlier as "needs Flightdeck 2.1" and won't start there, and its runs show by name only. Put 2.1 in the team folder and have everyone reopen it before anyone publishes a checklist with `only when`. The 1.21 step above still comes first for a team moving from 1.x; 2.1 doesn't change it. A checklist without `only when` publishes exactly as it does on 2.0.
 

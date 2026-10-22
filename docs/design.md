@@ -1,5 +1,15 @@
 # Flightdeck design
 
+> **Start here.** This is the internal specification: complete, precise and long. If you're new, read the [README](../README.md#how-it-works) first, then come back for the parts you need:
+>
+> - **The model** (processes, checklists, versions, runs, gates): sections [1](#1-what-flightdeck-is), [3](#3-concepts), [7](#7-runs-v1) and [8](#8-gates).
+> - **How a shared folder stays safe**: [4. Team folder and writers](#4-team-folder-and-writers), then [docs/onedrive.md](onedrive.md).
+> - **Skills and traceability**: [13](#13-process-to-skill-traceability-190) and corrections in [19](#19-versions-and-staging-staging-planned-for-21).
+> - **Other apps and AI assistants**: [26](#26-other-apps-read-118-request-120-and-report-20) and [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2).
+> - **File formats and older copies**: [28](#28-file-formats-and-compatibility-the-cross-version-harness-20-slice-1a-and-the-121-bridge-slice-1b).
+>
+> Sections 30 and 31 describe Flightdeck 2.1 work that isn't released yet.
+
 Status: **describes Flightdeck 1.17.0** (large-folder slices 1a and 1b, search, insights and evidence export), **1.18's first slice, reading for other apps** (section 26), **1.19's first two slices, proposals and the soft lock, and live apply in the main editor** (section 27), **1.20's first slice, asking for a run from another app** (section 26), **the cross-version harness of 2.0's first slice, and the 1.21 bridge that refuses 2.0 files precisely** (section 28), **1.22's Back and Forward** (section 29), **2.0.0: new file formats with phase and gate notes and screenshots, exact versions (pins), typed values and READ/2, reports from tools, and the lightness pass** (sections 26 and 28; staging, test runs and data-only extensions are planned for 2.1). Sections marked *planned* describe decided work that isn't built yet. Supersedes the v0.1 "lightweight checklist" scope.
 
 ## 1. What Flightdeck is
