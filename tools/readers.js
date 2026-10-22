@@ -21,6 +21,8 @@ const RAW = [
   { file: 'src/storage/repo.js', has: 'if (!bad) return readJson(fs, path)', why: 'loadJsonDir: the caller\'s ok() dispatch check runs before the record is kept; each caller then uses its family\'s cleaner (PF.plans.clean, PF.skills.cleanValidation)' },
   { file: 'src/storage/repo.js', has: "info = f && json(f.text)", why: 'pubProblem: shape checked, then P.newerOf (the envelope) before any other field' },
   { file: 'src/storage/repo.js', has: "if (o.explain) { var raw = json(res[0].text)", why: 'R.repairs and R.unexplained (the run\'s own checked reader for other apps)' },
+  { file: 'src/storage/repo.js', has: 'var why0 = misplaced(json(res[0].text), run, proc, id);', why: 'the run\'s own process, as written, compared with its folder\'s name only (the run itself is read by R.sanitize)' },
+  { file: 'src/storage/repo.js', has: "elsewhere(json(t[0]), proc, m.key.split('/')[1])", why: 'Evidence: the run\'s own process and ID compared with its folder\'s names only (the run itself is read by R.sanitize)' },
   { file: 'src/storage/repo.js', has: "why: json(res[0].text) === undefined", why: 'only tells unparsable from unreadable, in a message' },
   { file: 'src/storage/repo.js', has: "var o = res[0] && json(res[0].text)", why: 'loadRun\'s fingerprint read: passed to R.sanitize' },
   { file: 'src/storage/repo.js', has: 'var disk = R.sanitize', why: 'R.sanitize' },

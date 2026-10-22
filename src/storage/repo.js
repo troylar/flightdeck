@@ -406,6 +406,20 @@ PF.repo = (function () {
       }, function () { return ''; });
     });
   }
+  /* Why a run.json (raw, and as cleaned) isn't the run of the folder runs/<proc>/<id>/ it's in, or ''. The process is checked as
+     written too: cleaning cuts a name over 60 characters, and a run read under the cut name would save into another folder. */
+  function misplaced(raw, run, proc, id) {
+    if (raw && typeof raw === 'object' && typeof raw.process === 'string' && raw.process !== run.process) return 'names a process longer than the 60 characters Flightdeck reads, so it isn\'t read as ' + proc + '/' + id;
+    if (run.process === proc && run.id === id) return '';
+    return 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id;
+  }
+  /* The same rule on a raw run.json alone (the evidence pack, which reads files as they are): why it isn't the run of
+     runs/<proc>/<id>/, or ''. */
+  function elsewhere(raw, proc, id) {
+    /* One without an ID isn't a run at all, and is refused as one; one without its own process can't be this folder's. */
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || (raw.process === proc && raw.id === id)) return '';
+    return 'belongs to ' + (typeof raw.process === 'string' && raw.process ? raw.process.slice(0, 80) : '(no process)') + '/' + raw.id.slice(0, 40) + ', not to the folder it\'s in';
+  }
   /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
      one run (the open one) also checks its own publication. */
   /* bad: a list that a run.json which can't be understood is added to (it's never just left out). */
@@ -470,10 +484,12 @@ PF.repo = (function () {
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
-        /* Reading for other apps: a run file that names another run (copied into the wrong folder) is never read as this
-           folder's run or joined with its decisions. */
-        if (o.explain && (run.process !== proc || run.id !== id)) {
-          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id });
+        /* A run.json is a run only in its own folder, runs/<its process>/<its id>/ (2.0.1; other apps since 2.0.0). A copy of a
+           run in another run folder is never read, counted, opened or joined with that folder's decisions: it's named, with
+           where it belongs, and left as it is, so each run counts once. */
+        var why0 = misplaced(json(res[0].text), run, proc, id);
+        if (why0) {
+          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: why0 });
           return null;
         }
         stamps['run.json'] = stampOf(res[0]);
@@ -521,10 +537,11 @@ PF.repo = (function () {
 
   /* One line of a notes file as a note, or null when it isn't one (no text or id). */
   function noteOf(n, base) { return n && typeof n === 'object' && typeof n.text === 'string' && typeof n.id === 'string' ? cleanNote(n, base) : null; }
-  /* Notes come from files anyone can edit: keep only the shape the app understands, and only attachments inside this run's files/ folder. */
+  /* Notes come from files anyone can edit: keep only the shape the app understands, and only attachments inside this run's files/ folder.
+     Its author is kept exactly: who wrote a correction decides who may withdraw or revise it. */
   function cleanNote(n, base) {
     var files = Array.isArray(n.files) ? n.files.filter(function (f) { return PF.attach.pathOk(f, base); }) : [];
-    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by.slice(0, 80) : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
+    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
       step: typeof n.step === 'string' ? n.step.slice(0, 60) : '', text: n.text.slice(0, 2000), files: files, fileInfo: PF.attach.cleanInfo(n.fileInfo, files), kind: n.kind === 'map' || n.kind === 'fix' || n.kind === 'correction' ? n.kind : undefined };
     if (n.kind === 'correction') return Object.assign(c, PF.corrections.cleanNote(n));
     if (n.kind === 'fix') {
@@ -2230,7 +2247,10 @@ PF.repo = (function () {
             hold(size);
             return ro.read(path).then(function (f) { return f ? decoded(f.text) : null; }, function () { return null; }).then(function (t) {
               var o = t == null ? undefined : json(t), created = o && typeof o === 'object' && typeof o.created === 'string' ? o.created : null;
+              /* A run.json that names another run is never dated by that run: included, and named. */
+              var other = o && typeof o === 'object' ? elsewhere(o, scope.process, id) : '';
               t = null; o = null; retained.now -= size;
+              if (other) return { id: id, undated: 'run.json ' + other };
               if (created && !isNaN(Date.parse(created))) return E.inRange(created, range) ? { id: id } : null;
               return { id: id, undated: 'run.json couldn\'t be read' };
             });
@@ -2294,7 +2314,8 @@ PF.repo = (function () {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n) { return selected[m.key] ? record(m.base + n).then(function (x) { return x.text == null ? null : x.text; }) : sizedText(m.base + n, recordMax).then(function (x) { return x.text == null ? null : x.text; }); };
           return Promise.all(m.want.map(read)).then(function (t) {
-            if (t[0] == null || !R.sanitize(json(t[0]))) return null;
+            /* Only a run in its own folder: a copy of one elsewhere would add its corrections again. */
+            if (t[0] == null || !R.sanitize(json(t[0])) || elsewhere(json(t[0]), proc, m.key.split('/')[1])) return null;
             return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: U.hash(t[0]), notesSig: '', unrunnable: '' }, null);
           });
         });
@@ -2327,7 +2348,9 @@ PF.repo = (function () {
         var raw = r.text == null ? undefined : json(r.text);
         p.runOver = r.over;
         var lineage = raw && typeof raw === 'object' && Array.isArray(raw.lineage) ? raw.lineage.filter(function (t) { return typeof t === 'string'; }) : null;
-        p.folder = raw && typeof raw === 'object' && typeof raw.folder === 'string' && P.versionOf(raw.folder) ? raw.folder : '';
+        /* A run.json that names another run is packed as it is, but nothing is taken from it as this folder's run. */
+        p.foreign = raw && typeof raw === 'object' ? elsewhere(raw, proc, id) : '';
+        p.folder = !p.foreign && raw && typeof raw === 'object' && typeof raw.folder === 'string' && P.versionOf(raw.folder) ? raw.folder : '';
         p.items.forEach(function (x) {
           var rel = x.path.slice(base.length + 1);
           if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
@@ -2349,7 +2372,7 @@ PF.repo = (function () {
           p.ids = ids;
           /* This run's own correction groups, from its own notes: a group's ID depends only on the correction, so a decision
              on the group belongs to the pack whatever else can be read. */
-          var self = raw ? R.sanitize(raw) : null;
+          var self = raw && !p.foreign ? R.sanitize(raw) : null;
           if (self) { self._notes = []; t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { self._notes.push(cleanNote(n.note, base + '/')); }); }); }
           p.ownGroups = {};
           if (self) try { C.groups(C.collect([self], proc)).forEach(function (g) { p.ownGroups[g.id] = true; }); } catch (e) { /* a run this copy can't fully read has no groups to add */ }
@@ -2509,8 +2532,9 @@ PF.repo = (function () {
       else if (raw === undefined) limits.push('run.json isn\'t complete JSON.');
       rc.raw = raw && typeof raw === 'object' ? raw : null;
       if (rj) rc.source.runJson = { rev: rc.raw && typeof rc.raw.rev === 'number' ? rc.raw.rev : null, sha256: rj.sha256 };
-      var run = rc.raw ? R.sanitize(rc.raw) : null;
-      if (rc.raw && !run) limits.push('run.json isn\'t a run this copy can read.');
+      var run = rc.raw && !p.foreign ? R.sanitize(rc.raw) : null;
+      if (p.foreign) { limits.push('run.json ' + p.foreign + '. It\'s in the pack as it is.'); col.unresolved.push(p.key + ': run.json ' + p.foreign + '.'); }
+      else if (rc.raw && !run) limits.push('run.json isn\'t a run this copy can read.');
       if (run && run._unrunnable) limits.push(run._unrunnable);
       if (run && run._badTimes) limits.push('Some times in run.json couldn\'t be read, so this page shows them as unknown; the original file has them as written.');
       rc.title = run ? run.title : rc.raw && typeof rc.raw.title === 'string' ? rc.raw.title.slice(0, 100) : '';

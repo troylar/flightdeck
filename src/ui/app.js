@@ -116,6 +116,9 @@
     now: function () { return Date.now(); },
     get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
     run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
+    /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
+       stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
+    countedRuns: countedRuns,
     recording: function (r) { return !!r && !!state.me && !r.ended && !r._unrunnable && r.recorder.person === state.me && r.recorder.session === SESSION; },
     /* Who may resolve conflict copies: the recorder's window while it runs; once it has ended, whoever recorded or ended it. */
     canRecover: function (r) { return !!r && !!state.me && !r._unrunnable && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
@@ -584,7 +587,7 @@
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
     /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
        runs whose cached copy turned out older than the one shown. */
-    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache));
+    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache), Object.keys(notCounted));
     staleCache = {};
     var at = { seq: seq, revs: before };
     var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
@@ -612,14 +615,14 @@
       (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
-      data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
+      data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
       if (changed || force || wasErr) render(); else renderTop();
       navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
       finishAccepts();
-    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); navLoadFailed(); });
+    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -650,7 +653,19 @@
      (its contents, gone, unreadable) changes any other way, except the outcome of this window's own save, which is newer
      than any read (runOutcome). Returns the run object to show when the result replaced it, else null. */
   var applied = {}, baselines = {}, staleCache = {};
+  /* Runs whose latest read failed (unreadable, or gone), whatever is on screen: a run kept on screen for its unsaved work still
+     isn't counted toward a sign-off while its file can't be read as it (2.0.1). */
+  var notCounted = {};
+  /* The last read of the whole folder failed: what's shown is from before it. */
+  var folderUnread = false;
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
+  function countedRuns() {
+    /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
+    if (folderUnread || (data.failed || {}).runs) return [];
+    /* Nor is a run with a change that couldn't be saved. */
+    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {};
+    return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k] && !un[r.id]; });
+  }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
     var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
@@ -665,6 +680,8 @@
     var id = key.slice(key.indexOf('/') + 1);
     if (!res || res.kind === 'pending') return null;
     if ((applied[key] || 0) > at.seq) return null;
+    /* Only a real read clears it, never what the cache remembers. */
+    if (res.kind === 'unreadable' || res.kind === 'missing') notCounted[key] = true; else if (res.kind === 'fresh') delete notCounted[key];
     if (res.kind === 'cached') {
       var shown = findRun(key);
       if (shown && repo.runSig(shown) === res.sig) return null;
@@ -695,7 +712,7 @@
     return res.run;
   }
   /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
-  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; setRunStatus(key, kind, why); }
+  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; if (kind === 'unread' || kind === 'missing') notCounted[key] = true; else delete notCounted[key]; setRunStatus(key, kind, why); }
   /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
      gone only when the listing was complete; one never saved yet, or one the read may not replace, stays as it is. */
   function applyRunsRead(d, at) {
@@ -858,8 +875,8 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
-    state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
+    gen++; loading = null; folderUnread = false; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
     /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
@@ -1646,8 +1663,11 @@
         /* "Before" is this save's own revision: if the person changed anything after it, the newer change stays on screen. */
         var mineAt = {}; mineAt[r.id] = rev; mineAt['~' + r.id] = edits('~' + r.id);
         var at = { seq: ++readsStarted, revs: mineAt };
-        return repo.loadRun(fs, r.process, r.id).then(function (fresh) {
+        var reread = [];
+        return repo.loadRun(fs, r.process, r.id, null, false, false, reread).then(null, function (e) { reread.push({ why: 'couldn\'t be read (' + (e && e.message || String(e)) + ')' }); return null; }).then(function (fresh) {
           if (g !== gen) return false;
+          /* A reread that isn't this run (unreadable, gone, or another run's file) is said, so what's on screen stops counting. */
+          if (!fresh) applyRunRead(r.process + '/' + r.id, at, reread.length ? { kind: 'unreadable', why: reread[0].why } : { kind: 'missing' });
           var replaced = !!fresh && !!applyRunRead(r.process + '/' + r.id, at, { kind: 'fresh', run: fresh });
           if (replaced) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
           say(V.nameOf(ctx, e.disk.recorder.person) + ' saved this run from another window or computer, so your change wasn\'t written over theirs. ' +
@@ -3796,7 +3816,7 @@
       if (!pub || !state.me) return;
       var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
-      var ready = PF.skills.readiness(data.runs, pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
+      var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
       queued(function () { return repo.recordValidation(sfs, pub, WRITER, state.me, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null); }).then(function () {
         if (sg !== gen) return; state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
@@ -3809,13 +3829,13 @@
       if (kind === 'create') {
         var p = processes().filter(function (x) { return x.id === name; })[0], pub = p && p.latest;
         if (!pub) return;
-        text = PF.skills.createBrief(pub, null, PF.skills.readiness(data.runs, pub, null), withNames(PF.skills.signoffs(data.validations, pub)));
+        text = PF.skills.createBrief(pub, null, PF.skills.readiness(countedRuns(), pub, null), withNames(PF.skills.signoffs(data.validations, pub)));
       } else {
         /* Registrations are identified by their file, so two skills with the same name never get each other's brief. */
         var hit = null; processes().forEach(function (q) { q.skills.forEach(function (x) { if (x.skill.file === name) hit = x; }); });
         if (!hit || !hit.status.latest) return;
         var lp = hit.status.latest;
-        text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(data.runs, lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
+        text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(countedRuns(), lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
       }
       state.brief = { key: id, text: text }; render();
       copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');
