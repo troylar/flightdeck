@@ -6881,6 +6881,33 @@ PF.run = (function () {
     });
     return why ? NEWER + ' ' + why : '';
   }
+  /* A run naming someone by an ID longer than the 80 characters a run keeps: cleaning cuts it, so the run would match someone
+     else whose ID starts the same (who may recover it) and saving would write the cut ID. Read-only instead, never cut (2.0.1). */
+  function longIds(o) {
+    var where = '';
+    function id(v, w) { if (!where && typeof v === 'string' && v.length > 80) where = w; }
+    function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+    /* Every shape cleaning reads entries from by name: a list read that way (Object.keys) is checked too. */
+    function keyed(v) { return !!v && typeof v === 'object'; }
+    function each(list, f) { if (Array.isArray(list)) list.forEach(function (x) { if (obj(x)) f(x); }); }
+    if (obj(o.recorder)) { id(o.recorder.person, 'its recorder'); if (obj(o.recorder.handoff)) id(o.recorder.handoff.from, 'its hand-off'); }
+    if (obj(o.ended)) id(o.ended.by, 'who ended it');
+    id(o.createdBy, 'who started it');
+    if (obj(o.paused)) id(o.paused.by, 'who paused it');
+    each(o.pauses, function (p) { id(p.by, 'a pause'); });
+    if (keyed(o.roles)) Object.keys(o.roles).forEach(function (k) { id(o.roles[k], 'a role'); });
+    each(o.followUps, function (f) { id(f.owner, 'a follow-up\'s owner'); id(f.by, 'a follow-up'); });
+    each(o.log, function (l) { id(l.by, 'its log'); });
+    if (keyed(o.steps)) Object.keys(o.steps).forEach(function (k) {
+      var a = o.steps[k]; if (!keyed(a)) return;
+      [a].concat(Array.isArray(a.history) ? a.history : []).forEach(function (h) {
+        if (!keyed(h)) return;
+        id(h.by, 'an answer'); if (obj(h.started)) id(h.started.by, 'an answer'); if (obj(h.deadline)) id(h.deadline.by, 'a deadline'); if (obj(h.differently)) id(h.differently.by, 'an answer');
+      });
+    });
+    if (keyed(o.gates)) Object.keys(o.gates).forEach(function (k) { if (keyed(o.gates[k])) id(o.gates[k].by, 'a gate'); });
+    return where ? 'It names someone (' + where + ') by an ID longer than the 80 characters Flightdeck keeps, so this copy shows it but can\'t record it or save over it.' : '';
+  }
   /* A run file in a run format this copy doesn't know (a newer Flightdeck's) is listed by name, read-only, with no steps:
      this copy can't tell what any of it means, so it shows nothing it might misread and never writes the file. */
   function newerFormat(o) {
@@ -7143,7 +7170,7 @@ PF.run = (function () {
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */
-    var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o);
+    var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o) || longIds(o);
     if (bad) r._unrunnable = bad;
     if (three) {
       r.format = FORMAT3;
@@ -7413,7 +7440,8 @@ PF.corrections = (function () {
     return out;
   }
 
-  /* A decision file read from disk, or null if it isn't one. Decisions on suggested fixes from before 1.13 are read too. */
+  /* A decision file read from disk, or null if it isn't one. Decisions on suggested fixes from before 1.13 are read too. Who
+     decided is kept exactly: a withdrawal counts only from the exact author of what it withdraws. */
   /* The envelope's verdict on a decision file: dv above 2, or a feature this copy doesn't know, is a decision from a newer
      Flightdeck, refused for every consumer, never read with today's meaning. */
   function verdict(o) { return PF.envelope.judge(o && o.kind === 'fix-decision' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', o); }
@@ -7421,7 +7449,7 @@ PF.corrections = (function () {
     if (!o || typeof o !== 'object') return null;
     if ((o.kind === 'correction-decision' || o.kind === 'fix-decision') && !verdict(o).ok) return null;
     if (typeof o.at !== 'string' || typeof o.by !== 'string') return null;
-    var d = { process: process, reason: str(o.reason, REASON_MAX), by: o.by.slice(0, 80), at: o.at.slice(0, 40), rev: whole(o.rev), seen: typeof o.seen === 'string' && FILE.test(o.seen) ? o.seen : null };
+    var d = { process: process, reason: str(o.reason, REASON_MAX), by: o.by, at: o.at.slice(0, 40), rev: whole(o.rev), seen: typeof o.seen === 'string' && FILE.test(o.seen) ? o.seen : null };
     if (o.kind === 'fix-decision') {
       if (typeof o.suggestion !== 'string' || !ID.test(o.suggestion) || ['open', 'accepted', 'declined'].indexOf(o.status) < 0) return null;
       return Object.assign(d, { kind: 'fix-decision', legacy: true, suggestion: o.suggestion, status: o.status === 'accepted' ? 'legacy' : o.status });
@@ -9288,12 +9316,14 @@ PF.skills = (function () {
   }
 
   /* A sign-off (validations/*.json), checked: { ok: true, rec } with plain strings and numbers only, so odd values can't break a
-     page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. */
+     page; a sign-off from a newer Flightdeck (flightdeck-validation/2, a stage's) is refused and named, never counted. Who
+     signed, and the process and version it names, are kept exactly as written: they're compared with the owner and the
+     version, so one cut to fit could count as someone else's or another version's (2.0.1). */
   function cleanValidation(v) {
     var env = PF.envelope.judge('flightdeck-validation', v);
     if (!env.ok) return { ok: false, kind: env.kind, why: env.kind === 'newer' ? 'is a sign-off made with a newer Flightdeck. ' + PF.envelope.needsText(env.needs) : env.why, needs: env.needs || '' };
     if (typeof v.process !== 'string' || typeof v.folder !== 'string' || typeof v.by !== 'string' || typeof v.at !== 'string') return { ok: false, kind: 'malformed', why: 'isn\'t a sign-off this copy can read', needs: '' };
-    var o = { kind: 'validation', process: v.process.slice(0, 60), folder: v.folder.slice(0, 60), by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
+    var o = { kind: 'validation', process: v.process, folder: v.folder, by: v.by, at: v.at.slice(0, 40), version: typeof v.version === 'number' && isFinite(v.version) ? v.version : 0, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
   }
@@ -9674,7 +9704,7 @@ PF.health = (function () {
     scanUnread.forEach(function (u) { if (!unread.some(function (x) { return x.path === u.path; })) unread.push(u); });
     var runUnread = unread.filter(function (u) { return /^runs\//.test(u.path) || u.path === 'people.json'; }), otherUnread = unread.filter(function (u) { return runUnread.indexOf(u) < 0; });
     if (runUnread.length) add({ id: 'unreadable-runs', severity: 'stop', area: 'Files', title: runUnread.length === 1 ? (runUnread[0].path === 'people.json' ? 'people.json can\'t be read' : 'A run file can\'t be read') : plural(runUnread.length, 'file') + ' that runs depend on can\'t be read',
-      detail: runUnread[0].path + ' ' + runUnread[0].why + '. It may still be arriving; if it stays this way, restore it from a backup.', paths: runUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+      detail: runUnread[0].path + ' ' + runUnread[0].why + (/^(belongs to|names a process longer)/.test(runUnread[0].why) ? '. It\'s left as it is: move it to its own folder, or delete it if it\'s a stray copy.' : '. It may still be arriving; if it stays this way, restore it from a backup.'), paths: runUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
     if (otherUnread.length) add({ id: 'unreadable', severity: 'warn', area: 'Files', title: plural(otherUnread.length, 'file') + ' can\'t be read', detail: otherUnread[0].path + ' ' + otherUnread[0].why + '. Flightdeck skips ' + (otherUnread.length === 1 ? 'it' : 'them') + ' and shows everything else.', paths: otherUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
     if (!failed.length && !unread.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
 
@@ -13477,6 +13507,20 @@ PF.repo = (function () {
       }, function () { return ''; });
     });
   }
+  /* Why a run.json (raw, and as cleaned) isn't the run of the folder runs/<proc>/<id>/ it's in, or ''. The process is checked as
+     written too: cleaning cuts a name over 60 characters, and a run read under the cut name would save into another folder. */
+  function misplaced(raw, run, proc, id) {
+    if (raw && typeof raw === 'object' && typeof raw.process === 'string' && raw.process !== run.process) return 'names a process longer than the 60 characters Flightdeck reads, so it isn\'t read as ' + proc + '/' + id;
+    if (run.process === proc && run.id === id) return '';
+    return 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id;
+  }
+  /* The same rule on a raw run.json alone (the evidence pack, which reads files as they are): why it isn't the run of
+     runs/<proc>/<id>/, or ''. */
+  function elsewhere(raw, proc, id) {
+    /* One without an ID isn't a run at all, and is refused as one; one without its own process can't be this folder's. */
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || (raw.process === proc && raw.id === id)) return '';
+    return 'belongs to ' + (typeof raw.process === 'string' && raw.process ? raw.process.slice(0, 80) : '(no process)') + '/' + raw.id.slice(0, 40) + ', not to the folder it\'s in';
+  }
   /* allRuns: part of a refresh of every run, which checks publications only through cache.bad (see loadAll); rereading
      one run (the open one) also checks its own publication. */
   /* bad: a list that a run.json which can't be understood is added to (it's never just left out). */
@@ -13541,10 +13585,12 @@ PF.repo = (function () {
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
         if (!run) { if (res[0] && bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: json(res[0].text) === undefined ? 'isn\'t complete JSON (it may still be arriving)' : 'isn\'t a run this copy can read' }); return null; }
-        /* Reading for other apps: a run file that names another run (copied into the wrong folder) is never read as this
-           folder's run or joined with its decisions. */
-        if (o.explain && (run.process !== proc || run.id !== id)) {
-          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id });
+        /* A run.json is a run only in its own folder, runs/<its process>/<its id>/ (2.0.1; other apps since 2.0.0). A copy of a
+           run in another run folder is never read, counted, opened or joined with that folder's decisions: it's named, with
+           where it belongs, and left as it is, so each run counts once. */
+        var why0 = misplaced(json(res[0].text), run, proc, id);
+        if (why0) {
+          if (bad) bad.push({ path: base + 'run.json', key: proc + '/' + id, kind: 'malformed', why: why0 });
           return null;
         }
         stamps['run.json'] = stampOf(res[0]);
@@ -13592,10 +13638,11 @@ PF.repo = (function () {
 
   /* One line of a notes file as a note, or null when it isn't one (no text or id). */
   function noteOf(n, base) { return n && typeof n === 'object' && typeof n.text === 'string' && typeof n.id === 'string' ? cleanNote(n, base) : null; }
-  /* Notes come from files anyone can edit: keep only the shape the app understands, and only attachments inside this run's files/ folder. */
+  /* Notes come from files anyone can edit: keep only the shape the app understands, and only attachments inside this run's files/ folder.
+     Its author is kept exactly: who wrote a correction decides who may withdraw or revise it. */
   function cleanNote(n, base) {
     var files = Array.isArray(n.files) ? n.files.filter(function (f) { return PF.attach.pathOk(f, base); }) : [];
-    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by.slice(0, 80) : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
+    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
       step: typeof n.step === 'string' ? n.step.slice(0, 60) : '', text: n.text.slice(0, 2000), files: files, fileInfo: PF.attach.cleanInfo(n.fileInfo, files), kind: n.kind === 'map' || n.kind === 'fix' || n.kind === 'correction' ? n.kind : undefined };
     if (n.kind === 'correction') return Object.assign(c, PF.corrections.cleanNote(n));
     if (n.kind === 'fix') {
@@ -15301,7 +15348,10 @@ PF.repo = (function () {
             hold(size);
             return ro.read(path).then(function (f) { return f ? decoded(f.text) : null; }, function () { return null; }).then(function (t) {
               var o = t == null ? undefined : json(t), created = o && typeof o === 'object' && typeof o.created === 'string' ? o.created : null;
+              /* A run.json that names another run is never dated by that run: included, and named. */
+              var other = o && typeof o === 'object' ? elsewhere(o, scope.process, id) : '';
               t = null; o = null; retained.now -= size;
+              if (other) return { id: id, undated: 'run.json ' + other };
               if (created && !isNaN(Date.parse(created))) return E.inRange(created, range) ? { id: id } : null;
               return { id: id, undated: 'run.json couldn\'t be read' };
             });
@@ -15365,7 +15415,8 @@ PF.repo = (function () {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n) { return selected[m.key] ? record(m.base + n).then(function (x) { return x.text == null ? null : x.text; }) : sizedText(m.base + n, recordMax).then(function (x) { return x.text == null ? null : x.text; }); };
           return Promise.all(m.want.map(read)).then(function (t) {
-            if (t[0] == null || !R.sanitize(json(t[0]))) return null;
+            /* Only a run in its own folder: a copy of one elsewhere would add its corrections again. */
+            if (t[0] == null || !R.sanitize(json(t[0])) || elsewhere(json(t[0]), proc, m.key.split('/')[1])) return null;
             return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: U.hash(t[0]), notesSig: '', unrunnable: '' }, null);
           });
         });
@@ -15398,7 +15449,9 @@ PF.repo = (function () {
         var raw = r.text == null ? undefined : json(r.text);
         p.runOver = r.over;
         var lineage = raw && typeof raw === 'object' && Array.isArray(raw.lineage) ? raw.lineage.filter(function (t) { return typeof t === 'string'; }) : null;
-        p.folder = raw && typeof raw === 'object' && typeof raw.folder === 'string' && P.versionOf(raw.folder) ? raw.folder : '';
+        /* A run.json that names another run is packed as it is, but nothing is taken from it as this folder's run. */
+        p.foreign = raw && typeof raw === 'object' ? elsewhere(raw, proc, id) : '';
+        p.folder = !p.foreign && raw && typeof raw === 'object' && typeof raw.folder === 'string' && P.versionOf(raw.folder) ? raw.folder : '';
         p.items.forEach(function (x) {
           var rel = x.path.slice(base.length + 1);
           if (x.kind === 'link') { p.excl.push({ path: x.path, reason: 'a link; Flightdeck never follows links' }); return; }
@@ -15420,7 +15473,7 @@ PF.repo = (function () {
           p.ids = ids;
           /* This run's own correction groups, from its own notes: a group's ID depends only on the correction, so a decision
              on the group belongs to the pack whatever else can be read. */
-          var self = raw ? R.sanitize(raw) : null;
+          var self = raw && !p.foreign ? R.sanitize(raw) : null;
           if (self) { self._notes = []; t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { self._notes.push(cleanNote(n.note, base + '/')); }); }); }
           p.ownGroups = {};
           if (self) try { C.groups(C.collect([self], proc)).forEach(function (g) { p.ownGroups[g.id] = true; }); } catch (e) { /* a run this copy can't fully read has no groups to add */ }
@@ -15580,8 +15633,9 @@ PF.repo = (function () {
       else if (raw === undefined) limits.push('run.json isn\'t complete JSON.');
       rc.raw = raw && typeof raw === 'object' ? raw : null;
       if (rj) rc.source.runJson = { rev: rc.raw && typeof rc.raw.rev === 'number' ? rc.raw.rev : null, sha256: rj.sha256 };
-      var run = rc.raw ? R.sanitize(rc.raw) : null;
-      if (rc.raw && !run) limits.push('run.json isn\'t a run this copy can read.');
+      var run = rc.raw && !p.foreign ? R.sanitize(rc.raw) : null;
+      if (p.foreign) { limits.push('run.json ' + p.foreign + '. It\'s in the pack as it is.'); col.unresolved.push(p.key + ': run.json ' + p.foreign + '.'); }
+      else if (rc.raw && !run) limits.push('run.json isn\'t a run this copy can read.');
       if (run && run._unrunnable) limits.push(run._unrunnable);
       if (run && run._badTimes) limits.push('Some times in run.json couldn\'t be read, so this page shows them as unknown; the original file has them as written.');
       rc.title = run ? run.title : rc.raw && typeof rc.raw.title === 'string' ? rc.raw.title.slice(0, 100) : '';
@@ -16329,7 +16383,7 @@ PF.vk = (function () {
       if (p.draft && p.draftChanged && mine) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
       if (p.staleSkills && mine) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The process changed since they were built.', 'open-process', p.id, 'See the skills');
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
-      if (signer && !PF.skills.signoffs(d.validations, p.latest).length && PF.skills.readiness(d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
+      if (signer && !PF.skills.signoffs(d.validations, p.latest).length && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
     });
     var h = notices(ctx);
     if (st.needsReconnect && ctx.navPending && ctx.navPending()) h += '<div class="notice" role="status"><span>Reconnect to open the page you linked to.</span><button class="mini" data-act="reconnect">Reconnect</button></div>';
@@ -16547,7 +16601,7 @@ PF.vk = (function () {
     if (n) line += n + (stale ? ' · ' + stale + ' need' + (stale === 1 ? 's' : '') + ' attention' : '');
     else if (!pub) line += 'none yet';
     else if (PF.skills.signoffs(ctx.data.validations, pub).length) line += 'none yet (v' + pub.info.version + ' signed off)';
-    else { var ready = PF.skills.readiness(ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
+    else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
     return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
       readyPanel(ctx, p, pub, true) + skillsPanel(ctx, p, true) + '</details>';
   }
@@ -16560,7 +16614,7 @@ PF.vk = (function () {
   /* Is the current version ready to become a skill? One line of status and the one thing to do next. */
   function readyPanel(ctx, p, pub, bare) {
     if (!pub) return '';
-    var st = ctx.state, ready = PF.skills.readiness(ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
+    var st = ctx.state, ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
     var h = bare ? '<h3>Ready for a skill?</h3>' : '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
     if (signs.length) {
       h += '<p class="small"><b>Yes.</b> v' + pub.info.version + ' was signed off by ' + esc(nameOf(ctx, signs[0].by)) + (signs[0].as === 'backup' ? ', the backup owner,' : '') + ' ' + esc(U.day(signs[0].at)) + '.</p><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy the brief for your AI assistant</button>' + briefBox(st, 'create:' + p.id);
@@ -20617,6 +20671,9 @@ PF.examples = (function () {
     now: function () { return Date.now(); },
     get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
     run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
+    /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
+       stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
+    countedRuns: countedRuns,
     recording: function (r) { return !!r && !!state.me && !r.ended && !r._unrunnable && r.recorder.person === state.me && r.recorder.session === SESSION; },
     /* Who may resolve conflict copies: the recorder's window while it runs; once it has ended, whoever recorded or ended it. */
     canRecover: function (r) { return !!r && !!state.me && !r._unrunnable && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
@@ -21085,7 +21142,7 @@ PF.examples = (function () {
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
     /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
        runs whose cached copy turned out older than the one shown. */
-    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache));
+    var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache), Object.keys(notCounted));
     staleCache = {};
     var at = { seq: seq, revs: before };
     var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
@@ -21113,14 +21170,14 @@ PF.examples = (function () {
       (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
-      data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
+      data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
       if (changed || force || wasErr) render(); else renderTop();
       navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
       finishAccepts();
-    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); render(); navLoadFailed(); });
+    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -21151,7 +21208,19 @@ PF.examples = (function () {
      (its contents, gone, unreadable) changes any other way, except the outcome of this window's own save, which is newer
      than any read (runOutcome). Returns the run object to show when the result replaced it, else null. */
   var applied = {}, baselines = {}, staleCache = {};
+  /* Runs whose latest read failed (unreadable, or gone), whatever is on screen: a run kept on screen for its unsaved work still
+     isn't counted toward a sign-off while its file can't be read as it (2.0.1). */
+  var notCounted = {};
+  /* The last read of the whole folder failed: what's shown is from before it. */
+  var folderUnread = false;
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
+  function countedRuns() {
+    /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
+    if (folderUnread || (data.failed || {}).runs) return [];
+    /* Nor is a run with a change that couldn't be saved. */
+    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {};
+    return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k] && !un[r.id]; });
+  }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
     var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
@@ -21166,6 +21235,8 @@ PF.examples = (function () {
     var id = key.slice(key.indexOf('/') + 1);
     if (!res || res.kind === 'pending') return null;
     if ((applied[key] || 0) > at.seq) return null;
+    /* Only a real read clears it, never what the cache remembers. */
+    if (res.kind === 'unreadable' || res.kind === 'missing') notCounted[key] = true; else if (res.kind === 'fresh') delete notCounted[key];
     if (res.kind === 'cached') {
       var shown = findRun(key);
       if (shown && repo.runSig(shown) === res.sig) return null;
@@ -21196,7 +21267,7 @@ PF.examples = (function () {
     return res.run;
   }
   /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
-  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; setRunStatus(key, kind, why); }
+  function runOutcome(key, kind, why) { applied[key] = ++readsStarted; if (kind === 'unread' || kind === 'missing') notCounted[key] = true; else delete notCounted[key]; setRunStatus(key, kind, why); }
   /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
      gone only when the listing was complete; one never saved yet, or one the read may not replace, stays as it is. */
   function applyRunsRead(d, at) {
@@ -21359,8 +21430,8 @@ PF.examples = (function () {
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
-    state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; baselines = {}; connListing = false;
+    gen++; loading = null; folderUnread = false; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
     /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
@@ -22147,8 +22218,11 @@ PF.examples = (function () {
         /* "Before" is this save's own revision: if the person changed anything after it, the newer change stays on screen. */
         var mineAt = {}; mineAt[r.id] = rev; mineAt['~' + r.id] = edits('~' + r.id);
         var at = { seq: ++readsStarted, revs: mineAt };
-        return repo.loadRun(fs, r.process, r.id).then(function (fresh) {
+        var reread = [];
+        return repo.loadRun(fs, r.process, r.id, null, false, false, reread).then(null, function (e) { reread.push({ why: 'couldn\'t be read (' + (e && e.message || String(e)) + ')' }); return null; }).then(function (fresh) {
           if (g !== gen) return false;
+          /* A reread that isn't this run (unreadable, gone, or another run's file) is said, so what's on screen stops counting. */
+          if (!fresh) applyRunRead(r.process + '/' + r.id, at, reread.length ? { kind: 'unreadable', why: reread[0].why } : { kind: 'missing' });
           var replaced = !!fresh && !!applyRunRead(r.process + '/' + r.id, at, { kind: 'fresh', run: fresh });
           if (replaced) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = fresh; }
           say(V.nameOf(ctx, e.disk.recorder.person) + ' saved this run from another window or computer, so your change wasn\'t written over theirs. ' +
@@ -24297,7 +24371,7 @@ PF.examples = (function () {
       if (!pub || !state.me) return;
       var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
-      var ready = PF.skills.readiness(data.runs, pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
+      var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
       queued(function () { return repo.recordValidation(sfs, pub, WRITER, state.me, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null); }).then(function () {
         if (sg !== gen) return; state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
@@ -24310,13 +24384,13 @@ PF.examples = (function () {
       if (kind === 'create') {
         var p = processes().filter(function (x) { return x.id === name; })[0], pub = p && p.latest;
         if (!pub) return;
-        text = PF.skills.createBrief(pub, null, PF.skills.readiness(data.runs, pub, null), withNames(PF.skills.signoffs(data.validations, pub)));
+        text = PF.skills.createBrief(pub, null, PF.skills.readiness(countedRuns(), pub, null), withNames(PF.skills.signoffs(data.validations, pub)));
       } else {
         /* Registrations are identified by their file, so two skills with the same name never get each other's brief. */
         var hit = null; processes().forEach(function (q) { q.skills.forEach(function (x) { if (x.skill.file === name) hit = x; }); });
         if (!hit || !hit.status.latest) return;
         var lp = hit.status.latest;
-        text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(data.runs, lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
+        text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(countedRuns(), lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
       }
       state.brief = { key: id, text: text }; render();
       copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');

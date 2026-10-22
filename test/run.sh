@@ -39,6 +39,7 @@ node test/old-bundles.test.js
 node test/evidence.test.js
 node test/perf.test.js
 node test/light.test.js
+node test/wrong-record.test.js
 node -e "
 const fs=require('fs'),vm=require('vm');const h=fs.readFileSync('dist/flightdeck.html','utf8');
 for (const id of ['pf-core','pf-storage','pf-app']){const m=new RegExp('<script id=\"'+id+'\">([\\\\s\\\\S]*?)</script>').exec(h);new vm.Script(m[1]);}

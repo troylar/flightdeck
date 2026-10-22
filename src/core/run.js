@@ -1351,6 +1351,33 @@ PF.run = (function () {
     });
     return why ? NEWER + ' ' + why : '';
   }
+  /* A run naming someone by an ID longer than the 80 characters a run keeps: cleaning cuts it, so the run would match someone
+     else whose ID starts the same (who may recover it) and saving would write the cut ID. Read-only instead, never cut (2.0.1). */
+  function longIds(o) {
+    var where = '';
+    function id(v, w) { if (!where && typeof v === 'string' && v.length > 80) where = w; }
+    function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+    /* Every shape cleaning reads entries from by name: a list read that way (Object.keys) is checked too. */
+    function keyed(v) { return !!v && typeof v === 'object'; }
+    function each(list, f) { if (Array.isArray(list)) list.forEach(function (x) { if (obj(x)) f(x); }); }
+    if (obj(o.recorder)) { id(o.recorder.person, 'its recorder'); if (obj(o.recorder.handoff)) id(o.recorder.handoff.from, 'its hand-off'); }
+    if (obj(o.ended)) id(o.ended.by, 'who ended it');
+    id(o.createdBy, 'who started it');
+    if (obj(o.paused)) id(o.paused.by, 'who paused it');
+    each(o.pauses, function (p) { id(p.by, 'a pause'); });
+    if (keyed(o.roles)) Object.keys(o.roles).forEach(function (k) { id(o.roles[k], 'a role'); });
+    each(o.followUps, function (f) { id(f.owner, 'a follow-up\'s owner'); id(f.by, 'a follow-up'); });
+    each(o.log, function (l) { id(l.by, 'its log'); });
+    if (keyed(o.steps)) Object.keys(o.steps).forEach(function (k) {
+      var a = o.steps[k]; if (!keyed(a)) return;
+      [a].concat(Array.isArray(a.history) ? a.history : []).forEach(function (h) {
+        if (!keyed(h)) return;
+        id(h.by, 'an answer'); if (obj(h.started)) id(h.started.by, 'an answer'); if (obj(h.deadline)) id(h.deadline.by, 'a deadline'); if (obj(h.differently)) id(h.differently.by, 'an answer');
+      });
+    });
+    if (keyed(o.gates)) Object.keys(o.gates).forEach(function (k) { if (keyed(o.gates[k])) id(o.gates[k].by, 'a gate'); });
+    return where ? 'It names someone (' + where + ') by an ID longer than the 80 characters Flightdeck keeps, so this copy shows it but can\'t record it or save over it.' : '';
+  }
   /* A run file in a run format this copy doesn't know (a newer Flightdeck's) is listed by name, read-only, with no steps:
      this copy can't tell what any of it means, so it shows nothing it might misread and never writes the file. */
   function newerFormat(o) {
@@ -1613,7 +1640,7 @@ PF.run = (function () {
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */
-    var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o);
+    var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o) || longIds(o);
     if (bad) r._unrunnable = bad;
     if (three) {
       r.format = FORMAT3;
