@@ -113,4 +113,15 @@ rule('A stage retired in another window after the page was drawn is not signed o
   assert.ok(/save the sign-off/.test(app.html()), (app.html().match(/class="[^"]*(bad|warn)[^"]*"[^>]*>[^<]*/g) || []).join(' | '));
 });
 
+rule('A test run that changed in the folder after the page was drawn is judged as it is now: nothing signed off on stale counts', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  assert.ok(/data-act="signoff-stage"/.test(app.html()), 'set-up: offered');
+  app.files('runs/release/run-try3/').forEach(f => { delete app.fs.files[f]; });
+  const before = app.files('validations/').length;
+  app.click('signoff-stage', folder); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  assert.ok(/clean test runs; it has 2/.test(app.html()), 'it says why');
+});
+
 run();

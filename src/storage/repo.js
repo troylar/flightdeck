@@ -1693,9 +1693,17 @@ PF.repo = (function () {
         if (pubs.some(function (x) { return !x.info || typeof x.info !== 'object'; })) throw new Error('A version of this process can\'t be read now, so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
         var x = PF.staging.status(st, sp.decisions, pubs);
         if (x.status !== 'staged') throw new Error(x.status === 'promoted' ? 'It\'s already the default.' : PF.staging.promoteWhy(x) || 'It isn\'t staged now.');
-        var c = o.check(st);
-        if (typeof o.still === 'function' && !o.still()) return { dropped: true };
-        return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
+        /* What it is judged on is read again now too: the test runs named (o.runIds, the ones on this stage as last read),
+           people.json and this stage's sign-offs. A read that fails signs nothing. */
+        var ids = (o.runIds || []).filter(function (id) { return typeof id === 'string' && R.RUN_ID.test(id); });
+        var signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }).then(function (vs) {
+          return vs.map(function (v) { var c = PF.skills.cleanValidation(v); return c.ok ? c.rec : null; }).filter(Boolean);
+        });
+        return Promise.all([Promise.all(ids.map(function (id) { return loadRun(fs, proc, id, null, true); })), loadPeople(fs), signs]).then(function (f) {
+          var c = o.check(st, { runs: f[0].filter(Boolean), people: f[1], validations: f[2] });
+          if (typeof o.still === 'function' && !o.still()) return { dropped: true };
+          return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
+        }, function (e) { throw new Error('What it would be signed off on couldn\'t be read now (' + why(e) + '). Nothing was signed off.'); });
       });
     });
   }
@@ -1709,7 +1717,7 @@ PF.repo = (function () {
       if (was && was.key === key && stamps.every(Boolean)) return was.exact;
       return Promise.all(names.map(function (n) { return fs.blob(dir + n).then(function (b) { return b ? bytesOf(b) : null; }); })).then(function (bs) {
         if (bs.some(function (b) { return !b; })) return null;
-        var exact = { 'map.md': sha256Of(bs[0]), 'types.json': sha256Of(bs[1]), images: {} };
+        var exact = { 'map.md': sha256Of(bs[0]), 'types.json': sha256Of(bs[1]), images: Object.create(null) };
         names.slice(2).forEach(function (n, i) { exact.images[n] = sha256Of(bs[i + 2]); });
         c.exact[dir] = { key: key, exact: exact };
         return exact;

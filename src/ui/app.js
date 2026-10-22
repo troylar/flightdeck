@@ -4349,14 +4349,15 @@
       state.stageBusy = pid; render();
       queued(function () {
         if (!still()) return { dropped: true };
-        /* The stage, its decisions and the versions are read again inside the stage lock; eligibility is worked out again from
-           what was read, with the person who clicked. */
-        return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still,
-          check: function (st) {
-            var r = PF.skills.readiness(data.runs, st, null), as = PF.skills.signer(st, data.people, by, !!(data.failed || {}).people);
+        /* The stage, its decisions, the versions, its test runs, people.json and its sign-offs are read again inside the stage
+           lock; eligibility is worked out again from what was read, with the person who clicked. */
+        var ids = (data.runs || []).filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
+        return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still, runIds: ids,
+          check: function (st, now) {
+            var r = PF.skills.readiness(now.runs, st, null), as = PF.skills.signer(st, now.people, by, false);
             if (!r.enough) throw new Error('It needs ' + r.needed + ' clean test runs; it has ' + r.clean + '.');
             if (!as) throw new Error('Only the process owner signs off a staged version.');
-            if (PF.skills.signoffs(data.validations, st).length) throw new Error('It\'s already signed off.');
+            if (PF.skills.signoffs(now.validations, st).length) throw new Error('It\'s already signed off.');
             return { as: as === 'backup' ? 'backup' : null, evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds } };
           } });
       }).then(function (res) {

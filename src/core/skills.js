@@ -545,19 +545,21 @@ PF.skills = (function () {
   /* A stage sign-off (flightdeck-validation/2, 2.1), exactly the frozen shape: { format, app, process, stage: { folder, proposed },
      payload, by, at, note, evidence, as? }, in validations/<process>.<stage>.<window>.json. Anything else is unreadable. */
   var V2_ORDER = 'format,app,process,stage,payload,by,at,note,evidence';
-  function count(n) { return typeof n === 'number' && n >= 0 && Math.floor(n) === n; }
+  function count(n) { return typeof n === 'number' && isFinite(n) && n >= 0 && Math.floor(n) === n; }
   function cleanStageValidation(v) {
     var bad = { ok: false, kind: 'malformed', why: 'isn\'t a stage sign-off this copy can read', needs: '' }, st = v.stage, ev = v.evidence;
     var keys = Object.keys(v).filter(function (k) { return k !== '_file'; }).join();
     if (keys !== V2_ORDER && keys !== V2_ORDER + ',as') return bad;
     if (typeof v.app !== 'string' || typeof v.process !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(v.process) || typeof v.by !== 'string' || !v.by || typeof v.at !== 'string' || !v.at || typeof v.note !== 'string') return bad;
     if (!st || typeof st !== 'object' || Array.isArray(st) || Object.keys(st).join() !== 'folder,proposed' || !PF.publish.STAGE.test(String(st.folder))) return bad;
-    if (typeof st.proposed !== 'number' || st.proposed < 1 || Math.floor(st.proposed) !== st.proposed) return bad;
+    if (!count(st.proposed) || st.proposed < 1) return bad;
+    /* Identity and time are kept exactly: one too long to be a person's ID or a time isn't read, never cut to fit. */
+    if (v.by.length > 80 || v.at.length > 40) return bad;
     if (typeof v.payload !== 'string' || !/^[0-9a-f]{64}$/.test(v.payload)) return bad;
     if (!ev || typeof ev !== 'object' || Array.isArray(ev) || Object.keys(ev).join() !== 'completed,clean,runs' || !count(ev.completed) || !count(ev.clean) || !Array.isArray(ev.runs) || ev.runs.some(function (x) { return typeof x !== 'string'; })) return bad;
     if (keys === V2_ORDER + ',as' && v.as !== 'backup') return bad;
     if (typeof v._file === 'string' && v._file.indexOf(v.process + '.' + st.folder + '.') !== 0) return bad;
-    var o = { kind: 'validation', format: 2, process: v.process, folder: '', stage: st.folder, proposed: st.proposed, payload: v.payload, by: v.by.slice(0, 80), at: v.at.slice(0, 40), version: st.proposed, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
+    var o = { kind: 'validation', format: 2, process: v.process, folder: '', stage: st.folder, proposed: st.proposed, payload: v.payload, by: v.by, at: v.at, version: st.proposed, note: typeof v.note === 'string' ? v.note.slice(0, 300) : '', _file: v._file };
     o.evidence = { completed: ev.completed, clean: ev.clean, runs: ev.runs.slice(0, 50) };
     if (v.as === 'backup') o.as = 'backup';
     return { ok: true, rec: o };
@@ -588,7 +590,8 @@ PF.skills = (function () {
     if (!exact) return 'Its exact bytes haven\'t been read.';
     if (exact['map.md'] !== sp.map || exact['types.json'] !== sp.types) return 'Its checklist or step types aren\'t byte for byte the stage\'s.';
     var a = Object.keys(exact.images || {}).sort(), b = Object.keys(sp.images || {}).sort();
-    if (a.join('\n') !== b.join('\n') || a.some(function (k) { return exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
+    var own = Object.prototype.hasOwnProperty;
+    if (a.join('\n') !== b.join('\n') || a.some(function (k) { return !own.call(exact.images, k) || !own.call(sp.images, k) || exact.images[k] !== sp.images[k]; })) return 'Its screenshots aren\'t byte for byte the stage\'s.';
     return '';
   }
   return { READY_RUNS: READY_RUNS, isStage: isStage, carries: carries, stagePayloadHash: stagePayloadHash, stageSignoff: stageSignoff, REG_PATH: REG_PATH, check: check, checkV2: checkV2, merge: merge, resolve: resolve, held: held, legacyFor: legacyFor, revisionsFor: revisionsFor, BLOCKS: BLOCKS, registration: registration, tombstone: tombstone, observed: observed, observedWords: observedWords, cleanValidation: cleanValidation, groupPath: groupPath, tags: tags, link: link, changes: changes, status: status, readiness: readiness, signoffs: signoffs, signer: signer, createBrief: createBrief, updateBrief: updateBrief };

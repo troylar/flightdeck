@@ -50,6 +50,9 @@ rule('Any other shape of a stage sign-off is never counted: named as unreadable,
     'evidence runs that aren\'t names': Object.assign({}, base, { evidence: { completed: 2, clean: 2, runs: [1, 2] } }),
     'evidence with an extra key': Object.assign({}, base, { evidence: Object.assign({}, base.evidence, { x: 1 }) }),
     'an as that isn\'t backup': Object.assign({}, base, { as: 'owner' }),
+    'evidence that isn\'t finite': Object.assign({}, base, { evidence: { completed: Infinity, clean: 2, runs: [] } }),
+    'proposed that isn\'t finite': Object.assign({}, base, { stage: { folder: 'stage-aaaa1111', proposed: Infinity } }),
+    'a by too long to be an ID': Object.assign({}, base, { by: 'person-' + 'a'.repeat(80) }),
     'keys in another order': (() => { const o = {}; Object.keys(base).reverse().forEach(k => { o[k] = base[k]; }); return o; })()
   };
   Object.keys(bad).forEach(name => {
@@ -172,6 +175,19 @@ rule('The bytes behind a carried stage are checked by file name too: a screensho
   await fs.write(dir + to, fs.files[dir + from].t);
   const moved = clone(pub); moved.info.images = {}; Object.keys(pub.info.images).forEach(k => { moved.info.images[k === from ? to : k] = pub.info.images[k]; });
   assert.ok(await repo.stageCarried(fs, moved, stage, cache), 'renamed: not the stage\'s');
+});
+
+rule('A screenshot named __proto__ is a name like any other: a version with one more than its stage doesn\'t carry it', async () => {
+  const fs = folder(), stage = await staged(fs);
+  const { pub } = await promoted(fs, stage);
+  const dir = 'publications/release/' + pub.info.folder + '/';
+  await fs.write(dir + '__proto__', 'not a screenshot');
+  const odd = clone(pub); odd.info.images = Object.assign(JSON.parse('{"__proto__": {"sha256": "' + sha('not a screenshot') + '"}}'), clone(pub.info.images || {}));
+  assert.ok(Object.keys(odd.info.images).indexOf('__proto__') >= 0, 'set-up: an own key');
+  assert.ok(await repo.stageCarried(fs, odd, stage, {}), 'not the stage\'s screenshots');
+  const exact = JSON.parse('{"map.md": "' + stage.info.payload.map + '", "types.json": "' + stage.info.payload.types + '", "images": {"__proto__": "' + sha('x') + '"}}');
+  Object.assign(exact.images, stage.info.payload.images || {});
+  assert.ok(S.carries(pub, stage, exact), 'and PF.skills.carries says so');
 });
 
 rule('While the stages can\'t be listed, a promotion keeps the stage it carried, and its own bytes are still checked', async () => {
