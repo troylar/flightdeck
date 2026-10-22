@@ -492,7 +492,8 @@
   }
   /* Why a plan can't be started, declined or switched now, or '': a decision on it that can't be read (it may still be
      arriving), that a newer Flightdeck made, or that isn't one this copy can read. Each says what to do about it. */
-  function planHeldWhy(plan) {
+  function planHeldWhy(plan, data) {
+    if (plan && data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals')) return 'proposals/ couldn\'t be read just now, so it isn\'t known whether someone already started it. Until it reads, this plan can\'t be started, declined or switched here. Try again once the folder can be read.';
     var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
     if (!x) return '';
     var held = ' Until then this plan can\'t be started, declined or switched here.';
@@ -549,7 +550,7 @@
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
     if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
-    if (plan && planHeldWhy(plan)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan)) + '</span></div>';
+    if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +

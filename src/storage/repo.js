@@ -596,8 +596,9 @@ PF.repo = (function () {
   /* bad (reading for other apps): each file that won't read, parse or check is named there, and the rest still load.
      Without it, as the app reads: what doesn't parse or check is left out of the result, and a file that won't read fails
      the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
-     still arriving could be the record that decides something. */
-  function loadJsonDir(fs, dir, ok, bad, only, torn) {
+     still arriving could be the record that decides something. perFile (with torn): a read that's refused is named there
+     too, by itself, instead of failing the part; only a folder that can't be listed fails it. */
+  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
@@ -608,7 +609,7 @@ PF.repo = (function () {
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
-        });
+        }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
         return fs.read(path).then(function (f) {
           if (!f) return null;
           var o = json(f.text);
@@ -694,7 +695,7 @@ PF.repo = (function () {
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed, null, opts.contract2),
       loadStepTypes(fs), loadWorkflows(fs),
-      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }, null, null, valTorn),
+      loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, null, valTorn, true),
       loadCorrectionDecisions(fs, cache, sched),
       loadFollowUpDecisions(fs, cache, sched, !!opts.explain),
       /* Proposals and presence, only where those folders are (an ordinary folder costs nothing more), and never for other
@@ -1724,7 +1725,7 @@ PF.repo = (function () {
            people.json and this stage's sign-offs. A read that fails signs nothing. */
         var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
         /* A sign-off of this stage that can't be read could be the one already there: nothing is signed off until it reads. */
-        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn).then(function (vs) {
+        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn, true).then(function (vs) {
           var out = vs.map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok) (c.kind === 'newer' ? newer : torn).push({ path: 'validations/' + v._file, needs: c.needs || '' }); return c.ok ? c.rec : null; }).filter(Boolean);
           /* JSON that isn't a sign-off at all is ignored; one that won't parse, or says it's one but doesn't check, could be. */
           torn = torn.filter(function (t) { return !t.parsed; });

@@ -346,6 +346,55 @@ rule('JSON named like a stage sign-off that isn\'t one is ignored: the stage can
   assert.ok(/data-act="signoff-stage"/.test(app.html()), 'offered: ' + line(app, folder));
 });
 
+/* ---------- Found after 2.1.0's first fixes: what replaced a sign-off decides, on every refresh ---------- */
+
+async function v3Signed(app) {
+  const v3 = app.files('publications/release/').map(f => f.split('/')[2]).filter(f => /^v3-/.test(f))[0];
+  assert.ok(v3, 'set-up: v3');
+  const path = 'validations/release.v3.w-own.json';
+  app.fs.files[path] = { t: JSON.stringify({ kind: 'validation', process: 'release', version: 3, folder: v3, by: 'person-casey', at: new Date().toISOString(), note: '' }), m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(!/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'set-up: signed off: ' + panel(app));
+  return path;
+}
+
+rule('A sign-off replaced by JSON that isn\'t one stops counting at once: the version can be signed off again', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const path = await v3Signed(app);
+  app.fs.files[path] = { t: JSON.stringify({ hello: 'world' }), m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'offered again: ' + panel(app));
+});
+
+rule('A routine refresh notices a held sign-off file that became stray JSON at the same path', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const path = 'validations/release.v3.w-other.json';
+  app.fs.files[path] = { t: '{"kind": "validation", "proc', m: Date.now() };
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(/Can(&#39;|')t tell yet/.test(panel(app)), 'set-up: held');
+  app.fs.files[path] = { t: JSON.stringify({ hello: 'world' }), m: Date.now() };
+  app.winFire('focus'); await app.tick(160);
+  assert.ok(!/Can(&#39;|')t tell yet/.test(panel(app)) && /data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), panel(app));
+});
+
+rule('A stage sign-off\'s reread holds on a file named for the stage that says it\'s a sign-off, as the page does', async () => {
+  const { app, folder } = await staged('person-casey');
+  await tested(app, folder, 3);
+  assert.ok(/data-act="signoff-stage"/.test(app.html()), 'set-up: offered');
+  const odd = 'validations/release.' + folder + '.w-other.json';
+  app.fs.files[odd] = { t: JSON.stringify({ kind: 'validation', process: 'release' }), m: Date.now() };
+  const before = app.files('validations/').length;
+  app.click('signoff-stage', folder); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  const d = await app.PF.repo.loadAll(app.fs);
+  assert.ok((d.valUnread || []).some(u => u.path === odd && !u.ignored), 'the page would hold on it too');
+});
+
 rule('A version sign-off file that can\'t be read: Ready for a skill says it can\'t tell and names it, and nothing is signed off', async () => {
   const { app, folder } = await staged('person-casey');
   await promotedTested(app, folder);

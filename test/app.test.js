@@ -2249,6 +2249,24 @@ rule('Plans: a decision on the plan that can\'t be read holds it: the form says 
   assert.ok(!app.files('proposals/').some(f => /\.status-/.test(f) && f !== torn), 'no decision written');
 });
 
+rule('Plans: while proposals/ can\'t be read, a plan kept from before can\'t be started, declined or switched (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const dec = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  app.fs.files[dec] = { t: JSON.stringify({ kind: 'status' }), m: Date.now() };
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === dec ? Promise.reject(new Error('locked')) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/isn(&#39;|')t known whether someone already started it/.test(app.html()), (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+  const before = releaseRuns(app), decs = app.files('proposals/').length;
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
+  assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
+});
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();

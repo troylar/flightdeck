@@ -136,6 +136,33 @@ rule('A sign-off made with a newer Flightdeck: Ready for a skill says so, says t
   assert.ok(!/data-kind="signoff"/.test(html) && !/data-act="signoff"/.test(html), 'no sign-off offered');
 });
 
+rule('JSON in another format, named like a sign-off, is stray JSON: named, never "signed off with a newer Flightdeck"', async () => {
+  const fs = folder(), pub = await publish(fs);
+  put(fs, 'validations/release.v1.w-notes.json', JSON.stringify({ format: 'notes/1', text: 'team notes' }));
+  const d = await repo.loadAll(fs);
+  assert.ok(!d.refused.some(x => x.path === 'validations/release.v1.w-notes.json'), 'not refused as a newer sign-off');
+  assert.strictEqual(S.signHold(d, pub), null);
+  assert.ok((d.valUnread || []).some(u => u._file === 'release.v1.w-notes.json' && u.ignored), JSON.stringify(d.valUnread));
+  assert.ok(named(health(d), 'validations/release.v1.w-notes.json'));
+});
+
+rule('One sign-off file whose read is refused is named by itself and holds only its own version, not every sign-off', async () => {
+  const fs = folder(), pub = await publish(fs);
+  put(fs, 'validations/other.v9.w-z.json', JSON.stringify({ kind: 'validation' }));
+  put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));
+  const read = fs.read.bind(fs);
+  fs.read = (p, o) => p === 'validations/other.v9.w-z.json' ? Promise.reject(new Error('locked')) : read(p, o);
+  let d = await repo.loadAll(fs);
+  assert.ok(!('sign-offs' in d.failed), 'the part still reads');
+  assert.ok(d.valUnread.some(u => u.path === 'validations/other.v9.w-z.json' && !u.ignored && /locked/.test(u.why)), JSON.stringify(d.valUnread));
+  assert.strictEqual(S.signUnknown(d, pub), '', 'release v1 isn\'t held');
+  assert.strictEqual(S.signoffs(d.validations, pub).length, 1);
+  assert.ok(named(health(d), 'validations/other.v9.w-z.json'));
+  fs.read = (p, o) => p === 'validations/release.v1.w-own.json' ? Promise.reject(new Error('locked')) : read(p, o);
+  d = await repo.loadAll(fs);
+  assert.ok(/release\.v1\.w-own\.json/.test(S.signUnknown(d, pub)), 'its own version is held: ' + S.signUnknown(d, pub));
+});
+
 rule('Sign-offs that couldn\'t be listed or read at all leave readiness unanswered too', async () => {
   const fs = folder(), pub = await publish(fs);
   put(fs, 'validations/release.v1.w-own.json', JSON.stringify(sign(pub, pub.map.meta.owner)));
