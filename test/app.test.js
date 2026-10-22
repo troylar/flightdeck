@@ -2302,6 +2302,29 @@ rule('Plans: a plan whose own file is listed but gone when read stays shown and 
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
 });
 
+rule('Plans: when one of two differing copies of a started plan reads back as gone, the other copy is held: nothing starts (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const file = 'proposals/plan-release-2026-10-24.json', copy = 'proposals/plan-release-2026-10-24 (1).json';
+  const o = JSON.parse(app.fs.files[file].t); o.title = o.title + ' (edited)';
+  app.fs.files[copy] = { t: JSON.stringify(o, null, 2), m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  const both = (await app.PF.repo.loadAll(app.fs)).plans.find(p => p.id === 'plan-release-2026-10-24');
+  assert.ok(both && both._copiesDiffer, 'set-up: two differing copies');
+  await app.PF.repo.recordPlanStatus(app.fs, Object.assign({}, both, { _hash: app.PF.util.hash(app.fs.files[file].t) }), 'w-other', 'accepted', 'run-elsewhere', 'person-avery', null, '2.1.0');
+  app.click('refresh'); await app.tick(80);
+  const read = app.fs.read;
+  app.fs.read = function (p) { return p === file ? Promise.resolve(null) : read.apply(this, arguments); };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  const before = releaseRuns(app), decs = app.files('proposals/').length;
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
+  app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
+  assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
+});
+
 rule('Plans: a form left open after another window started or declined the plan starts nothing (2.1.0)', async () => {
   for (const status of ['accepted', 'declined']) {
     const app = boot(); await app.tick(60);

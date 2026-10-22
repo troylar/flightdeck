@@ -21700,9 +21700,11 @@ PF.examples = (function () {
       if (fresh('proposals')) (d.planUnread || []).forEach(function (u) {
         if (u.kind !== 'unreadable' || /\.status-/.test(u._file)) return;
         (data.plans || []).forEach(function (x) {
-          if ((x._files || []).indexOf(u._file) < 0 || d.plans.some(function (y) { return y.id === x.id; })) return;
-          var c = Object.assign({}, x); c._statusHeld = [{ path: u.path, kind: 'unreadable', needs: '' }].concat(x._statusHeld || []); c._statusUnread = c._statusHeld.map(function (h) { return h.path; });
-          d.plans.push(c); u.kept = true;
+          if ((x._files || []).indexOf(u._file) < 0) return;
+          /* Another copy of it that still reads is held too: the copy that can't be read may be the one already started. */
+          var c = d.plans.filter(function (y) { return y.id === x.id; })[0];
+          if (!c) { c = Object.assign({}, x); d.plans.push(c); u.kept = true; }
+          c._statusHeld = [{ path: u.path, kind: 'unreadable', needs: '' }].concat(c._statusHeld || []); c._statusUnread = c._statusHeld.map(function (h) { return h.path; });
         });
       });
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
