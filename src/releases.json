@@ -26,6 +26,14 @@
         "title": "A checklist with only when needs Flightdeck 2.1",
         "now": "A version that uses only when needs Flightdeck 2.1 on every computer that runs it. The publish panel says so before you publish, and 2.0 names the version and says it needs 2.1.",
         "where": "Updating Flightdeck, Using conditions"
+      },
+      {
+        "kind": "new",
+        "area": "Checklists",
+        "title": "Stage a version before it becomes the default",
+        "now": "On a process page, open All versions and choose Stage the draft for testing. Runs keep using the current default until someone chooses Make vN the default, which publishes exactly what was staged as the next version. A stage can be retired and reopened. Anyone can do these, and each is logged with their name.",
+        "before": "Publishing made a version the default straight away.",
+        "where": "The process page, All versions"
       }
     ]
   },

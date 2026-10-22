@@ -131,7 +131,11 @@ const BUDGETS = {
   'process page with conditions, a non-owner': { words: 257, buttons: 13, chips: 3 },
   'run with conditions, just started': { words: 349, buttons: 37, chips: 5 },
   'builder with conditions, a step selected': { words: 487, buttons: 62, inputs: 11 },
-  'builder, a step without conditions selected': { words: 477, buttons: 62, inputs: 10 }
+  'builder, a step without conditions selected': { words: 477, buttons: 62, inputs: 10 },
+  /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
+     page budgets above for the owner and for everyone else. */
+  'process page with a stage, its owner': { words: 415, buttons: 24, chips: 9 },
+  'process page with a stage, a non-owner': { words: 268, buttons: 13, chips: 3 }
 };
 async function screens() {
   const app = boot(), out = {}; await app.tick(60);
@@ -149,7 +153,26 @@ async function screens() {
   app.set('np-id', 'onboard'); app.set('np-title', 'Onboard a new hire'); app.submit('new-process-form'); await app.tick(150);
   app.click('ob-sel', 'first-step'); await app.tick(); take('builder, a step selected');
   await conditional(out);
+  await withStage(out);
   return out;
+}
+/* Release with its draft staged as a version only test runs use. */
+async function withStage(out) {
+  const app = boot(); await app.tick(60);
+  const take = name => { out[name] = measure(app.html()); };
+  app.choose('person-casey'); await app.tick();
+  const path = 'maps/drafts/release.md', md = app.fs.files[path].t;
+  await app.fs.write(path, md.replace(/\n(## [^\n]*\n)/, '\n$1- [ ] {confirm} Tell the on-call channel {#tell-oncall}\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  assert.ok(app.files('staged/release/').some(f => /publication\.json$/.test(f)), 'set-up: staged');
+  await app.fs.write(path, md); app.click('refresh'); await app.tick(80);
+  app.fire('toggle', { target: { dataset: { disc: 'vers:release' }, open: false } }); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/data-act="promote-stage"/.test(app.html()) && !/<details data-disc="vers:release" open>/.test(app.html()), 'set-up: the stage is listed, folded');
+  take('process page with a stage, its owner');
+  app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page with a stage, a non-owner');
 }
 /* Release with a condition on a step and on a phase, published as its next version through the screens. */
 async function conditional(out) {

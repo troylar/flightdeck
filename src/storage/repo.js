@@ -99,8 +99,8 @@ PF.repo = (function () {
   }
   /* A version verified as the app verifies it: a /2 version by the SHA-256 of the exact bytes of its checklist and step
      types (P.exactOf), read only when it is /2. Every reader of a version in a folder goes through this. */
-  function verifyExact(fs, base, folder, texts) {
-    var check = function (exact) { return P.verify(folder, texts, exact); }, res = check(null);
+  function verifyExact(fs, base, folder, texts, vo) {
+    var check = function (exact) { return P.verify(folder, texts, exact, vo); }, res = check(null);
     if (!res.needsBytes) return Promise.resolve(res);
     var raw = function (n) { return fs.blob(base + n).then(function (b) { return b ? bytesOf(b) : null; }, function () { return null; }); };
     return Promise.all([raw('map.md'), raw('types.json')]).then(function (b) { return check(P.exactOf({ 'map.md': b[0], 'types.json': b[1] })); });
@@ -565,9 +565,9 @@ PF.repo = (function () {
 
   /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
      A folder that can't be listed, or where every part fails, is an unreadable folder. */
-  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence', 'reports', 'report decisions'];
+  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence', 'reports', 'report decisions', 'stages'];
   /* Parts a folder may not have: they don't count toward "every part failed". */
-  var OPTIONAL_PARTS = 4;
+  var OPTIONAL_PARTS = 5;
   /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
      Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
      folder itself. */
@@ -625,7 +625,7 @@ PF.repo = (function () {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
     cache.clockFn = opts.clock || elapsed;
     var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
-    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, [], { files: [], folders: [], bad: [] }, []];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, [], { files: [], folders: [], bad: [] }, [], { procs: Object.create(null) }];
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* The folder itself must list: one that can't is unreadable, never empty. */
@@ -645,7 +645,9 @@ PF.repo = (function () {
       /* Reports: names only (contents are read for the open run), and decisions on them; only where those folders are, and
          never for flightdeck-read/1 (which doesn't report them). */
       !opts.readOnly && top[PF.reports.DIR] ? loadReportNames(fs) : Promise.resolve({ files: [], folders: [], bad: [] }),
-      !opts.readOnly && top[PF.reports.DDIR] ? loadReportDecisions(fs, cache, sched) : Promise.resolve([])
+      !opts.readOnly && top[PF.reports.DDIR] ? loadReportDecisions(fs, cache, sched) : Promise.resolve([]),
+      /* Stages (2.1): only where staged/ is, so a folder that never stages lists nothing more. */
+      !opts.readOnly && top.staged ? loadStaged(fs) : Promise.resolve({ procs: Object.create(null) })
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       /* The folder is unreadable when every part it always has failed (proposed changes and presence are optional). */
       if (PARTS.slice(0, -OPTIONAL_PARTS).every(function (k) { return k in failed; })) throw errs[0];
@@ -656,6 +658,7 @@ PF.repo = (function () {
       r[10].concat(r[11]).forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, u.dir === 'followups' ? 'flightdeck-followup-decision' : u.dir === 'suggestions' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', u)); });
       r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
+      Object.keys(r[16].procs).forEach(function (k) { r[16].procs[k].refused.forEach(function (x) { refused.push(x); }); });
       r[15].forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, 'flightdeck-report-decision', u)); });
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
@@ -670,7 +673,7 @@ PF.repo = (function () {
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
-        reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }),
+        reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
            wherever the record would have appeared, never filtered into "nothing there" (docs/design.md section 28). */
         refused: refused.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; }) };
@@ -1338,6 +1341,147 @@ PF.repo = (function () {
       .then(function () { return fs.write(base + 'types.json', built.files['types.json']); })
       .then(function () { return fs.write(base + 'publication.json', built.files['publication.json']); })
       .then(function () { return built; });
+  }
+
+  /* ---------- Staging (2.1, docs/design.md section 31) ---------- */
+  var STAGE_PROC = /^[a-z0-9][a-z0-9-]{0,59}$/;
+  function sha256Of(b) { return PF.sha256.create().update(b).digest(); }
+  /* A file written as part of a stage or a promotion, read back by its exact bytes: anything else there stops it. */
+  function readBack(fs, path, want) {
+    return fs.blob(path).then(function (b) { return b ? bytesOf(b) : null; }).then(function (b) {
+      if (!b || sha256Of(b) !== want) throw new Error(path + ' didn\'t read back as written. Nothing was made from it.');
+    });
+  }
+  /* Stage a draft: a version only test runs use, in staged/<process>/stage-<random8>/, written once. The checklist, step types
+     and screenshots are written and read back first; the record is written last and read back as a stage, so a stage
+     without a verified record is incomplete, never usable, and Folder health names it. Resolves to { folder, proposed } or
+     { blockers }; rejects with the reason when a write or read-back fails. */
+  function stage(fs, draftMd, opts) {
+    return childProcsFor(fs, PF.map.parse(draftMd)).then(function (kids) {
+      var o = Object.assign({}, opts, { stage: true });
+      if (Object.keys(kids).length) o.childProcs = Object.assign({}, kids, opts.childProcs || {});
+      var built = P.build(draftMd, o);
+      if (built.blockers) return built;
+      var parsed = PF.map.parse(draftMd), proc = parsed.meta.process, base = 'staged/' + proc + '/' + built.folder + '/';
+      var shots = PF.map.shotSources(parsed), blobs = {}, bytes = {}, images = {};
+      return shots.reduce(function (p, src) { return p.then(function (missing) { return fs.blob(src).then(function (b) { if (!b) return missing.concat([src]); blobs[src] = b; return missing; }); }); }, Promise.resolve([])).then(function (missing) {
+        if (missing.length) return { blockers: missing.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; }) };
+        return shots.reduce(function (p, src) { return p.then(function () { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; images[src] = fnvBytes(b); }); }); }, Promise.resolve()).then(function () {
+          var b2 = shots.length ? P.build(draftMd, Object.assign({}, o, { images: images, imageBytes: bytes, rand: built.folder.replace(/^stage-/, '') })) : built;
+          if (b2.blockers) return b2;
+          var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+          return shots.reduce(function (p, src) { return p.then(function () { return put(src, blobs[src], sha256Of(bytes[src])); }); }, Promise.resolve())
+            .then(function () { return put('map.md', b2.files['map.md'], sha256Of(b2.files['map.md'])); })
+            .then(function () { return put('types.json', b2.files['types.json'], sha256Of(b2.files['types.json'])); })
+            .then(function () { return fs.write(base + 'publication.json', b2.files['publication.json']); })
+            .then(function () { return readStage(fs, proc, b2.folder); })
+            .then(function (res) {
+              if (!res.ok) throw new Error('The stage didn\'t read back as written (' + res.why + '). It isn\'t usable; Folder health names it.');
+              return { folder: b2.folder, proposed: res.info.stage.proposed, process: proc };
+            });
+        });
+      });
+    });
+  }
+  /* One stage folder, verified by the stage rules and its screenshots. Anything short of a verified stage is incomplete. */
+  function readStage(fs, proc, folder) {
+    var base = 'staged/' + proc + '/' + folder + '/';
+    return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
+      return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text }, { stage: true });
+    }).then(function (res) {
+      res.folder = folder; res.process = proc;
+      return checkImages(fs, base, res);
+    }).then(function (res) { if (!res.ok && !res.newer) res.incomplete = true; return res; });
+  }
+  /* staged/: listed only when the folder has it. { procs: { <process>: { stages, decisions, unread, refused, unlisted } } }.
+     A process folder or its decisions that can't be listed hold that process's stages (unlisted), never "no stages". */
+  function loadStaged(fs) {
+    var procs = Object.create(null);
+    return fs.list('staged').then(function (items) {
+      return Promise.all(items.filter(function (i) { return i.kind === 'dir' && STAGE_PROC.test(i.name); }).map(function (p) {
+        var sp = procs[p.name] = { stages: [], decisions: [], unread: [], refused: [], unlisted: '' };
+        return fs.list('staged/' + p.name).then(function (xs) {
+          var stages = xs.filter(function (x) { return x.kind === 'dir' && P.STAGE.test(x.name); }).map(function (x) {
+            return readStage(fs, p.name, x.name).then(null, function (e) { return { ok: false, folder: x.name, process: p.name, why: why(e), incomplete: true }; });
+          });
+          var dec = xs.some(function (x) { return x.kind === 'dir' && x.name === 'decisions'; }) ? loadStageDecisions(fs, p.name, sp) : Promise.resolve();
+          return Promise.all([Promise.all(stages), dec]).then(function (r) {
+            sp.stages = r[0].sort(function (a, b) { return a.folder < b.folder ? -1 : 1; });
+            /* A stage a newer Flightdeck wrote is refused by name, never called incomplete. */
+            sp.stages.forEach(function (s) { if (s.newer) sp.refused.push(PF.envelope.refusal('staged/' + p.name + '/' + s.folder + '/publication.json', 'preflight-publication', { kind: 'newer', why: s.why, needs: s.needs })); });
+          });
+        }, function (e) { sp.unlisted = 'staged/' + p.name + '/ ' + why(e); });
+      }));
+    }).then(function () { return { procs: procs }; });
+  }
+  function loadStageDecisions(fs, proc, sp) {
+    var dir = 'staged/' + proc + '/decisions/';
+    return fs.list('staged/' + proc + '/decisions').then(function (items) {
+      return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) {
+        return readJson(fs, dir + i.name).then(function (o) {
+          var c = PF.staging.cleanDecision(o, proc, i.name);
+          if (c.ok) sp.decisions.push(c.rec);
+          else if (c.kind === 'newer') sp.refused.push(PF.envelope.refusal(dir + i.name, 'flightdeck-stage-decision', c));
+          else sp.unread.push({ path: dir + i.name, why: c.why || 'isn\'t a stage decision' });
+        }, function (e) { sp.unread.push({ path: dir + i.name, why: why(e) }); });
+      }));
+    }, function (e) { sp.unlisted = dir + ' ' + why(e); }).then(function () {
+      sp.decisions.sort(function (a, b) { return a.rev - b.rev || (a._file < b._file ? -1 : 1); });
+    });
+  }
+  /* Everything one process's stage decisions say, read now; refuses (rejects) when any of it can't be read, since a decision
+     that can't be read could be the one that retired it. */
+  function stageState(fs, proc) {
+    var sp = { stages: [], decisions: [], unread: [], refused: [], unlisted: '' };
+    return fs.list('staged/' + proc).then(function (xs) {
+      return xs.some(function (x) { return x.kind === 'dir' && x.name === 'decisions'; }) ? loadStageDecisions(fs, proc, sp) : null;
+    }, function (e) { sp.unlisted = 'staged/' + proc + '/ ' + why(e); }).then(function () {
+      if (sp.unlisted || sp.unread.length || sp.refused.length) throw new Error('This stage\'s decisions can\'t be read now (' + (sp.unlisted || (sp.unread[0] || sp.refused[0]).path) + '). Try again once the folder has synced.');
+      return sp;
+    });
+  }
+  /* Retire or reopen a stage: a new decision file in this window's name, the rev after the latest read now. Never an edit. */
+  function decideStage(fs, proc, stageFolder, status, o) {
+    if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageState(fs, proc).then(function (sp) {
+      var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
+      return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
+    });
+  }
+  /* Make a stage the default: the next number from a fresh listing (renumbered and said when someone published meanwhile),
+     its exact files copied and read back, then the record last in the lowest format its content needs, with stagedFrom.
+     Refused while publications/<process>/, the stage or its decisions can't be read, and for a stage that's retired, tied
+     or already promoted. Resolves to { version, folder, proposed, renumbered }. */
+  function promote(fs, proc, stageFolder, o) {
+    if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '). Nothing was published.'); });
+    return listing.then(function (vers) {
+      return Promise.all([
+        Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, proc, v.name); })),
+        stageState(fs, proc), readStage(fs, proc, stageFolder)
+      ]).then(function (r) {
+        var pubs = r[0], sp = r[1], st = r[2];
+        if (!st.ok) throw new Error('This stage can\'t be read now: ' + st.why);
+        var s = PF.staging.status(st, sp.decisions, pubs), whyNot = PF.staging.promoteWhy(s);
+        if (whyNot) throw new Error(whyNot);
+        var version = P.nextVersion(vers.filter(function (v) { return v.kind === 'dir'; }).map(function (v) { return { version: P.versionOf(v.name) || 0 }; }));
+        var folder = P.folderName(version, o.rand), base = 'publications/' + proc + '/' + folder + '/', from = 'staged/' + proc + '/' + stageFolder + '/';
+        var record = P.promoteRecord(st, { version: version, folder: folder, by: o.by, now: o.now || new Date().toISOString(), app: o.app || '' });
+        var shots = Object.keys(st.info.images || {});
+        var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+        return shots.reduce(function (p, src) {
+          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return bytesOf(b).then(function (u8) { return put(src, b, sha256Of(u8)); }); }); });
+        }, Promise.resolve())
+          .then(function () { return put('map.md', st.md, sha256Of(st.md)); })
+          .then(function () { var t = JSON.stringify(st.types, null, 2); return fs.read(from + 'types.json').then(function (f) { t = f ? f.text : t; return put('types.json', t, sha256Of(t)); }); })
+          .then(function () { return fs.write(base + 'publication.json', record); })
+          .then(function () { return readVersion(fs, proc, folder); })
+          .then(function (res) {
+            if (!res.ok) throw new Error('The new version didn\'t read back as written (' + res.why + ').');
+            return { version: version, folder: folder, proposed: st.info.stage.proposed, renumbered: version !== st.info.stage.proposed };
+          });
+      });
+    });
   }
 
   /* Save a text file only if it's still exactly what the editor started from (expect: that text's fingerprint, or null for
@@ -2516,5 +2660,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

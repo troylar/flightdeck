@@ -524,7 +524,8 @@
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
       (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); }),
-      d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; })]);
+      d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; }),
+      Object.keys((d.stages || {}).procs || {}).map(function (k) { var x = d.stages.procs[k]; return k + ':' + x.unlisted + ':' + x.stages.map(function (s) { return s.folder + s.ok; }).join() + ':' + x.decisions.map(function (y) { return y._file; }).join() + ':' + x.unread.length; })]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -609,6 +610,8 @@
       (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
       (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
       (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
+      /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
+      Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt;
       if (changed || force || wasErr) render(); else renderTop();
       navLoaded();
@@ -622,7 +625,7 @@
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     var drafts = {};
@@ -1128,6 +1131,21 @@
   /* ---------- rendering ---------- */
   var app = document.getElementById('app'), topEl = document.getElementById('top'), overlayEl = document.getElementById('overlay');
   /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
+  /* Promote, retire or reopen the stage named on the open process page: worked out again from the folder in the queue, so
+     what it does is what the folder says now, never what this page last drew. */
+  function stageAct(folder, what) {
+    var pid = state.processId, sfs = state.fs, pg = gen, by = state.me;
+    if (!pid || !by || state.stageBusy) return;
+    state.stageBusy = pid; render();
+    queued(function () {
+      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION })
+        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION });
+    }).then(function (res) {
+      state.stageBusy = null; if (pg !== gen) return;
+      say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
+      return load(true);
+    }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
+  }
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
   function sayUndo(text) { say(text, 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' }); }
@@ -4254,6 +4272,32 @@
         return load(true);
       }, function (e) { if (pg !== gen) return; say('Couldn\'t publish: ' + e.message, 'bad'); render(); });
     },
+    /* Staging (2.1): stage the draft as shown, make a stage the default, retire or reopen one. Anyone may; each is logged. */
+    'stage-draft': function (id) {
+      var p = processes().filter(function (x) { return x.id === id; })[0], note = ((document.getElementById('change-note') || {}).value || '').trim();
+      if (!p || !p.draft || stillSaving(p) || state.stageBusy) return;
+      if (!note) { say('Write what changed (one line) above, then stage it.', 'warn'); state.focus = 'change-note'; render(); return; }
+      var ed = editorOf(p.id);
+      if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved yet, so nothing was staged. Save them first.', 'warn'); render(); return; }
+      var shown = p.draft.md, sfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
+      state.stageBusy = id; render();
+      queued(function () {
+        return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
+          if (!got[0] || got[0].text !== shown) return { changed: true };
+          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), app: APP_VERSION });
+        });
+      }).then(function (res) {
+        state.stageBusy = null; if (pg !== gen) return;
+        if (res.changed) { say('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.', 'warn'); return load(true); }
+        if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
+        state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
+        say('Staged. Only test runs use it until someone makes it the default.', 'good');
+        return load(true);
+      }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
+    },
+    'promote-stage': function (folder) { stageAct(folder, 'promote'); },
+    'retire-stage': function (folder) { stageAct(folder, 'retired'); },
+    'reopen-stage': function (folder) { stageAct(folder, 'reopened'); },
     /* The check on a row, Done in the inspector, Space and X: one step, one path (answerStep). A done step unchecks. */
     toggle: function (id) {
       var r = ctx.run(), a = r && r.steps[id];

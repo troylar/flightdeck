@@ -105,7 +105,7 @@ rule('Newer and unreadable reports are named as such, never as absent', () => {
   const n = X.clean(JSON.stringify(report({ format: 'flightdeck-report/2' })), 'backup-check', NAME);
   assert.strictEqual(n.kind, 'newer');
   const f = X.clean(JSON.stringify(report({ features: ['staged'] })), 'backup-check', NAME);
-  assert.strictEqual(f.kind, 'newer'); assert.strictEqual(f.needs, '2.0');
+  assert.strictEqual(f.kind, 'newer'); assert.strictEqual(f.needs, '2.1');
   assert.strictEqual(X.clean('{"format":"flightdeck-report/1"', 'backup-check', NAME).kind, 'malformed');
   assert.strictEqual(X.clean(JSON.stringify(report({ format: 'flightdeck-plan/1' })), 'backup-check', NAME).kind, 'malformed');
 });

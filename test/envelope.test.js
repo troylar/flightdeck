@@ -29,14 +29,16 @@ rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen 
 
 /* Slice 2, part 1: phase and gate notes and screenshots; part 2: pins; slice 3: typed data. Only these are registered; every
    other 2.0 feature stays refused (review #12). */
-const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']), PART3 = PART2.concat(['typed-details', 'typed-evidence']), PART4 = PART3.concat(['conditions']);
-rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know the notes, screenshots, pins, typed-data and conditions features, step-type/2 typed evidence, nothing else does', () => {
-  const want = { 'flightdeck-checklist': { 2: PART4 }, 'preflight-publication': { 2: PART4 }, 'preflight-run': { 3: PART4 }, 'flightdeck-step-type': { 2: ['typed-evidence'] } };
+const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']), PART3 = PART2.concat(['typed-details', 'typed-evidence']), PART4 = PART3.concat(['conditions']), STAGED = PART4.concat(['staged']);
+rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know the notes, screenshots, pins, typed-data and conditions features, publication/2 staged too (2.1), step-type/2 typed evidence, nothing else does', () => {
+  const want = { 'flightdeck-checklist': { 2: PART4 }, 'preflight-publication': { 2: STAGED }, 'preflight-run': { 3: PART4 }, 'flightdeck-step-type': { 2: ['typed-evidence'] } };
   Object.keys(E.FAMILIES).forEach(f => Object.keys(E.FAMILIES[f].majors).forEach(m => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[m]), (want[f] || {})[m] || [], f + '/' + m)));
-  ['staged', 'test-run', 'extensions'].forEach(x => {
-    no('preflight-publication', { format: 'preflight-publication/2', features: [x] }, 'newer', '2.0');
-    no('preflight-run', { format: 'preflight-run/3', features: [x] }, 'newer', '2.0');
+  [['test-run', '2.1'], ['extensions', '2.0']].forEach(([x, n]) => {
+    no('preflight-publication', { format: 'preflight-publication/2', features: [x] }, 'newer', n);
+    no('preflight-run', { format: 'preflight-run/3', features: [x] }, 'newer', n);
   });
+  ok('preflight-publication', { format: 'preflight-publication/2', features: ['staged'] });
+  no('preflight-run', { format: 'preflight-run/3', features: ['staged'] }, 'newer', '2.1');
   ok('preflight-publication', { format: 'preflight-publication/2', features: PART1 });
   ok('preflight-run', { format: 'preflight-run/3', features: ['gate-shots'] });
   no('preflight-publication', { format: 'preflight-publication/1', features: ['phase-notes'] }, 'newer', '2.0');
@@ -77,15 +79,17 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   no('flightdeck-step-type', { format: 'flightdeck-step-type/3' }, 'newer', '');
   no('flightdeck-types', { version: 4 }, 'newer', '');
   no('flightdeck-skill', { format: 'flightdeck-skill/3' }, 'newer', '');
-  ['flightdeck-stage-decision', 'flightdeck-extension'].forEach(f => no(f, { format: f + '/1' }, 'newer', '2.0'));
-  ['flightdeck-report', 'flightdeck-report-decision'].forEach(f => { ok(f, { format: f + '/1' }); no(f, { format: f + '/2' }, 'newer', ''); no(f, { format: f + '/1', features: ['staged'] }, 'newer', '2.0'); });
+  no('flightdeck-extension', { format: 'flightdeck-extension/1' }, 'newer', '2.0');
+  ok('flightdeck-stage-decision', { format: 'flightdeck-stage-decision/1' });
+  no('flightdeck-stage-decision', { format: 'flightdeck-stage-decision/2' }, 'newer', '');
+  ['flightdeck-report', 'flightdeck-report-decision'].forEach(f => { ok(f, { format: f + '/1' }); no(f, { format: f + '/2' }, 'newer', ''); no(f, { format: f + '/1', features: ['staged'] }, 'newer', '2.1'); });
   no('flightdeck-followup-decision', { kind: 'followup-decision', fv: 2 }, 'newer', '');
   no('flightdeck-correction-decision', { kind: 'correction-decision', dv: 3 }, 'newer', '');
   no('flightdeck-run-archive', { kind: 'migration', av: 2 }, 'newer', '');
   no('flightdeck-proposal', { kind: 'draft-proposal', pv: 2 }, 'newer');
   no('flightdeck-people', { format: 'flightdeck-people/2', people: [] }, 'newer');
   no('flightdeck-installed', { format: 'flightdeck-installed/2' }, 'newer');
-  assert.strictEqual(E.judge('preflight-run', { format: 'preflight-run/3', features: ['staged'] }).why, 'uses staged, which this copy doesn\'t understand. Needs Flightdeck 2.0.');
+  assert.strictEqual(E.judge('preflight-run', { format: 'preflight-run/3', features: ['staged'] }).why, 'uses staged, which this copy doesn\'t understand. Needs Flightdeck 2.1.');
   assert.strictEqual(E.judge('flightdeck-validation', { format: 'flightdeck-validation/2' }).why, 'was made with a newer Flightdeck (flightdeck-validation/2). Needs Flightdeck 2.0.');
 });
 
@@ -147,7 +151,8 @@ rule('stamp: lowest sufficient format: no envelope without a feature; a register
   assert.deepStrictEqual(plain(E.stamp('preflight-run', ['phase-shots'], 'dev')), { format: 'preflight-run/3', features: ['phase-shots'] }, 'an app that isn\'t a version is left out');
   assert.deepStrictEqual(plain(E.stamp('preflight-publication', ['typed-evidence', 'typed-details'], '2.0.0')), { format: 'preflight-publication/2', features: ['typed-details', 'typed-evidence'], app: '2.0.0' });
   assert.deepStrictEqual(plain(E.stamp('flightdeck-step-type', ['typed-evidence'], '2.0.0')), { format: 'flightdeck-step-type/2', features: ['typed-evidence'], app: '2.0.0' });
-  assert.throws(() => E.stamp('preflight-publication', ['staged'], '2.0.0'), /staged/);
+  assert.deepStrictEqual(plain(E.stamp('preflight-publication', ['staged'], '2.1.0')), { format: 'preflight-publication/2', features: ['staged'], app: '2.1.0' });
+  assert.throws(() => E.stamp('preflight-run', ['staged'], '2.1.0'), /staged/);
   assert.throws(() => E.stamp('flightdeck-plan', ['phase-notes'], '2.0.0'));
   assert.throws(() => E.stamp('nope', []));
 });
@@ -195,7 +200,8 @@ rule('The committed 2.0 samples and probes are exactly what tools/v2-samples.js 
 /* What slice 2 part 2 reads: plan/2 and its decision, an exact skill registration, and the explicit 2.0 run on a /1 version;
    slice 3 adds the typed /2 version, its typed run/3 with migration records, and the 2.0 step type. */
 const PART2_READS = ['proposals/plan-backup-pinned.json', 'proposals/plan-backup-pinned.status-w-twozero.json', 'skill-registrations/release-notes/sk-aaaa1111.1.w-twozero.json', 'runs/backup/run-e/run.json',
-  'publications/backup/v2-zzzz2222/publication.json', 'runs/backup/run-c/run.json', 'step-types/team.count.json'];
+  'publications/backup/v2-zzzz2222/publication.json', 'runs/backup/run-c/run.json', 'step-types/team.count.json',
+  'staged/backup/stage-aaaa1111/publication.json', 'staged/backup/decisions/stage-aaaa1111.w-twozero.1.json'];
 /* What slice 2b reads: a report and a decision on it, through the reports reader itself. */
 const REPORT_READS = ['reports/backup/run-c.count.row-counter.k3m9p2q8.json', 'report-decisions/backup/run-c.' + S.decisionHash('backup/run-c/count/row-counter/k3m9p2q8') + '.w-twozero.1.json'];
 rule('Every 2.0 sample this slice doesn\'t build is refused by its family\'s verdict in this copy, every probe too, and the ones it builds are read', () => {

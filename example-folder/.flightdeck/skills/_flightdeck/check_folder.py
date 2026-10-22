@@ -751,7 +751,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
@@ -764,7 +764,7 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
 FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1"}
 
 
 def _minimum(features):
@@ -951,6 +951,9 @@ def check_publication(folder, name):
         # The payload is over the exact bytes on disk, before any byte-order mark is dropped.
         if sha(read_bytes(os.path.join(folder, "map.md"))) != p["map"] or sha(read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
             return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
+    # A staged version (2.1) lives under staged/ and only test runs use it: never a version here (PF.publish.verify).
+    if isinstance(info.get("features"), list) and "staged" in info["features"]:
+        return "unusable", "It's a staged version, which only test runs use. Edited by hand: a stage belongs under staged/.", info
     m = re.match(r"^v(\d+)-[a-z0-9]+$", name)
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
