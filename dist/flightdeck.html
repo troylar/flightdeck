@@ -5233,7 +5233,7 @@ PF.publish = (function () {
   }
 
   /* The publication record that makes a verified stage the default (2.1): its exact checklist, step types and screenshots in
-     the lowest format their content needs (staged dropped; /1 when nothing else is left), the same payload, and stagedFrom
+     the lowest format their content needs (staged dropped; /1 when nothing else is left), the same payload (on /1 too), and stagedFrom
      naming the stage. o: { version, folder, by, now, app }. */
   function promoteRecord(stage, o) {
     var si = stage.info, feats = features(stage.map, stage.types);
@@ -5244,7 +5244,9 @@ PF.publish = (function () {
       mapHash: si.mapHash, typesHash: si.typesHash };
     Object.keys(base).forEach(function (k) { info[k] = base[k]; });
     info.images = isObj(si.images) ? JSON.parse(JSON.stringify(si.images)) : {};
-    if (feats.length) info.payload = JSON.parse(JSON.stringify(si.payload));
+    /* The stage's payload, always: a /1 record carries it too (every older copy ignores the field; test/compat-staging.test.js),
+       so a promoted version keeps the SHA-256 identity of exactly what was tried. */
+    info.payload = JSON.parse(JSON.stringify(si.payload));
     if (Array.isArray(si.corrections) && si.corrections.length) info.corrections = JSON.parse(JSON.stringify(si.corrections));
     info.stagedFrom = { folder: stage.folder || si.folder, at: si.stagedAt };
     return JSON.stringify(info, null, 2);

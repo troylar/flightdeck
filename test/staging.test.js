@@ -89,7 +89,8 @@ rule('Promote: a stage with no 2.0 or 2.1 feature becomes the next version as pu
   const res = await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0001' });
   same([res.version, res.folder, res.renumbered], [2, 'v2-prom0001', false]);
   const info = JSON.parse(fs.files['publications/release/v2-prom0001/publication.json'].t);
-  same([info.format, 'features' in info, 'payload' in info, 'stage' in info, info.version, info.publishedBy, info.publishedAt, info.stagedFrom], ['preflight-publication/1', false, false, false, 2, 'person-blake', LATER, { folder: 'stage-abcd1234', at: NOW }]);
+  same([info.format, 'features' in info, 'stage' in info, info.version, info.publishedBy, info.publishedAt, info.stagedFrom], ['preflight-publication/1', false, false, 2, 'person-blake', LATER, { folder: 'stage-abcd1234', at: NOW }]);
+  assert.strictEqual(P.payloadHash(info.payload), P.payloadHash(JSON.parse(fs.files['staged/release/stage-abcd1234/publication.json'].t).payload), 'the stage\'s payload, kept on /1 too');
   assert.strictEqual(fs.files['publications/release/v2-prom0001/map.md'].t, CHANGED, 'the stage\'s checklist, exactly');
   const d = await repo.loadAll(fs), p = d.processes[0], sp = d.stages.procs.release;
   same([p.index.latest.info.version, p.index.latest.info.folder], [2, 'v2-prom0001']);

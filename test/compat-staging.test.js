@@ -38,6 +38,7 @@ rule('This version stages under staged/, writes the decision there, and promotes
   same([promoted.version, promoted.folder], [2, 'v2-promoted']);
   const info = JSON.parse(files['publications/backup/v2-promoted/publication.json']);
   same([info.format, 'features' in info, info.stagedFrom.folder], ['preflight-publication/1', false, kept]);
+  same(info.payload, JSON.parse(files['staged/backup/' + kept + '/publication.json']).payload, 'the stage\'s payload, kept on /1');
   assert.ok(files['publications/backup/v2-promoted/images/restore.png'], 'its screenshot is copied');
   assert.ok(Object.keys(files).some(p => /^staged\/backup\/decisions\/stage-tryaaaa1\.w-blake\.1\.json$/.test(p)));
 });
@@ -68,5 +69,43 @@ TAGS.forEach((t) => rule(t.tag + ': a stage\'s own record, read as a version, is
   assert.ok(!v.ok, t.tag + ' would read a stage as a version');
   if (t.major >= 2) assert.ok(/needs Flightdeck 2\.1/i.test(v.why), 'and says which release reads it: ' + v.why);
 }));
+
+/* A /1 record that carries the stage's payload (2.1 keeps it on promotion): every real older copy loads it, runs it and never
+   rewrites it, and every release's own folder checker calls it complete and current. */
+async function withPayload() {
+  const { files, kept } = await folder(), f = Object.assign({}, files), pj = 'publications/backup/v2-promoted/publication.json';
+  const info = JSON.parse(f[pj]);
+  if (!info.payload) { info.payload = JSON.parse(f['staged/backup/' + kept + '/publication.json']).payload; f[pj] = JSON.stringify(info, null, 2); }
+  return { f, pj };
+}
+TAGS.forEach((t) => rule(t.tag + ': a /1 version carrying the stage\'s payload loads as the latest, runs, and its record is never rewritten', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const { f, pj } = await withPayload(), m = H.memFolder(OLD, f), rec = f[pj];
+  assert.ok(JSON.parse(rec).payload && JSON.parse(rec).format === 'preflight-publication/1');
+  const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
+  assert.ok(proc.index.latest.ok && proc.index.latest.info.folder === 'v2-promoted', 'the latest: ' + JSON.stringify(proc.index.latest.why));
+  const r = OLD.run.create(proc.index.latest, { title: 'Payload October', details: { ticket: 'ABC-122' }, roles: { lead: 'person-avery', checker: 'person-blake' }, by: 'person-avery', session: 'w-avery', now: AT, id: 'run-q' });
+  await OLD.repo.saveRun(m, r, 'w-avery');
+  const back = (await OLD.repo.loadAll(m, { deep: true })).runs.find(x => x.id === 'run-q');
+  assert.ok(back && !back._unrunnable && back.folder === 'v2-promoted', 'runs: ' + (back && back._unrunnable));
+  assert.strictEqual(m.files[pj].t, rec, 'the record is never rewritten');
+}));
+rule('Every release\'s folder checker, and this one, calls a /1 version carrying a payload complete and current', async () => {
+  const cp = require('child_process'), fsN = require('fs'), os = require('os'), path = require('path');
+  let py = null; for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); py = c; break; } catch (e) { /* next */ } }
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const { f } = await withPayload(), root = fsN.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-payload-check-')), dir = path.join(root, 'folder');
+  try {
+    H.writeTree(dir, f);
+    const checkers = [['this version', path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py')]];
+    TAGS.forEach(t => { const b = H.bundles.get(t.tag); if (b && b.files['check_folder.py']) { const ck = path.join(root, t.tag + '.py'); fsN.writeFileSync(ck, b.files['check_folder.py']); checkers.push([t.tag, ck]); } });
+    assert.ok(checkers.length > TAGS.length / 2, 'the old checkers are there');
+    for (const [name, ck] of checkers) {
+      const p = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' })).publications.backup, st = {};
+      p.versions.forEach(v => { st[v.folder] = v.status; });
+      assert.deepStrictEqual([p.current, st['v2-promoted']], ['v2-promoted', 'complete'], name);
+    }
+  } finally { fsN.rmSync(root, { recursive: true, force: true }); }
+});
 
 run();
