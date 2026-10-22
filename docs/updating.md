@@ -132,10 +132,11 @@ So the worst case is someone who can't record until they reopen the newer copy. 
 
 A staged version and its test runs are only for copies on 2.1. Older copies never list `staged/`, show a test run by name only and never change it, but until they update to 2.1 they count a test run in Home's running number, and How runs go and Compare versions list its stage as one more version with the number it proposes. Once that stage is made the default, an older copy shows the stage and the new version as two folders with the same number, marked Clash. Updating to 2.1 fixes both. A version made the default from a stage is an ordinary version: any copy that understands the features it uses can run it, so one with `only when` needs 2.1.
 
-### Two things to know when moving to 2.1
+### What to know when moving to 2.1
 
 - **A run open in a browser since before 2.1 makes one conflict copy.** 2.1 compares a run's whole file before saving over it. A run that was already open in a browser tab from before the update has only the older, shorter fingerprint, so its first save keeps your change as a conflict copy instead of writing over the run. Reopen the run and carry on; later saves work as usual.
 - **Known issue: plan decisions and edit history still use the shorter fingerprint.** The fingerprint a plan decision records for its plan (`proposalHash`) and the from and to of each History entry stay 32-bit in 2.1, so files already in team folders keep reading. In the rare case two versions of a plan or a file share that fingerprint, those records can't tell them apart.
+- **Known issue: a planned run can still start twice in three rare cases.** Before it starts, declines or switches a plan, 2.1 reads the plan's files again and writes nothing if the plan was already decided. It doesn't catch three cases yet: the run saves but its decision can't be written (a retry starts a second run); the copy of the plan that was started is deleted while another copy remains; or a renamed decision file can't be read. Two computers starting the same plan at the same moment can also both start it. If a plan has two runs, keep one and cancel the other.
 
 ## Rolling back
 
