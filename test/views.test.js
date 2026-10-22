@@ -250,7 +250,7 @@ rule('Plans: a plan made for an older version starts on it, with the differences
   const v1 = ctx.data.processes[0].index.latest, v2 = P.verify(b2.folder, b2.files, exactOf(PF, b2.files));
   const proc = { id: 'release', title: 'Production release', category: 'Releases', latest: v2, all: [v2, v1], clashes: [], broken: [], skills: [], draft: null };
   ctx.processes = () => [proc]; ctx.suggestRole = () => null;
-  ctx.data.plans = [{ id: 'plan-1', process: 'release', version: 1, title: 'Planned', details: { ticket: 'ABC-9' }, roles: {}, by: 'person-blake', _hash: 'h1' }];
+  ctx.data.plans = [{ id: 'plan-1', process: 'release', version: 1, title: 'Planned', details: { ticket: 'ABC-9' }, roles: {}, by: 'person-blake', _hash: 'h1', _sha: 's1' }];
   state.view = 'start'; state.processId = 'release'; state.planId = 'plan-1';
   let html = V.start(ctx);
   assert.ok(/This plan was made for v1\. v2 is now published\./.test(html), 'says which version and what is newer');
@@ -258,7 +258,7 @@ rule('Plans: a plan made for an older version starts on it, with the differences
   assert.ok(html.includes('data-folder="' + v1.info.folder + '"'), 'the form starts v1 until switched');
   state.planDiff = true;
   assert.ok(/class="diff"[\s\S]*Added in v2/.test(V.start(ctx)), 'the differences, from the published files');
-  state.planPick = { key: ctx.fsKey, plan: 'plan-1', hash: 'h1', folder: v2.info.folder };
+  state.planPick = { key: ctx.fsKey, plan: 'plan-1', hash: 's1', folder: v2.info.folder };
   html = V.start(ctx);
   assert.ok(html.includes('data-folder="' + v2.info.folder + '"') && /Switched to v2/.test(html) && !/data-act="plan-latest"/.test(html));
   state.planPick.hash = 'changed';

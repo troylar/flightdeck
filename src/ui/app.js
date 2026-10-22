@@ -522,7 +522,7 @@
   function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok + (x.fromStage ? ':' + x.fromStage.folder + x.fromStage.ok : ''); }); }),
-      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
+      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }), (d.valUnread || []).map(function (u) { return u.path; }), (d.planUnread || []).map(function (u) { return u.path; }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
@@ -610,9 +610,13 @@
       R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
-      (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
-      (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
-      (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
+      /* Not for a part kept whole from before (keepUnread): its lists are the ones already shown, kept ones included. */
+      var fresh = function (part) { return !(part in (d.failed || {})); };
+      if (fresh('corrections')) (d.corrUnread || []).forEach(function (u) { (data.corrDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file && x._dir === u.dir) { d.corrDecisions.push(x); u.kept = true; } }); });
+      if (fresh('follow-ups')) (d.fuUnread || []).forEach(function (u) { (data.fuDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.fuDecisions.push(x); u.kept = true; } }); });
+      if (fresh('report decisions')) (d.repUnread || []).forEach(function (u) { (data.repDecisions || []).forEach(function (x) { if (x.process === u.process && x._file === u._file) { d.repDecisions.push(x); u.kept = true; } }); });
+      /* A sign-off read before whose file can't be read now (still syncing) keeps counting as what it said then. */
+      if (fresh('sign-offs')) (d.valUnread || []).forEach(function (u) { (data.validations || []).forEach(function (x) { if (x._file === u._file && !u.kept) { d.validations.push(x); u.kept = true; } }); });
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
@@ -628,7 +632,7 @@
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans', 'planUnread'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations', 'valUnread'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
@@ -675,6 +679,8 @@
   }
   /* What a sign-off's own reread of a run found, said as any read is, so a run it found gone or not itself stops counting
      on the page too. */
+  /* Why a plan can't be started, declined or switched now: a decision on it can't be read ('' when none). */
+  function planHeld(plan) { return V.planHeldWhy(plan); }
   function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
@@ -1145,9 +1151,9 @@
     if (why) { state.peopleErr = why; render(); return; }
     if (state.peopleSaving) { state.peopleErr = 'Still saving the last change.'; render(); return; }
     var res; try { res = fn(people.doc); } catch (e) { state.peopleErr = e.message; render(); return; }
-    var sfs = state.fs, g = gen, expect = people.hash;
+    var sfs = state.fs, g = gen, expect = people.hash, expectText = people.text == null ? null : people.text;
     state.peopleSaving = true; state.peopleErr = null; render();
-    queued(function () { return repo.savePeople(sfs, P.text(res.doc), expect, { lock: LOCKS ? lock : null }); }).then(function (out) {
+    queued(function () { return repo.savePeople(sfs, P.text(res.doc), expect, { lock: LOCKS ? lock : null, expectText: expectText }); }).then(function (out) {
       state.peopleSaving = false; if (g !== gen) return null;
       if (out.conflict) state.peopleErr = out.afterWrite ? 'Something else wrote people.json at the same moment. Check the list below; make your change again if it isn\'t there.' : 'people.json changed since this page was drawn, so your change wasn\'t saved. Here is the list as it is now; make your change again.';
       else { state.pick = null; if (done) done(res.person); }
@@ -1656,7 +1662,7 @@
       var landed = wrote && wrote.text ? R.sanitize(JSON.parse(wrote.text)) : null;
       if (landed) {
         Object.keys(r).forEach(function (f) { if (f[0] === '_' && !(f in landed)) landed[f] = r[f]; });
-        landed._fileHash = U.hash(wrote.text); landed._overflow = [];
+        landed._fileHash = repo.fileHash(wrote.text); landed._overflow = [];
         var landedText = JSON.stringify(landed);
         keepBaseline(r.id, function () { return JSON.parse(landedText); });
         finishAccepts(key);
@@ -2734,11 +2740,12 @@
      and all), and opening the type again picks it up. If the file changed since, earlier changes stay listed but can't be
      undone. */
   var typeTls = {};
-  function keepTypeTl(f, id, def, hash) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, hash: hash, tail: def ? typeTail(f) : null }; }
-  function resumeTypeTl(f, id, hash) {
+  /* text: the exact text of the step type's file the kept form was based on; it's resumed only over that same text. */
+  function keepTypeTl(f, id, def, text) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, text: text == null ? null : text, tail: def ? typeTail(f) : null }; }
+  function resumeTypeTl(f, id, text) {
     var k = typeTls[fsKey() + '\n' + id]; if (!k) return f;
     f.tl = k.tl;
-    if (k.def && k.hash === hash) { f.def = k.def; f.tlTail = k.tail; f.initial = V.typeFormSnapshot(f.def); }
+    if (k.def && k.text != null && k.text === text) { f.def = k.def; f.tlTail = k.tail; f.initial = V.typeFormSnapshot(f.def); }
     else TL.barrier(f.tl, 'The step type changed in the folder here. Earlier changes can\'t be undone.');
     return f;
   }
@@ -3275,7 +3282,8 @@
     rows(d.fields, 'f', 'required'); rows(d.record, 'r', 'long');
   }
   var typeOpens = 0;
-  function typeFormFor(def, existing, baseHash) { typeOpens++; return { fsKey: fsKey(), def: def, existing: existing, baseHash: baseHash, initial: V.typeFormSnapshot(def) }; }
+  /* baseText: the exact text of the file the form started from (saved only over that); baseHash its FNV, for the history. */
+  function typeFormFor(def, existing, baseHash, baseText) { typeOpens++; return { fsKey: fsKey(), def: def, existing: existing, baseHash: baseHash, baseText: baseText == null ? null : baseText, initial: V.typeFormSnapshot(def) }; }
   function typeFormChanged(f) { return V.typeFormSnapshot(f.def) !== f.initial; }
   function saveType() {
     var f = state.typeForm; if (!f) return;
@@ -3294,7 +3302,8 @@
     var expect = f.baseHash, hu = histUnits(carried), hbefore = expect == null ? null : f.baseDef || null, hsource = f.keepMine ? 'keep-mine' : expect == null ? 'new' : 'editor';
     if (f.tl) TL.close(f.tl);
     f.saving = true; render();
-    queued(function () { return repo.saveStepType(sfs, def, expect, { lock: LOCKS ? lock : null }); }).then(function (res) {
+    var expectText = expect == null ? null : f.baseText;
+    queued(function () { return repo.saveStepType(sfs, def, expect, { lock: LOCKS ? lock : null, expectText: expectText }); }).then(function (res) {
       f.saving = false;
       /* The form is updated in its own folder even if someone switched folders meanwhile; only the screen waits. */
       var here = g === gen, open = typeForms[f.fsKey] === f;
@@ -3308,7 +3317,7 @@
         /* An ID still made from the label is the saved one now: changing the label later doesn't make it another type. */
         var sameId = !f.def.idSet || (f.def.id || '').trim() === def.id;
         if (sameId) { var keepTail = typeTail(f); f.def.id = def.id; f.justSaved = Date.now(); f.baseDef = def; }
-        f.existing = sameId ? def.id : null; f.baseHash = sameId ? res.hash : null; f.initial = sameId ? savedSnap : '';
+        f.existing = sameId ? def.id : null; f.baseHash = sameId ? res.hash : null; f.baseText = sameId ? res.text : null; f.initial = sameId ? savedSnap : '';
         if (sameId) f.tlTail = keepTail;
         if (!here) return;
         say(sameId ? 'Saved {' + def.id + '}. Your later changes aren\'t saved yet.' : 'Saved {' + def.id + '}. The ID you changed it to isn\'t saved yet; save again to create it.', 'good');
@@ -3318,8 +3327,8 @@
       if (open) {
         /* The saved ID can differ from what was typed (spaces trimmed); the history keeps what was typed, so it still applies. */
         var tail = typeTail(f);
-        f.existing = def.id; f.def.id = def.id; f.tlTail = tail; f.baseHash = res.hash; f.baseDef = def; f.initial = savedSnap; f.tried = false; f.idEdit = false; f.leaving = false; f.justSaved = Date.now();
-        keepTypeTl(f, def.id, savedDef, res.hash);
+        f.existing = def.id; f.def.id = def.id; f.tlTail = tail; f.baseHash = res.hash; f.baseText = res.text; f.baseDef = def; f.initial = savedSnap; f.tried = false; f.idEdit = false; f.leaving = false; f.justSaved = Date.now();
+        keepTypeTl(f, def.id, savedDef, res.text);
       }
       if (!here) return;
       if (open && f.closeAfterSave) { f.closeAfterSave = false; ACTIONS['type-cancel'](); }
@@ -3831,7 +3840,8 @@
       if (!pub || !state.me) return;
       var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
-      var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
+      var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen, unk = PF.skills.signUnknown(data, pub);
+      if (unk) { say('Nothing was signed off: ' + unk + (PF.skills.signHold(data, pub).kind === 'newer' ? '. Update Flightdeck to see it.' : ', so it isn\'t known whether v' + pub.info.version + ' is already signed off. If that file stays this way, restore it from a backup or delete it.'), 'warn'); render(); return; }
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
       var by = state.me, still = function () { return sg === gen && state.fs === sfs && state.me === by; };
       queued(function () {
@@ -4170,8 +4180,8 @@
         var o = null; try { o = f ? JSON.parse(f.text) : null; } catch (e) { o = null; }
         var errs = o ? T.checkCustom(o) : ['it can\'t be read'];
         if (!o || errs.length) { say('step-types/' + id + '.json ' + (errs[0] || 'has a problem') + '. Fix the file, or ask your AI assistant to.', 'warn'); render(); return; }
-        var tf = typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text)); tf.baseDef = o;
-        setView('types'); state.typeForm = resumeTypeTl(tf, id, U.hash(f.text)); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
+        var tf = typeFormFor(V.typeFormOf(T.customType(o), true), id, U.hash(f.text), f.text); tf.baseDef = o;
+        setView('types'); state.typeForm = resumeTypeTl(tf, id, f.text); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0);
       }, function (e) { releaseNav(held); if (g !== gen || t !== typeOpens) return; say('Couldn\'t open step-types/' + id + '.json: ' + e.message, 'bad'); render(); });
     },
     'tf-add': function (id, b) {
@@ -4242,16 +4252,16 @@
     'type-cancel': function () {
       var f = state.typeForm;
       /* Closing without saving: unsaved changes are dropped, so they can't be undone over the file when it's opened again. */
-      if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseHash); }
+      if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseText); }
       /* Leaving from the prompt Back showed lands on the list in that entry's place. */
       if (f && f.backLeave) H.mode = 'replace';
       state.typeForm = null; state.focus = '[data-act="new-type"]'; render(); },
-    'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
+    'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseText = f.conflict.theirs == null ? null : f.conflict.theirs; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
     'type-take-theirs': function () {
       var f = state.typeForm; if (!f || !f.conflict || f.saving) return;
       var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; }
       if (!o || T.checkCustom(o).length) { say('Their version can\'t be used as a step type' + (f.conflict.theirs == null ? ' (the file was deleted)' : '') + '. Keep yours, or cancel.', 'warn'); render(); return; }
-      f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.baseDef = o; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true;
+      f.def = V.typeFormOf(T.customType(o), true); f.baseHash = f.conflict.theirsHash; f.baseText = f.conflict.theirs == null ? null : f.conflict.theirs; f.baseDef = o; f.initial = V.typeFormSnapshot(f.def); f.conflict = null; state.planFormReset = true;
       if (f.tl) TL.barrier(f.tl, 'You took their version here. Earlier changes can\'t be undone.');
       render();
     },
@@ -4287,7 +4297,7 @@
       var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && processes().filter(function (x) { return x.id === plan.process; })[0];
       if (!p || !p.latest) return;
       /* The exact version shown, never "whatever is latest": a newer one published later asks again. */
-      state.planPick = { key: fsKey(), plan: id, hash: plan._hash, folder: p.latest.info.folder };
+      state.planPick = { key: fsKey(), plan: id, hash: plan._sha, folder: p.latest.info.folder };
       state.planDiff = false; state.focus = 'start-submit'; say(null); render();
     },
     /* A plan/2 switched to another exact version by a person, in so many words: written down (plan-status/2, retargeted) so
@@ -4296,6 +4306,7 @@
       var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && processes().filter(function (x) { return x.id === plan.process; })[0], g = gen;
       var pub = p && (p.all || []).filter(function (x) { return x.info.folder === b.dataset.folder; })[0];
       if (!plan || !pub || !state.me) return;
+      if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
       if (state.planRetargeting) { say('Still switching this plan.', 'warn'); render(); return; }
       state.planRetargeting = true;
       /* The folder and the person are the ones this was asked in: if either changed while it waited its turn, nothing is
@@ -4311,7 +4322,7 @@
         return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me, null, APP_VERSION).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } repo.recordPlanStatus(state.fs, p, WRITER, 'declined', null, state.me, null, APP_VERSION).then(function () { if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -4390,9 +4401,12 @@
         /* The stage, its decisions, the versions, its test runs, people.json and its sign-offs are read again inside the stage
            lock; eligibility is worked out again from what was read, with the person who clicked. */
         var ids = countedRuns().filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
-        var at = startRead();
+        /* The read sequence starts when the test runs are read again (reading), after the lock and the stage's reads: a refresh
+           that began while this waited is older than what the reread finds. */
+        var at = null;
         return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still, runIds: ids,
-          outcome: function (rid, res) { if (pg === gen) rereadOutcome(pid + '/' + rid, at, res); },
+          reading: function () { at = startRead(); },
+          outcome: function (rid, res) { if (pg === gen && at) rereadOutcome(pid + '/' + rid, at, res); },
           check: function (st, now) {
             /* Read again now, and still counted now (2.0.1). */
             var r = PF.skills.readiness(now.runs.filter(counted), st, null), as = PF.skills.signer(st, now.people, by, false);
@@ -5398,11 +5412,13 @@
     if (!pub) { say('This plan\'s version can\'t be used here: ' + pick.ask + '. It won\'t start on another version by itself.', 'warn'); render(); return; }
     if (e.target.dataset.folder !== pub.info.folder) { say(plan ? 'The version this plan starts on changed while you were filling this in. Check the form, then start again.' : 'A new version was published while you were filling this in. Check the form, then start again.', 'warn'); render(); return; }
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
+    /* A decision on the plan that can't be read could say it was started already: nothing starts until it reads. */
+    if (plan && planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
     /* Two different copies of the plan (OneDrive kept both): nothing starts until a person deletes one. */
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
-    if (plan && e.target.dataset.planHash !== plan._hash) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
+    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
     /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */

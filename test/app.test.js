@@ -938,6 +938,32 @@ rule('App: a step type keeps its Undo and History after it\'s saved and opened a
   assert.ok(/The step type changed in the folder here/.test(app.overlay()));
 });
 
+rule('App: a step type opened again resumes its Undo only over the exact same file, never one sharing its FNV fingerprint (2.1.0)', async () => {
+  const fnv = (h, x) => { for (let i = 0; i < x.length; i++) { h ^= x.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h; };
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  app.input('tf-id', 'risk.level'); app.input('tf-label', 'Risk level'); await settle(app);
+  app.submit('type-form'); await app.tick(80);
+  const path = 'step-types/risk.level.json', text = app.fs.files[path].t, key = '"label": "', at = text.indexOf(key) + key.length, end = text.indexOf('"', at);
+  // Two labels whose files share an FNV-1a fingerprint (birthday search from the state after the shared prefix).
+  const start = fnv(0x811c9dc5, text.slice(0, at)), seen = new Map(), abc = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let a = null, b = null, seed = 1;
+  const next = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0);
+  for (let n = 0; !a && n < 4e6; n++) { let x = 'L'; for (let i = 0; i < 10; i++) x += abc[next() % 62]; const h = fnv(start, x); if (seen.has(h) && seen.get(h) !== x) { a = seen.get(h); b = x; } else seen.set(h, x); }
+  assert.ok(a, 'set-up: found a collision');
+  const ta = text.slice(0, at) + a + text.slice(end), tb = text.slice(0, at) + b + text.slice(end);
+  assert.strictEqual(app.PF.util.hash(ta), app.PF.util.hash(tb), 'set-up: a collision');
+  app.click('edit-type', 'risk.level'); await app.tick(40); app.click('type-cancel'); await app.tick();
+  await app.fs.write(path, ta);
+  app.click('edit-type', 'risk.level'); await app.tick(40);
+  assert.ok(new RegExp('<input id="tf-label"[^>]*value="' + a + '"').test(app.html()), 'set-up: opened on A ' + a + ' ' + (app.html().match(/<input id="tf-label"[^>]*>/) || [''])[0]);
+  app.input('tf-label', a + 'x'); await settle(app); app.click('tl-undo', 'type'); await app.tick();
+  app.click('type-cancel'); await app.tick();
+  await app.fs.write(path, tb);
+  app.click('edit-type', 'risk.level'); await app.tick(40);
+  assert.ok(new RegExp('<input id="tf-label"[^>]*value="' + b + '"').test(app.html()), 'the file as it is now, never the form kept from A: ' + (app.html().match(/<input id="tf-label"[^>]*>/) || [''])[0]);
+});
+
 rule('App: text moved by dragging in the Markdown is one Undo', async () => {
   const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
   app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
@@ -2207,6 +2233,20 @@ rule('Plans: an older version can only be started through a plan that pins it, n
   app.submitForm('start-form', { folder: v1 }); await app.tick(80);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   assert.ok(/The version this plan starts on changed/.test(app.html()));
+});
+
+rule('Plans: a decision on the plan that can\'t be read holds it: the form says so and nothing starts (2.1.0)', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const torn = 'proposals/plan-release-2026-10-24.status-w-other.json';
+  app.fs.files[torn] = { t: '{"kind": "status", "proposal": "plan-rel', m: Date.now() };
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/isn(&#39;|')t known whether someone already started it/.test(app.html()) && app.html().indexOf(torn) >= 0, (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
+  const before = releaseRuns(app);
+  app.submitForm('start-form'); await app.tick(120);
+  assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
+  assert.ok(!app.files('proposals/').some(f => /\.status-/.test(f) && f !== torn), 'no decision written');
 });
 
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {

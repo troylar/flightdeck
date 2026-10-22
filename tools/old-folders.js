@@ -112,7 +112,7 @@ async function generate(PF, version) {
     const P = PF.people;
     d = await loaded();
     const doc = JSON.parse((await m.read(P.FILE)).text);
-    ok(await repo.savePeople(m, P.text(P.add(doc, 'Morgan Diaz', 'morgan@example.com').doc), PF.util.hash(SEED['people.json']), {}), 'saving people');
+    ok(await repo.savePeople(m, P.text(P.add(doc, 'Morgan Diaz', 'morgan@example.com').doc), PF.util.hash(SEED['people.json']), { expectText: SEED['people.json'] }), 'saving people');
   }
 
   if (has('followups')) {

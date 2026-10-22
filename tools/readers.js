@@ -18,7 +18,6 @@ const RAW = [
   { file: 'src/storage/repo.js', has: "var o = json(text); if (!o || typeof o !== 'object') return '\\u0000' + text;", why: 'compares two saves of one run by their bytes, never reads a field for meaning' },
   { file: 'src/storage/repo.js', has: 'types: json(tj)', why: 'a copy of a run\'s types this window already sanitized (intern), not a file' },
   { file: 'src/storage/repo.js', has: "readJson(fs, 'runs/' + i.name)", why: 'v0.1 runs (preflight-run/1): the legacy lister checks the format before reading a field' },
-  { file: 'src/storage/repo.js', has: 'if (!bad) return readJson(fs, path)', why: 'loadJsonDir: the caller\'s ok() dispatch check runs before the record is kept; each caller then uses its family\'s cleaner (PF.plans.clean, PF.skills.cleanValidation)' },
   { file: 'src/storage/repo.js', has: "info = f && json(f.text)", why: 'pubProblem: shape checked, then P.newerOf (the envelope) before any other field' },
   { file: 'src/storage/repo.js', has: "if (o.explain) { var raw = json(res[0].text)", why: 'R.repairs and R.unexplained (the run\'s own checked reader for other apps)' },
   { file: 'src/storage/repo.js', has: 'var why0 = misplaced(json(res[0].text), run, proc, id);', why: 'the run\'s own process, as written, compared with its folder\'s name only (the run itself is read by R.sanitize)' },

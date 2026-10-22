@@ -4,6 +4,8 @@ PF.repo = (function () {
   var U = PF.util, P = PF.publish, R = PF.run;
 
   function json(text) { try { return JSON.parse(text); } catch (e) { return undefined; } }
+  /* A run.json's fingerprint, compared before every save of it: SHA-256 of its exact text. */
+  function fileHash(text) { return PF.sha256.hex(text); }
   function readJson(fs, path) { return fs.read(path).then(function (f) { return f ? json(f.text) : null; }); }
 
   /* The people list as the app shows it, carrying the file's own document and fingerprint, so the folder owner's changes in
@@ -13,7 +15,7 @@ PF.repo = (function () {
       var o = f ? json(f.text) : null, v = PF.people.verdict(o);
       if (!v.ok) { var e = new Error(v.why); e.newer = true; e.needs = v.needs; throw e; }
       var out = PF.people.clean(o);
-      out.hash = f ? U.hash(f.text) : null; out.doc = o === undefined ? null : o;
+      out.hash = f ? U.hash(f.text) : null; out.text = f ? f.text : null; out.doc = o === undefined ? null : o;
       return out;
     });
   }
@@ -525,7 +527,7 @@ PF.repo = (function () {
         var notesTexts = res.slice(1).map(function (f) { return f ? f.text : null; });
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
            its own copy of the checklist happens to read. */
-        var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: U.hash(res[0].text),
+        var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: fileHash(res[0].text),
           notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
@@ -592,12 +594,21 @@ PF.repo = (function () {
   }
 
   /* bad (reading for other apps): each file that won't read, parse or check is named there, and the rest still load.
-     Without it, as the app reads: what doesn't parse or check is left out, and a file that won't read fails the part. */
-  function loadJsonDir(fs, dir, ok, bad, only) {
+     Without it, as the app reads: what doesn't parse or check is left out of the result, and a file that won't read fails
+     the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
+     still arriving could be the record that decides something. */
+  function loadJsonDir(fs, dir, ok, bad, only, torn) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
-        if (!bad) return readJson(fs, path).then(function (o) { if (o && ok(o)) { o._file = i.name; return o; } return null; });
+        if (!bad) return fs.read(path).then(function (f) {
+          if (!f) return null;
+          var o = json(f.text);
+          if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
+          /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
+          if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
+          return null;
+        });
         return fs.read(path).then(function (f) {
           if (!f) return null;
           var o = json(f.text);
@@ -674,6 +685,8 @@ PF.repo = (function () {
     var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, [], { files: [], folders: [], bad: [] }, [], { procs: Object.create(null) }];
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
+    /* Sign-offs that won't parse or check, named (valUnread), never dropped: one still arriving could be the sign-off. */
+    var valTorn = [];
     /* The folder itself must list: one that can't is unreadable, never empty. */
     var top = Object.create(null);
     return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
@@ -681,7 +694,7 @@ PF.repo = (function () {
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed, null, opts.contract2),
       loadStepTypes(fs), loadWorkflows(fs),
-      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }),
+      loadJsonDir(fs, 'validations', function (o) { return o.kind === 'validation' || typeof o.format === 'string'; }, null, null, valTorn),
       loadCorrectionDecisions(fs, cache, sched),
       loadFollowUpDecisions(fs, cache, sched, !!opts.explain),
       /* Proposals and presence, only where those folders are (an ordinary folder costs nothing more), and never for other
@@ -700,7 +713,14 @@ PF.repo = (function () {
       var unreadable = r[3].unreadable.concat(r[1].unreadable || []), reads = r[3].reads, keys = r[3].keys, complete = r[3].complete;
       /* Sign-offs through their one checked reader: plain strings and numbers only, and a newer Flightdeck's refused and named. */
       var refused = (r[6].refused || []).slice();
-      r[9] = r[9].map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok && c.kind === 'newer') refused.push(PF.envelope.refusal('validations/' + v._file, 'flightdeck-validation', c)); return c.ok ? c.rec : null; }).filter(Boolean);
+      r[9] = r[9].map(function (v) {
+        var c = PF.skills.cleanValidation(v);
+        if (!c.ok && c.kind === 'newer') refused.push(PF.envelope.refusal('validations/' + v._file, 'flightdeck-validation', c));
+        /* It says it's a sign-off but doesn't check: it may be anyone's, so what it names (process, version, stage) is kept. */
+        else if (!c.ok) valTorn.push({ path: 'validations/' + v._file, _file: v._file, why: 'says it\'s a sign-off but isn\'t one this copy can read', process: typeof v.process === 'string' ? v.process : '', folder: typeof v.folder === 'string' ? v.folder : '', stage: v.stage && typeof v.stage === 'object' && typeof v.stage.folder === 'string' ? v.stage.folder : '' });
+        return c.ok ? c.rec : null;
+      }).filter(Boolean);
+      var valUnread = 'sign-offs' in failed ? [] : valTorn.map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why }; if (u.parsed) x.ignored = true; if (u.process != null) { x.claimed = true; x.process = u.process; x.folder = u.folder; x.stage = u.stage; } return x; }).sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; });
       r[10].concat(r[11]).forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, u.dir === 'followups' ? 'flightdeck-followup-decision' : u.dir === 'suggestions' ? 'flightdeck-fix-decision' : 'flightdeck-correction-decision', u)); });
       r[5].forEach(function (c) { if (c.newer) refused.push(PF.envelope.refusal(/^skill-registrations\//.test(c.file || '') ? c.file : 'skills/' + c.file, 'flightdeck-skill', { kind: 'newer', why: c.errors[0], needs: c.needs })); });
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
@@ -709,7 +729,10 @@ PF.repo = (function () {
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
-      var plans = groupPlans(r[6].plans, r[6].statuses);
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; return x; });
+      /* A plan decision refused here (a newer Flightdeck's, or not in its format) holds its plan as one still arriving does. */
+      var planHolds = planUnread.filter(function (u) { return u.kind === 'unreadable'; }).concat((r[6].refused || []).filter(function (x) { return x.family === 'flightdeck-plan-status'; }).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
+      var plans = groupPlans(r[6].plans, r[6].statuses, planHolds);
       /* A stage that can't be one (2.1) makes its test runs read-only, as an unusable version does its runs; one read again
          and verified clears that. A stage still arriving says nothing. */
       cache.bad = cache.bad || {};
@@ -720,9 +743,9 @@ PF.repo = (function () {
         markBad(x, cache);
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
-      var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
+      var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
-        unreadable: unreadable, failed: failed, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
+        unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
            wherever the record would have appeared, never filtered into "nothing there" (docs/design.md section 28). */
@@ -1170,7 +1193,9 @@ PF.repo = (function () {
         var disk = R.sanitize(json(f.text));
         if (!disk) { e = new Error('The run file is unreadable, so it wasn\'t overwritten.'); e.unreadable = true; throw e; }
         if (disk._unrunnable) throw readOnly(disk._unrunnable);
-        var changed = U.hash(f.text) !== run._fileHash;
+        /* SHA-256 of the exact text this window read or wrote (fileHash): an older copy's 8-character FNV never matches, so
+           a run kept in this browser from before 2.1 keeps its change as a conflict copy rather than risk writing over one. */
+        var changed = fileHash(f.text) !== run._fileHash;
         var otherWriter = !opts.takeover && disk.recorder.session && disk.recorder.session !== session;
         if (changed || otherWriter) {
           /* Keep this window's version next to the run as a conflict copy, so nothing is lost and the team can review it. */
@@ -1198,7 +1223,7 @@ PF.repo = (function () {
         .then(function () { return fs.write(path, text); })
         .then(function () {
           forgetRun(fs, run);
-          run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = U.hash(text); run.lineage = copy.lineage;
+          run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = fileHash(text); run.lineage = copy.lineage;
           /* What was written, exactly: the run may change in memory while this save is under way. */
           return cleanCandidates(fs, dir, copy.lineage).then(function () { return { savedAt: copy.savedAt, text: text }; });
         }, function (e) { return fs.remove(cand).then(function () { throw e; }, function () { throw e; }); });
@@ -1624,6 +1649,8 @@ PF.repo = (function () {
      only its fingerprint (two different drafts can share an FNV fingerprint). */
   function saveChecked(fs, path, text, expect, opts) {
     var exact = opts && opts.expectText !== undefined;
+    /* Replacing a file needs the exact text it replaces: a fingerprint alone (32-bit FNV) could match a file that changed. */
+    if (expect != null && (!exact || typeof opts.expectText !== 'string')) return Promise.reject(new Error('A save needs the exact text it expects to find.'));
     var go = function () {
       return fs.read(path).then(function (f) {
         var now = f ? U.hash(f.text) : null;
@@ -1631,7 +1658,7 @@ PF.repo = (function () {
         /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
            report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
         return fs.write(path, text).then(function () { return fs.read(path); }).then(function (back) {
-          if (back && back.text === text) return { ok: true, hash: U.hash(text) };
+          if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
           return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
         });
       });
@@ -1696,8 +1723,15 @@ PF.repo = (function () {
         /* What it is judged on is read again now too: the test runs named (o.runIds, the ones on this stage as last read),
            people.json and this stage's sign-offs. A read that fails signs nothing. */
         var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
-        var signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }).then(function (vs) {
-          return vs.map(function (v) { var c = PF.skills.cleanValidation(v); return c.ok ? c.rec : null; }).filter(Boolean);
+        /* A sign-off of this stage that can't be read could be the one already there: nothing is signed off until it reads. */
+        var torn = [], newer = [], signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }, torn).then(function (vs) {
+          var out = vs.map(function (v) { var c = PF.skills.cleanValidation(v); if (!c.ok) (c.kind === 'newer' ? newer : torn).push({ path: 'validations/' + v._file, needs: c.needs || '' }); return c.ok ? c.rec : null; }).filter(Boolean);
+          /* JSON that isn't a sign-off at all is ignored; one that won't parse, or says it's one but doesn't check, could be. */
+          torn = torn.filter(function (t) { return !t.parsed; });
+          var e;
+          if (newer.length) { e = new Error(newer[0].path + ' is a sign-off of it made with a newer Flightdeck. ' + PF.envelope.needsText(newer[0].needs) + ' Nothing was signed off.'); e.said = true; throw e; }
+          if (torn.length) { e = new Error(torn[0].path + ' couldn\'t be read, so it isn\'t known whether it\'s already signed off. Nothing was signed off. If it doesn\'t finish arriving, restore it from a backup or delete it.'); e.said = true; throw e; }
+          return out;
         });
         /* Each run's outcome is told (o.outcome(id, { kind, why })) when it's gone or isn't itself, before anything is judged. */
         var said = function (id, res) { if (typeof o.outcome === 'function') o.outcome(id, res); };
@@ -1710,11 +1744,13 @@ PF.repo = (function () {
             return null;
           }, function (e) { said(id, { kind: 'unreadable', why: 'couldn\'t be read (' + why(e) + ')' }); throw e; });
         };
+        /* The reads that can say a run is gone start here (o.reading), not when the click waited for the lock. */
+        if (typeof o.reading === 'function') o.reading();
         return Promise.all([Promise.all(ids.map(one)), loadPeople(fs), signs]).then(function (f) {
           var c = o.check(st, { runs: f[0].filter(Boolean), people: f[1], validations: f[2] });
           if (typeof o.still === 'function' && !o.still()) return { dropped: true };
           return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
-        }, function (e) { throw new Error('What it would be signed off on couldn\'t be read now (' + why(e) + '). Nothing was signed off.'); });
+        }, function (e) { if (e && e.said) throw e; throw new Error('What it would be signed off on couldn\'t be read now (' + why(e) + '). Nothing was signed off.'); });
       });
     });
   }
@@ -2135,9 +2171,12 @@ PF.repo = (function () {
      A decision counts only for the exact plan it was made on (any copy of it); if the plan changed afterwards, it's pending
      again. Decisions that disagree (one accepted and one declined, or two starts naming different runs, on any of its copies)
      leave the plan undecided rather than picking one, so a plan started on two computers is shown, never hidden. */
-  function groupPlans(plans, statuses) {
+  /* unread: files in proposals/ that couldn't be read (repo.loadAll's planUnread). One named <plan>.status-… could be a
+     decision on that plan, so the plan holds them (_statusUnread) and isn't started until they read. */
+  function groupPlans(plans, statuses, unread) {
     var byId = Object.create(null), order = [], out = [];
-    plans.forEach(function (p) { p._hash = U.hash(JSON.stringify(stripMeta(p))); if (!byId[p.id]) { byId[p.id] = []; order.push(p.id); } byId[p.id].push(p); });
+    /* _hash is the fingerprint plan decisions name (persisted, so unchanged); _sha (SHA-256) is what a form compares. */
+    plans.forEach(function (p) { var t = JSON.stringify(stripMeta(p)); p._hash = U.hash(t); p._sha = PF.sha256.hex(t); if (!byId[p.id]) { byId[p.id] = []; order.push(p.id); } byId[p.id].push(p); });
     order.forEach(function (id) {
       var own = id + '.json', g = byId[id].sort(function (a, b) { var ca = a._file === own ? 0 : 1, cb = b._file === own ? 0 : 1; return ca - cb || (String(a._file) < String(b._file) ? -1 : String(a._file) > String(b._file) ? 1 : 0); });
       var alike = g.every(function (p) { return PF.requests.same(p, g[0]); }), files = g.map(function (p) { return p._file; }), allHashes = g.map(function (p) { return p._hash; });
@@ -2158,6 +2197,9 @@ PF.repo = (function () {
         p._status = match.length && !p._conflicting ? match[0] : null;
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
         p._copies = g.length; p._copiesDiffer = !alike; p._files = files;
+        /* _statusHeld: { path, kind (unreadable, newer or malformed), needs }; _statusUnread: their paths. */
+        p._statusHeld = (unread || []).filter(function (u) { return String(u._file).indexOf(p.id + '.status-') === 0; }).map(function (u) { return { path: u.path, kind: u.kind || 'unreadable', needs: u.needs || '' }; });
+        p._statusUnread = p._statusHeld.map(function (u) { return u.path; });
         out.push(p);
       });
     });
@@ -2170,8 +2212,8 @@ PF.repo = (function () {
      ones are kept in refused, so Folder health names them. only(name): just those files (plan request reads its own request's). */
   /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
   function readPlans(fs, bad, only, two) {
-    var refused = [];
-    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only).then(function (props) {
+    var refused = [], torn = bad ? null : [];
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
       var plans = [], statuses = [];
       props.forEach(function (p) {
         var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
@@ -2185,7 +2227,7 @@ PF.repo = (function () {
         if (v.kind === 'status') statuses.push(p);
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
-      return { plans: plans, statuses: statuses, refused: refused };
+      return { plans: plans, statuses: statuses, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
@@ -2476,7 +2518,7 @@ PF.repo = (function () {
           return Promise.all(m.want.map(read)).then(function (t) {
             /* Only a run in its own folder: a copy of one elsewhere would add its corrections again. */
             if (t[0] == null || !R.sanitize(json(t[0])) || elsewhere(json(t[0]), proc, m.key.split('/')[1])) return null;
-            return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: U.hash(t[0]), notesSig: '', unrunnable: '' }, null);
+            return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: fileHash(t[0]), notesSig: '', unrunnable: '' }, null);
           });
         });
         /* Versions are read from snapshots: the files behind a claim are the very bytes in the pack. */
@@ -2890,5 +2932,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

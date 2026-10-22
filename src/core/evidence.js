@@ -310,7 +310,9 @@ PF.evidence = (function () {
   }
   function runHtml(col, rc, opts) {
     var r = rc.run, raw = rc.raw || {}, h = '<h2>Run: ' + esc(rc.title || rc.key) + '</h2>';
-    h += (rc.test ? '<p><b>Test run</b> on a staged version. It isn\'t a run of a published version.</p>' : '') + '<p class="soft">' + esc(rc.key) + (raw.version != null ? (rc.test ? ' · staged version ' : ' · version ') + esc(raw.version) : '') + (raw.folder ? ' · <span class="mono">' + esc(raw.folder) + '</span>' : '') + ' · started ' + esc(when(raw.created)) +
+    /* A test run's run.json is labeled as one even where nothing is taken from it as this folder's run (a misplaced copy). */
+    var test = rc.test || raw.test === true;
+    h += (test ? '<p><b>Test run</b> on a staged version. It isn\'t a run of a published version.</p>' : '') + '<p class="soft">' + esc(rc.key) + (raw.version != null ? (test ? ' · staged version ' : ' · version ') + esc(raw.version) : '') + (raw.folder ? ' · <span class="mono">' + esc(raw.folder) + '</span>' : '') + ' · started ' + esc(when(raw.created)) +
       (r && r.ended ? ' · ended ' + esc(r.ended.outcome) + ' at ' + esc(when(r.ended.at)) : r ? ' · ' + esc(r.state) : '') + (raw.rev != null ? ' · revision ' + esc(raw.rev) : '') + '</p>';
     if (rc.limited) h += '<p class="warn">' + esc(rc.limited) + ' ' + esc(LIMITED) + '</p>';
     if (r) {
