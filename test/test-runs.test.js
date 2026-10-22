@@ -105,6 +105,11 @@ rule('Any other shape of the test-run fields is read-only, labeled a test run wh
     await assert.rejects(() => repo.saveRun(fs, r, 'w-avery'), e => e.unrunnable, name);
     assert.strictEqual(snap(fs), before, name + ': nothing written');
   }
+  /* Refused early (an unknown field, a newer feature): still labeled a test run, so never counted. */
+  const early = (() => { const o = Object.assign(JSON.parse(RUN_T), { surprise: 1 }); delete o.test; return R.sanitize(o); })();
+  assert.ok(early && early._unrunnable && R.isTest(early), 'refused by name: ' + (early && early._unrunnable));
+  const newer = R.sanitize(Object.assign(JSON.parse(RUN_T), { features: ['typed-details', 'typed-evidence', 'staged', 'test-run', 'extensions'] }));
+  assert.ok(newer && newer._unrunnable && R.isTest(newer), 'a newer feature: labeled');
   const two = R.sanitize(Object.assign(JSON.parse(RUN_T), { format: 'preflight-run/2', features: undefined }));
   assert.ok(!two || two._unrunnable, 'a run/2 saying test is read-only');
 });

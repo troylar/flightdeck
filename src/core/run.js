@@ -1429,7 +1429,9 @@ PF.run = (function () {
   function nameOnly(o, needs) {
     if (typeof o.id !== 'string' || !RUN_ID.test(o.id)) return null;
     var r = sanitize({ format: FORMAT, id: o.id, process: o.process, title: o.title, created: o.created, createdBy: o.createdBy, version: o.version, folder: o.folder, state: o.state, ended: o.ended, snapshot: '', steps: {}, gates: {}, recorder: { person: o.recorder && o.recorder.person } });
-    var test = o.test === true;
+    /* Anything claiming a test run's fields, a stage feature or a stage folder is labeled a test run, so it's never counted. */
+    var f = Array.isArray(o.features) ? o.features : [];
+    var test = o.test === true || own(o, 'test') || own(o, 'stage') || f.indexOf('staged') >= 0 || f.indexOf('test-run') >= 0 || (typeof o.folder === 'string' && PF.publish.STAGE.test(o.folder));
     r._unrunnable = (test ? 'Test run · needs ' + (needs ? 'Flightdeck ' + needs : 'a newer Flightdeck') + '. ' : 'Made with ' + (needs ? 'Flightdeck ' + needs : 'a newer Flightdeck') + '. ') + 'This copy shows its name only and won\'t change it.';
     r._needs = needs; if (test) r._test = true;
     return r;

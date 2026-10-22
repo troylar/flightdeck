@@ -395,7 +395,7 @@ rule('run/3 is read in full only when everything in it is known: an unknown fiel
   nameOnly(Object.assign({}, r3, { pins: { reports: {} } }));
   nameOnly(Object.assign({}, r3, { features: ['phase-notes', 'extensions'] }));
   const st = R.sanitize(Object.assign({}, r3, { features: ['phase-notes', 'staged'] }));
-  assert.ok(st && st._unrunnable && !R.isTest(st), 'staged without a test run\'s fields: read-only (2.1 slice 5)');
+  assert.ok(st && st._unrunnable && R.isTest(st), 'staged without a test run\'s fields: read-only, labeled a test run so it\'s never counted (2.1 slice 5)');
   nameOnly(Object.assign({}, r3, { payload: { map: 'x' } }));
   nameOnly(Object.assign({}, r3, { payload: Object.assign({}, r3.payload, { pins: { children: { a: {} }, skills: {} } }) }));
   const step = JSON.parse(JSON.stringify(r3)); step.steps = { read: { s: 'done', by: 'person-avery', at: '2026-10-20T09:00:00.000Z', skill: { id: 'x' } } };
