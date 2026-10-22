@@ -240,7 +240,7 @@ flowchart LR
 
 - **A failed run read is never "nothing there."** If OneDrive hasn't finished syncing a run, or it can't be read, Flightdeck says so by name. It never treats the run as empty. A run whose latest read failed stays on screen, but it doesn't count toward a sign-off until it reads again.
 - **Every save leaves a receipt first.** Before writing `run.json`, a window writes its version to its own `candidate-<window>-<save>.json`, and `run.json` lists the saves it includes. If two computers that can't see each other both save, the replaced save isn't on the list, so it shows up in the run as a copy to compare. It's never silently lost.
-- **A save checks the file it's about to replace.** Before every save, Flightdeck compares a fingerprint of the file with the one it read. If the fingerprint changed, it writes its version beside the file as a conflict copy instead. Nothing is ever merged automatically.
+- **A run save checks the file it's about to replace.** Before every `run.json` save, Flightdeck compares a fingerprint of the file with the one it read. If the fingerprint changed, it writes its version beside the file as a conflict copy instead. Nothing is ever merged automatically.
 - **An older copy can't damage what a newer copy wrote.** A run with fields an older Flightdeck doesn't understand opens read-only there, and a version that needs a newer Flightdeck says "Update Flightdeck to run it." Dropping unknown fields on save would erase someone's work, so the older copy never saves.
 - **A gate is a record, not a live lock.** A synced folder can be a minute behind, so a gate means "passed for this commit, by Casey, at 9:52," never "safe right now." Irreversible actions always keep a person's confirmation.
 - **The run carries its own checklist.** `run.json` holds a snapshot of the exact checklist and step types it started on, so a run reads the same years later, whatever happened to the process since.
@@ -701,8 +701,8 @@ The same rules are in the `flightdeck-skill-brief` skill for your AI assistant, 
 | Command | Does |
 |---|---|
 | `flightdeck draft read <folder> <process> --json` | The draft's exact text and revision, who has it open, and this session's proposals |
-| `flightdeck draft save <folder> <process> --expect <rev\|none> --from <file\|->` | Writes the draft only when nobody has it open and it's exactly what was read; otherwise writes a proposal a person applies in the app |
-| `flightdeck draft propose …` | The same arguments; always writes a proposal |
+| `flightdeck draft save <folder> <process> --expect <rev\|none> --from <file\|-> --json` | Writes the draft only when nobody has it open and it's exactly what was read; otherwise writes a proposal a person applies in the app |
+| `flightdeck draft propose …` | The same arguments, `--json` included; always writes a proposal |
 | `flightdeck skill register <folder> --from <file\|->` | Registers a skill against the exact version it was built from (versions made with Flightdeck 2.0). The only writer of `skill-registrations/` |
 
 **Options:**
@@ -810,7 +810,7 @@ AGENTS.md              the rules any AI assistant follows in this folder (your o
 
 - **Nothing leaves your machine.** The app makes no network requests and loads nothing from the internet; its fonts and code are inside the file.
 - **No server to run, no accounts to manage.** Your data is files in a folder you already control.
-- **One writer per file, and checked saves.** A run is saved only if its file hasn't changed since this window read it; otherwise this window's version is kept beside it as a copy to compare and keep. Every save first leaves its own receipt, so a save that gets replaced shows up in the run as a copy, never silently lost (see [docs/onedrive.md](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md)).
+- **One writer per file, and checked saves.** Before a run is saved, this window checks a fingerprint of its file; if it changed since this window read it, this window's version is kept beside it as a copy to compare and keep. Every run save first leaves its own receipt, so if a computer that can't see the change replaces it anyway, the replaced save shows up in the run as a copy, never silently lost. A draft save that finds a change writes nothing and asks you to reload (see [docs/onedrive.md](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md)).
 - **Built for OneDrive.** Folders that sync a minute late are expected. A gate means "passed for this commit, by this person," never a live lock.
 - **The command is careful too.** No dependencies, nothing runs on install, no network. It refuses to write through links, writes whole files atomically, and never replaces a newer version without `--force`.
 - **Accessible.** Every control has a label, errors sit next to their field, shortcuts can be turned off, and it works with a keyboard.
