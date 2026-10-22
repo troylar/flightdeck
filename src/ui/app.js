@@ -631,6 +631,11 @@
   var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
+    /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
+       this time, so none of a stage's test runs or sign-offs count for them until they are (2.1). */
+    if (d.failed && 'publications' in d.failed) (d.processes || []).forEach(function (p) {
+      [p.latest, p.index && p.index.latest].concat(p.pubs || []).forEach(function (x) { if (x && x.fromStage && x.fromStage.ok) x.fromStage = { folder: x.fromStage.folder, ok: false, why: 'Its files couldn\'t be read this time.', stage: null }; });
+    });
     var drafts = {};
     (d.unreadable || []).forEach(function (u) {
       if (!u.draft) return;
@@ -3823,8 +3828,25 @@
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
-      queued(function () { return repo.recordValidation(sfs, pub, WRITER, state.me, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null); }).then(function () {
-        if (sg !== gen) return; state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
+      var by = state.me, still = function () { return sg === gen && state.fs === sfs && state.me === by; };
+      queued(function () {
+        if (!ready.tests) return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null);
+        /* It leans on test runs (2.1): the version's bytes are checked against its stage again and those test runs read again
+           now, and the count worked out again from them, before anything is written. */
+        var st = pub.fromStage && pub.fromStage.stage, tests = data.runs.filter(function (r) { return r.process === id && PF.run.isTest(r) && st && r.folder === st.folder; });
+        var ids = tests.map(function (r) { return r.id; });
+        return Promise.all([st ? repo.stageCarried(sfs, pub, st) : Promise.resolve('Its stage isn\'t known.'), Promise.all(ids.map(function (rid) { return repo.loadRun(sfs, id, rid, null, true); }))]).then(function (f) {
+          if (f[0]) throw new Error(f[0]);
+          var fresh = f[1].filter(function (r, i) { return r && r.process === id && r.id === ids[i]; });
+          var again = PF.skills.readiness(data.runs.filter(function (r) { return tests.indexOf(r) < 0; }).concat(fresh), pub, null);
+          if (!again.enough) throw new Error('It needs ' + again.needed + ' clean completed runs; it has ' + again.clean + ' now.');
+          if (!still()) return { dropped: true };
+          return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: again.completed, clean: again.clean, runs: again.cleanRuns }, as === 'backup' ? 'backup' : null);
+        });
+      }).then(function (res) {
+        if (sg !== gen) return;
+        if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
+        state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
       }, function (e) { if (sg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
     /* The brief an AI assistant needs to create a skill from a signed-off version, or to update one after the process changed. */

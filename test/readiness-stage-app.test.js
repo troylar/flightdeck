@@ -136,4 +136,43 @@ rule('Copies of one test run in other run folders never make enough for a sign-o
   assert.strictEqual(app.files('validations/').length, before, 'nothing written');
 });
 
+async function promotedTested(app, folder) {
+  await tested(app, folder, 3);
+  app.click('promote-stage', folder); await app.tick(300);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+}
+const panel = (app) => (app.html().match(/Ready for a skill\?[\s\S]{0,600}/) || [''])[0];
+
+rule('Versions kept from before while publications/ can\'t be read count none of their stage\'s test runs', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  assert.ok(/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'set-up: v3 can be signed off on its test runs: ' + panel(app));
+  const orig = app.fs.list.bind(app.fs);
+  app.fs.list = (x) => /^publications/.test(x) ? Promise.reject(new Error('offline')) : orig(x);
+  app.click('refresh'); await app.tick(160);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(60);
+  assert.ok(!/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), panel(app));
+});
+
+rule('Signing off the default version on test runs reads them again first: one changed since, nothing is written', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  assert.ok(/data-act="pick" data-kind="signoff" data-id="release"/.test(app.html()), 'set-up: offered');
+  app.files('runs/release/run-try3/').forEach(f => { delete app.fs.files[f]; });
+  const before = app.files('validations/').length;
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before, 'nothing written');
+  assert.ok(/it has 2 now/.test(app.html()), 'it says why');
+});
+
+rule('With its test runs unchanged, the default version is signed off on them', async () => {
+  const { app, folder } = await staged('person-casey');
+  await promotedTested(app, folder);
+  const before = app.files('validations/').length;
+  app.click('pick', 'release', { kind: 'signoff' }); await app.tick();
+  app.click('signoff', 'release'); await app.tick(200);
+  assert.strictEqual(app.files('validations/').length, before + 1, panel(app));
+});
+
 run();
