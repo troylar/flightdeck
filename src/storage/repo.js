@@ -1444,7 +1444,13 @@ PF.repo = (function () {
   /* Promote and decide take one lock per process (o.lock: the app's cross-window lock on this computer), and check everything
      again inside it, so two windows here never promote the same stage twice. Across computers, two at once is the clash
      publishing already has (docs/design.md section 31). */
-  function stageLocked(o, proc, go) { return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, go) : go(); }
+  /* o.still: when given, asked inside the lock and again right before the first write; false drops the work unwritten
+     (resolves to { dropped: true }), so a window that switched folder or person while it waited writes nothing. */
+  function stageLocked(o, proc, go) {
+    var run = function () { return o && typeof o.still === 'function' && !o.still() ? { dropped: true } : go(); };
+    return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, run) : Promise.resolve().then(run);
+  }
+  function stillOk(o) { if (o && typeof o.still === 'function' && !o.still()) { var e = new Error('dropped'); e.dropped = true; throw e; } }
   function decideStage(fs, proc, stageFolder, status, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
     return stageLocked(o, proc, function () { return decideStageNow(fs, proc, stageFolder, status, o); });
@@ -1452,6 +1458,7 @@ PF.repo = (function () {
   function decideStageNow(fs, proc, stageFolder, status, o) {
     return stageState(fs, proc).then(function (sp) {
       var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
+      try { stillOk(o); } catch (e) { return { dropped: true }; }
       return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
     });
   }
@@ -1486,6 +1493,7 @@ PF.repo = (function () {
         /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
            published is byte for byte what was staged (a byte-order mark included). */
         var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
+        try { stillOk(o); } catch (e) { return { dropped: true }; }
         var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
         var raw = function (name, want) {
           return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {

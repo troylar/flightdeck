@@ -189,6 +189,19 @@ rule('Promote: two windows on this computer promoting the same stage at once pub
   same(files(fs, /^publications\/release\/v\d-conc/).filter(p => /publication\.json$/.test(p)), ['publications/release/v2-conc0001/publication.json']);
 });
 
+rule('Promote and decisions drop their work, writing nothing, when the window\'s folder or person changed while they waited for the lock', async () => {
+  const fs = folder(); await staged(fs);
+  let ok = true, release;
+  const gate = new Promise(r => { release = r; });
+  const lock = (name, fn) => gate.then(fn);
+  const before = JSON.stringify(Object.keys(fs.files).sort());
+  const p1 = repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', lock, still: () => ok });
+  const p2 = repo.decideStage(fs, 'release', 'stage-abcd1234', 'retired', { by: 'person-blake', now: LATER, window: 'w-blake', lock, still: () => ok });
+  ok = false; release();
+  same([await p1, await p2], [{ dropped: true }, { dropped: true }]);
+  assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
+});
+
 /* ---------- The stage transaction ---------- */
 
 rule('Stage transaction: a write or read-back failure at each step stops it with the reason; the record is written last, so a half stage is never usable', async () => {

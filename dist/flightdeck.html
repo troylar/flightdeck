@@ -14513,7 +14513,13 @@ PF.repo = (function () {
   /* Promote and decide take one lock per process (o.lock: the app's cross-window lock on this computer), and check everything
      again inside it, so two windows here never promote the same stage twice. Across computers, two at once is the clash
      publishing already has (docs/design.md section 31). */
-  function stageLocked(o, proc, go) { return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, go) : go(); }
+  /* o.still: when given, asked inside the lock and again right before the first write; false drops the work unwritten
+     (resolves to { dropped: true }), so a window that switched folder or person while it waited writes nothing. */
+  function stageLocked(o, proc, go) {
+    var run = function () { return o && typeof o.still === 'function' && !o.still() ? { dropped: true } : go(); };
+    return o && typeof o.lock === 'function' ? o.lock('preflight:stage:' + proc, run) : Promise.resolve().then(run);
+  }
+  function stillOk(o) { if (o && typeof o.still === 'function' && !o.still()) { var e = new Error('dropped'); e.dropped = true; throw e; } }
   function decideStage(fs, proc, stageFolder, status, o) {
     if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
     return stageLocked(o, proc, function () { return decideStageNow(fs, proc, stageFolder, status, o); });
@@ -14521,6 +14527,7 @@ PF.repo = (function () {
   function decideStageNow(fs, proc, stageFolder, status, o) {
     return stageState(fs, proc).then(function (sp) {
       var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
+      try { stillOk(o); } catch (e) { return { dropped: true }; }
       return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
     });
   }
@@ -14555,6 +14562,7 @@ PF.repo = (function () {
         /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
            published is byte for byte what was staged (a byte-order mark included). */
         var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
+        try { stillOk(o); } catch (e) { return { dropped: true }; }
         var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
         var raw = function (name, want) {
           return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {
@@ -21007,7 +21015,7 @@ PF.examples = (function () {
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
       (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); }),
       d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; }),
-      Object.keys((d.stages || {}).procs || {}).map(function (k) { var x = d.stages.procs[k]; return k + ':' + x.unlisted + ':' + x.stages.map(function (s) { return s.folder + s.ok; }).join() + ':' + x.decisions.map(function (y) { return y._file; }).join() + ':' + x.unread.length; })]);
+      Object.keys((d.stages || {}).procs || {}).map(function (k) { var x = d.stages.procs[k]; return k + ':' + x.unlisted + ':' + x.stages.map(function (s) { return s.folder + s.ok; }).join() + ':' + x.decisions.map(function (y) { return y._file; }).join() + ':' + x.unread.map(function (u) { return u.path; }).join() + ':' + x.refused.map(function (r) { return r.path + r.needs; }).join(); })]);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
@@ -21620,12 +21628,15 @@ PF.examples = (function () {
     if (!pid || !by || state.stageBusy) return;
     state.stageBusy = pid; render();
     queued(function () {
-      if (pg !== gen || state.fs !== sfs || state.me !== by) return { dropped: true };
+      var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
+      if (!still()) return { dropped: true };
       var lk = LOCKS ? lock : null;
-      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk })
-        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk });
+      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: still })
+        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk, still: still });
     }).then(function (res) {
-      state.stageBusy = null; if (pg !== gen) return;
+      state.stageBusy = null;
+      if (res && res.dropped) { if (pg === gen) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); } return; }
+      if (pg !== gen) return;
       if (res && res.dropped) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); return; }
       say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
       return load(true);
@@ -24767,7 +24778,7 @@ PF.examples = (function () {
       var shown = p.draft.md, sfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       state.stageBusy = id; render();
       /* Bound to the folder it was asked in: another folder opened meanwhile drops it, before any read and before the write. */
-      var stale = function () { return pg !== gen || state.fs !== sfs; };
+      var stale = function () { return pg !== gen || state.fs !== sfs || state.me !== by; };
       queued(function () {
         if (stale()) return { dropped: true };
         return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
@@ -24778,7 +24789,8 @@ PF.examples = (function () {
           return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION });
         });
       }).then(function (res) {
-        state.stageBusy = null; if (pg !== gen || res.dropped) return;
+        state.stageBusy = null; if (pg !== gen) return;
+        if (res.dropped) { say('Nothing was staged: the person using this window changed before it could be saved.', 'warn'); render(); return; }
         if (res.changed) { say('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.', 'warn'); return load(true); }
         if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
         state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;

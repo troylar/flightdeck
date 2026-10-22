@@ -133,4 +133,27 @@ rule('staged/ that can\'t be listed keeps the stages as last read, says so, and 
   assert.ok(/shown as last read/.test(html) && /Status unknown/.test(html), 'and it says so');
 });
 
+rule('Staging is dropped, never recorded under the earlier person, when the person changes while the draft is read', async () => {
+  const app = await withDraftChange('person-casey');
+  let release; const gate = new Promise(r => { release = r; });
+  const orig = app.fs.read.bind(app.fs);
+  app.fs.read = (x, o) => /^maps\/drafts\/release\.md$/.test(x) ? gate.then(() => orig(x, o)) : orig(x, o);
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(20);
+  app.choose('person-morgan'); await app.tick();
+  release(); await app.tick(200);
+  app.fs.read = orig;
+  assert.ok(!stageFiles(app).length, 'nothing staged');
+});
+
+rule('A newer decision that arrives on a routine refresh holds the stage at once', async () => {
+  const app = await withDraftChange('person-casey');
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  const folder = JSON.parse(app.fs.files[stageFiles(app)[0]].t).folder;
+  assert.ok(/data-act="promote-stage"/.test(app.html()));
+  await app.fs.write('staged/release/decisions/' + folder + '.w-other.1.json', JSON.stringify({ format: 'flightdeck-stage-decision/2', process: 'release', stage: folder, status: 'retired', rev: 1 }));
+  app.every(); await app.tick(120);
+  const html = app.html();
+  assert.ok(!/data-act="promote-stage"/.test(html) && /Status unknown/.test(html), 'held');
+});
+
 run();
