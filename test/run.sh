@@ -6,6 +6,7 @@ node test/rules.test.js
 node test/envelope.test.js
 node test/staging.test.js
 node test/test-runs.test.js
+node test/readiness-stage.test.js
 node test/pins.test.js
 node test/typed.test.js
 node test/conditions.test.js
@@ -22,6 +23,7 @@ node test/app.test.js
 node test/app-reports.test.js
 node test/staging-app.test.js
 node test/test-runs-app.test.js
+node test/readiness-stage-app.test.js
 node test/propose-app.test.js
 node test/live-app.test.js
 node test/shots-app.test.js

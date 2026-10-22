@@ -728,12 +728,13 @@ PF.repo = (function () {
            wherever the record would have appeared, never filtered into "nothing there" (docs/design.md section 28). */
         refused: refused.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; }) };
       if (opts.explain) { out.malformed = malformed; out.nofile = r[3].nofile || []; }
+      var stagesDone = opts.readOnly ? Promise.resolve() : attachStages(fs, out, cache);
       /* Every run, as objects: fresh ones as read, cached ones built new. Built on first use, since the app applies reads instead. */
       var runs = null;
       Object.defineProperty(out, 'runs', { enumerable: true, configurable: true,
         get: function () { if (!runs) runs = keys.map(function (k) { var x = reads[k]; return !x ? null : x.kind === 'fresh' ? x.run : x.kind === 'cached' ? x.build() : null; }).filter(Boolean); return runs; },
         set: function (v) { runs = v; } });
-      return out;
+      return stagesDone.then(function () { return out; });
     });
   }
   /* One run, for other apps (flightdeck run and next): read-only (nothing is removed, not even a save receipt that lost
@@ -1670,6 +1671,92 @@ PF.repo = (function () {
     var rec = { kind: 'validation', process: pub.map.meta.process, version: pub.info.version, folder: pub.info.folder, by: by, at: new Date().toISOString(), note: String(note || '').slice(0, 300), evidence: evidence };
     if (as === 'backup') rec.as = 'backup';
     return fs.write('validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
+  }
+  /* A stage sign-off (2.1): flightdeck-validation/2 in validations/<process>.<stage>.<window>.json, the frozen shape
+     (PF.skills.stageSignoff). o: { window, by, note, evidence, as, app, now }. */
+  function recordStageValidation(fs, stage, o) {
+    var s = PF.skills.stageSignoff(stage, { window: o.window, by: o.by, at: o.now || new Date().toISOString(), note: o.note, evidence: o.evidence, as: o.as, app: o.app });
+    return fs.write(s.path, s.text).then(function () { return s.rec; });
+  }
+  /* Sign off a stage from the app (2.1 slice 6): under the same per-process lock as promote and retire, the stage, its
+     decisions and publications/<process>/ are read again; it must still be staged. o.check(stage) says who signs and with
+     what evidence ({ as, evidence }, or throws why not); o.still() is asked right before the write. */
+  function signOffStage(fs, proc, stageFolder, o) {
+    if (!STAGE_PROC.test(proc) || !P.STAGE.test(stageFolder)) return Promise.reject(new Error('No such stage.'));
+    return stageLocked(o, proc, function () {
+      var listing = fs.list('publications/' + proc).then(null, function (e) { throw new Error('publications/' + proc + '/ couldn\'t be read (' + (e && e.message || e) + '). Nothing was signed off.'); });
+      return listing.then(function (vers) {
+        return Promise.all([Promise.all(vers.filter(function (v) { return v.kind === 'dir' && P.versionOf(v.name); }).map(function (v) { return readVersion(fs, proc, v.name); })), readStage(fs, proc, stageFolder), stageState(fs, proc)]);
+      }).then(function (r) {
+        var pubs = r[0], st = r[1], sp = r[2];
+        if (!st.ok) throw new Error('This staged version can\'t be read now: ' + st.why);
+        if (pubs.some(function (x) { return !x.info || typeof x.info !== 'object'; })) throw new Error('A version of this process can\'t be read now, so it isn\'t known whether this stage is already the default. Try again once the folder has synced.');
+        var x = PF.staging.status(st, sp.decisions, pubs);
+        if (x.status !== 'staged') throw new Error(x.status === 'promoted' ? 'It\'s already the default.' : PF.staging.promoteWhy(x) || 'It isn\'t staged now.');
+        /* What it is judged on is read again now too: the test runs named (o.runIds, the ones on this stage as last read),
+           people.json and this stage's sign-offs. A read that fails signs nothing. */
+        var seen = Object.create(null), ids = (o.runIds || []).filter(function (id) { if (typeof id !== 'string' || !R.RUN_ID.test(id) || seen[id]) return false; seen[id] = true; return true; });
+        var signs = loadJsonDir(fs, 'validations', function (v) { return typeof v.format === 'string'; }, null, function (n) { return n.indexOf(proc + '.' + stageFolder + '.') === 0; }).then(function (vs) {
+          return vs.map(function (v) { var c = PF.skills.cleanValidation(v); return c.ok ? c.rec : null; }).filter(Boolean);
+        });
+        /* Each run's outcome is told (o.outcome(id, { kind, why })) when it's gone or isn't itself, before anything is judged. */
+        var said = function (id, res) { if (typeof o.outcome === 'function') o.outcome(id, res); };
+        var one = function (id) {
+          var bad = [];
+          return loadRun(fs, proc, id, null, true, false, bad).then(function (r) {
+            /* Only a run whose own record names this process and the folder it was read from. */
+            if (r && r.process === proc && r.id === id) return r;
+            said(id, bad.length ? { kind: 'unreadable', why: bad[0].why } : { kind: 'missing' });
+            return null;
+          }, function (e) { said(id, { kind: 'unreadable', why: 'couldn\'t be read (' + why(e) + ')' }); throw e; });
+        };
+        return Promise.all([Promise.all(ids.map(one)), loadPeople(fs), signs]).then(function (f) {
+          var c = o.check(st, { runs: f[0].filter(Boolean), people: f[1], validations: f[2] });
+          if (typeof o.still === 'function' && !o.still()) return { dropped: true };
+          return recordStageValidation(fs, st, { window: o.window, by: o.by, note: o.note, evidence: c.evidence, as: c.as, app: o.app, now: o.now });
+        }, function (e) { throw new Error('What it would be signed off on couldn\'t be read now (' + why(e) + '). Nothing was signed off.'); });
+      });
+    });
+  }
+  /* The payload rule for a promoted version (2.1): the SHA-256 of its own exact bytes, read now (cached while every file
+     keeps its size and time), checked against its stage by PF.skills.carries. Resolves to '' or why not. */
+  function stageCarried(fs, pub, stage, cacheIn) {
+    var dir = 'publications/' + pub.info.process + '/' + pub.info.folder + '/', names = ['map.md', 'types.json'].concat(Object.keys(pub.info.images && typeof pub.info.images === 'object' ? pub.info.images : {}).sort());
+    var c = cacheIn || cacheOf(fs); c.exact = c.exact || {};
+    return Promise.all(names.map(function (n) { return fileStamp(fs, dir + n); })).then(function (stamps) {
+      var key = names.map(function (n, i) { return n + '=' + stamps[i]; }).join('|'), was = c.exact[dir];
+      if (was && was.key === key && stamps.every(Boolean)) return was.exact;
+      return Promise.all(names.map(function (n) { return fs.blob(dir + n).then(function (b) { return b ? bytesOf(b) : null; }); })).then(function (bs) {
+        if (bs.some(function (b) { return !b; })) return null;
+        var exact = { 'map.md': sha256Of(bs[0]), 'types.json': sha256Of(bs[1]), images: Object.create(null) };
+        names.slice(2).forEach(function (n, i) { exact.images[n] = sha256Of(bs[i + 2]); });
+        c.exact[dir] = { key: key, exact: exact };
+        return exact;
+      });
+    }).then(function (exact) { return PF.skills.carries(pub, stage, exact); }, function (e) { return 'Its files can\'t be read now (' + why(e) + ').'; });
+  }
+  /* Which stage each promoted version carries (pub.fromStage: { folder, ok, why, stage }), after a load. A stage that couldn't
+     be read this time keeps what was worked out before, so a passing sync never changes it. */
+  function attachStages(fs, out, cache) {
+    var procs = (out.stages || {}).procs || {}, jobs = [];
+    cache.carried = cache.carried || {};
+    (out.processes || []).forEach(function (p) {
+      (p.pubs || []).forEach(function (pub) {
+        var sf = pub && pub.ok && pub.info && pub.info.stagedFrom;
+        if (!sf || typeof sf !== 'object') return;
+        var proc = pub.info.process, key = 'publications/' + proc + '/' + pub.info.folder + '/', folder = String(sf.folder || '');
+        var sp = Object.prototype.hasOwnProperty.call(procs, proc) ? procs[proc] : null, st = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
+        /* A stage that couldn't be read this time: the one verified before, never the old verdict, and this version's own
+           bytes checked against it again. */
+        var was = cache.carried[key], unlisted = 'stages' in out.failed || !!(sp && sp.unlisted && /^staged\/[^/]+\/ /.test(sp.unlisted));
+        /* Only a stage that wasn't listed this time; one read and failing, or listed as gone, forgets what was worked out. */
+        if (!st && unlisted && was && was.stage && was.folder === folder) st = was.stage;
+        else if (!st || !st.ok) delete cache.carried[key];
+        if (!st) { pub.fromStage = { folder: folder, ok: false, why: 'Its stage isn\'t in the folder.', stage: null }; return; }
+        jobs.push(stageCarried(fs, pub, st, cache).then(function (w) { pub.fromStage = { folder: folder, ok: !w, why: w, stage: st }; if (st.ok) cache.carried[key] = pub.fromStage; }));
+      });
+    });
+    return Promise.all(jobs);
   }
   /* people.json, changed by the folder owner or backup in Settings: checked against the version they saw, like a draft. */
   function savePeople(fs, text, expect, opts) { return saveChecked(fs, PF.people.FILE, text, expect, opts); }
@@ -2803,5 +2890,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

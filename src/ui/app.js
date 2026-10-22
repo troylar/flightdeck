@@ -521,7 +521,7 @@
      changes _notesSig, never the count), notes added here since the read, and its conflict copies by name. */
   function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
-    return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok; }); }),
+    return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok + (x.fromStage ? ':' + x.fromStage.folder + x.fromStage.ok : ''); }); }),
       d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
       (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|'); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
@@ -631,6 +631,11 @@
   var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
+    /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
+       this time, so none of a stage's test runs or sign-offs count for them until they are (2.1). */
+    if (d.failed && 'publications' in d.failed) (d.processes || []).forEach(function (p) {
+      [p.latest, p.index && p.index.latest].concat(p.pubs || []).forEach(function (x) { if (x && x.fromStage && x.fromStage.ok) x.fromStage = { folder: x.fromStage.folder, ok: false, why: 'Its files couldn\'t be read this time.', stage: null }; });
+    });
     var drafts = {};
     (d.unreadable || []).forEach(function (u) {
       if (!u.draft) return;
@@ -659,13 +664,18 @@
   /* The last read of the whole folder failed: what's shown is from before it. */
   var folderUnread = false;
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
-  function countedRuns() {
+  function countedRuns() { return data.runs.filter(counted); }
+  /* Whether a run (on screen, or just read again) counts toward a sign-off now. */
+  function counted(r) {
     /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
-    if (folderUnread || (data.failed || {}).runs) return [];
+    if (folderUnread || (data.failed || {}).runs) return false;
     /* Nor is a run with a change that couldn't be saved. */
-    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {};
-    return data.runs.filter(function (r) { var k = r.process + '/' + r.id; return !u[k] && !m[k] && !notCounted[k] && !un[r.id]; });
+    var u = (state.unread || {}).runs || {}, m = state.missing || {}, un = state.unsaved || {}, k = r.process + '/' + r.id;
+    return !u[k] && !m[k] && !notCounted[k] && !un[r.id];
   }
+  /* What a sign-off's own reread of a run found, said as any read is, so a run it found gone or not itself stops counting
+     on the page too. */
+  function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
   function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
   function setRunStatus(key, kind, why) {
     var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
@@ -3823,8 +3833,36 @@
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen;
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
-      queued(function () { return repo.recordValidation(sfs, pub, WRITER, state.me, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null); }).then(function () {
-        if (sg !== gen) return; state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
+      var by = state.me, still = function () { return sg === gen && state.fs === sfs && state.me === by; };
+      queued(function () {
+        if (!ready.tests) return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }, as === 'backup' ? 'backup' : null);
+        /* It leans on test runs (2.1): the version's bytes are checked against its stage again and those test runs read again
+           now, and the count worked out again from them, before anything is written. */
+        /* Only test runs counted now (2.0.1) are read again, and only runs counted now join them. */
+        var st = pub.fromStage && pub.fromStage.stage, tests = st ? countedRuns().filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
+        var ids = tests.map(function (r) { return r.id; }), at = startRead();
+        var reread = function (rid) {
+          var bad = [];
+          return repo.loadRun(sfs, id, rid, null, true, false, bad).then(function (r) {
+            if (r && r.process === id && r.id === rid) return r;
+            if (sg === gen) rereadOutcome(id + '/' + rid, at, bad.length ? { kind: 'unreadable', why: bad[0].why } : { kind: 'missing' });
+            return null;
+          }, function (e) { if (sg === gen) rereadOutcome(id + '/' + rid, at, { kind: 'unreadable', why: 'couldn\'t be read (' + (e && e.message || String(e)) + ')' }); throw e; });
+        };
+        return Promise.all([st ? repo.stageCarried(sfs, pub, st) : Promise.resolve('Its stage isn\'t known.'), Promise.all(ids.map(reread))]).then(function (f) {
+          if (f[0]) throw new Error(f[0]);
+          /* Read again now, and still counted now (2.0.1): a refresh that landed meanwhile may have found the folder unreadable. */
+          var fresh = f[1].filter(function (r) { return r && counted(r); });
+          var onSt = function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; };
+          var again = PF.skills.readiness(countedRuns().filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
+          if (!again.enough) throw new Error('It needs ' + again.needed + ' clean completed runs; it has ' + again.clean + ' now.');
+          if (!still()) return { dropped: true };
+          return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: again.completed, clean: again.clean, runs: again.cleanRuns }, as === 'backup' ? 'backup' : null);
+        });
+      }).then(function (res) {
+        if (sg !== gen) return;
+        if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
+        state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
       }, function (e) { if (sg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
     /* The brief an AI assistant needs to create a skill from a signed-off version, or to update one after the process changed. */
@@ -4337,6 +4375,38 @@
     },
     'promote-stage': function (folder) { stageAct(folder, 'promote'); },
     'retire-stage': function (folder) { stageAct(folder, 'retired'); },
+    /* Sign off a staged version (2.1 slice 6): its owner, once enough of its test runs are clean; the person is checked again
+       right before the write. */
+    'signoff-stage': function (folder) {
+      var p = processes().filter(function (x) { return x.id === state.processId; })[0];
+      if (!p || !state.me || state.stageBusy) return;
+      var sg = V.stageSign(ctx, p, folder);
+      if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the process owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
+      var sfs = state.fs, pg = gen, by = state.me, pid = p.id, proposed = sg.stage.info.stage.proposed;
+      var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
+      state.stageBusy = pid; render();
+      queued(function () {
+        if (!still()) return { dropped: true };
+        /* The stage, its decisions, the versions, its test runs, people.json and its sign-offs are read again inside the stage
+           lock; eligibility is worked out again from what was read, with the person who clicked. */
+        var ids = countedRuns().filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
+        var at = startRead();
+        return repo.signOffStage(sfs, pid, folder, { window: WRITER, by: by, note: '', app: APP_VERSION, lock: LOCKS ? lock : null, still: still, runIds: ids,
+          outcome: function (rid, res) { if (pg === gen) rereadOutcome(pid + '/' + rid, at, res); },
+          check: function (st, now) {
+            /* Read again now, and still counted now (2.0.1). */
+            var r = PF.skills.readiness(now.runs.filter(counted), st, null), as = PF.skills.signer(st, now.people, by, false);
+            if (!r.enough) throw new Error('It needs ' + r.needed + ' clean test runs; it has ' + r.clean + '.');
+            if (!as) throw new Error('Only the process owner signs off a staged version.');
+            if (PF.skills.signoffs(now.validations, st).length) throw new Error('It\'s already signed off.');
+            return { as: as === 'backup' ? 'backup' : null, evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds } };
+          } });
+      }).then(function (res) {
+        state.stageBusy = null; if (pg !== gen) return;
+        if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
+        say('Signed off staged v' + proposed + '. It counts for the version made from it.', 'good'); return load(true);
+      }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
+    },
     'reopen-stage': function (folder) { stageAct(folder, 'reopened'); },
     /* The check on a row, Done in the inspector, Space and X: one step, one path (answerStep). A done step unchecks. */
     toggle: function (id) {

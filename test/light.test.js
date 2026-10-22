@@ -1,7 +1,7 @@
 // Lightness: the examples can be finished, folded lists stay reachable, and each screen keeps to a budget of visible content.
 'use strict';
 const assert = require('assert'), fs = require('fs'), path = require('path');
-const { load, example, exampleSetup, rule, run } = require('./harness');
+const { load, example, exampleSetup, rule, run, completeRun } = require('./harness');
 const { boot } = require('./app-harness');
 const PF = load(), R = PF.run, P = PF.publish;
 const EX = exampleSetup(PF), people = JSON.parse(example('people.json'));
@@ -142,7 +142,11 @@ const BUDGETS = {
   'run, a test run just started': { words: 326, buttons: 41, chips: 5 },
   'home with a test run': { words: 159, buttons: 14, chips: 1 },
   'process page with a test run, its owner': { words: 422, buttons: 24, chips: 9 },
-  'process page with a test run, a non-owner': { words: 275, buttons: 13, chips: 3 }
+  'process page with a test run, a non-owner': { words: 275, buttons: 13, chips: 3 },
+  /* A version made the default from a stage whose test runs and sign-off count for it (2.1 slice 6): Ready for a skill says
+     they were from while it was staged, in one clause. The budgets above are unchanged. */
+  'process page made from a signed-off stage, its owner': { words: 462, buttons: 26, chips: 9 },
+  'process page made from a signed-off stage, a non-owner': { words: 302, buttons: 14, chips: 3 }
 };
 async function screens() {
   const app = boot(), out = {}; await app.tick(60);
@@ -162,6 +166,7 @@ async function screens() {
   await conditional(out);
   await withStage(out);
   await withTestRun(out);
+  await withSigned(out);
   return out;
 }
 /* Release with a stage and one test run on it (2.1 slice 5): the test run is labeled where it's listed, and never counted. */
@@ -184,6 +189,34 @@ async function withTestRun(out) {
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
   take('process page with a test run, its owner');
   app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page with a test run, a non-owner');
+}
+/* Release staged without its linked-run step (a test run starts no linked runs), three clean test runs on the stage, its
+   owner's sign-off, then made the default (2.1 slice 6). */
+async function withSigned(out) {
+  const app = boot(); await app.tick(60);
+  const take = name => { out[name] = measure(app.html()); };
+  app.choose('person-casey'); await app.tick();
+  const path = 'maps/drafts/release.md', md = app.fs.files[path].t, plain = md.replace(/- \[ \] \{run\.process\}[^\n]*\n(  [^\n]*\n)*/, '');
+  await app.fs.write(path, plain.replace(/\n(## [^\n]*\n)/, '\n$1- [ ] {confirm} Tell the on-call channel {#tell-oncall}\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  const folder = JSON.parse(app.fs.files[app.files('staged/release/').filter(f => /publication\.json$/.test(f))[0]].t).folder;
+  const st = await app.PF.repo.readStage(app.fs, 'release', folder);
+  for (let i = 1; i <= 3; i++) {
+    const r = completeRun(app.PF, app.PF.run.create(st, { test: true, title: 'Try ' + i, id: 'run-try' + i, details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: { 'release-lead': 'person-avery', qa: 'person-blake', backend: 'person-casey' }, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' }), '2026-10-22T09:00:00.000Z');
+    await app.PF.repo.saveRun(app.fs, r, 'w');
+  }
+  app.click('refresh'); await app.tick(120);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.click('signoff-stage', folder); await app.tick(200);
+  app.click('promote-stage', folder); await app.tick(300);
+  await app.fs.write(path, md); app.click('refresh'); await app.tick(80);
+  app.fire('toggle', { target: { dataset: { disc: 'vers:release' }, open: false } }); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  assert.ok(/while it was staged/.test(app.html()), 'set-up: counted for the version made from it');
+  take('process page made from a signed-off stage, its owner');
+  app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page made from a signed-off stage, a non-owner');
 }
 /* Release with its draft staged as a version only test runs use. */
 async function withStage(out) {

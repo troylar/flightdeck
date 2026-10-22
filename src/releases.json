@@ -39,9 +39,17 @@
         "kind": "new",
         "area": "Runs",
         "title": "Test runs on a staged version",
-        "now": "Choose Start a test run on a staged version's line. A test run is labeled Test run everywhere it shows, and it isn't counted with real runs: How runs go says how many it left out, and Home and skill readiness skip them. Its follow-ups and corrections are real. Older copies show a test run by name only and never change it, but they count it in Home's running number until they update to 2.1.",
+        "now": "Choose Start a test run on a staged version's line. A test run is labeled Test run everywhere it shows, and it isn't counted with real runs: How runs go says how many it left out, and Home skips them. Its follow-ups and corrections are real. Older copies show a test run by name only and never change it, but they count it in Home's running number until they update to 2.1.",
         "before": "A staged version couldn't be tried before it became the default.",
         "where": "The process page, All versions; Runs"
+      },
+      {
+        "kind": "new",
+        "area": "Skills",
+        "title": "Test runs and a sign-off on a staged version count once it's the default",
+        "now": "Once a staged version has test runs, its line says how many are clean, and with enough its owner can sign it off there. When it's made the default with exactly what was staged, Ready for a skill counts those clean test runs and that sign-off for it, and says they were from while it was staged. Nothing from a test run counts for any other version.",
+        "before": "Only runs and sign-offs on a published version counted for a skill.",
+        "where": "The process page, All versions; Ready for a skill?"
       }
     ]
   },
