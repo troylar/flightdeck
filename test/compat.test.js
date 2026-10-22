@@ -317,6 +317,9 @@ eachTag('a preflight-publication/2 version is unusable: never the latest, and no
     // The control: the same record without the newer feature is usable and the latest there, so the refusal is the feature's.
     const ok = OLD.publish.verify('v2-zzzz2222', { 'publication.json': JSON.stringify(H.pub2(OLD, base2, map2, types2, [], '2.0.0', shots2)), 'map.md': map2, 'types.json': types2 }, H.exact2(map2, types2));
     assert.ok(ok.ok, 'without ' + H.newer(t).pub + ': usable (' + ok.why + ')');
+    const plain = Object.assign({}, files, { [v2 + 'publication.json']: JSON.stringify(H.pub2(OLD, base2, map2, types2, [], '2.0.0', shots2), null, 2) });
+    const latest = (await OLD.repo.loadAll(H.memFolder(OLD, plain))).processes[0].index.latest;
+    assert.strictEqual(latest && latest.info.version, 2, 'without ' + H.newer(t).pub + ': loaded as the latest');
   }
   assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[v2 + 'map.md']), md: files[v2 + 'map.md'], types: JSON.parse(files[v2 + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
 });

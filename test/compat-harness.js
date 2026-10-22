@@ -99,15 +99,17 @@ function newer(t) {
   return { app: '2.0.0', needs: '2.0', run: ['typed-details'], pub: ['typed-details'], stepType: { format: 'flightdeck-step-type/2', features: ['typed-evidence'] } };
 }
 
-/* A /2 publication record otherwise valid for files map and types and its screenshots (images: { 'images/x.png': bytes }, kept
+/* A /2 publication record otherwise valid for files map and types and its screenshots (images: { 'images/x.png': bytes or a data URL }, kept
    with base's fingerprints for them): fingerprints by copy PF's own hash and a payload of the exact bytes. With features a 2.x
    copy knows, that copy finds it usable (given exact2), so a refusal of the same record with a newer feature can only come
    from that feature. */
 const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
+/* A screenshot's exact bytes: the harness keeps binary files as data URLs, so decode one; anything else is its own bytes. */
+const bytesOf = (v) => { const m = typeof v === 'string' && /^data:[^;,]*;base64,(.*)$/s.exec(v); return m ? Buffer.from(m[1], 'base64') : v; };
 function pub2(PF, base, map, types, features, app, images) {
   const info = Object.assign({}, base, { format: 'preflight-publication/2', features, app, mapHash: PF.util.hash(map), typesHash: PF.util.hash(types) });
   const shots = {};
-  Object.keys(images || {}).sort().forEach((k) => { shots[k] = sha256(images[k]); });
+  Object.keys(images || {}).sort().forEach((k) => { shots[k] = sha256(bytesOf(images[k])); });
   info.payload = { map: sha256(map), types: sha256(types), images: shots, extensions: {}, pins: { children: {}, skills: {} } };
   return info;
 }
