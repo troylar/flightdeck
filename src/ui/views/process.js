@@ -353,15 +353,19 @@
     var next = PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; }));
     var canStage = me && !!p.draft && !!p.draftChanged && !p.proposedOnly;
     if (!sp && !canStage) return '';
+    /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
+    var held = !!sp && (!!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
     var rows = (sp ? sp.stages : []).map(function (s) {
+      if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
       if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
-      var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
-      if (me && !sp.unlisted && x.status === 'staged') b = '<button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
-      else if (me && !sp.unlisted && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
+      var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
+      if (held) b = '';
+      else if (me && x.status === 'staged') b = '<button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
+      else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
-    return (sp && sp.unlisted ? '<p class="small">' + esc(sp.unlisted) + '. Staged versions are shown as last read.</p>' : '') +
+    return (sp && sp.unlisted ? '<p class="small">' + esc(sp.unlisted) + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
       (rows.length ? '<ul class="vlist compact">' + rows.join('') + '</ul>' : '') +
       (canStage ? '<p class="small"><button class="mini" data-act="stage-draft" data-id="' + esc(p.id) + '"' + (busy ? ' disabled' : '') + '>Stage the draft for testing</button> Only test runs use it until someone makes it the default.</p>' : '');
   }

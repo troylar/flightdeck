@@ -102,4 +102,23 @@ rule('A process page with a stage, for someone who doesn\'t stage: the stage is 
   assert.ok(!/stag/i.test(words(html)), 'but not on screen');
 });
 
+rule('A decision that can\'t be read holds every stage of the process: no settled status and nothing to click; a newer stage says what it needs', async () => {
+  const app = await withDraftChange('person-casey');
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  const folder = JSON.parse(app.fs.files[stageFiles(app)[0]].t).folder;
+  app.click('retire-stage', folder); await app.tick(200);
+  const dec = app.files('staged/release/decisions/')[0];
+  app.fs.files[dec].t = '{ not json';
+  app.click('refresh'); await app.tick(120);
+  let html = app.html();
+  assert.ok(!/data-act="(promote|retire|reopen)-stage"/.test(html), 'nothing to click');
+  assert.ok(/can.t be read now/.test(html) && /Status unknown/.test(html), 'and it says why');
+  const pj = stageFiles(app)[0], info = JSON.parse(app.fs.files[pj].t);
+  app.fs.files[dec].t = '{"format":"flightdeck-stage-decision/1","process":"release","stage":"' + folder + '","status":"retired","by":"a","at":"x","rev":1,"seen":null}';
+  info.features = info.features.concat(['extensions']); app.fs.files[pj].t = JSON.stringify(info);
+  app.click('refresh'); await app.tick(120);
+  html = app.html();
+  assert.ok(/needs Flightdeck/i.test(html) && !/is incomplete/.test(html), 'a newer stage is named as such');
+});
+
 run();

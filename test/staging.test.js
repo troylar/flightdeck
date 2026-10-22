@@ -144,6 +144,39 @@ rule('Promote: a copied file that doesn\'t read back as written stops it before 
   assert.ok(!fs.files['publications/release/v2-prom0004/publication.json'], 'no record: never a version');
 });
 
+rule('Promote: publishes the stage\'s exact bytes, a byte-order mark included, even where the folder reads text without it', async () => {
+  const fs = folder(); await staged(fs);
+  const b = 'staged/release/stage-abcd1234/', pj = JSON.parse(fs.files[b + 'publication.json'].t), bom = '\uFEFF' + CHANGED;
+  fs.files[b + 'map.md'].t = bom;
+  pj.payload.map = PF.sha256.hex(bom); fs.files[b + 'publication.json'].t = JSON.stringify(pj, null, 2);
+  const orig = fs.read.bind(fs);
+  fs.read = (x, o) => orig(x, o).then(f => f && f.text.charCodeAt(0) === 0xFEFF ? Object.assign({}, f, { text: f.text.slice(1) }) : f);
+  assert.ok((await repo.readStage(fs, 'release', 'stage-abcd1234')).ok, 'a valid stage');
+  await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0005' });
+  assert.strictEqual(fs.files['publications/release/v2-prom0005/map.md'].t, bom, 'byte for byte');
+  assert.ok((await repo.loadAll(fs)).processes[0].index.latest.info.version === 2);
+});
+
+rule('Promote: refused while a listed version\'s record can\'t be read (it could be this stage\'s promotion), and never twice', async () => {
+  const fs = folder(); await staged(fs);
+  await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0006' });
+  const pj = 'publications/release/v2-prom0006/publication.json', keep = fs.files[pj];
+  delete fs.files[pj];
+  const before = JSON.stringify(Object.keys(fs.files).sort());
+  await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0007' }), /can't be read now|already/);
+  assert.strictEqual(JSON.stringify(Object.keys(fs.files).sort()), before, 'nothing written');
+  fs.files[pj] = keep; fs.files['publications/release/v2-prom0006/map.md'].t = 'damaged';
+  await assert.rejects(() => repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0008' }), /already/);
+});
+
+rule('Promote: the corrections a stage records are kept in the version it becomes', async () => {
+  const fs = folder(); const d = await v1(fs), p = d.processes[0];
+  const corr = [{ id: 'c-1', result: { step: 'flags', sig: 'abc' } }];
+  await repo.stage(fs, CHANGED, opts({ existing: p.pubs.map(x => ({ version: P.versionOf(x.folder) || 0 })), rand: 'abcd1234', corrections: corr }));
+  await repo.promote(fs, 'release', 'stage-abcd1234', { by: 'person-blake', now: LATER, app: '2.1.0', rand: 'prom0009' });
+  same(JSON.parse(fs.files['publications/release/v2-prom0009/publication.json'].t).corrections.map(c => c.id), ['c-1']);
+});
+
 /* ---------- The stage transaction ---------- */
 
 rule('Stage transaction: a write or read-back failure at each step stops it with the reason; the record is written last, so a half stage is never usable', async () => {

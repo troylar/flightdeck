@@ -1462,18 +1462,33 @@ PF.repo = (function () {
       ]).then(function (r) {
         var pubs = r[0], sp = r[1], st = r[2];
         if (!st.ok) throw new Error('This stage can\'t be read now: ' + st.why);
+        /* A version whose record can't be read could be this stage's promotion: never promote past one. One that names this
+           stage, complete or not, already is. */
+        var unread = pubs.filter(function (x) { return !x.info || typeof x.info !== 'object'; })[0];
+        if (unread) throw new Error('publications/' + proc + '/' + unread.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage was already published. Try again once the folder has synced.');
+        var mine = pubs.filter(function (x) { return x.info.stagedFrom && x.info.stagedFrom.folder === stageFolder; })[0];
+        if (mine) throw new Error('It\'s already the default: it was published as ' + mine.folder + (mine.ok ? '.' : ', which isn\'t complete yet (' + mine.why + ').'));
         var s = PF.staging.status(st, sp.decisions, pubs), whyNot = PF.staging.promoteWhy(s);
         if (whyNot) throw new Error(whyNot);
         var version = P.nextVersion(vers.filter(function (v) { return v.kind === 'dir'; }).map(function (v) { return { version: P.versionOf(v.name) || 0 }; }));
         var folder = P.folderName(version, o.rand), base = 'publications/' + proc + '/' + folder + '/', from = 'staged/' + proc + '/' + stageFolder + '/';
         var record = P.promoteRecord(st, { version: version, folder: folder, by: o.by, now: o.now || new Date().toISOString(), app: o.app || '' });
-        var shots = Object.keys(st.info.images || {});
+        /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
+           published is byte for byte what was staged (a byte-order mark included). */
+        var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
         var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+        var raw = function (name, want) {
+          return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {
+            if (!u8 || sha256Of(u8) !== want) throw new Error('Still syncing: ' + from + name + ' doesn\'t match the stage. Nothing was published.');
+            return u8;
+          });
+        };
+        var text = function (name, want) { return raw(name, want).then(function (u8) { var t = PF.reports.utf8(u8); if (t == null) throw new Error(from + name + ' isn\'t UTF-8 text. Nothing was published.'); return put(name, t, want); }); };
         return shots.reduce(function (p, src) {
-          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return bytesOf(b).then(function (u8) { return put(src, b, sha256Of(u8)); }); }); });
+          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return raw(src, pay.images[src]).then(function () { return put(src, b, pay.images[src]); }); }); });
         }, Promise.resolve())
-          .then(function () { return put('map.md', st.md, sha256Of(st.md)); })
-          .then(function () { var t = JSON.stringify(st.types, null, 2); return fs.read(from + 'types.json').then(function (f) { t = f ? f.text : t; return put('types.json', t, sha256Of(t)); }); })
+          .then(function () { return text('map.md', pay.map); })
+          .then(function () { return text('types.json', pay.types); })
           .then(function () { return fs.write(base + 'publication.json', record); })
           .then(function () { return readVersion(fs, proc, folder); })
           .then(function (res) {

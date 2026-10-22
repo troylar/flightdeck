@@ -4284,7 +4284,9 @@
       queued(function () {
         return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
           if (!got[0] || got[0].text !== shown) return { changed: true };
-          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), app: APP_VERSION });
+          /* The corrections this exact text includes, as publishing records them, so promoting it keeps them. */
+          var inc = pg === gen ? PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list : [];
+          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION });
         });
       }).then(function (res) {
         state.stageBusy = null; if (pg !== gen) return;

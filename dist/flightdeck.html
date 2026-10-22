@@ -14531,18 +14531,33 @@ PF.repo = (function () {
       ]).then(function (r) {
         var pubs = r[0], sp = r[1], st = r[2];
         if (!st.ok) throw new Error('This stage can\'t be read now: ' + st.why);
+        /* A version whose record can't be read could be this stage's promotion: never promote past one. One that names this
+           stage, complete or not, already is. */
+        var unread = pubs.filter(function (x) { return !x.info || typeof x.info !== 'object'; })[0];
+        if (unread) throw new Error('publications/' + proc + '/' + unread.folder + '/ can\'t be read now (' + unread.why + '), so it isn\'t known whether this stage was already published. Try again once the folder has synced.');
+        var mine = pubs.filter(function (x) { return x.info.stagedFrom && x.info.stagedFrom.folder === stageFolder; })[0];
+        if (mine) throw new Error('It\'s already the default: it was published as ' + mine.folder + (mine.ok ? '.' : ', which isn\'t complete yet (' + mine.why + ').'));
         var s = PF.staging.status(st, sp.decisions, pubs), whyNot = PF.staging.promoteWhy(s);
         if (whyNot) throw new Error(whyNot);
         var version = P.nextVersion(vers.filter(function (v) { return v.kind === 'dir'; }).map(function (v) { return { version: P.versionOf(v.name) || 0 }; }));
         var folder = P.folderName(version, o.rand), base = 'publications/' + proc + '/' + folder + '/', from = 'staged/' + proc + '/' + stageFolder + '/';
         var record = P.promoteRecord(st, { version: version, folder: folder, by: o.by, now: o.now || new Date().toISOString(), app: o.app || '' });
-        var shots = Object.keys(st.info.images || {});
+        /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
+           published is byte for byte what was staged (a byte-order mark included). */
+        var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
         var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+        var raw = function (name, want) {
+          return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {
+            if (!u8 || sha256Of(u8) !== want) throw new Error('Still syncing: ' + from + name + ' doesn\'t match the stage. Nothing was published.');
+            return u8;
+          });
+        };
+        var text = function (name, want) { return raw(name, want).then(function (u8) { var t = PF.reports.utf8(u8); if (t == null) throw new Error(from + name + ' isn\'t UTF-8 text. Nothing was published.'); return put(name, t, want); }); };
         return shots.reduce(function (p, src) {
-          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return bytesOf(b).then(function (u8) { return put(src, b, sha256Of(u8)); }); }); });
+          return p.then(function () { return fs.blob(from + src).then(function (b) { if (!b) throw new Error('Still syncing: screenshot ' + src + ' hasn\'t arrived.'); return raw(src, pay.images[src]).then(function () { return put(src, b, pay.images[src]); }); }); });
         }, Promise.resolve())
-          .then(function () { return put('map.md', st.md, sha256Of(st.md)); })
-          .then(function () { var t = JSON.stringify(st.types, null, 2); return fs.read(from + 'types.json').then(function (f) { t = f ? f.text : t; return put('types.json', t, sha256Of(t)); }); })
+          .then(function () { return text('map.md', pay.map); })
+          .then(function () { return text('types.json', pay.types); })
           .then(function () { return fs.write(base + 'publication.json', record); })
           .then(function () { return readVersion(fs, proc, folder); })
           .then(function (res) {
@@ -16790,15 +16805,19 @@ PF.vk = (function () {
     var next = PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; }));
     var canStage = me && !!p.draft && !!p.draftChanged && !p.proposedOnly;
     if (!sp && !canStage) return '';
+    /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
+    var held = !!sp && (!!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
     var rows = (sp ? sp.stages : []).map(function (s) {
+      if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
       if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
-      var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
-      if (me && !sp.unlisted && x.status === 'staged') b = '<button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
-      else if (me && !sp.unlisted && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
+      var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
+      if (held) b = '';
+      else if (me && x.status === 'staged') b = '<button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
+      else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
       return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
     });
-    return (sp && sp.unlisted ? '<p class="small">' + esc(sp.unlisted) + '. Staged versions are shown as last read.</p>' : '') +
+    return (sp && sp.unlisted ? '<p class="small">' + esc(sp.unlisted) + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
       (rows.length ? '<ul class="vlist compact">' + rows.join('') + '</ul>' : '') +
       (canStage ? '<p class="small"><button class="mini" data-act="stage-draft" data-id="' + esc(p.id) + '"' + (busy ? ' disabled' : '') + '>Stage the draft for testing</button> Only test runs use it until someone makes it the default.</p>' : '');
   }
@@ -24736,7 +24755,9 @@ PF.examples = (function () {
       queued(function () {
         return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
           if (!got[0] || got[0].text !== shown) return { changed: true };
-          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), app: APP_VERSION });
+          /* The corrections this exact text includes, as publishing records them, so promoting it keeps them. */
+          var inc = pg === gen ? PF.corrections.forPublish(got[0].text, ctx.corrections(id)).list : [];
+          return repo.stage(sfs, got[0].text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION });
         });
       }).then(function (res) {
         state.stageBusy = null; if (pg !== gen) return;
