@@ -288,6 +288,21 @@ rule('install, skills and their records and updates never go through a link', ()
   assert.ok(r.code === 1 && /through a link/.test(r.out) && read(d, STATUS) === 'Ours' && fs.readdirSync(outside).length === 1, 'a backup is never written through a link, and nothing is replaced before its copy is safe: ' + r.out);
 });
 
+rule('Staged versions (2.1): backup copies staged/ with everything else; install and skills never touch it', () => {
+  const src = tmp(), dest = tmp();
+  write(src, 'people.json', '[]');
+  write(src, 'staged/release/stage-abcd1234/publication.json', '{"format":"preflight-publication/2"}');
+  write(src, 'staged/release/decisions/stage-abcd1234.w-a.1.json', '{"format":"flightdeck-stage-decision/1"}');
+  const staged = () => Object.entries(snapshot(src)).filter(([p]) => p.split(path.sep)[0] === 'staged');
+  const before = JSON.stringify(staged());
+  assert.strictEqual(cli('install', src).code, 0); assert.strictEqual(cli('skills', src).code, 0); assert.strictEqual(cli('install', src, '--force').code, 0);
+  assert.strictEqual(JSON.stringify(staged()), before, 'staged/ is untouched');
+  assert.strictEqual(cli('backup', src, '--to', dest).code, 0);
+  const copy = snapshot(path.join(dest, fs.readdirSync(dest)[0]));
+  assert.strictEqual(copy[path.join('staged', 'release', 'stage-abcd1234', 'publication.json')], '{"format":"preflight-publication/2"}');
+  assert.strictEqual(copy[path.join('staged', 'release', 'decisions', 'stage-abcd1234.w-a.1.json')], '{"format":"flightdeck-stage-decision/1"}');
+});
+
 rule('backup copies the whole team folder, skips links and temporary files, and never goes inside the folder it backs up', () => {
   const src = tmp(), outside = tmp(), dest = tmp();
   write(src, 'people.json', '[]'); write(src, 'runs/release/r1/run.json', '{"a":1}'); write(src, 'runs/release/r1/.run.json.123.tmp', 'half');

@@ -98,7 +98,7 @@ rule('Process page: a warning in Corrections is never folded', async () => {
 rule('Process page: one version line with the rest folded, three recent runs with a way to all of them, and a short header', async () => {
   const app = await releaseAs('person-casey'), html = app.html();
   const ver = html.slice(html.indexOf('id="ver-h"'), html.indexOf('id="pr-h"'));
-  assert.ok(/<details data-disc="vers:release"><summary class="small">Earlier versions \(1\)<\/summary>/.test(ver), 'earlier versions folded');
+  assert.ok(/<details data-disc="vers:release"><summary class="small">All versions \(2\)<\/summary>/.test(ver), 'earlier versions folded');
   assert.strictEqual((visible(ver).match(/data-act="view-version"/g) || []).length, 1, 'one version on show');
   assert.ok(/data-act="view-version" data-id="v1-/.test(ver), 'the earlier one is still there');
   const v1 = /data-act="view-version" data-id="(v1-[^"]+)"/.exec(ver)[1];

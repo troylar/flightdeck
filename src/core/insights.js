@@ -27,7 +27,8 @@ PF.insights = (function () {
     { id: 'corrections', name: 'Corrections', counts: 'Runs with a correction on the step, by where its group stands', denominator: 'Readable runs of this publication folder' },
     { id: 'fuAge', name: 'Follow-up age', counts: 'Open follow-ups by how long since they were added: under 7 days, 7 to 30, over 30, by the recorder\'s clock', denominator: 'Open follow-ups whose own time can be read and isn\'t later than now' },
     { id: 'fuDecide', name: 'Time to a decision', counts: 'From when a follow-up was added to its current decision (the highest rev), by the recorder\'s and the decider\'s clocks', denominator: 'Decided follow-ups whose times can be read, aren\'t later than now and don\'t go backward' },
-    { id: 'gates', name: 'Gates waived or failed', counts: 'Runs whose gate is waived now, and runs whose gate failed at least once (now, or by the run\'s log when no other gate shares its title)', denominator: 'Runs with a record of the gate, now or in the run\'s log' }
+    { id: 'gates', name: 'Gates waived or failed', counts: 'Runs whose gate is waived now, and runs whose gate failed at least once (now, or by the run\'s log when no other gate shares its title)', denominator: 'Runs with a record of the gate, now or in the run\'s log' },
+    { id: 'notNeeded', name: 'Not needed', counts: 'A step whose "only when" doesn\'t hold in a run: that run is left out of every step number above for it (skipped, ever, off-script and corrections)', denominator: 'Runs of checklists with "only when" (2.1)' }
   ];
   /* The "ever" metrics and the mark each reads. */
   var EVER = { blocked: 'blocked', redone: 'recheck', na: 'na', differently: 'differently' };

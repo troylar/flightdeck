@@ -218,6 +218,9 @@ PF.health = (function () {
       Object.keys(byFam).sort().forEach(function (k) { var x = byFam[k], n = NAMES[x[0].family] || ['file', 'files']; parts.push(x.length + ' ' + (x.length === 1 ? n[0] : n[1]) + ' need' + (x.length === 1 ? 's ' : ' ') + needs(x[0].needs)); });
       add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy shows them and leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; }), refused.map(function (x) { return x.path; }), instNewer ? ['.flightdeck/installed.json'] : []), action: help(HELP.newer), help: HELP.newer });
     } else ok('newer', 'Nothing here was written by a newer Flightdeck.');
+    /* ---- stages (2.1): incomplete ones and decisions that can't be read; nothing at all in a folder that never stages ---- */
+    var stItems = stages(d.stages);
+    if (stItems.length) add({ id: 'stages', severity: 'warn', area: 'Checklists', title: plural(stItems.length, 'staged version') + ' or decision' + (stItems.length === 1 ? '' : 's') + ' can\'t be used', detail: stItems[0].path + ' ' + stItems[0].why + '. Nothing runs from ' + (stItems.length === 1 ? 'it' : 'them') + '; stage the draft again, or restore the folder from a backup.', paths: stItems.map(function (x) { return x.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
     /* ---- reports from other apps: ones that can't be read, copies that differ, ones for a run that isn't here ---- */
     var rep = d.reports || { files: [], bad: [] }, runKeys = Object.create(null);
     runs.forEach(function (r) { runKeys[r.process + '/' + r.id] = true; });
@@ -386,5 +389,17 @@ PF.health = (function () {
     return out;
   }
 
-  return { LIMITS: LIMITS, HELP: HELP, check: check, copyOf: copyOf, sharedDrafts: sharedDrafts, text: text, command: command, sections: sections, anchor: anchor, bytes: bytes, span: span };
+  /* Stages that can't be used (an incomplete stage: written partly, or not verified) and stage folders or decisions that
+     can't be read, as { path, why }. A stage a newer Flightdeck wrote is refused by name elsewhere (d.refused). */
+  function stages(st) {
+    var out = [], procs = st && st.procs || {};
+    Object.keys(procs).sort().forEach(function (p) {
+      var sp = procs[p];
+      if (sp.unlisted) out.push({ path: 'staged/' + p + '/', why: sp.unlisted.replace(/^staged\/[^ ]+ /, '') });
+      (sp.stages || []).forEach(function (s) { if (s.incomplete) out.push({ path: 'staged/' + p + '/' + s.folder + '/', why: 'is an incomplete stage (' + s.why + ')' }); });
+      (sp.unread || []).forEach(function (u) { out.push({ path: u.path, why: u.why }); });
+    });
+    return out;
+  }
+  return { LIMITS: LIMITS, HELP: HELP, check: check, stages: stages, copyOf: copyOf, sharedDrafts: sharedDrafts, text: text, command: command, sections: sections, anchor: anchor, bytes: bytes, span: span };
 })();

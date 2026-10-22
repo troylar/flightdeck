@@ -319,9 +319,10 @@
         '<span class="row">' + (older ? '<button class="mini" data-act="diff" data-id="' + esc(v.folder) + '" aria-expanded="' + (st.diffOf === v.folder) + '">Changes</button>' : '') + '<button class="mini" data-act="view-version" data-id="' + esc(v.folder) + '" aria-pressed="' + (st.mapVer === v.folder) + '">View</button></span></li>' +
         (st.diffOf === v.folder && older ? '<li style="display:block">' + diffHtml(PF.publish.diff(older.md, v.md)) + '</li>' : '');
     };
-    var earlier = p.all.slice(1), verOpen = (st.disc || {})['vers:' + p.id] || earlier.some(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; });
+    /* Staging (2.1) lives inside the closed All versions disclosure, so nobody who never stages sees it. */
+    var earlier = p.all.slice(1), stg = stagesHtml(ctx, p), verOpen = (st.disc || {})['vers:' + p.id] || earlier.some(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; });
     h += '<section class="panel" aria-labelledby="ver-h"><h2 id="ver-h">Versions</h2><ul class="vlist compact">' + (p.all.length ? verLi(p.all[0], 0) : '<li class="small">Not published yet. Edit the checklist, then publish it.</li>') + '</ul>' +
-      (earlier.length ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">Earlier versions (' + earlier.length + ')</summary><ul class="vlist compact">' + earlier.map(function (v, i) { return verLi(v, i + 1); }).join('') + '</ul></details>' : '') + '</section>';
+      (earlier.length || stg ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">All versions' + (earlier.length ? ' (' + p.all.length + ')' : '') + '</summary>' + (earlier.length ? '<ul class="vlist compact">' + earlier.map(function (v, i) { return verLi(v, i + 1); }).join('') + '</ul>' : '') + stg + '</details>' : '') + '</section>';
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = R.headline(r, R.mapOf(r));
@@ -345,6 +346,30 @@
   /* Apply straight from the list only for a fast-forward with no record at all; anything tried before goes through Review. */
   function listApply(x) { return x.fit === 'ready' && x.rec && x.rec.state === 'pending'; }
   function canDecide(x) { return x.fit !== 'invalid' && x.fit !== 'replaced' && x.fit !== 'applied' && x.fit !== 'applied-twice' && x.fit !== 'declined' && x.fit !== 'unknown'; }
+  /* Stages (2.1, docs/design.md section 31): each with its status worked out from the saved files, Make vN the default, Retire
+     and Reopen; and Stage the draft when there's a changed draft. Anyone may do these; each is logged with their name. */
+  function stagesHtml(ctx, p) {
+    var st = ctx.state, procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null, S = PF.staging, me = !!st.me, busy = st.stageBusy === p.id;
+    var next = PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; }));
+    var canStage = me && !!p.draft && !!p.draftChanged && !p.proposedOnly;
+    if (!sp && !canStage) return '';
+    /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
+    var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
+    var rows = (sp ? sp.stages : []).map(function (s) {
+      if (s.newer) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
+      if (!s.ok) return '<li><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
+      var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
+      var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
+      if (held) b = '';
+      else if (me && x.status === 'staged') b = '<button class="mini" data-act="promote-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Make v' + next + ' the default</button><button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>';
+      else if (me && (x.status === 'retired' || x.status === 'tie')) b = (x.status === 'tie' ? '<button class="mini" data-act="retire-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Retire</button>' : '') + '<button class="mini" data-act="reopen-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
+      return '<li><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+    });
+    var gone = (ctx.data.failed || {}).stages;
+    return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
+      (rows.length ? '<ul class="vlist compact">' + rows.join('') + '</ul>' : '') +
+      (canStage ? '<p class="small"><button class="mini" data-act="stage-draft" data-id="' + esc(p.id) + '"' + (busy ? ' disabled' : '') + '>Stage the draft for testing</button> Only test runs use it until someone makes it the default.</p>' : '');
+  }
   function proposalsPanel(ctx, p) {
     var pr = p.proposed;
     if (!pr || (!pr.list.length && !pr.bad.length)) return '';

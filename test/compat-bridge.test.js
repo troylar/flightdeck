@@ -26,7 +26,7 @@ const RUN3 = ['run-c', 'run-t', 'run-e'];
 /* What this version reads since slice 2 part 2 (pins): exact skill registrations, plan/2 and its decisions, and the explicit
    2.0 run on a /1 version (run-e); since slice 3 (typed data) the typed version v2, its run run-c and the 2.0 step type.
    Everything else in the samples (stages, test runs) stays refused by name. */
-const MAIN_TOPS = NEW_TOPS.filter(x => ['skill-registrations/', 'reports/', 'report-decisions/'].indexOf(x) < 0), MAIN_RUN3 = ['run-t'];
+const MAIN_TOPS = NEW_TOPS.filter(x => ['skill-registrations/', 'reports/', 'report-decisions/', 'staged/'].indexOf(x) < 0), MAIN_RUN3 = ['run-t'];
 const snap = (m) => JSON.stringify(Object.keys(m.files).sort().map(p => [p, m.files[p].t]));
 function eachTag(name, fn, filter) {
   TAGS.filter(filter || (() => true)).forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': ' + name, async () => {
@@ -133,13 +133,16 @@ async function readsAsTwoZero(NEW, t) {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(d.reports.files.map(f => f.name))), ['run-c.count.row-counter.k3m9p2q8.json']);
   assert.ok(d.repDecisions.length === 1 && d.repDecisions[0].status === 'declined' && !d.repUnread.length);
   const proc = d.processes.find(p => p.process === 'backup'), v2 = proc.pubs.find(x => x.folder === S.PUB2);
+  // 2.1 slice 4: the sample stage is read as a stage, retired by its decision, and never a version to run.
+  const sp = NEW.staging && d.stages.procs.backup, st = sp && sp.stages.find(x => x.folder === S.STAGE);
+  if (NEW.staging) assert.ok(st && st.ok && NEW.staging.status(st, sp.decisions, proc.pubs).status === 'retired' && !proc.pubs.some(x => x.folder === S.STAGE), JSON.stringify(sp));
   /* Changed on purpose in slice 3: typed-details and typed-evidence are read here, so v2 and run-c are read in full. */
   assert.ok(v2.ok, v2.why);
   assert.strictEqual(proc.index.latest.info.version, 2);
   const runs = Object.fromEntries(d.runs.map(r => [r.id, r]));
   assert.ok(!runs['run-c']._unrunnable && !runs['run-c']._invalid && runs['run-c'].details.rows === '1234.5' && runs['run-c'].migrations.length === 1, 'run-c is read in full: ' + runs['run-c']._unrunnable);
   assert.ok(!runs['run-e']._unrunnable && runs['run-e'].format === 'preflight-run/3', 'the explicit 2.0 run on a /1 version is read in full: ' + runs['run-e']._unrunnable);
-  assert.ok(/^Test run · needs Flightdeck 2\.0\./.test(runs['run-t']._unrunnable) && runs['run-t']._test);
+  assert.ok((NEW.staging ? /^Test run · needs Flightdeck 2\.1\./ : /^Test run · needs Flightdeck 2\.0\./).test(runs['run-t']._unrunnable) && runs['run-t']._test, runs['run-t']._unrunnable);
   MAIN_RUN3.forEach(id => assert.ok(!Object.keys(runs[id].steps).length && !Object.keys(runs[id].details).length, id + ': nothing it might misread'));
   const refused = Object.fromEntries(d.refused.map(r => [r.path, r]));
   ['validations/backup.' + S.STAGE + '.w-twozero.json']
@@ -166,7 +169,7 @@ rule('Folder health names what a newer Flightdeck wrote, by family and the versi
   const rep = NEW.health.check({ data: d, scan, me: 'person-avery', app: '1.21.0', connection: conn }, now);
   const newer = rep.issues.find(i => i.id === 'newer');
   assert.ok(newer, JSON.stringify(rep.issues.map(i => i.id)));
-  ['1 run made with Flightdeck 2.0 (1 test run) shows by name only', '1 sign-off needs Flightdeck 2.0']
+  ['1 run made with Flightdeck 2.1 (1 test run) shows by name only', '1 sign-off needs Flightdeck 2.0']
     .forEach(x => assert.ok(newer.detail.indexOf(x) >= 0, x + ' in: ' + newer.detail));
   ['plan needs', 'plan decision needs', 'skill registration needs', 'v2 of backup', 'step type needs'].forEach(x => assert.ok(newer.detail.indexOf(x) < 0, x + ' isn\'t refused here: ' + newer.detail));
   d.refused.forEach(r => assert.ok(newer.paths.indexOf(r.path) >= 0, r.path));
@@ -306,7 +309,7 @@ TAGS.filter(t => expects('read', t.version)).forEach((t) => rule(t.tag + ': READ
         if (refine(p)) { assert.strictEqual(tk[p], bridged(t.version) ? 'newer' : 'malformed', p); assert.strictEqual(mk[p], 'newer', p); }
         else assert.strictEqual(mk[p], tk[p], a.join(' ') + ' ' + p);
       });
-      (mine.json.problems || []).filter(x => x.kind === 'newer').forEach(x => assert.ok(/Flightdeck 2\.0|newer Flightdeck/.test(x.why), x.path + ': ' + x.why));
+      (mine.json.problems || []).filter(x => x.kind === 'newer').forEach(x => assert.ok(/Flightdeck 2\.[01]|newer Flightdeck/.test(x.why), x.path + ': ' + x.why));
     }
     // A folder whose only 2.0 files are in folders READ/1 never reads: complete, as the tag says.
     const only = path.join(root, 'only'), o = fixture(t.tag);

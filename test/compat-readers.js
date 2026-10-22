@@ -52,6 +52,12 @@ async function prepare(PF, fs, version, files) {
     await put('skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json', JSON.stringify({ format: 'flightdeck-skill/2', app: version, id: 'sk-bbbb2222', rev: 1, seen: null, name: 'restore-report', version: '1.0.0', location: 'https://example.com/skills/restore-report',
       implements: { process: 'backup', folder: f, mapHash: info.mapHash, typesHash: info.typesHash }, by: 'person-avery', updated: '2026-03-02T09:20:00.000Z' }, null, 2) + '\n');
   }
+  // From 2.1: a stage (staged/), written by the app's Stage the draft for testing.
+  if (PF.repo.stage) {
+    const existing = (await PF.repo.loadAll(fs)).processes[0].index.all.map(p => p.info);
+    const res = await PF.repo.stage(fs, require('../tools/old-folders').CHECKLIST, Object.assign(publishOpts(PF, existing), { rand: 'aaaa1111', app: version }));
+    if (!res || res.blockers) throw new Error('specimen stage: ' + JSON.stringify(res));
+  }
   // From 2.0: a report from another app on run-a, and the recorder's decision on it.
   if (PF.reports && PF.repo.decideReport) {
     const text = JSON.stringify({ format: 'flightdeck-report/1', run: 'backup/run-a', publication: { folder: pubFolder(files) }, step: 'read', verdict: 'pass', producer: { name: 'spec-tool', version: '1.0.0' }, created: '2026-03-02T09:21:00.000Z', id: 'spec0001' }, null, 2) + '\n';
@@ -111,7 +117,8 @@ const FAMILIES = [
     readers: [{ via: 'repo.publish', from: '1.10.0', spec: 'images/restore.png', before: async (PF, fs) => (await loadAll(PF, fs)).processes[0].index.all.map(p => p.info),
       call: (PF, fs, existing) => PF.repo.publish(fs, require('../tools/old-folders').CHECKLIST, publishOpts(PF, existing)), found: (res, all) => !res.blockers && JSON.parse(res.files['publication.json']).images['images/restore.png'] === JSON.parse(all['publications/backup/' + pubFolder(all) + '/publication.json']).images['images/restore.png'] }] },
   { id: 'app-copy', re: /^(flightdeck|preflight)\.html$/, writer: 'hand', plan: 'not in the plan\'s reader table', readers: [{ via: 'app', from: '1.10.0' }], note: 'read by each release\'s app.js (the newer-copy check reads the head of the file, in a real folder only); test/compat.test.js checks it in each release\'s own page' },
-  { id: 'staged', re: /^staged\/.+$/, writer: 'none', readers: [] },
+  { id: 'staged', re: /^staged\/.+$/, writer: 'none', note: 'stages and their decisions (2.1): no released copy writes them; this version reads them when staged/ is there',
+    readers: [L('2.1.0', d => !!d.stages && !!d.stages.procs.backup && d.stages.procs.backup.stages.some(x => x.folder === 'stage-aaaa1111' && x.ok), 'staged/backup/stage-aaaa1111/publication.json')] },
   { id: 'extensions', re: /^extensions\/.+$/, writer: 'none', readers: [] },
   { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'hand', note: 'written only by flightdeck skill register (the command, 2.0), never by the app',
     readers: [L('2.0.0', d => d.skills.some(s => s.skill && s.skill.regId === 'sk-bbbb2222' && !(s.errors || []).length), 'skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json')] },

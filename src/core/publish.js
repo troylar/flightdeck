@@ -8,6 +8,9 @@ PF.publish = (function () {
 
   /* Each publish gets its own folder (v5-k3m9p2q8), so two people publishing at once never write the same files. */
   function folderName(version, rand) { return 'v' + version + '-' + (rand || U.randomId(8)); }
+  /* A stage's folder (2.1): staged/<process>/stage-<random8>/, written once. */
+  var STAGE = /^stage-[a-z0-9]{8}$/;
+  function stageName(rand) { return 'stage-' + (rand || U.randomId(8)); }
   function versionOf(folder) { var m = /^v(\d+)-[a-z0-9]+$/.exec(folder); return m ? +m[1] : null; }
 
   function nextVersion(existing) {
@@ -23,12 +26,16 @@ PF.publish = (function () {
     if (!opts.by) return { blockers: ['Choose who you are before publishing.'] };
     var changes = String(opts.changes || '').trim();
     if (!changes) return { blockers: ['Write a one-line change note.'] };
-    var version = nextVersion(opts.existing), folder = folderName(version, opts.rand);
+    /* opts.stage (2.1): a stage, which only test runs use. It proposes the next number but has none, names staged, and always
+       freezes its payload, so promotion can prove it publishes exactly what was tried. */
+    var stage = !!opts.stage, version = nextVersion(opts.existing), folder = stage ? stageName(opts.rand) : folderName(version, opts.rand);
     var types = T.freeze(M.usedTypes(map), opts.customTypes);
     var typesJson = JSON.stringify(types, null, 2);
     /* Lowest sufficient format (docs/design.md section 28): /1 unless the checklist uses a 2.0 feature, so every older copy
        keeps running a version that needs nothing new. */
-    var feats = features(map, types), env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
+    var feats = features(map, types);
+    if (stage) feats = PF.envelope.FROZEN.filter(function (f) { return f === 'staged' || feats.indexOf(f) >= 0; });
+    var env = feats.length ? PF.envelope.stamp('preflight-publication', feats, opts.app) : {};
     var images = opts.images || {}, bytes = opts.imageBytes || {};
     /* Pins (2.0): version: N on a linked step resolves now to the one usable version numbered N (opts.childProcs: each
        linked process as listed, { latest, all, clashes, broken }); skillVersion: names the skill version the step expects.
@@ -58,6 +65,7 @@ PF.publish = (function () {
       publishedBy: opts.by, publishedAt: opts.now, changes: changes.slice(0, 200),
       mapHash: U.hash(draftMd), typesHash: U.hash(typesJson)
     };
+    if (stage) delete base.version;
     Object.keys(base).forEach(function (k) { info[k] = base[k]; });
     /* Reference screenshots copied into this version, each with a fingerprint, so a version is complete only when they've all arrived intact. */
     info.images = images;
@@ -69,6 +77,7 @@ PF.publish = (function () {
     }
     /* The corrections this version includes, from PF.corrections.forPublish. Older copies ignore the field (verify reads only
        what it checks), so a version that has it runs everywhere a version without it does. */
+    if (stage) { info.stage = { proposed: version }; info.stagedBy = opts.by; info.stagedAt = opts.now; }
     if (Array.isArray(opts.corrections) && opts.corrections.length) info.corrections = opts.corrections.slice(0, 500).map(function (c) {
       var x = { id: String(c.id) };
       if (c.result && typeof c.result === 'object') x.result = { step: String(c.result.step || ''), sig: String(c.result.sig || '') };
@@ -195,7 +204,21 @@ PF.publish = (function () {
      else is "still syncing", damaged or unusable here, and never listed as a version to run. */
   /* exact: for a /2 version, the SHA-256 of its checklist's and step types' exact bytes (exactOf), which its payload is
      checked against; a /1 version is checked by its fingerprints over text, as every 1.x copy checks it. */
-  function verify(folder, files, exact) {
+  /* opts.stage (2.1): the folder is a stage under staged/, checked by the stage rules (a stage-<random8> folder, staged named, the
+     number it proposes, who staged it and when); without it a record naming staged is never a version to run. */
+  function verify(folder, files, exact, opts) {
+    var res = verifyAny(folder, files, exact, !!(opts && opts.stage));
+    return res;
+  }
+  function stageProblem(info, folder) {
+    var st = info.stage;
+    if (info.format !== FORMAT2 || !Array.isArray(info.features) || info.features.indexOf('staged') < 0) return 'It isn\'t a staged version.';
+    if (!STAGE.test(folder) || info.folder !== folder || Object.prototype.hasOwnProperty.call(info, 'version')) return 'Folder name doesn\'t match the stage record.';
+    if (!isObj(st) || typeof st.proposed !== 'number' || !(st.proposed >= 1) || Math.floor(st.proposed) !== st.proposed || st.proposed > 99999) return 'Its stage record doesn\'t say which number it proposes.';
+    if (typeof info.stagedBy !== 'string' || !info.stagedBy || typeof info.stagedAt !== 'string' || !info.stagedAt) return 'Its stage record doesn\'t say who staged it, or when.';
+    return '';
+  }
+  function verifyAny(folder, files, exact, asStage) {
     var info = null;
     try { info = files['publication.json'] ? JSON.parse(files['publication.json']) : null; } catch (e) { return { ok: false, why: 'publication.json is unreadable.' }; }
     if (!info) return { ok: false, why: 'Still syncing: publication.json hasn\'t arrived.' };
@@ -207,7 +230,10 @@ PF.publish = (function () {
     if (files['map.md'] == null || files['types.json'] == null) return { ok: false, why: 'Still syncing: some files haven\'t arrived.', info: info };
     if (U.hash(files['map.md']) !== info.mapHash || U.hash(files['types.json']) !== info.typesHash) return { ok: false, why: 'Files don\'t match their publication record. Still syncing, or edited by hand.', info: info };
     if (info.format === FORMAT2) { var pp = payloadProblem(info, exact); if (pp) return { ok: false, why: pp.why, info: info, unusable: pp.unusable, needsBytes: !!pp.needsBytes }; }
-    if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
+    var staged = Array.isArray(info.features) && info.features.indexOf('staged') >= 0;
+    if (asStage) { var sp = stageProblem(info, folder); if (sp) return { ok: false, why: sp, info: info, unusable: true }; }
+    else if (staged) return { ok: false, why: 'It\'s a staged version, which only test runs use. Edited by hand: a stage belongs under staged/.', info: info, unusable: true };
+    else if (info.folder !== folder || versionOf(folder) !== info.version) return { ok: false, why: 'Folder name doesn\'t match the publication record.', info: info };
     var types; try { types = JSON.parse(files['types.json']); } catch (e) { return { ok: false, why: 'types.json is unreadable.', info: info }; }
     if (!types || typeof types !== 'object' || Array.isArray(types)) return { ok: false, why: 'types.json doesn\'t hold step types.', info: info };
     var bad = unrunnable(files['map.md'], types);
@@ -240,6 +266,26 @@ PF.publish = (function () {
     if (!needs) return NEWER;
     var v = typeof info.version === 'number' && isFinite(info.version) ? 'v' + Math.floor(info.version) : 'This version';
     return v + ' needs Flightdeck ' + needs + '. This copy shows it but won\'t run it. Open the team folder\'s own flightdeck.html.';
+  }
+
+  /* The publication record that makes a verified stage the default (2.1): its exact checklist, step types and screenshots in
+     the lowest format their content needs (staged dropped; /1 when nothing else is left), the same payload (on /1 too), and stagedFrom
+     naming the stage. o: { version, folder, by, now, app }. */
+  function promoteRecord(stage, o) {
+    var si = stage.info, feats = features(stage.map, stage.types);
+    var env = feats.length ? PF.envelope.stamp('preflight-publication', feats, o.app) : {};
+    var info = env.format ? { format: env.format, features: env.features } : { format: FORMAT };
+    if (env.app) info.app = env.app;
+    var base = { process: si.process, title: si.title, version: o.version, folder: o.folder, publishedBy: o.by, publishedAt: o.now, changes: si.changes,
+      mapHash: si.mapHash, typesHash: si.typesHash };
+    Object.keys(base).forEach(function (k) { info[k] = base[k]; });
+    info.images = isObj(si.images) ? JSON.parse(JSON.stringify(si.images)) : {};
+    /* The stage's payload, always: a /1 record carries it too (every older copy ignores the field; test/compat-staging.test.js),
+       so a promoted version keeps the SHA-256 identity of exactly what was tried. */
+    info.payload = JSON.parse(JSON.stringify(si.payload));
+    if (Array.isArray(si.corrections) && si.corrections.length) info.corrections = JSON.parse(JSON.stringify(si.corrections));
+    info.stagedFrom = { folder: stage.folder || si.folder, at: si.stagedAt };
+    return JSON.stringify(info, null, 2);
   }
 
   /* Group verified publications by version; two with the same number is a clash for people to settle. */
@@ -285,5 +331,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();
