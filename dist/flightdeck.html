@@ -10062,7 +10062,9 @@ PF.health = (function () {
 
     /* ---- newer copies: what a newer Flightdeck wrote, by family and the version each needs ---- */
     var ro = runs.filter(function (r) { return r._unrunnable; }), inst = scan && scan.installed && typeof scan.installed === 'object' && !scan.installed.newer ? scan.installed : null;
-    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = (d.refused || []).concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind === 'newer'; }).map(function (x) { return { path: x.path, family: 'flightdeck-report', kind: 'newer', why: x.why, needs: x.needs || '' }; }) : []);
+    /* A refused file that isn't a newer Flightdeck's (not in its format) is named on its own below, with the plan page's advice. */
+    var badRef = (d.refused || []).filter(function (x) { return x.kind !== 'newer'; });
+    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = (d.refused || []).filter(function (x) { return x.kind === 'newer'; }).concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind === 'newer'; }).map(function (x) { return { path: x.path, family: 'flightdeck-report', kind: 'newer', why: x.why, needs: x.needs || '' }; }) : []);
     var newerInst = inst && typeof inst.version === 'string' && snap.app && snap.app !== 'dev' && semver(inst.version, snap.app) > 0 ? inst.version : null;
     if (ro.length || newerPubs.length || snap.newer || newerInst || instNewer || refused.length) {
       var parts = [], needs = function (n) { return n ? 'Flightdeck ' + n : 'a newer Flightdeck'; };
@@ -10079,6 +10081,12 @@ PF.health = (function () {
       Object.keys(byFam).sort().forEach(function (k) { var x = byFam[k], n = NAMES[x[0].family] || ['file', 'files']; parts.push(x.length + ' ' + (x.length === 1 ? n[0] : n[1]) + ' need' + (x.length === 1 ? 's ' : ' ') + needs(x[0].needs)); });
       add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy shows them and leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; }), refused.map(function (x) { return x.path; }), instNewer ? ['.flightdeck/installed.json'] : []), action: help(HELP.newer), help: HELP.newer });
     } else ok('newer', 'Nothing here was written by a newer Flightdeck.');
+    if (badRef.length) {
+      var one = badRef.length === 1, decs = badRef.some(function (x) { return /\.status-[^/]*$/.test(x.path); });
+      add({ id: 'refused', severity: 'warn', area: 'Files', title: one ? 'A file isn\'t in a format this copy can read' : plural(badRef.length, 'file') + ' aren\'t in a format this copy can read',
+        detail: badRef[0].path + ' ' + (badRef[0].why || 'isn\'t in its format') + (one ? '' : ' (and ' + plural(badRef.length - 1, 'other file') + ')') + '. This copy leaves ' + (one ? 'it' : 'them') + ' alone.' + (decs ? ' A decision on a plan that isn\'t in its format holds that plan, so it can\'t be started, declined or switched.' : '') + ' Fix or delete ' + (one ? 'that file' : 'those files') + '.',
+        paths: badRef.map(function (x) { return x.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    }
     /* ---- stages (2.1): incomplete ones and decisions that can't be read; nothing at all in a folder that never stages ---- */
     var stItems = stages(d.stages);
     if (stItems.length) add({ id: 'stages', severity: 'warn', area: 'Checklists', title: plural(stItems.length, 'staged version') + ' or decision' + (stItems.length === 1 ? '' : 's') + ' can\'t be used', detail: stItems[0].path + ' ' + stItems[0].why + '. Nothing runs from ' + (stItems.length === 1 ? 'it' : 'them') + '; stage the draft again, or restore the folder from a backup.', paths: stItems.map(function (x) { return x.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
@@ -10090,7 +10098,7 @@ PF.health = (function () {
       .concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind !== 'newer'; }) : [])
       .concat((d.repUnread || []).filter(function (u) { return u.kind !== 'newer'; }).map(function (u) { return { path: u.dir + '/' + u.process + '/' + u._file, why: u.why || 'couldn\'t be read' }; }));
     var repDiffer = scan && scan.reports ? scan.reports.differ : [];
-    var named = Object.create(null); repBad.concat(refused).forEach(function (x) { named[x.path] = true; });
+    var named = Object.create(null); repBad.concat(refused, badRef).forEach(function (x) { named[x.path] = true; });
     /* A report names a run that isn't here only when the runs were listed completely: a listing that failed isn't absence. */
     var orphans = (d.failed || {}).runs ? [] : (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
     if (repBad.length || repDiffer.length || orphans.length) {

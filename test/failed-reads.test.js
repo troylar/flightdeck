@@ -252,6 +252,11 @@ rule('A file named for a plan\'s decision whose format can\'t be read holds that
     same(p._statusUnread, [sp]);
     assert.ok(words.includes(sp) && /can't be started, declined or switched/.test(words), JSON.stringify(body) + ': ' + words);
     assert.ok(named(health(d), sp), JSON.stringify(health(d).issues.map(i => i.detail)));
+    // Folder health says what the plan page says: a newer Flightdeck's file is newer; one not in its format is fixed or deleted.
+    const newer = p._statusHeld.some(h => h.kind === 'newer'), hits = health(d).issues.filter(i => (i.paths || []).indexOf(sp) >= 0);
+    assert.strictEqual(hits.some(i => i.id === 'newer'), newer, JSON.stringify(body) + ': ' + JSON.stringify(hits));
+    if (body.proposal) assert.ok(!newer && /Fix or delete/.test(words), words);
+    if (!newer) assert.ok(hits.some(i => /Fix or delete/.test(i.detail) && !/newer Flightdeck|Update Flightdeck/.test(i.title + i.detail)), JSON.stringify(hits));
   }
   // A plan file that's refused (not in its format, a copy, or another plan's) is named, and holds no plan.
   const fs = folder();
