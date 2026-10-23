@@ -793,34 +793,44 @@ def _needs(fam, major, features, o):
     return least
 
 
+def _txt(v):
+    """PF.envelope.txt, cut to 60 characters: a string as is, anything else as JSON."""
+    return (v if isinstance(v, str) else js_json(v))[:60]
+
+
 def judge(family, o):
-    """{"ok": True, "major": n} or {"ok": False, "kind": "newer" | "malformed", "needs": "2.0" | ""}."""
+    """{"ok": True, "major": n} or {"ok": False, "kind": "newer" | "malformed", "needs": "2.0" | "", "why"} (a malformed one's
+    reason in the app's words)."""
+    def bad(why):
+        return {"ok": False, "kind": "malformed", "needs": "", "why": why}
     fam = FAMILIES.get(family)
-    if fam is None or not isinstance(o, dict):
-        return {"ok": False, "kind": "malformed", "needs": ""}
+    if fam is None:
+        return bad("isn't a kind of file Flightdeck knows (" + _txt(family) + ")")
+    if not isinstance(o, dict):
+        return bad("isn't a JSON object")
     major = None
     if o.get("format") is not None:
         m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})$", o["format"]) if isinstance(o["format"], str) else None
         if not m:
-            return {"ok": False, "kind": "malformed", "needs": ""}
+            return bad("has a format this copy can't read (\"" + _txt(o["format"]) + "\")")
         if m.group(1) != family:
             if m.group(1) in FAMILY_NAMES:
-                return {"ok": False, "kind": "malformed", "needs": ""}
+                return bad("is a " + m.group(1) + " file, not a " + family + " file")
             return {"ok": False, "kind": "newer", "needs": _needs(None, None, None, o)}
         major = int(m.group(2))
     elif fam.get("kinds"):
         if o.get("kind") not in fam["kinds"]:
-            return {"ok": False, "kind": "malformed", "needs": ""}
+            return bad("isn't a " + family + " file")
         major = 1
     elif fam["unmarked"]:
         major = 1
     else:
-        return {"ok": False, "kind": "malformed", "needs": ""}
+        return bad("has no format")
     features = []
     if o.get("features") is not None:
         f = o["features"]
         if not isinstance(f, list) or len(f) > 32 or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{1,39}$", x) for x in f):
-            return {"ok": False, "kind": "malformed", "needs": ""}
+            return bad("has a \"features\" list this copy can't read")
         features = list(f)
     if major not in fam["majors"]:
         return {"ok": False, "kind": "newer", "needs": _needs(fam, major, features, o)}
@@ -830,18 +840,90 @@ def judge(family, o):
     return {"ok": True, "major": major}
 
 
+PLAN2, STATUS2 = "flightdeck-plan/2", "flightdeck-plan-status/2"
+
+
+def _num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _text_or(v):
+    return v is None or isinstance(v, str)
+
+
+def pin_why(p, hashes):
+    """What's wrong with an exact version folder (a plan/2's pin, or a switch's to), or "" (PF.plans pinWhy)."""
+    keys = ("folder", "version", "mapHash", "typesHash") if hashes else ("folder", "version")
+    if not isinstance(p, dict) or any(k not in keys for k in p):
+        return "names a version that isn't a version folder"
+    m = re.fullmatch(r"v([0-9]+)-[a-z0-9]+", p["folder"]) if isinstance(p.get("folder"), str) else None
+    if not m or not _num(p.get("version")) or float(m.group(1)) != p["version"]:
+        return "names a version that isn't a version folder"
+    if hashes and not all(isinstance(p.get(k), str) and re.fullmatch(r"[0-9a-f]{8}", p[k]) for k in ("mapHash", "typesHash")):
+        return "names a version without its fingerprints"
+    return ""
+
+
+def plan_why(p):
+    """What's wrong with a plan in today's format, or "" (PF.plans.planWhy). The app refuses a plan/2 that isn't in it."""
+    if not isinstance(p.get("id"), str) or not isinstance(p.get("process"), str):
+        return "is a plan without a text id and process"
+    if p.get("format") == PLAN2:
+        if p.get("version") is not None or p.get("kind") is not None:
+            return "is a plan that names a version two ways"
+        pw = pin_why(p.get("pin"), True)
+        if pw:
+            return "is a plan that " + pw
+    bad = next((k for k in ("title", "when", "by", "created", "note") if not _text_or(p.get(k))), None)
+    if bad:
+        return "is a plan whose " + bad + " isn't text"
+    v = p.get("version")
+    # As JavaScript reads it: 1e400 is Infinity, a whole number there.
+    if not (v is None or (isinstance(v, str) and re.fullmatch(r"[1-9][0-9]{0,5}", v)) or (_num(v) and v >= 1 and (v == float("inf") or v == int(v)))):
+        return "is a plan whose version isn't a version number"
+
+    def plain(o, ok):
+        return o is None or (isinstance(o, dict) and all(ok(x) for x in o.values()))
+    if not plain(p.get("details"), lambda x: isinstance(x, str) or (_num(x) and math.isfinite(x))):
+        return "is a plan whose details aren't text"
+    if not plain(p.get("roles"), lambda x: isinstance(x, str)):
+        return "is a plan whose roles aren't people IDs"
+    return ""
+
+
 def status_why(x):
-    """What's wrong with a start or decline (PF.plans.statusWhy), or "": the app refuses such a decision, so it decides nothing."""
+    """What's wrong with a plan decision (PF.plans.statusWhy), or "": the app refuses such a decision, so it decides nothing."""
     if not isinstance(x.get("proposal"), str):
         return "is a plan decision without a plan"
-    if x.get("status") not in ("accepted", "declined"):
+    two = x.get("format") == STATUS2
+    if x.get("status") not in ("accepted", "declined") and not (two and x.get("status") == "retargeted"):
         return "is a plan decision that isn't accepted or declined"
-    if x.get("format") == "flightdeck-plan-status/2" and x.get("kind") is not None:
+    if two and x.get("kind") is not None:
         return "is a plan decision that names its format two ways"
-    if x.get("to") is not None:
+    if x.get("status") == "retargeted":
+        tw = pin_why(x.get("to"), False)
+        if tw:
+            return "is a plan decision that " + tw
+    elif x.get("to") is not None:
         return "is a plan decision that names a version without switching to it"
-    bad = next((k for k in ("proposalHash", "run", "by", "at") if not (x.get(k) is None or isinstance(x.get(k), str))), None)
+    bad = next((k for k in ("proposalHash", "run", "by", "at") if not _text_or(x.get(k))), None)
     return "is a plan decision whose " + bad + " isn't text" if bad else ""
+
+
+def held_why(pid, torn, refused):
+    """The app's words for a plan held by a decision it can't read (PF.views.planHeldWhy), or "". Matched by file name, as the
+    app matches them: <plan id>.status-…; a newer Flightdeck's decision is named first, then one not in its format."""
+    mine = lambda n: n.startswith(pid + ".status-")
+    h = [(n, k, needs) for n, k, needs in refused if mine(n)]
+    x = next((u for u in h if u[1] == "newer"), None) or next((u for u in h if u[1] == "malformed"), None) or next(((n, "unreadable", "") for n in torn if mine(n)), None)
+    if not x:
+        return ""
+    path, held = "proposals/" + x[0], " Until then this plan can't be started, declined or switched here."
+    if x[1] == "newer":
+        return "A decision on this plan (" + path + ") was made with a newer Flightdeck, so it isn't known here whether it was started. " + ("Needs Flightdeck " + x[2] + "." if x[2] else "Needs a newer Flightdeck.") + " Update Flightdeck to see it." + held
+    if x[1] == "malformed":
+        return "A decision on this plan (" + path + ") isn't one this copy can read, so it isn't known whether it was started. Fix or delete that file." + held
+    return "A decision on this plan (" + path + ") can't be read, so it isn't known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it." + held
 
 
 def plan_family(o):
@@ -1380,7 +1462,7 @@ def main():
         }
 
     prop_dir = os.path.join(root, "proposals")
-    plans, decisions, torn = {}, {}, []
+    plans, decisions, torn, refused_decisions = {}, {}, [], []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
@@ -1400,24 +1482,37 @@ def main():
         # a feature this copy doesn't know) is refused and named, never a plan or a decision; one it can't read is left out.
         fam = plan_family(obj)
         if not fam:
+            # One the app reads here (it has a format) that's neither a plan nor a decision is refused and named.
+            if isinstance(obj.get("format"), str):
+                out["refused"].append({"file": "proposals/" + name, "why": "isn't a file this copy can read here"})
             continue
         v = judge(fam, obj)
         if not v["ok"]:
-            if v["kind"] == "newer":
-                what = "plan decision" if fam == "flightdeck-plan-status" else "plan"
-                out["refused"].append({"file": "proposals/" + name, "why": "is a " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")})
+            what = "plan decision" if fam == "flightdeck-plan-status" else "plan"
+            newer = v["kind"] == "newer"
+            out["refused"].append({"file": "proposals/" + name, "why": "is a " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.") if newer else v["why"]})
+            if fam == "flightdeck-plan-status":
+                refused_decisions.append((name, v["kind"], v["needs"] or ""))
             continue
-        if fam == "flightdeck-plan" and isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
-            plain = {k: v for k, v in obj.items() if not k.startswith("_")}
-            plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
-        elif fam == "flightdeck-plan-status" and obj.get("status") != "retargeted":
-            # A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision. One not in its
-            # format is refused and named, as the app does, and decides nothing.
+        if fam == "flightdeck-plan":
+            # A plan/2 not in its format is refused and named, as the app does, and is never a plan to start. A 1.x plan keeps
+            # what every 1.x copy did with it.
+            bad = plan_why(obj)
+            if bad and obj.get("format") in (PLAN2, STATUS2):
+                out["refused"].append({"file": "proposals/" + name, "why": bad})
+                continue
+            if isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
+                plain = {k: v for k, v in obj.items() if not k.startswith("_")}
+                plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
+        else:
+            # A decision not in its format (a switch without its version among them) is refused and named, as the app does,
+            # and decides nothing. A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision.
             bad = status_why(obj)
             if bad:
                 out["refused"].append({"file": "proposals/" + name, "why": bad})
-                continue
-            decisions.setdefault(obj.get("proposal"), []).append(obj)
+                refused_decisions.append((name, "malformed", ""))
+            elif obj.get("status") != "retargeted":
+                decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same
         # thing (apart from when each was written, and which version of the same tool wrote a request) are one plan; copies
@@ -1442,6 +1537,12 @@ def main():
             status, why, agree = "decided", matching[0].get("status", ""), True
         else:
             status, why, agree = "ambiguous", "the plan changed after it was decided; the decision on its earlier version still holds it, so Flightdeck won't start, decline or switch it again. To run it again, make a new plan", True
+        if status == "pending":
+            # A decision on it that can't be read (still arriving), or one refused here (a newer Flightdeck's, or not in its
+            # format), holds it as the app holds it (PF.views.planHeldWhy): it may have been started.
+            held = held_why(pid, torn, refused_decisions)
+            if held:
+                status, why = "ambiguous", held
         entry = {"file": name, "id": pid, "status": status, "why": why}
         # Started (on this version or an earlier one), and its run isn't in the folder (2.1.1): it stays started, never started
         # again. It may still be syncing; if it never arrives, a new plan runs it again.

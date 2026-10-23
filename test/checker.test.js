@@ -210,6 +210,78 @@ rule('The checker agrees with the app (2.1.1): a malformed start names no missin
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+rule('The checker agrees with the app (2.1.1): a refused, newer or torn decision holds its plan, in the app\'s words', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-check-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const v1 = await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+    assert.ok(!v1.blockers, String(v1.blockers));
+    const plan = id => ({ kind: 'plan', id, process: 'release', version: 1, title: id, details: {}, roles: {} });
+    const dec = (id, extra) => JSON.stringify(Object.assign({ kind: 'status', proposal: id, proposalHash: PF.util.hash(JSON.stringify(plan(id))), status: 'accepted', run: 'run-' + id, by: 'person-casey', at: NOW }, extra || {}), null, 2);
+    for (const id of ['plan-bad-by', 'plan-newer', 'plan-torn-dec', 'plan-bad-switch', 'plan-bad-env', 'plan-both']) await d.write('proposals/' + id + '.json', JSON.stringify(plan(id), null, 2));
+    await d.write('proposals/plan-bad-by.status-w-d.json', dec('plan-bad-by', { by: 44 }));
+    await d.write('proposals/plan-newer.status-w-d.json', dec('plan-newer', { features: ['from-the-future'] }));
+    await d.write('proposals/plan-torn-dec.status-w-d.json', '{"kind": "sta');
+    await d.write('proposals/plan-bad-env.status-w-d.json', dec('plan-bad-env', { features: 'from-the-future' }));
+    await d.write('proposals/plan-bad-switch.status-w.json', dec('plan-bad-switch', { status: 'retargeted', run: undefined, to: { folder: v1.folder, version: 1 } }));
+    // A decision that reads decides it: the malformed one beside it changes nothing.
+    await d.write('proposals/plan-both.status-w-d.json', dec('plan-both', { status: 'declined', run: null }));
+    await d.write('proposals/plan-both.status-x-d.json', dec('plan-both', { at: 7 }));
+    const PFV = load(true), app = await PFV.repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const ap = id => app.plans.find(p => p.id === id), ck = id => out.plans.find(p => p.id === id);
+    for (const id of ['plan-bad-by', 'plan-newer', 'plan-torn-dec', 'plan-bad-switch', 'plan-bad-env']) {
+      const words = PFV.views.planHeldWhy(ap(id), app);
+      assert.ok(words && /can't be started, declined or switched/.test(words), 'set-up: the app holds ' + id + ': ' + words);
+      assert.strictEqual(ck(id).status, 'ambiguous', id + ' is held, never pending: ' + JSON.stringify(ck(id)));
+      assert.strictEqual(ck(id).why, words, id + ': the app\'s words');
+      assert.ok(!ck(id).runMissing, id + ': names no run');
+    }
+    assert.ok(ap('plan-both')._status && ck('plan-both').status === 'decided' && ck('plan-both').why === 'declined', 'a decision that reads decides it: ' + JSON.stringify(ck('plan-both')));
+    const appRefused = JSON.parse(JSON.stringify(app.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path + ': ' + r.why).sort();
+    assert.strictEqual(appRefused.length, 5, 'set-up: the app refuses five decisions: ' + appRefused.join('; '));
+    assert.deepStrictEqual((out.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file + ': ' + r.why).sort(), appRefused, 'refused, with the app\'s reasons');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker agrees with the app (2.1.1): a plan/2 not in its format is refused with the app\'s reason, never pending; a 1.x plan keeps what 1.x did', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-plan2-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const v = await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pub = { info: JSON.parse(v.files['publication.json']) };
+    const two = (id, extra) => Object.assign(PF.plans.make(pub, { id, process: 'release', title: id, details: {}, roles: {}, by: 'person-avery', created: NOW }, true, '2.0.0'), extra || {});
+    const bad = {
+      'plan-t-title': { title: 44 },
+      'plan-t-note': { note: false },
+      'plan-t-details': { details: { a: true } },
+      'plan-t-roles': { roles: { owner: 5 } },
+      'plan-t-twoways': { version: 1 },
+      'plan-t-pinhash': p => ({ pin: Object.assign({}, p.pin, { mapHash: 'XYZ' }) }),
+      'plan-t-pinfolder': p => ({ pin: Object.assign({}, p.pin, { version: p.pin.version + 1 }) }),
+      'plan-t-pinextra': p => ({ pin: Object.assign({}, p.pin, { extra: 1 }) }),
+      'plan-t-version': { version: 1.5, pin: undefined }
+    };
+    await d.write('proposals/plan-t-good.json', JSON.stringify(two('plan-t-good'), null, 2));
+    for (const [id, x] of Object.entries(bad)) { const p = two(id); await d.write('proposals/' + id + '.json', JSON.stringify(Object.assign(p, typeof x === 'function' ? x(p) : x), null, 2)); }
+    await d.write('proposals/plan-t-env.json', JSON.stringify(Object.assign(two('plan-t-env'), { features: [1] }), null, 2));
+    await d.write('proposals/plan-t-other.json', JSON.stringify({ format: 'preflight-run/1', id: 'plan-t-other' }, null, 2));
+    await d.write('proposals/plan-t-old.json', JSON.stringify({ kind: 'plan', id: 'plan-t-old', process: 'release', version: 1, title: 44, details: {}, roles: {} }, null, 2));
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(app.plans.map(p => p.id).sort())), ['plan-t-good', 'plan-t-old'], 'set-up: the app refuses every malformed plan/2');
+    assert.deepStrictEqual(out.plans.map(p => p.id + ':' + p.status).sort(), ['plan-t-good:pending', 'plan-t-old:pending'], 'none is listed as a plan to start');
+    const appRefused = JSON.parse(JSON.stringify(app.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path + ': ' + r.why).sort();
+    assert.strictEqual(appRefused.length, Object.keys(bad).length + 2, 'set-up: ' + appRefused.join('; '));
+    assert.deepStrictEqual((out.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file + ': ' + r.why).sort(), appRefused, 'refused, with the app\'s reasons');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 rule('The checker reports the same versions as unusable as the app, with the same reasons, and knows the same step types', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
@@ -401,8 +473,8 @@ rule('The checker agrees with the app on plans, plan decisions, versions and ste
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-parity-'));
     try {
       const files = Object.assign(H.readTree(path.join(G.DIR, 'v1.18.0')), extra);
-      // A declined decision with an unknown feature on the baseline plan: the app refuses it, so the plan stays pending.
-      // A plan whose only decision has a feature this copy doesn't know: the app refuses the decision, so the plan is pending.
+      // A plan whose only decision has a feature this copy doesn't know: the app refuses the decision, and it holds the plan
+      // (it may have been started), so the plan is never pending.
       const may = { kind: 'plan', id: 'plan-backup-may', process: 'backup', version: 1, title: 'Backup check May', by: 'person-avery', created: NOW };
       files['proposals/plan-backup-may.json'] = JSON.stringify(may);
       files['proposals/plan-backup-may.status-w-feat.json'] = JSON.stringify({ kind: 'status', proposal: 'plan-backup-may', proposalHash: PF.util.hash(JSON.stringify(may)), status: 'declined', run: null, by: 'person-avery', at: NOW, features: ['from-the-future'] });
@@ -411,10 +483,10 @@ rule('The checker agrees with the app on plans, plan decisions, versions and ste
       H.writeTree(root, files);
       const res = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
       const d = await repo.loadAll(new DiskFS(root), { deep: true });
-      const app = {}; d.plans.forEach(p => { app[p.id] = p._status ? 'decided' : (p._conflicting || p._changedAfterDecision || p._copiesDiffer) ? 'ambiguous' : 'pending'; });
+      const app = {}; d.plans.forEach(p => { app[p.id] = p._status ? 'decided' : (p._conflicting || p._changedAfterDecision || p._copiesDiffer || (p._statusHeld || []).length) ? 'ambiguous' : 'pending'; });
       const mine = {}; res.plans.filter(p => p.status !== 'newer').forEach(p => { mine[p.id] = p.status; });
       assert.deepStrictEqual(mine, app, label + ': plans and their state');
-      assert.strictEqual(app['plan-backup-may'], 'pending', 'set-up: the app refuses the decision');
+      assert.strictEqual(app['plan-backup-may'], 'ambiguous', 'set-up: the app refuses the decision and holds the plan');
       assert.ok(!('plan-backup-june' in app), 'set-up: the app refuses the plan');
       const refusedApp = JSON.parse(JSON.stringify(d.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path).sort();
       const refusedMine = (res.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file).sort();
