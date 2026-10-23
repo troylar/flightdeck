@@ -912,7 +912,8 @@ def status_why(x):
 
 def held_why(pid, torn, refused):
     """The app's words for a plan held by a decision it can't read (PF.views.planHeldWhy), or "". Matched by file name, as the
-    app matches them: <plan id>.status-…; a newer Flightdeck's decision is named first, then one not in its format."""
+    app matches them: <plan id>.status-…, whatever a refused file says it is (a refused plan file isn't named so and holds
+    nothing); a newer Flightdeck's file is named first, then one not in its format."""
     mine = lambda n: n.startswith(pid + ".status-")
     h = [(n, k, needs) for n, k, needs in refused if mine(n)]
     x = next((u for u in h if u[1] == "newer"), None) or next((u for u in h if u[1] == "malformed"), None) or next(((n, "unreadable", "") for n in torn if mine(n)), None)
@@ -1485,14 +1486,14 @@ def main():
             # One the app reads here (it has a format) that's neither a plan nor a decision is refused and named.
             if isinstance(obj.get("format"), str):
                 out["refused"].append({"file": "proposals/" + name, "why": "isn't a file this copy can read here"})
+                refused_decisions.append((name, "malformed", ""))
             continue
         v = judge(fam, obj)
         if not v["ok"]:
             what = "plan decision" if fam == "flightdeck-plan-status" else "plan"
             newer = v["kind"] == "newer"
             out["refused"].append({"file": "proposals/" + name, "why": "is a " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.") if newer else v["why"]})
-            if fam == "flightdeck-plan-status":
-                refused_decisions.append((name, v["kind"], v["needs"] or ""))
+            refused_decisions.append((name, v["kind"], v["needs"] or ""))
             continue
         if fam == "flightdeck-plan":
             # A plan/2 not in its format is refused and named, as the app does, and is never a plan to start. A 1.x plan keeps
@@ -1500,6 +1501,7 @@ def main():
             bad = plan_why(obj)
             if bad and obj.get("format") in (PLAN2, STATUS2):
                 out["refused"].append({"file": "proposals/" + name, "why": bad})
+                refused_decisions.append((name, "malformed", ""))
                 continue
             if isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
                 plain = {k: v for k, v in obj.items() if not k.startswith("_")}

@@ -745,8 +745,10 @@ PF.repo = (function () {
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
       var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
       var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
-      /* A plan decision refused here (a newer Flightdeck's, or not in its format) holds its plan as one still arriving does. */
-      var planHolds = planUnread.filter(function (u) { return u.kind === 'unreadable'; }).concat((r[6].refused || []).filter(function (x) { return x.family === 'flightdeck-plan-status'; }).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
+      /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
+         one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
+         isn't named so, and holds no plan. */
+      var planHolds = planUnread.filter(function (u) { return u.kind === 'unreadable'; }).concat((r[6].refused || []).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
       var plans = groupPlans(r[6].plans, r[6].statuses, planHolds);
       /* A stage that can't be one (2.1) makes its test runs read-only, as an unusable version does its runs; one read again
          and verified clears that. A stage still arriving says nothing. */

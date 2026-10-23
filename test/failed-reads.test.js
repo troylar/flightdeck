@@ -241,6 +241,30 @@ rule('A plan decision held for a newer Flightdeck says to update; one that isn\'
   assert.ok(/restore it from a backup or delete it/.test(V.planHeldWhy(p)), V.planHeldWhy(p));
 });
 
+rule('A file named for a plan\'s decision whose format can\'t be read holds that plan, on its page and in Folder health; a refused plan file holds no plan (2.1.1)', async () => {
+  const PFV = load(true), V = PFV.views, id = 'plan-release-2026-10-24', plan = JSON.parse(example('proposals/' + id + '.json'));
+  const sp = 'proposals/' + id + '.status-w-other-d.json';
+  for (const body of [{ format: 'flightdeck-plan-status/2\n', proposal: id, status: 'accepted', run: 'r1', by: 'person-casey', at: '2026-10-17T13:00:00Z' }, { format: 'acme/1' }, { kind: 'plan', format: 'flightdeck-plan/9', app: '9.0.0' }]) {
+    const fs = folder();
+    put(fs, 'proposals/' + id + '.json', JSON.stringify(plan));
+    put(fs, sp, JSON.stringify(body));
+    const d = await PFV.repo.loadAll(fs), p = d.plans.filter(x => x.id === id)[0], words = V.planHeldWhy(p, d);
+    same(p._statusUnread, [sp]);
+    assert.ok(words.includes(sp) && /can't be started, declined or switched/.test(words), JSON.stringify(body) + ': ' + words);
+    assert.ok(named(health(d), sp), JSON.stringify(health(d).issues.map(i => i.detail)));
+  }
+  // A plan file that's refused (not in its format, a copy, or another plan's) is named, and holds no plan.
+  const fs = folder();
+  put(fs, 'proposals/' + id + '.json', JSON.stringify(plan));
+  put(fs, 'proposals/' + id + ' (1).json', JSON.stringify(Object.assign({}, plan, { kind: undefined, format: 'flightdeck-plan/2\n' })));
+  put(fs, 'proposals/plan-release.json', JSON.stringify({ format: 'flightdeck-plan/2\n', id: 'plan-release' }));
+  put(fs, 'proposals/' + id + '-b.json', JSON.stringify({ format: 'acme/1', id: id + '-b' }));
+  const d = await PFV.repo.loadAll(fs), p = d.plans.filter(x => x.id === id)[0];
+  same(p._statusUnread, []);
+  assert.strictEqual(V.planHeldWhy(p, d), '');
+  for (const f of [id + ' (1).json', 'plan-release.json', id + '-b.json']) assert.ok(named(health(d), 'proposals/' + f), f);
+});
+
 /* ---------- 1c. The write-time gate: a plan is started, declined or switched only on a fresh read of all of its files ---------- */
 
 const PLAN = 'plan-release-2026-10-24';

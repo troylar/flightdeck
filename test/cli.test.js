@@ -2104,6 +2104,13 @@ rule('READ (2.1.1): a plan held by a decision this copy can\'t read says held, w
     assert.ok(p.held && /may still be arriving/.test(p.held.why), 'contract ' + c + ': ' + JSON.stringify(p.held));
     assert.deepStrictEqual(p.held.files, [{ file: at('w2'), kind: 'unreadable' }], 'contract ' + c);
   }
+  // One whose format can't be read at all holds it by its name, as one not in its format.
+  fs.unlinkSync(path.join(dir, at('w2'))); fs.writeFileSync(path.join(dir, at('w3')), JSON.stringify({ format: 'flightdeck-plan-status/2\n', proposal: id, status: 'accepted' }));
+  for (const c of ['1', '2']) {
+    const p = entry(c);
+    assert.ok(p.held && /isn't one this copy can read/.test(p.held.why), 'contract ' + c + ': ' + JSON.stringify(p.held));
+    assert.deepStrictEqual(p.held.files, [{ file: at('w3'), kind: 'malformed' }], 'contract ' + c);
+  }
 });
 
 rule('REQUEST: an invalid process, version or detail is refused the READ way, naming every reason, and nothing is written', async () => {

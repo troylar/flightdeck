@@ -304,9 +304,10 @@ rule('The checker agrees with the app (2.1.1): a format name with a line break a
     const ck = id => out.plans.find(p => p.id === id);
     assert.ok(!ck('plan-nl-plan') || ck('plan-nl-plan').status !== 'pending', 'never pending: ' + JSON.stringify(ck('plan-nl-plan')));
     const words = PFV.views.planHeldWhy(app.plans.find(p => p.id === 'plan-nl-held'), app);
-    // The decision is refused, never read as a start: the plan is what the app shows (it names no family, so it holds by neither).
+    // The decision is refused, never read as a start, and holds its plan by its name, in the app's words.
     const nlHeld = ck('plan-nl-held');
-    assert.ok(words ? nlHeld.status === 'ambiguous' && nlHeld.why === words : nlHeld.status === 'pending', 'as the app shows it (' + JSON.stringify(words) + '): ' + JSON.stringify(nlHeld));
+    assert.ok(/can't be started, declined or switched/.test(words), 'set-up: the app holds plan-nl-held: ' + words);
+    assert.ok(nlHeld.status === 'ambiguous' && nlHeld.why === words, 'as the app shows it: ' + JSON.stringify(nlHeld));
     const appRefused = JSON.parse(JSON.stringify(app.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path + ': ' + r.why).sort();
     assert.strictEqual(appRefused.length, 2, 'set-up: ' + appRefused.join('; '));
     assert.deepStrictEqual((out.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file + ': ' + r.why).sort(), appRefused, 'refused, with the app\'s reasons');
