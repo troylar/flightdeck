@@ -618,13 +618,15 @@ PF.repo = (function () {
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
         }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
+        /* Reading for other apps names each of these in bad; with torn too (plans), they're also kept as the app keeps them,
+           so a decision that can't be read holds its plan there as in the app. */
         return fs.read(path).then(function (f) {
-          if (!f) return null;
+          if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           var o = json(f.text);
-          if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); return null; }
-          if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); return null; }
+          if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
+          if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
           o._file = i.name; return o;
-        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); return null; });
+        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
     }).then(function (x) { return x.filter(Boolean); });
   }
@@ -2378,14 +2380,15 @@ PF.repo = (function () {
      ones are kept in refused, so Folder health names them. only(name): just those files (plan request reads its own request's). */
   /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
   function readPlans(fs, bad, only, two) {
-    var refused = [], torn = bad ? null : [];
+    var refused = [], torn = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
       var plans = [], statuses = [];
       props.forEach(function (p) {
         var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
         if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
         if (v.why) {
-          if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); return; }
+          /* Reading for other apps names it; a decision (or a plan/2) is also refused as in the app, so it holds its plan. */
+          if (bad) { bad.push({ path: path, kind: 'malformed', why: v.why }); if (PF.plans.isExact(p) || v.kind === 'status') refused.push(PF.envelope.refusal(path, fam, { kind: 'malformed', why: v.why })); return; }
           /* A plan/2 or plan-status/2 that isn't in its format, and any decision that isn't one (a switch without its version
              among them), is refused with its reason and never kept. A 1.x plan keeps what every 1.x copy did with it. */
           if (PF.plans.isExact(p) || v.kind === 'status') { refused.push(PF.envelope.refusal(path, fam, { kind: 'malformed', why: v.why })); return; }

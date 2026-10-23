@@ -2084,6 +2084,28 @@ rule('READ (2.1.1): a plan decided and then edited reads as changed, never pendi
   assert.strictEqual(planned().status, 'conflicting', 'a start on one version and a decline on another disagree');
 });
 
+rule('READ (2.1.1): a plan held by a decision this copy can\'t read says held, with the app\'s reason and the file, in both contracts', async () => {
+  const id = 'plan-release-2026-10-24', at = (n) => 'proposals/' + id + '.status-' + n + '-d.json';
+  const dir = await readFolder(), text = fs.readFileSync(path.join(dir, 'proposals', id + '.json'), 'utf8');
+  const entry = (c) => { const r = agree(readCli('runs', dir, '--status', 'planned', '--contract', c, '--json')); assert.deepStrictEqual(wrong(r.json.data, c === '2' ? AJ.SCHEMA2.runs : AJ.SCHEMA.runs), [], 'runs data, contract ' + c); return r.json.data.planned.find(x => x.id === id); };
+  for (const c of ['1', '2']) assert.strictEqual(entry(c).held, null, 'contract ' + c + ': a plan nothing holds says held: null');
+  // Its only start has a by that isn't a person's ID: the app won't start, decline or switch it.
+  fs.writeFileSync(path.join(dir, at('w1')), JSON.stringify({ kind: 'status', proposal: id, proposalHash: SRC.util.hash(JSON.stringify(JSON.parse(text))), status: 'accepted', run: 'run-a', by: 44, at: RF.NOW }));
+  for (const c of ['1', '2']) {
+    const p = entry(c);
+    assert.strictEqual(p.status, 'pending', 'contract ' + c + ': status keeps its meaning');
+    assert.ok(p.held && /isn't one this copy can read/.test(p.held.why) && p.held.why.includes(at('w1')) && /can't be started, declined or switched/.test(p.held.why), 'contract ' + c + ': ' + JSON.stringify(p.held));
+    assert.deepStrictEqual(p.held.files, [{ file: at('w1'), kind: 'malformed' }], 'contract ' + c);
+  }
+  // One still arriving holds it too, and names its own file.
+  fs.unlinkSync(path.join(dir, at('w1'))); fs.writeFileSync(path.join(dir, at('w2')), '{"kind": "sta');
+  for (const c of ['1', '2']) {
+    const p = entry(c);
+    assert.ok(p.held && /may still be arriving/.test(p.held.why), 'contract ' + c + ': ' + JSON.stringify(p.held));
+    assert.deepStrictEqual(p.held.files, [{ file: at('w2'), kind: 'unreadable' }], 'contract ' + c);
+  }
+});
+
 rule('REQUEST: an invalid process, version or detail is refused the READ way, naming every reason, and nothing is written', async () => {
   const dir = await readFolder(f => { const p = JSON.parse(f['people.json']); p.push({ id: 'person-river', name: 'River Stone', initials: 'RS', email: 'river@example.com', inactive: true }); f['people.json'] = JSON.stringify(p); });
   const before = EV.tree(dir), err = (body, key) => reqAgree(request(dir, body, key || 'bad'));

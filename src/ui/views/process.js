@@ -490,34 +490,8 @@
       '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button><button class="mini" type="button" data-act="home">Back</button></span></div>';
     return h;
   }
-  /* Why a plan can't be started, declined or switched now, or '': a decision on it that can't be read (it may still be
-     arriving), that a newer Flightdeck made, or that isn't one this copy can read. Each says what to do about it. */
-  function planHeldWhy(plan, data) {
-    if (plan && data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals')) return 'proposals/ couldn\'t be read just now, so it isn\'t known whether someone already started it. Until it reads, this plan can\'t be started, declined or switched here. Try again once the folder can be read.';
-    if (plan && plan._status) {
-      /* Started, but its run isn't in the folder (2.1.1): it stays started, and is never started again. */
-      var lost = data ? PF.health.missingRun(data, plan) : '';
-      if (lost) return PF.health.startedMissing(lost) + ' It may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.';
-      return plan._status.status === 'accepted' ? 'This plan was already started' + (typeof plan._status.run === 'string' ? ' (' + plan._status.run + ')' : '') + ', so it won\'t start again here. Find its run on Runs.' : 'This plan was ' + (plan._status.status === 'declined' ? 'declined' : 'decided on') + ' elsewhere, so it can\'t be started, declined or switched here.';
-    }
-    if (plan && plan._decidedEarlier) {
-      var lostE = data ? PF.health.missingRun(data, plan) : '';
-      return earlierWords(plan, data) + (lostE ? ' ' + PF.health.startedMissing(lostE) + ' It may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.' : ' It can\'t be started, declined or switched. To run it again, make a new plan.');
-    }
-    var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
-    if (!x) return '';
-    var held = ' Until then this plan can\'t be started, declined or switched here.';
-    if (x.kind === 'newer') return 'A decision on this plan (' + x.path + ') was made with a newer Flightdeck, so it isn\'t known here whether it was started. ' + PF.envelope.needsText(x.needs) + ' Update Flightdeck to see it.' + held;
-    if (x.kind === 'malformed') return 'A decision on this plan (' + x.path + ') isn\'t one this copy can read, so it isn\'t known whether it was started. Fix or delete that file.' + held;
-    if (!/\.status-[^/]*$/.test(x.path)) return 'This plan\'s file (' + x.path + ') can\'t be read now, so what it says may have changed and it isn\'t known whether it was started. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
-    return 'A decision on this plan (' + x.path + ') can\'t be read, so it isn\'t known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
-  }
-  /* A plan edited after it was started or declined (2.1.1): who decided what, and when, on its earlier version. */
-  function earlierWords(plan, data) {
-    var d = plan._decidedEarlier, who = ((data && data.people) || []).filter(function (x) { return x.id === d.by; })[0];
-    var what = d.status === 'accepted' ? 'started' + (typeof d.run === 'string' && d.run ? ' (run ' + d.run + ')' : '') : d.status === 'declined' ? 'declined' : 'decided on';
-    return 'Decided on an earlier version of this plan: ' + what + ' by ' + (who ? who.name : d.by ? String(d.by) : 'someone') + (d.at ? ', ' + U.when(d.at) : '') + '.';
-  }
+  /* Why a plan can't be started, declined or switched now, and what an earlier decision said: PF.plans, shared with reading for other apps. */
+  var planHeldWhy = PF.plans.heldWhy, earlierWords = PF.plans.earlierWords;
   function planChoice(ctx, plan) {
     var c = ctx.state.planPick;
     return c && plan && c.plan === plan.id && c.hash === plan._sha && c.key === ctx.fsKey ? c.folder : null;

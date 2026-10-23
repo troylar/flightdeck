@@ -23,8 +23,8 @@ import sys
 import time
 
 
-REQ_ID = re.compile(r"^req-([a-z0-9][a-z0-9-]{0,29})-[0-9a-f]{24}$")
-REQ_BY = re.compile(r"^([a-z0-9][a-z0-9-]{0,29}) [A-Za-z0-9_.+-]{1,40} \(a tool\)$")
+REQ_ID = re.compile(r"^req-([a-z0-9][a-z0-9-]{0,29})-[0-9a-f]{24}\Z")
+REQ_BY = re.compile(r"^([a-z0-9][a-z0-9-]{0,29}) [A-Za-z0-9_.+-]{1,40} \(a tool\)\Z")
 
 
 def request_tool(plan):
@@ -779,7 +779,7 @@ def _minimum(features):
 
 
 def _semver(v):
-    m = re.match(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$", v) if isinstance(v, str) else None
+    m = re.match(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,4})\Z", v) if isinstance(v, str) else None
     return [int(x) for x in m.groups()] if m else None
 
 
@@ -810,7 +810,7 @@ def judge(family, o):
         return bad("isn't a JSON object")
     major = None
     if o.get("format") is not None:
-        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})$", o["format"]) if isinstance(o["format"], str) else None
+        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", o["format"]) if isinstance(o["format"], str) else None
         if not m:
             return bad("has a format this copy can't read (\"" + _txt(o["format"]) + "\")")
         if m.group(1) != family:
@@ -829,7 +829,7 @@ def judge(family, o):
     features = []
     if o.get("features") is not None:
         f = o["features"]
-        if not isinstance(f, list) or len(f) > 32 or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{1,39}$", x) for x in f):
+        if not isinstance(f, list) or len(f) > 32 or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{1,39}\Z", x) for x in f):
             return bad("has a \"features\" list this copy can't read")
         features = list(f)
     if major not in fam["majors"]:
@@ -929,7 +929,7 @@ def held_why(pid, torn, refused):
 def plan_family(o):
     """Which of the two a file in proposals/ is (PF.plans.familyOf): its format's family, else its kind."""
     f = o.get("format")
-    m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})$", f) if isinstance(f, str) else None
+    m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", f) if isinstance(f, str) else None
     if m and m.group(1) in ("flightdeck-plan", "flightdeck-plan-status"):
         return m.group(1)
     if o.get("kind") == "status":
@@ -949,15 +949,15 @@ def newer_why(info, needs):
 
 
 PUBLICATION_FORMAT2 = "preflight-publication/2"
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
+HEX64 = re.compile(r"^[0-9a-f]{64}\Z")
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-HASH8 = re.compile(r"^[0-9a-f]{8}$")
-PIN_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$", re.I)
+HASH8 = re.compile(r"^[0-9a-f]{8}\Z")
+PIN_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z", re.I)
 
 
 def child_pin_ok(p):
@@ -965,8 +965,8 @@ def child_pin_ok(p):
     if not isinstance(p, dict) or set(p) - {"process", "version", "folder", "mapHash", "typesHash"}:
         return False
     v, f = p.get("version"), p.get("folder")
-    m = re.match(r"^v(\d+)-[a-z0-9]+$", f) if isinstance(f, str) else None
-    return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}$", p["process"])) and _whole(v)
+    m = re.match(r"^v(\d+)-[a-z0-9]+\Z", f) if isinstance(f, str) else None
+    return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}\Z", p["process"])) and _whole(v)
             and 1 <= js_num(v) <= 9007199254740991 and bool(m) and float(m.group(1)) == js_num(v) and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
             and isinstance(p.get("typesHash"), str) and bool(HASH8.match(p["typesHash"])))
 
@@ -975,7 +975,7 @@ def skill_pin_ok(p):
     if not isinstance(p, dict) or set(p) - {"name", "version"}:
         return False
     n, v = p.get("name"), p.get("version")
-    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(r"^\S{1,40}$", v))
+    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(r"^\S{1,40}\Z", v))
 
 
 def pins_ok(pins):
@@ -1055,7 +1055,7 @@ def check_publication(folder, name):
     # A staged version (2.1) lives under staged/ and only test runs use it: never a version here (PF.publish.verify).
     if isinstance(info.get("features"), list) and "staged" in info["features"]:
         return "unusable", "It's a staged version, which only test runs use. Edited by hand: a stage belongs under staged/.", info
-    m = re.match(r"^v(\d+)-[a-z0-9]+$", name)
+    m = re.match(r"^v(\d+)-[a-z0-9]+\Z", name)
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
     try:
@@ -1097,8 +1097,8 @@ def check_publication(folder, name):
 
 # Skills: the one verdict for a skill name (PF.skills.resolve), ported. test/skills-parity.test.js runs a generated matrix of
 # legacy files and revisions through the app, flightdeck skill register and this checker, and fails on any difference.
-REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json$")
-STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json\Z")
+STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}\Z")
 SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "name-mismatch", "revision-refused", "revisions-unlisted", "review"]
 MAX_SKILLS = 500
 
@@ -1148,7 +1148,7 @@ def check_registration(rel, o, digest):
             mismatch = mismatch or m.group(2) != o.get("id")
     if not name:
         errors.append('needs a "name"')
-    if not isinstance(o.get("id"), str) or not re.match(r"^sk-[a-z0-9]{8}$", o["id"]):
+    if not isinstance(o.get("id"), str) or not re.match(r"^sk-[a-z0-9]{8}\Z", o["id"]):
         errors.append('"id" must be sk- and 8 letters or numbers')
     rev, seen = o.get("rev"), o.get("seen")
     if not _whole(rev) or rev < 1 or rev > 999999:
@@ -1191,7 +1191,7 @@ def check_legacy(o, file):
     name, errors = _str(o.get("name"), 80), []
     if not name:
         errors.append('needs a "name"')
-    if not re.match(r"^([a-z0-9][a-z0-9-]*)@v?(\d+)$", _str(o.get("implements"), 80), re.I):
+    if not re.match(r"^([a-z0-9][a-z0-9-]*)@v?(\d+)\Z", _str(o.get("implements"), 80), re.I):
         errors.append('"implements" must be <process>@<version>, like release@4')
     st = o.get("steps")
     if st is not None:
@@ -1549,7 +1549,7 @@ def main():
         run = next(iter(started)) if agree and len(started) == 1 else None
         if isinstance(run, str) and run:
             proc = copies[0][2].get("process")
-            safe = re.match(r"^[a-z0-9-]{1,40}$", run, re.I) and re.match(r"^[a-z0-9][a-z0-9-]*$", proc or "")
+            safe = re.match(r"^[a-z0-9-]{1,40}\Z", run, re.I) and re.match(r"^[a-z0-9][a-z0-9-]*\Z", proc or "")
             if not safe or not os.path.exists(os.path.join(root, "runs", proc, run, "run.json")):
                 entry["runMissing"] = run
         out["plans"].append(entry)
@@ -1568,14 +1568,14 @@ def main():
             rdir = os.path.join(pdir, rid)
             if os.path.isdir(rdir):
                 names = sorted(os.listdir(rdir))
-                copies = [n for n in names if re.match(r"^run.*\.json$", n, re.I) and n != "run.json"]
+                copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I) and n != "run.json"]
                 # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
                 try:
                     lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
                 except ValueError:
                     lineage = []
                 for n in names:
-                    m = re.match(r"^candidate-(.+)-([a-z0-9]{8})\.json$", n)
+                    m = re.match(r"^candidate-(.+)-([a-z0-9]{8})\.json\Z", n)
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]

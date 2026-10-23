@@ -865,7 +865,7 @@ async function readData(eng, adapter, req) {
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */
       const probs = ledger(), unsure = (proc) => probs.some((x) => ['', 'publications', 'publications/'].indexOf(x.path) >= 0 || x.path === 'publications/' + proc || x.path.indexOf('publications/' + proc + '/') === 0);
-      return done(all, two ? A.runs2(list, plans, nameOf, d.processes, unsure, leftOut) : A.runs(list, plans, nameOf, d.processes, unsure), d.readAt);
+      return done(all, two ? A.runs2(list, plans, nameOf, d.processes, unsure, leftOut, d) : A.runs(list, plans, nameOf, d.processes, unsure, d), d.readAt);
     }
     /* followups: every run's follow-ups come from its run.json, so any run that couldn't be read may hide some. */
     const items = F.list(runs.filter((r) => !req.proc || r.process === req.proc), d.fuDecisions).filter((x) => req.status !== 'open' || F.isOpen(x));

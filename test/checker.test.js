@@ -282,6 +282,78 @@ rule('The checker agrees with the app (2.1.1): a plan/2 not in its format is ref
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker agrees with the app (2.1.1): a format name with a line break after it is refused, never read; a plan/2 so named is never pending, a decision so named never decides', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-nl-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const v = await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, app: '2.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pub = { info: JSON.parse(v.files['publication.json']) };
+    const two = (id) => PF.plans.make(pub, { id, process: 'release', title: id, details: {}, roles: {}, by: 'person-avery', created: NOW }, true, '2.0.0');
+    await d.write('proposals/plan-nl-good.json', JSON.stringify(two('plan-nl-good'), null, 2));
+    await d.write('proposals/plan-nl-plan.json', JSON.stringify(Object.assign(two('plan-nl-plan'), { format: 'flightdeck-plan/2\n' }), null, 2));
+    const held = two('plan-nl-held');
+    await d.write('proposals/plan-nl-held.json', JSON.stringify(held, null, 2));
+    const dec = Object.assign(PF.plans.decision(Object.assign({ _hash: PF.util.hash(JSON.stringify(held)) }, held), 'accepted', 'run-nl', 'person-casey', NOW, null, '2.0.0'), { format: 'flightdeck-plan-status/2\n' });
+    await d.write('proposals/plan-nl-held.status-w-d.json', JSON.stringify(dec, null, 2));
+    const PFV = load(true), app = await PFV.repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(app.plans.map(p => p.id).sort())), ['plan-nl-good', 'plan-nl-held'], 'set-up: the app refuses the plan/2 with a line break in its format');
+    const ck = id => out.plans.find(p => p.id === id);
+    assert.ok(!ck('plan-nl-plan') || ck('plan-nl-plan').status !== 'pending', 'never pending: ' + JSON.stringify(ck('plan-nl-plan')));
+    const words = PFV.views.planHeldWhy(app.plans.find(p => p.id === 'plan-nl-held'), app);
+    // The decision is refused, never read as a start: the plan is what the app shows (it names no family, so it holds by neither).
+    const nlHeld = ck('plan-nl-held');
+    assert.ok(words ? nlHeld.status === 'ambiguous' && nlHeld.why === words : nlHeld.status === 'pending', 'as the app shows it (' + JSON.stringify(words) + '): ' + JSON.stringify(nlHeld));
+    const appRefused = JSON.parse(JSON.stringify(app.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path + ': ' + r.why).sort();
+    assert.strictEqual(appRefused.length, 2, 'set-up: ' + appRefused.join('; '));
+    assert.deepStrictEqual((out.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file + ': ' + r.why).sort(), appRefused, 'refused, with the app\'s reasons');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker matches names, IDs and hashes whole, as the app does (2.1.1): a line break after one never passes', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const H8 = 'aaaaaaaa', pin = { process: 'release', version: 1, folder: 'v1-abcd1234', mapHash: H8, typesHash: 'bbbbbbbb' }, nl = (o, k) => Object.assign({}, o, { [k]: o[k] + '\n' });
+  const req = { id: 'req-backup-script-' + 'a'.repeat(24), by: 'backup-script 1.4.0 (a tool)' };
+  const reg = { format: 'flightdeck-skill/2', name: 'notes', id: 'sk-abcdefgh', rev: 1, seen: null, implements: { process: 'release', folder: 'v1-abcd1234', mapHash: H8, typesHash: 'bbbbbbbb' }, steps: ['build'] };
+  const regPath = 'skill-registrations/notes/sk-abcdefgh.1.w1.json';
+  const cases = [
+    ['judge', ['flightdeck-plan', { format: 'flightdeck-plan/2\n' }]], ['judge', ['flightdeck-plan', { format: 'flightdeck-plan/2', features: ['staged\n'] }]],
+    ['judge', ['flightdeck-plan', { format: 'flightdeck-plan/9', app: '3.2.1\n' }]], ['judge', ['flightdeck-plan', { format: 'flightdeck-plan/9', app: '3.2.1' }]],
+    ['family', [{ format: 'flightdeck-plan-status/2\n' }]], ['family', [{ format: 'flightdeck-plan-status/2' }]],
+    ['request', [req]], ['request', [nl(req, 'id')]], ['request', [nl(req, 'by')]],
+    ['child', [pin]], ...['process', 'folder', 'mapHash', 'typesHash'].map(k => ['child', [nl(pin, k)]]),
+    ['skill', [{ name: 'notes', version: '1.2.0' }]], ['skill', [{ name: 'notes', version: '1.2.0\n' }]],
+    ['pins', [{ children: { build: pin } }]], ['pins', [{ children: { 'build\n': pin } }]],
+    ['reg', [regPath, reg]], ['reg', [regPath + '\n', reg]], ['reg', [regPath, nl(reg, 'id')]], ['reg', [regPath, Object.assign({}, reg, { implements: nl(reg.implements, 'process') })]]
+  ];
+  const script = 'import sys, json\nsys.path.insert(0, sys.argv[1])\nimport check_folder as c\nout = []\n' +
+    'for f, a in json.loads(sys.stdin.read()):\n' +
+    '    if f == "judge": r = c.judge(*a); out.append([r["ok"], "" if r["ok"] else r["kind"], "" if r["ok"] else r.get("needs", "")])\n' +
+    '    elif f == "family": out.append({"flightdeck-plan": "plan", "flightdeck-plan-status": "status"}.get(c.plan_family(a[0]), ""))\n' +
+    '    elif f == "request": out.append(c.request_tool(a[0]))\n' +
+    '    elif f == "child": out.append(c.child_pin_ok(a[0]))\n' +
+    '    elif f == "skill": out.append(c.skill_pin_ok(a[0]))\n' +
+    '    elif f == "pins": out.append(c.pins_ok(a[0]))\n' +
+    '    elif f == "reg": out.append("why" not in c.check_registration(a[0], a[1], "0" * 64))\n' +
+    'print(json.dumps(out))';
+  const got = JSON.parse(cp.execFileSync(py, ['-I', '-c', script, path.dirname(CHECKER)], { encoding: 'utf8', input: JSON.stringify(cases) }));
+  const js = ([f, a]) => {
+    if (f === 'judge') { const r = PF.envelope.judge(...a); return [r.ok, r.ok ? '' : r.kind, r.ok ? '' : r.needs || '']; }
+    if (f === 'family') return PF.plans.familyOf(a[0], 'x.json');
+    if (f === 'request') { const c = PF.requests.claim(a[0]); return c ? c.name : null; }
+    if (f === 'child') return PF.pins.childOk(a[0]);
+    if (f === 'skill') return PF.pins.skillOk(a[0]);
+    if (f === 'pins') return PF.pins.shapeOk(a[0]);
+    if (f === 'reg') return !PF.skills.checkV2(a[1], a[0], '0'.repeat(64)).errors.length;
+  };
+  cases.forEach((c, i) => assert.deepStrictEqual(got[i], js(c), c[0] + ' ' + JSON.stringify(c[1])));
+  assert.ok(got.filter(x => x === true).length >= 4, 'set-up: the plain cases pass: ' + JSON.stringify(got));
+});
+
 rule('The checker reports the same versions as unusable as the app, with the same reasons, and knows the same step types', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
