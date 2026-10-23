@@ -82,11 +82,20 @@ eachTag('reads the 2.0 samples as matrix A says: /2 unusable, run/3 name only, p
   assert.strictEqual(snap(m), before, 'nothing written');
 });
 
-eachTag('starting a run is refused on the /2 version (2.0.0: on the staged version), and a plan for it can\'t fall back (it\'s never listed)', async (OLD, t) => {
-  const files = Object.assign(fixture(t.tag), V2), m = H.memFolder(OLD, files);
-  const two = t.major >= 2, b = two ? 'staged/backup/' + S.STAGE + '/' : 'publications/backup/' + S.PUB2 + '/', v = OLD.publish.verify(two ? S.STAGE : S.PUB2, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
-  assert.ok(!v.ok && v.unusable);
-  assert.throws(() => OLD.run.create({ info: v.info, map: OLD.map.parse(files[b + 'map.md']), md: files[b + 'map.md'], types: JSON.parse(files[b + 'types.json']) }, { by: 'person-avery', session: 's', now: AT }));
+eachTag('starting a run is refused on the /2 version (2.0.0: on the staged version; 2.1.0: an ordinary run there, while a test run starts), and a plan for it can\'t fall back (it\'s never listed)', async (OLD, t) => {
+  const files = Object.assign(fixture(t.tag), V2), m = H.memFolder(OLD, files), stages = expects('staging', t.version);
+  const two = t.major >= 2, b = two ? 'staged/backup/' + S.STAGE + '/' : 'publications/backup/' + S.PUB2 + '/', these = { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] };
+  // 2.1.0 checks a stage only with its exact bytes (without them it's still syncing): read as a version it's unusable, as a stage it reads.
+  const exact = stages ? H.exact2(these['map.md'], these['types.json']) : undefined, v = OLD.publish.verify(two ? S.STAGE : S.PUB2, these, exact);
+  assert.ok(!v.ok && v.unusable, v.why);
+  const pub = (info) => ({ info, map: OLD.map.parse(files[b + 'map.md']), md: files[b + 'map.md'], types: JSON.parse(files[b + 'types.json']) });
+  assert.throws(() => OLD.run.create(pub(v.info), { by: 'person-avery', session: 's', now: AT }));
+  if (stages) {
+    const st = OLD.publish.verify(S.STAGE, these, exact, { stage: true });
+    assert.ok(st.ok, 'by the stage rules it reads: ' + st.why);
+    assert.throws(() => OLD.run.create(pub(st.info), { by: 'person-avery', session: 's', now: AT }), /test runs only/, 'an ordinary run on the stage is refused');
+    assert.strictEqual(OLD.run.create(pub(st.info), { test: true, by: 'person-avery', session: 's', now: AT }).test, true, 'a test run starts');
+  }
   const before = snap(m); await OLD.repo.loadAll(m); assert.strictEqual(snap(m), before);
 }, (t) => !below(t.version));
 

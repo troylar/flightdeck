@@ -467,6 +467,69 @@ eachTag('Known: before the people writer (1.15), people.json in a wrapper is rea
   assert.strictEqual((await OLD.repo.loadAll(m)).people.length, 3);
 }, (t) => !expects('people', t.version));
 
+/* ---------- 2.1.1's plan decisions, read by older releases ---------- */
+
+/* A release's own folder with its plan undecided, and a start or decline this version (2.1.1) writes: decision first, to
+   <plan>.status-<window>-d.json, before the run it names is saved. */
+const PLAN_FILE = 'proposals/plan-backup-april.json';
+const snap = (m) => JSON.stringify(H.filesOf(m));
+const undecided = (tag) => { const f = fixture(tag); Object.keys(f).filter(p => /^proposals\/plan-backup-april\.status-/.test(p)).forEach(p => { delete f[p]; }); return f; };
+const planIn = async (PF, m) => (await PF.repo.loadAll(m)).plans.find(p => p.id === 'plan-backup-april');
+/* The write-time gate (2.1.0 on): 'allowed', or why it refused. */
+async function planGate(PF, m, action) {
+  const p = await planIn(PF, m), sha = PF.sha256.hex(JSON.stringify(JSON.parse(m.files[PLAN_FILE].t)));
+  try { await PF.repo.decidePlan(m, p, { action, sha, folder: p.folder, write: () => null }); return 'allowed'; } catch (e) { return e.message; }
+}
+async function decidedByMain(tag, status) {
+  const NEW = H.loadMain(), m = H.memFolder(NEW, undecided(tag));
+  const path = await NEW.repo.recordPlanStatus(m, await planIn(NEW, m), 'w-blake', status, status === 'accepted' ? 'run-x' : null, 'person-blake');
+  assert.strictEqual(path, 'proposals/plan-backup-april.status-w-blake-d.json', 'set-up: this version writes the -d file');
+  return H.filesOf(m);
+}
+
+eachTag('reads a start or decline 2.1.1 wrote to <plan>.status-<window>-d.json as the plan\'s decision, a start naming a run not saved yet included, and (2.1.0) refuses to start it again', async (OLD, t) => {
+  for (const status of ['accepted', 'declined']) {
+    const m = H.memFolder(OLD, await decidedByMain(t.tag, status)), before = snap(m), d = await OLD.repo.loadAll(m), p = d.plans.find(x => x.id === 'plan-backup-april');
+    assert.ok(p && p._status && p._status.status === status && (status === 'declined' || p._status.run === 'run-x'), status + ': ' + JSON.stringify(p && p._status));
+    if (status === 'accepted') assert.ok(!d.runs.some(r => r.id === 'run-x'), 'set-up: the run it names isn\'t saved yet');
+    if (fnOf(OLD, 'repo.decidePlan')) assert.ok(/already (started|declined)/.test(await planGate(OLD, m, 'start')), status + ': a second start is refused');
+    // Only this version names a started plan whose run isn't there (2.1.1); older Folder health says nothing about it.
+    if (status === 'accepted' && OLD.health && fnOf(OLD, 'health.check')) assert.ok(!OLD.health.check({ data: d, scan: null, me: 'person-avery', app: t.version }, Date.parse(AT)).issues.some(i => /^plan-run-missing/.test(i.id)));
+    assert.strictEqual(snap(m), before, 'nothing written while reading');
+  }
+  const NEW = H.loadMain(), nd = await NEW.repo.loadAll(H.memFolder(NEW, await decidedByMain(t.tag, 'accepted')));
+  assert.ok(NEW.health.check({ data: nd, scan: null, me: 'person-avery', app: MAIN }, Date.parse(AT)).issues.some(i => i.id === 'plan-run-missing:plan-backup-april'), 'this version names the missing run');
+}, (t) => expects('plans', t.version));
+
+eachTag('Known: a plan edited after its start is pending again there (2.1.0: its gate lets a second start through), whoever started it; this version holds it as decided on an earlier version', async (OLD, t) => {
+  const edit = (files) => { const j = JSON.parse(files[PLAN_FILE]); j.note = 'Edited after the start.'; return Object.assign({}, files, { [PLAN_FILE]: JSON.stringify(j, null, 2) + '\n' }); };
+  const om = H.memFolder(OLD, undecided(t.tag));
+  await OLD.repo.recordPlanStatus(om, await planIn(OLD, om), 'w-blake', 'accepted', 'run-x', 'person-blake');
+  for (const [who, files] of [[t.tag, edit(H.filesOf(om))], ['2.1.1', edit(await decidedByMain(t.tag, 'accepted'))]]) {
+    const m = H.memFolder(OLD, files), p = await planIn(OLD, m);
+    assert.ok(p && !p._status, 'started by ' + who + ', then edited: pending again: ' + JSON.stringify(p && p._status));
+    if (fnOf(OLD, 'repo.decidePlan')) assert.strictEqual(await planGate(OLD, m, 'start'), 'allowed', 'started by ' + who + ': a second start gets through');
+    const NEW = H.loadMain(), nm = H.memFolder(NEW, files), q = await planIn(NEW, nm);
+    assert.ok(q._decidedEarlier && q._decidedEarlier.status === 'accepted' && q._decidedEarlier.run === 'run-x', 'this version holds it: started by ' + who);
+    assert.ok(/already started \(run-x\)/.test(await planGate(NEW, nm, 'start')), 'and refuses a second start');
+  }
+}, (t) => expects('plans', t.version) && !expects('start-once', t.version));
+
+eachTag('Known: a start or decline goes to <plan>.status-<window>.json, the file its switch is in, so a start after a switch in the same window replaces the switch; this version reads that start as started', async (OLD, t) => {
+  const S2 = require('../tools/v2-samples').tree('folder'), PIN = 'proposals/plan-backup-pinned.json';
+  const files = Object.assign(fixture(t.tag), { [PIN]: S2[PIN] }), m = H.memFolder(OLD, files);
+  const plan = async () => (await OLD.repo.loadAll(m)).plans.find(p => p.id === 'plan-backup-pinned');
+  const v1 = (await OLD.repo.loadAll(m)).processes[0].index.latest.info;
+  await OLD.repo.recordPlanStatus(m, await plan(), 'w-avery', 'retargeted', null, 'person-avery', { folder: v1.folder, version: v1.version }, t.version);
+  await OLD.repo.recordPlanStatus(m, await plan(), 'w-avery', 'accepted', 'run-y', 'person-avery', null, t.version);
+  const mine = Object.keys(m.files).filter(p => /^proposals\/plan-backup-pinned\.status-/.test(p));
+  same(mine, ['proposals/plan-backup-pinned.status-w-avery.json'], 'one file for both');
+  const rec = JSON.parse(m.files[mine[0]].t);
+  same([rec.status, rec.run, 'to' in rec], ['accepted', 'run-y', false], 'the switch is gone');
+  const NEW = H.loadMain(), p = (await NEW.repo.loadAll(H.memFolder(NEW, H.filesOf(m)))).plans.find(x => x.id === 'plan-backup-pinned');
+  assert.ok(p._status && p._status.status === 'accepted' && p._status.run === 'run-y', 'this version reads it as started');
+}, (t) => t.major >= 2 && !expects('start-once', t.version));
+
 /* READ/1 as 1.18 shipped it: its own command, its own engine, a folder on disk. */
 eachTag('READ/1: its command names a run/3 newer (exit 4) and a plan/2 malformed, and never reads staged/, extensions/ or skill-registrations/', async (OLD, t) => {
   const b = H.bundles.get(t.tag), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-read-'));

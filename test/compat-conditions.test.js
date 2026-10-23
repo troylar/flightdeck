@@ -1,12 +1,13 @@
 // Conditions (2.1 slice 2) against real older releases. A checklist with "only when" publishes as preflight-publication/2
 // naming the conditions feature, and its runs are preflight-run/3 naming it too: every copy from 1.11.1 through 2.0.0 names
-// the version unusable (2.0.0 says it needs Flightdeck 2.1), lists the run by name only and writes nothing. No older copy
-// publishes a draft with "only when".
+// the version unusable (2.0.0 says it needs Flightdeck 2.1), lists the run by name only and writes nothing. No copy before
+// 2.1.0 publishes a draft with "only when"; 2.1.0 reads, runs and publishes them as this version does.
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const H = require('./compat-harness');
 const G = require('../tools/old-folders');
+const { expects } = require('./compat-matrix');
 
 const TAGS = H.bundles.tags().filter(t => t.supported);
 const AT = '2026-10-21T12:00:00.000Z';
@@ -43,7 +44,24 @@ rule('This version publishes a checklist with "only when" as /2 naming condition
   same([r.format, r.features], ['preflight-run/3', ['typed-details', 'conditions']]);
 });
 
-TAGS.forEach((t) => rule(t.tag + ': names the version with conditions unusable, lists its run by name only, and writes nothing' + (t.major >= 2 ? ' (it needs Flightdeck 2.1)' : ''), async () => {
+TAGS.filter(t => expects('conditions', t.version)).forEach((t) => rule(t.tag + ': reads the version with conditions as the latest, and its run in full, applying each condition to its details, and saves it as run/3 naming conditions', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const { files, folder: f2 } = await folder(), m = H.memFolder(OLD, files);
+  const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
+  same([proc.index.latest.info.folder, proc.index.latest.info.version], [f2, 2], 'the /2 version with conditions is the latest');
+  const k = d.runs.find(r => r.id === 'run-k');
+  assert.ok(k && !k._unrunnable && k.title === 'Conditional October', 'the run in full: ' + (k && k._unrunnable));
+  const map = OLD.run.mapOf(k), where = OLD.map.findStep(map, 'where');
+  assert.strictEqual(OLD.run.applies(k, map, where.phaseIndex, where.step).applies, true, 'risk is high, so the step applies');
+  k.recorder = Object.assign({}, k.recorder, { session: 'w-avery' });
+  OLD.run.setDetail(k, map, 'risk', 'low', 'person-avery', AT);
+  assert.strictEqual(OLD.run.applies(k, map, where.phaseIndex, where.step).applies, false, 'and Not needed once it is low');
+  await OLD.repo.saveRun(m, k, 'w-avery');
+  const back = JSON.parse(m.files['runs/backup/run-k/run.json'].t);
+  same([back.format, back.features, back.details.risk], ['preflight-run/3', ['typed-details', 'conditions'], 'low'], 'saved as run/3 naming conditions');
+}));
+
+TAGS.filter(t => !expects('conditions', t.version)).forEach((t) => rule(t.tag + ': names the version with conditions unusable, lists its run by name only, and writes nothing' + (t.major >= 2 ? ' (it needs Flightdeck 2.1)' : ''), async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files, folder: f2 } = await folder(), m = H.memFolder(OLD, files);
   const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
@@ -59,7 +77,18 @@ TAGS.forEach((t) => rule(t.tag + ': names the version with conditions unusable, 
   assert.strictEqual(snap(m), before, 'nothing written');
 }));
 
-TAGS.forEach((t) => rule(t.tag + ': a draft with "only when" is one it won\'t publish', () => {
+TAGS.filter(t => expects('conditions', t.version)).forEach((t) => rule(t.tag + ': publishes a draft with "only when" as /2 naming conditions, and refuses a condition its detail\'s kind can\'t take', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const m = H.memFolder(OLD, await G.main()), existing = (await OLD.repo.loadAll(m)).processes[0].index.all.map(p => p.info);
+  const res = await OLD.repo.publish(m, COND, { people: G.PEOPLE, customTypes: { 'team.restore': OLD.types.customType(G.STEP_TYPE) }, workflows: {}, by: 'person-avery', changes: 'Conditions', existing, now: AT, app: t.version });
+  assert.ok(res && !res.blockers, JSON.stringify(res && res.blockers));
+  const info = JSON.parse(res.files['publication.json']);
+  same([info.format, info.features, info.app], ['preflight-publication/2', ['typed-details', 'conditions'], t.version]);
+  const types = { 'team.restore': OLD.types.customType(G.STEP_TYPE) }, plain = OLD.map.parse(COND.replace('context: ticket, risk:choice(low|high)', 'context: ticket, risk'));
+  assert.ok(OLD.map.check(plain, { people: G.PEOPLE, types }).blockers.some(e => /\^risk is text/.test(e)), 'a text detail tested with "is high" is a blocker');
+}));
+
+TAGS.filter(t => !expects('conditions', t.version)).forEach((t) => rule(t.tag + ': a draft with "only when" is one it won\'t publish', () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const map = OLD.map.parse(COND), types = { 'team.restore': OLD.types.customType(G.STEP_TYPE) };
   const errors = (map.errors || []).map(e => e.msg || e.message || String(e)).concat(OLD.map.check(map, { people: G.PEOPLE, types }).blockers);
