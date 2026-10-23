@@ -1198,9 +1198,13 @@
   }
   /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
      folder, forgets it, so switching back never brings it back. */
-  /* startEpoch: bumped by every change of person or folder, so a start still saving when either changes never offers Try
-     again when its save fails, even after the person changes back. */
+  /* startEpoch: bumped by every change of person or folder. A planned action (start, decline, switch, Try again) captures
+     it with the folder and person it was asked in (planStill); once any of them changes, even changed back, it writes
+     nothing it hasn't written yet, and announces nothing. */
   var startEpoch = 0, startMe = state.me;
+  function planStill(g, fs, key, who) { var ep = startEpoch; return function () { return g === gen && ep === startEpoch && state.fs === fs && fsKey() === key && state.me === who; }; }
+  /* Why a planned action was dropped, said in the window it was asked in. */
+  function droppedWhy(g, fs, key) { return g === gen && state.fs === fs && fsKey() === key ? 'the person using this window changed' : 'another folder was opened'; }
   function forgetStartIfNotMine() {
     if (state.me !== startMe) { startEpoch++; startMe = state.me; }
     var gone = false;
@@ -4334,15 +4338,17 @@
       state.planRetargeting = true;
       /* The folder and the person are the ones this was asked in: if either changed while it waited its turn, nothing is
          written, here or anywhere else. */
-      var rfs = state.fs, rkey = fsKey(), who = state.me;
+      var rfs = state.fs, rkey = fsKey(), who = state.me, still = planStill(g, rfs, rkey, who);
       queued(function () {
-        if (state.fs !== rfs || fsKey() !== rkey || state.me !== who) return { dropped: true };
-        return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
+        if (!still()) return { dropped: true };
+        return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
       }).then(function (res) {
         state.planRetargeting = false;
-        if (res && res.dropped) { say('The plan wasn\'t switched: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
-        if (g !== gen) return; state.planDiff = false; state.focus = 'start-submit';
-        return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
+        if (res && res.dropped) { say('The plan wasn\'t switched: ' + droppedWhy(g, rfs, rkey) + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
+        if (g !== gen) return;
+        if (!still()) return load(true);
+        state.planDiff = false; state.focus = 'start-submit';
+        return load(true).then(function () { if (!still()) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
     /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person.
@@ -4352,7 +4358,7 @@
       if (!k || k.plan !== id || k.fs !== state.fs || k.key !== fsKey() || k.me !== state.me) { say('Only the window that started this plan, for the same person, can save its run again. Nothing was written.', 'warn'); render(); return; }
       if (state.resuming) return;
       state.resuming = true; render();
-      var held = holdNav(false);
+      var held = holdNav(false), same = planStill(g, k.fs, k.key, k.me);
       /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
@@ -4364,14 +4370,14 @@
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (g === gen && state.fs === k.fs && fsKey() === k.key ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
         if (state.pendingStarts[k.plan] === k) delete state.pendingStarts[k.plan];
-        /* Saved for the person who asked, who has since changed: the new person isn't taken to it or told it started. */
-        if (state.me !== k.me) { releaseNav(held); return load(true).then(function () { return null; }); }
+        /* Saved for the person who asked, who has since changed (even changed back): nobody is taken to it or told it started. */
+        if (!same()) { releaseNav(held); return load(true).then(function () { return null; }); }
         heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
         return load(true).then(function () { return true; });
-      }).then(function (ok) { if (!ok) return; releaseNav(held); if (g !== gen) return; openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
+      }).then(function (ok) { if (!ok) return; releaseNav(held); if (!same()) { if (g === gen) render(); return; } openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
         function (e) { state.resuming = false; releaseNav(held); if (g === gen) { say('Couldn\'t save the run: ' + e.message, 'bad'); render(); } });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me; queued(function () { if (state.fs !== dfs || fsKey() !== dkey || state.me !== who) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written.', 'warn'); render(); return; } if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined: ' + droppedWhy(g, dfs, dkey) + ' before it could be saved. Nothing was written.', 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -5479,24 +5485,34 @@
     var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
-    var sfs = state.fs, sg = gen, se = startEpoch, who = state.me, held = holdNav(false);
+    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false), skey = fsKey(), still = planStill(sg, sfs, skey, who);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, skey = fsKey();
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null;
     queued(function () {
       r.recorder.session = SESSION;
       var save = function (keep) { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, keep: keep }); };
       if (!plan) return save(false);
-      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, write: function () {
+      /* Asked when its turn comes, once the plan's lock is held and right before the decision is written: a start whose folder
+         or person changed meanwhile, even changed back, writes nothing. Once the decision is written, its run is saved as
+         started (a plan marked started without its run is worse), but nothing is opened or announced. */
+      if (!still()) return { dropped: true };
+      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, still: still, write: function () {
         return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); });
       } });
-    }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
+    }).then(function (res) {
+      endBusy();
+      if (res && res.dropped) { releaseNav(held); say('The plan wasn\'t started: ' + droppedWhy(sg, sfs, skey) + ' before it could be saved. Nothing was written.', 'warn'); render(); return null; }
+      if (sg !== gen) { releaseNav(held); return null; }
+      if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
+      heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true).then(function () { return true; });
+    }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) {
         endBusy(); releaseNav(held); if (sg !== gen) return;
-        if (dec && err && err.pending && se === startEpoch && state.me === who) {
+        if (dec && err && err.pending && still()) {
           state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
           say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
