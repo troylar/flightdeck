@@ -902,7 +902,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.pendingStarts = Object.create(null); state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1198,7 +1198,11 @@
   }
   /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
      folder, forgets it, so switching back never brings it back. */
+  /* startEpoch: bumped by every change of person or folder, so a start still saving when either changes never offers Try
+     again when its save fails, even after the person changes back. */
+  var startEpoch = 0, startMe = state.me;
   function forgetStartIfNotMine() {
+    if (state.me !== startMe) { startEpoch++; startMe = state.me; }
     var gone = false;
     Object.keys(state.pendingStarts).forEach(function (id) { if (state.pendingStarts[id].me !== state.me) { delete state.pendingStarts[id]; gone = true; } });
     if (gone && state.msg && state.msg.pendingStart) state.msg = null;
@@ -5475,7 +5479,7 @@
     var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
-    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
+    var sfs = state.fs, sg = gen, se = startEpoch, who = state.me, held = holdNav(false);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
@@ -5492,10 +5496,11 @@
     }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) {
         endBusy(); releaseNav(held); if (sg !== gen) return;
-        if (dec && err && err.pending) {
+        if (dec && err && err.pending && se === startEpoch && state.me === who) {
           state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
           say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
+        if (dec && err && err.pending) { say('The plan is marked started, but its run didn\'t save (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }
         say('Couldn\'t start the run: ' + err.message, 'bad'); render();
       });
   });

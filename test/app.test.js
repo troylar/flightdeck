@@ -2651,6 +2651,31 @@ rule('Plans (2.1.1): a plan waiting on Try again isn\'t started again, and its T
   assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, shown(app));
 });
 
+rule('Plans (2.1.1): a start still saving when the person changes, or the folder, never comes back as Try again when its save then fails', async () => {
+  for (const change of ['person', 'folder']) {
+    const tag = change, app = boot(); await app.tick(60);
+    await addPlanB(app);
+    await failedStart(app, 'lost', { plan: PLAN_B });
+    assert.ok(/data-act="plan-resume" data-id="plan-release-2026-10-31"/.test(app.html()), tag + ': set-up, B offered');
+    app.click('review-plan', PLAN); await app.tick();
+    const oldFs = app.fs, write = oldFs.write, g = gate(); let held = null;
+    oldFs.write = function (p) {
+      if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { held = p; return g.p.then(() => { throw new Error('OneDrive is offline'); }); }
+      return write.apply(this, arguments);
+    };
+    app.submitForm('start-form'); await app.tick(120);
+    assert.ok(held && !oldFs.files[held], tag + ': set-up, A\'s run write is held');
+    if (change === 'person') { app.choose('person-avery'); await app.tick(); app.choose('person-casey'); await app.tick(); }
+    else { app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); }
+    g.open(); await app.tick(200);
+    oldFs.write = write;
+    app.click('home'); await app.tick();
+    assert.ok(!/data-act="plan-resume"/.test(app.html()), tag + ': no Try again: ' + shown(app));
+    app.click('plan-resume', PLAN); await app.tick(160);
+    assert.ok(!oldFs.files[held] && !app.fs.files[held], tag + ': A\'s run never saved');
+  }
+});
+
 rule('Plans (2.1.1): with two plans waiting, a Try again canceled by a person change and change back stays canceled for both', async () => {
   const L = locks(), app = boot({ locks: L }); await app.tick(60);
   await addPlanB(app);
