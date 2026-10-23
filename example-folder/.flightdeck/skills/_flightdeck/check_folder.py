@@ -830,6 +830,20 @@ def judge(family, o):
     return {"ok": True, "major": major}
 
 
+def status_why(x):
+    """What's wrong with a start or decline (PF.plans.statusWhy), or "": the app refuses such a decision, so it decides nothing."""
+    if not isinstance(x.get("proposal"), str):
+        return "is a plan decision without a plan"
+    if x.get("status") not in ("accepted", "declined"):
+        return "is a plan decision that isn't accepted or declined"
+    if x.get("format") == "flightdeck-plan-status/2" and x.get("kind") is not None:
+        return "is a plan decision that names its format two ways"
+    if x.get("to") is not None:
+        return "is a plan decision that names a version without switching to it"
+    bad = next((k for k in ("proposalHash", "run", "by", "at") if not (x.get(k) is None or isinstance(x.get(k), str))), None)
+    return "is a plan decision whose " + bad + " isn't text" if bad else ""
+
+
 def plan_family(o):
     """Which of the two a file in proposals/ is (PF.plans.familyOf): its format's family, else its kind."""
     f = o.get("format")
@@ -1368,7 +1382,7 @@ def main():
     prop_dir = os.path.join(root, "proposals")
     plans, decisions, torn = {}, {}, []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
-        if not name.endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
+        if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
         text = read_text(os.path.join(prop_dir, name))
         try:
@@ -1397,7 +1411,12 @@ def main():
             plain = {k: v for k, v in obj.items() if not k.startswith("_")}
             plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
         elif fam == "flightdeck-plan-status" and obj.get("status") != "retargeted":
-            # A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision.
+            # A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision. One not in its
+            # format is refused and named, as the app does, and decides nothing.
+            bad = status_why(obj)
+            if bad:
+                out["refused"].append({"file": "proposals/" + name, "why": bad})
+                continue
             decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same
@@ -1406,16 +1425,16 @@ def main():
         copies.sort(key=lambda c: (c[0] != pid + ".json", c[0]))
         name = copies[0][0]
         mine = decisions.get(pid, [])
-        if not all(same_plan(c[2], copies[0][2]) for c in copies):
-            status, why = "ambiguous", "different copies of this plan are in the folder (" + ", ".join(c[0] for c in copies) + "); Flightdeck starts neither until a person deletes one"
-            out["plans"].append({"file": name, "id": pid, "status": status, "why": why})
-            continue
         hashes = {c[1] for c in copies}
         matching = [d for d in mine if d.get("proposalHash") in hashes]
         # Starts and declines are compared across every version of the plan, whatever it said when each was made (2.1.1).
         started = {d.get("run") for d in mine if d.get("status") == "accepted"}
         agree = False
-        if not mine:
+        if not all(same_plan(c[2], copies[0][2]) for c in copies):
+            # Each copy is its own plan to the app, and a decision that agrees still holds it, so its missing run is still named.
+            status, why = "ambiguous", "different copies of this plan are in the folder (" + ", ".join(c[0] for c in copies) + "); Flightdeck starts neither until a person deletes one"
+            agree = bool(mine) and len({d.get("status") for d in mine}) == 1 and len(started) <= 1
+        elif not mine:
             status, why = "pending", ""
         elif len({d.get("status") for d in mine}) > 1 or len(started) > 1:
             status, why = "ambiguous", "decisions on this plan disagree (or it was started twice), on this or an earlier version of it; Flightdeck shows it as undecided"

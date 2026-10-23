@@ -2554,6 +2554,25 @@ rule('Plans (2.1.1): Try again waiting on a held lock writes nothing, and never 
   }
 });
 
+rule('Plans (2.1.1): Try again waiting on a held lock stays canceled when the person changes and changes back before it gets the lock', async () => {
+  for (const which of ['plan', 'run']) {
+    const tag = which + ' lock', L = locks(), app = boot({ locks: L }); await app.tick(60);
+    const { id } = await failedStart(app, 'lost');
+    const dir = 'runs/release/' + id + '/', mine = fs => Object.keys(fs.files).filter(p => p.indexOf(dir) === 0 || /^proposals\//.test(p)).sort().map(p => p + '\u0000' + fs.files[p].t);
+    const had = mine(app.fs);
+    assert.ok(/data-act="plan-resume"/.test(app.html()), tag + ': set-up, Try again offered');
+    const g = gate(); L.request(which === 'plan' ? 'preflight:plan:' + PLAN : 'preflight:run:release/' + id, () => g.p);
+    app.click('plan-resume', PLAN); await app.tick(40);
+    assert.ok(!app.fs.files[dir + 'run.json'], tag + ': set-up, still waiting');
+    app.choose('person-avery'); await app.tick();
+    app.choose('person-casey'); await app.tick();
+    g.open(); await app.tick(200);
+    assert.deepStrictEqual(mine(app.fs), had, tag + ': nothing written');
+    assert.ok(!/Run started/.test(app.html() + app.live()), tag + ': ' + shown(app));
+    assert.ok(!/data-act="plan-resume"/.test(app.html()), tag + ': no Try again now');
+  }
+});
+
 rule('Plans (2.1.1): changing the person forgets Try again, so switching back to the person who started it doesn\'t bring it back', async () => {
   const app = boot(); await app.tick(60);
   const { id } = await failedStart(app, 'lost');

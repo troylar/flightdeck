@@ -4348,14 +4348,15 @@
       if (state.resuming) return;
       state.resuming = true; render();
       var held = holdNav(false);
-      /* Who and which folder are asked again under each lock and right before the write: a change while it waits writes nothing. */
-      var still = function () { return g === gen && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
+      /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
+         the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
+      var still = function () { return g === gen && state.pendingStart === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
         return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still });
       }).then(function (res) {
         state.resuming = false;
-        if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (state.me !== k.me ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
+        if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (g === gen && state.fs === k.fs && fsKey() === k.key ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
         if (state.pendingStart === k) state.pendingStart = null;
         /* Saved for the person who asked, who has since changed: the new person isn't taken to it or told it started. */

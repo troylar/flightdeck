@@ -175,6 +175,41 @@ rule('The checker agrees with the app (2.1.1): a started plan\'s missing run, be
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+rule('The checker agrees with the app (2.1.1): a malformed start names no missing run, differing copies keep the missing run, and .JSON in capitals is read', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-check-'));
+  const d = new DiskFS(root);
+  await d.write('people.json', JSON.stringify(people));
+  const v1 = await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  assert.ok(!v1.blockers, String(v1.blockers));
+  const plan = (id, extra) => JSON.stringify(Object.assign({ kind: 'plan', id, process: 'release', version: 1, title: id, details: {}, roles: {} }, extra || {}), null, 2);
+  const page = async (id) => (await repo.loadAll(d, { deep: true })).plans.find(p => p.id === id);
+  // A start whose by isn't text: the app refuses it, so it starts nothing.
+  await d.write('proposals/plan-bad-by.json', plan('plan-bad-by'));
+  const bad = await repo.recordPlanStatus(d, await page('plan-bad-by'), 'w1', 'accepted', 'run-bad', 'person-casey');
+  await d.write(bad, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(path.join(root, bad), 'utf8')), { by: 44 }), null, 2));
+  // Started, its run never saved, then an edited copy arrives beside it.
+  await d.write('proposals/plan-copies.json', plan('plan-copies'));
+  await repo.recordPlanStatus(d, await page('plan-copies'), 'w1', 'accepted', 'run-copies', 'person-casey');
+  await d.write('proposals/plan-copies (1).json', plan('plan-copies', { note: 'Edited elsewhere' }));
+  // Extensions in capitals: a plan, and a torn file whose name says no plan.
+  await d.write('proposals/plan-upper.JSON', plan('plan-upper'));
+  await d.write('proposals/Copy of plan-test.JSON', '{"kind": "pla');
+  const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+  const ap = id => app.plans.find(p => p.id === id), ck = id => out.plans.find(p => p.id === id);
+  for (const id of ['plan-bad-by', 'plan-copies']) assert.strictEqual(ck(id).runMissing || '', PF.health.missingRun(app, ap(id)), id + ': ' + JSON.stringify(ck(id)));
+  assert.ok(!ck('plan-bad-by').runMissing, 'a malformed start names no run');
+  assert.ok(out.refused.some(r => r.file === bad), 'the malformed decision is named, as the app names it: ' + JSON.stringify(out.refused));
+  assert.ok(app.plans.filter(p => p.id === 'plan-copies').length === 2 && ck('plan-copies').status === 'ambiguous', 'set-up: copies differ');
+  assert.strictEqual(ck('plan-copies').runMissing, 'run-copies', 'differing copies keep the missing run');
+  assert.ok(ap('plan-upper') && ck('plan-upper'), 'a plan in .JSON is read by both');
+  const torn = 'proposals/Copy of plan-test.JSON', appT = app.planUnread.find(u => u.path === torn), ckT = (out.unreadablePlans || []).find(u => u.file === torn);
+  assert.ok(appT && appT.unnamed, 'set-up: the app names it unnamed');
+  assert.ok(ckT && ckT.unnamed, 'the checker lists it, unnamed: ' + JSON.stringify(out.unreadablePlans));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 rule('The checker reports the same versions as unusable as the app, with the same reasons, and knows the same step types', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
