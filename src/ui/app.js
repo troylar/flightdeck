@@ -82,7 +82,7 @@
   var state = {
     view: 'home', fs: null, me: lsGet('me', ''), filter: lsGet('filter', 'mine'), processId: null, planId: null, runKey: null,
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
-    pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
+    pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
     folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
@@ -902,7 +902,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.pendingStart = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; state.pendingStarts = Object.create(null); state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1199,9 +1199,9 @@
   /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
      folder, forgets it, so switching back never brings it back. */
   function forgetStartIfNotMine() {
-    if (!state.pendingStart || state.pendingStart.me === state.me) return;
-    state.pendingStart = null;
-    if (state.msg && state.msg.pendingStart) state.msg = null;
+    var gone = false;
+    Object.keys(state.pendingStarts).forEach(function (id) { if (state.pendingStarts[id].me !== state.me) { delete state.pendingStarts[id]; gone = true; } });
+    if (gone && state.msg && state.msg.pendingStart) state.msg = null;
   }
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
@@ -4341,16 +4341,17 @@
         return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
-    /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person. */
+    /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person.
+       Each plan keeps its own (state.pendingStarts, by plan ID), so another plan's failed start never takes it away. */
     'plan-resume': function (id) {
-      var k = state.pendingStart, g = gen;
+      var k = Object.prototype.hasOwnProperty.call(state.pendingStarts, id) ? state.pendingStarts[id] : null, g = gen;
       if (!k || k.plan !== id || k.fs !== state.fs || k.key !== fsKey() || k.me !== state.me) { say('Only the window that started this plan, for the same person, can save its run again. Nothing was written.', 'warn'); render(); return; }
       if (state.resuming) return;
       state.resuming = true; render();
       var held = holdNav(false);
       /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
-      var still = function () { return g === gen && state.pendingStart === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
+      var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
         return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still });
@@ -4358,7 +4359,7 @@
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (g === gen && state.fs === k.fs && fsKey() === k.key ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
-        if (state.pendingStart === k) state.pendingStart = null;
+        if (state.pendingStarts[k.plan] === k) delete state.pendingStarts[k.plan];
         /* Saved for the person who asked, who has since changed: the new person isn't taken to it or told it started. */
         if (state.me !== k.me) { releaseNav(held); return load(true).then(function () { return null; }); }
         heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
@@ -5460,6 +5461,8 @@
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     /* A decision on the plan that can't be read could say it was started already: nothing starts until it reads. */
     if (plan && planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
+    /* A plan whose run is waiting on Try again here is decided: it's never started again. */
+    if (plan && Object.prototype.hasOwnProperty.call(state.pendingStarts, plan.id)) { say('This plan is marked started, but its run didn\'t save. Use Try again to save that run; nothing else starts it.', 'warn'); render(); return; }
     /* Two different copies of the plan (OneDrive kept both): nothing starts until a person deletes one. */
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
@@ -5477,7 +5480,7 @@
     /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
-       twice. The exact bytes it tried are kept in this window (state.pendingStart) for Try again (repo.resumeStart). */
+       twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
     var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, skey = fsKey();
     queued(function () {
       r.recorder.session = SESSION;
@@ -5490,7 +5493,7 @@
       function (err) {
         endBusy(); releaseNav(held); if (sg !== gen) return;
         if (dec && err && err.pending) {
-          state.pendingStart = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
+          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
           say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
         say('Couldn\'t start the run: ' + err.message, 'bad'); render();

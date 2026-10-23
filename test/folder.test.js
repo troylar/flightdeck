@@ -257,6 +257,23 @@ rule('A plan started whose run isn\'t in the folder, then edited, still names it
   }
 });
 
+rule('A started plan edited to another process isn\'t said to be missing its run while that run is in the folder; one whose run is nowhere still is (2.1.1)', async () => {
+  for (const runThere of [true, false]) {
+    const fs = folder(); const r = await started(fs);
+    const d = await repo.loadAll(fs);
+    await repo.recordPlanStatus(fs, d.plans[0], 'casey-laptop', 'accepted', runThere ? r.id : 'run-gone', 'person-casey');
+    const plan = JSON.parse((await fs.read('proposals/plan.json')).text); plan.process = 'check-in';
+    await fs.write('proposals/plan.json', JSON.stringify(plan));
+    const d2 = await repo.loadAll(fs, { deep: true }), p = d2.plans[0];
+    assert.ok(p._decidedEarlier && p.process === 'check-in' && d2.runsComplete === true && d2.runs.some(x => x.process === 'release' && x.id === r.id), runThere + ': set-up');
+    const rep = PF.health.check({ data: d2, scan: null, me: 'person-casey', app: '2.1.1' }, Date.parse(NOW));
+    const i = rep.issues.find(x => x.id === 'plan-run-missing:' + p.id);
+    if (runThere) { assert.strictEqual(PF.health.missingRun(d2, p), '', 'its run is under the process it was started on'); assert.ok(!i, JSON.stringify(i)); continue; }
+    assert.strictEqual(PF.health.missingRun(d2, p), 'run-gone', 'a run under no process is still missing');
+    assert.ok(i && !i.paths.some(x => /^runs\/check-in\//.test(x)), 'never pointed at the plan\'s new process: ' + JSON.stringify(i && i.paths));
+  }
+});
+
 rule('A torn file in proposals/ named like a plan (plan-… or req-…) says which plan it\'s for even when no readable plan has that ID; only other names are unnamed (2.1.1)', async () => {
   const REQ = 'req-tool-' + 'a'.repeat(24);
   const cases = { 'plan-x.json': false, 'plan-x.status-w-d.json': false, 'plan-x (1).json': false, 'plan-x-LAPTOP.json': false, [REQ + '.json']: false, [REQ + '.status-w.json']: false,

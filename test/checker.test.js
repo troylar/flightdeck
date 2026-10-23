@@ -150,6 +150,15 @@ rule('The checker agrees with the app (2.1.1): a started plan\'s missing run, be
   await d.write('proposals/plan-lost-edit.json', plan('plan-lost-edit'));
   await repo.recordPlanStatus(d, await page('plan-lost-edit'), 'w1', 'accepted', 'run-lost-e', 'person-casey');
   await d.write('proposals/plan-lost-edit.json', plan('plan-lost-edit', { note: 'Edited' }));
+  // Started and its run saved, then edited to another process: the run is where it was started, so it isn't missing.
+  await d.write('proposals/plan-moved.json', plan('plan-moved'));
+  await repo.recordPlanStatus(d, await page('plan-moved'), 'w1', 'accepted', 'run-moved', 'person-casey');
+  const pub = (await repo.loadAll(d)).processes.find(x => x.process === 'release').index.latest;
+  await repo.saveRun(d, PF.run.create(pub, { title: 'Moved', details: { commit: 'aaa111', environment: 'production' }, roles: { 'release-lead': 'person-casey' }, by: 'person-casey', session: 'w1', now: NOW, id: 'run-moved' }), 'w1');
+  await d.write('proposals/plan-moved.json', plan('plan-moved', { process: 'check-in' }));
+  await d.write('proposals/plan-moved-gone.json', plan('plan-moved-gone'));
+  await repo.recordPlanStatus(d, await page('plan-moved-gone'), 'w1', 'accepted', 'run-moved-gone', 'person-casey');
+  await d.write('proposals/plan-moved-gone.json', plan('plan-moved-gone', { process: 'check-in' }));
   // Declined and edited: no run to miss.
   await d.write('proposals/plan-declined.json', plan('plan-declined'));
   await repo.recordPlanStatus(d, await page('plan-declined'), 'w1', 'declined', null, 'person-casey');
@@ -161,10 +170,13 @@ rule('The checker agrees with the app (2.1.1): a started plan\'s missing run, be
   for (const n of torn) await d.write('proposals/' + n, '{"kind": "pla');
   const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
   const ap = id => app.plans.find(p => p.id === id), ck = id => out.plans.find(p => p.id === id);
-  for (const id of ['plan-lost', 'plan-lost-edit', 'plan-declined']) {
+  for (const id of ['plan-lost', 'plan-lost-edit', 'plan-declined', 'plan-moved', 'plan-moved-gone']) {
     assert.strictEqual(ck(id).runMissing || '', PF.health.missingRun(app, ap(id)), id + ': ' + JSON.stringify(ck(id)));
   }
   assert.strictEqual(ck('plan-lost-edit').runMissing, 'run-lost-e', 'the edited plan still names its run');
+  assert.ok(app.runs.some(r => r.process === 'release' && r.id === 'run-moved') && ap('plan-moved').process === 'check-in', 'set-up: moved plan, its run in the folder');
+  assert.ok(!ck('plan-moved').runMissing, 'a plan moved to another process after it started isn\'t missing its run');
+  assert.strictEqual(ck('plan-moved-gone').runMissing, 'run-moved-gone', 'a moved plan whose run is nowhere still names it');
   const appUnnamed = n => !!app.planUnread.find(u => u.path === 'proposals/' + n).unnamed;
   for (const n of torn) {
     const c = (out.unreadablePlans || []).find(u => u.file === 'proposals/' + n);

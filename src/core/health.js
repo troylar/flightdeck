@@ -33,12 +33,14 @@ PF.health = (function () {
   /* A plan marked started whose run isn't in the folder (2.1.1): the plan stays started, never started again. */
   function startedMissing(run) { return 'Started (run ' + run + '); its run isn\'t in the folder.'; }
   /* Its run, when every run has been read and isn't there: '' while it may just not be read yet. A start made on an earlier
-     version of the plan (_decidedEarlier, after an edit) still names its run. */
+     version of the plan (_decidedEarlier, after an edit) still names its run. A decision doesn't record the process: on this
+     exact plan it's the plan's; on an earlier version it may have been another, so the run is looked for under every process. */
+  function runProcess(p) { return p && p._status ? p.process : null; }
   function missingRun(d, p) {
     var st = p && (p._status || p._decidedEarlier), f = d.failed || {};
     if (!st || st.status !== 'accepted' || typeof st.run !== 'string' || !st.run || d.runsComplete !== true || f.runs || f.proposals) return '';
-    var key = p.process + '/' + st.run;
-    if ((d.runs || []).some(function (r) { return r.process === p.process && r.id === st.run; }) || (d.unreadable || []).some(function (u) { return u.key === key; })) return '';
+    var proc = runProcess(p), mine = function (process, id) { return id === st.run && (proc === null || process === proc); };
+    if ((d.runs || []).some(function (r) { return mine(r.process, r.id); }) || (d.unreadable || []).some(function (u) { var k = String(u.key || ''), i = k.lastIndexOf('/'); return i > 0 && mine(k.slice(0, i), k.slice(i + 1)); })) return '';
     return st.run;
   }
 
@@ -112,7 +114,7 @@ PF.health = (function () {
       var run = missingRun(d, p);
       if (run) add({ id: 'plan-run-missing:' + p.id, severity: 'warn', area: 'Plans', title: '"' + p.title + '": ' + startedMissing(run).replace(/\.$/, ''),
         detail: startedMissing(run) + ' The plan stays started. Its run may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.',
-        paths: ['proposals/' + (p._file || p.id + '.json'), 'runs/' + p.process + '/' + run + '/run.json'], action: help(HELP.planRun), help: HELP.planRun });
+        paths: ['proposals/' + (p._file || p.id + '.json')].concat(runProcess(p) ? ['runs/' + runProcess(p) + '/' + run + '/run.json'] : []), action: help(HELP.planRun), help: HELP.planRun });
     });
 
     /* ---- people ---- */

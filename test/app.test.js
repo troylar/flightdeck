@@ -2385,8 +2385,9 @@ const runsAndPlans = app => app.files('runs/').concat(app.files('proposals/')).s
 /* Start the example plan with its run.json write failing: 'lost' never lands, 'landed' lands and then says it failed.
    keepReceipt: removing the save receipt fails too, so it stays. Returns the run ID its decision names and the bytes tried. */
 async function failedStart(app, how, opts) {
+  const plan = (opts && opts.plan) || PLAN;
   app.choose('person-casey'); await app.tick();
-  app.click('review-plan', PLAN); await app.tick();
+  app.click('review-plan', plan); await app.tick();
   const write = app.fs.write, remove = app.fs.remove; let tried = null;
   app.fs.write = function (p, t) {
     if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { tried = t; return how === 'landed' ? write.apply(this, arguments).then(() => { throw new Error('OneDrive is offline'); }) : Promise.reject(new Error('OneDrive is offline')); }
@@ -2395,8 +2396,15 @@ async function failedStart(app, how, opts) {
   if (opts && opts.keepReceipt) app.fs.remove = function (p) { return /\/candidate-/.test(p) ? Promise.reject(new Error('locked')) : remove.apply(this, arguments); };
   app.submitForm('start-form'); await app.tick(120);
   app.fs.write = write; app.fs.remove = remove;
-  const dec = decisionsOn(app);
+  const dec = decisionsOn(app, plan);
   return { id: dec.length === 1 ? dec[0].run : null, tried, dec };
+}
+/* A second plan for the same process, a copy of the example plan under another ID. */
+const PLAN_B = 'plan-release-2026-10-31';
+async function addPlanB(app) {
+  const o = JSON.parse(app.fs.files['proposals/' + PLAN + '.json'].t);
+  await app.fs.write('proposals/' + PLAN_B + '.json', JSON.stringify(Object.assign(o, { id: PLAN_B, title: 'Release 2026.10.31' }), null, 2));
+  app.click('refresh'); await app.tick(80);
 }
 
 rule('Plans (2.1.1): a start whose run doesn\'t save leaves one decision naming its run and no run, and the form never starts a second run', async () => {
@@ -2586,6 +2594,77 @@ rule('Plans (2.1.1): changing the person forgets Try again, so switching back to
   assert.ok(/its run isn(&#39;|')t in the folder/.test(app.html()), shown(app));
   app.click('plan-resume', PLAN); await app.tick(160);
   assert.deepStrictEqual(app.files('runs/release/' + id + '/'), [], 'nothing written');
+});
+
+rule('Plans (2.1.1): two plans whose runs didn\'t save each keep their own Try again, and each saves its own run', async () => {
+  const app = boot(); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  assert.ok(a.id && b.id && a.id !== b.id, 'set-up: two reserved runs');
+  const offered = () => (app.html().match(/data-act="plan-resume" data-id="([^"]+)"/g) || []).map(x => x.replace(/.*data-id="|"$/g, '')).sort();
+  assert.deepStrictEqual(offered(), [PLAN, PLAN_B].sort(), 'both Try again offered: ' + shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, 'A saved its exact bytes: ' + shown(app));
+  app.click('home'); await app.tick();
+  assert.deepStrictEqual(offered(), [PLAN_B], 'B still offered on Home: ' + shown(app));
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + b.id + '/run.json'] || {}).t, b.tried, 'B saved its exact bytes: ' + shown(app));
+  app.click('home'); await app.tick();
+  assert.deepStrictEqual(offered(), [], 'nothing left to try');
+  assert.strictEqual(decisionsOn(app).length, 1); assert.strictEqual(decisionsOn(app, PLAN_B).length, 1);
+});
+
+rule('Plans (2.1.1): the second plan\'s Try again works first, and the first plan\'s still works after it', async () => {
+  const app = boot(); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + b.id + '/run.json'] || {}).t, b.tried, shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, shown(app));
+});
+
+rule('Plans (2.1.1): changing the person forgets every plan\'s Try again, and switching back brings none back', async () => {
+  const app = boot(); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  app.choose('person-avery'); await app.tick();
+  assert.ok(!/data-act="plan-resume"/.test(app.html()), 'none offered to the new person');
+  app.choose('person-casey'); await app.tick();
+  assert.ok(!/data-act="plan-resume"/.test(app.html()), 'none offered again: ' + shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.deepStrictEqual(app.files('runs/release/' + a.id + '/').concat(app.files('runs/release/' + b.id + '/')), [], 'nothing written');
+});
+
+rule('Plans (2.1.1): a plan waiting on Try again isn\'t started again, and its Try again survives the refusal', async () => {
+  const app = boot(); await app.tick(60);
+  const a = await failedStart(app, 'lost');
+  app.click('review-plan', PLAN); await app.tick();
+  if (/id="start-form"/.test(app.html())) { app.submitForm('start-form'); await app.tick(120); }
+  assert.strictEqual(decisionsOn(app).length, 1, 'still one decision');
+  assert.ok(/data-act="plan-resume" data-id="plan-release-2026-10-24"/.test(app.html()), 'Try again still offered: ' + shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, shown(app));
+});
+
+rule('Plans (2.1.1): with two plans waiting, a Try again canceled by a person change and change back stays canceled for both', async () => {
+  const L = locks(), app = boot({ locks: L }); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  const g = gate(); L.request('preflight:plan:' + PLAN, () => g.p);
+  app.click('plan-resume', PLAN); await app.tick(40);
+  app.choose('person-avery'); await app.tick();
+  app.choose('person-casey'); await app.tick();
+  g.open(); await app.tick(200);
+  assert.deepStrictEqual(app.files('runs/release/' + a.id + '/'), [], 'A: nothing written');
+  assert.ok(!/Run started/.test(app.html() + app.live()), shown(app));
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.deepStrictEqual(app.files('runs/release/' + b.id + '/'), [], 'B: nothing written');
 });
 
 rule('Plans (2.1.1): a started plan whose run never saved, edited afterwards, still names its missing run on the plan page and in Folder health', async () => {
