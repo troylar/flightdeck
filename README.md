@@ -933,6 +933,8 @@ Moving from 2.0 to 2.1: put 2.1 in the team folder and have everyone reopen it b
 
 **Known issue:** an older copy shows a test run by name only and never changes it, but counts it in Home's running number, and How runs go and Compare versions list its stage as one more version (marked Clash once that stage is made the default). Updating to 2.1 fixes both.
 
+**Known issue in 2.1.0:** a planned run can still start twice in three rare cases: the run saves but its decision can't be written, so a retry starts a second run; the copy of the plan that was started is deleted while another copy remains; or a renamed decision file can't be read. Two computers starting the same plan at the same moment can also both start it. If a plan has two runs, keep one and cancel the other. [Updating Flightdeck](https://github.com/troylar/flightdeck/blob/main/docs/updating.md#what-to-know-when-moving-to-21) has the details.
+
 </details>
 
 <details>
