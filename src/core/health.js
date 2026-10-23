@@ -32,9 +32,10 @@ PF.health = (function () {
   function noteLineText(x) { return 'A note in ' + x.file + ' (line ' + x.line + ') couldn\'t be read. It may still be arriving; if it stays, the note on that line is lost and the rest are shown.'; }
   /* A plan marked started whose run isn't in the folder (2.1.1): the plan stays started, never started again. */
   function startedMissing(run) { return 'Started (run ' + run + '); its run isn\'t in the folder.'; }
-  /* Its run, when every run has been read and isn't there: '' while it may just not be read yet. */
+  /* Its run, when every run has been read and isn't there: '' while it may just not be read yet. A start made on an earlier
+     version of the plan (_decidedEarlier, after an edit) still names its run. */
   function missingRun(d, p) {
-    var st = p && p._status, f = d.failed || {};
+    var st = p && (p._status || p._decidedEarlier), f = d.failed || {};
     if (!st || st.status !== 'accepted' || typeof st.run !== 'string' || !st.run || d.runsComplete !== true || f.runs || f.proposals) return '';
     var key = p.process + '/' + st.run;
     if ((d.runs || []).some(function (r) { return r.process === p.process && r.id === st.run; }) || (d.unreadable || []).some(function (u) { return u.key === key; })) return '';

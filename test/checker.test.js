@@ -134,6 +134,47 @@ rule('The checker agrees with the app (2.1.1): an edited plan, a deleted copy, a
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+rule('The checker agrees with the app (2.1.1): a started plan\'s missing run, before and after the plan is edited, and which torn files in proposals/ name their plan', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-check-'));
+  const d = new DiskFS(root);
+  await d.write('people.json', JSON.stringify(people));
+  const v1 = await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  assert.ok(!v1.blockers, String(v1.blockers));
+  const plan = (id, extra) => JSON.stringify(Object.assign({ kind: 'plan', id, process: 'release', version: 1, title: id, details: {}, roles: {} }, extra || {}), null, 2);
+  const page = async (id) => (await repo.loadAll(d, { deep: true })).plans.find(p => p.id === id);
+  // Started, its run never saved: as started, and edited afterwards.
+  await d.write('proposals/plan-lost.json', plan('plan-lost'));
+  await repo.recordPlanStatus(d, await page('plan-lost'), 'w1', 'accepted', 'run-lost', 'person-casey');
+  await d.write('proposals/plan-lost-edit.json', plan('plan-lost-edit'));
+  await repo.recordPlanStatus(d, await page('plan-lost-edit'), 'w1', 'accepted', 'run-lost-e', 'person-casey');
+  await d.write('proposals/plan-lost-edit.json', plan('plan-lost-edit', { note: 'Edited' }));
+  // Declined and edited: no run to miss.
+  await d.write('proposals/plan-declined.json', plan('plan-declined'));
+  await repo.recordPlanStatus(d, await page('plan-declined'), 'w1', 'declined', null, 'person-casey');
+  await d.write('proposals/plan-declined.json', plan('plan-declined', { note: 'Edited' }));
+  // Torn files: standard plan and request names, a legacy ID known through its readable plan, and names that say no plan.
+  const REQ = 'req-tool-' + 'b'.repeat(24);
+  await d.write('proposals/release-old.json', plan('release-old'));
+  const torn = ['plan-torn.json', 'plan-torn.status-w-d.json', REQ + '.status-w.json', 'release-old.status-w.json', 'Copy of plan-torn.json', 'stray.json'];
+  for (const n of torn) await d.write('proposals/' + n, '{"kind": "pla');
+  const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+  const ap = id => app.plans.find(p => p.id === id), ck = id => out.plans.find(p => p.id === id);
+  for (const id of ['plan-lost', 'plan-lost-edit', 'plan-declined']) {
+    assert.strictEqual(ck(id).runMissing || '', PF.health.missingRun(app, ap(id)), id + ': ' + JSON.stringify(ck(id)));
+  }
+  assert.strictEqual(ck('plan-lost-edit').runMissing, 'run-lost-e', 'the edited plan still names its run');
+  const appUnnamed = n => !!app.planUnread.find(u => u.path === 'proposals/' + n).unnamed;
+  for (const n of torn) {
+    const c = (out.unreadablePlans || []).find(u => u.file === 'proposals/' + n);
+    assert.ok(c, n + ': listed by the checker: ' + JSON.stringify(out.unreadablePlans));
+    assert.strictEqual(!!c.unnamed, appUnnamed(n), n);
+  }
+  assert.deepStrictEqual(torn.filter(appUnnamed), ['Copy of plan-torn.json', 'stray.json']);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 rule('The checker reports the same versions as unusable as the app, with the same reasons, and knows the same step types', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

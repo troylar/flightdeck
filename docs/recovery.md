@@ -74,7 +74,7 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What to do:**
 
-1. In the window that started it, choose **Try again**. It saves exactly the run that was started, on the same version. It does nothing if the run's folder already holds other files: then the run was started and worked on, and its `run.json` went missing later; restore it from a backup (see [Restoring from a backup](#restoring-from-a-backup)).
+1. In the window that started it, choose **Try again**. It saves exactly the run that was started, on the same version. Only the person who started it can, in that folder: choosing another person in the window, or opening another folder, forgets it, even while Try again is waiting its turn, and nothing is written. It does nothing if the run's folder already holds other files: then the run was started and worked on, and its `run.json` went missing later; restore it from a backup (see [Restoring from a backup](#restoring-from-a-backup)).
 2. Anywhere else, wait and choose **Refresh**: the run may still be syncing.
 3. If it never arrives, make a new plan (or **Start a run**) to run it again.
 
@@ -84,7 +84,7 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What you see:** **Folder health** says a file in `proposals/` can't be read, and its name doesn't say which plan it's for, like `proposals/Copy of plan-release-….json`.
 
-**What it means:** Flightdeck holds a plan while a file named for it (`<plan>.…`) can't be read, because that file could be a decision saying the plan was already started. A file with another name (a renamed copy, "Copy of …") could be such a decision too, but nothing says which plan, so it holds none. While it can't be read, the plan it belongs to could be started again.
+**What it means:** Flightdeck holds a plan while a file named for it (`<plan>.…`) can't be read, because that file could be a decision saying the plan was already started. A name shaped like a plan's or a request's (`plan-….json`, `req-….json`, and their `.status-…` files) says which plan it's for, even when that plan's own file can't be read either; those are listed as plan files that can't be read. A file with another name (a renamed copy, "Copy of …") could be such a decision too, but nothing says which plan, so it holds none. While it can't be read, the plan it belongs to could be started again.
 
 **What to do:** if it's still arriving, wait and choose **Check again**. If it stays that way, restore it from a backup, or delete it if it's a stray copy.
 

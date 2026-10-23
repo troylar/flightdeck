@@ -8,6 +8,11 @@ PF.plans = (function () {
   'use strict';
   var E = PF.envelope, FORMAT2 = 'flightdeck-plan/2', STATUS2 = 'flightdeck-plan-status/2', HASH8 = /^[0-9a-f]{8}$/;
   function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  /* A file name in proposals/ that says which plan it's for by its shape alone (2.1.1): a plan's ID (plan-…) or a request's
+     (req-<tool>-<24 hex>), then its extension, .status-…, or a copy's " (1)" or "-COMPUTER". Older IDs are known only
+     through the plans that read. */
+  var NAMED = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.| \(|-[A-Z])/;
+  function namesPlan(name) { return typeof name === 'string' && NAMED.test(name); }
   /* A plan/2 or plan-status/2, by its dispatch field. */
   function isExact(o) { return isObj(o) && (o.format === FORMAT2 || o.format === STATUS2); }
   /* An exact version folder: { folder, version } and, in a plan's pin, its two fingerprints. */
@@ -100,5 +105,5 @@ PF.plans = (function () {
     var x = PF.pins.forPlan(proc, plan, plan._retarget || null);
     return { pub: x.pub, older: !!x.older, missing: false, chosen: !!x.retargeted && !!x.pub, exact: true, ask: x.pub ? '' : x.ask };
   }
-  return { FORMAT2: FORMAT2, STATUS2: STATUS2, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
+  return { FORMAT2: FORMAT2, STATUS2: STATUS2, namesPlan: namesPlan, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
 })();

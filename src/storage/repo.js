@@ -738,10 +738,10 @@ PF.repo = (function () {
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
-      /* unnamed (2.1.1): a torn file whose name starts with no plan's ID could be a renamed decision on any plan. It holds none,
-         and Folder health names it on its own. */
+      /* unnamed (2.1.1): a torn file whose name isn't a plan's or request's shape (PF.plans.namesPlan) and starts with no
+         readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
-      var named = function (n) { return planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
+      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
       var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A plan decision refused here (a newer Flightdeck's, or not in its format) holds its plan as one still arriving does. */
       var planHolds = planUnread.filter(function (u) { return u.kind === 'unreadable'; }).concat((r[6].refused || []).filter(function (x) { return x.family === 'flightdeck-plan-status'; }).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
@@ -1927,7 +1927,8 @@ PF.repo = (function () {
      copy records on. A run.json with exactly those bytes is the first write having landed (success, nothing written); other
      text is refused. With none, the bytes are written only into a run folder with no file at any depth, apart from this
      window's own save receipt (k.cand) holding exactly those bytes: a folder with anything else held a run that was started
-     and worked on, and is never recreated. */
+     and worked on, and is never recreated. o.still (the same folder and person): asked once each lock is held and again
+     right before the write; false writes nothing and resolves { dropped: true }. */
   function resumeStart(fs, planId, k, o) {
     var said = ' Nothing was written.', id = k && k.id, proc = k && k.process;
     if (typeof id !== 'string' || !R.RUN_ID.test(id) || typeof proc !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(proc)) return Promise.reject(new Error('That isn\'t a run Flightdeck can write.' + said));
@@ -1935,6 +1936,7 @@ PF.repo = (function () {
     if (k.path !== path || typeof k.text !== 'string' || typeof k.dec !== 'string' || k.dec.indexOf('proposals/' + planId + '.status-') !== 0 || /\/|\.\./.test(k.dec.slice('proposals/'.length))) return Promise.reject(new Error('That isn\'t a run Flightdeck can write.' + said));
     var gone = function () { return new Error('Your decision on this plan no longer names this run, so the run wasn\'t saved.' + said); };
     var go = function () {
+      stillOk(o);
       return fs.read(k.dec).then(function (f) {
         /* The decision is read through the one plan reader, as the gate reads it. */
         var d = f ? json(f.text) : null, v = d && typeof d === 'object' && !Array.isArray(d) ? PF.plans.clean(d, k.dec.slice('proposals/'.length), false) : null;
@@ -1942,8 +1944,12 @@ PF.repo = (function () {
         return typeof o.lock === 'function' ? o.lock('preflight:run:' + proc + '/' + id, check) : check();
       });
     };
-    return typeof o.lock === 'function' ? o.lock('preflight:plan:' + planId, go) : Promise.resolve().then(go);
+    return (typeof o.lock === 'function' ? o.lock('preflight:plan:' + planId, go) : Promise.resolve().then(go)).then(null, function (e) {
+      if (e && e.dropped) return { dropped: true };
+      throw e;
+    });
     function check() {
+      stillOk(o);
       forgetRun(fs, { process: proc, id: id });
       var run = R.sanitize(json(k.text));
       if (!run || run.id !== id || run.process !== proc) return Promise.reject(new Error('That isn\'t a run Flightdeck can write.' + said));
@@ -1952,12 +1958,14 @@ PF.repo = (function () {
         if (why) throw readOnly(why);
         return fs.read(path);
       }).then(function (f) {
+        stillOk(o);
         if (f) { if (f.text === k.text) return { already: true }; throw new Error('The run was saved and has changed since; open it from Runs.' + said); }
         return filesUnder(fs, dir.slice(0, -1)).then(function (paths) {
           var others = paths.filter(function (p) { return p !== k.cand; });
           var own = paths.length > others.length ? fs.read(k.cand).then(function (c) { return !!c && c.text === k.text; }) : Promise.resolve(true);
           return own.then(function (ok) {
             if (others.length || !ok) throw new Error('The run\'s folder has files but no run.json. Restore run.json from a backup.' + said);
+            stillOk(o);
             return fs.write(path, k.text).then(function () { forgetRun(fs, run); return { written: true }; });
           });
         }, function (e) { throw new Error('The run\'s folder ' + why(e) + '.' + said); });

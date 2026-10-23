@@ -500,7 +500,10 @@
       if (lost) return PF.health.startedMissing(lost) + ' It may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.';
       return plan._status.status === 'accepted' ? 'This plan was already started' + (typeof plan._status.run === 'string' ? ' (' + plan._status.run + ')' : '') + ', so it won\'t start again here. Find its run on Runs.' : 'This plan was ' + (plan._status.status === 'declined' ? 'declined' : 'decided on') + ' elsewhere, so it can\'t be started, declined or switched here.';
     }
-    if (plan && plan._decidedEarlier) return earlierWords(plan, data) + ' It can\'t be started, declined or switched. To run it again, make a new plan.';
+    if (plan && plan._decidedEarlier) {
+      var lostE = data ? PF.health.missingRun(data, plan) : '';
+      return earlierWords(plan, data) + (lostE ? ' ' + PF.health.startedMissing(lostE) + ' It may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.' : ' It can\'t be started, declined or switched. To run it again, make a new plan.');
+    }
     var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
     if (!x) return '';
     var held = ' Until then this plan can\'t be started, declined or switched here.';

@@ -739,6 +739,11 @@ def read_bytes(path):
         return b""
 
 
+# A file name in proposals/ that says which plan it's for by its shape alone (PF.plans.namesPlan): a plan's ID (plan-...) or a
+# request's (req-<tool>-<24 hex>), then its extension, .status-..., or a copy's " (1)" or "-COMPUTER".
+PLAN_NAMED = re.compile(r"^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.| \(|-[A-Z])")
+
+
 def read_text(path):
     try:
         with open(path, "rb") as f:
@@ -1361,14 +1366,20 @@ def main():
         }
 
     prop_dir = os.path.join(root, "proposals")
-    plans, decisions = {}, {}
+    plans, decisions, torn = {}, {}, []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
-        text = read_text(os.path.join(prop_dir, name)) if name.endswith(".json") else None
+        if not name.endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
+            continue
+        text = read_text(os.path.join(prop_dir, name))
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
             obj = json.loads(text, parse_int=float, parse_constant=_no_constant) if text else None
+            parsed = bool(text)
         except ValueError:
-            obj = None
+            obj, parsed = None, False
+        if not parsed:
+            # Not complete JSON (it may still be arriving): named, and whether its name says which plan it's for.
+            torn.append(name)
         if not isinstance(obj, dict):
             continue
         # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
@@ -1403,15 +1414,32 @@ def main():
         matching = [d for d in mine if d.get("proposalHash") in hashes]
         # Starts and declines are compared across every version of the plan, whatever it said when each was made (2.1.1).
         started = {d.get("run") for d in mine if d.get("status") == "accepted"}
+        agree = False
         if not mine:
             status, why = "pending", ""
         elif len({d.get("status") for d in mine}) > 1 or len(started) > 1:
             status, why = "ambiguous", "decisions on this plan disagree (or it was started twice), on this or an earlier version of it; Flightdeck shows it as undecided"
         elif matching:
-            status, why = "decided", matching[0].get("status", "")
+            status, why, agree = "decided", matching[0].get("status", ""), True
         else:
-            status, why = "ambiguous", "the plan changed after it was decided; the decision on its earlier version still holds it, so Flightdeck won't start, decline or switch it again. To run it again, make a new plan"
-        out["plans"].append({"file": name, "id": pid, "status": status, "why": why})
+            status, why, agree = "ambiguous", "the plan changed after it was decided; the decision on its earlier version still holds it, so Flightdeck won't start, decline or switch it again. To run it again, make a new plan", True
+        entry = {"file": name, "id": pid, "status": status, "why": why}
+        # Started (on this version or an earlier one), and its run isn't in the folder (2.1.1): it stays started, never started
+        # again. It may still be syncing; if it never arrives, a new plan runs it again.
+        run = next(iter(started)) if agree and len(started) == 1 else None
+        if isinstance(run, str) and run:
+            proc = copies[0][2].get("process")
+            safe = re.match(r"^[a-z0-9-]{1,40}$", run, re.I) and re.match(r"^[a-z0-9][a-z0-9-]*$", proc or "")
+            if not safe or not os.path.exists(os.path.join(root, "runs", proc, run, "run.json")):
+                entry["runMissing"] = run
+        out["plans"].append(entry)
+    # Files in proposals/ that aren't complete JSON (2.1.1). unnamed: the name is neither a plan's or request's shape nor starts
+    # with a readable plan's ID, so it could be a renamed decision on any plan, and holds none.
+    def named(n):
+        if PLAN_NAMED.match(n):
+            return True
+        return any(n.startswith(pid) and n[len(pid):len(pid) + 1] in (".", " ", "-", "(") for pid in plans if isinstance(pid, str) and pid)
+    out["unreadablePlans"] = [{"file": "proposals/" + n, "unnamed": not named(n)} for n in torn]
 
     runs_dir = os.path.join(root, "runs")
     for proc in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:

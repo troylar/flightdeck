@@ -2533,6 +2533,56 @@ rule('Plans (2.1.1): only the window that started it, for the same person, gets 
   assert.deepStrictEqual(a.files(dir), []);
 });
 
+rule('Plans (2.1.1): Try again waiting on a held lock writes nothing, and never says "Run started", when the person or the folder changes before it gets the lock', async () => {
+  for (const which of ['plan', 'run']) for (const change of ['person', 'folder']) {
+    const tag = which + ' lock, ' + change, L = locks(), app = boot({ locks: L }); await app.tick(60);
+    const { id } = await failedStart(app, 'lost');
+    const oldFs = app.fs, dir = 'runs/release/' + id + '/', mine = fs => Object.keys(fs.files).filter(p => p.indexOf(dir) === 0 || /^proposals\//.test(p)).sort().map(p => p + '\u0000' + fs.files[p].t);
+    const had = mine(oldFs);
+    assert.ok(/data-act="plan-resume"/.test(app.html()), tag + ': set-up, Try again offered');
+    const g = gate(); L.request(which === 'plan' ? 'preflight:plan:' + PLAN : 'preflight:run:release/' + id, () => g.p);
+    app.click('plan-resume', PLAN); await app.tick(40);
+    assert.ok(!oldFs.files[dir + 'run.json'], tag + ': set-up, still waiting');
+    if (change === 'folder') { app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); }
+    else { app.choose('person-avery'); await app.tick(); }
+    g.open(); await app.tick(200);
+    if (change === 'folder') assert.ok(app.fs !== oldFs, tag + ': set-up, another folder');
+    assert.deepStrictEqual(mine(oldFs), had, tag + ': nothing written in the first folder');
+    assert.deepStrictEqual(app.files(dir), [], tag + ': nor in this one');
+    assert.ok(!/Run started/.test(app.html() + app.live()), tag + ': ' + shown(app));
+    assert.ok(!/data-act="plan-resume"/.test(app.html()), tag + ': no Try again now');
+  }
+});
+
+rule('Plans (2.1.1): changing the person forgets Try again, so switching back to the person who started it doesn\'t bring it back', async () => {
+  const app = boot(); await app.tick(60);
+  const { id } = await failedStart(app, 'lost');
+  assert.ok(/data-act="plan-resume"/.test(app.html()), 'set-up: Try again offered');
+  app.choose('person-avery'); await app.tick();
+  assert.ok(!/Try again/.test(app.html()), 'nothing says Try again to the new person: ' + shown(app));
+  app.choose('person-casey'); await app.tick();
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', PLAN); await app.tick();
+  assert.ok(!/data-act="plan-resume"/.test(app.html()), 'not offered again');
+  assert.ok(/its run isn(&#39;|')t in the folder/.test(app.html()), shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.deepStrictEqual(app.files('runs/release/' + id + '/'), [], 'nothing written');
+});
+
+rule('Plans (2.1.1): a started plan whose run never saved, edited afterwards, still names its missing run on the plan page and in Folder health', async () => {
+  const app = boot(); await app.tick(60);
+  const { id } = await failedStart(app, 'lost');
+  const file = 'proposals/' + PLAN + '.json', o = JSON.parse(app.fs.files[file].t);
+  await app.fs.write(file, JSON.stringify(Object.assign(o, { note: 'Edited after it was started' }), null, 2));
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', PLAN); await app.tick();
+  assert.ok(/Decided on an earlier version of this plan/.test(app.html()), 'set-up: decided earlier: ' + shown(app));
+  assert.ok(/its run isn(&#39;|')t in the folder/.test(app.html()) && app.html().includes(id), 'the plan page names the missing run: ' + shown(app));
+  assert.ok(/make a new plan to run it again/.test(app.html()), 'with what to do');
+  app.click('health'); await app.tick(200);
+  assert.ok(/its run isn(&#39;|')t in the folder/.test(app.html()) && app.html().includes(id), 'Folder health names it');
+});
+
 rule('Plans (2.1.1): Try again writes nothing when its decision names another run, an empty one or one too long; a run ID with a slash is refused before any path is made', async () => {
   for (const bad of ['outer/inner', '', 'x'.repeat(41)]) {
     const app = boot(); await app.tick(60);

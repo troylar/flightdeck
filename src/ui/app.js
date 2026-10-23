@@ -902,7 +902,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; state.pendingStart = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1094,7 +1094,7 @@
     };
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
       if (t !== opening) return;
-      state.me = myId; lsSet('me', myId); state.needsReconnect = null;
+      state.me = myId; lsSet('me', myId); state.needsReconnect = null; forgetStartIfNotMine();
       var made = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
       return made.then(function () {
         if (t !== opening) return;
@@ -1195,6 +1195,13 @@
       say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
       return load(true);
     }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
+  }
+  /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
+     folder, forgets it, so switching back never brings it back. */
+  function forgetStartIfNotMine() {
+    if (!state.pendingStart || state.pendingStart.me === state.me) return;
+    state.pendingStart = null;
+    if (state.msg && state.msg.pendingStart) state.msg = null;
   }
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
@@ -4341,14 +4348,18 @@
       if (state.resuming) return;
       state.resuming = true; render();
       var held = holdNav(false);
+      /* Who and which folder are asked again under each lock and right before the write: a change while it waits writes nothing. */
+      var still = function () { return g === gen && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
-        if (state.fs !== k.fs || fsKey() !== k.key || state.me !== k.me) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null });
+        if (!still()) return { dropped: true };
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (state.me !== k.me ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
         if (state.pendingStart === k) state.pendingStart = null;
+        /* Saved for the person who asked, who has since changed: the new person isn't taken to it or told it started. */
+        if (state.me !== k.me) { releaseNav(held); return load(true).then(function () { return null; }); }
         heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
         return load(true).then(function () { return true; });
       }).then(function (ok) { if (!ok) return; releaseNav(held); if (g !== gen) return; openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
@@ -4652,7 +4663,7 @@
     'setup-open': function () { setupOpen(null); },
     'setup-who': function (id) {
       var p = data.people.filter(function (x) { return x.id === id && !x.inactive; })[0]; if (!p) return;
-      state.me = id; lsSet('me', id); state.setup = null; home();
+      state.me = id; lsSet('me', id); forgetStartIfNotMine(); state.setup = null; home();
       say('Welcome, ' + p.name.split(' ')[0] + '. Home shows what needs you; Runs and Processes have the rest.', 'good'); state.focus = 'page-h'; render(); window.scrollTo(0, 0);
     },
     'setup-hide': function () { lsSet('setup-hidden:' + fsKey(), true); state.focus = 'page-h'; render(); },
@@ -5479,7 +5490,7 @@
         endBusy(); releaseNav(held); if (sg !== gen) return;
         if (dec && err && err.pending) {
           state.pendingStart = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
-          say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); render(); return;
+          say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
         say('Couldn\'t start the run: ' + err.message, 'bad'); render();
       });
@@ -5644,7 +5655,7 @@
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
-    if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
+    if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }
     if (e.target.id === 'su-to' && state.setup) { state.setup.to = e.target.value; render(); }
     /* In Fill in, changing a choice (like a Jira action) redraws the form so the fields that choice needs appear. */
@@ -5657,7 +5668,7 @@
       render();
     }
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
-    if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); render(); }
+    if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'rw-phase' && e.target.value) ACTIONS.goto('phase-' + e.target.value);
     /* The correction composer: where a new step goes, where a step moves, who does it, and its files. */
     if (state.corrForm) {
