@@ -2,14 +2,18 @@
 // version in the lowest format its content needs (here preflight-publication/1 with stagedFrom), and retires another with a
 // decision file. Every copy from 1.11.1 through 2.0.0 never lists staged/, takes the promoted version as an ordinary latest
 // version it can run, and writes nothing while reading. A stage's own record, read by an older copy as if it were a version,
-// is refused by name, never run. A test run on a stage (slice 5) is listed by name only and never saved there.
+// is refused by name, never run. A test run on a stage (slice 5) is listed by name only and never saved there. 2.1.0 reads all
+// of it as this version does: the stages and their decisions, a test run in full, and its count for the promoted version.
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const H = require('./compat-harness');
 const G = require('../tools/old-folders');
+const { expects } = require('./compat-matrix');
 
 const TAGS = H.bundles.tags().filter(t => t.supported);
+/* Releases that read staged/ (2.1.0 on), and those that never do. */
+const STAGES = TAGS.filter(t => expects('staging', t.version)), BEFORE = TAGS.filter(t => !expects('staging', t.version));
 const AT = '2026-10-22T12:00:00.000Z';
 const snap = (m) => JSON.stringify(Object.keys(m.files).sort().map(p => [p, m.files[p].t]));
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
@@ -43,7 +47,25 @@ rule('This version stages under staged/, writes the decision there, and promotes
   assert.ok(Object.keys(files).some(p => /^staged\/backup\/decisions\/stage-tryaaaa1\.w-blake\.1\.json$/.test(p)));
 });
 
-TAGS.forEach((t) => rule(t.tag + ': never lists staged/, runs the promoted version as an ordinary latest version, and writes nothing while reading', async () => {
+STAGES.forEach((t) => rule(t.tag + ': reads staged/ (one stage retired, one promoted), runs the promoted version as the latest, and writes nothing while reading', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const { files, tried, kept } = await folder(), m = H.memFolder(OLD, files), before = snap(m);
+  const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
+  assert.strictEqual(snap(m), before, 'nothing written while reading');
+  const sp = d.stages.procs.backup, pubs = proc.pubs || proc.index.all;
+  same(sp.stages.map(x => [x.folder, x.ok]).sort(), [[kept, true], [tried, true]].sort(), 'both stages read');
+  same(sp.decisions.map(x => [x.stage, x.status, x.by]), [[tried, 'retired', 'person-blake']], 'and the decision');
+  same([OLD.staging.status(sp.stages.find(x => x.folder === tried), sp.decisions, pubs).status, OLD.staging.status(sp.stages.find(x => x.folder === kept), sp.decisions, pubs).status], ['retired', 'promoted']);
+  const latest = proc.index.latest;
+  assert.ok(latest.ok && latest.info.version === 2 && latest.info.folder === 'v2-promoted' && latest.info.stagedFrom.folder === kept, 'the promoted version is the latest');
+  assert.ok(!(proc.pubs || []).some(x => /^stage-/.test(x.folder)), 'no stage is a version');
+  const r = OLD.run.create(latest, { title: 'Promoted October', details: { ticket: 'ABC-121' }, roles: { lead: 'person-avery', checker: 'person-blake' }, by: 'person-avery', session: 'w-avery', now: AT, id: 'run-p' });
+  await OLD.repo.saveRun(m, r, 'w-avery');
+  const back = (await OLD.repo.loadAll(m, { deep: true })).runs.find(x => x.id === 'run-p');
+  assert.ok(back && !back._unrunnable && back.folder === 'v2-promoted', 'a run on it starts and reads back runnable: ' + (back && back._unrunnable));
+}));
+
+BEFORE.forEach((t) => rule(t.tag + ': never lists staged/, runs the promoted version as an ordinary latest version, and writes nothing while reading', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files } = await folder(), m = H.memFolder(OLD, files);
   const listed = [], orig = m.list.bind(m);
@@ -62,12 +84,16 @@ TAGS.forEach((t) => rule(t.tag + ': never lists staged/, runs the promoted versi
   assert.ok(back && !back._unrunnable && back.folder === 'v2-promoted', 'and reads back runnable: ' + (back && back._unrunnable));
 }));
 
-TAGS.forEach((t) => rule(t.tag + ': a stage\'s own record, read as a version, is refused, never run', async () => {
+TAGS.forEach((t) => rule(t.tag + ': a stage\'s own record, read as a version, is refused, never run' + (expects('staging', t.version) ? ' (it reads it by the stage rules only)' : ''), async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files, kept } = await folder(), b = 'staged/backup/' + kept + '/';
-  const v = OLD.publish.verify(kept, { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] });
+  const these = { 'publication.json': files[b + 'publication.json'], 'map.md': files[b + 'map.md'], 'types.json': files[b + 'types.json'] }, exact = H.exact2(these['map.md'], these['types.json']);
+  const v = OLD.publish.verify(kept, these, expects('staging', t.version) ? exact : undefined);
   assert.ok(!v.ok, t.tag + ' would read a stage as a version');
-  if (t.major >= 2) assert.ok(/needs Flightdeck 2\.1/i.test(v.why), 'and says which release reads it: ' + v.why);
+  if (expects('staging', t.version)) {
+    assert.ok(v.unusable && /a stage belongs under staged\//.test(v.why), 'and says it is a stage: ' + v.why);
+    assert.ok(OLD.publish.verify(kept, these, exact, { stage: true }).ok, 'by the stage rules it reads');
+  } else if (t.major >= 2) assert.ok(/needs Flightdeck 2\.1/i.test(v.why), 'and says which release reads it: ' + v.why);
 }));
 
 /* Test runs (2.1 slice 5): this version starts one on a staged version. Every copy from 1.11.1 through 2.0.0 lists it by name
@@ -88,7 +114,21 @@ rule('This version writes a test run as run/3 naming staged and test-run, on the
   const { files, stage } = await testFolder(), r = JSON.parse(files['runs/backup/run-tst/run.json']);
   same([r.format, r.features.slice(-2), r.folder, r.test, r.stage, Object.keys(r).slice(-2)], ['preflight-run/3', ['staged', 'test-run'], stage, true, { folder: stage }, ['test', 'stage']]);
 });
-TAGS.forEach((t) => rule(t.tag + ': a test run is listed by name only, never its steps, and saving it writes nothing', async () => {
+STAGES.forEach((t) => rule(t.tag + ': reads a test run in full, labeled a test run on its stage, and saves it as run/3 naming staged and test-run', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const { files, stage } = await testFolder(), m = H.memFolder(OLD, files), before = snap(m);
+  const d = await OLD.repo.loadAll(m, { deep: true }), r = d.runs.find(x => x.id === 'run-tst');
+  assert.strictEqual(snap(m), before, 'nothing written while reading');
+  assert.ok(r && !r._unrunnable && OLD.run.isTest(r) && r.folder === stage && r.details.ticket === 'ABC-130', 'in full, a test run: ' + (r && r._unrunnable));
+  r.recorder = Object.assign({}, r.recorder, { session: 'w-avery' });
+  OLD.run.done(r, OLD.run.mapOf(r), 'read', 'person-avery', AT, {});
+  await OLD.repo.saveRun(m, r, 'w-avery');
+  const back = JSON.parse(m.files['runs/backup/run-tst/run.json'].t);
+  same([back.format, back.features.slice(-2), back.steps.read.s, Object.keys(back).slice(-2)], ['preflight-run/3', ['staged', 'test-run'], 'done', ['test', 'stage']]);
+  const proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
+  assert.ok(proc.index.latest.info.folder === 'v2-promoted' && !(proc.pubs || []).some(x => /^stage-/.test(x.folder)), 'the test run\'s stage is never a version');
+}));
+BEFORE.forEach((t) => rule(t.tag + ': a test run is listed by name only, never its steps, and saving it writes nothing', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files } = await testFolder(), m = H.memFolder(OLD, files), before = snap(m);
   const d = await OLD.repo.loadAll(m, { deep: true }), r = d.runs.find(x => x.id === 'run-tst');
@@ -131,7 +171,17 @@ rule('This version counts the stage\'s test runs and sign-off for the version pr
   const { ready, signs } = await signedFolder();
   assert.ok(ready.tests === ready.clean && ready.completed === 3 && signs.length === 1 && signs[0].stage, JSON.stringify([ready.completed, ready.clean, ready.tests, ready.deviations.slice(0, 3), signs.length]));
 });
-TAGS.forEach((t) => rule(t.tag + ': counts none of a stage\'s test runs or its sign-off for the promoted version, and writes nothing while reading', async () => {
+STAGES.forEach((t) => rule(t.tag + ': counts the stage\'s test runs and its sign-off for the promoted version, as this version does, and writes nothing while reading', async () => {
+  const OLD = H.loadCopy(t.tag); if (!OLD) return;
+  const { files, folder, ready, signs } = await signedFolder(), m = H.memFolder(OLD, files), before = snap(m);
+  const d = await OLD.repo.loadAll(m, { deep: true }), latest = (d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0]).index.latest;
+  assert.strictEqual(snap(m), before, 'nothing written while reading');
+  assert.ok(latest && latest.ok && latest.info.folder === folder && latest.fromStage && latest.fromStage.ok, 'the promoted version carries its stage');
+  const rd = OLD.skills.readiness(d.runs, latest, null);
+  same([rd.completed, rd.clean, rd.tests], [ready.completed, ready.clean, ready.tests], 'the same test runs counted');
+  same(OLD.skills.signoffs(d.validations || [], latest).length, signs.length, 'and the stage sign-off');
+}));
+BEFORE.forEach((t) => rule(t.tag + ': counts none of a stage\'s test runs or its sign-off for the promoted version, and writes nothing while reading', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
   const { files, folder } = await signedFolder(), m = H.memFolder(OLD, files), before = snap(m);
   const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];

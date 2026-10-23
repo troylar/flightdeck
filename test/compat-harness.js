@@ -92,9 +92,12 @@ function writeTree(dir, files) {
 
 /* What is newer than a release, for the rules that show it refuses a newer file: to a 1.x copy, what 2.0 writes (a run/3 or a
    /2 version with typed details); to a 2.0 copy, what only a later release writes (a feature 2.0 knows only by name: staged
-   versions, test runs). app: the release named in the file, which the copy's message names; needs: the version the message
-   names (the bridge and later); stepType: an envelope that copy can't read for a step type. */
+   versions, test runs); to a 2.1 copy, a frozen feature no release builds yet (extensions), named by a later release's app.
+   app: the release named in the file, which the copy's message names; needs: the version the message names (the bridge and
+   later); stepType: an envelope that copy can't read for a step type. */
 function newer(t) {
+  const v = t.version.split('.').map(Number);
+  if (v[0] > 2 || (v[0] === 2 && v[1] >= 1)) return { app: '2.2.0', needs: '2.2', run: ['extensions'], pub: ['extensions'], stepType: { format: 'flightdeck-step-type/3', features: [] } };
   if (t.major >= 2) return { app: '2.1.0', needs: '2.1', run: ['test-run'], pub: ['staged'], stepType: { format: 'flightdeck-step-type/3', features: [] } };
   return { app: '2.0.0', needs: '2.0', run: ['typed-details'], pub: ['typed-details'], stepType: { format: 'flightdeck-step-type/2', features: ['typed-evidence'] } };
 }

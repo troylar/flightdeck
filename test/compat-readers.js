@@ -57,6 +57,8 @@ async function prepare(PF, fs, version, files) {
     const existing = (await PF.repo.loadAll(fs)).processes[0].index.all.map(p => p.info);
     const res = await PF.repo.stage(fs, require('../tools/old-folders').CHECKLIST, Object.assign(publishOpts(PF, existing), { rand: 'aaaa1111', app: version }));
     if (!res || res.blockers) throw new Error('specimen stage: ' + JSON.stringify(res));
+    // And a decision on it (staged/<process>/decisions/), written by the app's Retire.
+    await PF.repo.decideStage(fs, 'backup', 'stage-aaaa1111', 'retired', { window: 'w-avery', by: 'person-avery', now: '2026-03-02T09:23:00.000Z', reason: 'Specimen', app: version });
   }
   // From 2.0: a report from another app on run-a, and the recorder's decision on it.
   if (PF.reports && PF.repo.decideReport) {
@@ -118,8 +120,10 @@ const FAMILIES = [
     readers: [{ via: 'repo.publish', from: '1.10.0', spec: 'images/restore.png', before: async (PF, fs) => (await loadAll(PF, fs)).processes[0].index.all.map(p => p.info),
       call: (PF, fs, existing) => PF.repo.publish(fs, require('../tools/old-folders').CHECKLIST, publishOpts(PF, existing)), found: (res, all) => !res.blockers && JSON.parse(res.files['publication.json']).images['images/restore.png'] === JSON.parse(all['publications/backup/' + pubFolder(all) + '/publication.json']).images['images/restore.png'] }] },
   { id: 'app-copy', re: /^(flightdeck|preflight)\.html$/, writer: 'hand', plan: 'not in the plan\'s reader table', readers: [{ via: 'app', from: '1.10.0' }], note: 'read by each release\'s app.js (the newer-copy check reads the head of the file, in a real folder only); test/compat.test.js checks it in each release\'s own page' },
-  { id: 'staged', re: /^staged\/.+$/, writer: 'none', note: 'stages and their decisions (2.1): no released copy writes them; this version reads them when staged/ is there',
+  { id: 'staged', re: /^staged\/(?![^/]+\/decisions\/).+$/, writer: 'staging', note: 'stages (2.1.0 on): loadAll lists staged/ only when the folder has it',
     readers: [L('2.1.0', d => !!d.stages && !!d.stages.procs.backup && d.stages.procs.backup.stages.some(x => x.folder === 'stage-aaaa1111' && x.ok), 'staged/backup/stage-aaaa1111/publication.json')] },
+  { id: 'stage-decisions', re: /^staged\/[^/]+\/decisions\/[^/]+$/, writer: 'stage-decisions', note: 'Retire and Reopen (2.1.0 on), flightdeck-stage-decision/1',
+    readers: [L('2.1.0', d => !!d.stages && !!d.stages.procs.backup && d.stages.procs.backup.decisions.some(x => x.stage === 'stage-aaaa1111' && x.status === 'retired'), f => Object.keys(f).find(p => /^staged\/backup\/decisions\//.test(p)))] },
   { id: 'extensions', re: /^extensions\/.+$/, writer: 'none', readers: [] },
   { id: 'skill-registrations', re: /^skill-registrations\/.+$/, writer: 'hand', note: 'written only by flightdeck skill register (the command, 2.0), never by the app',
     readers: [L('2.0.0', d => d.skills.some(s => s.skill && s.skill.regId === 'sk-bbbb2222' && !(s.errors || []).length), 'skill-registrations/restore-report/sk-bbbb2222.1.w-avery.json')] },
