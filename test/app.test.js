@@ -2385,8 +2385,9 @@ const runsAndPlans = app => app.files('runs/').concat(app.files('proposals/')).s
 /* Start the example plan with its run.json write failing: 'lost' never lands, 'landed' lands and then says it failed.
    keepReceipt: removing the save receipt fails too, so it stays. Returns the run ID its decision names and the bytes tried. */
 async function failedStart(app, how, opts) {
+  const plan = (opts && opts.plan) || PLAN;
   app.choose('person-casey'); await app.tick();
-  app.click('review-plan', PLAN); await app.tick();
+  app.click('review-plan', plan); await app.tick();
   const write = app.fs.write, remove = app.fs.remove; let tried = null;
   app.fs.write = function (p, t) {
     if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { tried = t; return how === 'landed' ? write.apply(this, arguments).then(() => { throw new Error('OneDrive is offline'); }) : Promise.reject(new Error('OneDrive is offline')); }
@@ -2395,8 +2396,15 @@ async function failedStart(app, how, opts) {
   if (opts && opts.keepReceipt) app.fs.remove = function (p) { return /\/candidate-/.test(p) ? Promise.reject(new Error('locked')) : remove.apply(this, arguments); };
   app.submitForm('start-form'); await app.tick(120);
   app.fs.write = write; app.fs.remove = remove;
-  const dec = decisionsOn(app);
+  const dec = decisionsOn(app, plan);
   return { id: dec.length === 1 ? dec[0].run : null, tried, dec };
+}
+/* A second plan for the same process, a copy of the example plan under another ID. */
+const PLAN_B = 'plan-release-2026-10-31';
+async function addPlanB(app) {
+  const o = JSON.parse(app.fs.files['proposals/' + PLAN + '.json'].t);
+  await app.fs.write('proposals/' + PLAN_B + '.json', JSON.stringify(Object.assign(o, { id: PLAN_B, title: 'Release 2026.10.31' }), null, 2));
+  app.click('refresh'); await app.tick(80);
 }
 
 rule('Plans (2.1.1): a start whose run doesn\'t save leaves one decision naming its run and no run, and the form never starts a second run', async () => {
@@ -2586,6 +2594,191 @@ rule('Plans (2.1.1): changing the person forgets Try again, so switching back to
   assert.ok(/its run isn(&#39;|')t in the folder/.test(app.html()), shown(app));
   app.click('plan-resume', PLAN); await app.tick(160);
   assert.deepStrictEqual(app.files('runs/release/' + id + '/'), [], 'nothing written');
+});
+
+rule('Plans (2.1.1): two plans whose runs didn\'t save each keep their own Try again, and each saves its own run', async () => {
+  const app = boot(); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  assert.ok(a.id && b.id && a.id !== b.id, 'set-up: two reserved runs');
+  const offered = () => (app.html().match(/data-act="plan-resume" data-id="([^"]+)"/g) || []).map(x => x.replace(/.*data-id="|"$/g, '')).sort();
+  assert.deepStrictEqual(offered(), [PLAN, PLAN_B].sort(), 'both Try again offered: ' + shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, 'A saved its exact bytes: ' + shown(app));
+  app.click('home'); await app.tick();
+  assert.deepStrictEqual(offered(), [PLAN_B], 'B still offered on Home: ' + shown(app));
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + b.id + '/run.json'] || {}).t, b.tried, 'B saved its exact bytes: ' + shown(app));
+  app.click('home'); await app.tick();
+  assert.deepStrictEqual(offered(), [], 'nothing left to try');
+  assert.strictEqual(decisionsOn(app).length, 1); assert.strictEqual(decisionsOn(app, PLAN_B).length, 1);
+});
+
+rule('Plans (2.1.1): the second plan\'s Try again works first, and the first plan\'s still works after it', async () => {
+  const app = boot(); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + b.id + '/run.json'] || {}).t, b.tried, shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, shown(app));
+});
+
+rule('Plans (2.1.1): changing the person forgets every plan\'s Try again, and switching back brings none back', async () => {
+  const app = boot(); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  app.choose('person-avery'); await app.tick();
+  assert.ok(!/data-act="plan-resume"/.test(app.html()), 'none offered to the new person');
+  app.choose('person-casey'); await app.tick();
+  assert.ok(!/data-act="plan-resume"/.test(app.html()), 'none offered again: ' + shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.deepStrictEqual(app.files('runs/release/' + a.id + '/').concat(app.files('runs/release/' + b.id + '/')), [], 'nothing written');
+});
+
+rule('Plans (2.1.1): a plan waiting on Try again isn\'t started again, and its Try again survives the refusal', async () => {
+  const app = boot(); await app.tick(60);
+  const a = await failedStart(app, 'lost');
+  app.click('review-plan', PLAN); await app.tick();
+  if (/id="start-form"/.test(app.html())) { app.submitForm('start-form'); await app.tick(120); }
+  assert.strictEqual(decisionsOn(app).length, 1, 'still one decision');
+  assert.ok(/data-act="plan-resume" data-id="plan-release-2026-10-24"/.test(app.html()), 'Try again still offered: ' + shown(app));
+  app.click('plan-resume', PLAN); await app.tick(160);
+  assert.strictEqual((app.fs.files['runs/release/' + a.id + '/run.json'] || {}).t, a.tried, shown(app));
+});
+
+rule('Plans (2.1.1): a start still saving when the person changes, or the folder, never comes back as Try again when its save then fails', async () => {
+  for (const change of ['person', 'folder']) {
+    const tag = change, app = boot(); await app.tick(60);
+    await addPlanB(app);
+    await failedStart(app, 'lost', { plan: PLAN_B });
+    assert.ok(/data-act="plan-resume" data-id="plan-release-2026-10-31"/.test(app.html()), tag + ': set-up, B offered');
+    app.click('review-plan', PLAN); await app.tick();
+    const oldFs = app.fs, write = oldFs.write, g = gate(); let held = null;
+    oldFs.write = function (p) {
+      if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { held = p; return g.p.then(() => { throw new Error('OneDrive is offline'); }); }
+      return write.apply(this, arguments);
+    };
+    app.submitForm('start-form'); await app.tick(120);
+    assert.ok(held && !oldFs.files[held], tag + ': set-up, A\'s run write is held');
+    if (change === 'person') { app.choose('person-avery'); await app.tick(); app.choose('person-casey'); await app.tick(); }
+    else { app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); }
+    g.open(); await app.tick(200);
+    oldFs.write = write;
+    app.click('home'); await app.tick();
+    assert.ok(!/data-act="plan-resume"/.test(app.html()), tag + ': no Try again: ' + shown(app));
+    app.click('plan-resume', PLAN); await app.tick(160);
+    assert.ok(!oldFs.files[held] && !app.fs.files[held], tag + ': A\'s run never saved');
+  }
+});
+
+/* Change who uses the window, or which folder it has open, while a planned action waits: 'person' (Casey to Avery), 'flip'
+   (Casey to Avery and back), 'folder' (another folder, then Casey again). */
+async function changeWhile(app, change) {
+  if (change === 'folder') { app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); return; }
+  app.choose('person-avery'); await app.tick();
+  if (change === 'flip') { app.choose('person-casey'); await app.tick(); }
+}
+const planFiles = (fs, id) => Object.keys(fs.files).filter(p => p.indexOf('proposals/' + id + '.status-') === 0 || /^runs\//.test(p)).sort().map(p => p + '\u0000' + fs.files[p].t);
+
+rule('Plans (2.1.1): a start waiting on the plan\'s lock writes nothing, and says nothing started, when the person or the folder changes before it gets the lock, even changed back', async () => {
+  for (const change of ['person', 'flip', 'folder']) {
+    const L = locks(), app = boot({ locks: L }); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    app.click('review-plan', PLAN); await app.tick();
+    const oldFs = app.fs, had = planFiles(oldFs, PLAN);
+    const g = gate(); L.request('preflight:plan:' + PLAN, () => g.p);
+    app.submitForm('start-form'); await app.tick(40);
+    await changeWhile(app, change);
+    g.open(); await app.tick(200);
+    assert.deepStrictEqual(planFiles(oldFs, PLAN), had, change + ': nothing written in the first folder');
+    assert.deepStrictEqual(decisionsOn(app), [], change + ': no decision in this one');
+    assert.ok(!/Run started/.test(app.html() + app.live()), change + ': ' + shown(app));
+    assert.ok(!/data-act="plan-resume"/.test(app.html()), change + ': no Try again');
+    if (change !== 'folder') { app.click('review-plan', PLAN); await app.tick(); assert.ok(/id="start-form"/.test(app.html()), change + ': the plan can still be started'); }
+  }
+});
+
+rule('Plans (2.1.1): a start whose run saves after the person changes, even changed back, opens nothing and announces nothing; the run is saved as it was started', async () => {
+  for (const change of ['person', 'flip']) {
+    const app = boot(); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    app.click('review-plan', PLAN); await app.tick();
+    const write = app.fs.write, g = gate(); let held = null;
+    app.fs.write = function (p) {
+      if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { held = p; const self = this, args = arguments; return g.p.then(() => write.apply(self, args)); }
+      return write.apply(this, arguments);
+    };
+    app.submitForm('start-form'); await app.tick(120);
+    assert.ok(held && !app.fs.files[held], change + ': set-up, the run write is held');
+    app.click('home'); await app.tick();
+    await changeWhile(app, change);
+    g.open(); await app.tick(200);
+    app.fs.write = write;
+    assert.ok(app.fs.files[held], change + ': the run started is saved, so its plan isn\'t left without one');
+    assert.strictEqual(decisionsOn(app).length, 1, change + ': one decision');
+    assert.ok(!/Run started|You(&#39;|')re recording/.test(app.html() + app.live()), change + ': nothing announced: ' + shown(app));
+    assert.ok(!/id="run-h"/.test(app.html()), change + ': the run isn\'t opened');
+  }
+});
+
+rule('Plans (2.1.1): a Try again whose write lands after the person changes, even changed back, opens nothing and announces nothing', async () => {
+  for (const change of ['person', 'flip']) {
+    const app = boot(); await app.tick(60);
+    const { id, tried } = await failedStart(app, 'lost');
+    const path = 'runs/release/' + id + '/run.json', write = app.fs.write, g = gate(); let held = false;
+    app.fs.write = function (p) {
+      if (p === path) { held = true; const self = this, args = arguments; return g.p.then(() => write.apply(self, args)); }
+      return write.apply(this, arguments);
+    };
+    app.click('plan-resume', PLAN); await app.tick(120);
+    assert.ok(held && !app.fs.files[path], change + ': set-up, the write is held');
+    await changeWhile(app, change);
+    g.open(); await app.tick(200);
+    app.fs.write = write;
+    assert.strictEqual((app.fs.files[path] || {}).t, tried, change + ': it was already writing, so the run is saved');
+    assert.ok(!/Run started/.test(app.html() + app.live()), change + ': nothing announced: ' + shown(app));
+    assert.ok(!/id="run-h"/.test(app.html()), change + ': the run isn\'t opened');
+  }
+});
+
+rule('Plans (2.1.1): a decline or a switch waiting on the plan\'s lock writes nothing when the person or the folder changes before it gets the lock, even changed back', async () => {
+  for (const what of ['decline', 'switch']) for (const change of ['person', 'flip', 'folder']) {
+    const tag = what + ', ' + change, id = what === 'decline' ? PLAN : 'plan-release-exact';
+    const L = locks(), app = boot({ locks: L }); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    if (what === 'switch') await exactPlan(app);
+    const v2 = pubFolder(app, 2);
+    app.click('review-plan', id); await app.tick();
+    const oldFs = app.fs, had = planFiles(oldFs, id);
+    const g = gate(); L.request('preflight:plan:' + id, () => g.p);
+    if (what === 'decline') app.click('decline-plan', id); else app.click('plan-retarget', id, { folder: v2 });
+    await app.tick(40);
+    await changeWhile(app, change);
+    g.open(); await app.tick(200);
+    assert.deepStrictEqual(planFiles(oldFs, id), had, tag + ': nothing written');
+    assert.ok(!/Plan declined|now starts on v2/.test(app.html() + app.live()), tag + ': ' + shown(app));
+  }
+});
+
+rule('Plans (2.1.1): with two plans waiting, a Try again canceled by a person change and change back stays canceled for both', async () => {
+  const L = locks(), app = boot({ locks: L }); await app.tick(60);
+  await addPlanB(app);
+  const a = await failedStart(app, 'lost');
+  const b = await failedStart(app, 'lost', { plan: PLAN_B });
+  const g = gate(); L.request('preflight:plan:' + PLAN, () => g.p);
+  app.click('plan-resume', PLAN); await app.tick(40);
+  app.choose('person-avery'); await app.tick();
+  app.choose('person-casey'); await app.tick();
+  g.open(); await app.tick(200);
+  assert.deepStrictEqual(app.files('runs/release/' + a.id + '/'), [], 'A: nothing written');
+  assert.ok(!/Run started/.test(app.html() + app.live()), shown(app));
+  app.click('plan-resume', PLAN_B); await app.tick(160);
+  assert.deepStrictEqual(app.files('runs/release/' + b.id + '/'), [], 'B: nothing written');
 });
 
 rule('Plans (2.1.1): a started plan whose run never saved, edited afterwards, still names its missing run on the plan page and in Folder health', async () => {

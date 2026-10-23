@@ -9,7 +9,7 @@
         "area": "Plans",
         "title": "A start that couldn't save its run can only be saved again, never started twice",
         "before": "The run was saved before the plan was marked started. If marking it failed, the plan still looked open, and starting it again made a second run.",
-        "now": "A start marks the plan started, naming its run, then saves the run. If the run doesn't save, that window offers Try again, which saves exactly that run, and only for the same person in the same folder. Other windows see the plan started and its run missing in Folder health, even after an edit, and nothing starts it again.",
+        "now": "A start marks the plan started, naming its run, then saves the run. If the run doesn't save, that window offers Try again, which saves exactly that run, and only for the same person in the same folder. Each plan keeps its own Try again. Other windows see the plan started and its run missing in Folder health, even after an edit, and nothing starts it again.",
         "where": "A plan's start form; Folder health"
       },
       {

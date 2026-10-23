@@ -82,7 +82,7 @@
   var state = {
     view: 'home', fs: null, me: lsGet('me', ''), filter: lsGet('filter', 'mine'), processId: null, planId: null, runKey: null,
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
-    pendingFiles: [], urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
+    pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
     folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
@@ -902,7 +902,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.pendingStart = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1198,10 +1198,18 @@
   }
   /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
      folder, forgets it, so switching back never brings it back. */
+  /* startEpoch: bumped by every change of person or folder. A planned action (start, decline, switch, Try again) captures
+     it with the folder and person it was asked in (planStill); once any of them changes, even changed back, it writes
+     nothing it hasn't written yet, and announces nothing. */
+  var startEpoch = 0, startMe = state.me;
+  function planStill(g, fs, key, who) { var ep = startEpoch; return function () { return g === gen && ep === startEpoch && state.fs === fs && fsKey() === key && state.me === who; }; }
+  /* Why a planned action was dropped, said in the window it was asked in. */
+  function droppedWhy(g, fs, key) { return g === gen && state.fs === fs && fsKey() === key ? 'the person using this window changed' : 'another folder was opened'; }
   function forgetStartIfNotMine() {
-    if (!state.pendingStart || state.pendingStart.me === state.me) return;
-    state.pendingStart = null;
-    if (state.msg && state.msg.pendingStart) state.msg = null;
+    if (state.me !== startMe) { startEpoch++; startMe = state.me; }
+    var gone = false;
+    Object.keys(state.pendingStarts).forEach(function (id) { if (state.pendingStarts[id].me !== state.me) { delete state.pendingStarts[id]; gone = true; } });
+    if (gone && state.msg && state.msg.pendingStart) state.msg = null;
   }
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
@@ -4330,27 +4338,30 @@
       state.planRetargeting = true;
       /* The folder and the person are the ones this was asked in: if either changed while it waited its turn, nothing is
          written, here or anywhere else. */
-      var rfs = state.fs, rkey = fsKey(), who = state.me;
+      var rfs = state.fs, rkey = fsKey(), who = state.me, still = planStill(g, rfs, rkey, who);
       queued(function () {
-        if (state.fs !== rfs || fsKey() !== rkey || state.me !== who) return { dropped: true };
-        return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
+        if (!still()) return { dropped: true };
+        return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
       }).then(function (res) {
         state.planRetargeting = false;
-        if (res && res.dropped) { say('The plan wasn\'t switched: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
-        if (g !== gen) return; state.planDiff = false; state.focus = 'start-submit';
-        return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
+        if (res && res.dropped) { say('The plan wasn\'t switched: ' + droppedWhy(g, rfs, rkey) + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
+        if (g !== gen) return;
+        if (!still()) return load(true);
+        state.planDiff = false; state.focus = 'start-submit';
+        return load(true).then(function () { if (!still()) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
-    /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person. */
+    /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person.
+       Each plan keeps its own (state.pendingStarts, by plan ID), so another plan's failed start never takes it away. */
     'plan-resume': function (id) {
-      var k = state.pendingStart, g = gen;
+      var k = Object.prototype.hasOwnProperty.call(state.pendingStarts, id) ? state.pendingStarts[id] : null, g = gen;
       if (!k || k.plan !== id || k.fs !== state.fs || k.key !== fsKey() || k.me !== state.me) { say('Only the window that started this plan, for the same person, can save its run again. Nothing was written.', 'warn'); render(); return; }
       if (state.resuming) return;
       state.resuming = true; render();
-      var held = holdNav(false);
+      var held = holdNav(false), same = planStill(g, k.fs, k.key, k.me);
       /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
-      var still = function () { return g === gen && state.pendingStart === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
+      var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
         return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still });
@@ -4358,15 +4369,15 @@
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (g === gen && state.fs === k.fs && fsKey() === k.key ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
-        if (state.pendingStart === k) state.pendingStart = null;
-        /* Saved for the person who asked, who has since changed: the new person isn't taken to it or told it started. */
-        if (state.me !== k.me) { releaseNav(held); return load(true).then(function () { return null; }); }
+        if (state.pendingStarts[k.plan] === k) delete state.pendingStarts[k.plan];
+        /* Saved for the person who asked, who has since changed (even changed back): nobody is taken to it or told it started. */
+        if (!same()) { releaseNav(held); return load(true).then(function () { return null; }); }
         heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
         return load(true).then(function () { return true; });
-      }).then(function (ok) { if (!ok) return; releaseNav(held); if (g !== gen) return; openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
+      }).then(function (ok) { if (!ok) return; releaseNav(held); if (!same()) { if (g === gen) render(); return; } openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
         function (e) { state.resuming = false; releaseNav(held); if (g === gen) { say('Couldn\'t save the run: ' + e.message, 'bad'); render(); } });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me; queued(function () { if (state.fs !== dfs || fsKey() !== dkey || state.me !== who) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written.', 'warn'); render(); return; } if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined: ' + droppedWhy(g, dfs, dkey) + ' before it could be saved. Nothing was written.', 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -5460,6 +5471,8 @@
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     /* A decision on the plan that can't be read could say it was started already: nothing starts until it reads. */
     if (plan && planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
+    /* A plan whose run is waiting on Try again here is decided: it's never started again. */
+    if (plan && Object.prototype.hasOwnProperty.call(state.pendingStarts, plan.id)) { say('This plan is marked started, but its run didn\'t save. Use Try again to save that run; nothing else starts it.', 'warn'); render(); return; }
     /* Two different copies of the plan (OneDrive kept both): nothing starts until a person deletes one. */
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
@@ -5472,27 +5485,38 @@
     var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
-    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
+    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false), skey = fsKey(), still = planStill(sg, sfs, skey, who);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
-       twice. The exact bytes it tried are kept in this window (state.pendingStart) for Try again (repo.resumeStart). */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, skey = fsKey();
+       twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null;
     queued(function () {
       r.recorder.session = SESSION;
       var save = function (keep) { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, keep: keep }); };
       if (!plan) return save(false);
-      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, write: function () {
+      /* Asked when its turn comes, once the plan's lock is held and right before the decision is written: a start whose folder
+         or person changed meanwhile, even changed back, writes nothing. Once the decision is written, its run is saved as
+         started (a plan marked started without its run is worse), but nothing is opened or announced. */
+      if (!still()) return { dropped: true };
+      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, still: still, write: function () {
         return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); });
       } });
-    }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
+    }).then(function (res) {
+      endBusy();
+      if (res && res.dropped) { releaseNav(held); say('The plan wasn\'t started: ' + droppedWhy(sg, sfs, skey) + ' before it could be saved. Nothing was written.', 'warn'); render(); return null; }
+      if (sg !== gen) { releaseNav(held); return null; }
+      if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
+      heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true).then(function () { return true; });
+    }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) {
         endBusy(); releaseNav(held); if (sg !== gen) return;
-        if (dec && err && err.pending) {
-          state.pendingStart = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
+        if (dec && err && err.pending && still()) {
+          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
           say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
+        if (dec && err && err.pending) { say('The plan is marked started, but its run didn\'t save (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }
         say('Couldn\'t start the run: ' + err.message, 'bad'); render();
       });
   });

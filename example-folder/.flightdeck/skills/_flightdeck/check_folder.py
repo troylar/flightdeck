@@ -1548,11 +1548,16 @@ def main():
         entry = {"file": name, "id": pid, "status": status, "why": why}
         # Started (on this version or an earlier one), and its run isn't in the folder (2.1.1): it stays started, never started
         # again. It may still be syncing; if it never arrives, a new plan runs it again.
+        # A decision doesn't record the process: on this exact plan it's the plan's; on an earlier version it may have been
+        # another, so the run is looked for under every process, as the app does (PF.health.missingRun).
         run = next(iter(started)) if agree and len(started) == 1 else None
         if isinstance(run, str) and run:
-            proc = copies[0][2].get("process")
-            safe = re.match(r"^[a-z0-9-]{1,40}\Z", run, re.I) and re.match(r"^[a-z0-9][a-z0-9-]*\Z", proc or "")
-            if not safe or not os.path.exists(os.path.join(root, "runs", proc, run, "run.json")):
+            alike = all(same_plan(c[2], copies[0][2]) for c in copies)
+            exact = bool(matching) if alike else any(d.get("proposalHash") == copies[0][1] for d in mine)
+            procs = [copies[0][2].get("process")] if exact else (sorted(os.listdir(os.path.join(root, "runs"))) if os.path.isdir(os.path.join(root, "runs")) else [])
+            safe = re.match(r"^[a-z0-9-]{1,40}\Z", run, re.I)
+            found = safe and any(isinstance(proc, str) and re.match(r"^[a-z0-9][a-z0-9-]*\Z", proc) and os.path.exists(os.path.join(root, "runs", proc, run, "run.json")) for proc in procs)
+            if not found:
                 entry["runMissing"] = run
         out["plans"].append(entry)
     # Files in proposals/ that aren't complete JSON (2.1.1). unnamed: the name is neither a plan's or request's shape nor starts

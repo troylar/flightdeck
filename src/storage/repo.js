@@ -1875,11 +1875,16 @@ PF.repo = (function () {
      started or declined; for a switch, any switch; for a start, a switch to another version than o.folder). Only then
      o.write() runs. o: { action: 'start' | 'declined' | 'retargeted', sha, folder, lock, write }. Across computers OneDrive
      has no lock: two at once is the clash groupPlans shows as decisions that disagree. */
+  /* o.still (the same folder and person, 2.1.1): asked once the plan's lock is held and again right before the decision is
+     written; false writes nothing and resolves { dropped: true }. */
   function decidePlan(fs, plan, o) {
     var id = plan && plan.id;
     if (typeof id !== 'string' || !id) return Promise.reject(new Error('No such plan.'));
-    var go = function () { return planGate(fs, plan, o).then(function () { return o.write(); }); };
-    return typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go);
+    var go = function () { stillOk(o); return planGate(fs, plan, o).then(function () { stillOk(o); return o.write(); }); };
+    return (typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go)).then(null, function (e) {
+      if (e && e.dropped) return { dropped: true };
+      throw e;
+    });
   }
   function planGate(fs, plan, o) {
     var id = plan.id, said = ' Nothing was written.';
