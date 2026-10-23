@@ -1161,7 +1161,8 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .wn .ver { color: var(--muted); }
 .wn-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--go); border: 2px solid var(--card); }
 .pill.newer { background: var(--amber-soft); color: var(--ink); }
-.rn-box { background: var(--card); color: var(--ink); border-radius: 14px; width: min(1400px, calc(100vw - 48px)); height: min(960px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow); }
+.rn-box { background: var(--card); color: var(--ink); border-radius: 14px; width: min(1400px, calc(100vw - 48px)); height: min(960px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 0 0 1px rgba(255,255,255,.04), 0 24px 64px rgba(0,0,0,.45); }
+.overlay:has(.rn-box) { background: rgba(4,7,10,.9); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .rn-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .rn-head h2 { margin: 0; font-size: 22px; }
 .rn-head h2 span { font-family: var(--body); font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 10px; }
