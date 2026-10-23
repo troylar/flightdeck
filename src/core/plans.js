@@ -1,4 +1,4 @@
-/* Planned runs (proposals/plan-*.json) and the decisions on them (proposals/<plan>.status-<writer>.json): the one checked
+/* Planned runs (proposals/plan-*.json) and the decisions on them (proposals/<plan>.status-<writer>.json for a switch, <plan>.status-<writer>-d.json for a start or decline): the one checked
    reader the app and reading for other apps share (docs/design.md section 28). Pure.
    Two kinds of plan: a number plan (kind: plan, version: N) keeps the meaning every copy gives it (a version that's gone starts
    on the latest, and says so); a plan/2 (format: flightdeck-plan/2, no kind) pins one exact version folder, and every exact

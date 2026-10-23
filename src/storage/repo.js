@@ -336,12 +336,19 @@ PF.repo = (function () {
     if (entry.drift && entry.drift.length) run._drift = entry.drift;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
-    var notes = [];
-    entry.notes.forEach(function (t) {
+    var notes = [], torn = [];
+    /* A line that isn't empty and isn't complete JSON (a torn append, or one still arriving) is named, never guessed at:
+       _noteLines [{ file, line }] (2.1.1). JSON that isn't a note is left out, as before. */
+    entry.notes.forEach(function (t, i) {
       if (t == null) return;
-      t.split('\n').forEach(function (line) { var n = noteOf(line.trim() && json(line), base); if (n) notes.push(n); });
+      t.split('\n').forEach(function (line, j) {
+        var o = line.trim() ? json(line) : null;
+        if (o === undefined) { torn.push({ file: entry.noteFiles ? entry.noteFiles[i] : '', line: j + 1 }); return; }
+        var n = noteOf(o, base); if (n) notes.push(n);
+      });
     });
     run._notes = notes.sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+    if (torn.length) run._noteLines = torn;
     if (cacheIn) intern(run, cacheIn);
     return run;
   }
@@ -528,12 +535,12 @@ PF.repo = (function () {
         /* A run started by a newer copy on a version in a publication format this copy doesn't know is read-only, even when
            its own copy of the checklist happens to read. */
         var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: fileHash(res[0].text),
-          notes: notesTexts, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
+          notes: notesTexts, noteFiles: noteFiles, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
         if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
-        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
+        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
         var lineage = run.lineage || [], lost = names.filter(function (n) { var t = candidateTag(n); return t && lineage.indexOf(t) < 0; });
@@ -731,7 +738,11 @@ PF.repo = (function () {
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
-      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; return x; });
+      /* unnamed (2.1.1): a torn file whose name starts with no plan's ID could be a renamed decision on any plan. It holds none,
+         and Folder health names it on its own. */
+      var planIds = (r[6].plans || []).map(function (p) { return p.id; });
+      var named = function (n) { return planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A plan decision refused here (a newer Flightdeck's, or not in its format) holds its plan as one still arriving does. */
       var planHolds = planUnread.filter(function (u) { return u.kind === 'unreadable'; }).concat((r[6].refused || []).filter(function (x) { return x.family === 'flightdeck-plan-status'; }).map(function (x) { return { path: x.path, _file: x.path.slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
       var plans = groupPlans(r[6].plans, r[6].statuses, planHolds);
@@ -1179,11 +1190,27 @@ PF.repo = (function () {
     forgetRun(fs, run);
     var writer = opts.writer || session;
     var path = 'runs/' + run.process + '/' + run.id + '/run.json';
-    if (run._unrunnable) return Promise.reject(readOnly(run._unrunnable));
+    /* opts.keep (a planned run's first save, 2.1.1): the exact text is made before anything can refuse it, and a failure hands
+       it back as e.pending { path, text, certain, cand }: certain when nothing was written yet, else the write may have
+       landed; cand the save receipt that may be left. Only that window writes those bytes again (resumeStart). */
+    var made = opts.keep ? make() : null, wrote = false;
+    var kept = function (e) { if (e && typeof e === 'object') e.pending = { path: path, text: made.text, certain: !wrote, cand: wrote ? made.cand : null }; throw e; };
+    if (run._unrunnable) return made ? Promise.reject(readOnly(run._unrunnable)).then(null, kept) : Promise.reject(readOnly(run._unrunnable));
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
-    if (opts.lock) return opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); });
-    return checkAndWrite();
+    var go = opts.lock ? opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); }) : checkAndWrite();
+    return made ? go.then(null, kept) : go;
+    function make() {
+      var copy = stripMeta(run); copy.rev = (run.rev || 0) + 1; copy.savedAt = new Date().toISOString(); copy.savedBy = session;
+      /* Every save is first written to its own uniquely named candidate file, and run.json lists the saves it includes.
+         Where windows can't take turns (two browsers, two computers, no Web Locks), a save that another save replaced is
+         therefore never lost: its candidate isn't in the list, so loadRun shows it as a conflict copy to compare and keep. */
+      var saveId = U.randomId(8), tag = writer + '.' + saveId, dir = 'runs/' + run.process + '/' + run.id + '/';
+      copy.lineage = (run.lineage || []).concat([tag]).slice(-LINEAGE_MAX);
+      /* A test run's frozen fields stay last (test/fixtures/v2 run-t). */
+      if (copy.test === true) { var tst = copy.stage; delete copy.test; delete copy.stage; copy.test = true; copy.stage = tst; }
+      return { copy: copy, dir: dir, text: JSON.stringify(copy, null, 2), cand: dir + 'candidate-' + writer + '-' + saveId + '.json' };
+    }
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
     return pubProblem(fs, run, null, opts.strict).then(function (why) {
@@ -1213,15 +1240,8 @@ PF.repo = (function () {
       /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
          never written back by an ordinary save, only by an explicit restore. A run never saved yet is created here. */
       if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
-      var copy = stripMeta(run); copy.rev = (run.rev || 0) + 1; copy.savedAt = new Date().toISOString(); copy.savedBy = session;
-      /* Every save is first written to its own uniquely named candidate file, and run.json lists the saves it includes.
-         Where windows can't take turns (two browsers, two computers, no Web Locks), a save that another save replaced is
-         therefore never lost: its candidate isn't in the list, so loadRun shows it as a conflict copy to compare and keep. */
-      var saveId = U.randomId(8), tag = writer + '.' + saveId, dir = 'runs/' + run.process + '/' + run.id + '/';
-      copy.lineage = (run.lineage || []).concat([tag]).slice(-LINEAGE_MAX);
-      /* A test run's frozen fields stay last (test/fixtures/v2 run-t). */
-      if (copy.test === true) { var tst = copy.stage; delete copy.test; delete copy.stage; copy.test = true; copy.stage = tst; }
-      var text = JSON.stringify(copy, null, 2), cand = dir + 'candidate-' + writer + '-' + saveId + '.json';
+      var m = made || make(), copy = m.copy, dir = m.dir, text = m.text, cand = m.cand;
+      wrote = true;
       return fs.write(cand, text)
         .then(function () { return archiveOverflow(fs, run, writer); })
         .then(function () { return fs.write(path, text); })
@@ -1886,17 +1906,69 @@ PF.repo = (function () {
       if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
       if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
       var hashes = texts.map(function (t) { return U.hash(t); });
-      var on = decisions.filter(function (d) { return hashes.indexOf(d.proposalHash) >= 0; });
-      var done = on.filter(function (d) { return d.status !== 'retargeted'; })[0];
-      if (done) throw new Error(done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' + said : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.' + said);
-      var moves = on.filter(function (d) { return d.status === 'retargeted'; });
+      /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
+         an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
+      var made = decisions.filter(function (d) { return d.status !== 'retargeted'; }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
+      if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said);
+      var moves = decisions.filter(function (d) { return d.status === 'retargeted' && hashes.indexOf(d.proposalHash) >= 0; });
       if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
       if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);
     });
   }
+  /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
+     never replaces the switch this window made before it. Resolves to the path written. */
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
-    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app);
-    return fs.write('proposals/' + plan.id + '.status-' + session + '.json', JSON.stringify(rec, null, 2));
+    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
+    return fs.write(path, JSON.stringify(rec, null, 2)).then(function () { return path; });
+  }
+  /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save
+     failed (k: { process, id, path, text, cand, dec }), never made again. Under the plan's lock and then the run's, on a fresh
+     read: this window's own decision (k.dec, by o.me) must still name the run, and the run's version must still be one this
+     copy records on. A run.json with exactly those bytes is the first write having landed (success, nothing written); other
+     text is refused. With none, the bytes are written only into a run folder with no file at any depth, apart from this
+     window's own save receipt (k.cand) holding exactly those bytes: a folder with anything else held a run that was started
+     and worked on, and is never recreated. */
+  function resumeStart(fs, planId, k, o) {
+    var said = ' Nothing was written.', id = k && k.id, proc = k && k.process;
+    if (typeof id !== 'string' || !R.RUN_ID.test(id) || typeof proc !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(proc)) return Promise.reject(new Error('That isn\'t a run Flightdeck can write.' + said));
+    var dir = 'runs/' + proc + '/' + id + '/', path = dir + 'run.json';
+    if (k.path !== path || typeof k.text !== 'string' || typeof k.dec !== 'string' || k.dec.indexOf('proposals/' + planId + '.status-') !== 0 || /\/|\.\./.test(k.dec.slice('proposals/'.length))) return Promise.reject(new Error('That isn\'t a run Flightdeck can write.' + said));
+    var gone = function () { return new Error('Your decision on this plan no longer names this run, so the run wasn\'t saved.' + said); };
+    var go = function () {
+      return fs.read(k.dec).then(function (f) {
+        /* The decision is read through the one plan reader, as the gate reads it. */
+        var d = f ? json(f.text) : null, v = d && typeof d === 'object' && !Array.isArray(d) ? PF.plans.clean(d, k.dec.slice('proposals/'.length), false) : null;
+        if (!v || !v.ok || v.why || v.kind !== 'status' || d.proposal !== planId || d.status !== 'accepted' || d.run !== id || d.by !== o.me) throw gone();
+        return typeof o.lock === 'function' ? o.lock('preflight:run:' + proc + '/' + id, check) : check();
+      });
+    };
+    return typeof o.lock === 'function' ? o.lock('preflight:plan:' + planId, go) : Promise.resolve().then(go);
+    function check() {
+      forgetRun(fs, { process: proc, id: id });
+      var run = R.sanitize(json(k.text));
+      if (!run || run.id !== id || run.process !== proc) return Promise.reject(new Error('That isn\'t a run Flightdeck can write.' + said));
+      if (run._unrunnable) return Promise.reject(readOnly(run._unrunnable));
+      return pubProblem(fs, run, null, true).then(function (why) {
+        if (why) throw readOnly(why);
+        return fs.read(path);
+      }).then(function (f) {
+        if (f) { if (f.text === k.text) return { already: true }; throw new Error('The run was saved and has changed since; open it from Runs.' + said); }
+        return filesUnder(fs, dir.slice(0, -1)).then(function (paths) {
+          var others = paths.filter(function (p) { return p !== k.cand; });
+          var own = paths.length > others.length ? fs.read(k.cand).then(function (c) { return !!c && c.text === k.text; }) : Promise.resolve(true);
+          return own.then(function (ok) {
+            if (others.length || !ok) throw new Error('The run\'s folder has files but no run.json. Restore run.json from a backup.' + said);
+            return fs.write(path, k.text).then(function () { forgetRun(fs, run); return { written: true }; });
+          });
+        }, function (e) { throw new Error('The run\'s folder ' + why(e) + '.' + said); });
+      });
+    }
+  }
+  /* Every file under dir, at any depth, by path. */
+  function filesUnder(fs, dir) {
+    return fs.list(dir).then(function (items) {
+      return Promise.all((items || []).map(function (i) { var p = dir + '/' + i.name; return i.kind === 'dir' ? filesUnder(fs, p) : [p]; })).then(function (l) { return [].concat.apply([], l); });
+    });
   }
 
 
@@ -2250,9 +2322,10 @@ PF.repo = (function () {
      disconnected (a request from another app, made on each). Copies that say the same thing (PF.requests.same: equal apart
      from when each was written) are one plan, shown once from the file under its own name (_copies says how many files);
      copies that differ are each shown, flagged (_copiesDiffer, _files), and the app starts neither until a person deletes one.
-     A decision counts only for the exact plan it was made on (any copy of it); if the plan changed afterwards, it's pending
-     again. Decisions that disagree (one accepted and one declined, or two starts naming different runs, on any of its copies)
-     leave the plan undecided rather than picking one, so a plan started on two computers is shown, never hidden. */
+     A decision is the plan's _status only for the exact plan it was made on (any copy of it); if the plan changed afterwards,
+     it isn't pending again: _decidedEarlier holds it (2.1.1). Decisions that disagree (one accepted and one declined, or two
+     starts naming different runs, on any version of it) leave the plan undecided rather than picking one, so a plan started
+     on two computers is shown, never hidden. */
   /* unread: files in proposals/ that couldn't be read (repo.loadAll's planUnread). One named <plan>.status-… could be a
      decision on that plan, so the plan holds them (_statusUnread) and isn't started until they read. */
   function groupPlans(plans, statuses, unread) {
@@ -2272,12 +2345,15 @@ PF.repo = (function () {
         p._retarget = to.length === 1 ? moves.sort(function (a, b) { return String(a.at) < String(b.at) ? 1 : -1; })[0] : null;
         p._retargetClash = to.length > 1 ? to : null;
         var match = mine.filter(function (s) { return hashes.indexOf(s.proposalHash) >= 0; });
-        /* Starts count across every copy of the plan, whatever each copy says: two copies that differ, each started on its own
-           computer, are one request started twice. */
-        var started = mine.filter(function (s) { return s.status === 'accepted' && allHashes.indexOf(s.proposalHash) >= 0; });
-        p._conflicting = match.some(function (s) { return s.status !== match[0].status; }) || started.some(function (s) { return (s.run || null) !== (started[0].run || null); });
+        /* Starts and declines are compared across every version of the plan, whatever the hash (2.1.1): a start on one and a
+           decline on an edited one, or two starts naming different runs, disagree. _starts keeps the runs they name. */
+        var started = mine.filter(function (s) { return s.status === 'accepted'; });
+        p._conflicting = mine.some(function (s) { return s.status !== mine[0].status; }) || started.some(function (s) { return (s.run || null) !== (started[0].run || null); });
+        p._starts = started.map(function (s) { return s.run || null; }).filter(function (r, i, a) { return a.indexOf(r) === i; });
         p._status = match.length && !p._conflicting ? match[0] : null;
+        /* A plan edited after its decision isn't pending again: the decision made on its earlier version holds it. */
         p._changedAfterDecision = !p._status && !p._conflicting && mine.length > 0;
+        p._decidedEarlier = p._changedAfterDecision ? mine.slice().sort(function (a, b) { return String(a.at) < String(b.at) ? 1 : -1; })[0] : null;
         p._copies = g.length; p._copiesDiffer = !alike; p._files = files;
         /* _statusHeld: { path, kind (unreadable, newer or malformed), needs }; _statusUnread: their paths. */
         p._statusHeld = (unread || []).filter(function (u) { return String(u._file).indexOf(p.id + '.status-') === 0; }).map(function (u) { return { path: u.path, kind: u.kind || 'unreadable', needs: u.needs || '' }; });
@@ -3014,5 +3090,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

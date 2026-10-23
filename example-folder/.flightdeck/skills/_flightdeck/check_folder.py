@@ -1401,15 +1401,16 @@ def main():
             continue
         hashes = {c[1] for c in copies}
         matching = [d for d in mine if d.get("proposalHash") in hashes]
-        started = {d.get("run") for d in matching if d.get("status") == "accepted"}
+        # Starts and declines are compared across every version of the plan, whatever it said when each was made (2.1.1).
+        started = {d.get("run") for d in mine if d.get("status") == "accepted"}
         if not mine:
             status, why = "pending", ""
-        elif matching and len({d.get("status") for d in matching}) == 1 and len(started) <= 1:
+        elif len({d.get("status") for d in mine}) > 1 or len(started) > 1:
+            status, why = "ambiguous", "decisions on this plan disagree (or it was started twice), on this or an earlier version of it; Flightdeck shows it as undecided"
+        elif matching:
             status, why = "decided", matching[0].get("status", "")
-        elif not matching:
-            status, why = "ambiguous", "the plan changed after it was decided; Flightdeck shows it as pending again"
         else:
-            status, why = "ambiguous", "decisions on the same plan disagree (or it was started twice); Flightdeck shows it as undecided"
+            status, why = "ambiguous", "the plan changed after it was decided; the decision on its earlier version still holds it, so Flightdeck won't start, decline or switch it again. To run it again, make a new plan"
         out["plans"].append({"file": name, "id": pid, "status": status, "why": why})
 
     runs_dir = os.path.join(root, "runs")

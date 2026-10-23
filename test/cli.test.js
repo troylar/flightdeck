@@ -2071,6 +2071,19 @@ rule('REQUEST: OneDrive copies of a request count: the same request is already r
   assert.ok(r.code === 0 && r.json.data.request.status === 'already' && r.json.data.request.run === 'release/run9', r.out);
 });
 
+rule('READ (2.1.1): a plan decided and then edited reads as changed, never pending; a start and a decline on different versions read as conflicting', async () => {
+  const id = 'plan-release-2026-10-24', file = (dir) => path.join(dir, 'proposals', id + '.json');
+  const dec = (dir, writer, text, status, run) => fs.writeFileSync(path.join(dir, 'proposals', id + '.status-' + writer + '.json'), JSON.stringify({ kind: 'status', proposal: id, proposalHash: SRC.util.hash(JSON.stringify(JSON.parse(text))), status, run: run || null, by: 'person-casey', at: RF.NOW }));
+  const dir = await readFolder(), was = fs.readFileSync(file(dir), 'utf8');
+  dec(dir, 'w1', was, 'accepted', 'run-a');
+  const edited = JSON.stringify(Object.assign(JSON.parse(was), { note: 'Edited after it was started' }), null, 2);
+  fs.writeFileSync(file(dir), edited);
+  const planned = () => agree(readCli('runs', dir, '--status', 'planned', '--json')).json.data.planned.filter(x => x.id === id)[0];
+  assert.strictEqual(planned().status, 'changed', 'changed, and final');
+  dec(dir, 'w2', edited, 'declined');
+  assert.strictEqual(planned().status, 'conflicting', 'a start on one version and a decline on another disagree');
+});
+
 rule('REQUEST: an invalid process, version or detail is refused the READ way, naming every reason, and nothing is written', async () => {
   const dir = await readFolder(f => { const p = JSON.parse(f['people.json']); p.push({ id: 'person-river', name: 'River Stone', initials: 'RS', email: 'river@example.com', inactive: true }); f['people.json'] = JSON.stringify(p); });
   const before = EV.tree(dir), err = (body, key) => reqAgree(request(dir, body, key || 'bad'));

@@ -335,6 +335,32 @@ rule('Plan gate: another plan\'s files, readable or not, never hold this one', a
   await p; assert.strictEqual(wrote.n, 1);
 });
 
+/* 2.1.1: a start or decline on this plan's ID holds it, whatever version of the plan it was made on. */
+rule('Plan gate (2.1.1): copy A started, then deleted: copy B, which differs slightly, can\'t be started, declined or switched', async () => {
+  for (const status of ['accepted', 'declined']) {
+    const { fs, page } = await planFolder(), path = 'proposals/' + PLAN + '.json', o = JSON.parse(fs.files[path].t);
+    put(fs, 'proposals/' + PLAN + ' (1).json', JSON.stringify(Object.assign({}, o, { note: 'Copy B' }), null, 2));
+    await repo.recordPlanStatus(fs, page, 'w-other', status, status === 'accepted' ? 'run-a' : null, 'person-avery', null, '2.1.0');
+    delete fs.files[path];
+    const b = (await repo.loadAll(fs)).plans.find(p => p.id === PLAN);
+    assert.ok(b && !b._status && b._decidedEarlier && b._decidedEarlier.status === status, status + ': held as decided earlier');
+    for (const a of ['start', 'declined', 'retargeted']) await refused(fs, b, a, /already (started|declined)[^]*make a new plan/i);
+  }
+});
+
+rule('Plan gate (2.1.1): a switch on an earlier version of the plan still doesn\'t hold an edited plan', async () => {
+  const fs = folder(), pub = await publish(fs);
+  const exact = PF.plans.make(pub, { id: 'plan-release-exact', process: 'release', title: 'Release exact', details: {}, roles: {}, by: 'person-avery', created: NOW }, true, '2.1.0');
+  put(fs, 'proposals/plan-release-exact.json', JSON.stringify(exact, null, 2));
+  const page = (await repo.loadAll(fs)).plans.find(p => p.id === 'plan-release-exact');
+  await repo.recordPlanStatus(fs, page, 'w-other', 'retargeted', null, 'person-avery', { folder: 'v2-x', version: 2 }, '2.1.0');
+  put(fs, 'proposals/plan-release-exact.json', JSON.stringify(Object.assign({}, exact, { note: 'Edited' }), null, 2));
+  const edited = (await repo.loadAll(fs)).plans.find(p => p.id === 'plan-release-exact');
+  assert.ok(!edited._status && !edited._decidedEarlier && !edited._retarget, 'pending, as before');
+  const { p, wrote } = ask(fs, edited, 'start', { folder: 'v1-x' });
+  await p; assert.strictEqual(wrote.n, 1);
+});
+
 /* ---------- 2. Saves compare the exact text (or SHA-256), never a 32-bit FNV ---------- */
 
 rule('A run saved over a run.json that changed is kept as a conflict copy, even when the two texts share an FNV fingerprint', async () => {

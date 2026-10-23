@@ -743,7 +743,7 @@
     if (status === 'done') h += box('link', 'Link (optional)', 'type="url" maxlength="500" placeholder="https://"', 'Where the work is: a merged pull request, a page, a message.') + box('note', 'Note (optional)', 'maxlength="300"');
     else if (status === 'ticket') h += box('ticket', 'Ticket key or link', 'maxlength="500" placeholder="ABC-123" autocomplete="off"');
     else if (status === 'moved') {
-      var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && /^[\w-]{1,100}$/.test(p.id || ''); });
+      var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && !p._decidedEarlier && /^[\w-]{1,100}$/.test(p.id || ''); });
       var toId = base + '-to', bad = st.fieldErr && st.fieldErr.id === toId;
       h += '<label class="field" for="' + toId + '">The run or plan it moved to<select id="' + toId + '"' + (bad ? ' aria-invalid="true" aria-describedby="ferr-' + toId + '"' : '') + '><option value="">None: I\'ll paste a link</option>' +
         (runs.length ? '<optgroup label="Running">' + runs.map(function (r) { return '<option value="' + esc(r.process + '/' + r.id) + '">' + esc(r.title) + '</option>'; }).join('') + '</optgroup>' : '') +
@@ -809,6 +809,8 @@
     /* A Done differently whose correction was saved but whose answer couldn't be: said here until someone acts. */
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
     if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + esc(px ? px.step.text : part.step) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
+    /* A note line that isn't complete JSON (2.1.1): named, never guessed at; the rest of the notes show. */
+    (r._noteLines || []).forEach(function (x) { al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(x)) + '</span></div>'; });
     al += recovery(ctx, r, ctx.canRecover(r));
     if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);

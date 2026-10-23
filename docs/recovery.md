@@ -66,6 +66,28 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **What not to do:** don't start the request in an older copy of Flightdeck while two files exist: older copies show each file as its own planned run, so it can be started twice. If it was started twice already, Runs shows the plan's decisions as disagreeing; keep one run and cancel the other.
 
+## A started plan's run isn't in the folder
+
+**What you see:** on a planned run, or in **Folder health**, "Started (run …); its run isn't in the folder." In the window that started it, "The plan is marked started, but its run didn't save", with **Try again**.
+
+**What it means:** starting a plan marks it started first, naming its run, and then saves the run. Here the plan is marked started, but its `run.json` isn't in `runs/<process>/<run>/`. Either it's still syncing from another computer, or the run's save failed and the window that started it was closed before it tried again. The plan stays started either way, so it's never started a second time.
+
+**What to do:**
+
+1. In the window that started it, choose **Try again**. It saves exactly the run that was started, on the same version. It does nothing if the run's folder already holds other files: then the run was started and worked on, and its `run.json` went missing later; restore it from a backup (see [Restoring from a backup](#restoring-from-a-backup)).
+2. Anywhere else, wait and choose **Refresh**: the run may still be syncing.
+3. If it never arrives, make a new plan (or **Start a run**) to run it again.
+
+**What not to do:** don't delete the plan's decision (`proposals/<plan>.status-…-d.json`) to make the plan startable again: if the run does arrive later, it would be started twice.
+
+## A plan file with another name can't be read
+
+**What you see:** **Folder health** says a file in `proposals/` can't be read, and its name doesn't say which plan it's for, like `proposals/Copy of plan-release-….json`.
+
+**What it means:** Flightdeck holds a plan while a file named for it (`<plan>.…`) can't be read, because that file could be a decision saying the plan was already started. A file with another name (a renamed copy, "Copy of …") could be such a decision too, but nothing says which plan, so it holds none. While it can't be read, the plan it belongs to could be started again.
+
+**What to do:** if it's still arriving, wait and choose **Check again**. If it stays that way, restore it from a backup, or delete it if it's a stray copy.
+
 ## A request file is incomplete
 
 **What you see:** `flightdeck plan request` exits with 4 (`held`) and names a file in `proposals/`, like `proposals/req-backup-script-….json`, saying it isn't complete JSON. Nothing was written.
@@ -143,7 +165,9 @@ First, choose **Refresh**. A big folder checks older runs a share at a time: a n
 - A planned run's file, or a decision on it, that can't be read: that plan stays shown as last read and can't be started, declined or switched until it reads. While `proposals/` itself can't be read, that goes for every plan shown.
 - A staged version without its finished record, or a retire or reopen decision that can't be read: nothing runs from that staged version, and **All versions** offers no change to it until it reads. Stage the draft again if it stays that way.
 
-Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is named as ignored: move it out of that folder.
+Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is named as ignored: move it out of that folder. A file in `proposals/` whose name doesn't say which plan it's for has its own section: [A plan file with another name can't be read](#a-plan-file-with-another-name-cant-be-read).
+
+**A note.** A line in a run's notes file (`notes-….jsonl`) that isn't complete JSON is named on the run page and in Folder health: "A note in notes-….jsonl (line 3) couldn't be read." Usually it's still arriving and the warning goes on the next read. If it stays, the note on that line was cut short (a crash, or a sync cut off) and is lost; the run's other notes show as usual. Nothing is repaired or rewritten. If someone remembers what the note said, add it again.
 
 **What not to do:** don't fix the JSON by hand in a text editor, and don't delete the file. A run file someone fixed by hand may open read-only.
 

@@ -98,6 +98,42 @@ rule('The assistants\' folder checker agrees with the app on complete, damaged a
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+rule('The checker agrees with the app (2.1.1): an edited plan, a deleted copy, and a start on one version with a decline on another', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-check-'));
+  const d = new DiskFS(root);
+  await d.write('people.json', JSON.stringify(people));
+  const v1 = await repo.publish(d, example('maps/drafts/release.md'), { people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW });
+  assert.ok(!v1.blockers, String(v1.blockers));
+  const plan = (id, extra) => JSON.stringify(Object.assign({ kind: 'plan', id, process: 'release', version: 1, title: id, details: {}, roles: {} }, extra || {}), null, 2);
+  const page = async (id) => (await repo.loadAll(d, { deep: true })).plans.find(p => p.id === id);
+  // Edited after it was started.
+  await d.write('proposals/plan-edit.json', plan('plan-edit'));
+  await repo.recordPlanStatus(d, await page('plan-edit'), 'w1', 'accepted', 'run-e', 'person-casey');
+  await d.write('proposals/plan-edit.json', plan('plan-edit', { note: 'Edited' }));
+  // Copy A started, then deleted; copy B differs slightly.
+  await d.write('proposals/plan-copy.json', plan('plan-copy'));
+  await repo.recordPlanStatus(d, await page('plan-copy'), 'w1', 'accepted', 'run-c', 'person-casey');
+  await d.write('proposals/plan-copy (1).json', plan('plan-copy', { note: 'Copy B' }));
+  fs.unlinkSync(path.join(root, 'proposals', 'plan-copy.json'));
+  // Started on version A, declined on an edited version B.
+  await d.write('proposals/plan-mixed.json', plan('plan-mixed'));
+  await repo.recordPlanStatus(d, await page('plan-mixed'), 'w1', 'accepted', 'run-m', 'person-casey');
+  await d.write('proposals/plan-mixed.json', plan('plan-mixed', { note: 'Edited' }));
+  await repo.recordPlanStatus(d, await page('plan-mixed'), 'w2', 'declined', null, 'person-blake');
+  const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+  const ap = id => app.plans.find(p => p.id === id), ck = id => out.plans.find(p => p.id === id);
+  assert.ok(ap('plan-edit')._decidedEarlier && ap('plan-copy')._decidedEarlier && ap('plan-mixed')._conflicting, 'the app');
+  for (const id of ['plan-edit', 'plan-copy']) {
+    assert.strictEqual(ck(id).status, 'ambiguous', id);
+    assert.ok(!/pending again/.test(ck(id).why) && /earlier version/.test(ck(id).why) && /new plan/.test(ck(id).why), id + ': ' + ck(id).why);
+  }
+  assert.strictEqual(ck('plan-mixed').status, 'ambiguous', 'a start and a decline on different versions disagree');
+  assert.ok(/disagree/.test(ck('plan-mixed').why), ck('plan-mixed').why);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 rule('The checker reports the same versions as unusable as the app, with the same reasons, and knows the same step types', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

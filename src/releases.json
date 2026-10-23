@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.1.1",
+    "date": "2026-10-23",
+    "headline": "A planned run starts exactly once",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Plans",
+        "title": "A start that couldn't save its run can only be saved again, never started twice",
+        "before": "The run was saved before the plan was marked started. If marking it failed, the plan still looked open, and starting it again made a second run.",
+        "now": "Starting a plan marks it started first, naming its run, and then saves the run. If the run doesn't save, the same window offers Try again, which saves exactly that run on its version. Another window or computer sees the plan started and its run missing in Folder health, and nothing starts it again.",
+        "where": "A plan's start form; Folder health"
+      },
+      {
+        "kind": "fixed",
+        "area": "Plans",
+        "title": "A switch to another version is kept when the plan is then started",
+        "before": "Starting or declining a plan in the window that had just switched it to another version replaced the record of the switch.",
+        "now": "A start or decline is written to its own file, <plan>.status-<window>-d.json, beside the switch. Flightdeck 2.1.0 reads it as before.",
+        "where": "proposals/"
+      },
+      {
+        "kind": "improved",
+        "area": "Plans",
+        "title": "A plan that was started or declined can't be started again after someone edits it",
+        "before": "Editing a plan after it was decided, or deleting the copy that was started while another copy stayed, made it look open again, so it could be started twice. A start and a decline made on different versions of a plan didn't show as disagreeing.",
+        "now": "A decision on any version of a plan holds it: it shows \"Decided on an earlier version of this plan\" with who decided what and when, and it can't be started, declined or switched. To run it again, make a new plan. Decisions that disagree are flagged across every version. Needs 2.1.1 on every computer.",
+        "where": "Runs, a plan's page; reading for other apps (status changed); the folder checker"
+      },
+      {
+        "kind": "fixed",
+        "area": "Plans",
+        "title": "A file in proposals/ that can't be read and names no plan is named",
+        "before": "A renamed copy of a plan decision that couldn't be read was listed only as a plan file that can't be read.",
+        "now": "Folder health names it on its own: its name doesn't say which plan it's for, so if it's a decision, that plan could be started again while it can't be read. Restore it from a backup, or delete it if it's a stray copy.",
+        "where": "Folder health"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A note that couldn't be read is named, not dropped without a word",
+        "before": "A note line cut short (a crash, or a sync cut off) was skipped, so a lost note or withdrawn correction left no sign.",
+        "now": "The run page and Folder health name the notes file and the line that couldn't be read. It may still be arriving; once it reads, the warning goes. The other notes show as usual.",
+        "where": "The run page; Folder health"
+      }
+    ]
+  },
+  {
     "version": "2.1.0",
     "date": "2026-10-22",
     "headline": "Steps and phases that only some runs need",
