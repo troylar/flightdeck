@@ -11,7 +11,8 @@ PF.health = (function () {
   var HELP = { conflicts: 'a-run-has-conflict-copies', copies: 'onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type', access: 'flightdeck-lost-access-to-the-folder',
     syncing: 'onedrive-isnt-syncing', backup: 'restoring-from-a-backup', left: 'someone-left-the-team', newer: 'a-newer-flightdeck-wrote-files',
     older: 'teammates-on-an-older-flightdeck', placeholder: 'a-replaced-file-with-no-steps',
-    unreadable: 'a-file-cant-be-read', gone: 'a-runs-file-is-gone', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name', reports: 'a-report-cant-be-accepted' };
+    unreadable: 'a-file-cant-be-read', gone: 'a-runs-file-is-gone', leftover: 'leftover-files', big: 'the-folder-is-getting-big', sameName: 'two-windows-used-the-same-name', reports: 'a-report-cant-be-accepted',
+    planRun: 'a-started-plans-run-isnt-in-the-folder', planUnnamed: 'a-plan-file-with-another-name-cant-be-read' };
   var ORDER = { stop: 0, warn: 1, info: 2 };
 
   function semverOf(v) { var m = typeof v === 'string' ? /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/.exec(v) : null; return m ? [+m[1], +m[2], +m[3]] : null; }
@@ -27,6 +28,19 @@ PF.health = (function () {
   function bytes(n) { return n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' bytes'; }
   function nameOf(people, id) { for (var i = 0; i < people.length; i++) if (people[i].id === id) return people[i].name; return id || 'nobody'; }
   function help(anchor, label) { return { act: 'recovery', id: anchor, label: label || 'What to do' }; }
+  /* The words for a note line that isn't complete JSON (repo's run._noteLines), the same on the run page and here. */
+  function noteLineText(x) { return 'A note in ' + x.file + ' (line ' + x.line + ') couldn\'t be read. It may still be arriving; if it stays, the note on that line is lost and the rest are shown.'; }
+  /* A plan marked started whose run isn't in the folder (2.1.1): the plan stays started, never started again. */
+  function startedMissing(run) { return 'Started (run ' + run + '); its run isn\'t in the folder.'; }
+  /* Its run, when every run has been read and isn't there: '' while it may just not be read yet. A start made on an earlier
+     version of the plan (_decidedEarlier, after an edit) still names its run. */
+  function missingRun(d, p) {
+    var st = p && (p._status || p._decidedEarlier), f = d.failed || {};
+    if (!st || st.status !== 'accepted' || typeof st.run !== 'string' || !st.run || d.runsComplete !== true || f.runs || f.proposals) return '';
+    var key = p.process + '/' + st.run;
+    if ((d.runs || []).some(function (r) { return r.process === p.process && r.id === st.run; }) || (d.unreadable || []).some(function (u) { return u.key === key; })) return '';
+    return st.run;
+  }
 
   /* "release-LAPTOP.md" or "people-DESKTOP-ABC123.json" next to the original, or "people (1).json": OneDrive keeping both
      saves. A dash suffix counts only with a capital letter in it (computer names, which may have dashes of their own), so
@@ -70,23 +84,36 @@ PF.health = (function () {
     (d.corrUnread || []).concat(d.fuUnread || []).forEach(function (u) { if (!u.kept) unread.push({ path: u.dir + '/' + u.process + '/' + u._file, why: 'couldn\'t be read' }); });
     /* Sign-offs and plans that won't read get their own issues below, saying what each one holds; the scan's copy of the same
        path isn't named twice. */
-    var vals = (d.valUnread || []).filter(function (u) { return !u.ignored; }), plansU = (d.planUnread || []).filter(function (u) { return u.kind !== 'ignored'; });
+    var vals = (d.valUnread || []).filter(function (u) { return !u.ignored; }), plansU = (d.planUnread || []).filter(function (u) { return u.kind !== 'ignored' && !u.unnamed; }), plansN = (d.planUnread || []).filter(function (u) { return u.kind !== 'ignored' && u.unnamed; });
     var ignored = (d.valUnread || []).filter(function (u) { return u.ignored; }).concat((d.planUnread || []).filter(function (u) { return u.kind === 'ignored'; }));
-    var own = Object.create(null); vals.concat(plansU, ignored).forEach(function (u) { own[u.path] = true; });
+    var own = Object.create(null); vals.concat(plansU, plansN, ignored).forEach(function (u) { own[u.path] = true; });
     scanUnread.forEach(function (u) { if (!own[u.path] && !unread.some(function (x) { return x.path === u.path; })) unread.push(u); });
     var runUnread = unread.filter(function (u) { return /^runs\//.test(u.path) || u.path === 'people.json'; }), otherUnread = unread.filter(function (u) { return runUnread.indexOf(u) < 0; });
+    /* A note line that isn't complete JSON (2.1.1): the run still reads, so it's a warning, said as the run page says it. */
+    runs.forEach(function (r) { (r._noteLines || []).forEach(function (x) { otherUnread.push({ path: 'runs/' + r.process + '/' + r.id + '/' + x.file, why: '', detail: noteLineText(x) }); }); });
     if (runUnread.length) add({ id: 'unreadable-runs', severity: 'stop', area: 'Files', title: runUnread.length === 1 ? (runUnread[0].path === 'people.json' ? 'people.json can\'t be read' : 'A run file can\'t be read') : plural(runUnread.length, 'file') + ' that runs depend on can\'t be read',
       detail: runUnread[0].path + ' ' + runUnread[0].why + (/^(belongs to|names a process longer)/.test(runUnread[0].why) ? '. It\'s left as it is: move it to its own folder, or delete it if it\'s a stray copy.' : '. It may still be arriving; if it stays this way, restore it from a backup.'), paths: runUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
-    if (otherUnread.length) add({ id: 'unreadable', severity: 'warn', area: 'Files', title: plural(otherUnread.length, 'file') + ' can\'t be read', detail: otherUnread[0].path + ' ' + otherUnread[0].why + '. Flightdeck skips ' + (otherUnread.length === 1 ? 'it' : 'them') + ' and shows everything else.', paths: otherUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    if (otherUnread.length) add({ id: 'unreadable', severity: 'warn', area: 'Files', title: plural(otherUnread.length, 'file') + ' can\'t be read', detail: otherUnread[0].detail || otherUnread[0].path + ' ' + otherUnread[0].why + '. Flightdeck skips ' + (otherUnread.length === 1 ? 'it' : 'them') + ' and shows everything else.', paths: otherUnread.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
     if (vals.length) add({ id: 'unreadable-signoffs', severity: 'warn', area: 'Skills', title: vals.length === 1 ? 'A sign-off file can\'t be read' : plural(vals.length, 'sign-off file') + ' can\'t be read',
       detail: vals[0].path + ' ' + vals[0].why + '. ' + (vals.every(function (u) { return u.kept; }) ? 'What it said when it last read still counts. ' : 'If it\'s named for a version or staged version, or says it\'s that version\'s sign-off, Flightdeck can\'t tell whether that version was signed off until it reads, and doesn\'t offer Sign off for it. ') + 'It may still be arriving; if it stays this way, restore it from a backup or delete it.',
       paths: vals.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
     if (plansU.length) add({ id: 'unreadable-plans', severity: 'warn', area: 'Plans', title: plansU.length === 1 ? 'A plan file can\'t be read' : plural(plansU.length, 'plan file') + ' can\'t be read',
       detail: plansU[0].path + ' ' + plansU[0].why + '. A plan that can\'t be read isn\'t shown; a decision on a plan that can\'t be read holds that plan, so it can\'t be started, declined or switched. It may still be arriving; if it stays this way, restore it from a backup or delete it.',
       paths: plansU.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    if (plansN.length) add({ id: 'unreadable-plan-unnamed', severity: 'warn', area: 'Plans', title: plansN.length === 1 ? 'A file in proposals/ can\'t be read, and its name doesn\'t say which plan it\'s for' : plural(plansN.length, 'file') + ' in proposals/ can\'t be read, and their names don\'t say which plan they\'re for',
+      detail: plansN[0].path + ' can\'t be read, and its name doesn\'t say which plan it\'s for. If it\'s a decision someone made on a plan, that plan could be started again while this file can\'t be read. Restore it from a backup, or delete it if it\'s a stray copy.',
+      paths: plansN.map(function (u) { return u.path; }), action: help(HELP.planUnnamed), help: HELP.planUnnamed });
     if (ignored.length) add({ id: 'ignored-files', severity: 'info', area: 'Files', title: plural(ignored.length, 'file') + ' in validations/ or proposals/ ' + (ignored.length === 1 ? 'isn\'t' : 'aren\'t') + ' Flightdeck\'s',
       detail: ignored[0].path + ' is JSON, but not a sign-off or plan, so Flightdeck ignores it. Move it out of that folder.', paths: ignored.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
-    if (!failed.length && !unread.length && !vals.length && !plansU.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
+    if (!failed.length && !otherUnread.length && !runUnread.length && !vals.length && !plansU.length && !plansN.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
+
+    /* ---- plans started whose run isn't in the folder (2.1.1) ---- */
+    (d.plans || []).forEach(function (p) {
+      var run = missingRun(d, p);
+      if (run) add({ id: 'plan-run-missing:' + p.id, severity: 'warn', area: 'Plans', title: '"' + p.title + '": ' + startedMissing(run).replace(/\.$/, ''),
+        detail: startedMissing(run) + ' The plan stays started. Its run may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.',
+        paths: ['proposals/' + (p._file || p.id + '.json'), 'runs/' + p.process + '/' + run + '/run.json'], action: help(HELP.planRun), help: HELP.planRun });
+    });
 
     /* ---- people ---- */
     var ids = Object.create(null), dup = [];
@@ -214,7 +241,9 @@ PF.health = (function () {
 
     /* ---- newer copies: what a newer Flightdeck wrote, by family and the version each needs ---- */
     var ro = runs.filter(function (r) { return r._unrunnable; }), inst = scan && scan.installed && typeof scan.installed === 'object' && !scan.installed.newer ? scan.installed : null;
-    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = (d.refused || []).concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind === 'newer'; }).map(function (x) { return { path: x.path, family: 'flightdeck-report', kind: 'newer', why: x.why, needs: x.needs || '' }; }) : []);
+    /* A refused file that isn't a newer Flightdeck's (not in its format) is named on its own below, with the plan page's advice. */
+    var badRef = (d.refused || []).filter(function (x) { return x.kind !== 'newer'; });
+    var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = (d.refused || []).filter(function (x) { return x.kind === 'newer'; }).concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind === 'newer'; }).map(function (x) { return { path: x.path, family: 'flightdeck-report', kind: 'newer', why: x.why, needs: x.needs || '' }; }) : []);
     var newerInst = inst && typeof inst.version === 'string' && snap.app && snap.app !== 'dev' && semver(inst.version, snap.app) > 0 ? inst.version : null;
     if (ro.length || newerPubs.length || snap.newer || newerInst || instNewer || refused.length) {
       var parts = [], needs = function (n) { return n ? 'Flightdeck ' + n : 'a newer Flightdeck'; };
@@ -231,6 +260,12 @@ PF.health = (function () {
       Object.keys(byFam).sort().forEach(function (k) { var x = byFam[k], n = NAMES[x[0].family] || ['file', 'files']; parts.push(x.length + ' ' + (x.length === 1 ? n[0] : n[1]) + ' need' + (x.length === 1 ? 's ' : ' ') + needs(x[0].needs)); });
       add({ id: 'newer', severity: 'warn', area: 'Flightdeck', title: 'A newer Flightdeck wrote some of these files', detail: parts.join('; ') + '. This copy shows them and leaves them alone. Open the team folder\'s own flightdeck.html.', paths: newerPubs.concat(ro.map(function (r) { return 'runs/' + r.process + '/' + r.id + '/run.json'; }), refused.map(function (x) { return x.path; }), instNewer ? ['.flightdeck/installed.json'] : []), action: help(HELP.newer), help: HELP.newer });
     } else ok('newer', 'Nothing here was written by a newer Flightdeck.');
+    if (badRef.length) {
+      var one = badRef.length === 1, decs = badRef.some(function (x) { return /\.status-[^/]*$/.test(x.path); });
+      add({ id: 'refused', severity: 'warn', area: 'Files', title: one ? 'A file isn\'t in a format this copy can read' : plural(badRef.length, 'file') + ' aren\'t in a format this copy can read',
+        detail: badRef[0].path + ' ' + (badRef[0].why || 'isn\'t in its format') + (one ? '' : ' (and ' + plural(badRef.length - 1, 'other file') + ')') + '. This copy leaves ' + (one ? 'it' : 'them') + ' alone.' + (decs ? ' A decision on a plan that isn\'t in its format holds that plan, so it can\'t be started, declined or switched.' : '') + ' Fix or delete ' + (one ? 'that file' : 'those files') + '.',
+        paths: badRef.map(function (x) { return x.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    }
     /* ---- stages (2.1): incomplete ones and decisions that can't be read; nothing at all in a folder that never stages ---- */
     var stItems = stages(d.stages);
     if (stItems.length) add({ id: 'stages', severity: 'warn', area: 'Checklists', title: plural(stItems.length, 'staged version') + ' or decision' + (stItems.length === 1 ? '' : 's') + ' can\'t be used', detail: stItems[0].path + ' ' + stItems[0].why + '. Nothing runs from ' + (stItems.length === 1 ? 'it' : 'them') + '; stage the draft again, or restore the folder from a backup.', paths: stItems.map(function (x) { return x.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
@@ -242,7 +277,7 @@ PF.health = (function () {
       .concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind !== 'newer'; }) : [])
       .concat((d.repUnread || []).filter(function (u) { return u.kind !== 'newer'; }).map(function (u) { return { path: u.dir + '/' + u.process + '/' + u._file, why: u.why || 'couldn\'t be read' }; }));
     var repDiffer = scan && scan.reports ? scan.reports.differ : [];
-    var named = Object.create(null); repBad.concat(refused).forEach(function (x) { named[x.path] = true; });
+    var named = Object.create(null); repBad.concat(refused, badRef).forEach(function (x) { named[x.path] = true; });
     /* A report names a run that isn't here only when the runs were listed completely: a listing that failed isn't absence. */
     var orphans = (d.failed || {}).runs ? [] : (rep.files || []).filter(function (f) { return !runKeys[f.process + '/' + f.run] && !named[f.path]; });
     if (repBad.length || repDiffer.length || orphans.length) {
@@ -414,5 +449,5 @@ PF.health = (function () {
     });
     return out;
   }
-  return { LIMITS: LIMITS, HELP: HELP, check: check, stages: stages, copyOf: copyOf, sharedDrafts: sharedDrafts, text: text, command: command, sections: sections, anchor: anchor, bytes: bytes, span: span };
+  return { LIMITS: LIMITS, HELP: HELP, check: check, noteLineText: noteLineText, startedMissing: startedMissing, missingRun: missingRun, stages: stages, copyOf: copyOf, sharedDrafts: sharedDrafts, text: text, command: command, sections: sections, anchor: anchor, bytes: bytes, span: span };
 })();

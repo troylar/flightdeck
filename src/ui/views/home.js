@@ -78,7 +78,7 @@
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
-    byWhen(d.plans.filter(function (p) { return !p._status; })).forEach(function (p) {
+    byWhen(d.plans.filter(function (p) { return !p._status && !p._decidedEarlier; })).forEach(function (p) {
       var t = whenOf(p), c = PF.requests.claim(p), flag = p._conflicting ? clash : p._copiesDiffer ? copiesLine(p) : null;
       if (t == null) add('plan', c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.', 'review-plan', p.id, 'Review the plan');
       else if (t - now <= 86400000) add('plan', esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.'), 'review-plan', p.id, 'Review and start');
@@ -177,7 +177,7 @@
     if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
       cardIds[p.id] = true;
-      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
+      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p._decidedEarlier && !p._conflicting ? '<span class="small">' + esc(V.earlierWords(p, d)) + '</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
     }).join('') + '</div></section>';
     /* The newest 8 finished runs, and any run with a warning; the rest one click away, remembered. */
     var warned = function (r) { return (r._conflicts && r._conflicts.length) || (st.missing || {})[runKey(r)]; };

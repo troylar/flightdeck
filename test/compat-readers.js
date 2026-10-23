@@ -86,7 +86,8 @@ const FAMILIES = [
   { id: 'attachments', re: /^runs\/[^/]+\/[^/]+\/files\/[^/]+$/, writer: 'notes', readers: [], note: 'read by each release\'s screens (thumbnails and the viewer) and, from 1.17, the evidence collector; not probed here' },
   { id: 'legacy-runs', re: /^runs\/[^/]+\.json$/, writer: 'none', readers: [L('1.10.0', d => (d.legacy || []).some(x => x.name === 'Old backup check'), 'runs/legacy-check.json')] },
   { id: 'plan-statuses', re: /^proposals\/[^/]+\.status-[^/]+\.json$/, writer: 'plan-status',
-    readers: [L('1.10.0', d => d.plans.some(p => p._status && p._status.status === 'declined'), 'proposals/plan-backup-april.status-w-avery.json')] },
+    // From 2.1.1 a decline is written to <plan>.status-<window>-d.json.
+    readers: [L('1.10.0', d => d.plans.some(p => p._status && p._status.status === 'declined'), f => ['proposals/plan-backup-april.status-w-avery.json', 'proposals/plan-backup-april.status-w-avery-d.json'].find(p => p in f))] },
   { id: 'plans', note: 'before savePlan (1.11.0) plans were written by hand or by an AI assistant', re: /^proposals\/(?![^/]*\.status-)[^/]+\.json$/, writer: 'plans', readers: [L('1.10.0', d => d.plans.some(p => p.id === 'plan-backup-april'), 'proposals/plan-backup-april.json')] },
   { id: 'validations', re: /^validations\/[^/]+\.json$/, writer: 'sign-offs', readers: [L('1.10.0', d => d.validations.some(v => v.by === 'person-avery'), 'validations/backup.v1.w-avery.json')] },
   { id: 'skills', re: /^skills\/[^/]+\.json$/, writer: 'hand', readers: [L('1.10.0', d => d.skills.some(s => s.skill && s.skill.name === 'backup-report' && s.skill.implements === 1 && !(s.errors || []).length), 'skills/backup-report.json')] },

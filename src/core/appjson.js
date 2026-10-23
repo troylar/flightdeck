@@ -40,7 +40,7 @@ PF.appjson = (function () {
         gate: { id: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', binds: ['string'], note: 'string', timing: TIMING } }] },
     runs: { runs: [SUMMARY], planned: [{ id: 'string', process: 'string', title: 'string', version: opt('number'), when: opt('string'), by: 'string', created: opt('string'), note: 'string',
       details: map('string'), roles: map('string'), status: 'string', run: opt('string'), startsOn: opt({ version: 'number', folder: 'string' }), versionMissing: opt('boolean'),
-      copies: 'number', copiesDiffer: 'boolean', requestedBy: opt({ name: 'string', version: 'string' }) }] },
+      copies: 'number', copiesDiffer: 'boolean', requestedBy: opt({ name: 'string', version: 'string' }), held: opt({ why: 'string', files: [{ file: 'string', kind: 'string' }] }) }] },
     run: { run: opt(extend(SUMMARY, { roles: [ROLE],
       steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', must: 'boolean', roles: ['string'], state: 'string', by: opt(PERSON), at: opt('string'), reason: opt('string'),
         values: map('string'), differently: opt({ note: 'string', by: opt(PERSON), at: opt('string') }), marks: ['string'], child: opt({ process: 'string', id: 'string' }), evidence: [EVIDENCE] }],
@@ -239,23 +239,34 @@ PF.appjson = (function () {
      or changed (edited after a decision). */
   /* procs: the processes as loaded, to say which version a person starting the plan gets (P.forPlan, as the app picks it).
      unsure(process): true when some of that process's versions couldn't be read, so both are unknown (null). */
-  function plan(p, procs, unsure) {
+  /* Held (2.1.1): a plan nothing has decided yet that the app still won't start, decline or switch, because a decision on it
+     (or proposals/ itself) can't be read: the app's words (PF.plans.heldWhy) and the files that hold it. null otherwise. */
+  function held(p, data) {
+    if (p._status || p._decidedEarlier) return null;
+    var why = PF.plans.heldWhy(p, data || {});
+    if (!why) return null;
+    var f = data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals') ? [{ file: 'proposals/', kind: 'unreadable' }]
+      : (p._statusHeld || []).map(function (u) { return { file: s(u.path), kind: s(u.kind) }; });
+    return { why: s(why), files: f };
+  }
+  function plan(p, procs, unsure, data) {
     var st = p._status, status = p._conflicting ? 'conflicting' : st ? s(st.status) : p._changedAfterDecision ? 'changed' : 'pending';
     var v = typeof p.version === 'number' ? p.version : /^\d+$/.test(s(p.version)) ? +p.version : null;
     var out = { id: s(p.id), process: s(p.process), title: s(p.title || p.process), version: v, when: orNull(p.when), by: s(p.by), created: orNull(p.created), note: s(p.note),
       details: strMap(p.details && typeof p.details === 'object' ? p.details : {}), roles: strMap(p.roles && typeof p.roles === 'object' ? p.roles : {}), status: status,
       run: st && st.status === 'accepted' && st.run ? p.process + '/' + st.run : null, startsOn: null, versionMissing: false,
       /* OneDrive copies: how many files hold this plan, and whether they differ (then each is listed and none can be started). */
-      copies: typeof p._copies === 'number' ? p._copies : 1, copiesDiffer: !!p._copiesDiffer, requestedBy: PF.requests.claim(p) };
+      copies: typeof p._copies === 'number' ? p._copies : 1, copiesDiffer: !!p._copiesDiffer, requestedBy: PF.requests.claim(p), held: held(p, data) };
     var proc = (procs || []).filter(function (x) { return x.process === p.process; })[0], pick = proc && proc.index ? P.forPlan(proc.index, p.version, null) : { pub: null, missing: false };
     out.startsOn = pick.pub ? { version: pick.pub.info.version, folder: s(pick.pub.info.folder) } : null;
     out.versionMissing = !!pick.missing || (p.version != null && !pick.pub);
     if (unsure && unsure(p.process)) { out.startsOn = null; out.versionMissing = null; }
     return out;
   }
-  function runs(runList, plans, nameOf, procs, unsure) {
+  /* data: the folder as read (repo.loadAll), for why a plan is held; without it, only what the plans themselves say. */
+  function runs(runList, plans, nameOf, procs, unsure, data) {
     return { runs: (runList || []).map(function (r) { return summary(r, nameOf); }).sort(byCreated),
-      planned: plannedPairs(plans, procs, unsure).map(function (x) { return x.o; }) };
+      planned: plannedPairs(plans, procs, unsure, data).map(function (x) { return x.o; }) };
   }
   function followUp(x, nameOf) {
     var d = x.decision;
@@ -347,15 +358,15 @@ PF.appjson = (function () {
     return out;
   }
   /* Plans for runs' planned list, each with its entry, in the list's order: by ID, then by file. */
-  function plannedPairs(plans, procs, unsure) {
-    return (plans || []).map(function (p) { return { p: p, o: plan(p, procs, unsure) }; }).sort(function (a, b) { return a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : s(a.p._file) < s(b.p._file) ? -1 : 1; });
+  function plannedPairs(plans, procs, unsure, data) {
+    return (plans || []).map(function (p) { return { p: p, o: plan(p, procs, unsure, data) }; }).sort(function (a, b) { return a.o.id < b.o.id ? -1 : a.o.id > b.o.id ? 1 : s(a.p._file) < s(b.p._file) ? -1 : 1; });
   }
-  function runs2(runList, plans, nameOf, procs, unsure, leftOut) {
-    var out = runs(runList, plans, nameOf, procs, unsure);
+  function runs2(runList, plans, nameOf, procs, unsure, leftOut, data) {
+    var out = runs(runList, plans, nameOf, procs, unsure, data);
     out.testRunsLeftOut = leftOut || 0;
     out.runs = (runList || []).map(function (r) { return summary2(r, nameOf); }).sort(byCreated);
     /* Each entry with its own plan (copies of one plan that differ share an ID, so never joined by ID). */
-    out.planned = plannedPairs(plans, procs, unsure).map(function (x) {
+    out.planned = plannedPairs(plans, procs, unsure, data).map(function (x) {
       var o = x.o, p = x.p, two = !!p && p.format === PF.plans.FORMAT2;
       o.format = two ? s(p.format) : 'flightdeck-plan/1'; o.pin = two && p.pin ? { folder: s(p.pin.folder), version: +p.pin.version || 0 } : null;
       /* A plan/2 starts on its pin (or the version it was switched to), never on another: no fallback to the latest. */

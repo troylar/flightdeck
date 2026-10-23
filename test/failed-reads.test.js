@@ -241,6 +241,35 @@ rule('A plan decision held for a newer Flightdeck says to update; one that isn\'
   assert.ok(/restore it from a backup or delete it/.test(V.planHeldWhy(p)), V.planHeldWhy(p));
 });
 
+rule('A file named for a plan\'s decision whose format can\'t be read holds that plan, on its page and in Folder health; a refused plan file holds no plan (2.1.1)', async () => {
+  const PFV = load(true), V = PFV.views, id = 'plan-release-2026-10-24', plan = JSON.parse(example('proposals/' + id + '.json'));
+  const sp = 'proposals/' + id + '.status-w-other-d.json';
+  for (const body of [{ format: 'flightdeck-plan-status/2\n', proposal: id, status: 'accepted', run: 'r1', by: 'person-casey', at: '2026-10-17T13:00:00Z' }, { format: 'acme/1' }, { kind: 'plan', format: 'flightdeck-plan/9', app: '9.0.0' }]) {
+    const fs = folder();
+    put(fs, 'proposals/' + id + '.json', JSON.stringify(plan));
+    put(fs, sp, JSON.stringify(body));
+    const d = await PFV.repo.loadAll(fs), p = d.plans.filter(x => x.id === id)[0], words = V.planHeldWhy(p, d);
+    same(p._statusUnread, [sp]);
+    assert.ok(words.includes(sp) && /can't be started, declined or switched/.test(words), JSON.stringify(body) + ': ' + words);
+    assert.ok(named(health(d), sp), JSON.stringify(health(d).issues.map(i => i.detail)));
+    // Folder health says what the plan page says: a newer Flightdeck's file is newer; one not in its format is fixed or deleted.
+    const newer = p._statusHeld.some(h => h.kind === 'newer'), hits = health(d).issues.filter(i => (i.paths || []).indexOf(sp) >= 0);
+    assert.strictEqual(hits.some(i => i.id === 'newer'), newer, JSON.stringify(body) + ': ' + JSON.stringify(hits));
+    if (body.proposal) assert.ok(!newer && /Fix or delete/.test(words), words);
+    if (!newer) assert.ok(hits.some(i => /Fix or delete/.test(i.detail) && !/newer Flightdeck|Update Flightdeck/.test(i.title + i.detail)), JSON.stringify(hits));
+  }
+  // A plan file that's refused (not in its format, a copy, or another plan's) is named, and holds no plan.
+  const fs = folder();
+  put(fs, 'proposals/' + id + '.json', JSON.stringify(plan));
+  put(fs, 'proposals/' + id + ' (1).json', JSON.stringify(Object.assign({}, plan, { kind: undefined, format: 'flightdeck-plan/2\n' })));
+  put(fs, 'proposals/plan-release.json', JSON.stringify({ format: 'flightdeck-plan/2\n', id: 'plan-release' }));
+  put(fs, 'proposals/' + id + '-b.json', JSON.stringify({ format: 'acme/1', id: id + '-b' }));
+  const d = await PFV.repo.loadAll(fs), p = d.plans.filter(x => x.id === id)[0];
+  same(p._statusUnread, []);
+  assert.strictEqual(V.planHeldWhy(p, d), '');
+  for (const f of [id + ' (1).json', 'plan-release.json', id + '-b.json']) assert.ok(named(health(d), 'proposals/' + f), f);
+});
+
 /* ---------- 1c. The write-time gate: a plan is started, declined or switched only on a fresh read of all of its files ---------- */
 
 const PLAN = 'plan-release-2026-10-24';
@@ -332,6 +361,32 @@ rule('Plan gate: another plan\'s files, readable or not, never hold this one', a
   put(fs, 'proposals/plan-other.status-w-x.json', '{"kind": "sta');
   put(fs, 'proposals/notes.json', JSON.stringify({ hello: 'world' }));
   const { p, wrote } = ask(fs, page, 'declined');
+  await p; assert.strictEqual(wrote.n, 1);
+});
+
+/* 2.1.1: a start or decline on this plan's ID holds it, whatever version of the plan it was made on. */
+rule('Plan gate (2.1.1): copy A started, then deleted: copy B, which differs slightly, can\'t be started, declined or switched', async () => {
+  for (const status of ['accepted', 'declined']) {
+    const { fs, page } = await planFolder(), path = 'proposals/' + PLAN + '.json', o = JSON.parse(fs.files[path].t);
+    put(fs, 'proposals/' + PLAN + ' (1).json', JSON.stringify(Object.assign({}, o, { note: 'Copy B' }), null, 2));
+    await repo.recordPlanStatus(fs, page, 'w-other', status, status === 'accepted' ? 'run-a' : null, 'person-avery', null, '2.1.0');
+    delete fs.files[path];
+    const b = (await repo.loadAll(fs)).plans.find(p => p.id === PLAN);
+    assert.ok(b && !b._status && b._decidedEarlier && b._decidedEarlier.status === status, status + ': held as decided earlier');
+    for (const a of ['start', 'declined', 'retargeted']) await refused(fs, b, a, /already (started|declined)[^]*make a new plan/i);
+  }
+});
+
+rule('Plan gate (2.1.1): a switch on an earlier version of the plan still doesn\'t hold an edited plan', async () => {
+  const fs = folder(), pub = await publish(fs);
+  const exact = PF.plans.make(pub, { id: 'plan-release-exact', process: 'release', title: 'Release exact', details: {}, roles: {}, by: 'person-avery', created: NOW }, true, '2.1.0');
+  put(fs, 'proposals/plan-release-exact.json', JSON.stringify(exact, null, 2));
+  const page = (await repo.loadAll(fs)).plans.find(p => p.id === 'plan-release-exact');
+  await repo.recordPlanStatus(fs, page, 'w-other', 'retargeted', null, 'person-avery', { folder: 'v2-x', version: 2 }, '2.1.0');
+  put(fs, 'proposals/plan-release-exact.json', JSON.stringify(Object.assign({}, exact, { note: 'Edited' }), null, 2));
+  const edited = (await repo.loadAll(fs)).plans.find(p => p.id === 'plan-release-exact');
+  assert.ok(!edited._status && !edited._decidedEarlier && !edited._retarget, 'pending, as before');
+  const { p, wrote } = ask(fs, edited, 'start', { folder: 'v1-x' });
   await p; assert.strictEqual(wrote.n, 1);
 });
 

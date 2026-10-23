@@ -522,9 +522,9 @@
   function shownSig(r) { return r._fileHash + ':' + (r._notesSig || '') + ':' + (r._notes || []).length + ':' + (r._conflicts || []).join('/'); }
   function signature(d) {
     return JSON.stringify([d.people.length, d.people.hash, d.drafts.map(function (x) { return x.file + x.mtime; }), d.processes.map(function (p) { return p.pubs.map(function (x) { return x.folder + x.ok + (x.fromStage ? ':' + x.fromStage.folder + x.fromStage.ok : ''); }); }),
-      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }), (d.valUnread || []).map(function (u) { return u.path + ':' + !!u.ignored + !!u.claimed + ':' + (u.process || '') + ':' + (u.folder || '') + ':' + (u.stage || ''); }), (d.refused || []).map(function (x) { return x.path + ':' + x.kind + ':' + (x.needs || ''); }), (d.planUnread || []).map(function (u) { return u.path + ':' + u.kind; }),
+      d.runs.map(function (r) { return r.id + ':' + shownSig(r); }), d.skills.map(function (x) { return JSON.stringify(x.skill); }), (d.validations || []).map(function (x) { return JSON.stringify(x); }), (d.valUnread || []).map(function (u) { return u.path + ':' + !!u.ignored + !!u.claimed + ':' + (u.process || '') + ':' + (u.folder || '') + ':' + (u.stage || ''); }), (d.refused || []).map(function (x) { return x.path + ':' + x.kind + ':' + (x.needs || ''); }), (d.planUnread || []).map(function (u) { return u.path + ':' + u.kind + (u.unnamed ? ':unnamed' : ''); }),
       /* Decisions by content, not by file and time: a file rewritten with the same name and time still redraws. */
-      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|') + JSON.stringify([p._retarget || null, p._retargetClash || null, p._statusHeld || null]); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
+      (d.corrDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.corrUnread || []).map(function (x) { return x.dir + '/' + x.process + '/' + x._file; }), (d.fuDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.fuUnread || []).map(function (x) { return x.process + '/' + x._file; }), d.plans.map(function (p) { return p.id + p._hash + !!p._status + !!p._decidedEarlier + !!p._conflicting + p._copies + !!p._copiesDiffer + (p._files || []).join('|') + JSON.stringify([p._retarget || null, p._retargetClash || null, p._statusHeld || null]); }), (d.unreadable || []).map(function (u) { return u.path; }), Object.keys(d.failed || {}),
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
       (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); }),
       d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; }),
@@ -902,7 +902,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; state.pendingStart = null; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1094,7 +1094,7 @@
     };
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
       if (t !== opening) return;
-      state.me = myId; lsSet('me', myId); state.needsReconnect = null;
+      state.me = myId; lsSet('me', myId); state.needsReconnect = null; forgetStartIfNotMine();
       var made = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
       return made.then(function () {
         if (t !== opening) return;
@@ -1195,6 +1195,13 @@
       say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
       return load(true);
     }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
+  }
+  /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
+     folder, forgets it, so switching back never brings it back. */
+  function forgetStartIfNotMine() {
+    if (!state.pendingStart || state.pendingStart.me === state.me) return;
+    state.pendingStart = null;
+    if (state.msg && state.msg.pendingStart) state.msg = null;
   }
   function say(text, kind, act) { state.msg = text ? { text: text, kind: kind || '' } : null; if (state.msg && act) { state.msg.act = act.act; state.msg.id = act.id; state.msg.label = act.label; } }
   /* A builder change said back with a real Undo button. */
@@ -1592,7 +1599,7 @@
   function planClock(now) {
     if (state.view !== 'home' && state.view !== 'runs') { planSig = null; return; }
     var sig = state.view + '|' + data.plans.map(function (p) {
-      var t = p._status ? null : V.planWhen(p);
+      var t = p._status || p._decidedEarlier ? null : V.planWhen(p);
       return t == null ? '' : p.id + ':' + (t - now <= 86400000 ? 'due ' : '') + U.dueWords(p.when, now);
     }).join('|');
     if (planSig !== null && sig !== planSig) render();
@@ -4334,6 +4341,31 @@
         return load(true).then(function () { if (g !== gen) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
       }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
     },
+    /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person. */
+    'plan-resume': function (id) {
+      var k = state.pendingStart, g = gen;
+      if (!k || k.plan !== id || k.fs !== state.fs || k.key !== fsKey() || k.me !== state.me) { say('Only the window that started this plan, for the same person, can save its run again. Nothing was written.', 'warn'); render(); return; }
+      if (state.resuming) return;
+      state.resuming = true; render();
+      var held = holdNav(false);
+      /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
+         the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
+      var still = function () { return g === gen && state.pendingStart === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
+      queued(function () {
+        if (!still()) return { dropped: true };
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still });
+      }).then(function (res) {
+        state.resuming = false;
+        if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (g === gen && state.fs === k.fs && fsKey() === k.key ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
+        if (g !== gen) { releaseNav(held); return null; }
+        if (state.pendingStart === k) state.pendingStart = null;
+        /* Saved for the person who asked, who has since changed: the new person isn't taken to it or told it started. */
+        if (state.me !== k.me) { releaseNav(held); return load(true).then(function () { return null; }); }
+        heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
+        return load(true).then(function () { return true; });
+      }).then(function (ok) { if (!ok) return; releaseNav(held); if (g !== gen) return; openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
+        function (e) { state.resuming = false; releaseNav(held); if (g === gen) { say('Couldn\'t save the run: ' + e.message, 'bad'); render(); } });
+    },
     'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me; queued(function () { if (state.fs !== dfs || fsKey() !== dkey || state.me !== who) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined: ' + (state.me !== who ? 'the person using this window changed' : 'another folder was opened') + ' before it could be saved. Nothing was written.', 'warn'); render(); return; } if (g !== gen) return; home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
@@ -4632,7 +4664,7 @@
     'setup-open': function () { setupOpen(null); },
     'setup-who': function (id) {
       var p = data.people.filter(function (x) { return x.id === id && !x.inactive; })[0]; if (!p) return;
-      state.me = id; lsSet('me', id); state.setup = null; home();
+      state.me = id; lsSet('me', id); forgetStartIfNotMine(); state.setup = null; home();
       say('Welcome, ' + p.name.split(' ')[0] + '. Home shows what needs you; Runs and Processes have the rest.', 'good'); state.focus = 'page-h'; render(); window.scrollTo(0, 0);
     },
     'setup-hide': function () { lsSet('setup-hidden:' + fsKey(), true); state.focus = 'page-h'; render(); },
@@ -5443,17 +5475,26 @@
     var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
-       plan's lock, whatever this page last read; the run and its decision are written only then. */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder;
+       plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
+       the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
+       twice. The exact bytes it tried are kept in this window (state.pendingStart) for Try again (repo.resumeStart). */
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, skey = fsKey();
     queued(function () {
       r.recorder.session = SESSION;
-      var save = function () { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); };
-      if (!plan) return save();
+      var save = function (keep) { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, keep: keep }); };
+      if (!plan) return save(false);
       return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, write: function () {
-        return save().then(function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION); });
+        return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); });
       } });
     }).then(function () { endBusy(); if (sg !== gen) { releaseNav(held); return; } heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true); }).then(function () { releaseNav(held); if (sg !== gen) return; openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
-      function (err) { endBusy(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
+      function (err) {
+        endBusy(); releaseNav(held); if (sg !== gen) return;
+        if (dec && err && err.pending) {
+          state.pendingStart = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
+          say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
+        }
+        say('Couldn\'t start the run: ' + err.message, 'bad'); render();
+      });
   });
 
   /* Start a test run (2.1) from its form: the stage and its decisions are read again when it's saved (repo.startTestRun), and
@@ -5615,7 +5656,7 @@
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
-    if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); render(); }
+    if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }
     if (e.target.id === 'su-to' && state.setup) { state.setup.to = e.target.value; render(); }
     /* In Fill in, changing a choice (like a Jira action) redraws the form so the fields that choice needs appear. */
@@ -5628,7 +5669,7 @@
       render();
     }
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
-    if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); render(); }
+    if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'rw-phase' && e.target.value) ACTIONS.goto('phase-' + e.target.value);
     /* The correction composer: where a new step goes, where a step moves, who does it, and its files. */
     if (state.corrForm) {

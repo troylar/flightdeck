@@ -186,7 +186,7 @@ rule('Two screenshots saved in the same moment get different file names', async 
   assert.strictEqual(names.size, 5);
 });
 
-rule('If an AI assistant changes a plan after someone accepted it, the plan is pending again', async () => {
+rule('If an AI assistant changes a plan after someone accepted it, the plan stays decided on its earlier version, never pending again (2.1.1)', async () => {
   const fs = folder(); const d = await published(fs);
   await repo.recordPlanStatus(fs, d.plans[0], 'casey-laptop', 'accepted', 'run1', 'person-casey');
   const plan = JSON.parse((await fs.read('proposals/plan.json')).text); plan.title = 'Release 2026.10.25';
@@ -194,6 +194,107 @@ rule('If an AI assistant changes a plan after someone accepted it, the plan is p
   const d2 = await repo.loadAll(fs);
   assert.strictEqual(d2.plans[0]._status, null);
   assert.ok(d2.plans[0]._changedAfterDecision);
+  assert.ok(d2.plans[0]._decidedEarlier && d2.plans[0]._decidedEarlier.status === 'accepted' && d2.plans[0]._decidedEarlier.run === 'run1', 'held by its earlier decision');
+});
+
+rule('A plan declined and then edited stays declined on its earlier version (2.1.1)', async () => {
+  const fs = folder(); const d = await published(fs);
+  await repo.recordPlanStatus(fs, d.plans[0], 'casey-laptop', 'declined', null, 'person-casey');
+  const plan = JSON.parse((await fs.read('proposals/plan.json')).text); plan.note = 'Edited';
+  await fs.write('proposals/plan.json', JSON.stringify(plan));
+  const p = (await repo.loadAll(fs)).plans[0];
+  assert.ok(!p._status && !p._conflicting && p._decidedEarlier && p._decidedEarlier.status === 'declined' && p._decidedEarlier.by === 'person-casey');
+});
+
+rule('Decisions are compared across every version of a plan: two starts naming different runs, or a start and a decline, disagree (2.1.1)', async () => {
+  const edit = async (fs, note) => { const plan = JSON.parse((await fs.read('proposals/plan.json')).text); plan.note = note; await fs.write('proposals/plan.json', JSON.stringify(plan)); return (await repo.loadAll(fs)).plans[0]; };
+  let fs = folder(), d = await published(fs);
+  await repo.recordPlanStatus(fs, d.plans[0], 'w-a', 'accepted', 'run-a', 'person-avery');
+  await repo.recordPlanStatus(fs, await edit(fs, 'B'), 'w-b', 'accepted', 'run-b', 'person-blake');
+  let p = (await repo.loadAll(fs)).plans[0];
+  assert.ok(p._conflicting && !p._status && !p._decidedEarlier, 'two starts on different versions');
+  fs = folder(); d = await published(fs);
+  await repo.recordPlanStatus(fs, d.plans[0], 'w-a', 'accepted', 'run-a', 'person-avery');
+  await repo.recordPlanStatus(fs, await edit(fs, 'B'), 'w-b', 'declined', null, 'person-blake');
+  p = (await repo.loadAll(fs)).plans[0];
+  assert.ok(p._conflicting && !p._status, 'a start on version A and a decline on version B disagree');
+});
+
+rule('A torn file in proposals/ whose name names no plan is its own Folder health issue and holds no plan; a torn <plan>.status- file still holds its plan (2.1.1)', async () => {
+  const fs = folder(); await published(fs);
+  await fs.write('proposals/Copy of x.json', '{"kind": "sta');
+  let d = await repo.loadAll(fs);
+  const u = d.planUnread.find(x => x.path === 'proposals/Copy of x.json');
+  assert.ok(u && u.unnamed === true, JSON.stringify(d.planUnread));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.plans[0]._statusHeld)), [], 'no plan held');
+  let rep = PF.health.check({ data: d, scan: null, me: 'person-casey', app: '2.1.1' }, Date.parse(NOW));
+  const un = rep.issues.find(i => i.id === 'unreadable-plan-unnamed');
+  assert.ok(un && un.severity === 'warn' && un.paths.indexOf('proposals/Copy of x.json') >= 0, JSON.stringify(rep.issues.map(i => i.id)));
+  assert.ok(/its name doesn't say which plan it's for/.test(un.detail) && /Restore it from a backup, or delete it if it's a stray copy/.test(un.detail), un.detail);
+  assert.ok(!rep.issues.some(i => i.id === 'unreadable-plans'), 'not listed as a plan file that holds its plan');
+  await fs.remove('proposals/Copy of x.json');
+  await fs.write('proposals/plan-release-2026-10-24.status-w.json', '{"kind": "sta');
+  d = await repo.loadAll(fs);
+  assert.ok(!d.planUnread[0].unnamed);
+  assert.strictEqual(d.plans[0]._statusHeld.length, 1, 'its plan is held');
+  rep = PF.health.check({ data: d, scan: null, me: 'person-casey', app: '2.1.1' }, Date.parse(NOW));
+  assert.ok(rep.issues.some(i => i.id === 'unreadable-plans') && !rep.issues.some(i => i.id === 'unreadable-plan-unnamed'));
+});
+
+rule('A plan started whose run isn\'t in the folder, then edited, still names its missing run in Folder health; one declined and edited names none (2.1.1)', async () => {
+  for (const status of ['accepted', 'declined']) {
+    const fs = folder(); const d = await published(fs);
+    await repo.recordPlanStatus(fs, d.plans[0], 'casey-laptop', status, status === 'accepted' ? 'run-gone' : null, 'person-casey');
+    const plan = JSON.parse((await fs.read('proposals/plan.json')).text); plan.note = 'Edited';
+    await fs.write('proposals/plan.json', JSON.stringify(plan));
+    const d2 = await repo.loadAll(fs, { deep: true }), p = d2.plans[0];
+    assert.ok(p._decidedEarlier && !p._status && d2.runsComplete === true, status + ': set-up');
+    const rep = PF.health.check({ data: d2, scan: null, me: 'person-casey', app: '2.1.1' }, Date.parse(NOW));
+    const i = rep.issues.find(x => x.id === 'plan-run-missing:' + p.id);
+    if (status === 'declined') { assert.strictEqual(PF.health.missingRun(d2, p), ''); assert.ok(!i, 'declined: nothing missing'); continue; }
+    assert.strictEqual(PF.health.missingRun(d2, p), 'run-gone');
+    assert.ok(i && i.severity === 'warn' && /Started \(run run-gone\); its run isn't in the folder/.test(i.title + ' ' + i.detail) && /make a new plan to run it again/.test(i.detail), JSON.stringify(rep.issues.map(x => x.id)));
+  }
+});
+
+rule('A torn file in proposals/ named like a plan (plan-… or req-…) says which plan it\'s for even when no readable plan has that ID; only other names are unnamed (2.1.1)', async () => {
+  const REQ = 'req-tool-' + 'a'.repeat(24);
+  const cases = { 'plan-x.json': false, 'plan-x.status-w-d.json': false, 'plan-x (1).json': false, 'plan-x-LAPTOP.json': false, [REQ + '.json']: false, [REQ + '.status-w.json']: false,
+    'Copy of plan-x.json': true, 'Plan-x.json': true, 'req-tool-short.json': true, 'notes.json': true };
+  for (const name of Object.keys(cases)) {
+    const fs = folder(); await published(fs);
+    await fs.write('proposals/' + name, '{"kind": "pla');
+    const d = await repo.loadAll(fs), u = d.planUnread.find(x => x.path === 'proposals/' + name);
+    assert.ok(u, name + ': listed');
+    assert.strictEqual(!!u.unnamed, cases[name], name);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(d.plans[0]._statusHeld)), [], name + ': gate unchanged, no plan held');
+    const rep = PF.health.check({ data: d, scan: null, me: 'person-casey', app: '2.1.1' }, Date.parse(NOW)), ids = rep.issues.map(i => i.id);
+    assert.ok(ids.indexOf(cases[name] ? 'unreadable-plan-unnamed' : 'unreadable-plans') >= 0 && ids.indexOf(cases[name] ? 'unreadable-plans' : 'unreadable-plan-unnamed') < 0, name + ': ' + ids);
+  }
+  // A legacy plan ID (not plan-…) is still recognized through the plans that read.
+  const fs = folder(); await published(fs);
+  const legacy = Object.assign(JSON.parse((await fs.read('proposals/plan.json')).text), { id: 'release-old' });
+  await fs.write('proposals/release-old.json', JSON.stringify(legacy));
+  await fs.write('proposals/release-old.status-w.json', '{"kind": "sta');
+  const d = await repo.loadAll(fs), u = d.planUnread.find(x => x.path === 'proposals/release-old.status-w.json');
+  assert.ok(d.plans.some(p => p.id === 'release-old'), 'set-up: the legacy plan reads');
+  assert.ok(u && !u.unnamed, 'named through its readable plan');
+});
+
+rule('A note line that isn\'t complete JSON is named (file and line), the notes on either side load, and it clears once the line reads (2.1.1)', async () => {
+  const fs = folder(), r = await started(fs), file = 'runs/release/run1/notes-w.jsonl';
+  const note = (id, min) => JSON.stringify({ id, at: '2026-10-17T21:' + min + ':00Z', by: 'person-blake', text: 'Note ' + id });
+  await fs.write(file, note('n1', '01') + '\n{"id": "n2", "at": "2026-10\n' + note('n3', '03') + '\n' + JSON.stringify({ not: 'a note' }) + '\n');
+  let d = await repo.loadAll(fs, { deep: true }), run1 = d.runs.find(x => x.id === 'run1');
+  same(run1._notes.map(n => n.id), ['n1', 'n3']);
+  same(run1._noteLines, [{ file: 'notes-w.jsonl', line: 2 }]);
+  const rep = PF.health.check({ data: d, scan: null, me: 'person-casey', app: '2.1.1' }, Date.parse(NOW));
+  const un = rep.issues.find(i => i.id === 'unreadable');
+  assert.ok(un && un.paths.indexOf(file) >= 0 && /A note in notes-w\.jsonl \(line 2\) couldn't be read\. It may still be arriving; if it stays, the note on that line is lost and the rest are shown\./.test(un.detail), JSON.stringify(rep.issues));
+  await fs.write(file, note('n1', '01') + '\n' + note('n2', '02') + '\n' + note('n3', '03') + '\n');
+  d = await repo.loadAll(fs, { deep: true }); run1 = d.runs.find(x => x.id === 'run1');
+  same(run1._notes.map(n => n.id), ['n1', 'n2', 'n3']);
+  assert.ok(!run1._noteLines || !run1._noteLines.length);
 });
 
 rule('P1: a map can\'t publish while a screenshot it shows is missing, and a published screenshot is checked against its record', async () => {

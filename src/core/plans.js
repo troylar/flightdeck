@@ -1,4 +1,4 @@
-/* Planned runs (proposals/plan-*.json) and the decisions on them (proposals/<plan>.status-<writer>.json): the one checked
+/* Planned runs (proposals/plan-*.json) and the decisions on them (proposals/<plan>.status-<writer>.json for a switch, <plan>.status-<writer>-d.json for a start or decline): the one checked
    reader the app and reading for other apps share (docs/design.md section 28). Pure.
    Two kinds of plan: a number plan (kind: plan, version: N) keeps the meaning every copy gives it (a version that's gone starts
    on the latest, and says so); a plan/2 (format: flightdeck-plan/2, no kind) pins one exact version folder, and every exact
@@ -8,6 +8,11 @@ PF.plans = (function () {
   'use strict';
   var E = PF.envelope, FORMAT2 = 'flightdeck-plan/2', STATUS2 = 'flightdeck-plan-status/2', HASH8 = /^[0-9a-f]{8}$/;
   function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  /* A file name in proposals/ that says which plan it's for by its shape alone (2.1.1): a plan's ID (plan-…) or a request's
+     (req-<tool>-<24 hex>), then its extension, .status-…, or a copy's " (1)" or "-COMPUTER". Older IDs are known only
+     through the plans that read. */
+  var NAMED = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.| \(|-[A-Z])/;
+  function namesPlan(name) { return typeof name === 'string' && NAMED.test(name); }
   /* A plan/2 or plan-status/2, by its dispatch field. */
   function isExact(o) { return isObj(o) && (o.format === FORMAT2 || o.format === STATUS2); }
   /* An exact version folder: { folder, version } and, in a plan's pin, its two fingerprints. */
@@ -100,5 +105,33 @@ PF.plans = (function () {
     var x = PF.pins.forPlan(proc, plan, plan._retarget || null);
     return { pub: x.pub, older: !!x.older, missing: false, chosen: !!x.retargeted && !!x.pub, exact: true, ask: x.pub ? '' : x.ask };
   }
-  return { FORMAT2: FORMAT2, STATUS2: STATUS2, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
+  /* Why a plan can't be started, declined or switched now, or '': a decision on it that can't be read (it may still be
+     arriving), that a newer Flightdeck made, or that isn't one this copy can read. Each says what to do about it. */
+  function planHeldWhy(plan, data) {
+    if (plan && data && data.failed && Object.prototype.hasOwnProperty.call(data.failed, 'proposals')) return 'proposals/ couldn\'t be read just now, so it isn\'t known whether someone already started it. Until it reads, this plan can\'t be started, declined or switched here. Try again once the folder can be read.';
+    if (plan && plan._status) {
+      /* Started, but its run isn't in the folder (2.1.1): it stays started, and is never started again. */
+      var lost = data ? PF.health.missingRun(data, plan) : '';
+      if (lost) return PF.health.startedMissing(lost) + ' It may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.';
+      return plan._status.status === 'accepted' ? 'This plan was already started' + (typeof plan._status.run === 'string' ? ' (' + plan._status.run + ')' : '') + ', so it won\'t start again here. Find its run on Runs.' : 'This plan was ' + (plan._status.status === 'declined' ? 'declined' : 'decided on') + ' elsewhere, so it can\'t be started, declined or switched here.';
+    }
+    if (plan && plan._decidedEarlier) {
+      var lostE = data ? PF.health.missingRun(data, plan) : '';
+      return earlierWords(plan, data) + (lostE ? ' ' + PF.health.startedMissing(lostE) + ' It may still be syncing: wait and refresh. If it never arrives, make a new plan to run it again.' : ' It can\'t be started, declined or switched. To run it again, make a new plan.');
+    }
+    var h = plan && plan._statusHeld || [], x = h.filter(function (u) { return u.kind === 'newer'; })[0] || h.filter(function (u) { return u.kind === 'malformed'; })[0] || h[0];
+    if (!x) return '';
+    var held = ' Until then this plan can\'t be started, declined or switched here.';
+    if (x.kind === 'newer') return 'A decision on this plan (' + x.path + ') was made with a newer Flightdeck, so it isn\'t known here whether it was started. ' + PF.envelope.needsText(x.needs) + ' Update Flightdeck to see it.' + held;
+    if (x.kind === 'malformed') return 'A decision on this plan (' + x.path + ') isn\'t one this copy can read, so it isn\'t known whether it was started. Fix or delete that file.' + held;
+    if (!/\.status-[^/]*$/.test(x.path)) return 'This plan\'s file (' + x.path + ') can\'t be read now, so what it says may have changed and it isn\'t known whether it was started. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
+    return 'A decision on this plan (' + x.path + ') can\'t be read, so it isn\'t known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it.' + held;
+  }
+  /* A plan edited after it was started or declined (2.1.1): who decided what, and when, on its earlier version. */
+  function earlierWords(plan, data) {
+    var d = plan._decidedEarlier, who = ((data && data.people) || []).filter(function (x) { return x.id === d.by; })[0];
+    var what = d.status === 'accepted' ? 'started' + (typeof d.run === 'string' && d.run ? ' (run ' + d.run + ')' : '') : d.status === 'declined' ? 'declined' : 'decided on';
+    return 'Decided on an earlier version of this plan: ' + what + ' by ' + (who ? who.name : d.by ? String(d.by) : 'someone') + (d.at ? ', ' + PF.util.when(d.at) : '') + '.';
+  }
+  return { FORMAT2: FORMAT2, STATUS2: STATUS2, namesPlan: namesPlan, heldWhy: planHeldWhy, earlierWords: earlierWords, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
 })();
