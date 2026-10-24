@@ -553,7 +553,8 @@ rule('What was typed in one step\'s form never carries into another step\'s, for
     const kind = act === 'pr-check' ? 'ev' : 'fill';
     assert.match(app.html(), new RegExp('data-scope="pr\\|' + kind + '\\|da"'));
     app.click(act, 'db'); await app.tick();
-    /* The redraw carries a typed box only within the same data-scope (app.js render), so B's boxes start from B. */
+    /* The redraw carries a typed box only within the same data-scope (app.js render), so B's boxes start from B. This
+       harness keeps one object per box ID, so typing can't be shown here; a real browser was checked by hand. */
     assert.match(app.html(), new RegExp('data-pr-form="' + kind + '" data-id="db" data-scope="pr\\|' + kind + '\\|db"'), act + ': B\'s form has its own scope');
     assert.match(app.html(), new RegExp('id="' + box + '"[^>]*>'), act);
     assert.ok(!new RegExp('<textarea id="' + box + '"[^>]*>first step only|id="' + box + '"[^>]*value="first step only"').test(app.html()), act + ': drawn from B');

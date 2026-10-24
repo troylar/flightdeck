@@ -790,4 +790,24 @@ rule('Needed from here: a skipped phase\'s gate asks for nothing', () => {
   same(P.follow(prod, map, {}).from.needed, ['sig'], 'the same gate asks once its phase applies');
 });
 
+rule('a setter given a new ID by the builder still takes its consumers and later gates with it, and back on the same value', () => {
+  const md = SETS + '\n## Gate: Shipped {#shipped}\n  approves: ship of ^commit\n';
+  const map = admit(md);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc' } });
+  st = ans(ans(st, map, 'size', { skipped: true }), map, 'review');
+  st = gate(st, map, 0); st = ans(st, map, 'deploy'); st = gate(st, map, 1);
+  const moved = admit(md.replace('Make the commit {#make}', 'Make the release commit {#make2}'));
+  const settled = P.settle(st, moved, { make: 'make2' }, map);
+  same(settled.setBy, { commit: 'make2' }, 'Set by follows the new ID');
+  const v = P.follow(settled, moved, {});
+  same([step(v, 'make2').status, step(v, 'deploy').status, phase(v, 'ship').gate.rec.s], ['again', 'again', 'review']);
+  const re = ans(settled, moved, 'make2', { values: { [CK]: 'abc' } }), v2 = P.follow(re, moved, {});
+  same([step(v2, 'make2').status, step(v2, 'deploy').status, phase(v2, 'ship').gate.rec.s], ['done', 'done', 'passed'], 'same value: back as they were');
+  const e = P.undoEntry(settled, re, 'Check'), u = P.applyEntry(re, e);
+  same(step(P.follow(u.state, moved, {}), 'deploy').status, 'again', 'Undo of the re-check sends the consumer back again');
+  same(step(P.follow(P.applyEntry(u.state, u.back).state, moved, {}), 'deploy').status, 'done', 'and Redo returns it');
+  const skipped = P.settle(ans(P.fresh('s'), map, 'make', { skipped: true }), moved, { make: 'make2' }, map);
+  same(P.follow(skipped, moved, {}).phases[0].steps.map(x => x.status).slice(0, 1), ['again']);
+});
+
 run();

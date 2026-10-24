@@ -13599,6 +13599,7 @@ PF.practice = (function () {
         var def = evidenceDef(r, map, s), jp = s.type === 'jira.issue' ? R.jiraProblem(r, s) || '' : '';
         out[s.id] = {
           ask: asks(r, s, def),
+          sets: (def || []).filter(function (d) { return d[4]; }).map(function (d) { return [d[0], d[4]]; }),
           /* A Jira transition the workflow no longer has (or can't check) changes what checking it means, too. */
           own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned, def, jp]),
           ctx: fp([head, prefix, track[s.track] || null, detailsPart(map, readsOf(p, s), sample)])
@@ -13631,14 +13632,12 @@ PF.practice = (function () {
     var p = map.phases[pi];
     return fp([p.gate.id, S.gateParts(p.gate), S.phaseParts(p), before(map, pi), applicable.map(function (s) { return [s.id, now[s.id] ? [now[s.id].own, now[s.id].ctx] : null]; }), detailsPart(map, readsOf(p, null), sample)]);
   }
-  /* A setter in Try it again takes what it set with it: every later step and gate that reads one of those details goes to
+  /* A setter in Try it again (one whose answer holds a value it set) takes what it set with it: every later step and gate that reads one of those details goes to
      Try it again too, in document order (so it carries on through a consumer that sets something itself). Derived, never
      stored: checking the setter again with the same value brings them back as they were. */
   function derive(state, map, types) {
-    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, from = {}, tainted = {}, taintAt = [];
+    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, tainted = {}, taintAt = [];
     var fr = fromOf(state, map, types), assumed = fr ? fr.assumed : {}, pmap = fr ? project(map, fr, state.sample, types) : map;
-    var setBy = state.setBy || {};
-    Object.keys(setBy).forEach(function (n) { (from[setBy[n]] = from[setBy[n]] || []).push(n); });
     var reads = function (names) { for (var i = 0; i < names.length; i++) if (own(tainted, names[i])) return names[i]; return ''; };
     map.phases.forEach(function (p) {
       p.steps.forEach(function (s) {
@@ -13647,7 +13646,11 @@ PF.practice = (function () {
         if (!a) return;
         var same = a.own === now[s.id].own && a.ctx === now[s.id].ctx, via = same ? reads(readsOf(p, s)) : '';
         if (same && !via) steps[s.id] = { s: a.s, by: 'practice', at: a.at };
-        else { steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a; (from[s.id] || []).forEach(function (n) { tainted[n] = true; }); }
+        else {
+          steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a;
+          /* What it set comes from its own answer (which follows a new ID), never from setBy. */
+          if (a.values && !a.skipped) now[s.id].sets.forEach(function (x) { if (a.values[x[0]]) tainted[x[1]] = true; });
+        }
       });
       taintAt.push(Object.assign({}, tainted));
     });
@@ -13863,6 +13866,8 @@ PF.practice = (function () {
     var st = copy(state), present = {}, changed = false;
     st.from = st.from || '';
     if (st.from && own(renames || {}, st.from)) { st.from = renames[st.from]; changed = true; }
+    /* "Set by" follows a new ID too (it only labels the sample box; what flows comes from the answers). */
+    Object.keys(st.setBy || {}).forEach(function (n) { if (own(renames || {}, st.setBy[n])) { st.setBy[n] = renames[st.setBy[n]]; changed = true; } });
     Object.keys(renames || {}).forEach(function (o) {
       var n = renames[o];
       if (own(st.answers, o) && !own(st.answers, n)) { st.answers[n] = st.answers[o]; changed = true; }
