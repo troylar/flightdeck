@@ -658,6 +658,86 @@ rule('Fill in keeps a current gate as it was (passed or waived), leaves a stale 
   const passed = gate(st, map, 0), stale = admit(md.replace('Tell {#tell}', 'Tell everyone {#tell}'));
   const r2 = P.fillIn(passed, stale, 'dec', { options: 'A, B, C' }, {}); assert.ok(r2.state, r2.error);
   assert.strictEqual(phase(P.follow(r2.state, stale, {}), 'p').gate.rec.s, 'review', 'a gate stale for another reason stays in review');
+  const opt = admit(md.replace('- [!] {decide}', '- [ ] {decide}'));
+  const open = gate(ans(P.fresh('c'), opt, 'tell'), opt, 0, 'waive', 'later');
+  assert.ok(!open.answers.dec, 'the optional decision is unanswered');
+  const r3 = P.fillIn(open, opt, 'dec', { options: 'A, B, C' }, {}); assert.ok(r3.state, r3.error);
+  const v3 = P.follow(r3.state, opt, {});
+  assert.strictEqual(phase(v3, 'p').gate.rec.s, 'waived', 'an unanswered step\'s Fill in keeps the waiver');
+  assert.ok(phase(v3, 'q').open);
+  const e3 = P.undoEntry(open, r3.state, 'Fill in'), u3 = P.applyEntry(r3.state, e3);
+  same([u3.state.fields, u3.state.gates], [open.fields, open.gates]);
+  same(P.applyEntry(u3.state, u3.back).state.gates, r3.state.gates);
+});
+
+const FROM = ['---', 'process: f', 'title: F', 'context: env:choice(dev|prod), size:number, tag', '---',
+  '## One · READ-DO {#one}', '- [!] {confirm} First {#a1}', '- [ ] {confirm} Only in prod {#a2}', '  only when ^env is prod', '',
+  '## Gate: One done {#g1}', '  approves: env ^env', '',
+  '## Two · READ-DO {#two}', '- [ ] {confirm} Early {#b1}', '- [!] {confirm} Start here {#b2}', '- [ ] {confirm} Ship ^tag {#b3}', '- [ ] {confirm} Make tag {#b4}', '  sets: tag', '- [ ] {confirm} Size it ^size {#b5}', '',
+  '## Three · READ-DO {#three}', '  only when ^env is prod', '- [ ] {confirm} Last {#c1}', ''].join('\n');
+
+rule('Run from here: earlier steps and gates are assumed, never answers, and the walk starts at the step', () => {
+  const map = admit(FROM), st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'prod').state, map, 'b2').state;
+  const v = P.follow(st, map, {});
+  same(['a1', 'a2', 'b1', 'b2'].map(id => step(v, id).status), ['assumed', 'assumed', 'assumed', 'open']);
+  assert.strictEqual(phase(v, 'one').gate.rec.by, 'assumed'); assert.ok(phase(v, 'one').gate.assumed);
+  assert.ok(phase(v, 'two').open);
+  same(v.from.id, 'b2'); assert.strictEqual(v.from.assumed, 3);
+  same(st.answers, {}); same(st.gates, {});
+  assert.strictEqual(v.nextUp.step, 'b2');
+  assert.ok(/assumed/.test(P.answer(st, map, 'a1', 'done', {}, NOW).error));
+  assert.ok(/assumed/.test(P.gateAct(st, map, 0, 'pass', '', {}, NOW).error));
+});
+
+rule('Run from here: an unresolved or invalid earlier condition never locks the way; the live part keeps its conditions', () => {
+  const md = FROM.replace('## One · READ-DO {#one}', '## One · READ-DO {#one}\n  only when ^size is 3');
+  const map = admit(md);
+  for (const sample of [{}, { env: 'staging' }]) {
+    const st = P.setFrom(Object.assign(P.fresh('f'), { sample }), map, 'b2').state, v = P.follow(st, map, {});
+    assert.ok(phase(v, 'two').open, JSON.stringify(sample) + ': the destination phase is open');
+    assert.strictEqual(step(v, 'b2').status, 'open');
+    assert.strictEqual(v.nextUp.step, 'b2');
+    assert.notStrictEqual(phase(v, 'three').info && step(v, 'c1').status, 'assumed', 'live conditions stay');
+  }
+  const partial = P.setFrom(Object.assign(P.fresh('f'), { sample: { env: 'staging' } }), admit(FROM), 'a2').state, v2 = P.follow(partial, admit(FROM), {});
+  same([step(v2, 'a1').status, step(v2, 'a2').status], ['assumed', 'waiting'], 'the from step\'s own condition is live: it waits for a valid env');
+});
+
+rule('Run from here: needed samples in walk order, set by a producer only when it comes first, applies and has its evidence', () => {
+  const map = admit(FROM);
+  let st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'b2').state;
+  same(P.follow(st, map, {}).from.needed, ['tag', 'size'], 'tag is read before Make tag sets it; size is never set');
+  const after = admit(FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', '').replace('  sets: tag\n', '  sets: tag\n- [ ] {confirm} Ship ^tag {#b3}\n'));
+  st = P.setFrom(P.setSample(P.fresh('f'), after, 'env', 'dev').state, after, 'b2').state;
+  same(P.follow(st, after, {}).from.needed, ['size'], 'a producer before the use supplies it');
+  const skipped = ans(st, after, 'b4', { skipped: true });
+  same(P.follow(skipped, after, {}).from.needed, ['tag', 'size'], 'checked without evidence: it supplies nothing');
+  const hidden = admit(FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', '').replace('  sets: tag\n', '  sets: tag\n  only when ^env is prod\n- [ ] {confirm} Ship ^tag {#b3}\n'));
+  st = P.setFrom(P.setSample(P.fresh('f'), hidden, 'env', 'dev').state, hidden, 'b2').state;
+  same(P.follow(st, hidden, {}).from.needed, ['tag', 'size'], 'a hidden producer supplies nothing');
+  const fromStart = P.setFrom(P.fresh('f'), map, 'a1').state;
+  assert.ok(P.follow(fromStart, map, {}).from.needed.indexOf('env') >= 0, 'a gate approval counts');
+});
+
+rule('Run from here: no success moment; through says so; Undo and Reset clear it; removal moves it', () => {
+  const map = admit(FROM);
+  let st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'b5').state;
+  st = ans(st, map, 'b5');
+  st = gate(st, map, 1);
+  const v = P.follow(st, map, {});
+  assert.strictEqual(v.complete, false); assert.strictEqual(v.from.through, true);
+  const e = P.undoEntry(P.fresh('f'), P.setFrom(P.fresh('f'), map, 'b5').state, 'Run from here');
+  assert.strictEqual(P.applyEntry(P.setFrom(P.fresh('f'), map, 'b5').state, e).state.from, '');
+  assert.strictEqual(P.reset(st).state.from, '');
+  const s2 = P.setFrom(P.fresh('f'), map, 'b3').state;
+  const gone = admit(FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', ''));
+  assert.strictEqual(P.settle(s2, gone, {}, map).from, 'b4', 'the next step after it in its phase');
+  const lastGone = admit(FROM.replace('- [ ] {confirm} Last {#c1}', '- [ ] {confirm} Other {#c2}'));
+  assert.strictEqual(P.settle(P.setFrom(P.fresh('f'), map, 'c1').state, lastGone, {}, map).from, 'c2', 'else the phase\'s first');
+  assert.strictEqual(P.settle(P.setFrom(P.fresh('f'), map, 'c1').state, admit(FROM.split('## Three')[0]), {}, map).from, '', 'else the beginning');
+  assert.strictEqual(P.settle(s2, admit(FROM.replace('{#b3}', '{#b3x}')), { b3: 'b3x' }, map).from, 'b3x', 'a rename follows');
+  const hid = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'a2').state;
+  assert.strictEqual(P.follow(hid, map, {}).from.id, 'a1', 'a hidden from step hands over (here to the phase\'s first)');
 });
 
 run();

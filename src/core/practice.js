@@ -132,11 +132,13 @@ PF.practice = (function () {
      stored: checking the setter again with the same value brings them back as they were. */
   function derive(state, map, types) {
     var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, from = {}, tainted = {}, taintAt = [];
+    var fr = fromOf(state, map, types), assumed = fr ? fr.assumed : {}, pmap = fr ? project(map, fr, state.sample, types) : map;
     var setBy = state.setBy || {};
     Object.keys(setBy).forEach(function (n) { (from[setBy[n]] = from[setBy[n]] || []).push(n); });
     var reads = function (names) { for (var i = 0; i < names.length; i++) if (own(tainted, names[i])) return names[i]; return ''; };
     map.phases.forEach(function (p) {
       p.steps.forEach(function (s) {
+        if (own(assumed, s.id)) { steps[s.id] = { s: 'done', by: 'assumed', at: '' }; return; }
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
         if (!a) return;
         var same = a.own === now[s.id].own && a.ctx === now[s.id].ctx, via = same ? reads(readsOf(p, s)) : '';
@@ -145,37 +147,105 @@ PF.practice = (function () {
       });
       taintAt.push(Object.assign({}, tainted));
     });
-    var view = { sample: state.sample, steps: steps, gates: {}, fields: state.fields || {} }, r = asRun(view, map, null, false, types);
+    var view = { sample: state.sample, steps: steps, gates: {}, fields: state.fields || {} }, r = asRun(view, pmap, null, false, types);
+    /* Gates before the from step's phase are assumed passed, with what they'd approve now. */
+    if (fr) pmap.phases.forEach(function (p, pi) { if (pi < fr.pi) view.gates[p.gate.id] = { s: 'passed', by: 'assumed', at: '', approved: R.gateInputs(r, pmap, p.gate) }; });
     map.phases.forEach(function (p, pi) {
+      if (fr && pi < fr.pi) return;
       var g = own(state.gates, p.gate.id) ? state.gates[p.gate.id] : null;
       if (!g) return;
-      var base = gateBase(map, pi, now, applicableSteps(r, map, pi), state.sample), via = readsOf(p, null).filter(function (n) { return own(taintAt[pi], n); })[0] || '';
+      var base = gateBase(map, pi, now, applicableSteps(r, pmap, pi), state.sample), via = readsOf(p, null).filter(function (n) { return own(taintAt[pi], n); })[0] || '';
       view.gates[p.gate.id] = base === g.base && !via ? { s: g.s, reason: g.reason, by: 'practice', at: g.at, approved: g.approved } : { s: 'review', was: g.s, reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: g.at, approved: g.approved };
     });
-    return { view: view, now: now, again: again };
+    return { view: view, now: now, again: again, map: pmap, from: fr };
+  }
+
+  /* ---------- Run from here ----------
+     The from step, as it applies now: one that's hidden hands over to the next step after it in its phase that applies,
+     else the phase's first that does; none clears it. Everything before it is assumed (never an answer). */
+  function fromOf(state, map, types) {
+    if (!state.from) return null;
+    var x = M.findStep(map, state.from);
+    if (!x) return null;
+    var pi = x.phaseIndex, steps = map.phases[pi].steps, si = steps.indexOf(x.step), r0 = asRun({ sample: state.sample, steps: {}, gates: {} }, map, null, false, types);
+    var ok = function (k) { return R.applies(r0, map, pi, steps[k]).applies !== false; }, at = -1;
+    for (var k = si; k < steps.length && at < 0; k++) if (ok(k)) at = k;
+    for (var j = 0; j < si && at < 0; j++) if (ok(j)) at = j;
+    if (at < 0) return null;
+    var assumed = {}, count = 0;
+    map.phases.forEach(function (p, i) { p.steps.forEach(function (s, n) { if (i < pi || (i === pi && n < at)) { assumed[s.id] = true; if (R.applies(r0, map, i, s).applies !== false) count++; } }); });
+    return { pi: pi, si: at, id: steps[at].id, text: steps[at].text, assumed: assumed, count: count };
+  }
+  /* The map the readers see while running from a step (never fingerprinted or kept): an assumed step whose own condition
+     doesn't resolve, and an entirely assumed phase whose condition doesn't, are read without it, so nothing assumed can
+     hold the way. Conditions that resolve stay, and the live part keeps every condition. */
+  function project(map, fr, sample, types) {
+    var r0 = asRun({ sample: sample, steps: {}, gates: {} }, map, null, false, types), any = false;
+    var unresolved = function (p, s) { return R.applies(r0, { meta: map.meta, phases: [Object.assign({}, p, { when: null, steps: [s] })] }, 0, s).applies === null; };
+    var phases = map.phases.map(function (p, pi) {
+      if (pi > fr.pi) return p;
+      var q = p, copyOf = function () { if (q === p) { q = Object.assign({}, p, { steps: p.steps.slice() }); any = true; } };
+      if (pi < fr.pi && p.when && R.applies(r0, map, pi).applies === null) { copyOf(); q.when = null; }
+      p.steps.forEach(function (s, n) {
+        if (!fr.assumed[s.id] || !s.when || !unresolved(p, s)) return;
+        copyOf(); q.steps[n] = Object.assign({}, s, { when: null });
+      });
+      return q;
+    });
+    return any ? Object.assign({}, map, { phases: phases }) : map;
+  }
+  /* Run details the walk from the from step needs before anything on it sets them: at its first use (a step's text,
+     condition or evidence; a gate's approval), empty, and not set earlier on the walk by a step that applies and wasn't
+     checked without its evidence. Assumed setters set nothing. */
+  function needed(state, map, pmap, r, fr) {
+    var out = [], supplied = {};
+    var use = function (n) { if (!(state.sample[n]) && !supplied[n] && out.indexOf(n) < 0) out.push(n); };
+    for (var pi = fr.pi; pi < pmap.phases.length; pi++) {
+      var p = pmap.phases[pi];
+      for (var n = pi === fr.pi ? fr.si : 0; n < p.steps.length; n++) {
+        var s = p.steps[n];
+        if (R.applies(r, pmap, pi, s).applies === false) continue;
+        var ev = R.evidenceFor(r, s, null, map).list;
+        readsOf(p, s).forEach(use);
+        ev.forEach(function (e) { var m = /^detail:(.+)$/.exec(e.source || ''); if (m && !e.detail) use(m[1]); });
+        var a = own(state.answers, s.id) ? state.answers[s.id] : null;
+        if (!(a && a.skipped)) ev.forEach(function (e) { if (e.detail) supplied[e.detail] = true; });
+      }
+      readsOf(p, null).forEach(use);
+    }
+    return out;
+  }
+  function setFrom(state, map, id) {
+    if (id && !M.findStep(map, id)) return { error: 'That step isn\'t in the draft anymore.' };
+    var st = copy(state); st.from = id || '';
+    return { state: bump(st) };
   }
   function applicableSteps(r, map, pi) { return map.phases[pi].steps.filter(function (s) { return R.applies(r, map, pi, s).applies !== false; }); }
 
   /* The pane's model: every phase and step with its status and why, the gates, Next up, answers kept for parts no longer in
      the draft (gone), and whether everything is through (complete; never for a draft with nothing to do). */
   function follow(state, map, types, me) {
-    var d = derive(state, map, types), r = asRun(d.view, map, me, true, types), present = {};
-    var phases = map.phases.map(function (p, pi) {
-      var gst = R.gateStatus(r, map, pi);
-      return { id: p.id, title: p.title, mode: p.mode, gate: { id: p.gate.id, title: p.gate.title, implicit: p.gate.implicit, status: gst, canPass: R.canPass(r, map, pi), canWaive: R.canWaive(r, map, pi), rec: d.view.gates[p.gate.id] || null },
-        info: R.phaseInfo(r, map, pi), open: phaseOpenOf(r, map, pi),
+    var d = derive(state, map, types), pm = d.map, r = asRun(d.view, pm, me, true, types), present = {}, fr = d.from;
+    var phases = pm.phases.map(function (p, pi) {
+      var gst = R.gateStatus(r, pm, pi);
+      return { id: p.id, title: p.title, mode: p.mode, gate: { id: p.gate.id, title: p.gate.title, implicit: p.gate.implicit, status: gst, canPass: R.canPass(r, pm, pi), canWaive: R.canWaive(r, pm, pi), rec: d.view.gates[p.gate.id] || null, assumed: !!(fr && pi < fr.pi) },
+        info: R.phaseInfo(r, pm, pi), open: phaseOpenOf(r, pm, pi),
         steps: p.steps.map(function (s) {
           present[s.id] = true;
-          var ap = R.applies(r, map, pi, s), a = d.view.steps[s.id], status = ap.applies === false ? 'hidden' : ap.applies === null ? 'waiting' : !a ? 'open' : a.s === 'recheck' ? 'again' : a.s === 'na' ? 'skipped' : 'done';
-          return { id: s.id, text: s.text, type: s.type, must: s.must, temp: isTemp(s.id), status: status, why: ap.why || '', old: d.again[s.id] ? d.again[s.id].s : null, simulated: simulated(s, types) };
+          var ap = R.applies(r, pm, pi, s), a = d.view.steps[s.id], rec = own(state.answers, s.id) ? state.answers[s.id] : null;
+          var status = ap.applies === false ? 'hidden' : a && a.by === 'assumed' ? 'assumed' : ap.applies === null ? 'waiting' : !a ? 'open' : a.s === 'recheck' ? 'again' : a.s === 'na' ? 'skipped' : 'done';
+          return { id: s.id, text: s.text, type: s.type, must: s.must, temp: isTemp(s.id), status: status, why: ap.why || '', old: d.again[s.id] ? d.again[s.id].s : null, simulated: simulated(s, envOf(types).types),
+            again: a && a.s === 'recheck' ? { reason: a.reason, detail: a.detail || '' } : null, skipped: !!(rec && rec.skipped && status === 'done'), values: rec && rec.values && status !== 'assumed' ? rec.values : null };
         }) };
     });
     map.phases.forEach(function (p) { present[p.gate.id] = true; });
     var gone = Object.keys(state.answers).filter(function (id) { return !present[id]; });
-    var nu = R.nextUp(r, map, me || 'practice'), steps = 0;
-    phases.forEach(function (p) { p.steps.forEach(function (s) { if (s.status !== 'hidden') steps++; }); });
+    var nu = R.nextUp(r, pm, me || 'practice'), steps = 0;
+    phases.forEach(function (p) { p.steps.forEach(function (s) { if (s.status !== 'hidden' && s.status !== 'assumed') steps++; }); });
+    var through = nu.kind === 'complete' && steps > 0;
     return { phases: phases, nextUp: { kind: nu.kind, step: nu.step ? nu.step.id : null, gate: nu.gate ? nu.gate.id : null, phaseIndex: nu.phaseIndex, text: nu.hl ? nu.hl.text : '' },
-      gone: gone, complete: nu.kind === 'complete' && steps > 0 };
+      gone: gone, complete: through && !fr, setBy: Object.assign({}, state.setBy || {}),
+      from: fr ? { id: fr.id, text: fr.text, moved: fr.id !== state.from, assumed: fr.count, needed: needed(state, map, pm, r, fr), through: through } : null };
   }
   function phaseOpenOf(r, map, pi) { return R.phaseOpen(r, map, pi); }
   /* A step that does something practice can't: a linked run or a skill (only "Mark done for practice"), or evidence it
@@ -187,14 +257,16 @@ PF.practice = (function () {
   }
 
   /* ---------- changing a practice: each returns { state } or { error }, never changing the one it's given ---------- */
+  var ASSUMED = 'This part is assumed while you practice from a later step. Choose Start from the beginning to practice it.';
   function copy(state) { return JSON.parse(JSON.stringify(state)); }
   function bump(st) { st.rev = (st.rev || 0) + 1; return st; }
   /* o (for done): { values } the evidence, checked as a run checks it, or { skipped: true } to check without it (practice
      only: never sets a detail). A setter is one transaction: its values become the sample (setBy remembers it), and only
      then is the answer fingerprinted, so a step that reads what it sets stays done (a run never re-checks the setter). */
   function answer(state, map, id, how, types, now, o) {
-    var d = derive(state, map, types), r = asRun(d.view, map, null, true, types);
-    var why = R.answerable(r, map, id, how);
+    var d = derive(state, map, types), r = asRun(d.view, d.map, null, true, types);
+    if (d.from && d.from.assumed[id]) return { error: ASSUMED };
+    var why = R.answerable(r, d.map, id, how);
     if (why) return { error: why };
     var st = copy(state);
     unsetBy(st, id);
@@ -230,20 +302,21 @@ PF.practice = (function () {
     if (!cf.changed.length) return { state: state };
     var st = copy(state);
     if (Object.keys(cf.own).length) st.fields[id] = cf.own; else delete st.fields[id];
-    if (current) {
-      var after = prints(map, st.sample, types, st.fields), pi = x.phaseIndex, gid = map.phases[pi].gate.id, g = own(st.gates, gid) ? st.gates[gid] : null;
-      st.answers[id].own = after[id].own;
-      /* Its gate, if it was current, stays as it was too (a run's does): only this step's own fingerprint moved. */
-      if (g) {
-        var app = applicableSteps(r, map, pi);
-        if (g.base === gateBase(map, pi, d.now, app, state.sample)) g.base = gateBase(map, pi, after, app, st.sample);
-      }
+    var after = prints(map, st.sample, types, st.fields), pi = x.phaseIndex, gid = map.phases[pi].gate.id, g = own(st.gates, gid) ? st.gates[gid] : null;
+    if (current) st.answers[id].own = after[id].own;
+    /* Its gate, if it was current, stays as it was too (a run's does), answered or not: only this step's own fingerprint
+       moved. A gate already in review for another reason is left as it is. */
+    if (g) {
+      var app = applicableSteps(r, map, pi);
+      if (g.base === gateBase(map, pi, d.now, app, state.sample)) g.base = gateBase(map, pi, after, app, st.sample);
     }
     return { state: bump(st), changed: cf.changed };
   }
   function gateAct(state, map, pi, how, reason, types, now) {
-    var d = derive(state, map, types), r = asRun(d.view, map, null, true, types), p = map.phases[pi];
+    var d = derive(state, map, types), r = asRun(d.view, d.map, null, true, types), p = map.phases[pi];
     if (!p) return { error: 'That phase isn\'t in the draft anymore.' };
+    if (d.from && pi < d.from.pi) return { error: ASSUMED };
+    map = d.map;
     var st = copy(state), gid = p.gate.id;
     if (how === 'reopen') { R.reopenIds(map, pi).forEach(function (id) { delete st.gates[id]; }); return { state: bump(st) }; }
     if (how === 'pass' && !R.canPass(r, map, pi)) return { error: 'This gate isn\'t ready to pass.' };
@@ -270,14 +343,28 @@ PF.practice = (function () {
   /* A builder edit that gave parts new IDs (renames: old → new): each answer is copied to the new ID, where it needs another
      try (its wording changed), and stays under the old one, so an Undo of the edit brings it back. Answers for parts no
      longer in the draft are kept, newest 50, so deleting and undoing restores them. */
-  function settle(state, map, renames) {
+  function settle(state, map, renames, prev) {
     var st = copy(state), present = {}, changed = false;
+    st.from = st.from || '';
+    if (st.from && own(renames || {}, st.from)) { st.from = renames[st.from]; changed = true; }
     Object.keys(renames || {}).forEach(function (o) {
       var n = renames[o];
       if (own(st.answers, o) && !own(st.answers, n)) { st.answers[n] = st.answers[o]; changed = true; }
       if (own(st.gates, o) && !own(st.gates, n)) { st.gates[n] = st.gates[o]; changed = true; }
     });
     map.phases.forEach(function (p) { present[p.id] = present[p.gate.id] = true; p.steps.forEach(function (s) { present[s.id] = true; }); });
+    /* Run from here's step left the draft: the next step that was after it in its phase and is still there, else that
+       phase's first, else the beginning (prev: the draft before this edit). */
+    if (st.from && !present[st.from]) {
+      var x = prev ? M.findStep(prev, st.from) : null, to = '';
+      if (x) {
+        var was = prev.phases[x.phaseIndex], k = was.steps.indexOf(x.step);
+        for (var i = k + 1; i < was.steps.length && !to; i++) if (present[was.steps[i].id]) to = was.steps[i].id;
+        var now = map.phases.filter(function (p) { return p.id === was.id; })[0];
+        if (!to && now && now.steps.length) to = now.steps[0].id;
+      }
+      st.from = to; changed = true;
+    }
     var gone = Object.keys(st.answers).filter(function (id) { return !present[id]; }).sort(function (a, b) { return String(st.answers[b].at).localeCompare(String(st.answers[a].at)); });
     gone.slice(GONE_MAX).forEach(function (id) { delete st.answers[id]; changed = true; });
     var gg = Object.keys(st.gates).filter(function (id) { return !present[id]; });
@@ -364,6 +451,6 @@ PF.practice = (function () {
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
-    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
+    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();

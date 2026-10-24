@@ -2457,7 +2457,9 @@
     if (e.cache && e.cache.key === key) return e.cache;
     var a = PR.admit(text, (data.stepTypes || {}).types || {});
     if (a.ok) {
-      e.st = PR.settle(e.st, a.map, e.renames); e.renames = {};
+      var wasFrom = e.st.from || '', rn = e.renames;
+      e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
+      if (wasFrom && e.st.from !== wasFrom && rn[wasFrom] !== e.st.from) e.note = e.st.from ? 'The step you practiced from was removed, so practice runs from the next one.' : 'The step you practiced from was removed, so practice starts from the beginning.';
       e.good = { text: text, map: a.map };
     }
     e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
