@@ -333,6 +333,38 @@ rule('Stage from Practice: picking practice back up while the stage saves keeps 
   }
 });
 
+rule('Stage from Practice: a What changed typed while the folder is read again is kept in its box and in practice', async () => {
+  const app = await finished();
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs), list = app.fs.list.bind(app.fs);
+  let staged = false;
+  app.fs.write = (x, d) => { if (/^staged\//.test(x)) staged = true; return orig(x, d); };
+  app.fs.list = x => staged ? gate.then(() => list(x)) : list(x);
+  note(app, 'Tried it'); app.click('pr-stage');
+  for (let i = 0; i < 100 && !staged; i++) await app.tick(5);
+  await app.tick(30);
+  note(app, 'Next: shorter gate');
+  go(); await app.tick(300); app.fs.write = orig; app.fs.list = list;
+  assert.strictEqual(stageFiles(app).length, 1);
+  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.strictEqual(app.el('pr-note').value, 'Next: shorter gate', 'the box keeps it');
+  assert.match(app.html(), /<input id="pr-note"[^>]*value="Next: shorter gate"/);
+});
+
+rule('Stage from Practice: picking another step in the builder while the stage saves keeps the editor, the step and practice', async () => {
+  const app = await finished({ localStore: {} });
+  assert.match(app.html(), /data-act="ob-sel"/, 'set-up: the builder');
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+  app.click('ob-sel', 'ship-it'); await app.tick();
+  go(); await app.tick(300); app.fs.write = orig;
+  assert.strictEqual(stageFiles(app).length, 1);
+  assert.match(app.html(), /data-act="ob-sel" data-id="ship-it" aria-pressed="true"/, 'the step stays picked');
+  assert.match(app.live(), /Staged\. Your practice is still open\./, app.live());
+});
+
 rule('Stage from Practice: a refresh that read the folder before the stage was written never hides the new stage', async () => {
   const app = await finished();
   let go, first = true; const gate = new Promise(r => { go = r; });

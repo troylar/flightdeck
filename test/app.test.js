@@ -1806,6 +1806,27 @@ rule('New process: a blank one practiced to the end offers Stage with What chang
   assert.ok(Object.keys(app.fs.files).some(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)), 'staged');
 });
 
+rule('New process: once "First version" is staged and practice stays open, the emptied What changed is refused, never staged twice', async () => {
+  const app = await newBlank();
+  app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
+  addEnter(app, 'Patch the servers'); await app.tick();
+  app.click('save-draft'); await app.tick(150);
+  app.click('pr-check', 'patch-the-servers'); await app.tick();
+  if (/data-act="pr-gate" data-id="0" data-how="pass"/.test(app.html())) { app.click('pr-gate', '0', { how: 'pass' }); await app.tick(); }
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  app.click('pr-stage'); await app.tick(30);
+  app.click('pr-sel', 'patch-the-servers'); await app.tick();
+  go(); await app.tick(300); app.fs.write = orig;
+  const staged = () => Object.keys(app.fs.files).filter(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)).length;
+  assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
+  assert.ok(/<input id="pr-note"[^>]*value=""/.test(app.html()), 'the box is empty');
+  app.click('pr-stage'); await app.tick(300);
+  assert.strictEqual(staged(), 1, 'not staged again');
+  assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
+});
+
 rule('New process: a template still starts with its steps and still offers Publish v1 as it is', async () => {
   const app = await newBlank();
   assert.ok(/data-act="np-tpl"/.test(app.html()));
