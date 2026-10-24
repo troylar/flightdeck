@@ -127,23 +127,30 @@ PF.practice = (function () {
     var p = map.phases[pi];
     return fp([p.gate.id, S.gateParts(p.gate), S.phaseParts(p), before(map, pi), applicable.map(function (s) { return [s.id, now[s.id] ? [now[s.id].own, now[s.id].ctx] : null]; }), detailsPart(map, readsOf(p, null), sample)]);
   }
+  /* A setter in Try it again takes what it set with it: every later step and gate that reads one of those details goes to
+     Try it again too, in document order (so it carries on through a consumer that sets something itself). Derived, never
+     stored: checking the setter again with the same value brings them back as they were. */
   function derive(state, map, types) {
-    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {};
+    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, from = {}, tainted = {}, taintAt = [];
+    var setBy = state.setBy || {};
+    Object.keys(setBy).forEach(function (n) { (from[setBy[n]] = from[setBy[n]] || []).push(n); });
+    var reads = function (names) { for (var i = 0; i < names.length; i++) if (own(tainted, names[i])) return names[i]; return ''; };
     map.phases.forEach(function (p) {
       p.steps.forEach(function (s) {
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
         if (!a) return;
-        var same = a.own === now[s.id].own && a.ctx === now[s.id].ctx;
-        if (same) steps[s.id] = { s: a.s, by: 'practice', at: a.at };
-        else { steps[s.id] = { s: 'recheck', reason: 'changed', by: 'practice', at: a.at }; again[s.id] = a; }
+        var same = a.own === now[s.id].own && a.ctx === now[s.id].ctx, via = same ? reads(readsOf(p, s)) : '';
+        if (same && !via) steps[s.id] = { s: a.s, by: 'practice', at: a.at };
+        else { steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a; (from[s.id] || []).forEach(function (n) { tainted[n] = true; }); }
       });
+      taintAt.push(Object.assign({}, tainted));
     });
     var view = { sample: state.sample, steps: steps, gates: {}, fields: state.fields || {} }, r = asRun(view, map, null, false, types);
     map.phases.forEach(function (p, pi) {
       var g = own(state.gates, p.gate.id) ? state.gates[p.gate.id] : null;
       if (!g) return;
-      var base = gateBase(map, pi, now, applicableSteps(r, map, pi), state.sample);
-      view.gates[p.gate.id] = base === g.base ? { s: g.s, reason: g.reason, by: 'practice', at: g.at, approved: g.approved } : { s: 'review', was: g.s, reason: 'changed', by: 'practice', at: g.at, approved: g.approved };
+      var base = gateBase(map, pi, now, applicableSteps(r, map, pi), state.sample), via = readsOf(p, null).filter(function (n) { return own(taintAt[pi], n); })[0] || '';
+      view.gates[p.gate.id] = base === g.base && !via ? { s: g.s, reason: g.reason, by: 'practice', at: g.at, approved: g.approved } : { s: 'review', was: g.s, reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: g.at, approved: g.approved };
     });
     return { view: view, now: now, again: again };
   }
@@ -182,14 +189,49 @@ PF.practice = (function () {
   /* ---------- changing a practice: each returns { state } or { error }, never changing the one it's given ---------- */
   function copy(state) { return JSON.parse(JSON.stringify(state)); }
   function bump(st) { st.rev = (st.rev || 0) + 1; return st; }
-  function answer(state, map, id, how, types, now) {
+  /* o (for done): { values } the evidence, checked as a run checks it, or { skipped: true } to check without it (practice
+     only: never sets a detail). A setter is one transaction: its values become the sample (setBy remembers it), and only
+     then is the answer fingerprinted, so a step that reads what it sets stays done (a run never re-checks the setter). */
+  function answer(state, map, id, how, types, now, o) {
     var d = derive(state, map, types), r = asRun(d.view, map, null, true, types);
     var why = R.answerable(r, map, id, how);
     if (why) return { error: why };
     var st = copy(state);
-    if (how === 'open') delete st.answers[id];
-    else { var p = d.now[id]; st.answers[id] = { s: how === 'na' ? 'na' : 'done', at: now || '', own: p.own, ctx: p.ctx }; }
+    unsetBy(st, id);
+    if (how === 'open') { delete st.answers[id]; return { state: bump(st) }; }
+    var rec = { s: how === 'na' ? 'na' : 'done', at: now || '' }, x = M.findStep(map, id);
+    if (how !== 'na' && x && simulated(x.step, envOf(types).types) !== 'linked') {
+      var ev = R.evidenceFor(r, x.step, null, map);
+      if (o && o.skipped) { if (ev.list.length || R.jiraProblem(r, x.step)) rec.skipped = true; }
+      else if (ev.list.length) {
+        var jp = R.jiraProblem(r, x.step);
+        if (jp) return { error: jp, field: '' };
+        var chk = R.checkEvidence(r, x.step, null, (o && o.values) || {}, false, map);
+        if (chk.error) return { error: chk.error, field: chk.field || '' };
+        if (Object.keys(chk.values).length) rec.values = chk.values;
+        ev.list.forEach(function (e) { if (e.detail && chk.values[e.name]) { st.sample[e.detail] = String(chk.values[e.name]).slice(0, 120); st.setBy[e.detail] = id; } });
+      }
+    }
+    var p = prints(map, st.sample, types, st.fields)[id];
+    rec.own = p.own; rec.ctx = p.ctx;
+    st.answers[id] = rec;
     return { state: bump(st) };
+  }
+  /* The step no longer sets anything it set (its values stay in the sample, as a run's details do). */
+  function unsetBy(st, id) { st.setBy = st.setBy || {}; Object.keys(st.setBy).forEach(function (n) { if (st.setBy[n] === id) delete st.setBy[n]; }); }
+  /* Fill in, checked as a run checks it (R.checkFill): a checked answer keeps the evidence it needs, unless it was checked
+     without it. An answer that was current is rebased onto the new fields, so filling a field never sends it back. */
+  function fillIn(state, map, id, fields, types) {
+    var d = derive(state, map, types), r = asRun(d.view, map, null, true, types), x = M.findStep(map, id);
+    if (!x) return { error: 'That step isn\'t in the draft anymore.' };
+    var a = own(state.answers, id) ? state.answers[id] : null, current = a && !own(d.again, id);
+    var cf = R.checkFill(r, x.step, fields, a && a.s === 'done' && !a.skipped ? { keep: { values: a.values || {}, map: map } } : null);
+    if (cf.error) return { error: cf.error, field: cf.field };
+    if (!cf.changed.length) return { state: state };
+    var st = copy(state);
+    if (Object.keys(cf.own).length) st.fields[id] = cf.own; else delete st.fields[id];
+    if (current) st.answers[id].own = prints(map, st.sample, types, st.fields)[id].own;
+    return { state: bump(st), changed: cf.changed };
   }
   function gateAct(state, map, pi, how, reason, types, now) {
     var d = derive(state, map, types), r = asRun(d.view, map, null, true, types), p = map.phases[pi];
@@ -314,6 +356,6 @@ PF.practice = (function () {
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
-    derive: derive, follow: follow, answer: answer, gateAct: gateAct, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
+    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();

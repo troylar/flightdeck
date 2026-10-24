@@ -210,7 +210,7 @@ rule('every run reader practice uses reads only the stand-in\'s fields (true, fa
     map.phases.forEach((p, pi) => {
       R.applies(proxy, map, pi); p.steps.forEach(x => R.applies(proxy, map, pi, x));
       R.phaseInfo(proxy, map, pi); R.phaseOpen(proxy, map, pi); R.gateStatus(proxy, map, pi); R.canPass(proxy, map, pi); R.canWaive(proxy, map, pi); R.gateInputs(proxy, map, p.gate);
-      p.steps.forEach(x => R.answerable(proxy, map, x.id, 'done'));
+      p.steps.forEach(x => { R.answerable(proxy, map, x.id, 'done'); R.evidenceFor(proxy, x, null, map); R.checkEvidence(proxy, x, null, {}, false, map); R.jiraProblem(proxy, x); R.checkFill(proxy, x, {}, null); });
     });
     R.headline(proxy, map); R.nextUp(proxy, map, 'person-avery');
     const extra = [...reads].filter(k => FIELDS.indexOf(k) < 0);
@@ -527,7 +527,8 @@ rule('Reset clears answers, gates, Fill in, setBy and from, and keeps the sample
 rule('a step goes back when the evidence it asks for changes, even where its own text and signature don\'t', () => {
   const md = k => ['---', 'process: cap', 'title: Cap', 'context: capacity' + k, '---', '## P · READ-DO {#p}', '- [!] {confirm} Choose capacity {#choose}', '  sets: capacity', '- [ ] {confirm} Tell the team {#tell}', ''].join('\n');
   const a = admit(md(''));
-  let st = act(P.fresh('cap'), a, 'choose');
+  const r0 = P.answer(P.fresh('cap'), a, 'choose', 'done', {}, NOW, { values: { [R.detailKey('capacity')]: '12' } }); assert.ok(r0.state, r0.error);
+  const st = r0.state;
   assert.strictEqual(step(P.follow(st, a, {}), 'choose').status, 'done');
   assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'choose').status, 'again', 'the detail it sets is now a number');
   assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'tell').status, 'open');
@@ -549,6 +550,91 @@ rule('a Jira step goes back when the team workflow requires more, for the draft\
   const r2 = P.answer(st2, a2, 'close', 'done', e1, NOW); assert.ok(r2.state, r2.error);
   assert.strictEqual(step(P.follow(r2.state, a2, e1), 'close').status, 'done');
   assert.strictEqual(step(P.follow(r2.state, a2, e2), 'close').status, 'again', 'the filled-in status now needs Resolution');
+});
+
+const SETS = ['---', 'process: s', 'title: S', 'context: commit, size:number', '---', '## Build · READ-DO {#build}',
+  '- [!] {confirm} Make the commit {#make}', '  sets: commit', '- [ ] {confirm} Note the size {#size}', '  sets: size', '- [ ] {confirm} Review ^commit {#review}', '',
+  '## Gate: Built {#built}', '  approves: build of ^commit', '',
+  '## Ship · DO-CONFIRM {#ship}', '- [!] {confirm} Deploy ^commit {#deploy}', ''].join('\n');
+const CK = R.detailKey('commit'), SK = R.detailKey('size');
+function ans(st, map, id, o, how) { const r = P.answer(st, map, id, how || 'done', {}, NOW, o); assert.ok(r.state, r.error); return r.state; }
+
+rule('evidence: required values are checked as a run checks them, beside their box', () => {
+  const map = admit(SETS);
+  const e1 = P.answer(P.fresh('s'), map, 'make', 'done', {}, NOW, {});
+  assert.ok(/commit is needed/.test(e1.error)); assert.strictEqual(e1.field, CK);
+  const e2 = P.answer(P.fresh('s'), map, 'size', 'done', {}, NOW, { values: { [SK]: 'lots' } });
+  assert.ok(e2.error && e2.field === SK, 'a number is checked as a number');
+  const st = ans(P.fresh('s'), map, 'size', { values: { [SK]: '1200' } });
+  assert.strictEqual(st.sample.size, PF.values.parse({ kind: 'number' }, '1200').canonical, 'kept canonical');
+  same(st.setBy, { size: 'size' });
+});
+
+rule('Check without it: done, marked skipped, and it never sets a detail', () => {
+  const map = admit(SETS), st = ans(P.fresh('s'), map, 'make', { skipped: true });
+  assert.strictEqual(st.answers.make.skipped, true);
+  same(st.sample, {}); same(st.setBy, {});
+  assert.strictEqual(step(P.follow(st, map, {}), 'make').status, 'done');
+  const plain = ans(st, map, 'review', { skipped: true });
+  assert.ok(!plain.answers.review.skipped, 'a step with no evidence is simply done');
+});
+
+rule('a setter sets the sample and stays done even when it reads what it sets', () => {
+  const md = SETS.replace('- [!] {confirm} Make the commit {#make}', '- [!] {confirm} Make the commit ^commit {#make}');
+  const map = admit(md), st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc123' } });
+  same(st.sample, { commit: 'abc123' });
+  assert.strictEqual(step(P.follow(st, map, {}), 'make').status, 'done');
+  const e = P.undoEntry(P.fresh('s'), st, 'Check');
+  const back = P.applyEntry(st, e).state;
+  same([back.sample, back.setBy, back.answers], [{}, {}, {}], 'one Undo takes back the answer and what it set');
+});
+
+rule('a setter in Try it again takes its consumers and gates with it; the same value brings them back', () => {
+  const map = admit(SETS);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc' } });
+  st = ans(ans(st, map, 'size', { skipped: true }), map, 'review');
+  st = gate(st, map, 0);
+  const edited = admit(SETS.replace('Make the commit {#make}', 'Make the release commit {#make}'));
+  const v = P.follow(st, edited, {});
+  same([step(v, 'make').status, step(v, 'size').status, step(v, 'review').status, phase(v, 'build').gate.status.state || phase(v, 'build').gate.rec.s], ['again', 'done', 'again', phase(v, 'build').gate.rec.s]);
+  assert.strictEqual(phase(v, 'build').gate.rec.s, 'review');
+  assert.strictEqual(phase(v, 'build').gate.rec.reason, 'setter');
+  let st2 = ans(st, edited, 'make', { values: { [CK]: 'abc' } });
+  const v2 = P.follow(st2, edited, {});
+  same([step(v2, 'make').status, step(v2, 'review').status], ['done', 'done'], 'same value: consumers return');
+  assert.strictEqual(phase(v2, 'build').gate.rec.reason, 'changed', 'the gate still asks again: the setter\'s own text is in its baseline');
+  const st3 = ans(st, edited, 'make', { values: { [CK]: 'def' } });
+  assert.strictEqual(step(P.follow(st3, edited, {}), 'review').status, 'again', 'new value: the fingerprint rule');
+  const both = admit(SETS.replace('Make the commit {#make}', 'Make the release commit {#make}').replace('Review ^commit {#review}', 'Review ^commit closely {#review}'));
+  const st4 = ans(st, both, 'make', { values: { [CK]: 'abc' } });
+  assert.strictEqual(step(P.follow(st4, both, {}), 'review').status, 'again', 'a consumer edited meanwhile stays');
+});
+
+rule('Fill in: checked as a run checks it, rebases a current answer, never rescues one already to try again', () => {
+  const md = ['---', 'process: c', 'title: C', '---', '## P · READ-DO {#p}', '- [!] {run.command} Deploy {#dep}', '  command: deploy', ''].join('\n');
+  const map = admit(md), editable = PF.types.editable(PF.types.get('run.command', {}));
+  assert.ok(editable.length, 'run.command has fields a run may fill in');
+  const f = editable[0];
+  assert.ok(/can't be changed during a run/.test(P.fillIn(P.fresh('c'), map, 'dep', { nope: 'x' }, {}).error));
+  let st = ans(P.fresh('c'), map, 'dep', { skipped: true });
+  const r = P.fillIn(st, map, 'dep', { [f]: 'filled' }, {});
+  assert.ok(r.state, r.error);
+  assert.strictEqual(r.state.fields.dep[f], 'filled');
+  assert.strictEqual(step(P.follow(r.state, map, {}), 'dep').status, 'done', 'a Fill in never sends a step back by itself');
+  same(P.fillIn(r.state, map, 'dep', { [f]: 'filled' }, {}).state, r.state, 'no change, same state');
+});
+
+rule('a later phase\'s gate that approves a detail goes to review only while its setter is to try again', () => {
+  const md = SETS + '\n## Gate: Shipped {#shipped}\n  approves: ship of ^commit\n';
+  const map = admit(md);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc' } });
+  st = ans(ans(st, map, 'size', { skipped: true }), map, 'review');
+  st = gate(st, map, 0); st = ans(st, map, 'deploy'); st = gate(st, map, 1);
+  const edited = admit(md.replace('Make the commit {#make}', 'Make the release commit {#make}'));
+  const g = v => phase(v, 'ship').gate.rec;
+  same([g(P.follow(st, edited, {})).s, g(P.follow(st, edited, {})).reason], ['review', 'setter']);
+  const back = ans(st, edited, 'make', { values: { [CK]: 'abc' } });
+  assert.strictEqual(g(P.follow(back, edited, {})).s, 'passed', 'same value: the later gate is passed again as it was');
 });
 
 run();
