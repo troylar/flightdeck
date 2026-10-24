@@ -2705,7 +2705,7 @@
           say('Staged. Start a test run from it; only test runs use it until someone makes it the default.', 'good'); render();
         });
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
-    
+
   }
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }

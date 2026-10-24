@@ -12,7 +12,7 @@ Write a checklist fast, practice it, stage it.
 
 ### Improved
 
-- **A blank new process opens ready to type its steps, with Practice beside it** (Editing). The first phase starts empty with its Add a step box open, and Practice is open on the right so you can try the steps as you add them. Run detail and role names with spaces become dashes (server name is server-name), and a name that still can't be used is refused beside its box. *Where:* Processes, New process
+- **A blank new process opens ready to type its steps, with Practice beside it** (Editing). The first phase starts empty. In the builder its Add a step box is open, and on a wide screen Practice opens beside it so you can try steps as you add them. Run detail and role names with spaces become dashes (server name is server-name), and a name that still can't be used is refused beside its box. *Where:* Processes, New process
 - **Stage it for a test run, from the end of Practice** (Editing). When you get through the whole checklist, write what changed (First version, for a new process) and stage it right there; its page opens with Start a test run ready. If you've carried on practicing meanwhile, practice stays as it is. *Where:* The draft editor, Practice
 
 ### Fixed

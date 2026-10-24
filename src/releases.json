@@ -16,7 +16,7 @@
         "kind": "improved",
         "area": "Editing",
         "title": "A blank new process opens ready to type its steps, with Practice beside it",
-        "now": "The first phase starts empty with its Add a step box open, and Practice is open on the right so you can try the steps as you add them. Run detail and role names with spaces become dashes (server name is server-name), and a name that still can't be used is refused beside its box.",
+        "now": "The first phase starts empty. In the builder its Add a step box is open, and on a wide screen Practice opens beside it so you can try steps as you add them. Run detail and role names with spaces become dashes (server name is server-name), and a name that still can't be used is refused beside its box.",
         "before": "A placeholder step to delete first, and a run detail with a space was only refused when publishing.",
         "where": "Processes, New process"
       },
