@@ -882,4 +882,43 @@ rule('Edit the gate in Markdown selects the gate\'s line, and Back to practice l
   assert.ok(app.asked().slice(-12).some(x => /#gate-ready/.test(x)), 'focus goes to the gate: ' + app.asked().slice(-6));
 });
 
+/* ---------- code review round 4 ---------- */
+rule('An open Fill in stays open across a reload, and across a Waive form opened meanwhile', async () => {
+  const session = {};
+  const app = await editor({ sessionStore: session });
+  await practice(app);
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  app.input('fld-channel', '#release-room'); await app.tick();
+  const again = boot({ localStore: { 'preflight:builder': 'false' }, sessionStore: session, hash: '#/practice/release' });
+  await again.tick(60); again.choose('person-casey'); await again.tick(60);
+  again.click('toggle', 'announce'); await again.tick();
+  assert.match(again.live(), /Save or cancel Fill in first/, 'reload: still open');
+  app.click('pick', 'ready', { kind: 'waive' }); await app.tick();
+  app.click('unpick'); await app.tick();
+  app.click('select', 'announce'); await app.tick();
+  assert.match(app.html(), /id="fld-channel"[^>]*value="#release-room"/, 'Waive and back: Fill in open again');
+});
+
+rule('Back to the draft shows the step being practiced, and Back to practice returns to it', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('pr-open'); await app.tick(60);
+  app.click('select', 'rollback'); await app.tick();
+  app.click('pr-back'); await app.tick();
+  assert.match(app.html(), /data-act="ob-sel" data-id="rollback" aria-pressed="true"/, 'the editor shows it');
+  app.click('pr-open'); await app.tick(60);
+  assert.strictEqual(app.selected(), 'rollback');
+});
+
+rule('On a phone, Escape in Fill in closes Fill in first, then the step sheet', async () => {
+  const app = await editor({ narrow: true, domFocus: true });
+  await practice(app);
+  app.click('select', 'announce'); await app.tick();
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  assert.match(app.html(), /id="fld-channel"/);
+  app.keyOn('Escape', {}, { tagName: 'INPUT', id: 'fld-channel', dataset: {}, closest: () => null }); await app.tick();
+  assert.ok(!/id="fld-channel"/.test(app.html()), 'Fill in closed');
+  assert.match(app.html(), /class="fpe-pane rw-ins" id="rw-ins"[^>]*data-open="true"/, 'the sheet is still open');
+});
+
 run();

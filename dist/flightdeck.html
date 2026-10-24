@@ -24711,7 +24711,9 @@ PF.examples = (function () {
       var d = state.stepDrafts[k], id = k.slice(pre.length), x = c && c.map && !/^gate:/.test(id) ? M.findStep(c.map, id) : null;
       /* The step's text goes with its typing, so a step removed from the draft can still be named. */
       if (x) d.text = x.step.text;
-      out[id] = { record: d.record, fields: d.fields, open: !!d.open, text: typeof d.text === 'string' ? d.text : '' };
+      /* Fill in open on screen is open in storage too, until Save or Cancel closes it. */
+      var openNow = state.view === 'practice' && state.pick && state.pick.kind === 'fields' && state.pick.id === id;
+      out[id] = { record: d.record, fields: d.fields, open: !!d.open || !!openNow, text: typeof d.text === 'string' ? d.text : '' };
     });
     try { var t = JSON.stringify(out); if (t.length > 200000) return; sessionStorage.setItem(prStoreKey(pid) + ':typed', t); } catch (err) { /* this tab only */ }
   }
@@ -24919,6 +24921,8 @@ PF.examples = (function () {
     /* Only the forms practice has: Fill in, and Pass and Waive on a gate. */
     pick: function (id, b) {
       var kind = b && b.dataset.kind, p = prNow(); if (!p || ['fields', 'pass', 'waive'].indexOf(kind) < 0) return;
+      /* A Fill in open on another form's way is left open, with its typing, as switching steps leaves it. */
+      if (state.pick && state.pick.kind === 'fields' && !(kind === 'fields' && state.pick.id === id)) { leaveFillIn(); state.pick = null; }
       prHarvest(); prTouch(prEntry(p.id));
       if (kind === 'fields') { prPickStep(id); var fd = draftOf(prKey(p.id), id, false); if (fd) fd.open = false; }
       state.pick = { kind: kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(kind) + '"][data-id="' + cssEsc(id) + '"]' };
@@ -24945,7 +24949,14 @@ PF.examples = (function () {
     'pr-back': function (id) {
       var p = prNow(); if (!p) return; var e = prEntry(p.id);
       prHarvest(); prTripOut(e); e.trip.target = null; prTouch(e);
-      prToEditor(p, function () { state.focus = id === 'compare' ? '[data-act="draft-keep-mine"]' : 'ed-h'; });
+      /* The editor shows the step being practiced, so coming straight back lands where you were. */
+      var key = state.sel ? prBuilderKey(p, state.sel) : '';
+      prToEditor(p, function () {
+        state.focus = id === 'compare' ? '[data-act="draft-keep-mine"]' : 'ed-h';
+        if (!key) return;
+        state.obSel = { pid: p.id, kind: 'step', key: key }; prTarget(p, 'step', key);
+        if (state.builder === false) { var os = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === key; })[0]; state.mdLine = os ? os.line : null; }
+      });
     },
     'pr-close': function () { var p = prNow(); if (!p) return; prHarvest(); prTouch(prEntry(p.id)); prToEditor(p, function () { state.focus = '[data-act="pr-open"]'; say('Practice is kept in this tab. Choose Practice to pick it up again.', 'good'); state.msg.quiet = true; }); },
     'pr-samples': function () { state.prSamples = !state.prSamples; state.focus = state.prSamples ? 'pr-sample-h' : '[data-act="pr-samples"]'; render(); },
@@ -28825,7 +28836,7 @@ PF.examples = (function () {
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
