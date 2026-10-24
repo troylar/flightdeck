@@ -2671,7 +2671,10 @@
     var ta = document.getElementById('draft-editor'); if (!ta || ta.selectionStart == null) return;
     var line = String(ta.value).slice(0, ta.selectionStart).split('\n').length - 1, o = PF.outline.parse(edText(p)); if (o.unsupported) return;
     var hit = null; o.steps.forEach(function (x) { if (x.line <= line && (x.end == null ? x.line : x.end) >= line) hit = x; });
-    if (hit) prTarget(p, 'step', hit.key);
+    if (hit) { prTarget(p, 'step', hit.key); return; }
+    /* The caret on a gate's lines: that gate. */
+    var gp = o.phases.filter(function (x) { return x.gate && x.gate.line <= line && (x.gate.end == null ? x.gate.line : x.gate.end) >= line; })[0];
+    if (gp) prTarget(p, 'phase', gp.key);
   }
   /* Where Back to practice lands: the target as it's named now; gone, the step after it, else before it, else its phase's
      gate, else the step practice had selected. */
@@ -2697,7 +2700,12 @@
       if (isStep) { state.obSel = { pid: p.id, kind: 'step', key: key }; prTarget(p, 'step', key); state.focus = state.builder !== false ? 'ob-text' : 'draft-editor'; }
       else { state.obSel = { pid: p.id, kind: 'phase', key: key }; prTarget(p, 'phase', key); state.focus = state.builder !== false ? 'ob-g-title' : 'draft-editor'; }
       state.insTab = null;
-      if (state.builder === false) { var o = PF.outline.parse(edText(p)), s = isStep ? o.steps.filter(function (x) { return x.key === key; })[0] : o.phases.filter(function (x) { return x.key === key; })[0]; state.mdLine = s ? s.line : null; }
+      if (state.builder === false) {
+        var o = PF.outline.parse(edText(p)), s = isStep ? o.steps.filter(function (x) { return x.key === key; })[0] : o.phases.filter(function (x) { return x.key === key; })[0];
+        /* A gate's own line, when the draft writes one; else its phase's heading. */
+        var isGate = !isStep && c.map && c.map.phases.some(function (ph) { return ph.gate.id === id; });
+        state.mdLine = s ? (isGate && s.gate ? s.gate.line : s.line) : null;
+      }
     });
   }
   /* To the editor (a history entry, so Back returns to practice). */
@@ -2763,7 +2771,9 @@
     var p = prNow(); if (!p) return null;
     var e = prEntry(p.id); prTouch(e);
     if (state.sel !== id) { harvest(); state.attErr = null; state.fieldErr = null; }
-    state.sel = id; if (state.pick && state.pick.id !== id) { prHarvest(); state.pick = null; state.fieldsDraft = null; }
+    /* An unfinished Fill in left for another step stays open, as in a run, and is open again on the way back. */
+    if (state.pick && state.pick.id !== id) { if (state.pick.kind === 'fields') leaveFillIn(); else prHarvest(); state.pick = null; state.fieldsDraft = null; prKeepTyped(p.id); }
+    state.sel = id;
     arriveAtStep(id);
     return e;
   }

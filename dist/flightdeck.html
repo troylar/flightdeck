@@ -19079,7 +19079,8 @@ PF.vk = (function () {
       if (live && (!a || a.s === 'open' || a.s === 'recheck')) {
         if (pfill) acts += '<button class="btn go" disabled aria-describedby="donewhy-' + esc(st.id) + '">' + I('check') + 'Done</button><span class="small rw-why-off" id="donewhy-' + esc(st.id) + '">Save or cancel Fill in first.</span>';
         else acts += '<button class="btn go" data-act="' + (showRec ? 'record' : 'toggle') + '" data-id="' + esc(st.id) + '">' + I('check') + (pm.simulated === 'linked' ? 'Mark done for practice' : 'Done') + '</button>';
-        if (showRec && !pfill && recFields.some(function (d) { return d.required; })) acts += '<button class="btn" data-act="pr-ev-skip" data-id="' + esc(st.id) + '">Done without it</button>';
+        /* Whenever the step asks for something (required evidence, or a Jira transition the workflow refuses). */
+        if (!pfill && pm.ask) acts += '<button class="btn" data-act="pr-ev-skip" data-id="' + esc(st.id) + '">Done without it</button>';
         if (!st.must) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">Not needed</button>';
       } else if (live && a.s === 'na') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Undo Not needed</button>';
       else if (live && a.s === 'done') acts += '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Uncheck</button>';
@@ -24766,7 +24767,10 @@ PF.examples = (function () {
     var ta = document.getElementById('draft-editor'); if (!ta || ta.selectionStart == null) return;
     var line = String(ta.value).slice(0, ta.selectionStart).split('\n').length - 1, o = PF.outline.parse(edText(p)); if (o.unsupported) return;
     var hit = null; o.steps.forEach(function (x) { if (x.line <= line && (x.end == null ? x.line : x.end) >= line) hit = x; });
-    if (hit) prTarget(p, 'step', hit.key);
+    if (hit) { prTarget(p, 'step', hit.key); return; }
+    /* The caret on a gate's lines: that gate. */
+    var gp = o.phases.filter(function (x) { return x.gate && x.gate.line <= line && (x.gate.end == null ? x.gate.line : x.gate.end) >= line; })[0];
+    if (gp) prTarget(p, 'phase', gp.key);
   }
   /* Where Back to practice lands: the target as it's named now; gone, the step after it, else before it, else its phase's
      gate, else the step practice had selected. */
@@ -24792,7 +24796,12 @@ PF.examples = (function () {
       if (isStep) { state.obSel = { pid: p.id, kind: 'step', key: key }; prTarget(p, 'step', key); state.focus = state.builder !== false ? 'ob-text' : 'draft-editor'; }
       else { state.obSel = { pid: p.id, kind: 'phase', key: key }; prTarget(p, 'phase', key); state.focus = state.builder !== false ? 'ob-g-title' : 'draft-editor'; }
       state.insTab = null;
-      if (state.builder === false) { var o = PF.outline.parse(edText(p)), s = isStep ? o.steps.filter(function (x) { return x.key === key; })[0] : o.phases.filter(function (x) { return x.key === key; })[0]; state.mdLine = s ? s.line : null; }
+      if (state.builder === false) {
+        var o = PF.outline.parse(edText(p)), s = isStep ? o.steps.filter(function (x) { return x.key === key; })[0] : o.phases.filter(function (x) { return x.key === key; })[0];
+        /* A gate's own line, when the draft writes one; else its phase's heading. */
+        var isGate = !isStep && c.map && c.map.phases.some(function (ph) { return ph.gate.id === id; });
+        state.mdLine = s ? (isGate && s.gate ? s.gate.line : s.line) : null;
+      }
     });
   }
   /* To the editor (a history entry, so Back returns to practice). */
@@ -24858,7 +24867,9 @@ PF.examples = (function () {
     var p = prNow(); if (!p) return null;
     var e = prEntry(p.id); prTouch(e);
     if (state.sel !== id) { harvest(); state.attErr = null; state.fieldErr = null; }
-    state.sel = id; if (state.pick && state.pick.id !== id) { prHarvest(); state.pick = null; state.fieldsDraft = null; }
+    /* An unfinished Fill in left for another step stays open, as in a run, and is open again on the way back. */
+    if (state.pick && state.pick.id !== id) { if (state.pick.kind === 'fields') leaveFillIn(); else prHarvest(); state.pick = null; state.fieldsDraft = null; prKeepTyped(p.id); }
+    state.sel = id;
     arriveAtStep(id);
     return e;
   }

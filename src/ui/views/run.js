@@ -613,7 +613,8 @@
       if (live && (!a || a.s === 'open' || a.s === 'recheck')) {
         if (pfill) acts += '<button class="btn go" disabled aria-describedby="donewhy-' + esc(st.id) + '">' + I('check') + 'Done</button><span class="small rw-why-off" id="donewhy-' + esc(st.id) + '">Save or cancel Fill in first.</span>';
         else acts += '<button class="btn go" data-act="' + (showRec ? 'record' : 'toggle') + '" data-id="' + esc(st.id) + '">' + I('check') + (pm.simulated === 'linked' ? 'Mark done for practice' : 'Done') + '</button>';
-        if (showRec && !pfill && recFields.some(function (d) { return d.required; })) acts += '<button class="btn" data-act="pr-ev-skip" data-id="' + esc(st.id) + '">Done without it</button>';
+        /* Whenever the step asks for something (required evidence, or a Jira transition the workflow refuses). */
+        if (!pfill && pm.ask) acts += '<button class="btn" data-act="pr-ev-skip" data-id="' + esc(st.id) + '">Done without it</button>';
         if (!st.must) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">Not needed</button>';
       } else if (live && a.s === 'na') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Undo Not needed</button>';
       else if (live && a.s === 'done') acts += '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Uncheck</button>';

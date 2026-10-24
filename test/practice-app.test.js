@@ -845,4 +845,41 @@ rule('Fill in cancelled after a round trip stays closed across a reload', async 
   assert.equal(row(again, 'announce'), 'done');
 });
 
+/* ---------- code review round 3 ---------- */
+rule('A step whose Jira transition the workflow refuses offers Done without it, and practice gets through it', async () => {
+  const app = await editor();
+  await edit(app, t => t.replace(/(\{#close\}\n  action: transition\n  issue: \^ticket\n  issueType: Release\n  status: )Done/, '$1Shipped'));
+  app.click('select', 'close'); await app.tick();
+  app.click('pr-from', 'close'); await app.tick();
+  app.click('select', 'close'); await app.tick();
+  assert.match(app.html(), /data-act="pr-ev-skip" data-id="close"/);
+  app.click('pr-ev-skip', 'close'); await app.tick();
+  assert.equal(row(app, 'close'), 'done');
+});
+
+rule('Fill in left unfinished for another step is open again, with its typing, on the way back', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  app.set('fld-channel', '#release-room');
+  app.click('select', 'rollback'); await app.tick();
+  app.click('select', 'announce'); await app.tick();
+  assert.match(app.html(), /id="fld-channel"[^>]*value="#release-room"/, 'Fill in open again, as left');
+  app.click('toggle', 'announce'); await app.tick();
+  assert.match(app.live(), /Save or cancel Fill in first/);
+  assert.equal(row(app, 'announce'), 'open');
+});
+
+rule('Edit the gate in Markdown selects the gate\'s line, and Back to practice lands on the gate', async () => {
+  const app = await editor();
+  await practice(app);
+  const ta = app.el('draft-editor'); ta.value = app.fs.files[DRAFT].t; let range = null;
+  ta.focus = () => {}; ta.setSelectionRange = (x, y) => { range = [x, y]; };
+  app.click('pr-edit', 'ready'); await app.tick();
+  assert.ok(range && /^## Gate: Ready to deploy/.test(ta.value.slice(range[0], range[1])), 'selected: ' + (range && ta.value.slice(range[0], range[1])));
+  ta.selectionStart = ta.selectionEnd = range[0] + 3;
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(app.asked().slice(-12).some(x => /#gate-ready/.test(x)), 'focus goes to the gate: ' + app.asked().slice(-6));
+});
+
 run();
