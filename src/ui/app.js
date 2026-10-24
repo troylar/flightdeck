@@ -1509,6 +1509,8 @@
   function rootClass(c, on) { var de = document.documentElement; if (de && de.classList) de.classList[on ? 'add' : 'remove'](c); }
   function liveSplit(key) { return app.querySelector ? app.querySelector('.pane-split[data-split="' + key + '"]') : null; }
   function paneCapture(sp, id) { try { sp.setPointerCapture(id); return true; } catch (x) { return false; } }
+  /* A press anywhere (a divider dragged, a box clicked into) is activity too, for Stage from Practice. */
+  document.addEventListener('pointerdown', function () { uiActs++; }, true);
   document.addEventListener('pointerdown', function (e) {
     var sp = e.target && e.target.closest && e.target.closest('.pane-split'), spec = sp && V.PANES[sp.getAttribute('data-split')];
     if (!spec || e.button !== 0) return;
@@ -3826,6 +3828,7 @@
     histWrite(false, '#/', n, H.cur.f);
   }
   function onPop(ev) {
+    uiActs++;
     if (!H.on) return;
     harvest();
     var es = PF.nav.entry(ev ? ev.state : null);

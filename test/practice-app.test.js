@@ -378,6 +378,22 @@ rule('Stage from Practice: switching to the builder and back while the stage sav
   assert.match(app.live(), /Staged\. Your practice is still open\./, app.live());
 });
 
+rule('Stage from Practice: browser Back and Forward, or a press on a divider, while the stage saves keeps practice', async () => {
+  for (const meanwhile of ['history', 'pointer']) {
+    const app = await finished();
+    let go; const gate = new Promise(r => { go = r; });
+    const orig = app.fs.write.bind(app.fs);
+    app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+    note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+    if (meanwhile === 'history') { app.back(); await app.settle(); app.forward(); await app.settle(); }
+    else app.fire('pointerdown', { button: 0, target: { tagName: 'DIV', dataset: {}, closest: () => null } });
+    go(); await app.tick(300); app.fs.write = orig;
+    assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
+    assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
+    assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
+  }
+});
+
 rule('Stage from Practice: another process\'s What changed is never emptied when this one\'s stage finishes', async () => {
   const app = await finished();
   app.click('open-process', 'check-in'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
