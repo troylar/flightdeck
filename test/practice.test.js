@@ -194,7 +194,7 @@ rule('the stand-in reads as a solo run and is never a run: no id, snapshot or re
 });
 
 rule('every run reader practice uses reads only the stand-in\'s fields (true, false and unresolved conditions; passed, waived and review gates)', () => {
-  const FIELDS = ['format', 'practice', 'state', 'paused', 'ended', 'recorder', 'roles', 'details', 'steps', 'gates', 'fields', 'migrations', 'followUps', 'log', 'marksFrom', 'memo'];
+  const FIELDS = ['format', 'practice', 'state', 'paused', 'ended', 'recorder', 'roles', 'details', 'steps', 'gates', 'fields', 'migrations', 'followUps', 'log', 'marksFrom', 'memo', 'types', 'jira'];
   const md = MD + '\n## Close · READ-DO {#close}\n  only when ^env is dev\n- [ ] {confirm} Write it up {#writeup}\n';
   const map = admit(md);
   const states = [];
@@ -517,6 +517,29 @@ rule('Reset clears answers, gates, Fill in, setBy and from, and keeps the sample
   const st = Object.assign(P.fresh('rel'), { sample: { commit: 'abc' }, answers: { tag: { s: 'done', at: '', own: 'a', ctx: 'b' } }, fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
   const r = P.reset(st).state;
   same([r.answers, r.gates, r.fields, r.setBy, r.from, r.sample], [{}, {}, {}, {}, '', { commit: 'abc' }]);
+});
+
+rule('a step goes back when the evidence it asks for changes, even where its own text and signature don\'t', () => {
+  const md = k => ['---', 'process: cap', 'title: Cap', 'context: capacity' + k, '---', '## P · READ-DO {#p}', '- [!] {confirm} Choose capacity {#choose}', '  sets: capacity', '- [ ] {confirm} Tell the team {#tell}', ''].join('\n');
+  const a = admit(md(''));
+  let st = act(P.fresh('cap'), a, 'choose');
+  assert.strictEqual(step(P.follow(st, a, {}), 'choose').status, 'done');
+  assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'choose').status, 'again', 'the detail it sets is now a number');
+  assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'tell').status, 'open');
+});
+
+rule('a Jira step goes back when the team workflow requires more; a practice Fill in never sends it back', () => {
+  const W1 = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done' }] } }).workflows;
+  const W2 = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done', fields: [{ name: 'Resolution', options: ['Done'] }] }] } }).workflows;
+  const md = ['---', 'process: j', 'title: J', '---', '## P · READ-DO {#p}', '- [!] {jira.issue} Close it {#close}', '  action: transition', '  issue: ABC-1', '  issueType: Story', '  status: Done', ''].join('\n');
+  const types = PF.types.builtIn ? PF.types.builtIn() : {};
+  const a = P.admit(md, types); assert.ok(a.ok, a.why);
+  const e1 = P.env(types, W1), e2 = P.env(types, W2);
+  const r = P.answer(P.fresh('j'), a.map, 'close', 'done', e1, NOW); assert.ok(r.state, r.error);
+  assert.strictEqual(step(P.follow(r.state, a.map, e1), 'close').status, 'done');
+  assert.strictEqual(step(P.follow(r.state, a.map, e2), 'close').status, 'again');
+  const filled = Object.assign({}, r.state, { fields: { close: { status: 'To Do' } } });
+  assert.strictEqual(step(P.follow(filled, a.map, e1), 'close').status, 'done', 'Fill in is not in the fingerprint');
 });
 
 run();

@@ -11,6 +11,11 @@ PF.practice = (function () {
   var fp = function (x) { return U.hash(JSON.stringify(x)); };
 
   /* fields: Fill in per step; setBy: the step that set each sample detail; from: Run from here's step ('' = the beginning). */
+  /* The team's step types, or { stepTypes, workflows } when Jira workflows apply too: every function taking types takes
+     either. */
+  function envOf(x) { return x && own(x, 'stepTypes') ? { types: x.stepTypes, workflows: x.workflows || null } : { types: x, workflows: null }; }
+  function env(stepTypes, workflows) { return { stepTypes: stepTypes || {}, workflows: workflows || null }; }
+
   function fresh(process) { return { v: V, process: process, sample: {}, answers: {}, gates: {}, fields: {}, setBy: {}, from: '', found: '', rev: 0 }; }
 
   /* ---------- admission: what can be practiced ----------
@@ -70,21 +75,27 @@ PF.practice = (function () {
      redraw or an action that changes no sample costs nothing here. */
   var last = null;
   function prints(map, sample, types) {
-    var sk = JSON.stringify(sample || {});
-    if (last && last.map === map && last.types === types && last.sk === sk) return last.out;
-    var out = printsNow(map, sample, types);
-    last = { map: map, types: types, sk: sk, out: out };
+    var e = envOf(types), sk = JSON.stringify(sample || {}), wk = e.workflows ? fp(e.workflows) : '';
+    if (last && last.map === map && last.types === e.types && last.wk === wk && last.sk === sk) return last.out;
+    var out = printsNow(map, sample, e);
+    last = { map: map, types: e.types, wk: wk, sk: sk, out: out };
     return out;
   }
-  function printsNow(map, sample, types) {
-    var sig = S.steps(map, types || null, null, null, true), out = {};
+  /* The evidence a step asks for as the draft says it (never practice's Fill in), reduced to what checking it depends on:
+     catches what the signature can't see, a sets: detail whose kind changed or a Jira workflow that now requires more. */
+  function evidenceDef(r, map, s) {
+    var list = R.evidenceFor(r, s, s.fields || {}, map).list;
+    return list.length ? list.map(function (d) { return [d.name, d.kind, !!d.required, d.options || null, d.detail || '', d.source || '']; }) : null;
+  }
+  function printsNow(map, sample, e) {
+    var types = e.types, sig = S.steps(map, types || null, null, null, true), out = {}, r = asRun({ sample: sample || {}, steps: {}, gates: {} }, map, null, false, env(e.types, e.workflows));
     map.phases.forEach(function (p, pi) {
       var head = fp([before(map, pi), S.phaseParts(p)]), track = {}, prefix = '';
       p.tracks.forEach(function (t) { track[t.id] = [t.id, t.roles]; });
       /* The steps before this one, as a running fingerprint, so a long phase costs one hash per step. */
       p.steps.forEach(function (s) {
         out[s.id] = {
-          own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned]),
+          own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned, evidenceDef(r, map, s)]),
           ctx: fp([head, prefix, track[s.track] || null, detailsPart(map, readsOf(p, s), sample)])
         };
         prefix = fp([prefix, s.id]);
@@ -96,11 +107,12 @@ PF.practice = (function () {
   /* ---------- the run-shaped stand-in ----------
      Exactly the fields PF.run's readers use (test/practice.test.js checks every read). No id, snapshot, rev or folder: it
      is never a run and never saved. Every role is the person's, so it reads as a solo run. */
-  function asRun(view, map, me, memo) {
-    var who = me || 'practice', roles = {};
+  function asRun(view, map, me, memo, types) {
+    var who = me || 'practice', roles = {}, e = envOf(types);
     (map.meta.roles || []).forEach(function (r) { roles[r] = who; });
     var r = { format: R.FORMAT3, practice: true, state: 'running', paused: null, ended: null, recorder: { person: who, session: 'practice' },
-      roles: roles, details: Object.assign({}, view.sample), steps: view.steps, gates: view.gates, fields: {}, migrations: [], followUps: [], log: [], marksFrom: 'start' };
+      roles: roles, details: Object.assign({}, view.sample), steps: view.steps, gates: view.gates, fields: view.fields || {}, migrations: [], followUps: [], log: [], marksFrom: 'start',
+      types: e.types || {}, jira: R.jiraFor(map, e.workflows) };
     /* memo: for a stand-in that is complete and never changes while it's read (PF.run keeps phase info and gate status in it).
        Not enumerable, so a copy of the stand-in never shares it. */
     if (memo) Object.defineProperty(r, 'memo', { value: {}, enumerable: false });
@@ -125,7 +137,7 @@ PF.practice = (function () {
         else { steps[s.id] = { s: 'recheck', reason: 'changed', by: 'practice', at: a.at }; again[s.id] = a; }
       });
     });
-    var view = { sample: state.sample, steps: steps, gates: {} }, r = asRun(view, map, null);
+    var view = { sample: state.sample, steps: steps, gates: {} }, r = asRun(view, map, null, false, types);
     map.phases.forEach(function (p, pi) {
       var g = own(state.gates, p.gate.id) ? state.gates[p.gate.id] : null;
       if (!g) return;
@@ -139,7 +151,7 @@ PF.practice = (function () {
   /* The pane's model: every phase and step with its status and why, the gates, Next up, answers kept for parts no longer in
      the draft (gone), and whether everything is through (complete; never for a draft with nothing to do). */
   function follow(state, map, types, me) {
-    var d = derive(state, map, types), r = asRun(d.view, map, me, true), present = {};
+    var d = derive(state, map, types), r = asRun(d.view, map, me, true, types), present = {};
     var phases = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
       return { id: p.id, title: p.title, mode: p.mode, gate: { id: p.gate.id, title: p.gate.title, implicit: p.gate.implicit, status: gst, canPass: R.canPass(r, map, pi), canWaive: R.canWaive(r, map, pi), rec: d.view.gates[p.gate.id] || null },
@@ -170,7 +182,7 @@ PF.practice = (function () {
   function copy(state) { return JSON.parse(JSON.stringify(state)); }
   function bump(st) { st.rev = (st.rev || 0) + 1; return st; }
   function answer(state, map, id, how, types, now) {
-    var d = derive(state, map, types), r = asRun(d.view, map, null, true);
+    var d = derive(state, map, types), r = asRun(d.view, map, null, true, types);
     var why = R.answerable(r, map, id, how);
     if (why) return { error: why };
     var st = copy(state);
@@ -179,7 +191,7 @@ PF.practice = (function () {
     return { state: bump(st) };
   }
   function gateAct(state, map, pi, how, reason, types, now) {
-    var d = derive(state, map, types), r = asRun(d.view, map, null, true), p = map.phases[pi];
+    var d = derive(state, map, types), r = asRun(d.view, map, null, true, types), p = map.phases[pi];
     if (!p) return { error: 'That phase isn\'t in the draft anymore.' };
     var st = copy(state), gid = p.gate.id;
     if (how === 'reopen') { R.reopenIds(map, pi).forEach(function (id) { delete st.gates[id]; }); return { state: bump(st) }; }
@@ -293,7 +305,7 @@ PF.practice = (function () {
     return { state: bump(st), back: back };
   }
 
-  return { V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
+  return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
     derive: derive, follow: follow, answer: answer, gateAct: gateAct, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();
