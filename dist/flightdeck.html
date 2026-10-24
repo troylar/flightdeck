@@ -24775,15 +24775,17 @@ PF.examples = (function () {
             !(ae && ae.id !== 'pr-note' && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || ''));
         };
         /* A note typed since the click is the person's next one: only the note that was staged is cleared. */
-        if (origin.e.stageNote === origin.note) { origin.e.stageNote = null; origin.e.noteErr = null; }
+        if (origin.e.stageNote === origin.note) { origin.e.stageNote = null; origin.e.noteErr = null; state.clearInputs = 'pr-note'; }
         /* The stage must be in what the folder read says, ready to start a test run from, before practice ends for it. */
         var shown1 = function () {
-          var sp = ((data.stages || {}).procs || {})[id], s = sp && Object.prototype.hasOwnProperty.call(data.stages.procs, id) ? sp.stages.filter(function (x) { return x.folder === res.folder; })[0] : null;
-          return !state.folderErr && !(data.failed || {}).stages && !!s && s.ok && !s.newer && !sp.unlisted;
+          var procs = (data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, id) ? procs[id] : null, cp = processes().filter(function (x) { return x.id === id; })[0];
+          var s = sp && cp ? sp.stages.filter(function (x) { return x.folder === res.folder; })[0] : null;
+          if (state.folderErr || (data.failed || {}).stages || !s || !s.ok || s.newer || sp.unlisted || sp.unread.length || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); })) return false;
+          return PF.staging.status(s, sp.decisions, cp.all).status === 'staged';
         };
         return loadAfterWrite().then(function () {
           if (pg !== gen) return;
-          if (!shown1()) { say('Staged as ' + res.folder + ', but the folder couldn\'t be read again just now, so it isn\'t shown yet. Your practice is still open.', 'warn'); render(); return; }
+          if (!shown1()) { say('Staged as ' + res.folder + ', but a test run can\'t start from it yet: part of the folder couldn\'t be read just now. Your practice is still open.', 'warn'); render(); return; }
           if (!calm()) { say('Staged. Your practice is still open.', 'good'); render(); return; }
           prEnded(id, shown); ACTIONS['ed-done'](); state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
           state.focus = '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]';
@@ -26557,10 +26559,10 @@ PF.examples = (function () {
         state.obSel = { pid: p.id, kind: 'phase', key: pr.id }; state.obAdd = { pid: p.id, kind: 'step', phase: pr.id, track: -1 }; state.focus = 'ob-new-text'; render(); return;
       }
       var to = a.after != null ? { after: a.after } : { phase: a.phase, track: a.track, where: 'end' };
-      if (quick && !val('ob-new-text').trim()) { state.obAdd = null; obClearErr(); if (a.added) state.obSel = { pid: p.id, kind: 'step', key: a.added }; state.focus = a.added ? '[data-act="ob-sel"][data-id="' + cssEsc(a.added) + '"]' : a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]'; render(); return; }
+      if (quick && !val('ob-new-text').trim()) { if (obHeld(p, 'then close Add a step', null, true)) return; state.obAdd = null; obClearErr(); if (a.added) state.obSel = { pid: p.id, kind: 'step', key: a.added }; state.focus = a.added ? '[data-act="ob-sel"][data-id="' + cssEsc(a.added) + '"]' : a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]'; render(); return; }
       var type = val('ob-new-type') || 'confirm', res = builderEdit({ op: 'add', to: to, text: val('ob-new-text'), type: type }, 'ob-new-text'); if (!res) return;
       var ed = editorOf(p.id); if (ed) markFresh(ed, res.id);
-      if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: res.id, type: type }; state.focus = 'ob-new-text'; render(); reveal('#ob-new-text'); return; }
+      if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: res.id, type: type }; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-new-text'; render(); reveal('#ob-new-text'); return; }
       state.obAdd = null; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-text'; render();
     },
     'ob-commit': function (id, t) { if (t && t.id) builderField(t.id, t.value); },

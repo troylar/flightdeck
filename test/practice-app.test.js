@@ -328,6 +328,8 @@ rule('Stage from Practice: picking practice back up while the stage saves keeps 
     assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
     assert.match(app.html(), /id="draft-editor"/, meanwhile + ': still in the editor');
     assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
+    if (/<input id="pr-note"/.test(app.html())) assert.strictEqual((app.el('pr-note') || {}).value || '', '', meanwhile + ': the staged note is cleared from its box');
+    else assert.ok(meanwhile === 'reopen', 'set-up: only a reopened phase hides the box');
   }
 });
 
@@ -384,7 +386,16 @@ rule('Stage from Practice: when the folder can\'t be read after staging, practic
   app.fs.write = orig; app.fs.list = list;
   assert.strictEqual(stageFiles(app).length, 1, 'staged');
   assert.match(app.html(), /id="pr"/, 'practice kept');
-  assert.match(app.live(), /couldn't be read again just now, so it isn't shown yet\. Your practice is still open\./, app.live());
+  assert.match(app.live(), /a test run can't start from it yet: part of the folder couldn't be read just now\. Your practice is still open\./, app.live());
+});
+
+rule('Stage from Practice: a stage decision that can\'t be read keeps practice open, since no test run can start from it yet', async () => {
+  const app = await finished();
+  await app.fs.write('staged/release/decisions/stage-x.w-other.1.json', '{ not json');
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(300);
+  assert.strictEqual(stageFiles(app).length, 1, 'staged');
+  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.match(app.live(), /a test run can't start from it yet/, app.live());
 });
 
 rule('A refused check says why beside the step, inside the pane', async () => {

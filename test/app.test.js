@@ -532,6 +532,7 @@ rule('Quick capture: Enter in Add a step adds it and keeps the box open after it
   assert.ok(new RegExp('<option value="' + opt + '" selected').test(app.html()), 'the type is kept');
   assert.strictEqual(app.focused(), 'ob-new-text', 'focus stays in the box');
   assert.ok(/<li class="ob-addform">/.test(app.html().split('data-ob-step="close-the-ticket"')[1] || ''), 'the box is after the step it just added');
+  assert.match(app.html(), /data-act="ob-sel" data-id="close-the-ticket" aria-pressed="true"/, 'the step it just added is selected');
   app.click('save-draft'); await app.tick(80);
   const ids = idsOf(PF, app.fs.files['maps/drafts/release.md'].t), at = ids.indexOf('rollback');
   assert.deepStrictEqual(ids.slice(at, at + 4), ['rollback', 'check-the-dashboards', 'tell-support', 'close-the-ticket']);
@@ -554,6 +555,19 @@ rule('Quick capture: Enter on an empty box closes it; the Add step button still 
   app.set('ob-new-text', 'Tell support'); app.click('ob-add-go'); await app.tick();
   assert.ok(!/id="ob-new-text"/.test(app.html()), 'the button closes the box');
   assert.strictEqual(app.focused(), 'ob-text', 'and opens the step');
+});
+
+rule('Quick capture: an empty Enter waits for typing refused in another box, never throws it away', async () => {
+  const app = await builderOn();
+  app.click('ob-sel-details'); await app.tick();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  assert.match(app.html(), /id="ob-add-ctx"/, 'set-up: Checklist details still open beside the box');
+  addBox(app, 'ob-add-ctx', 'context', 'server name'); await app.tick();
+  assert.match(app.html(), /class="ferr"/, 'set-up: the run detail is refused');
+  addEnter(app, ''); await app.tick();
+  assert.match(app.live(), /Apply or clear what you typed in the box first/, app.live());
+  assert.strictEqual(app.draft('ob-add-ctx'), 'server name', 'the typing is kept');
+  assert.match(app.html(), /id="ob-new-text"/, 'Add a step stays open');
 });
 
 rule('Quick capture: a step added with Enter is new, so fixing a typo before saving gives it the fixed ID', async () => {
