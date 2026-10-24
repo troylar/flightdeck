@@ -2512,9 +2512,13 @@
       if (x) { R.evidenceFor(r, x.step, null, d.map).list.forEach(function (ev) { names['rec-' + ev.name] = true; }); var tt = T.get(x.step.type || 'confirm', types.types || {}); if (tt) T.editable(tt).forEach(function (f) { names['fld-' + f] = true; }); }
       var vals = [];
       ['record', 'fields'].forEach(function (part) { Object.keys(dr[part] || {}).forEach(function (b) { if (!names[b] && String(dr[part][b]).trim()) vals.push({ name: b.replace(/^(rec|fld)-/, ''), value: dr[part][b] }); }); });
-      if (vals.length) kept[id] = { id: id, text: x ? x.step.text : id, values: vals };
+      if (vals.length) kept[id] = { id: id, text: x ? x.step.text : dr.text || id, values: vals, gone: !x };
     });
-    if (model) model.gone.filter(function (id) { return !PR.isTemp(id); }).slice(0, 5).forEach(function (id) { gone.push({ id: id, kept: kept[id] || null }); });
+    if (model) {
+      var goneIds = model.gone.filter(function (id) { return !PR.isTemp(id); });
+      Object.keys(kept).forEach(function (id) { if (kept[id].gone && goneIds.indexOf(id) < 0) goneIds.push(id); });
+      goneIds.slice(0, 5).forEach(function (id) { gone.push({ id: id, text: kept[id] ? kept[id].text : '', kept: kept[id] || null }); });
+    }
     var details = map ? (map.meta.context || []).map(function (n) {
       var dd = PF.run.detailValueDef(map, n), hint = dd && dd.options && dd.options.length ? 'one of ' + dd.options.join(', ') : dd && dd.kind && dd.kind !== 'text' ? dd.kind : '';
       var by = model && model.setBy[n] ? M.findStep(map, model.setBy[n]) : null;
@@ -2605,7 +2609,14 @@
      with it in this tab (sessionStorage), so a reload or a trip to the editor keeps them. */
   function prKeepTyped(pid) {
     var pre = draftKey(prKey(pid), ''), out = {};
-    Object.keys(state.stepDrafts).forEach(function (k) { if (k.indexOf(pre) === 0) { var d = state.stepDrafts[k]; out[k.slice(pre.length)] = { record: d.record, fields: d.fields, open: !!d.open }; } });
+    var e = prs[edKey(pid)], p = e && processes().filter(function (x) { return x.id === pid; })[0], c = p ? prMap(e, prText(p)) : null;
+    Object.keys(state.stepDrafts).forEach(function (k) {
+      if (k.indexOf(pre) !== 0) return;
+      var d = state.stepDrafts[k], id = k.slice(pre.length), x = c && c.map && !/^gate:/.test(id) ? M.findStep(c.map, id) : null;
+      /* The step's text goes with its typing, so a step removed from the draft can still be named. */
+      if (x) d.text = x.step.text;
+      out[id] = { record: d.record, fields: d.fields, open: !!d.open, text: typeof d.text === 'string' ? d.text : '' };
+    });
     try { var t = JSON.stringify(out); if (t.length > 200000) return; sessionStorage.setItem(prStoreKey(pid) + ':typed', t); } catch (err) { /* this tab only */ }
   }
   function prLoadTyped(pid) {
@@ -2615,8 +2626,10 @@
     if (!o || typeof o !== 'object') return;
     var str = function (x) { var out = {}; if (x && typeof x === 'object') Object.keys(x).slice(0, 40).forEach(function (k) { if (typeof x[k] === 'string' && /^(rec|fld)-[\w-]{1,60}$|^pick-input$/.test(k)) out[k] = x[k].slice(0, PR.VALUE_MAX); }); return out; };
     Object.keys(o).slice(0, 50).forEach(function (id) {
-      if (typeof id !== 'string' || id.length > 90 || id in Object.prototype) return;
-      var d = draftOf(prKey(pid), id, true); d.record = str(o[id].record); d.fields = str(o[id].fields); d.open = o[id].open === true;
+      var v = o[id];
+      if (typeof id !== 'string' || id.length > 90 || id in Object.prototype || !v || typeof v !== 'object' || Array.isArray(v)) return;
+      var d = draftOf(prKey(pid), id, true); d.record = str(v.record); d.fields = str(v.fields); d.open = v.open === true;
+      if (typeof v.text === 'string') d.text = v.text.slice(0, 300);
       if (!hasDraft(d)) delete state.stepDrafts[draftKey(prKey(pid), id)];
     });
   }
@@ -2633,7 +2646,8 @@
   /* Where practice was: the selected step, its row's place on screen, the inspector and a form open on it. */
   function prTripOut(e) {
     var row = state.sel && document.getElementById('step-' + state.sel), top = row && row.getBoundingClientRect ? row.getBoundingClientRect().top : null;
-    e.trip = { sel: state.sel, top: top, insOpen: !!state.refOpen, pick: state.pick ? { kind: state.pick.kind, id: state.pick.id } : null, target: e.trip && e.trip.target || null };
+    var ae = document.activeElement, box = ae && ae.id && /^(rec|fld)-|^pick-input$/.test(ae.id) && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || '') ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd, top: ae.scrollTop || 0 } : null;
+    e.trip = { sel: state.sel, top: top, insOpen: !!state.refOpen, pick: state.pick ? { kind: state.pick.kind, id: state.pick.id } : null, box: box, target: e.trip && e.trip.target || null };
   }
   /* The editor's last-touched part, kept as its own record (it outlives the builder's selection being cleared or deleted). */
   function prTarget(p, kind, key) {
@@ -2699,7 +2713,7 @@
     var pend = prPending(p.id) || (state.obPending === p.id ? 'Apply or clear what you typed in the box first, then practice it.' : '');
     if (pend && state.view === 'process') { say(pend, 'warn'); render(); return false; }
     var e = prEntry(p.id), was = state.view === 'process' && state.ptab === 'edit' && state.processId === p.id;
-    if (was) prTargetNow(p);
+    if (was) { if (!e.trip) e.trip = { sel: null, top: null, insOpen: !narrow(), pick: null, target: null }; prTargetNow(p); }
     /* A change that arrived while away is adopted first, with the editor's own checks, so practice follows it. */
     followDrafts();
     leaveContext();
@@ -2724,7 +2738,8 @@
     var same = dest && t && dest.kind === 'step' && dest.id === t.sel;
     state.focus = dest && dest.kind === 'gate' ? '#gate-' + cssEsc(dest.id) + ' .btn.go, #gate-' + cssEsc(dest.id) + ' button:not([disabled])' : state.sel ? prFocusRow(state.sel) : 'run-h';
     if (same && t.pick && state.pick) state.focus = '#rw-ins input, #rw-ins select, #rw-ins textarea';
-    state.prArrive = { anchor: same && t.top != null ? { id: dest.id, top: t.top } : null, reveal: dest ? (dest.kind === 'gate' ? '#gate-' + cssEsc(dest.id) : '#step-' + cssEsc(dest.id)) : null };
+    if (same && t.box) state.focus = t.box.id;
+    state.prArrive = { anchor: same && t.top != null ? { id: dest.id, top: t.top } : null, reveal: dest ? (dest.kind === 'gate' ? '#gate-' + cssEsc(dest.id) : '#step-' + cssEsc(dest.id)) : null, box: same ? t.box : null };
     if (how) H.mode = how;
     e.trip = null;
     render();
@@ -2733,6 +2748,8 @@
   /* After drawing the practice page from a trip: the row back where it was on screen, or just scrolled into view. */
   function prArrived() {
     var a = state.prArrive; state.prArrive = null; if (!a || state.view !== 'practice') return;
+    var bx = a.box && document.getElementById(a.box.id);
+    if (bx && document.activeElement === bx) { if (bx.setSelectionRange && a.box.s != null) try { bx.setSelectionRange(a.box.s, a.box.e); } catch (err) { /* not a text field */ } if (a.box.top) bx.scrollTop = a.box.top; }
     var el = a.anchor ? document.getElementById('step-' + a.anchor.id) : a.reveal ? app.querySelector(a.reveal) : null; if (!el || !el.getBoundingClientRect) return;
     if (a.anchor) { var dy = el.getBoundingClientRect().top - a.anchor.top, list = document.getElementById('rw-list'); if (list && list.scrollHeight > list.clientHeight) list.scrollTop += dy; else window.scrollBy(0, dy); }
     else if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
@@ -2754,7 +2771,7 @@
     var p = prNow(); if (!p) return; var e = prEntry(p.id), m = prModel(), s = m && m.P.steps[id]; if (!s) return;
     harvest();
     var d = draftOf(prKey(p.id), id, false);
-    if (how !== 'skip' && s.status !== 'done' && (state.pick && state.pick.kind === 'fields' && state.pick.id === id || (d && (d.open || Object.keys(d.fields).length)))) { say('Save or cancel Fill in first.', 'warn'); state.focus = '[data-act="save-fields"][data-id="' + cssEsc(id) + '"]'; render(); return; }
+    if (how !== 'skip' && s.status !== 'done' && (state.pick && state.pick.kind === 'fields' && state.pick.id === id || (d && d.open))) { say('Save or cancel Fill in first.', 'warn'); state.focus = '[data-act="save-fields"][data-id="' + cssEsc(id) + '"]'; render(); return; }
     var values = null, x = M.findStep(m.map, id);
     if (how === 'done' && x && s.status !== 'done') { values = {}; R.evidenceFor(m.r, x.step, null, m.map).list.forEach(function (ev) { var k = 'rec-' + ev.name; values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, m.r, x.step, ev); }); }
     var err = null, label = how === 'open' ? 'Uncheck' : how === 'na' ? 'Not needed' : how === 'skip' ? 'Check without evidence' : 'Check';
@@ -2829,13 +2846,15 @@
     'pr-save': function () {
       var p = prNow(); if (!p) return; var e = prEntry(p.id), pend = prPending(p.id); if (pend) { say(pend, 'warn'); render(); return; }
       prHarvest(); e.saveErr = null;
-      var ed = openEditor(p), ae = document.activeElement, back = ae && ae.dataset && ae.dataset.act === 'pr-save' ? '[data-act="pr-save"], [data-act="pr-close"]' : null;
+      var ed = openEditor(p), ae = document.activeElement, from = ae && ae.dataset ? ae.dataset.act : null, back = from === 'pr-save' ? '[data-act="pr-save"], [data-act="pr-close"]' : null;
       saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.', { expectText: ed.baseHash == null ? null : ed.base, done: function (how) {
         e.saveErr = how === 'conflict' ? { conflict: true, msg: 'Not saved: someone else changed this draft since you opened it. Compare them in the editor, then keep yours or take theirs.' } : how === 'failed' ? { conflict: false, msg: 'The draft couldn\'t be saved. Your edits are still here.' } : null;
         /* A save that finishes after you moved on only updates the save state and its message. */
         if (state.view !== 'practice' || state.processId !== p.id) return;
         if (how === 'saved' && state.msg) state.msg.quiet = true;
-        state.focus = e.saveErr ? (e.saveErr.conflict ? '[data-act="pr-back"][data-id="compare"]' : '[data-act="pr-save"]') : back;
+        /* Focus moves only if it's still where the save started: never out of a box you went on to. */
+        var now = document.activeElement, moved = now && now !== document.body && !(now.dataset && now.dataset.act && now.dataset.act === from);
+        state.focus = moved ? null : e.saveErr ? (e.saveErr.conflict ? '[data-act="pr-back"][data-id="compare"]' : '[data-act="pr-save"]') : back;
         render();
       } });
     },
@@ -6184,6 +6203,8 @@
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
+    /* Evidence, Fill in and a waiver's reason on the practice page reach this tab's storage as they're typed (a reload keeps them). */
+    if (state.view === 'practice' && e.target && /^(rec|fld)-|^pick-input$/.test(e.target.id || '')) { prHarvest(); return; }
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
@@ -6655,6 +6676,9 @@
   /* Files dragged from the computer onto a note or suggestion box. */
   function filesDrag(e) { var dt = e.dataTransfer; return !!dt && Array.prototype.indexOf.call(dt.types || [], 'Files') >= 0; }
   function dropZone(e) { return state.view === 'run' && state.me && e.target && e.target.closest ? e.target.closest('[data-drop]') : null; }
+  /* Practice keeps no files: one let go on its page is caught, so the browser never swaps the app (and unsaved edits) for it. */
+  document.addEventListener('dragover', function (e) { if (!filesDrag(e) || state.view !== 'practice') return; e.preventDefault(); try { e.dataTransfer.dropEffect = 'none'; } catch (err) { /* older browsers */ } });
+  document.addEventListener('drop', function (e) { if (!filesDrag(e) || state.view !== 'practice') return; e.preventDefault(); say('Practice doesn\'t keep files. Add screenshots in the editor, or to a note in a real run.', 'warn'); render(); });
   /* A file let go anywhere else on a run is caught, so the browser never swaps the app for the file. */
   document.addEventListener('dragover', function (e) {
     if (!filesDrag(e) || state.view !== 'run') return;

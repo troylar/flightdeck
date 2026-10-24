@@ -677,4 +677,103 @@ rule('A 300-step draft: the practice run screen draws and answers well under bud
   assert.ok(ms < 60, 'a practice action, drawn, took ' + ms.toFixed(1) + ' ms');
 });
 
+/* ---------- code review round 1 ---------- */
+rule('Typing in evidence reaches this tab\'s storage as it is typed, so a reload keeps it', async () => {
+  const session = {};
+  const app = await editor({ sessionStore: session });
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  app.input('rec-number', 'CHG-77'); await app.tick();
+  const again = boot({ localStore: { 'preflight:builder': 'false' }, sessionStore: session, hash: '#/practice/release' });
+  await again.tick(60); again.choose('person-casey'); await again.tick(60);
+  again.click('select', 'approved'); await again.tick();
+  assert.match(again.html(), /id="rec-number"[^>]*value="CHG-77"/);
+});
+
+rule('Fill in cancelled with typing kept never blocks Done', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  app.set('fld-channel', '#release-room');
+  app.click('unpick'); await app.tick();
+  app.click('toggle', 'announce'); await app.tick();
+  assert.ok(!/Save or cancel Fill in first/.test(app.live()), app.live());
+  assert.equal(row(app, 'announce'), 'done');
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  assert.match(app.html(), /id="fld-channel"[^>]*value="#release-room"/, 'the kept typing is still there for Fill in');
+});
+
+rule('A step removed with unfinished typing is named in the removed notice, with Copy and Discard', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  app.set('rec-number', 'CHG-77');
+  app.click('pr-edit', 'approved'); await app.tick();
+  app.input('draft-editor', DROP_APPROVED(text(app))); await app.tick(300);
+  app.click('pr-open'); await app.tick(60);
+  assert.match(app.html(), /Removed from the draft: Change request approved for tonight(&#39;|')s window/);
+  assert.match(app.html(), /data-act="pr-kept-copy" data-id="approved"/);
+  assert.match(app.html(), /data-act="pr-kept-drop" data-id="approved"/);
+});
+
+rule('Save draft finishing after you moved on to a box never takes focus from it', async () => {
+  const app = await editor();
+  app.input('draft-editor', text(app) + '\n'); await app.tick(300);
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  let go; const gate = new Promise(r => { go = r; }); const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => x === DRAFT ? gate.then(() => orig(x, d)) : orig(x, d);
+  app.doc.activeElement = { id: '', tagName: 'BUTTON', dataset: { act: 'pr-save' }, closest: () => null };
+  app.click('pr-save'); await app.tick(20);
+  const box = app.el('rec-number'); let stolen = false; box.tagName = 'INPUT'; app.doc.activeElement = box;
+  const n = app.asked().length;
+  go(); await app.tick(200); app.fs.write = orig;
+  assert.ok(!app.asked().slice(n).some(x => /pr-save|pr-close/.test(x)), 'focus left alone: ' + app.asked().slice(n));
+  assert.ok(!stolen);
+});
+
+rule('A file dropped on the practice page is caught, so the browser never swaps the app for it', async () => {
+  const app = await editor();
+  await practice(app);
+  let stopped = 0;
+  const ev = { dataTransfer: { types: ['Files'], files: [], dropEffect: '' }, target: { closest: () => null }, preventDefault() { stopped++; } };
+  app.fire('dragover', ev); app.fire('drop', ev); await app.tick();
+  assert.strictEqual(stopped, 2);
+  assert.match(app.live(), /Practice doesn.t keep files/);
+});
+
+rule('Practice opened from the editor starts on the step selected there', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(onPage(app));
+  assert.strictEqual(app.selected(), 'flags');
+});
+
+rule('Back to practice puts focus back in the box you were typing in, with its selection', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  const box = app.el('rec-number'); box.value = 'CHG-1234'; box.tagName = 'INPUT'; box.selectionStart = 4; box.selectionEnd = 8;
+  box.closest = s => (s === '#rw-ins' ? {} : null); app.doc.activeElement = box;
+  app.click('pr-edit', 'approved'); await app.tick();
+  app.doc.activeElement = null;
+  let focused = false, range = null; box.focus = () => { focused = true; app.doc.activeElement = box; }; box.setSelectionRange = (a, b) => { range = [a, b]; };
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(focused, 'the box has focus again');
+  assert.deepStrictEqual(range, [4, 8]);
+});
+
+rule('Kept typing in this tab that isn\'t a record is ignored, never thrown on', async () => {
+  const session = {};
+  const first = await editor({ sessionStore: session });
+  await practice(first);
+  await check(first, 'rollback');
+  const k = Object.keys(session).filter(x => /:practice:/.test(x) && !/:typed$/.test(x))[0];
+  session[k + ':typed'] = '{"approved":null,"tests":"x","flags":{"record":7}}';
+  const app = await editor({ sessionStore: session });
+  await practice(app);
+  assert.equal(row(app, 'rollback'), 'done');
+});
+
 run();
