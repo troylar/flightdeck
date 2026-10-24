@@ -146,9 +146,11 @@ PF.practice = (function () {
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
         if (!a) return;
         var same = a.own === now[s.id].own && a.ctx === now[s.id].ctx, via = same ? reads(readsOf(p, s)) : '';
-        if (same && !via) steps[s.id] = { s: a.s, by: 'practice', at: a.at };
+        if (same && !via) { steps[s.id] = { s: a.s, by: 'practice', at: a.at }; if (a.values && !a.skipped) steps[s.id].values = Object.assign({}, a.values); }
         else {
           steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a;
+          /* What it was checked with is the starting point for trying it again, as a run's Change answer shows. */
+          if (a.values && !a.skipped) steps[s.id].values = Object.assign({}, a.values);
           /* What it set comes from its own answer's values (which follow a new ID, and outlive a changed sets:), matched
              to the checklist's details by their keys; never from setBy. A setter that doesn't apply now sets nothing. */
           if (a.values && !a.skipped && R.applies(r0, map, pi, s).applies !== false) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
@@ -427,6 +429,14 @@ PF.practice = (function () {
     });
     return out;
   }
+  /* Renames over time: what came before (old → current), then a new set (current → newer). An ID renamed and renamed back
+     is itself again; one that was renamed away and came back points where it is now. */
+  function chain(before, add) {
+    var out = {}, a = add || {};
+    Object.keys(before || {}).forEach(function (o) { var n = own(a, before[o]) ? a[before[o]] : before[o]; if (n !== o) out[o] = n; });
+    Object.keys(a).forEach(function (o) { if (!own(out, o) && !own(before || {}, o) && a[o] !== o) out[o] = a[o]; });
+    return out;
+  }
 
   /* ---------- keeping it: sessionStorage, checked when read back, within CAP ---------- */
   var REC = /^(done|na)$/, GREC = /^(passed|waived)$/, HEX = /^[0-9a-f]{1,8}$/;
@@ -529,5 +539,5 @@ PF.practice = (function () {
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, VALUES_MAX: VALUES_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
     derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, repin: repin, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
-    undoEntry: undoEntry, applyEntry: applyEntry, compose: compose };
+    undoEntry: undoEntry, applyEntry: applyEntry, compose: compose, chain: chain };
 })();

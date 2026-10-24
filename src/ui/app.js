@@ -2456,7 +2456,7 @@
     e.renames[from] = to; e.renames[from + '-confirm'] = to + '-confirm';
     /* Where every ID practice recorded is now, for practice Undo (PR.applyEntry) and Back to practice's target. */
     var add = {}; add[from] = to; add[from + '-confirm'] = to + '-confirm';
-    e.moved = PR.compose(Object.assign({}, e.moved, add));
+    e.moved = PR.chain(e.moved, add);
   }
   function typesRev() { var t = (data.stepTypes || {}).types || {}; return Object.keys(t).length + ':' + U.hash(JSON.stringify(t)); }
   /* The admitted map for this text (cached by text and step types); a refused text keeps the last one that was admitted. */
@@ -2646,7 +2646,8 @@
   /* Where practice was: the selected step, its row's place on screen, the inspector and a form open on it. */
   function prTripOut(e) {
     var row = state.sel && document.getElementById('step-' + state.sel), top = row && row.getBoundingClientRect ? row.getBoundingClientRect().top : null;
-    var ae = document.activeElement, box = ae && ae.id && /^(rec|fld)-|^pick-input$/.test(ae.id) && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || '') ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd, top: ae.scrollTop || 0 } : null;
+    var ae = document.activeElement, box = ae && ae.id && /^(rec|fld)-|^pick-input$/.test(ae.id) && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || '') ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd, top: ae.scrollTop || 0 } : prLastBox;
+    prLastBox = null;
     e.trip = { sel: state.sel, top: top, insOpen: !!state.refOpen, pick: state.pick ? { kind: state.pick.kind, id: state.pick.id } : null, box: box, target: e.trip && e.trip.target || null };
   }
   /* The editor's last-touched part, kept as its own record (it outlives the builder's selection being cleared or deleted). */
@@ -2819,7 +2820,7 @@
       render();
     },
     /* Cancel closes the form and keeps what was typed in it (Discard is the form's own). */
-    unpick: function () { var pk = state.pick; prHarvest(); state.pick = null; state.fieldErr = null; state.fieldsDraft = null; var p = prNow(); if (p && pk && pk.kind === 'fields') { var d = draftOf(prKey(p.id), pk.id, false); if (d) { d.open = false; if (!hasDraft(d)) dropDraft(prKey(p.id), pk.id, ['open']); } } if (pk && pk.back) state.focus = pk.back; render(); },
+    unpick: function () { var pk = state.pick; prHarvest(); state.pick = null; state.fieldErr = null; state.fieldsDraft = null; var p = prNow(); if (p && pk && pk.kind === 'fields') { var d = draftOf(prKey(p.id), pk.id, false); if (d) { d.open = false; if (!hasDraft(d)) dropDraft(prKey(p.id), pk.id, ['open']); } prKeepTyped(p.id); } if (pk && pk.back) state.focus = pk.back; render(); },
     'save-fields': function (id) {
       var p = prNow(); if (!p) return; var e = prEntry(p.id), m = prModel(), x = m && M.findStep(m.map, id); if (!x) return;
       var t = T.get(x.step.type || 'confirm', prEnv().types || {}), fields = {};
@@ -6198,13 +6199,20 @@
 
   /* Anything typed or chosen on the practice page counts as practice activity (Stage from Practice ends it only if none). */
   function prActivity(t) { uiActs++; var cp = state.view === 'practice' && t && t.id !== 'pr-note' && currentProcess(); if (cp) prTouch(prEntry(cp.id)); }
-  document.addEventListener('change', function (e) { prActivity(e.target); }, true);
+  /* A box on the practice page whose typing is kept: evidence, Fill in (a radio by its name) and a waiver's reason. */
+  function prTypedBox(t) { return state.view === 'practice' && !!t && (/^(opt-)?(rec|fld)-|^pick-input$/.test(t.id || '') || /^(rec|fld)-/.test(t.name || '')); }
+  document.addEventListener('change', function (e) { prActivity(e.target); if (prTypedBox(e.target)) prHarvest(); }, true);
+  /* The box last typed in on the practice page, kept until focus goes anywhere but Edit or Back to the draft, so a trip
+     to the editor can bring focus and its selection back to it. */
+  var prLastBox = null;
+  document.addEventListener('focusout', function (e) { var t = e.target; if (prTypedBox(t) && /INPUT|TEXTAREA|SELECT/.test(t.tagName || '')) prLastBox = { id: t.id, s: t.selectionStart, e: t.selectionEnd, top: t.scrollTop || 0 }; }, true);
+  document.addEventListener('focusin', function (e) { var t = e.target, a = t && t.dataset && t.dataset.act; if (!(a === 'pr-edit' || a === 'pr-back')) prLastBox = null; }, true);
   document.addEventListener('input', function (e) {
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
     /* Evidence, Fill in and a waiver's reason on the practice page reach this tab's storage as they're typed (a reload keeps them). */
-    if (state.view === 'practice' && e.target && /^(rec|fld)-|^pick-input$/.test(e.target.id || '')) { prHarvest(); return; }
+    if (prTypedBox(e.target)) { prHarvest(); return; }
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
@@ -6408,7 +6416,9 @@
     if (!drawn || !draftScope() || drawn.key !== draftScope()) return;
     var d = draftOf(drawn.key, drawn.sel, true, drawn.fs), part = d[drawn.kind];
     drawn.ids.forEach(function (id) {
-      var el = document.getElementById(id); if (!el || inputValue(el) === baseOf(id) || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
+      var el = document.getElementById(id); if (!el || drawn.skip[id === 'note-text' ? 'note' : 'box']) return;
+      /* Back at what was drawn: only a draft it already has follows it (typed, then erased, is erased). */
+      if (inputValue(el) === baseOf(id)) { if (id === 'note-text') { if (d.note != null && d.note !== '') d.note = el.value; } else if (Object.prototype.hasOwnProperty.call(part, id)) part[id] = inputValue(el); return; }
       if (id === 'note-text') { d.note = el.value; return; }
       /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
       part[id] = inputValue(el);

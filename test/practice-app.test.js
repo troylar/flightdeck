@@ -776,4 +776,73 @@ rule('Kept typing in this tab that isn\'t a record is ignored, never thrown on',
   assert.equal(row(app, 'rollback'), 'done');
 });
 
+/* ---------- code review round 2 ---------- */
+rule('Evidence typed and then cleared is submitted cleared, never the erased value', async () => {
+  const app = await editor({ sessionStore: {} });
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  app.input('rec-number', 'CHG-77'); await app.tick();
+  app.input('rec-number', ''); await app.tick();
+  app.click('record', 'approved'); await app.tick();
+  assert.equal(row(app, 'approved'), 'open', 'refused: the box is empty');
+  assert.match(app.html(), /Change number is needed/);
+});
+
+rule('A step to try again shows the evidence it was checked with as the starting point', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  app.set('rec-number', 'CHG-77'); app.click('record', 'approved'); await app.tick();
+  await edit(app, t => t.replace("Change request approved for tonight's window", 'Change request approved for this window'));
+  app.click('select', 'approved'); await app.tick();
+  assert.equal(row(app, 'approved'), 'again');
+  assert.match(app.html(), /id="rec-number"[^>]*value="CHG-77"/);
+});
+
+rule('A yes/no choice in evidence reaches this tab\'s storage when chosen', async () => {
+  const session = {};
+  const app = await editor({ sessionStore: session });
+  await edit(app, t => t.replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment, tag, ready:yes-no').replace('{#prep}\n', '{#prep}\n- [ ] {confirm} Say if it is ready {#go}\n  sets: ready\n'));
+  app.click('toggle', 'go'); await app.tick();
+  const id = (/id="(rec-[^"]*ready[^"]*)"/.exec(app.html()) || [])[1];
+  assert.ok(id, 'set-up: the yes/no box');
+  const fs = app.el(id); Object.assign(fs, { tagName: 'FIELDSET', querySelector: s => (s === 'input:checked' ? { value: 'yes' } : null) });
+  app.fire('change', { target: { id: 'opt-' + id + '-0', name: id, type: 'radio', value: 'yes', tagName: 'INPUT', dataset: {}, closest: s => (s === 'fieldset' ? fs : null) } }); await app.tick();
+  const k = Object.keys(session).filter(x => /:typed$/.test(x))[0];
+  assert.ok(k && session[k].indexOf('"' + id + '":"yes"') >= 0, k && session[k]);
+});
+
+rule('Edit clicked from a box still brings focus and selection back to that box', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  const box = app.el('rec-number'); box.value = 'CHG-1234'; box.tagName = 'INPUT'; box.selectionStart = 2; box.selectionEnd = 6;
+  app.fire('focusout', { target: box });
+  const edit = { tagName: 'BUTTON', id: '', dataset: { act: 'pr-edit', id: 'approved' }, closest: () => null };
+  app.fire('focusin', { target: edit }); app.doc.activeElement = edit;
+  app.click('pr-edit', 'approved'); await app.tick();
+  app.doc.activeElement = null;
+  let focused = false, range = null; box.focus = () => { focused = true; app.doc.activeElement = box; }; box.setSelectionRange = (a, b) => { range = [a, b]; };
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(focused);
+  assert.deepStrictEqual(range, [2, 6]);
+});
+
+rule('Fill in cancelled after a round trip stays closed across a reload', async () => {
+  const session = {};
+  const app = await editor({ sessionStore: session });
+  await practice(app);
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  app.set('fld-channel', '#release-room');
+  app.click('pr-edit', 'flags'); await app.tick();
+  app.click('pr-open'); await app.tick(60);
+  app.click('select', 'announce'); await app.tick();
+  if (/data-act="unpick"/.test(app.html())) { app.click('unpick'); await app.tick(); }
+  const again = boot({ localStore: { 'preflight:builder': 'false' }, sessionStore: session, hash: '#/practice/release' });
+  await again.tick(60); again.choose('person-casey'); await again.tick(60);
+  again.click('toggle', 'announce'); await again.tick();
+  assert.ok(!/Save or cancel Fill in first/.test(again.live()), again.live());
+  assert.equal(row(again, 'announce'), 'done');
+});
+
 run();
