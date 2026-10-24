@@ -921,4 +921,18 @@ rule('On a phone, Escape in Fill in closes Fill in first, then the step sheet', 
   assert.match(app.html(), /class="fpe-pane rw-ins" id="rw-ins"[^>]*data-open="true"/, 'the sheet is still open');
 });
 
+/* ---------- code review round 5 ---------- */
+rule('Done practicing or browser Back, then Practice, returns to the step being practiced', async () => {
+  for (const how of ['done', 'back']) {
+    const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+    app.click('ob-sel', 'flags'); await app.tick();
+    app.click('pr-open'); await app.tick(60);
+    app.click('select', 'rollback'); await app.tick();
+    if (how === 'done') { app.click('pr-close'); await app.tick(); } else { app.back(); await app.settle(); }
+    assert.ok(inEditor(app), how + ': in the editor');
+    app.click('pr-open'); await app.tick(60);
+    assert.strictEqual(app.selected(), 'rollback', how);
+  }
+});
+
 run();

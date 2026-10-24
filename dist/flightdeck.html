@@ -28570,7 +28570,11 @@ PF.examples = (function () {
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
   function setView(v) { if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
-  function prLeave() { prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)]; if (e && !e.trip) prTripOut(e); }
+  function prLeave() {
+    prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
+    /* Done practicing or browser Back: the builder shows the step being practiced, so coming back lands there. */
+    if (e && !e.trip) { prTripOut(e); var key = state.sel && state.builder !== false ? prBuilderKey(p, state.sel) : ''; if (key) { state.obSel = { pid: p.id, kind: 'step', key: key }; prTarget(p, 'step', key); } }
+  }
   /* A number in How runs go opens the runs behind it on the Runs page, as they are now; the cohort is kept, not re-asked
      (PF.insights.spec), and Back returns to the version and the place on the page. */
   function insightRuns(path) {
