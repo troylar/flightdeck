@@ -637,4 +637,27 @@ rule('a later phase\'s gate that approves a detail goes to review only while its
   assert.strictEqual(g(P.follow(back, edited, {})).s, 'passed', 'same value: the later gate is passed again as it was');
 });
 
+rule('Fill in keeps a current gate as it was (passed or waived), leaves a stale one in review, and undoes as one', () => {
+  const md = ['---', 'process: c', 'title: C', '---', '## P · READ-DO {#p}', '- [!] {decide} Pick a path {#dec}', '  options: A, B', '  require: decision', '- [ ] {confirm} Tell {#tell}', '',
+    '## Gate: Out {#out}', '', '## Q · READ-DO {#q}', '- [ ] {confirm} After {#after}', ''].join('\n');
+  const map = admit(md);
+  let st = ans(P.fresh('c'), map, 'dec', { values: { decision: 'A' } }); st = ans(st, map, 'tell');
+  const own0 = P.prints(map, st.sample, {}, st.fields).dec.own, own1 = P.prints(map, st.sample, {}, { dec: { options: 'A, B, C' } }).dec.own;
+  assert.notStrictEqual(own0, own1, 'the Fill in changes what the evidence asks for (so this test means something)');
+  for (const how of ['pass', 'waive']) {
+    const g = gate(st, map, 0, how, 'later');
+    const r = P.fillIn(g, map, 'dec', { options: 'A, B, C' }, {}); assert.ok(r.state, r.error);
+    const v = P.follow(r.state, map, {});
+    assert.strictEqual(step(v, 'dec').status, 'done');
+    assert.strictEqual(phase(v, 'p').gate.rec.s, how === 'pass' ? 'passed' : 'waived', how);
+    assert.ok(phase(v, 'q').open, 'the next phase stays open');
+    const e = P.undoEntry(g, r.state, 'Fill in'), u = P.applyEntry(r.state, e);
+    same([u.state.fields, u.state.answers, u.state.gates], [g.fields, g.answers, g.gates], 'one Undo puts back the answer and the gate');
+    same(P.applyEntry(u.state, u.back).state.gates, r.state.gates, 'Redo too');
+  }
+  const passed = gate(st, map, 0), stale = admit(md.replace('Tell {#tell}', 'Tell everyone {#tell}'));
+  const r2 = P.fillIn(passed, stale, 'dec', { options: 'A, B, C' }, {}); assert.ok(r2.state, r2.error);
+  assert.strictEqual(phase(P.follow(r2.state, stale, {}), 'p').gate.rec.s, 'review', 'a gate stale for another reason stays in review');
+});
+
 run();

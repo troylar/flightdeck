@@ -230,7 +230,15 @@ PF.practice = (function () {
     if (!cf.changed.length) return { state: state };
     var st = copy(state);
     if (Object.keys(cf.own).length) st.fields[id] = cf.own; else delete st.fields[id];
-    if (current) st.answers[id].own = prints(map, st.sample, types, st.fields)[id].own;
+    if (current) {
+      var after = prints(map, st.sample, types, st.fields), pi = x.phaseIndex, gid = map.phases[pi].gate.id, g = own(st.gates, gid) ? st.gates[gid] : null;
+      st.answers[id].own = after[id].own;
+      /* Its gate, if it was current, stays as it was too (a run's does): only this step's own fingerprint moved. */
+      if (g) {
+        var app = applicableSteps(r, map, pi);
+        if (g.base === gateBase(map, pi, d.now, app, state.sample)) g.base = gateBase(map, pi, after, app, st.sample);
+      }
+    }
     return { state: bump(st), changed: cf.changed };
   }
   function gateAct(state, map, pi, how, reason, types, now) {
