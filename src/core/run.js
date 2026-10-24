@@ -606,7 +606,6 @@ PF.run = (function () {
     function undo() { if (r._overflow) r._overflow.length = Math.min(r._overflow.length, keepO); if (keepF) r.fields[id] = keepF; else delete r.fields[id]; if (keepS) r.steps[id] = keepS; else delete r.steps[id]; r.gates = keepG; r.log.length = Math.min(r.log.length, keepLog); }
     r.fields = r.fields || {};
     if (Object.keys(own).length) r.fields[id] = own; else delete r.fields[id];
-    if (changed.length) { var jp = jiraProblem(r, x.step); if (jp) { undo(); throw fail(jp, ''); } }
     var ca = r.steps[id];
     if (changed.length && x.step.type === 'run.process' && ca && ca.child && ca.s === 'done' && !childCurrent(r, x.step, ca)) {
       answer(r, id, { s: 'recheck', reason: 'The step changed: its ' + ca.child.process + ' run no longer matches', by: who, at: now });
@@ -643,8 +642,9 @@ PF.run = (function () {
   }
   /* Fill in's own checks, without changing anything: which map fields a run may fill in (PF.types.editable), each value
      trimmed, a choice made canonical or refused. Returns { own, changed } (the step's filled-in fields after it, and what
-     changed in words) or { error, field }. setFields and practice (docs/design.md section 34) both use it. */
-  function checkFill(r, step, fields) {
+     changed in words) or { error, field }. Checked on the merged fields: the Jira workflow, and with o.keep ({ values, map })
+     the evidence a checked answer must keep. setFields and practice (docs/design.md section 34) both use it. */
+  function checkFill(r, step, fields, o) {
     var t = PF.types.get(step.type, r.types), allowed = PF.types.editable(t), own = Object.assign({}, (r.fields || {})[step.id] || {}), changed = [], keys = Object.keys(fields || {});
     function shown(v) { return v ? '"' + String(v).slice(0, 60) + '"' : 'empty'; }
     for (var i = 0; i < keys.length; i++) {
@@ -657,6 +657,14 @@ PF.run = (function () {
       if (v && def.kind === 'choice' && !PF.types.hasOption(def, fieldsOf(r, step), v)) return { error: def.label + ' should be one of: ' + PF.types.options(def, fieldsOf(r, step)).join(', ') + '.', field: 'fld-' + f };
       if (v === (step.fields[f] || '')) delete own[f]; else own[f] = v;
       changed.push(def.label + ': ' + shown(before) + ' → ' + shown(v));
+    }
+    if (!changed.length) return { own: own, changed: changed };
+    var merged = Object.assign({}, step.fields, own), jp = jiraProblem(r, step, merged);
+    if (jp) return { error: jp, field: '' };
+    var keep = o && o.keep;
+    if (keep) {
+      var missing = evidenceFor(r, step, merged, keep.map).list.filter(function (d) { return d.required && !((keep.values || {})[d.name]); })[0];
+      if (missing) return { error: missing.label + ' is required for this step, so it can\'t be removed while the step is checked. Undo the check first if it really wasn\'t done.', field: 'rec-' + missing.name };
     }
     return { own: own, changed: changed };
   }
