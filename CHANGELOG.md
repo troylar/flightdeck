@@ -9,6 +9,7 @@ Practice a draft while you edit it.
 ### New
 
 - **Practice: run the draft on screen while you edit it, recording nothing** (Editing). Practice in the draft editor runs what's on screen: check steps, pass gates, try sample details, and keep editing. A step you change says Try it again; a gate whose steps changed asks for a pass again; the rest keeps your place. It has its own Undo, and offers Stage it for a test run at the end. It stays in this browser tab, is never written to the team folder, and never counts as a run. *Where:* The draft editor, Practice
+- **Practice evidence, Fill in, values steps set, and Run from here** (Editing). Checking a step that asks for evidence opens its boxes under the step, checked as a run checks them, or Check without it. Fill in works as in a run. A value a step sets flows to the steps after it, and they ask again if that step does. Run from here starts partway: the steps before it are assumed, and it asks for the sample details it needs. *Where:* The draft editor, Practice
 
 ## 2.1.1 · Oct 23, 2026
 

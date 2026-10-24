@@ -2495,7 +2495,7 @@
     if (model) model.phases.forEach(function (ph) { var g = map.phases.filter(function (x) { return x.id === ph.id; })[0]; ph.gate.approves = g && g.gate.approves ? 'Approves ' + PF.run.fill(g.gate.approves, Object.assign({}, e.st.sample)) : ''; });
     var form = model && e.form ? PR.formFor(e.st, map, prEnv(), e.form.id, e.form.kind) : null;
     if (e.form && !form) e.form = null;
-    return { model: model, sel: sel, narrow: narrow(), form: form, formErr: form ? e.formErr : null, formVals: form ? e.formVals : null, typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
+    return { model: model, sel: sel, narrow: narrow(), builder: state.builder !== false, form: form, formErr: form ? e.formErr : null, formVals: form ? e.formVals : null, typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
       canUndo: e.undo.length > 0, canRedo: e.redo.length > 0, undoLabel: e.undo.length ? e.undo[e.undo.length - 1].label : '',
       hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0, saveState: V.draftStatus(ctx, p, ed, text) };
   };
@@ -2597,6 +2597,8 @@
     'pr-reset': function () { var p = currentProcess(); if (!p) return; var re = prEntry(p.id); if (!prDo(p.id, 'Reset', function (st) { re.typed = {}; re.sampleErr = {}; return PR.reset(st); }, 'pr-h')) return; say('Practice reset. Undo brings it back.', 'good', { act: 'pr-undo', label: 'Undo' }); render(); },
     'pr-undo': function () { var p = currentProcess(); if (p) prMove(p.id, true); },
     'pr-redo': function () { var p = currentProcess(); if (p) prMove(p.id, false); },
+    /* The step's text selects it here (and in the builder's outline, without opening its form); Edit opens it there. */
+    'pr-sel': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); state.focus = '[data-pr-step="' + cssEsc(id) + '"] .pr-text'; render(); },
     'pr-goto': function (id) {
       var p = currentProcess(); if (!p) return; prPick(p.id, id);
       if (PR.isTemp(id) || state.builder === false) { state.focus = prFocusRow(id); render(); return; }

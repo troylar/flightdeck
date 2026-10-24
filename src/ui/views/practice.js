@@ -22,30 +22,34 @@
       ' aria-label="' + (on ? 'Done: ' : s.simulated === 'linked' ? 'Mark done for practice: ' : s.ask ? 'Check (asks for evidence): ' : 'Check: ') + esc(s.text) + '"' + (s.ask && !on ? ' aria-haspopup="true"' : '') + '>' + I('check') + '</button>';
     var skip = s.status === 'hidden' || s.must || on ? '' : '<button type="button" class="mini pr-na" data-act="pr-na" data-id="' + esc(s.id) + '" aria-pressed="' + na + '"' + (off ? ' disabled' : '') + '>Not needed</button>';
     return '<li class="' + cls + '" data-pr-step="' + esc(s.id) + '">' + check +
-      '<button type="button" class="pr-text linkish" data-act="pr-goto" data-id="' + esc(s.id) + '"' + (s.temp ? ' title="Give this step an ID to keep its answer while you edit."' : '') + '>' + U.mdInline(s.text) + (s.must ? ' <span class="pill must">must</span>' : '') + '</button>' +
+      '<button type="button" class="pr-text linkish" data-act="pr-sel" data-id="' + esc(s.id) + '"' + (s.temp ? ' title="Give this step an ID to keep its answer while you edit."' : '') + '>' + U.mdInline(s.text) + (s.must ? ' <span class="pill must">must</span>' : '') + '</button>' +
       skip + mark + '</li>' + (sel === s.id && s.status !== 'hidden' ? more(s, x) : '');
   }
-  /* The selected row's extra line: Fill in and Run from here, and the inline form when one is open on it. */
+  /* The selected row's extra line: Fill in, Run from here and Edit (in the builder), or the form open on it. */
   function more(s, x) {
     var f = x.form && x.form.id === s.id ? x.form : null, off = x.paused ? ' disabled' : '', h = '';
     if (!f) {
       if (s.fill) h += '<button type="button" class="mini" data-act="pr-fill" data-id="' + esc(s.id) + '"' + off + '>Fill in</button>';
       if (!(x.model.from && x.model.from.id === s.id)) h += '<button type="button" class="mini" data-act="pr-from" data-id="' + esc(s.id) + '"' + off + '>Run from here</button>';
+      if (x.builder && !s.temp) h += '<button type="button" class="mini" data-act="pr-goto" data-id="' + esc(s.id) + '">Edit</button>';
       return h ? '<li class="pr-more">' + h + '</li>' : '';
     }
     return '<li class="pr-more">' + form(f, x) + '</li>';
   }
   function form(f, x) {
-    var err = x.formErr || null, eid = function (n) { return err && (err.field === n || (!err.field && n === '')) ? 'pr-fe' : ''; }, h = '';
+    var err = x.formErr || null, shown = false, h = '';
+    var eid = function (n) { return err && err.field === n ? 'pr-fe' : ''; };
+    var say = function (id) { if (!id || shown) return ''; shown = true; return '<p class="ferr" id="pr-fe" role="alert">' + esc(err.msg) + '</p>'; };
     var head = f.kind === 'ev' ? 'Evidence for practice' : 'Fill in for practice';
     h += '<div class="pr-form" data-pr-form="' + f.kind + '" data-id="' + esc(f.id) + '" role="group" aria-label="' + esc(head + ': ' + f.text) + '">';
     if (f.kind === 'ev') {
       if (f.problem) h += '<p class="small pr-why err" id="pr-fe-p">' + esc(f.problem) + '</p>';
-      else h += f.list.map(function (d) { return PF.vk.fieldInput('pr-rec-' + d.name, d, vals(x, d.name, d.value), 'pr-ev-ok', f.id, d.required ? '' : ' (optional)', eid(d.name)); }).join('');
+      else h += f.list.map(function (d) { return PF.vk.fieldInput('pr-rec-' + d.name, d, vals(x, d.name, d.value), 'pr-ev-ok', f.id, d.required ? '' : ' (optional)', eid(d.name)) + say(eid(d.name)); }).join('');
     } else {
-      h += f.list.map(function (d) { return PF.vk.fieldInput('pr-fld-' + d.name, d.def, vals(x, d.name, d.value), 'pr-fill-ok', f.id, d.value !== d.draft ? ' (draft says: ' + (d.draft || 'nothing') + ')' : '', eid('fld-' + d.name)); }).join('');
+      h += f.list.map(function (d) { return PF.vk.fieldInput('pr-fld-' + d.name, d.def, vals(x, d.name, d.value), 'pr-fill-ok', f.id, d.value !== d.draft ? ' (draft says: ' + (d.draft || 'nothing') + ')' : '', eid('fld-' + d.name)) + say(eid('fld-' + d.name)); }).join('');
     }
-    if (err) h += '<p class="ferr" id="pr-fe" role="alert">' + esc(err.msg) + '</p>';
+    /* The error sits under its box; one about the whole step (a Jira problem) under the boxes. */
+    if (err && !shown) h += '<p class="ferr" id="pr-fe" role="alert">' + esc(err.msg) + '</p>';
     h += '<span class="row">';
     if (f.kind === 'ev') {
       if (!f.problem) h += '<button type="button" class="btn go" data-act="pr-ev-ok" data-id="' + esc(f.id) + '">Check</button>';
@@ -111,7 +115,8 @@
       return '<section class="pr-ph" aria-label="' + esc(ph.title) + '"><h3 class="pr-ph-t' + (sel === 'ph:' + ph.id ? ' sel' : '') + '" tabindex="-1" id="pr-ph-' + pi + '">' + esc(ph.title) + (ph.info.total ? ' <span class="small">' + ph.info.done + ' of ' + ph.info.total + (ph.info.here ? ' from here' : '') + '</span>' : '') + '</h3>' +
         (ph.steps.length ? '<ol class="pr-steps">' + ph.steps.map(function (s) { return stepRow(s, x, sel); }).join('') + '</ol>' : '<p class="small">No steps yet.</p>') + gateRow(ph, pi, x) + '</section>';
     }).join('');
-    h += '<div class="pr-foot"><span class="small" role="status">Draft: ' + esc(x.saveState) + '</span>' +
+    /* Save draft is here too: on a phone the sheet covers the editor's own. */
+    h += '<div class="pr-foot"><span class="small" role="status">Draft: ' + esc(x.saveState) + '</span>' + (x.dirty && !(m.complete || (m.from && m.from.through)) ? '<button type="button" class="mini" data-act="save-draft" data-id="' + esc(p.id) + '">Save draft</button>' : '') +
       '<label class="field" for="pr-found">Things to fix <span class="small">' + x.found.length + ' of ' + PF.practice.FOUND_MAX + '</span><textarea id="pr-found" data-draft-kept rows="3" maxlength="' + PF.practice.FOUND_MAX + '" placeholder="What you noticed while practicing">' + esc(x.found) + '</textarea></label>' +
       '<button type="button" class="mini" data-act="pr-copy"' + (x.found ? '' : ' disabled') + '>' + I('copy') + 'Copy what I found</button><span class="small" id="pr-copy-msg" role="status"></span></div>';
     return h + '</div>';

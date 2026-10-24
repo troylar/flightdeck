@@ -283,7 +283,7 @@ function prPane(html) {
   assert.ok(i >= 0, 'the pane is drawn');
   return html.slice(i, j < 0 ? undefined : j);
 }
-rule('Practice: the pane\'s chrome is at most 60 words and 12 controls, each step row at most 3 controls and 1 chip, the selected row\'s extra line at most 2', async () => {
+rule('Practice: the pane\'s chrome is at most 60 words and 12 controls, each step row at most 3 controls and 1 chip, the selected row\'s extra line at most 3', async () => {
   for (const [pid, builder] of [['check-in', 'false'], ['release', 'true']]) {
     const app = boot({ localStore: { 'preflight:builder': builder } }); await app.tick(60);
     app.choose('person-casey'); await app.tick();
@@ -295,12 +295,12 @@ rule('Practice: the pane\'s chrome is at most 60 words and 12 controls, each ste
     const rows = pane.match(/<li class="pr-st[\s\S]*?<\/li>/g) || [];
     assert.ok(rows.length > 3, pid + ': rows drawn');
     rows.forEach(r => { const m = measure(r); assert.ok(m.buttons + m.inputs <= 3 && m.chips <= 1, pid + ': a row has ' + JSON.stringify(m)); });
-    /* The selected row's extra line (2.2 slice 2): Fill in and Run from here at most, before a form opens. */
+    /* The selected row's extra line (2.2 slice 2): Fill in, Run from here and Edit at most, before a form opens. */
     const first = /data-pr-step="([^"]+)"/.exec(pane)[1];
-    app.click('pr-goto', first); await app.tick();
+    app.click('pr-sel', first); await app.tick();
     const more = (prPane(app.html()).match(/<li class="pr-more">[\s\S]*?<\/li>/g) || []);
     assert.strictEqual(more.length, 1, pid + ': one extra line, on the selected row');
-    const mm = measure(more[0]); assert.ok(mm.buttons + mm.inputs <= 2 && mm.chips === 0, pid + ': the extra line has ' + JSON.stringify(mm));
+    const mm = measure(more[0]); assert.ok(mm.buttons + mm.inputs <= 3 && mm.chips === 0, pid + ': the extra line has ' + JSON.stringify(mm));
   }
 });
 

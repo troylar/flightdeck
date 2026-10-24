@@ -427,8 +427,9 @@ rule('The selected row offers Fill in and Run from here; Fill in saves in practi
   const app = await editor();
   app.click('pr-open'); await app.tick();
   await check(app, 'announce');
-  app.click('pr-goto', 'announce'); await app.tick();
+  app.click('pr-sel', 'announce'); await app.tick();
   assert.match(app.html(), /<li class="pr-more"><button type="button" class="mini" data-act="pr-fill" data-id="announce"[^>]*>Fill in<\/button><button type="button" class="mini" data-act="pr-from" data-id="announce"/);
+  assert.ok(!/data-act="pr-goto"/.test(app.html()), 'no Edit in Markdown mode: the builder is off');
   app.click('pr-fill', 'announce'); await app.tick();
   const f = formIds(app, 'fld')[0];
   assert.ok(f, 'a Fill in box');
@@ -474,7 +475,7 @@ rule('A setter\'s value flows to the sample and later steps; editing the setter 
 rule('Run from here: earlier steps fold into one line, the walk starts there, Start from the beginning brings it back, one Undo each', async () => {
   const app = await editor();
   app.click('pr-open'); await app.tick();
-  app.click('pr-goto', 'pods'); await app.tick();
+  app.click('pr-sel', 'pods'); await app.tick();
   app.click('pr-from', 'pods'); await app.tick();
   const h = app.html();
   assert.match(h, /\d+ earlier steps assumed for practice · <button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning<\/button>/);
@@ -496,7 +497,7 @@ rule('Run from here: earlier steps fold into one line, the walk starts there, St
 rule('Run from here asks for the samples the walk needs, and gets through without a success moment', async () => {
   const app = await editor();
   app.click('pr-open'); await app.tick();
-  app.click('pr-goto', 'deploy-record'); await app.tick();
+  app.click('pr-sel', 'deploy-record'); await app.tick();
   app.click('pr-from', 'deploy-record'); await app.tick();
   assert.match(app.html(), /needed from here/);
   assert.match(app.html(), /<details class="pr-sample" data-disc="pr-sample" open>/);
@@ -511,11 +512,20 @@ rule('Run from here asks for the samples the walk needs, and gets through withou
 rule('F on a practice row opens Fill in (when the Keyboard setting allows single keys and the step has fields)', async () => {
   const app = await editor();
   app.click('pr-open'); await app.tick();
-  app.click('pr-goto', 'announce'); await app.tick();
+  app.click('pr-sel', 'announce'); await app.tick();
   const rowEl = { dataset: { prStep: 'announce' }, classList: { contains: c => c === 'pr-st' || c === 'sel' } };
   const target = { tagName: 'BUTTON', dataset: {}, classList: { contains: () => false }, closest: s => (s === '.pr-st' ? rowEl : s === '#pr' ? {} : null) };
   app.keyOn('f', {}, target); await app.tick();
   assert.ok(hasForm(app, 'announce'), 'F opened Fill in');
+});
+
+rule('With the builder on, a step\'s text selects it in Practice (the pane stays); Edit opens it in the builder', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+  app.click('pr-open'); await app.tick();
+  app.click('pr-sel', 'announce'); await app.tick();
+  assert.match(app.html(), /<li class="pr-st st-open sel" data-pr-step="announce">/);
+  assert.match(app.html(), /data-act="pr-goto" data-id="announce">Edit<\/button>/);
+  assert.match(app.html(), /Practice · not recorded/, 'still practicing');
 });
 
 run();
