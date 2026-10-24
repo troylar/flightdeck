@@ -16,10 +16,13 @@ PF.signature = (function () {
   function conditional(q) { return !!q && (!!q.when || q.steps.some(function (s) { return !!s.when; })); }
   function whenOf(q) { return conditional(q) ? [texts(q.when), q.steps.map(function (s) { return [s.id, texts(s.when)]; })] : null; }
   function pinOf(pins, kind, id) { var p = pins && pins[kind] && own(pins[kind], id) ? pins[kind][id] : null; return p ? PF.publish.canonical(p) : null; }
-  function steps(map, types, images, pins) {
+  /* compact (practice only): a phase's conditions go into each of its steps as one hash, so a long conditional phase costs
+     one hash per step. Skills never pass it: their stored signatures stay exactly as they are. */
+  function steps(map, types, images, pins, compact) {
     var o = Object.create(null), context = (map.meta && map.meta.context || []).slice();
     map.phases.forEach(function (p, pi) {
       var prev = pi > 0 ? map.phases[pi - 1] : null;
+      var when = conditional(p) || conditional(prev) ? (compact ? ['when', PF.util.hash(JSON.stringify([whenOf(prev), whenOf(p)]))] : ['when', whenOf(prev), whenOf(p)]) : null;
       var gates = JSON.stringify([pi > 0 ? gate(map.phases[pi - 1].gate, images) : null, gate(p.gate, images)]);
       var phase = JSON.stringify([p.id, p.mode, p.note || '', shots(p.shots, images)]);
       p.steps.forEach(function (s) {
@@ -30,7 +33,7 @@ PF.signature = (function () {
         if (s.type === 'run.process' && !String((s.fields || {}).carry || '').trim()) parts.push(['carry', context]);
         /* Conditions (2.1): whether the step applies, and whether the gate before its phase and the one closing it need a pass
            (a phase whose condition fails, or whose steps all aren't needed, is skipped with its gate). */
-        if (conditional(p) || conditional(prev)) parts.push(['when', whenOf(prev), whenOf(p)]);
+        if (when) parts.push(when);
         o[s.id] = { step: s, phase: p, sig: JSON.stringify(parts) };
       });
     });
@@ -54,5 +57,8 @@ PF.signature = (function () {
     if (PF.publish.canonical(x.pins) !== PF.publish.canonical(y.pins)) out.push('The versions it pins changed');
     return out;
   }
-  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges };
+  /* A gate's and a phase's own instruction parts, the same ones steps() uses (practice compares them; docs/design.md, Practice). */
+  function gateParts(g, images) { return JSON.stringify(gate(g, images)); }
+  function phaseParts(p, images) { return JSON.stringify([p.id, p.title, p.mode, p.note || '', shots(p.shots, images), texts(p.when)]); }
+  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges, gateParts: gateParts, phaseParts: phaseParts };
 })();

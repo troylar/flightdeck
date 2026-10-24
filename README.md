@@ -570,7 +570,7 @@ A process is one page, with its checklist in the middle.
 | **See its shape** | **Flight plan**: phases as waypoints, gates as checkpoints, tracks as parallel lanes, linked processes as connecting flights. From that version's runs and skills it adds typical times, autopilot (steps skills cover) and turbulence (steps that go off-script most). Each phase's steps open under it, or all at once with **Show all steps** and **Hide all steps**. Choose a phase to jump to it. |
 | **Edit it** | **Edit** opens the draft on a page of its own, with the **Builder** or the **Markdown** beside a live check (what blocks publishing, and what's just a tip) and a preview. |
 | **Look back** | The Versions panel shows the newest, with every version under **All versions**. An older version shows a way back to the current one and **Restore as draft**. |
-| **Try it first** | Under **All versions**, **Stage the draft for testing**, then **Start a test run** on the staged line. Real runs stay on the current default until someone chooses **Make v3 the default**. See [Staging and test runs](#staging-and-test-runs). |
+| **Try it first** | **Practice** in the editor runs the draft as you edit it, recording nothing. Then, under **All versions**, **Stage the draft for testing**, then **Start a test run** on the staged line. Real runs stay on the current default until someone chooses **Make v3 the default**. See [Staging and test runs](#staging-and-test-runs). |
 | **See how runs go** | **How runs go**: typical time per phase, the steps that go off-script most, and who has held each role. |
 | **Plan ahead** | **Plan a run**, next to **Start a run**: a name, the details you know, who does what and an optional time. |
 
@@ -598,6 +598,10 @@ A process is one page, with its checklist in the middle.
 </details>
 
 **New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
+
+### Practice while you edit
+
+**Practice** in the draft editor runs what's on screen without recording anything: check steps, pass gates, give run details sample values, and keep editing as you go. A step you change shows **Try it again**; a gate whose steps or details changed asks to be passed again. It's kept in this browser tab only, never written to the team folder, and never counted as a run. Links and commands you follow still act on real systems. When you get through the whole checklist, **Stage it for a test run**. See docs/design.md, section 34.
 
 ### Staging and test runs
 

@@ -377,7 +377,13 @@ PF.run = (function () {
     if (a.s === 'done' && s.type === 'run.process' && a.child && !childCurrent(r, s, a)) return false;
     return a.s === 'done' || (a.s === 'na' && !s.must);
   }
+  /* r.memo (practice's stand-in only, docs/design.md section 34): a run that never changes while it's read keeps each phase's
+     info and gate status, so a long checklist isn't walked again for every earlier gate. A real run has no memo. */
   function phaseInfo(r, map, pi) {
+    if (r.memo) { var mk = 'i' + pi; return own(r.memo, mk) ? r.memo[mk] : (r.memo[mk] = phaseInfoNow(r, map, pi)); }
+    return phaseInfoNow(r, map, pi);
+  }
+  function phaseInfoNow(r, map, pi) {
     var p = map.phases[pi], cond = !!p.when || p.steps.some(function (s) { return !!s.when; });
     var info = { total: cond ? 0 : p.steps.length, done: 0, left: 0, mustLeft: 0, blocked: [], recheck: 0 };
     /* Conditions (2.1): a Not needed step isn't counted at all; a held one (unresolved) counts as left and must-do left,
@@ -411,6 +417,10 @@ PF.run = (function () {
 
   /* passed | waived | failed | review | ready | open | locked, and skipped (2.1): the phase isn't needed in this run. */
   function gateStatus(r, map, pi) {
+    if (r.memo) { var mk = 'g' + pi; return own(r.memo, mk) ? r.memo[mk] : (r.memo[mk] = gateStatusNow(r, map, pi)); }
+    return gateStatusNow(r, map, pi);
+  }
+  function gateStatusNow(r, map, pi) {
     /* An earlier gate that isn't through locks this phase whether or not it's needed: skipping never opens the way past it. */
     if (pi > 0 && !gateOk(gateStatus(r, map, pi - 1))) return 'locked';
     if (map.phases[pi] && phaseSkipped(r, map, pi)) return 'skipped';
@@ -476,14 +486,22 @@ PF.run = (function () {
   function fill(text, details) { return String(text || '').replace(/\^([\w-]+)/g, function (_, f) { return details[f] || ('(' + f + ' not set)'); }); }
 
   /* ---------- Changing state (the recorder's window only) ---------- */
-  function guardStep(r, map, id) {
+  /* Why a step can't be answered now (how: 'done', 'na' or 'open'), or ''. The general refusals only: child runs, evidence
+     and Jira are checked by done() itself. Every answer goes through it; practice (docs/design.md, Practice) asks it too. */
+  function answerable(r, map, id, how) {
     var x = M.findStep(map, id);
-    if (!x) throw new Error('Unknown step.');
+    if (!x) return 'Unknown step.';
     var nw = stepNeeded(r, map, id);
-    if (nw) throw new Error(nw);
-    if (!phaseOpen(r, map, x.phaseIndex)) throw new Error('That phase isn\'t open.');
-    if (r.paused) throw new Error('The run is paused. Resume it to change steps.');
-    return x;
+    if (nw) return nw;
+    if (!phaseOpen(r, map, x.phaseIndex)) return 'That phase isn\'t open.';
+    if (r.paused) return 'The run is paused. Resume it to change steps.';
+    if (how === 'na' && x.step.must) return 'Must-do steps can\'t be N/A.';
+    return '';
+  }
+  function guardStep(r, map, id, how) {
+    var why = answerable(r, map, id, how || 'done');
+    if (why) throw new Error(why);
+    return M.findStep(map, id);
   }
   /* Every new answer keeps the earlier ones (who, when, how), so nothing done during a run is erased. */
   var HISTORY_MAX = 10;
@@ -628,7 +646,7 @@ PF.run = (function () {
     if (typeof producedChanged !== 'undefined' && producedChanged.length) applySets(r, map, x.step, who, now, producedChanged);
     return changed;
   }
-  function na(r, map, id, who, now) { var x = guardStep(r, map, id); if (x.step.must) throw new Error('Must-do steps can\'t be N/A.'); answer(r, id, { s: 'na', by: who, at: now }); return x; }
+  function na(r, map, id, who, now) { var x = guardStep(r, map, id, 'na'); answer(r, id, { s: 'na', by: who, at: now }); return x; }
   function block(r, map, id, reason, who, now) { var x = guardStep(r, map, id); answer(r, id, { s: 'blocked', reason: String(reason || 'Blocked').slice(0, 120), by: who, at: now }); addLog(r, who, now, 'Blocked "' + x.step.text + '": ' + r.steps[id].reason); return x; }
   function clear(r, map, id, who, now) {
     var x = guardStep(r, map, id), prev = r.steps[id];
@@ -688,10 +706,12 @@ PF.run = (function () {
     r.gates[g.id] = { s: 'failed', reason: String(reason || 'Failed').slice(0, 200), by: who, at: now };
     addLog(r, who, now, 'Failed gate "' + g.title + '": ' + r.gates[g.id].reason);
   }
+  /* The gates a reopen clears: this phase's and every later one's. */
+  function reopenIds(map, pi) { var out = []; for (var i = pi; i < map.phases.length; i++) out.push(map.phases[i].gate.id); return out; }
   /* Reopening never undoes work done outside Flightdeck; it only asks for the gate (and later ones) to be checked again. */
   function reopen(r, map, pi, who, now) {
     notPaused(r);
-    for (var i = pi; i < map.phases.length; i++) delete r.gates[map.phases[i].gate.id];
+    reopenIds(map, pi).forEach(function (id) { delete r.gates[id]; });
     addLog(r, who, now, 'Reopened gate "' + map.phases[pi].gate.title + '"');
   }
 
@@ -1705,7 +1725,7 @@ PF.run = (function () {
     return r;
   }
 
-  return {
+  return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,

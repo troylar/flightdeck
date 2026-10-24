@@ -7,7 +7,7 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 /* The checked readers: a value that reaches one of these first is judged before it's read. */
-const CLEANERS = ['R.sanitize', 'R.cleanCopy', 'R.cleanArchive', 'R.isPlaceholder', 'R.repairs', 'R.unexplained', 'PF.run.sanitize', 'PF.people.clean', 'PF.people.verdict', 'P.verify',
+const CLEANERS = ['R.sanitize', 'R.cleanCopy', 'R.cleanArchive', 'R.isPlaceholder', 'R.repairs', 'R.unexplained', 'PF.run.sanitize', 'PF.practice.check', 'PR.check', 'PF.people.clean', 'PF.people.verdict', 'P.verify',
   'PF.publish.verify', 'cleanDecision', 'F.verdict', 'PF.followups.verdict', 'PF.corrections.verdict', 'PP.check', 'PP.cleanRecord', 'PF.proposals.cleanRecord', 'PP.cleanPresence', 'CN.clean',
   'TL.cleanEntry', 'PF.types.checkCustom', 'PF.skills.check', 'PF.skills.checkV2', 'PF.skills.registration', 'PF.jira.check', 'PF.contract.cleanInstalled', 'PF.plans.clean', 'PF.skills.cleanValidation', 'cleanNote', 'E.notesFile', 'P.newerOf', 'U.drift', 'fuDrift', 'ok', 'noteOf', 'cleanValue', 'X.clean'];
 /* Raw consumers, by a piece of the line, with why they may read what they parse. */

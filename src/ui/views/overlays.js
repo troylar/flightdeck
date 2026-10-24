@@ -60,6 +60,7 @@
       '<p class="small">On a focused button, Space presses that button.</p>' +
       '<h3>In the draft editor and the step-type form</h3><p class="small">These work in text fields too. A builder box with typing not yet applied undoes that typing first.</p><dl>' +
       '<dt>Ctrl+Z · Cmd+Z</dt><dd>Undo, and say what was undone</dd><dt>Ctrl+Shift+Z · Cmd+Shift+Z · Ctrl+Y</dt><dd>Redo</dd><dt>Alt+Up / Alt+Down</dt><dd>Move the focused step or phase (builder)</dd></dl>' +
+      '<h3>In Practice</h3><dl><dt>Up / Down</dt><dd>Next or previous step</dd><dt>Space</dt><dd>Check the step</dd><dt>X</dt><dd>Not needed</dd><dt>E</dt><dd>Open the step in the builder</dd><dt>Ctrl+Z · Cmd+Z</dt><dd>Undo in practice (on its buttons)</dd><dt>Escape</dt><dd>Back to the editor</dd></dl>' +
       '<button class="btn" data-act="close-overlay">Close</button></div></div>';
   }
   /* ---------- Search: the command palette (docs/design.md section 22) ---------- */
