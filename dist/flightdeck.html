@@ -20763,7 +20763,8 @@ PF.vk = (function () {
     var eid = function (n) { return err && err.field === n ? 'pr-fe' : ''; };
     var say = function (id) { if (!id || shown) return ''; shown = true; return '<p class="ferr" id="pr-fe" role="alert">' + esc(err.msg) + '</p>'; };
     var head = f.kind === 'ev' ? 'Evidence for practice' : 'Fill in for practice';
-    h += '<div class="pr-form" data-pr-form="' + f.kind + '" data-id="' + esc(f.id) + '" role="group" aria-label="' + esc(head + ': ' + f.text) + '">';
+    /* Scoped to this form on this step: what was typed in one step's boxes never carries into another's. */
+    h += '<div class="pr-form" data-pr-form="' + f.kind + '" data-id="' + esc(f.id) + '" data-scope="pr|' + f.kind + '|' + esc(f.id) + '" role="group" aria-label="' + esc(head + ': ' + f.text) + '">';
     if (f.kind === 'ev') {
       if (f.problem) h += '<p class="small pr-why err" id="pr-fe-p">' + esc(f.problem) + '</p>';
       else h += f.list.map(function (d) { return PF.vk.fieldInput('pr-rec-' + d.name, d, vals(x, d.name, d.value), 'pr-ev-ok', f.id, d.required ? '' : ' (optional)', eid(d.name)) + say(eid(d.name)); }).join('');

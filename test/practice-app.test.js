@@ -544,4 +544,21 @@ rule('A yes/no setter\'s radios are read as chosen, by Check and by Ctrl+Enter',
   }
 });
 
+rule('What was typed in one step\'s form never carries into another step\'s, for evidence and Fill in alike', async () => {
+  const app = await editor();
+  app.input('draft-editor', text(app).replace('{#prep}\n', '{#prep}\n- [ ] {decide} Pick A {#da}\n  options: Red, Blue\n  require: decision\n- [ ] {decide} Pick B {#db}\n  options: Red, Blue\n  require: decision\n')); await app.tick(300);
+  app.click('pr-open'); await app.tick();
+  for (const [act, box] of [['pr-check', 'pr-rec-why'], ['pr-fill', 'pr-fld-criteria']]) {
+    app.click(act, 'da'); await app.tick();
+    const kind = act === 'pr-check' ? 'ev' : 'fill';
+    assert.match(app.html(), new RegExp('data-scope="pr\\|' + kind + '\\|da"'));
+    app.click(act, 'db'); await app.tick();
+    /* The redraw carries a typed box only within the same data-scope (app.js render), so B's boxes start from B. */
+    assert.match(app.html(), new RegExp('data-pr-form="' + kind + '" data-id="db" data-scope="pr\\|' + kind + '\\|db"'), act + ': B\'s form has its own scope');
+    assert.match(app.html(), new RegExp('id="' + box + '"[^>]*>'), act);
+    assert.ok(!new RegExp('<textarea id="' + box + '"[^>]*>first step only|id="' + box + '"[^>]*value="first step only"').test(app.html()), act + ': drawn from B');
+    app.click('pr-form-close'); await app.tick();
+  }
+});
+
 run();
