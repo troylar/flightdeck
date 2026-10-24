@@ -140,7 +140,10 @@
      name is refused. A start from the same templates setup offers, or a prompt for your AI assistant. */
   function newProcess(ctx) {
     var st = ctx.state, f = st.newProc || {}, typed = f.typed || {}, tpl = f.tpl || 'blank';
-    var field = function (id, label, hint, val, extra) { return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + '></label>'; };
+    var field = function (id, label, hint, val, extra) {
+      var err = f.err && f.err.box === 'np-' + id ? f.err.msg : '';
+      return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + (err ? ' aria-invalid="true" aria-describedby="ferr-np-' + id + '"' : '') + '></label>' + (err ? '<p class="ferr" id="ferr-np-' + id + '" role="alert">' + esc(err) + '</p>' : '');
+    };
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
@@ -166,7 +169,7 @@
   function starterMap(f) {
     return ['---', 'process: ' + f.id, 'title: ' + f.title, 'category: ' + (f.group.split('/').pop().trim() || 'Other'), f.group ? 'group: ' + f.group : null, f.tags ? 'tags: ' + f.tags : null,
       'owner: ' + f.owner, f.context ? 'context: ' + f.context : null, f.roles ? 'roles: ' + f.roles : null, f.solo ? 'runs: solo' : null, '---', '',
-      '## First phase · READ-DO {#first}', '- [ ] {confirm} The first thing to do {#first-step}', ''].filter(function (x) { return x !== null; }).join('\n');
+      '## First phase · READ-DO {#first}', ''].filter(function (x) { return x !== null; }).join('\n');
   }
 
   /* ---------- step types ---------- */

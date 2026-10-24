@@ -174,9 +174,17 @@ rule('2.1.0 has its own release entry above 2.0.1 and 2.0.0: only when, and that
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 
-rule('2.2.0 has its own release entry above 2.1.1: Practice, in plain words', () => {
+rule('2.2.1 has its own release entry above 2.2.0: quick capture, a blank process ready to type, Stage from Practice', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '2.2.0'); assert.strictEqual(rel[1].version, '2.1.1');
+  assert.strictEqual(r.version, '2.2.1'); assert.strictEqual(rel[1].version, '2.2.0');
+  const text = JSON.stringify(r);
+  assert.ok(/Enter/.test(text) && /Add a step/.test(text) && /Stage it for a test run/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
+});
+
+rule('2.2.0 has its own release entry above 2.1.1: Practice, in plain words', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), at = rel.findIndex(x => x.version === '2.2.0'), r = rel[at];
+  assert.ok(at >= 0); assert.strictEqual(rel[at + 1].version, '2.1.1');
   const text = JSON.stringify(r);
   assert.ok(/Practice/.test(text) && /Try it again/.test(text) && /never written to the team folder/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');

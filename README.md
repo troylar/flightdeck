@@ -597,11 +597,11 @@ A process is one page, with its checklist in the middle.
 
 </details>
 
-**New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
+**New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. A blank one opens with its **Add a step** box ready (type a step, press Enter, type the next) and Practice beside it; run detail and role names with spaces become dashes. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
 
 ### Practice while you edit
 
-**Practice** in the draft editor runs what's on screen without recording anything: check steps, pass gates, give run details sample values, and keep editing as you go. A step you change shows **Try it again**; a gate whose steps or details changed asks to be passed again. Evidence opens under the step as it would in a run (or **Check without it**), **Fill in** works as in a run, a step's `sets:` value flows to the steps after it, and **Run from here** starts partway, assuming the steps before it and asking for the sample details it needs. It's kept in this browser tab only, never written to the team folder, and never counted as a run. Links and commands you follow still act on real systems. When you get through the whole checklist, **Stage it for a test run**. See docs/design.md, section 34.
+**Practice** in the draft editor runs what's on screen without recording anything: check steps, pass gates, give run details sample values, and keep editing as you go. A step you change shows **Try it again**; a gate whose steps or details changed asks to be passed again. Evidence opens under the step as it would in a run (or **Check without it**), **Fill in** works as in a run, a step's `sets:` value flows to the steps after it, and **Run from here** starts partway, assuming the steps before it and asking for the sample details it needs. It's kept in this browser tab only, never written to the team folder, and never counted as a run. Links and commands you follow still act on real systems. When you get through the whole checklist, write what changed and **Stage it for a test run** right there. See docs/design.md, section 34.
 
 ### Staging and test runs
 

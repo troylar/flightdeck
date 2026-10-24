@@ -268,6 +268,84 @@ rule('Finishing with unsaved edits offers Save draft, not staging; once saved it
 
 const SMALL = ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: release-lead', '---', '', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One thing {#one}', '', '## Gate: Ready · owner @release-lead {#ready}', '', '## Ship · READ-DO {#ship}', '- [ ] {confirm} Ship it {#ship-it}', ''].join('\n');
 
+/* SMALL saved as the draft, practiced to the end, in the Markdown editor (or the builder). */
+async function finished(opts) {
+  const app = await editor(opts);
+  if (/id="draft-editor"/.test(app.html())) app.input('draft-editor', SMALL); else { await app.fs.write(DRAFT, SMALL); app.focus(); }
+  await app.tick(300);
+  app.click('save-draft'); await app.tick(150);
+  app.click('pr-open'); await app.tick();
+  await check(app, 'one'); app.click('pr-gate', '0', { how: 'pass' }); await app.tick();
+  await check(app, 'ship-it'); if (/data-act="pr-gate" data-id="1" data-how="pass"/.test(app.html())) { app.click('pr-gate', '1', { how: 'pass' }); await app.tick(); }
+  assert.match(app.html(), /You got through the whole checklist\./, 'set-up: practiced to the end');
+  return app;
+}
+const stageFiles = app => Object.keys(app.fs.files).filter(k => /^staged\/release\/stage-[^/]+\/map\.md$/.test(k));
+const note = (app, v) => { app.set('pr-note', v); app.fire('input', { target: { id: 'pr-note', value: v, tagName: 'INPUT', dataset: {}, closest: s => (s === '#pr' ? {} : null) } }); };
+
+rule('Stage from Practice stages for real: one stage written, practice ended, the stage shown with Start a test run focused', async () => {
+  const app = await finished();
+  assert.match(app.html(), /<input id="pr-note"/);
+  note(app, 'Tried the short version');
+  app.click('pr-stage'); await app.tick(300);
+  assert.strictEqual(stageFiles(app).length, 1, 'one stage');
+  assert.ok(!/id="pr"/.test(app.html()), 'practice ended');
+  assert.match(app.live(), /Staged\. Start a test run from it/);
+  assert.match(app.html(), /data-act="start-test"/);
+  assert.match(app.focused() || '', /start-test/);
+});
+
+rule('Stage from Practice: an empty What changed is refused beside its box, nothing staged', async () => {
+  const app = await finished();
+  note(app, '  ');
+  app.click('pr-stage'); await app.tick(200);
+  assert.strictEqual(stageFiles(app).length, 0);
+  assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
+  assert.match(app.html(), /id="pr"/, 'practice still open');
+});
+
+rule('Stage from Practice: what was typed in What changed survives reopening a phase, closing the pane and passing again', async () => {
+  const app = await finished();
+  note(app, 'Tried the short version');
+  app.click('pr-gate', '1', { how: 'reopen' }); await app.tick();
+  app.click('pr-close'); await app.tick(); app.click('pr-open'); await app.tick();
+  assert.ok(!/<input id="pr-note"/.test(app.html()), 'set-up: not complete, so no box');
+  app.click('pr-gate', '1', { how: 'pass' }); await app.tick();
+  assert.match(app.html(), /<input id="pr-note"[^>]*value="Tried the short version"/);
+});
+
+rule('Stage from Practice: picking practice back up while the stage saves keeps practice and the editor; the stage is still made', async () => {
+  for (const meanwhile of ['select', 'reopen']) {
+    const app = await finished();
+    let go; const gate = new Promise(r => { go = r; });
+    const orig = app.fs.write.bind(app.fs);
+    app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+    note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+    if (meanwhile === 'select') app.click('pr-sel', 'one'); else app.click('pr-gate', '1', { how: 'reopen' });
+    await app.tick();
+    go(); await app.tick(300); app.fs.write = orig;
+    assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
+    assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
+    assert.match(app.html(), /id="draft-editor"/, meanwhile + ': still in the editor');
+    assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
+  }
+});
+
+rule('Stage from Practice: a refresh that read the folder before the stage was written never hides the new stage', async () => {
+  const app = await finished();
+  let go, first = true; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.list.bind(app.fs);
+  /* The refresh lists the folder's top first: no staged/ yet, so it reads no stages at all. */
+  app.fs.list = x => { if (first && x === '') { first = false; return orig(x).then(v => gate.then(() => v)); } return orig(x); };
+  app.click('refresh');
+  for (let i = 0; i < 100 && first; i++) await app.tick(5);
+  assert.ok(!first, 'set-up: the refresh read the folder before the stage was written');
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(100);
+  go(); await app.tick(60); app.fs.list = orig;
+  assert.strictEqual(stageFiles(app).length, 1);
+  assert.match(app.html(), /data-act="start-test"/, 'the new stage is shown at once, not on some later refresh');
+});
+
 rule('A refused check says why beside the step, inside the pane', async () => {
   const app = await editor();
   app.click('pr-open'); await app.tick();
