@@ -454,4 +454,69 @@ rule('checkFill answers exactly what setFields does, without changing the run', 
   assert.ok(n > 10 && refused > 40, 'filled ' + n + ', refused ' + refused);
 });
 
+rule('slice 2 state round-trips through check: evidence values, skipped, Fill in, setBy and from', () => {
+  const st = Object.assign(P.fresh('rel'), {
+    sample: { commit: 'abc123' },
+    answers: { tag: { s: 'done', at: 't1', own: 'a1', ctx: 'b2', values: { link: 'https://x.example/1' } }, notes: { s: 'done', at: 't2', own: 'a2', ctx: 'b3', skipped: true } },
+    fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
+  same(P.check(JSON.parse(JSON.stringify(st)), 'rel'), st);
+});
+
+rule('a slice 1 practice loads with the new fields empty', () => {
+  const old = { v: 1, process: 'rel', sample: { env: 'prod' }, answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } }, gates: {}, found: '', rev: 3 };
+  const st = P.check(old, 'rel');
+  same(st.fields, {}); same(st.setBy, {}); assert.strictEqual(st.from, '');
+  same(st.answers.tag, { s: 'done', at: 't', own: 'a1', ctx: 'b2' });
+});
+
+rule('malformed slice 2 fields are dropped, never thrown or converted', () => {
+  const bad = { v: 1, process: 'rel', sample: { commit: 'x' }, gates: {},
+    answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', skipped: 'yes', values: { link: 5, ok: 'fine', ['__proto__']: 'x' } }, other: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: 'nope' } },
+    fields: { tag: { status: 7, issue: 'ABC-1' }, constructor: { a: 'b' }, bad: 'string', ['x'.repeat(90)]: { a: 'b' } },
+    setBy: { commit: 'missing-step', nosample: 'tag', env: 5 }, from: { toString: 1 } };
+  let st;
+  assert.doesNotThrow(() => { st = P.check(bad, 'rel'); });
+  assert.ok(!('skipped' in st.answers.tag));
+  same(st.answers.tag.values, { ok: 'fine' });
+  assert.ok(!('values' in st.answers.other));
+  same(st.fields, { tag: { issue: 'ABC-1' } });
+  same(st.setBy, {}); assert.strictEqual(st.from, '');
+  const good = Object.assign({}, bad, { setBy: { commit: 'tag' } });
+  same(P.check(good, 'rel').setBy, { commit: 'tag' });
+});
+
+rule('keep: evidence values go before Fill in, Fill in before answers, and setBy never names a dropped answer', () => {
+  const st = P.fresh('rel'), big = 'v'.repeat(P.VALUE_MAX);
+  for (let i = 0; i < 40; i++) st.answers['s' + i] = { s: 'done', at: 't' + String(i).padStart(3, '0'), own: 'a1', ctx: 'b2', values: { a: big, b: big } };
+  const k1 = JSON.parse(P.keep(st, {}));
+  assert.ok(Object.keys(k1.answers).length === 40, 'answers kept while values can go');
+  assert.ok(Object.values(k1.answers).some(a => !a.values), 'some values dropped');
+  const st2 = P.fresh('rel'), fat = 'f'.repeat(1900);
+  for (let i = 0; i < 400; i++) { st2.answers['s' + i] = { s: 'done', at: 't' + String(i).padStart(4, '0'), own: 'a1', ctx: 'b2' }; st2.fields['s' + i] = { a: fat.slice(0, 300) }; }
+  st2.sample.commit = 'abc'; st2.setBy.commit = 's0';
+  for (let i = 0; i < 300; i++) st2.answers['x' + i] = { s: 'done', at: 'a' + i, own: 'a1', ctx: 'b2', values: { a: fat } };
+  const k2 = JSON.parse(P.keep(st2, {}));
+  assert.ok(k2 && JSON.stringify(k2).length <= P.CAP);
+  Object.keys(k2.setBy).forEach(n => assert.ok(k2.answers[k2.setBy[n]], 'setBy names a kept answer'));
+  if (!k2.answers.s0) assert.ok(!k2.setBy.commit);
+});
+
+rule('Undo and Redo cover Fill in, setBy and from; an entry from slice 1 still applies', () => {
+  const a = P.fresh('rel'), b = Object.assign(P.fresh('rel'), { sample: { commit: 'abc' }, fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
+  const e = P.undoEntry(a, b, 'x');
+  const u = P.applyEntry(b, e);
+  same([u.state.sample, u.state.fields, u.state.setBy, u.state.from], [{}, {}, {}, '']);
+  const r = P.applyEntry(u.state, u.back);
+  same([r.state.sample, r.state.fields, r.state.setBy, r.state.from], [b.sample, b.fields, b.setBy, 'deploy']);
+  const old = { label: 'old', answers: { tag: null }, gates: {}, sample: {} };
+  const s1 = Object.assign(P.fresh('rel'), { answers: { tag: { s: 'done', at: '', own: 'a', ctx: 'b' } } });
+  same(P.applyEntry(s1, old).state.answers, {});
+});
+
+rule('Reset clears answers, gates, Fill in, setBy and from, and keeps the sample', () => {
+  const st = Object.assign(P.fresh('rel'), { sample: { commit: 'abc' }, answers: { tag: { s: 'done', at: '', own: 'a', ctx: 'b' } }, fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
+  const r = P.reset(st).state;
+  same([r.answers, r.gates, r.fields, r.setBy, r.from, r.sample], [{}, {}, {}, {}, '', { commit: 'abc' }]);
+});
+
 run();

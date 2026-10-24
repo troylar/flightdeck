@@ -6,11 +6,12 @@
 PF.practice = (function () {
   'use strict';
   var U = PF.util, M = PF.map, R = PF.run, S = PF.signature, T = PF.types;
-  var V = 1, CAP = 64000, GONE_MAX = 50, FOUND_MAX = 4000, UNDO_MAX = 50;
+  var V = 1, CAP = 64000, GONE_MAX = 50, FOUND_MAX = 4000, UNDO_MAX = 50, VALUE_MAX = 2000;
   var own = function (o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); };
   var fp = function (x) { return U.hash(JSON.stringify(x)); };
 
-  function fresh(process) { return { v: V, process: process, sample: {}, answers: {}, gates: {}, found: '', rev: 0 }; }
+  /* fields: Fill in per step; setBy: the step that set each sample detail; from: Run from here's step ('' = the beginning). */
+  function fresh(process) { return { v: V, process: process, sample: {}, answers: {}, gates: {}, fields: {}, setBy: {}, from: '', found: '', rev: 0 }; }
 
   /* ---------- admission: what can be practiced ----------
      Authoring omissions (missing IDs, owner, people: what only publishing needs) are fine; anything this copy refuses or
@@ -200,8 +201,8 @@ PF.practice = (function () {
     return { state: bump(st) };
   }
   function setFound(state, text) { var st = copy(state); st.found = String(text || '').slice(0, FOUND_MAX); return { state: bump(st) }; }
-  /* Reset keeps the sample details and what was found. */
-  function reset(state) { var st = copy(state); st.answers = {}; st.gates = {}; return { state: bump(st) }; }
+  /* Reset keeps the sample details (no longer marked as set by a step) and what was found. */
+  function reset(state) { var st = copy(state); st.answers = {}; st.gates = {}; st.fields = {}; st.setBy = {}; st.from = ''; return { state: bump(st) }; }
 
   /* A builder edit that gave parts new IDs (renames: old → new): each answer is copied to the new ID, where it needs another
      try (its wording changed), and stays under the old one, so an Undo of the edit brings it back. Answers for parts no
@@ -226,9 +227,19 @@ PF.practice = (function () {
   function check(o, process) {
     if (!o || typeof o !== 'object' || o.v !== V || o.process !== process || typeof o.answers !== 'object' || typeof o.gates !== 'object' || typeof o.sample !== 'object' || !o.answers || !o.gates || !o.sample) return null;
     var st = fresh(process);
-    Object.keys(o.answers).slice(0, 2000).forEach(function (id) { var a = o.answers[id]; if (a && typeof a === 'object' && is(REC, a.s) && is(HEX, a.own) && is(HEX, a.ctx) && id.length <= 80) st.answers[id] = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx }; });
+    Object.keys(o.answers).slice(0, 2000).forEach(function (id) {
+      var a = o.answers[id];
+      if (!(a && typeof a === 'object' && is(REC, a.s) && is(HEX, a.own) && is(HEX, a.ctx) && id.length <= 80)) return;
+      var k = st.answers[id] = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx };
+      if (a.skipped === true) k.skipped = true;
+      if (a.values && typeof a.values === 'object') { var vs = clean(a.values, VALUE_MAX); if (Object.keys(vs).length) k.values = vs; }
+    });
     Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
     st.sample = clean(o.sample);
+    /* Slice 1 kept none of these; each is optional and anything malformed is dropped. */
+    if (o.fields && typeof o.fields === 'object') Object.keys(o.fields).slice(0, 2000).forEach(function (id) { var f = o.fields[id]; if (id.length <= 80 && f && typeof f === 'object' && !(id in Object.prototype)) { var c = clean(f, 300); if (Object.keys(c).length) st.fields[id] = c; } });
+    if (o.setBy && typeof o.setBy === 'object') Object.keys(o.setBy).slice(0, 40).forEach(function (n) { var id = o.setBy[n]; if (typeof id === 'string' && own(st.sample, n) && own(st.answers, id)) st.setBy[n] = id; });
+    st.from = typeof o.from === 'string' && o.from.length <= 80 ? o.from : '';
     st.found = typeof o.found === 'string' ? o.found.slice(0, FOUND_MAX) : '';
     st.rev = typeof o.rev === 'number' && isFinite(o.rev) ? o.rev : 0;
     return st;
@@ -236,7 +247,7 @@ PF.practice = (function () {
   /* Only text is read from a kept record: anything else is dropped, never converted (it could throw). */
   function is(re, x) { return typeof x === 'string' && re.test(x); }
   function str(x, n) { return typeof x === 'string' ? x.slice(0, n) : ''; }
-  function clean(o) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, 120); }); return out; }
+  function clean(o, max) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max || 120); }); return out; }
   /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest answers; null when even
      an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now. */
   function keep(state, present) {
@@ -246,31 +257,43 @@ PF.practice = (function () {
        if that estimate was short, a few at a time). */
     var order = Object.keys(st.answers).sort(function (a, b) { var pa = present && present[a] ? 1 : 0, pb = present && present[b] ? 1 : 0; return pa - pb || String(st.answers[a].at).localeCompare(String(st.answers[b].at)); });
     var size = text.length;
+    /* Evidence values go first (the answer stays), then Fill in, then answers themselves. */
+    order.forEach(function (id) { var a = st.answers[id]; if (size > CAP && a.values) { size -= JSON.stringify(a.values).length + 10; delete a.values; } });
+    Object.keys(st.fields).forEach(function (id) { if (size > CAP) { size -= JSON.stringify(id).length + JSON.stringify(st.fields[id]).length + 2; delete st.fields[id]; } });
     while (order.length && size > CAP) { var id = order.shift(); size -= JSON.stringify(id).length + JSON.stringify(st.answers[id]).length + 2; delete st.answers[id]; }
+    unset(st);
     text = JSON.stringify(st);
-    while (order.length && text.length > CAP) { for (var n = 0; n < 50 && order.length; n++) delete st.answers[order.shift()]; text = JSON.stringify(st); }
+    while (order.length && text.length > CAP) { for (var n = 0; n < 50 && order.length; n++) delete st.answers[order.shift()]; unset(st); text = JSON.stringify(st); }
     return text.length <= CAP ? text : null;
   }
+  /* setBy never names an answer that isn't kept. */
+  function unset(st) { Object.keys(st.setBy).forEach(function (n) { if (!own(st.answers, st.setBy[n])) delete st.setBy[n]; }); }
 
   /* ---------- Undo for practice (separate from the draft's): what each action replaced, by key ---------- */
+  var KEYED = ['answers', 'gates', 'sample', 'fields', 'setBy'];
   function undoEntry(before, after, label) {
-    var e = { label: label, answers: {}, gates: {}, sample: {} };
-    ['answers', 'gates', 'sample'].forEach(function (k) {
-      var keys = Object.keys(before[k]).concat(Object.keys(after[k])).filter(function (x, i, all) { return all.indexOf(x) === i; });
-      keys.forEach(function (x) { if (JSON.stringify(before[k][x]) !== JSON.stringify(after[k][x])) e[k][x] = own(before[k], x) ? before[k][x] : null; });
+    var e = { label: label };
+    KEYED.forEach(function (k) {
+      var b = before[k] || {}, a = after[k] || {};
+      e[k] = {};
+      Object.keys(b).concat(Object.keys(a)).filter(function (x, i, all) { return all.indexOf(x) === i; })
+        .forEach(function (x) { if (JSON.stringify(b[x]) !== JSON.stringify(a[x])) e[k][x] = own(b, x) ? b[x] : null; });
     });
+    if ((before.from || '') !== (after.from || '')) e.from = before.from || '';
     return e;
   }
   /* Puts back what an entry holds; returns the new state and the entry that undoes this (for Redo). */
   function applyEntry(state, e) {
-    var st = copy(state), back = { label: e.label, answers: {}, gates: {}, sample: {} };
-    ['answers', 'gates', 'sample'].forEach(function (k) {
-      Object.keys(e[k]).forEach(function (x) { back[k][x] = own(st[k], x) ? st[k][x] : null; if (e[k][x] == null) delete st[k][x]; else st[k][x] = e[k][x]; });
+    var st = copy(state), back = { label: e.label };
+    KEYED.forEach(function (k) {
+      st[k] = st[k] || {}; back[k] = {};
+      Object.keys(e[k] || {}).forEach(function (x) { back[k][x] = own(st[k], x) ? st[k][x] : null; if (e[k][x] == null) delete st[k][x]; else st[k][x] = e[k][x]; });
     });
+    if (typeof e.from === 'string') { back.from = st.from || ''; st.from = e.from; }
     return { state: bump(st), back: back };
   }
 
-  return { V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
+  return { V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
     derive: derive, follow: follow, answer: answer, gateAct: gateAct, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();
