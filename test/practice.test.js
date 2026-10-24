@@ -477,7 +477,7 @@ rule('malformed slice 2 fields are dropped, never thrown or converted', () => {
   let st;
   assert.doesNotThrow(() => { st = P.check(bad, 'rel'); });
   assert.ok(!st.answers.tag, 'evidence that can\'t come back whole drops its answer');
-  assert.ok(!('values' in st.answers.other));
+  assert.ok(!st.answers.other, 'evidence that isn\'t a record drops its answer too');
   same(st.fields, { tag: { issue: 'ABC-1' } });
   same(st.setBy, {}); assert.strictEqual(st.from, '');
   const good = Object.assign({}, bad, { setBy: { commit: 'tag' } });
@@ -825,6 +825,46 @@ rule('a setter whose sets: changed or went away still takes what it had set with
   const u = P.applyEntry(re, e);
   assert.strictEqual(step(P.follow(u.state, m3, {}), 'deploy').status, 'again', 'Undo brings back the old answer and its pull');
   assert.strictEqual(step(P.follow(P.applyEntry(u.state, u.back).state, m3, {}), 'make').status, 'done');
+});
+
+rule('a setter that stops applying sets nothing: what read it stays done', () => {
+  const md = ['---', 'process: h', 'title: H', 'context: env:choice(dev|prod), commit', '---', '## Build · READ-DO {#build}',
+    '- [ ] {confirm} Make the commit {#make}', '  only when ^env is prod', '  sets: commit', '- [ ] {confirm} Review ^commit {#review}', ''].join('\n');
+  const map = admit(md), key = R.detailKey('commit');
+  let st = P.setSample(P.fresh('h'), map, 'env', 'prod').state;
+  st = ans(st, map, 'make', { values: { [key]: 'abc' } }); st = ans(st, map, 'review');
+  st = P.setSample(st, map, 'env', 'dev').state;
+  const v = P.follow(st, map, {});
+  assert.strictEqual(step(v, 'review').status, 'done', 'the hidden setter pulls nothing back');
+});
+
+rule('a renamed step keeps what was filled in (and the old ID keeps it too, for the draft Undo)', () => {
+  const map = admit(SETS), st0 = Object.assign(P.fresh('s'), { fields: { old: { command: 'npm test' } } });
+  const st = P.settle(st0, map, { old: 'review' });
+  same(st.fields.review, { command: 'npm test' }); same(st.fields.old, { command: 'npm test' });
+});
+
+rule('Run from here: a from step that stops applying hands over for good, said, and Undo brings it back', () => {
+  const map = admit(FROM);
+  const st0 = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'prod').state, map, 'a2').state;
+  const r = P.setSample(st0, map, 'env', 'dev', {});
+  assert.strictEqual(r.moved, 'next'); assert.strictEqual(r.state.from, 'a1');
+  const back = P.setSample(r.state, map, 'env', 'prod', {});
+  assert.ok(!back.moved); assert.strictEqual(back.state.from, 'a1', 'it never moves back on its own');
+  const u = P.applyEntry(r.state, P.undoEntry(st0, r.state, 'Sample env'));
+  assert.strictEqual(u.state.from, 'a2', 'Undo brings the old from step back');
+  assert.strictEqual(P.check(JSON.parse(P.keep(r.state)), 'f').from, 'a1', 'kept');
+  const e = P.repin(Object.assign({}, st0, { sample: { env: 'dev' } }), map, {});
+  assert.strictEqual(e.moved, 'next', 'a draft edit or reload hands over the same way');
+});
+
+rule('kept evidence that is not a record drops its answer and every gate', () => {
+  const map = admit(MD), st = gate(prep(map), map, 0);
+  for (const bad of [null, 3, 'x', ['a']]) {
+    const o = JSON.parse(JSON.stringify(st)); o.answers.notes.values = bad;
+    const back = P.check(o, 'rel');
+    assert.ok(!back.answers.notes, JSON.stringify(bad) + ': answer dropped'); same(back.gates, {});
+  }
 });
 
 run();

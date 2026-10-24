@@ -13638,7 +13638,8 @@ PF.practice = (function () {
     var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, tainted = {}, taintAt = [], keyed = detailKeys(map);
     var fr = fromOf(state, map, types), assumed = fr ? fr.assumed : {}, pmap = fr ? project(map, fr, state.sample, types) : map;
     var reads = function (names) { for (var i = 0; i < names.length; i++) if (own(tainted, names[i])) return names[i]; return ''; };
-    map.phases.forEach(function (p) {
+    var r0 = asRun({ sample: state.sample, steps: {}, gates: {} }, map, null, false, types);
+    map.phases.forEach(function (p, pi) {
       p.steps.forEach(function (s) {
         if (own(assumed, s.id)) { steps[s.id] = { s: 'done', by: 'assumed', at: '' }; return; }
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
@@ -13648,8 +13649,8 @@ PF.practice = (function () {
         else {
           steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a;
           /* What it set comes from its own answer's values (which follow a new ID, and outlive a changed sets:), matched
-             to the checklist's details by their keys; never from setBy. */
-          if (a.values && !a.skipped) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
+             to the checklist's details by their keys; never from setBy. A setter that doesn't apply now sets nothing. */
+          if (a.values && !a.skipped && R.applies(r0, map, pi, s).applies !== false) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
         }
       });
       taintAt.push(Object.assign({}, tainted));
@@ -13740,6 +13741,16 @@ PF.practice = (function () {
     var t = T.get(x.step.type || 'confirm', envOf(types).types || {}), eff = R.fieldsOf(r, x.step);
     return { kind: 'fill', id: id, text: x.step.text, list: t ? T.editable(t).map(function (f) { var def = T.fieldDef(t, f); return { name: f, def: def, value: eff[f] || '', draft: (x.step.fields || {})[f] || '' }; }) : [] };
   }
+  /* A from step that doesn't apply now hands over for good (fromOf's choice is kept, so it never moves back on its own).
+     moved: 'next' or 'start' when it did. */
+  function pin(st, map, types) {
+    if (!st.from || !M.findStep(map, st.from)) return '';
+    var fr = fromOf(st, map, types), to = fr ? fr.id : '';
+    if (to === st.from) return '';
+    st.from = to;
+    return to ? 'next' : 'start';
+  }
+  function repin(state, map, types) { var st = copy(state), moved = pin(st, map, types); return moved ? { state: bump(st), moved: moved } : { state: state }; }
   function setFrom(state, map, id) {
     if (id && !M.findStep(map, id)) return { error: 'That step isn\'t in the draft anymore.' };
     var st = copy(state); st.from = id || '';
@@ -13812,7 +13823,8 @@ PF.practice = (function () {
     var p = prints(map, st.sample, types, st.fields)[id];
     rec.own = p.own; rec.ctx = p.ctx;
     st.answers[id] = rec;
-    return { state: bump(st) };
+    var moved = pin(st, map, types);
+    return moved ? { state: bump(st), moved: moved } : { state: bump(st) };
   }
   /* The step no longer sets anything it set (its values stay in the sample, as a run's details do). */
   function unsetBy(st, id) { st.setBy = st.setBy || {}; Object.keys(st.setBy).forEach(function (n) { if (st.setBy[n] === id) delete st.setBy[n]; }); }
@@ -13853,13 +13865,14 @@ PF.practice = (function () {
     return { state: bump(st) };
   }
   /* A sample run detail, checked as a run checks it (empty clears it). */
-  function setSample(state, map, name, value) {
+  function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
     var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
     if (v && def) { var p = PF.values.parse(def, v, { max: 120 }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
     if (v) st.sample[name] = v.slice(0, 120); else delete st.sample[name];
-    return { state: bump(st) };
+    var moved = pin(st, map, types);
+    return moved ? { state: bump(st), moved: moved } : { state: bump(st) };
   }
   function setFound(state, text) { var st = copy(state); st.found = String(text || '').slice(0, FOUND_MAX); return { state: bump(st) }; }
   /* Reset keeps the sample details (no longer marked as set by a step) and what was found. */
@@ -13878,6 +13891,7 @@ PF.practice = (function () {
       var n = renames[o];
       if (own(st.answers, o) && !own(st.answers, n)) { st.answers[n] = st.answers[o]; changed = true; }
       if (own(st.gates, o) && !own(st.gates, n)) { st.gates[n] = st.gates[o]; changed = true; }
+      if (own(st.fields, o) && !own(st.fields, n)) { st.fields[n] = st.fields[o]; changed = true; }
     });
     map.phases.forEach(function (p) { present[p.id] = present[p.gate.id] = true; p.steps.forEach(function (s) { present[s.id] = true; }); });
     /* Run from here's step left the draft: the next step that was after it in its phase and is still there, else that
@@ -13909,7 +13923,8 @@ PF.practice = (function () {
       if (!(a && typeof a === 'object' && is(REC, a.s) && is(HEX, a.own) && is(HEX, a.ctx) && id.length <= 80)) return;
       var k = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx };
       if (a.skipped === true) k.skipped = true;
-      if (a.values && typeof a.values === 'object') {
+      if (own(a, 'values')) {
+        if (!a.values || typeof a.values !== 'object' || Array.isArray(a.values)) { cut = true; return; }
         /* Evidence comes back whole or not at all: a record cut short would keep a done answer without what made it done,
            so that answer is dropped, and with it every gate (which one relied on it isn't known here). */
         var vk = Object.keys(a.values), vs = clean(a.values, VALUE_MAX, VALUES_MAX);
@@ -13986,7 +14001,7 @@ PF.practice = (function () {
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, VALUES_MAX: VALUES_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
-    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
+    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, repin: repin, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();
 
@@ -24525,11 +24540,15 @@ PF.examples = (function () {
       var wasFrom = e.st.from || '', rn = e.renames;
       e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
       if (wasFrom && e.st.from !== wasFrom && rn[wasFrom] !== e.st.from) e.note = e.st.from ? 'The step you practiced from was removed, so practice runs from the next one.' : 'The step you practiced from was removed, so practice starts from the beginning.';
+      /* An edit can also make it stop applying: it hands over for good, said once. */
+      var pinned = PR.repin(e.st, a.map, prEnv());
+      if (pinned.moved) { e.st = pinned.state; e.note = prMovedNote(pinned.moved); }
       e.good = { text: text, map: a.map };
     }
     e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
     return e.cache;
   }
+  function prMovedNote(m) { return m === 'next' ? 'The step you practiced from doesn\'t apply now, so practice runs from the next one that does.' : 'The step you practiced from doesn\'t apply now, so practice starts from the beginning.'; }
   /* What the pane draws (views/practice.js). */
   ctx.practice = function (p, text) {
     var e = prEntry(p.id), c = prMap(e, text), map = c.map, ed = editorOf(p.id);
@@ -24561,7 +24580,7 @@ PF.examples = (function () {
     if (e.form && !form) e.form = null;
     return { model: model, sel: sel, narrow: narrow(), builder: state.builder !== false, form: form, formErr: form ? e.formErr : null, formVals: form ? e.formVals : null, typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
       canUndo: e.undo.length > 0, canRedo: e.redo.length > 0, undoLabel: e.undo.length ? e.undo[e.undo.length - 1].label : '',
-      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0, saveState: V.draftStatus(ctx, p, ed, text) };
+      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0 || Object.keys(e.st.fields || {}).length > 0 || !!e.st.from, saveState: V.draftStatus(ctx, p, ed, text) };
   };
   /* One practice action: refused ones say why; done ones push one Undo entry. */
   function prDo(pid, label, fn, focus, at) {
@@ -24573,8 +24592,8 @@ PF.examples = (function () {
     var r = fn(e.st, c.map);
     /* Refused: said beside the step or gate it was about, inside the pane (also as a phone sheet), and announced. */
     if (r.error) { e.refusal = { at: at == null ? null : String(at), msg: r.error }; say(r.error, 'warn'); state.msg.quiet = true; render(); return false; }
-    e.refusal = null; e.note = '';
-    if (r.state === e.st) return false;
+    e.refusal = null; e.note = r.moved ? prMovedNote(r.moved) : '';
+    if (r.state === e.st) return null;
     e.undo.push(PR.undoEntry(e.st, r.state, label)); if (e.undo.length > PR.UNDO_MAX) e.undo.shift();
     e.redo = []; e.st = r.state; prSave(e);
     if (focus) state.focus = focus;
@@ -24625,6 +24644,8 @@ PF.examples = (function () {
     var values = {}; if (!skip) f.list.forEach(function (d) { var el = document.getElementById('pr-rec-' + d.name); if (el) values[d.name] = inputValue(el); });
     var err = null, ok = prDo(p.id, skip ? 'Check without evidence' : 'Check', function (st, map) { var r = PR.answer(st, map, id, 'done', prEnv(), new Date().toISOString(), skip ? { skipped: true } : { values: values }); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
     if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = values; state.focus = err.field ? 'pr-rec-' + err.field : 'pr-fe'; render(); return; }
+    /* Refused before it was tried (a name still pending in the builder): the form stays, with what was typed. */
+    if (ok === false) { e.formVals = values; render(); return; }
     if (ok) prFormDone(e, id, '');
   }
   function prFocusRow(id) { return '[data-pr-step="' + cssEsc(id) + '"] .pr-check'; }
@@ -24645,6 +24666,7 @@ PF.examples = (function () {
       var fields = {}; f.list.forEach(function (d) { var el = document.getElementById('pr-fld-' + d.name); if (el) fields[d.name] = inputValue(el); });
       var err = null, ok = prDo(p.id, 'Fill in', function (st, map) { var r = PR.fillIn(st, map, id, fields, prEnv()); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
       if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = fields; state.focus = err.field ? 'pr-' + err.field : 'pr-fe'; render(); return; }
+      if (ok === false) { e.formVals = fields; render(); return; }
       prFormDone(e, id, ok ? 'Filled in for practice.' : '');
     },
     'pr-form-close': function () { var p = currentProcess(); if (!p) return; var e = prEntry(p.id), id = e.form && e.form.id; prFormDone(e, id, ''); },
@@ -27957,7 +27979,7 @@ PF.examples = (function () {
       var se = prEntry(spx.id), sv = e.target.value;
       se.typed[smp] = sv;
       var ran = false;
-      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
+      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv, prEnv()); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
       if (se.sampleErr[smp]) { state.focus = '#pr-s-' + cssEsc(smp); render(); }
       return;
     }

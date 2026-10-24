@@ -562,4 +562,33 @@ rule('What was typed in one step\'s form never carries into another step\'s, for
   }
 });
 
+rule('A Fill in refused while builder typing is pending keeps its form and what was typed', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+  app.click('pr-open'); await app.tick();
+  app.click('pr-sel', 'announce'); await app.tick();
+  app.click('pr-fill', 'announce'); await app.tick();
+  const f = formIds(app, 'fld')[0];
+  app.el('pr-fld-' + f).value = 'release-room';
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.input('ob-text', 'Feature flags set in the values'); await app.tick();
+  app.click('ins-tab', 'practice'); await app.tick();
+  app.click('pr-sel', 'announce'); await app.tick();
+  assert.ok(hasForm(app, 'announce'), 'its form is still open');
+  app.click('pr-fill-ok', 'announce'); await app.tick();
+  assert.match(app.live(), /Apply or clear/);
+  assert.ok(hasForm(app, 'announce'), 'the form stays');
+  assert.match(app.html(), /value="release-room"/);
+});
+
+rule('Reset is offered once anything resettable is there: Run from here alone counts', async () => {
+  const app = await editor();
+  app.click('pr-open'); await app.tick();
+  assert.match(app.html(), /data-act="pr-reset" disabled/);
+  app.click('pr-sel', 'announce'); await app.tick();
+  app.click('pr-from', 'announce'); await app.tick();
+  assert.ok(!/data-act="pr-reset" disabled/.test(app.html()));
+  app.click('pr-reset'); await app.tick();
+  assert.match(app.html(), /data-act="pr-reset" disabled/);
+});
+
 run();

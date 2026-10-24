@@ -2461,11 +2461,15 @@
       var wasFrom = e.st.from || '', rn = e.renames;
       e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
       if (wasFrom && e.st.from !== wasFrom && rn[wasFrom] !== e.st.from) e.note = e.st.from ? 'The step you practiced from was removed, so practice runs from the next one.' : 'The step you practiced from was removed, so practice starts from the beginning.';
+      /* An edit can also make it stop applying: it hands over for good, said once. */
+      var pinned = PR.repin(e.st, a.map, prEnv());
+      if (pinned.moved) { e.st = pinned.state; e.note = prMovedNote(pinned.moved); }
       e.good = { text: text, map: a.map };
     }
     e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
     return e.cache;
   }
+  function prMovedNote(m) { return m === 'next' ? 'The step you practiced from doesn\'t apply now, so practice runs from the next one that does.' : 'The step you practiced from doesn\'t apply now, so practice starts from the beginning.'; }
   /* What the pane draws (views/practice.js). */
   ctx.practice = function (p, text) {
     var e = prEntry(p.id), c = prMap(e, text), map = c.map, ed = editorOf(p.id);
@@ -2497,7 +2501,7 @@
     if (e.form && !form) e.form = null;
     return { model: model, sel: sel, narrow: narrow(), builder: state.builder !== false, form: form, formErr: form ? e.formErr : null, formVals: form ? e.formVals : null, typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
       canUndo: e.undo.length > 0, canRedo: e.redo.length > 0, undoLabel: e.undo.length ? e.undo[e.undo.length - 1].label : '',
-      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0, saveState: V.draftStatus(ctx, p, ed, text) };
+      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0 || Object.keys(e.st.fields || {}).length > 0 || !!e.st.from, saveState: V.draftStatus(ctx, p, ed, text) };
   };
   /* One practice action: refused ones say why; done ones push one Undo entry. */
   function prDo(pid, label, fn, focus, at) {
@@ -2509,8 +2513,8 @@
     var r = fn(e.st, c.map);
     /* Refused: said beside the step or gate it was about, inside the pane (also as a phone sheet), and announced. */
     if (r.error) { e.refusal = { at: at == null ? null : String(at), msg: r.error }; say(r.error, 'warn'); state.msg.quiet = true; render(); return false; }
-    e.refusal = null; e.note = '';
-    if (r.state === e.st) return false;
+    e.refusal = null; e.note = r.moved ? prMovedNote(r.moved) : '';
+    if (r.state === e.st) return null;
     e.undo.push(PR.undoEntry(e.st, r.state, label)); if (e.undo.length > PR.UNDO_MAX) e.undo.shift();
     e.redo = []; e.st = r.state; prSave(e);
     if (focus) state.focus = focus;
@@ -2561,6 +2565,8 @@
     var values = {}; if (!skip) f.list.forEach(function (d) { var el = document.getElementById('pr-rec-' + d.name); if (el) values[d.name] = inputValue(el); });
     var err = null, ok = prDo(p.id, skip ? 'Check without evidence' : 'Check', function (st, map) { var r = PR.answer(st, map, id, 'done', prEnv(), new Date().toISOString(), skip ? { skipped: true } : { values: values }); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
     if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = values; state.focus = err.field ? 'pr-rec-' + err.field : 'pr-fe'; render(); return; }
+    /* Refused before it was tried (a name still pending in the builder): the form stays, with what was typed. */
+    if (ok === false) { e.formVals = values; render(); return; }
     if (ok) prFormDone(e, id, '');
   }
   function prFocusRow(id) { return '[data-pr-step="' + cssEsc(id) + '"] .pr-check'; }
@@ -2581,6 +2587,7 @@
       var fields = {}; f.list.forEach(function (d) { var el = document.getElementById('pr-fld-' + d.name); if (el) fields[d.name] = inputValue(el); });
       var err = null, ok = prDo(p.id, 'Fill in', function (st, map) { var r = PR.fillIn(st, map, id, fields, prEnv()); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
       if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = fields; state.focus = err.field ? 'pr-' + err.field : 'pr-fe'; render(); return; }
+      if (ok === false) { e.formVals = fields; render(); return; }
       prFormDone(e, id, ok ? 'Filled in for practice.' : '');
     },
     'pr-form-close': function () { var p = currentProcess(); if (!p) return; var e = prEntry(p.id), id = e.form && e.form.id; prFormDone(e, id, ''); },
@@ -5893,7 +5900,7 @@
       var se = prEntry(spx.id), sv = e.target.value;
       se.typed[smp] = sv;
       var ran = false;
-      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
+      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv, prEnv()); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
       if (se.sampleErr[smp]) { state.focus = '#pr-s-' + cssEsc(smp); render(); }
       return;
     }

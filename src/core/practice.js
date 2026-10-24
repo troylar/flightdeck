@@ -139,7 +139,8 @@ PF.practice = (function () {
     var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, tainted = {}, taintAt = [], keyed = detailKeys(map);
     var fr = fromOf(state, map, types), assumed = fr ? fr.assumed : {}, pmap = fr ? project(map, fr, state.sample, types) : map;
     var reads = function (names) { for (var i = 0; i < names.length; i++) if (own(tainted, names[i])) return names[i]; return ''; };
-    map.phases.forEach(function (p) {
+    var r0 = asRun({ sample: state.sample, steps: {}, gates: {} }, map, null, false, types);
+    map.phases.forEach(function (p, pi) {
       p.steps.forEach(function (s) {
         if (own(assumed, s.id)) { steps[s.id] = { s: 'done', by: 'assumed', at: '' }; return; }
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
@@ -149,8 +150,8 @@ PF.practice = (function () {
         else {
           steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a;
           /* What it set comes from its own answer's values (which follow a new ID, and outlive a changed sets:), matched
-             to the checklist's details by their keys; never from setBy. */
-          if (a.values && !a.skipped) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
+             to the checklist's details by their keys; never from setBy. A setter that doesn't apply now sets nothing. */
+          if (a.values && !a.skipped && R.applies(r0, map, pi, s).applies !== false) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
         }
       });
       taintAt.push(Object.assign({}, tainted));
@@ -241,6 +242,16 @@ PF.practice = (function () {
     var t = T.get(x.step.type || 'confirm', envOf(types).types || {}), eff = R.fieldsOf(r, x.step);
     return { kind: 'fill', id: id, text: x.step.text, list: t ? T.editable(t).map(function (f) { var def = T.fieldDef(t, f); return { name: f, def: def, value: eff[f] || '', draft: (x.step.fields || {})[f] || '' }; }) : [] };
   }
+  /* A from step that doesn't apply now hands over for good (fromOf's choice is kept, so it never moves back on its own).
+     moved: 'next' or 'start' when it did. */
+  function pin(st, map, types) {
+    if (!st.from || !M.findStep(map, st.from)) return '';
+    var fr = fromOf(st, map, types), to = fr ? fr.id : '';
+    if (to === st.from) return '';
+    st.from = to;
+    return to ? 'next' : 'start';
+  }
+  function repin(state, map, types) { var st = copy(state), moved = pin(st, map, types); return moved ? { state: bump(st), moved: moved } : { state: state }; }
   function setFrom(state, map, id) {
     if (id && !M.findStep(map, id)) return { error: 'That step isn\'t in the draft anymore.' };
     var st = copy(state); st.from = id || '';
@@ -313,7 +324,8 @@ PF.practice = (function () {
     var p = prints(map, st.sample, types, st.fields)[id];
     rec.own = p.own; rec.ctx = p.ctx;
     st.answers[id] = rec;
-    return { state: bump(st) };
+    var moved = pin(st, map, types);
+    return moved ? { state: bump(st), moved: moved } : { state: bump(st) };
   }
   /* The step no longer sets anything it set (its values stay in the sample, as a run's details do). */
   function unsetBy(st, id) { st.setBy = st.setBy || {}; Object.keys(st.setBy).forEach(function (n) { if (st.setBy[n] === id) delete st.setBy[n]; }); }
@@ -354,13 +366,14 @@ PF.practice = (function () {
     return { state: bump(st) };
   }
   /* A sample run detail, checked as a run checks it (empty clears it). */
-  function setSample(state, map, name, value) {
+  function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
     var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
     if (v && def) { var p = PF.values.parse(def, v, { max: 120 }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
     if (v) st.sample[name] = v.slice(0, 120); else delete st.sample[name];
-    return { state: bump(st) };
+    var moved = pin(st, map, types);
+    return moved ? { state: bump(st), moved: moved } : { state: bump(st) };
   }
   function setFound(state, text) { var st = copy(state); st.found = String(text || '').slice(0, FOUND_MAX); return { state: bump(st) }; }
   /* Reset keeps the sample details (no longer marked as set by a step) and what was found. */
@@ -379,6 +392,7 @@ PF.practice = (function () {
       var n = renames[o];
       if (own(st.answers, o) && !own(st.answers, n)) { st.answers[n] = st.answers[o]; changed = true; }
       if (own(st.gates, o) && !own(st.gates, n)) { st.gates[n] = st.gates[o]; changed = true; }
+      if (own(st.fields, o) && !own(st.fields, n)) { st.fields[n] = st.fields[o]; changed = true; }
     });
     map.phases.forEach(function (p) { present[p.id] = present[p.gate.id] = true; p.steps.forEach(function (s) { present[s.id] = true; }); });
     /* Run from here's step left the draft: the next step that was after it in its phase and is still there, else that
@@ -410,7 +424,8 @@ PF.practice = (function () {
       if (!(a && typeof a === 'object' && is(REC, a.s) && is(HEX, a.own) && is(HEX, a.ctx) && id.length <= 80)) return;
       var k = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx };
       if (a.skipped === true) k.skipped = true;
-      if (a.values && typeof a.values === 'object') {
+      if (own(a, 'values')) {
+        if (!a.values || typeof a.values !== 'object' || Array.isArray(a.values)) { cut = true; return; }
         /* Evidence comes back whole or not at all: a record cut short would keep a done answer without what made it done,
            so that answer is dropped, and with it every gate (which one relied on it isn't known here). */
         var vk = Object.keys(a.values), vs = clean(a.values, VALUE_MAX, VALUES_MAX);
@@ -487,6 +502,6 @@ PF.practice = (function () {
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, VALUES_MAX: VALUES_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
-    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
+    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, repin: repin, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();
