@@ -88,6 +88,8 @@ PF.practice = (function () {
     var list = R.evidenceFor(r, s, null, map).list;
     return list.length ? list.map(function (d) { return [d.name, d.kind, !!d.required, d.options || null, d.detail || '', d.source || '']; }) : null;
   }
+  /* Whether checking the step asks for something first: required evidence, or a Jira problem to say beside it. */
+  function asks(r, s, def) { return s.type !== 'run.process' && s.type !== 'run.skill' && ((def || []).some(function (d) { return d[2]; }) || !!R.jiraProblem(r, s)); }
   function printsNow(map, sample, e, fields) {
     var types = e.types, sig = S.steps(map, types || null, null, null, true), out = {}, r = asRun({ sample: sample || {}, steps: {}, gates: {}, fields: fields }, map, null, false, env(e.types, e.workflows));
     map.phases.forEach(function (p, pi) {
@@ -95,8 +97,11 @@ PF.practice = (function () {
       p.tracks.forEach(function (t) { track[t.id] = [t.id, t.roles]; });
       /* The steps before this one, as a running fingerprint, so a long phase costs one hash per step. */
       p.steps.forEach(function (s) {
+        var def = evidenceDef(r, map, s), jp = s.type === 'jira.issue' ? R.jiraProblem(r, s) || '' : '';
         out[s.id] = {
-          own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned, evidenceDef(r, map, s)]),
+          ask: asks(r, s, def),
+          /* A Jira transition the workflow no longer has (or can't check) changes what checking it means, too. */
+          own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned, def, jp]),
           ctx: fp([head, prefix, track[s.track] || null, detailsPart(map, readsOf(p, s), sample)])
         };
         prefix = fp([prefix, s.id]);
@@ -215,6 +220,16 @@ PF.practice = (function () {
     }
     return out;
   }
+  /* The boxes a step's inline form shows. ev: its evidence (the run's own list, with what was kept as the starting point,
+     and the Jira problem if there is one: then only Check without it). fill: its Fill in fields, prefilled. */
+  function formFor(state, map, types, id, kind) {
+    var d = derive(state, map, types), r = asRun(d.view, d.map, null, false, types), x = M.findStep(map, id);
+    if (!x) return null;
+    var a = own(state.answers, id) ? state.answers[id] : null, again = own(d.again, id) ? d.again[id] : null, kept = (a && a.values) || (again && again.values) || {};
+    if (kind === 'ev') return { kind: 'ev', id: id, text: x.step.text, problem: R.jiraProblem(r, x.step) || '', list: R.evidenceFor(r, x.step, null, map).list.map(function (e) { return Object.assign({}, e, { value: own(kept, e.name) ? kept[e.name] : '' }); }) };
+    var t = T.get(x.step.type || 'confirm', envOf(types).types || {}), eff = R.fieldsOf(r, x.step);
+    return { kind: 'fill', id: id, text: x.step.text, list: t ? T.editable(t).map(function (f) { var def = T.fieldDef(t, f); return { name: f, def: def, value: eff[f] || '', draft: (x.step.fields || {})[f] || '' }; }) : [] };
+  }
   function setFrom(state, map, id) {
     if (id && !M.findStep(map, id)) return { error: 'That step isn\'t in the draft anymore.' };
     var st = copy(state); st.from = id || '';
@@ -235,6 +250,7 @@ PF.practice = (function () {
           var ap = R.applies(r, pm, pi, s), a = d.view.steps[s.id], rec = own(state.answers, s.id) ? state.answers[s.id] : null;
           var status = ap.applies === false ? 'hidden' : a && a.by === 'assumed' ? 'assumed' : ap.applies === null ? 'waiting' : !a ? 'open' : a.s === 'recheck' ? 'again' : a.s === 'na' ? 'skipped' : 'done';
           return { id: s.id, text: s.text, type: s.type, must: s.must, temp: isTemp(s.id), status: status, why: ap.why || '', old: d.again[s.id] ? d.again[s.id].s : null, simulated: simulated(s, envOf(types).types),
+            ask: !!(d.now[s.id] && d.now[s.id].ask), fill: s.type && T.get(s.type, envOf(types).types || {}) ? T.editable(T.get(s.type, envOf(types).types || {})).length > 0 : false,
             again: a && a.s === 'recheck' ? { reason: a.reason, detail: a.detail || '' } : null, skipped: !!(rec && rec.skipped && status === 'done'), values: rec && rec.values && status !== 'assumed' ? rec.values : null };
         }) };
     });
@@ -273,11 +289,10 @@ PF.practice = (function () {
     if (how === 'open') { delete st.answers[id]; return { state: bump(st) }; }
     var rec = { s: how === 'na' ? 'na' : 'done', at: now || '' }, x = M.findStep(map, id);
     if (how !== 'na' && x && simulated(x.step, envOf(types).types) !== 'linked') {
-      var ev = R.evidenceFor(r, x.step, null, map);
-      if (o && o.skipped) { if (ev.list.length || R.jiraProblem(r, x.step)) rec.skipped = true; }
+      var ev = R.evidenceFor(r, x.step, null, map), jp = R.jiraProblem(r, x.step);
+      if (o && o.skipped) { if (ev.list.length || jp) rec.skipped = true; }
+      else if (jp) return { error: jp, field: '' };
       else if (ev.list.length) {
-        var jp = R.jiraProblem(r, x.step);
-        if (jp) return { error: jp, field: '' };
         var chk = R.checkEvidence(r, x.step, null, (o && o.values) || {}, false, map);
         if (chk.error) return { error: chk.error, field: chk.field || '' };
         if (Object.keys(chk.values).length) rec.values = chk.values;
@@ -451,6 +466,6 @@ PF.practice = (function () {
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
-    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
+    derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();

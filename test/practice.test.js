@@ -740,4 +740,20 @@ rule('Run from here: no success moment; through says so; Undo and Reset clear it
   assert.strictEqual(P.follow(hid, map, {}).from.id, 'a1', 'a hidden from step hands over (here to the phase\'s first)');
 });
 
+rule('a Jira transition the workflow stops allowing goes back, its gate to review; checking it is refused, Check without it isn\'t', () => {
+  const ok = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done' }] } }).workflows;
+  const none = PF.jira.check({ Story: { statuses: ['To Do', 'Review'], transitions: [{ from: '*', to: 'Review' }] } }).workflows;
+  const md = ['---', 'process: j', 'title: J', '---', '## P · READ-DO {#p}', '- [!] {jira.issue} Close it {#close}', '  action: transition', '  issue: ABC-1', '  issueType: Story', '  status: Done', '',
+    '## Gate: Closed {#closed}', ''].join('\n');
+  const map = P.admit(md, {}).map, e1 = P.env({}, ok), e2 = P.env({}, none);
+  let st = P.answer(P.fresh('j'), map, 'close', 'done', e1, NOW).state;
+  st = P.gateAct(st, map, 0, 'pass', '', e1, NOW).state;
+  const v = P.follow(st, map, e2);
+  same([step(v, 'close').status, phase(v, 'p').gate.rec.s, v.complete], ['again', 'review', false]);
+  assert.ok(/no transition to "Done"/.test(P.answer(P.fresh('j'), map, 'close', 'done', e2, NOW).error), 'a plain check is refused');
+  const sk = P.answer(P.fresh('j'), map, 'close', 'done', e2, NOW, { skipped: true });
+  assert.ok(sk.state && sk.state.answers.close.skipped, 'Check without it still works');
+  assert.ok(step(P.follow(P.fresh('j'), map, e2), 'close').ask, 'the row asks first (the form says why)');
+});
+
 run();
