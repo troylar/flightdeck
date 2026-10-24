@@ -541,12 +541,15 @@ rule('Quick capture: Enter in Add a step adds it and keeps the box open after it
 
 rule('Quick capture: Enter on an empty box closes it; the Add step button still adds and opens the step', async () => {
   const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
   app.click('ob-add-after', 'rollback'); await app.tick();
   addEnter(app, 'Check the dashboards'); await app.tick();
   addEnter(app, ''); await app.tick();
   assert.ok(!/id="ob-new-text"/.test(app.html()), 'closed');
   assert.ok(!/class="ferr"/.test(app.html()), 'no error');
   assert.strictEqual(app.focused(), '[data-act="ob-sel"][data-id="check-the-dashboards"]', 'focus on the step it added last');
+  assert.match(app.html(), /data-act="ob-sel" data-id="check-the-dashboards" aria-pressed="true"/, 'and that step is the one selected');
+  assert.match(app.html(), /data-act="ob-sel" data-id="rollback" aria-pressed="false"/, 'not the one before');
   app.click('ob-add-after', 'rollback'); await app.tick();
   app.set('ob-new-text', 'Tell support'); app.click('ob-add-go'); await app.tick();
   assert.ok(!/id="ob-new-text"/.test(app.html()), 'the button closes the box');

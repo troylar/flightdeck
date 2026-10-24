@@ -346,6 +346,47 @@ rule('Stage from Practice: a refresh that read the folder before the stage was w
   assert.match(app.html(), /data-act="start-test"/, 'the new stage is shown at once, not on some later refresh');
 });
 
+rule('Stage from Practice: a What changed typed while the stage saves is kept, and so is practice', async () => {
+  const app = await finished();
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+  note(app, 'Next: shorter gate');
+  go(); await app.tick(300); app.fs.write = orig;
+  assert.strictEqual(stageFiles(app).length, 1);
+  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.match(app.html(), /<input id="pr-note"[^>]*value="Next: shorter gate"/);
+});
+
+rule('Stage from Practice: typing in a practice form or opening a fold while the stage saves keeps practice', async () => {
+  for (const meanwhile of ['input', 'toggle']) {
+    const app = await finished();
+    let go; const gate = new Promise(r => { go = r; });
+    const orig = app.fs.write.bind(app.fs);
+    app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+    note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+    app.fire(meanwhile, { target: { id: 'pr-fld-channel', value: 'x', tagName: meanwhile === 'input' ? 'INPUT' : 'DETAILS', dataset: {}, closest: s => (s === '#pr' ? {} : null) } });
+    go(); await app.tick(300); app.fs.write = orig;
+    assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
+    assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
+    assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
+  }
+});
+
+rule('Stage from Practice: when the folder can\'t be read after staging, practice stays open and says the stage isn\'t shown yet', async () => {
+  const app = await finished();
+  const orig = app.fs.write.bind(app.fs), list = app.fs.list.bind(app.fs);
+  let staged = false;
+  app.fs.write = (x, d) => { if (/^staged\//.test(x)) staged = true; return orig(x, d); };
+  app.fs.list = x => staged ? Promise.reject(new Error('offline')) : list(x);
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(300);
+  app.fs.write = orig; app.fs.list = list;
+  assert.strictEqual(stageFiles(app).length, 1, 'staged');
+  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.match(app.live(), /couldn't be read again just now, so it isn't shown yet\. Your practice is still open\./, app.live());
+});
+
 rule('A refused check says why beside the step, inside the pane', async () => {
   const app = await editor();
   app.click('pr-open'); await app.tick();

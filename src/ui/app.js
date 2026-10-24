@@ -2640,7 +2640,7 @@
       if (editorDirty(p)) { say('Save the draft first, then stage it.', 'warn'); state.focus = '[data-act="save-draft"]'; render(); return; }
       var e = prEntry(p.id), note = String(e.stageNote != null ? e.stageNote : p.latest ? '' : 'First version').trim();
       if (!note) { e.noteErr = 'Write what changed (one line), then stage it.'; state.focus = 'pr-note'; render(); return; }
-      stageDraft(p.id, note, { e: e, act: e.act || 0, text: edText(p) });
+      stageDraft(p.id, note, { e: e, act: e.act || 0, text: edText(p), note: e.stageNote });
     }
   };
   /* Stage the saved draft for test runs (the overview's Stage button, or Practice's: origin). Same checks and write either way. */
@@ -2680,9 +2680,16 @@
             oe === origin.e && (oe.act || 0) === origin.act && edText(cp) === origin.text && !(state.obPending === id && state.obPendingField) &&
             !(ae && ae.id !== 'pr-note' && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || ''));
         };
-        origin.e.stageNote = null; origin.e.noteErr = null;
+        /* A note typed since the click is the person's next one: only the note that was staged is cleared. */
+        if (origin.e.stageNote === origin.note) { origin.e.stageNote = null; origin.e.noteErr = null; }
+        /* The stage must be in what the folder read says, ready to start a test run from, before practice ends for it. */
+        var shown1 = function () {
+          var sp = ((data.stages || {}).procs || {})[id], s = sp && Object.prototype.hasOwnProperty.call(data.stages.procs, id) ? sp.stages.filter(function (x) { return x.folder === res.folder; })[0] : null;
+          return !state.folderErr && !(data.failed || {}).stages && !!s && s.ok && !s.newer && !sp.unlisted;
+        };
         return loadAfterWrite().then(function () {
           if (pg !== gen) return;
+          if (!shown1()) { say('Staged as ' + res.folder + ', but the folder couldn\'t be read again just now, so it isn\'t shown yet. Your practice is still open.', 'warn'); render(); return; }
           if (!calm()) { say('Staged. Your practice is still open.', 'good'); render(); return; }
           prEnded(id, shown); ACTIONS['ed-done'](); state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
           state.focus = '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]';
@@ -4338,6 +4345,7 @@
     /* The inspector's tabs; Checks and Preview are remembered in this browser. */
     'ins-tab': function (id) {
       if (['selected', 'checks', 'preview', 'practice'].indexOf(id) < 0) return;
+      var tp = currentProcess(); if (tp && state.practicing[edKey(tp.id)]) prTouch(prEntry(tp.id));
       state.insTab = id; if (id !== 'selected' && id !== 'practice') { state.insTabSaved = id; lsSet('insTab', id); }
       state.focus = '#ins-t-' + id; render();
     },
@@ -4455,10 +4463,10 @@
         state.obSel = { pid: p.id, kind: 'phase', key: pr.id }; state.obAdd = { pid: p.id, kind: 'step', phase: pr.id, track: -1 }; state.focus = 'ob-new-text'; render(); return;
       }
       var to = a.after != null ? { after: a.after } : { phase: a.phase, track: a.track, where: 'end' };
-      if (quick && !val('ob-new-text').trim()) { state.obAdd = null; obClearErr(); state.focus = a.added ? '[data-act="ob-sel"][data-id="' + cssEsc(a.added) + '"]' : a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]'; render(); return; }
+      if (quick && !val('ob-new-text').trim()) { state.obAdd = null; obClearErr(); if (a.added) state.obSel = { pid: p.id, kind: 'step', key: a.added }; state.focus = a.added ? '[data-act="ob-sel"][data-id="' + cssEsc(a.added) + '"]' : a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]'; render(); return; }
       var type = val('ob-new-type') || 'confirm', res = builderEdit({ op: 'add', to: to, text: val('ob-new-text'), type: type }, 'ob-new-text'); if (!res) return;
       var ed = editorOf(p.id); if (ed) markFresh(ed, res.id);
-      if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: res.id, type: type }; state.focus = 'ob-new-text'; render(); return; }
+      if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: res.id, type: type }; state.focus = 'ob-new-text'; render(); reveal('#ob-new-text'); return; }
       state.obAdd = null; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-text'; render();
     },
     'ob-commit': function (id, t) { if (t && t.id) builderField(t.id, t.value); },
@@ -5896,11 +5904,15 @@
     }, function (err) { endBusy(); planning.saving = false; if (g !== gen) return; say('Couldn\'t save the plan: ' + err.message, 'bad'); render(); });
   });
 
+  /* Anything typed or chosen in the practice pane counts as practice activity (Stage from Practice ends it only if none). */
+  function prActivity(t) { var cp = t && t.closest && t.closest('#pr') && currentProcess(); if (cp) prTouch(prEntry(cp.id)); }
+  document.addEventListener('change', function (e) { prActivity(e.target); }, true);
   document.addEventListener('input', function (e) {
-    if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); prTouch(tpe); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
+    prActivity(e.target);
+    if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
-    if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); prTouch(fe); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
+    if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
@@ -5962,6 +5974,7 @@
   /* Folded groups and opened or closed details (a brief, a list of deviations) stay as the person left them across redraws. */
   document.addEventListener('toggle', function (e) {
     var d = e.target; if (!d || !d.dataset) return;
+    prActivity(d);
     if (d.dataset.group) (state.groupsOpen = state.groupsOpen || {})[d.dataset.group] = d.open;
     if (d.dataset.disc) (state.disc = state.disc || {})[d.dataset.disc] = d.open;
     /* A flight plan phase opened or closed by hand. Only a change from what the page drew counts: a browser also fires
