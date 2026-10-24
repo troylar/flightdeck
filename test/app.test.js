@@ -581,6 +581,18 @@ rule('Quick capture: a step added with Enter is new, so fixing a typo before sav
   assert.ok(/Check the dashboards \{#check-the-dashboards\}/.test(app.fs.files['maps/drafts/release.md'].t));
 });
 
+rule('Quick capture: fixing the added step\'s text while the box is open, then an empty Enter, focuses and selects it by its new ID', async () => {
+  const app = await builderOn();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  addEnter(app, 'Chek the dashboards'); await app.tick();
+  assert.match(app.html(), /id="ob-text"/, 'set-up: the step added is selected, its details beside the box');
+  enter(app, 'ob-text', 'Check the dashboards'); await app.tick();
+  assert.match(app.html(), /id="ob-new-text"/, 'set-up: the box is still open');
+  addEnter(app, ''); await app.tick();
+  assert.strictEqual(app.focused(), '[data-act="ob-sel"][data-id="check-the-dashboards"]');
+  assert.match(app.html(), /data-act="ob-sel" data-id="check-the-dashboards" aria-pressed="true"/);
+});
+
 rule('Quick capture: Enter while an input method is composing adds nothing, even when the key event says it isn\'t; after it ends, one Enter adds once', async () => {
   const app = await builderOn(), box = v => ({ tagName: 'INPUT', id: 'ob-new-text', value: v, dataset: { enter: 'ob-add-go' }, closest: () => null });
   app.click('ob-add-after', 'rollback'); await app.tick();

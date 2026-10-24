@@ -4474,10 +4474,10 @@
         state.obSel = { pid: p.id, kind: 'phase', key: pr.id }; state.obAdd = { pid: p.id, kind: 'step', phase: pr.id, track: -1 }; state.focus = 'ob-new-text'; render(); return;
       }
       var to = a.after != null ? { after: a.after } : { phase: a.phase, track: a.track, where: 'end' };
-      if (quick && !val('ob-new-text').trim()) { if (obHeld(p, 'then close Add a step', null, true)) return; state.obAdd = null; obClearErr(); if (a.added) state.obSel = { pid: p.id, kind: 'step', key: a.added }; state.focus = a.added ? '[data-act="ob-sel"][data-id="' + cssEsc(a.added) + '"]' : a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]'; render(); return; }
+      if (quick && !val('ob-new-text').trim()) { if (obHeld(p, 'then close Add a step', null, true)) return; state.obAdd = null; obClearErr(); if (a.added && a.after != null) state.obSel = { pid: p.id, kind: 'step', key: a.after }; state.focus = a.after ? '[data-act="ob-sel"][data-id="' + cssEsc(a.after) + '"]' : '[data-act="ob-add"][data-id="' + cssEsc(a.phase) + '"][data-track="' + a.track + '"]'; render(); return; }
       var type = val('ob-new-type') || 'confirm', res = builderEdit({ op: 'add', to: to, text: val('ob-new-text'), type: type }, 'ob-new-text'); if (!res) return;
       var ed = editorOf(p.id); if (ed) markFresh(ed, res.id);
-      if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: res.id, type: type }; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-new-text'; render(); reveal('#ob-new-text'); return; }
+      if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: true, type: type }; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-new-text'; render(); reveal('#ob-new-text'); return; }
       state.obAdd = null; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-text'; render();
     },
     'ob-commit': function (id, t) { if (t && t.id) builderField(t.id, t.value); },
