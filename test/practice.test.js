@@ -810,4 +810,21 @@ rule('a setter given a new ID by the builder still takes its consumers and later
   same(P.follow(skipped, moved, {}).phases[0].steps.map(x => x.status).slice(0, 1), ['again']);
 });
 
+rule('a setter whose sets: changed or went away still takes what it had set with it (replace, remove, partial), with Undo/Redo', () => {
+  const md = SETS.replace('  sets: commit\n', '  sets: commit, size\n').replace('- [ ] {confirm} Note the size {#size}\n  sets: size\n', '- [ ] {confirm} Note the size {#size}\n') + '\n## Gate: Shipped {#shipped}\n  approves: ship of ^commit\n';
+  const map = admit(md);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc', [SK]: '3' } });
+  st = ans(ans(st, map, 'size'), map, 'review'); st = gate(st, map, 0); st = ans(st, map, 'deploy'); st = gate(st, map, 1);
+  for (const [why, to] of [['replaced', '  sets: size\n'], ['removed', ''], ['partly removed', '  sets: size\n']]) {
+    const m2 = admit(md.replace('  sets: commit, size\n', to)), v = P.follow(st, m2, {});
+    same([step(v, 'make').status, step(v, 'deploy').status, phase(v, 'ship').gate.rec.s, v.complete], ['again', 'again', 'review', false], why);
+  }
+  const m3 = admit(md.replace('  sets: commit, size\n', ''));
+  const re = ans(st, m3, 'make'), e = P.undoEntry(st, re, 'Check');
+  assert.strictEqual(step(P.follow(re, m3, {}), 'make').status, 'done');
+  const u = P.applyEntry(re, e);
+  assert.strictEqual(step(P.follow(u.state, m3, {}), 'deploy').status, 'again', 'Undo brings back the old answer and its pull');
+  assert.strictEqual(step(P.follow(P.applyEntry(u.state, u.back).state, m3, {}), 'make').status, 'done');
+});
+
 run();

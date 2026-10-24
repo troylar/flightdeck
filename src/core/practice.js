@@ -100,7 +100,6 @@ PF.practice = (function () {
         var def = evidenceDef(r, map, s), jp = s.type === 'jira.issue' ? R.jiraProblem(r, s) || '' : '';
         out[s.id] = {
           ask: asks(r, s, def),
-          sets: (def || []).filter(function (d) { return d[4]; }).map(function (d) { return [d[0], d[4]]; }),
           /* A Jira transition the workflow no longer has (or can't check) changes what checking it means, too. */
           own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned, def, jp]),
           ctx: fp([head, prefix, track[s.track] || null, detailsPart(map, readsOf(p, s), sample)])
@@ -137,7 +136,7 @@ PF.practice = (function () {
      Try it again too, in document order (so it carries on through a consumer that sets something itself). Derived, never
      stored: checking the setter again with the same value brings them back as they were. */
   function derive(state, map, types) {
-    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, tainted = {}, taintAt = [];
+    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {}, tainted = {}, taintAt = [], keyed = detailKeys(map);
     var fr = fromOf(state, map, types), assumed = fr ? fr.assumed : {}, pmap = fr ? project(map, fr, state.sample, types) : map;
     var reads = function (names) { for (var i = 0; i < names.length; i++) if (own(tainted, names[i])) return names[i]; return ''; };
     map.phases.forEach(function (p) {
@@ -149,8 +148,9 @@ PF.practice = (function () {
         if (same && !via) steps[s.id] = { s: a.s, by: 'practice', at: a.at };
         else {
           steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a;
-          /* What it set comes from its own answer (which follows a new ID), never from setBy. */
-          if (a.values && !a.skipped) now[s.id].sets.forEach(function (x) { if (a.values[x[0]]) tainted[x[1]] = true; });
+          /* What it set comes from its own answer's values (which follow a new ID, and outlive a changed sets:), matched
+             to the checklist's details by their keys; never from setBy. */
+          if (a.values && !a.skipped) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
         }
       });
       taintAt.push(Object.assign({}, tainted));
@@ -166,6 +166,12 @@ PF.practice = (function () {
       view.gates[p.gate.id] = base === g.base && !via ? { s: g.s, reason: g.reason, by: 'practice', at: g.at, approved: g.approved } : { s: 'review', was: g.s, reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: g.at, approved: g.approved };
     });
     return { view: view, now: now, again: again, map: pmap, from: fr };
+  }
+
+  /* Each run detail's evidence key (R.detailKey) → its name, kept on the map (it never changes once admitted). */
+  function detailKeys(map) {
+    if (!map._keys) { var k = {}; (map.meta.context || []).forEach(function (d) { k[R.detailKey(d)] = d; }); Object.defineProperty(map, '_keys', { value: k, enumerable: false }); }
+    return map._keys;
   }
 
   /* ---------- Run from here ----------
