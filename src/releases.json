@@ -17,7 +17,6 @@
         "area": "Editing",
         "title": "Practice evidence, Fill in, values steps set, and Run from here",
         "now": "Checking a step that asks for evidence opens its boxes under the step, checked as a run checks them, or Check without it. Fill in works as in a run. A value a step sets flows to the steps after it, and they ask again if that step does. Run from here starts partway: the steps before it are assumed, and it asks for the sample details it needs.",
-        "before": "Practice checked steps without their evidence, and always started from the beginning.",
         "where": "The draft editor, Practice"
       }
     ]
