@@ -25,6 +25,11 @@
       '<button type="button" class="pr-text linkish" data-act="pr-sel" data-id="' + esc(s.id) + '"' + (s.temp ? ' title="Give this step an ID to keep its answer while you edit."' : '') + '>' + U.mdInline(s.text) + (s.must ? ' <span class="pill must">must</span>' : '') + '</button>' +
       skip + mark + '</li>' + (sel === s.id && s.status !== 'hidden' ? more(s, x) : '');
   }
+  /* One line at the end: what changed, and Stage it for a test run (the real stage; the note is kept on the practice entry). */
+  function stageLine(x) {
+    return '<span class="row pr-stage"><label class="sr" for="pr-note">What changed</label><input id="pr-note" maxlength="200" placeholder="What changed" value="' + esc(x.stageNote) + '" data-enter="pr-stage"' + (x.noteErr ? ' aria-invalid="true" aria-describedby="ferr-pr-note"' : '') + '>' +
+      '<button type="button" class="btn" data-act="pr-stage"' + (x.staging ? ' disabled' : '') + '>Stage it for a test run</button></span>' + (x.noteErr ? '<p class="ferr" id="ferr-pr-note" role="alert">' + esc(x.noteErr) + '</p>' : '');
+  }
   /* The selected row's extra line: Fill in, Run from here and Edit (in the builder), or the form open on it. */
   function more(s, x) {
     var f = x.form && x.form.id === s.id ? x.form : null, off = x.paused ? ' disabled' : '', h = '';
@@ -105,7 +110,7 @@
     if (m.from) h += '<p class="small pr-from">' + (m.from.assumed ? m.from.assumed + (m.from.assumed === 1 ? ' earlier step' : ' earlier steps') + ' assumed for practice · ' : 'Practicing from "' + esc(m.from.text) + '" · ') + '<button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning</button></p>';
     if (m.from && m.from.through) h += '<div class="notice good pr-done"><span>You got through from "' + esc(m.from.text) + '".</span><button type="button" class="btn" data-act="pr-from-clear">Start from the beginning</button></div>';
     else if (m.complete) h += '<div class="notice good pr-done"><span>You got through the whole checklist.' + (x.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
-      (x.dirty ? '<button type="button" class="btn" data-act="save-draft" data-id="' + esc(p.id) + '">Save draft</button>' : '<button type="button" class="btn" data-act="pr-stage">Stage it for a test run</button>') + '</div>';
+      (x.dirty ? '<button type="button" class="btn" data-act="save-draft" data-id="' + esc(p.id) + '">Save draft</button>' : stageLine(x)) + '</div>';
     else if (m.nextUp.text) h += '<p class="pr-next"><b>Next up:</b> ' + esc(m.nextUp.text) + '</p>';
     h += m.phases.map(function (ph, pi) {
       if (ph.gate.assumed) return '';
@@ -114,7 +119,7 @@
       /* The from step's phase counts only what's practiced from here; assumed steps aren't progress. */
       if (shown.length !== m.phases[pi].steps.length) ph.info = { done: shown.filter(function (s) { return s.status === 'done' || s.status === 'skipped'; }).length, total: shown.filter(function (s) { return s.status !== 'hidden'; }).length, here: true };
       return '<section class="pr-ph" aria-label="' + esc(ph.title) + '"><h3 class="pr-ph-t' + (sel === 'ph:' + ph.id ? ' sel' : '') + '" tabindex="-1" id="pr-ph-' + pi + '">' + esc(ph.title) + (ph.info.total ? ' <span class="small">' + ph.info.done + ' of ' + ph.info.total + (ph.info.here ? ' from here' : '') + '</span>' : '') + '</h3>' +
-        (ph.steps.length ? '<ol class="pr-steps">' + ph.steps.map(function (s) { return stepRow(s, x, sel); }).join('') + '</ol>' : '<p class="small">No steps yet.</p>') + gateRow(ph, pi, x) + '</section>';
+        (ph.steps.length ? '<ol class="pr-steps">' + ph.steps.map(function (s) { return stepRow(s, x, sel); }).join('') + '</ol>' : '<p class="small">Add a step to practice it.</p>') + gateRow(ph, pi, x) + '</section>';
     }).join('');
     /* Save draft is here too: on a phone the sheet covers the editor's own. */
     h += '<div class="pr-foot"><span class="small" role="status">Draft: ' + esc(x.saveState) + '</span>' + (x.dirty && !(m.complete || (m.from && m.from.through)) ? '<button type="button" class="mini" data-act="save-draft" data-id="' + esc(p.id) + '">Save draft</button>' : '') +

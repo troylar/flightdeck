@@ -143,7 +143,7 @@
   /* ---------- the outline ---------- */
   function addStepForm(ctx) {
     return '<li class="ob-addform"><div class="row"><label class="sr" for="ob-new-text">New step: what to do</label><input id="ob-new-text" maxlength="200" placeholder="What to do" data-enter="ob-add-go"' + errAt(ctx, 'ob-new-text') + '>' +
-      '<label class="sr" for="ob-new-type">Type of the new step</label><select id="ob-new-type">' + typeOptions(ctx, 'confirm') + '</select>' +
+      '<label class="sr" for="ob-new-type">Type of the new step</label><select id="ob-new-type">' + typeOptions(ctx, (ctx.state.obAdd && ctx.state.obAdd.type) || 'confirm') + '</select>' +
       '<button type="button" class="btn go" data-act="ob-add-go">Add step</button><button type="button" class="mini" data-act="ob-add-cancel">Cancel</button></div>' + errMsg(ctx, 'ob-new-text') + '</li>';
   }
   /* Steps with open corrections are marked, so whoever edits the draft sees them (B.fix: open groups per step ID). */

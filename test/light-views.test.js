@@ -122,11 +122,14 @@ rule('Process page: with no skills and no clean runs yet, the fold says so for s
   assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
 });
 
+/* A blank new process starts with no steps (2.2.1): one typed into its open Add a step box. */
+const firstStep = (app, value) => { app.set('ob-new-text', value); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-new-text', value, dataset: { enter: 'ob-add-go' }, closest: () => null }); };
 /* ---------- Publish: never the old draft while newer edits sit unsaved in the editor ---------- */
 rule('Publish: after Done with unsaved edits, Publish is off and says why; it publishes what was saved once the edits are saved', async () => {
   const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
   app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); app.submit('new-process-form'); await app.tick(150);
+  firstStep(app, 'The first thing to do'); await app.tick(); app.click('save-draft'); await app.tick(200);
   const draft = 'maps/drafts/risk-review.md', saved = app.fs.files[draft].t;
   app.input('draft-editor', saved.replace('The first thing to do', 'Read the risk register')); await app.tick(300);
   app.click('ed-done'); await app.tick();
@@ -460,6 +463,7 @@ rule('New process: a template that runs solo starts the box checked, and uncheck
 rule('Builder: the new-draft banner names Save draft, the header says what unsaved means, and tips don\'t make a Checks badge', async () => {
   const app = await newProc();
   app.set('np-title', 'Onboard'); app.submit('new-process-form'); await app.tick(150);
+  firstStep(app, 'Say hello'); await app.tick();
   let html = app.html();
   assert.ok(/choose Save draft, then Done to publish it/.test(html + app.live()), 'the banner');
   const head = between(html, 'class="fpe-head"', '</header>');
@@ -472,7 +476,8 @@ rule('Builder: the new-draft banner names Save draft, the header says what unsav
 rule('Publish: the first version\'s change note is filled in, First version, and can be changed', async () => {
   /* domFocus: the page's boxes read as drawn, so the prefilled note is what Publish sends. */
   const app = await newProc({ domFocus: true });
-  app.set('np-title', 'Note check'); app.submit('new-process-form'); await app.tick(150); app.click('ed-done'); await app.tick();
+  app.set('np-title', 'Note check'); app.submit('new-process-form'); await app.tick(150);
+  firstStep(app, 'Check the note'); await app.tick(); app.click('save-draft'); await app.tick(200); app.click('ed-done'); await app.tick();
   assert.ok(/id="change-note" maxlength="200" value="First version"/.test(app.html()), 'prefilled');
   app.click('publish', 'note-check'); await app.tick(200);
   const info = app.files('publications/note-check/').filter(f => /publication\.json$/.test(f));

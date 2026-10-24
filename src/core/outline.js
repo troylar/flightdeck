@@ -809,6 +809,13 @@ PF.outline = (function () {
   var META = { context: 'list', roles: 'list', owner: 'person', backup: 'person' };
   var NAME_RE = /^[\w-]{1,60}$/, PERSON_RE = /^[\w.@-]{1,80}$/;
   function reserved(n) { return n === '__proto__' || n in Object.prototype; }
+  /* What's wrong with a run detail's (key 'context') or role's ('roles') name, or ''. */
+  function checkName(name, key) {
+    var what = key === 'roles' ? 'role' : 'run detail';
+    if (!NAME_RE.test(name)) return 'A ' + what + ' is one word: letters, numbers, dashes or underscores, up to 60 characters.';
+    if (reserved(name)) return '"' + name + '" is a name Flightdeck keeps for itself; choose another.';
+    return '';
+  }
   function own_(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   /* Where a run detail or role is used, in words: the step or gate around each line that uses it. */
   function usesOf(o, key, name) {
@@ -851,8 +858,7 @@ PF.outline = (function () {
       if (!adding && !own_(set, 'remove')) return { error: ERR.gone };
       if (typeof name !== 'string' || !name.trim()) return { error: 'Type a name for the ' + what + ' first.' };
       if (adding) {
-        if (!NAME_RE.test(name)) return { error: 'A ' + what + ' is one word: letters, numbers, dashes or underscores, up to 60 characters.' };
-        if (reserved(name)) return { error: '"' + name + '" is a name Flightdeck keeps for itself; choose another.' };
+        var bad = checkName(name, key); if (bad) return { error: bad };
         if (cur.indexOf(name) >= 0) return { error: mark + name + ' is already a ' + what + '.' };
         if (key === 'context' && cur.length >= 40) return { error: 'A checklist can have at most 40 run details.' };
         next = cur.concat([name]);
@@ -1050,5 +1056,5 @@ PF.outline = (function () {
   return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
-    personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
+    checkName: checkName, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
 })();

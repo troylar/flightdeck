@@ -519,6 +519,108 @@ rule('App: Alt+Up still moves a step and Enter still adds one, next to the Undo 
   assert.ok(!cmdKey(app, 'z', rowOf('rollback'), { altKey: true }), 'Alt+Cmd+Z is left alone');
 });
 
+const addEnter = (app, value) => { app.set('ob-new-text', value); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-new-text', value, dataset: { enter: 'ob-add-go' }, closest: () => null }); };
+
+rule('Quick capture: Enter in Add a step adds it and keeps the box open after it, cleared, with the type kept; three Enters, three steps, three Undos', async () => {
+  const app = await builderOn(), PF = app.PF;
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  const opt = (/<select id="ob-new-type">[\s\S]*?<\/select>/.exec(app.html())[0].match(/value="([^"]+)"/g) || []).map(x => x.slice(7, -1)).find(v => v !== 'confirm');
+  app.select('ob-new-type', opt);
+  for (const t of ['Check the dashboards', 'Tell support', 'Close the ticket']) { addEnter(app, t); await app.tick(); }
+  assert.ok(/id="ob-new-text"/.test(app.html()), 'the box stays open');
+  assert.strictEqual(app.el('ob-new-text').value, '', 'cleared');
+  assert.ok(new RegExp('<option value="' + opt + '" selected').test(app.html()), 'the type is kept');
+  assert.strictEqual(app.focused(), 'ob-new-text', 'focus stays in the box');
+  assert.ok(/<li class="ob-addform">/.test(app.html().split('data-ob-step="close-the-ticket"')[1] || ''), 'the box is after the step it just added');
+  assert.match(app.html(), /data-act="ob-sel" data-id="close-the-ticket" aria-pressed="true"/, 'the step it just added is selected');
+  app.click('save-draft'); await app.tick(80);
+  const ids = idsOf(PF, app.fs.files['maps/drafts/release.md'].t), at = ids.indexOf('rollback');
+  assert.deepStrictEqual(ids.slice(at, at + 4), ['rollback', 'check-the-dashboards', 'tell-support', 'close-the-ticket']);
+  for (let i = 0; i < 3; i++) { app.click('tl-undo', 'draft'); await app.tick(); }
+  assert.ok(!/data-ob-step="check-the-dashboards"/.test(app.html()), 'three Undos take all three back');
+});
+
+rule('Quick capture: Enter on an empty box closes it; the Add step button still adds and opens the step', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  addEnter(app, 'Check the dashboards'); await app.tick();
+  addEnter(app, ''); await app.tick();
+  assert.ok(!/id="ob-new-text"/.test(app.html()), 'closed');
+  assert.ok(!/class="ferr"/.test(app.html()), 'no error');
+  assert.strictEqual(app.focused(), '[data-act="ob-sel"][data-id="check-the-dashboards"]', 'focus on the step it added last');
+  assert.match(app.html(), /data-act="ob-sel" data-id="check-the-dashboards" aria-pressed="true"/, 'and that step is the one selected');
+  assert.match(app.html(), /data-act="ob-sel" data-id="rollback" aria-pressed="false"/, 'not the one before');
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.set('ob-new-text', 'Tell support'); app.click('ob-add-go'); await app.tick();
+  assert.ok(!/id="ob-new-text"/.test(app.html()), 'the button closes the box');
+  assert.strictEqual(app.focused(), 'ob-text', 'and opens the step');
+});
+
+rule('Quick capture: an empty Enter waits for typing refused in another box, never throws it away', async () => {
+  const app = await builderOn();
+  app.click('ob-sel-details'); await app.tick();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  assert.match(app.html(), /id="ob-add-ctx"/, 'set-up: Checklist details still open beside the box');
+  addBox(app, 'ob-add-ctx', 'context', 'server name'); await app.tick();
+  assert.match(app.html(), /class="ferr"/, 'set-up: the run detail is refused');
+  addEnter(app, ''); await app.tick();
+  assert.match(app.live(), /Apply or clear what you typed in the box first/, app.live());
+  assert.strictEqual(app.draft('ob-add-ctx'), 'server name', 'the typing is kept');
+  assert.match(app.html(), /id="ob-new-text"/, 'Add a step stays open');
+});
+
+rule('Quick capture: a step added with Enter is new, so fixing a typo before saving gives it the fixed ID', async () => {
+  const app = await builderOn();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  addEnter(app, 'Chek the dashboards'); await app.tick();
+  addEnter(app, ''); await app.tick();
+  app.click('ob-sel', 'chek-the-dashboards'); await app.tick();
+  enter(app, 'ob-text', 'Check the dashboards'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/Check the dashboards \{#check-the-dashboards\}/.test(app.fs.files['maps/drafts/release.md'].t));
+});
+
+rule('Quick capture: fixing the added step\'s text while the box is open, then an empty Enter, focuses and selects it by its new ID', async () => {
+  const app = await builderOn();
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  addEnter(app, 'Chek the dashboards'); await app.tick();
+  assert.match(app.html(), /id="ob-text"/, 'set-up: the step added is selected, its details beside the box');
+  enter(app, 'ob-text', 'Check the dashboards'); await app.tick();
+  assert.match(app.html(), /id="ob-new-text"/, 'set-up: the box is still open');
+  addEnter(app, ''); await app.tick();
+  assert.strictEqual(app.focused(), '[data-act="ob-sel"][data-id="check-the-dashboards"]');
+  assert.match(app.html(), /data-act="ob-sel" data-id="check-the-dashboards" aria-pressed="true"/);
+});
+
+rule('Quick capture: Enter while an input method is composing adds nothing, even when the key event says it isn\'t; after it ends, one Enter adds once', async () => {
+  const app = await builderOn(), box = v => ({ tagName: 'INPUT', id: 'ob-new-text', value: v, dataset: { enter: 'ob-add-go' }, closest: () => null });
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.set('ob-new-text', 'にほん');
+  app.fire('compositionstart', { target: box('にほん') });
+  app.keyOn('Enter', { isComposing: false, keyCode: 13 }, box('にほん')); await app.tick();
+  assert.ok(!/data-ob-step="step"/.test(app.html()) && app.el('ob-new-text').value === 'にほん', 'nothing added, the text kept');
+  app.fire('compositionend', { target: box('日本') }); app.set('ob-new-text', 'Ship to Japan');
+  app.keyOn('Enter', { keyCode: 13 }, box('Ship to Japan')); await app.tick();
+  assert.strictEqual((app.html().match(/data-ob-step="ship-to-japan"/g) || []).length, 1, 'added once');
+});
+
+rule('Quick capture: Escape closes Add a step, empty or not, and gives focus back to what opened it; a dialog closes first', async () => {
+  const app = await builderOn(), box = { tagName: 'INPUT', id: 'ob-new-text', value: 'x', dataset: { enter: 'ob-add-go' }, closest: () => null };
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.set('ob-new-text', 'Half typed');
+  app.keyOn('Escape', {}, box); await app.tick();
+  assert.ok(!/id="ob-new-text"/.test(app.html()), 'closed');
+  assert.strictEqual(app.focused(), '[data-act="ob-sel"][data-id="rollback"]');
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.keyOn('Escape', {}, box); await app.tick();
+  assert.ok(!/id="ob-new-text"/.test(app.html()), 'empty closes too');
+  app.click('ob-add-after', 'rollback'); await app.tick();
+  app.click('ob-parts-open'); await app.tick();
+  app.keyOn('Escape', {}, box); await app.tick();
+  assert.ok(/id="ob-new-text"/.test(app.html()), 'the dialog closed first; the box is still open');
+});
+
 rule('App: each Undo and Redo says what it undid or redid, on screen and to screen readers', async () => {
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
@@ -1638,6 +1740,114 @@ rule('App: a new process starts a draft and opens it for editing', async () => {
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
   app.set('np-id', 'code-review'); app.set('np-title', 'Again'); app.submit('new-process-form'); await app.tick(60);
   assert.ok(/already a process called/.test(app.html()), 'never over an existing one');
+});
+
+async function newBlank(opts) {
+  const app = boot(opts); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
+  return app;
+}
+
+rule('New process: run-detail and role names with spaces become dashes, kinds and choice labels untouched, and the message says so', async () => {
+  const app = await newBlank();
+  app.set('np-title', 'Weekly server patching'); app.set('np-context', 'server name, retries:number, env:choice(test env|prod)'); app.set('np-roles', 'on call');
+  app.submit('new-process-form'); await app.tick(120);
+  const md = app.fs.files['maps/drafts/weekly-server-patching.md'];
+  assert.ok(md, 'created');
+  assert.ok(/^context: server-name, retries:number, env:choice\(test env\|prod\)$/m.test(md.t), md.t.split('\n').find(l => /^context/.test(l)));
+  assert.ok(/^roles: on-call$/m.test(md.t));
+  assert.ok(/server name is server-name/.test(app.live()) && /on call is on-call/.test(app.live()), app.live());
+});
+
+rule('New process: a name that still breaks the rule, or one listed twice, is refused beside its box and nothing is created', async () => {
+  for (const [ctxText, roles, box, re] of [['a/b', '', 'np-context', /one word/], ['server name, server-name', '', 'np-context', /listed twice/], ['', 'lead, constructor', 'np-roles', /keeps for itself/]]) {
+    const app = await newBlank();
+    app.set('np-title', 'Weekly server patching'); app.set('np-context', ctxText); app.set('np-roles', roles);
+    app.submit('new-process-form'); await app.tick(120);
+    assert.ok(!app.fs.files['maps/drafts/weekly-server-patching.md'], box + ': nothing created');
+    assert.ok(new RegExp('aria-invalid="true" aria-describedby="ferr-' + box + '"').test(app.html()), box + ': marked');
+    const m = new RegExp('<p class="ferr" id="ferr-' + box + '" role="alert">([^<]*)').exec(app.html());
+    assert.ok(m && re.test(m[1]), box + ': beside its box: ' + (m && m[1]));
+    assert.strictEqual(app.draft(box) || app.el(box).value, ctxText || roles, box + ': the typing stays');
+  }
+});
+
+rule('New process: a blank one starts with no placeholder step, the Add a step box open and focused, and Practice open beside it', async () => {
+  const app = await newBlank();
+  app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
+  const md = app.fs.files['maps/drafts/weekly-server-patching.md'].t;
+  assert.ok(/^## First phase · READ-DO \{#first\}$/m.test(md) && !/first-step|The first thing to do/.test(md), md);
+  assert.ok(/id="ob-new-text"/.test(app.html()), 'the add box is open');
+  assert.strictEqual(app.focused(), 'ob-new-text');
+  assert.ok(/id="pr"/.test(app.html()) && /Add a step to practice it\./.test(app.html()), 'practice open, empty');
+  assert.ok(/Type a step and press Enter for the next one/.test(app.live()), app.live());
+  addEnter(app, 'Patch the servers'); await app.tick();
+  assert.ok(/data-pr-step="patch-the-servers"/.test(app.html()), 'practice follows what was typed');
+});
+
+rule('New process: on a phone the blank one opens with the add box only; in Markdown mode the editor and Practice', async () => {
+  const phone = await newBlank({ narrow: true });
+  phone.set('np-title', 'Weekly server patching'); phone.submit('new-process-form'); await phone.tick(120);
+  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/id="pr"/.test(phone.html()), 'no practice sheet on its own');
+  const md = await newBlank({ localStore: { 'preflight:builder': 'false' } });
+  md.set('np-title', 'Weekly server patching'); md.submit('new-process-form'); await md.tick(120);
+  assert.ok(/id="draft-editor"/.test(md.html()) && /id="pr"/.test(md.html()), 'the Markdown editor, with Practice');
+});
+
+rule('New process: a refresh that read the folder before the draft was written never strands the new draft', async () => {
+  const app = await newBlank();
+  let go, first = true; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.list.bind(app.fs);
+  app.fs.list = x => { if (first && /^maps\/drafts\/?$/.test(x)) { first = false; return orig(x).then(v => gate.then(() => v)); } return orig(x); };
+  app.click('refresh'); await app.tick(20);
+  app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(60);
+  go(); await app.tick(300); app.fs.list = orig;
+  assert.ok(!/wasn.t found/.test(app.html() + app.live()), app.live());
+  assert.ok(/id="ob-new-text"/.test(app.html()), 'the editor opened on the new draft, ready to type');
+});
+
+rule('New process: a blank one practiced to the end offers Stage with What changed prefilled "First version", and stages', async () => {
+  const app = await newBlank();
+  app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
+  addEnter(app, 'Patch the servers'); await app.tick();
+  app.click('save-draft'); await app.tick(150);
+  app.click('pr-check', 'patch-the-servers'); await app.tick();
+  if (/data-act="pr-gate" data-id="0" data-how="pass"/.test(app.html())) { app.click('pr-gate', '0', { how: 'pass' }); await app.tick(); }
+  assert.ok(/<input id="pr-note"[^>]*value="First version"/.test(app.html()), 'prefilled');
+  app.click('pr-stage'); await app.tick(300);
+  assert.ok(Object.keys(app.fs.files).some(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)), 'staged');
+});
+
+rule('New process: once "First version" is staged and practice stays open, the emptied What changed is refused, never staged twice', async () => {
+  const app = await newBlank();
+  app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
+  addEnter(app, 'Patch the servers'); await app.tick();
+  app.click('save-draft'); await app.tick(150);
+  app.click('pr-check', 'patch-the-servers'); await app.tick();
+  if (/data-act="pr-gate" data-id="0" data-how="pass"/.test(app.html())) { app.click('pr-gate', '0', { how: 'pass' }); await app.tick(); }
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  app.click('pr-stage'); await app.tick(30);
+  app.click('pr-sel', 'patch-the-servers'); await app.tick();
+  go(); await app.tick(300); app.fs.write = orig;
+  const staged = () => Object.keys(app.fs.files).filter(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)).length;
+  assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
+  assert.ok(/<input id="pr-note"[^>]*value=""/.test(app.html()), 'the box is empty');
+  app.click('pr-stage'); await app.tick(300);
+  assert.strictEqual(staged(), 1, 'not staged again');
+  assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
+});
+
+rule('New process: a template still starts with its steps and still offers Publish v1 as it is', async () => {
+  const app = await newBlank();
+  assert.ok(/data-act="np-tpl"/.test(app.html()));
+  const tpl = (/data-act="np-tpl" data-id="([^"]+)"/g.exec(app.html().replace(/data-act="np-tpl" data-id="(blank|assistant)"/g, '')) || [])[1];
+  app.click('np-tpl', tpl); await app.tick();
+  assert.ok(/data-act="np-publish"/.test(app.html()));
+  app.set('np-title', 'From a template'); app.submit('new-process-form'); await app.tick(120);
+  const md = app.fs.files['maps/drafts/from-a-template.md'].t;
+  assert.ok(/^- \[[ !~]\] /m.test(md), 'it has steps');
 });
 
 rule('App: a new step type is saved to step-types/ and listed; an invalid one is refused', async () => {
@@ -7928,6 +8138,21 @@ rule('Back and Forward (2.0): "Start it as a Flightdeck 2.0 run" makes one entry
 /* ---------- checklist details, notes and the Questions section in the builder (1.22.0) ---------- */
 const addBox = (app, id, key, value) => { app.set(id, value); app.input(id, value); app.keyOn('Enter', {}, { tagName: 'INPUT', id, value, dataset: { enter: 'ob-meta-add', id: key }, closest: () => null }); };
 const leave = (app, id, value) => { app.input(id, value); app.select(id, value); };
+
+rule('Checklist details: the change that follows an add (a redrawn box) never adds it again or says it\'s already there; a refused add keeps its text', async () => {
+  const app = await builderOn();
+  app.click('ob-sel-details'); await app.tick();
+  for (const [id, key, name, mark] of [['ob-add-ctx', 'context', 'region', '^'], ['ob-add-role', 'roles', 'ops', '@']]) {
+    addBox(app, id, key, name);
+    app.fire('change', { target: { id, value: name } }); await app.tick();
+    assert.ok(!/class="ferr"/.test(app.html()), id + ': no error');
+    assert.ok(new RegExp('Added \\' + mark + name + '\\.').test(app.live()), id + ': the Added message is kept: ' + app.live());
+    assert.strictEqual((app.html().match(new RegExp('data-act="ob-meta-del" data-key="' + key + '" data-id="' + name + '"', 'g')) || []).length, 1, id + ': added once');
+  }
+  addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
+  assert.ok(/already a run detail/.test(app.html()), 'typing the same name again on purpose is still refused');
+  assert.strictEqual(app.draft('ob-add-ctx'), 'region', 'with the typing kept');
+});
 const QDRAFT = ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: lead', 'context: ticket', '---', '',
   '## First · READ-DO {#first}', '- [!] {confirm} One @lead ^ticket {#one}', '',
   '## Questions for the owner', '', '- Who signs off?', '- Which window?', ''].join('\n');
