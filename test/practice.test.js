@@ -485,20 +485,25 @@ rule('malformed slice 2 fields are dropped, never thrown or converted', () => {
   same(P.check(good, 'rel').setBy, { commit: 'tag' });
 });
 
-rule('keep: evidence values go before Fill in, Fill in before answers, and setBy never names a dropped answer', () => {
-  const st = P.fresh('rel'), big = 'v'.repeat(P.VALUE_MAX);
-  for (let i = 0; i < 40; i++) st.answers['s' + i] = { s: 'done', at: 't' + String(i).padStart(3, '0'), own: 'a1', ctx: 'b2', values: { a: big, b: big } };
-  const k1 = JSON.parse(P.keep(st, {}));
-  assert.ok(Object.keys(k1.answers).length === 40, 'answers kept while values can go');
-  assert.ok(Object.values(k1.answers).some(a => !a.values), 'some values dropped');
-  const st2 = P.fresh('rel'), fat = 'f'.repeat(1900);
-  for (let i = 0; i < 400; i++) { st2.answers['s' + i] = { s: 'done', at: 't' + String(i).padStart(4, '0'), own: 'a1', ctx: 'b2' }; st2.fields['s' + i] = { a: fat.slice(0, 300) }; }
-  st2.sample.commit = 'abc'; st2.setBy.commit = 's0';
-  for (let i = 0; i < 300; i++) st2.answers['x' + i] = { s: 'done', at: 'a' + i, own: 'a1', ctx: 'b2', values: { a: fat } };
-  const k2 = JSON.parse(P.keep(st2, {}));
-  assert.ok(k2 && JSON.stringify(k2).length <= P.CAP);
-  Object.keys(k2.setBy).forEach(n => assert.ok(k2.answers[k2.setBy[n]], 'setBy names a kept answer'));
-  if (!k2.answers.s0) assert.ok(!k2.setBy.commit);
+rule('keep: over the cap an answer goes with its evidence and Fill in, and takes its gate and every later one', () => {
+  const md = MD.replace('- [ ] {confirm} Write the notes {#notes}', ['- [ ] {confirm} Write the notes {#notes}'].concat(Array.from({ length: 120 }, (_, i) => '- [ ] {confirm} Extra ' + i + ' {#x' + i + '}')).join('\n'));
+  const map = admit(md), present = {}, fat = 'v'.repeat(P.VALUE_MAX);
+  map.phases.forEach(p => { present[p.id] = present[p.gate.id] = true; p.steps.forEach(s => { present[s.id] = true; }); });
+  const st = P.fresh('rel');
+  map.phases[0].steps.forEach((s, i) => { st.answers[s.id] = { s: 'done', at: 't' + String(i).padStart(4, '0'), own: 'a1', ctx: 'b2', values: { a: fat } }; st.fields[s.id] = { x: 'f' }; });
+  st.answers.page = { s: 'done', at: 'z1', own: 'a1', ctx: 'b2', values: { a: fat } };
+  st.gates.ready = { s: 'passed', reason: '', at: 'z', approved: {}, base: 'ab' }; st.gates[map.phases[1].gate.id] = { s: 'passed', reason: '', at: 'z', approved: {}, base: 'ab' };
+  st.sample.ticket = 'ABC-1'; st.setBy.ticket = 'notes';
+  const k = JSON.parse(P.keep(st, present, map));
+  assert.ok(JSON.stringify(k).length <= P.CAP);
+  assert.ok(Object.keys(k.answers).length < Object.keys(st.answers).length, 'some answers went');
+  Object.keys(k.answers).forEach(id => same(k.answers[id].values, { a: fat }, 'a kept answer keeps its evidence'));
+  Object.keys(k.fields).forEach(id => assert.ok(k.answers[id], 'Fill in only beside a kept answer'));
+  same(k.gates, {}, 'an evicted phase 1 answer drops its gate and the later one');
+  Object.keys(k.setBy).forEach(n => assert.ok(k.answers[k.setBy[n]]));
+  if (!k.answers.notes) same(k.setBy, {});
+  const round = P.check(k, 'rel'), v = P.follow(round, map, {});
+  assert.strictEqual(v.complete, false);
 });
 
 rule('Undo and Redo cover Fill in, setBy and from; an entry from slice 1 still applies', () => {
@@ -528,7 +533,7 @@ rule('a step goes back when the evidence it asks for changes, even where its own
   assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'tell').status, 'open');
 });
 
-rule('a Jira step goes back when the team workflow requires more; a practice Fill in never sends it back', () => {
+rule('a Jira step goes back when the team workflow requires more, for the draft\'s status or a filled-in one', () => {
   const W1 = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done' }] } }).workflows;
   const W2 = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done', fields: [{ name: 'Resolution', options: ['Done'] }] }] } }).workflows;
   const md = ['---', 'process: j', 'title: J', '---', '## P · READ-DO {#p}', '- [!] {jira.issue} Close it {#close}', '  action: transition', '  issue: ABC-1', '  issueType: Story', '  status: Done', ''].join('\n');
@@ -539,7 +544,11 @@ rule('a Jira step goes back when the team workflow requires more; a practice Fil
   assert.strictEqual(step(P.follow(r.state, a.map, e1), 'close').status, 'done');
   assert.strictEqual(step(P.follow(r.state, a.map, e2), 'close').status, 'again');
   const filled = Object.assign({}, r.state, { fields: { close: { status: 'To Do' } } });
-  assert.strictEqual(step(P.follow(filled, a.map, e1), 'close').status, 'done', 'Fill in is not in the fingerprint');
+  const md2 = md.replace('status: Done', 'status: To Do'), a2 = P.admit(md2, types).map;
+  const st2 = Object.assign(P.fresh('j'), { fields: { close: { status: 'Done' } } });
+  const r2 = P.answer(st2, a2, 'close', 'done', e1, NOW); assert.ok(r2.state, r2.error);
+  assert.strictEqual(step(P.follow(r2.state, a2, e1), 'close').status, 'done');
+  assert.strictEqual(step(P.follow(r2.state, a2, e2), 'close').status, 'again', 'the filled-in status now needs Resolution');
 });
 
 run();

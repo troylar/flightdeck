@@ -2440,7 +2440,7 @@
   function prSave(e) {
     var present = {};
     if (e.good) e.good.map.phases.forEach(function (ph) { present[ph.id] = present[ph.gate.id] = true; ph.steps.forEach(function (s) { present[s.id] = true; }); });
-    var text = PR.keep(e.st, present);
+    var text = PR.keep(e.st, present, e.good ? e.good.map : null);
     try { if (text == null) throw new Error('too big'); sessionStorage.setItem(prStoreKey(e.pid), text); }
     catch (err) { if (!e.mem) { e.mem = true; say('Practice is kept in this window only for now: the browser won\'t store more. Nothing in the draft is affected.', 'warn'); } }
   }

@@ -74,21 +74,22 @@ PF.practice = (function () {
   /* The last fingerprints, kept while the map (cached per text by the app), the step types and the sample are the same: a
      redraw or an action that changes no sample costs nothing here. */
   var last = null;
-  function prints(map, sample, types) {
-    var e = envOf(types), sk = JSON.stringify(sample || {}), wk = e.workflows ? fp(e.workflows) : '';
+  function prints(map, sample, types, fields) {
+    var e = envOf(types), sk = JSON.stringify([sample || {}, fields || {}]), wk = e.workflows ? fp(e.workflows) : '';
     if (last && last.map === map && last.types === e.types && last.wk === wk && last.sk === sk) return last.out;
-    var out = printsNow(map, sample, e);
+    var out = printsNow(map, sample, e, fields || {});
     last = { map: map, types: e.types, wk: wk, sk: sk, out: out };
     return out;
   }
-  /* The evidence a step asks for as the draft says it (never practice's Fill in), reduced to what checking it depends on:
-     catches what the signature can't see, a sets: detail whose kind changed or a Jira workflow that now requires more. */
+  /* The evidence a step asks for with its effective fields (the draft's plus practice's Fill in), reduced to what checking
+     it depends on: catches what the signature can't see, a sets: detail whose kind changed or a Jira workflow that now
+     requires more. A Fill in rebases the answer (fillIn), so filling a field doesn't send the step back by itself. */
   function evidenceDef(r, map, s) {
-    var list = R.evidenceFor(r, s, s.fields || {}, map).list;
+    var list = R.evidenceFor(r, s, null, map).list;
     return list.length ? list.map(function (d) { return [d.name, d.kind, !!d.required, d.options || null, d.detail || '', d.source || '']; }) : null;
   }
-  function printsNow(map, sample, e) {
-    var types = e.types, sig = S.steps(map, types || null, null, null, true), out = {}, r = asRun({ sample: sample || {}, steps: {}, gates: {} }, map, null, false, env(e.types, e.workflows));
+  function printsNow(map, sample, e, fields) {
+    var types = e.types, sig = S.steps(map, types || null, null, null, true), out = {}, r = asRun({ sample: sample || {}, steps: {}, gates: {}, fields: fields }, map, null, false, env(e.types, e.workflows));
     map.phases.forEach(function (p, pi) {
       var head = fp([before(map, pi), S.phaseParts(p)]), track = {}, prefix = '';
       p.tracks.forEach(function (t) { track[t.id] = [t.id, t.roles]; });
@@ -127,7 +128,7 @@ PF.practice = (function () {
     return fp([p.gate.id, S.gateParts(p.gate), S.phaseParts(p), before(map, pi), applicable.map(function (s) { return [s.id, now[s.id] ? [now[s.id].own, now[s.id].ctx] : null]; }), detailsPart(map, readsOf(p, null), sample)]);
   }
   function derive(state, map, types) {
-    var now = prints(map, state.sample, types), steps = {}, again = {};
+    var now = prints(map, state.sample, types, state.fields), steps = {}, again = {};
     map.phases.forEach(function (p) {
       p.steps.forEach(function (s) {
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
@@ -137,7 +138,7 @@ PF.practice = (function () {
         else { steps[s.id] = { s: 'recheck', reason: 'changed', by: 'practice', at: a.at }; again[s.id] = a; }
       });
     });
-    var view = { sample: state.sample, steps: steps, gates: {} }, r = asRun(view, map, null, false, types);
+    var view = { sample: state.sample, steps: steps, gates: {}, fields: state.fields || {} }, r = asRun(view, map, null, false, types);
     map.phases.forEach(function (p, pi) {
       var g = own(state.gates, p.gate.id) ? state.gates[p.gate.id] : null;
       if (!g) return;
@@ -260,22 +261,29 @@ PF.practice = (function () {
   function is(re, x) { return typeof x === 'string' && re.test(x); }
   function str(x, n) { return typeof x === 'string' ? x.slice(0, n) : ''; }
   function clean(o, max) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max || 120); }); return out; }
-  /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest answers; null when even
-     an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now. */
-  function keep(state, present) {
+  /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest; null when even
+     an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now; map: the
+     admitted draft. An answer goes as a unit with its evidence and Fill in, so a kept answer always keeps what made it
+     done, and with it every gate from its phase on (R.reopenIds), so no passed gate outlives an answer it relied on. */
+  function keep(state, present, map) {
     var st = copy(state), text = JSON.stringify(st);
     if (text.length <= CAP) return text;
-    /* Over the cap: the answers to drop are chosen first by their own sizes, then the text is made once (and again only
-       if that estimate was short, a few at a time). */
+    var phaseOf = {};
+    if (map) map.phases.forEach(function (p, pi) { p.steps.forEach(function (s) { phaseOf[s.id] = pi; }); });
     var order = Object.keys(st.answers).sort(function (a, b) { var pa = present && present[a] ? 1 : 0, pb = present && present[b] ? 1 : 0; return pa - pb || String(st.answers[a].at).localeCompare(String(st.answers[b].at)); });
+    function drop(id) {
+      var n = JSON.stringify(id).length * 2 + JSON.stringify(st.answers[id]).length + (own(st.fields, id) ? JSON.stringify(st.fields[id]).length : 0) + 4;
+      delete st.answers[id]; delete st.fields[id];
+      if (map && own(phaseOf, id)) R.reopenIds(map, phaseOf[id]).forEach(function (g) { if (own(st.gates, g)) { n += JSON.stringify(st.gates[g]).length + g.length + 4; delete st.gates[g]; } });
+      return n;
+    }
+    /* Over the cap: what to drop is chosen first by its own size, then the text is made once (and again only if that
+       estimate was short, a few at a time). */
     var size = text.length;
-    /* Evidence values go first (the answer stays), then Fill in, then answers themselves. */
-    order.forEach(function (id) { var a = st.answers[id]; if (size > CAP && a.values) { size -= JSON.stringify(a.values).length + 10; delete a.values; } });
-    Object.keys(st.fields).forEach(function (id) { if (size > CAP) { size -= JSON.stringify(id).length + JSON.stringify(st.fields[id]).length + 2; delete st.fields[id]; } });
-    while (order.length && size > CAP) { var id = order.shift(); size -= JSON.stringify(id).length + JSON.stringify(st.answers[id]).length + 2; delete st.answers[id]; }
+    while (order.length && size > CAP) size -= drop(order.shift());
     unset(st);
     text = JSON.stringify(st);
-    while (order.length && text.length > CAP) { for (var n = 0; n < 50 && order.length; n++) delete st.answers[order.shift()]; unset(st); text = JSON.stringify(st); }
+    while (order.length && text.length > CAP) { for (var n = 0; n < 50 && order.length; n++) drop(order.shift()); unset(st); text = JSON.stringify(st); }
     return text.length <= CAP ? text : null;
   }
   /* setBy never names an answer that isn't kept. */
