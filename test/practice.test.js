@@ -404,4 +404,54 @@ rule('a copy of a stand-in never shares its memo, and a real run has none', () =
   assert.ok(!/memo/.test(JSON.stringify(r)));
 });
 
+rule('evidenceFor and checkEvidence with an explicit map are exactly the run\'s own, for every step of every example checklist', () => {
+  const H = require('./harness'), EX = H.exampleSetup(PF), people = JSON.parse(H.example('people.json'));
+  const ids = fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => /\.md$/.test(f)).map(f => f.replace(/\.md$/, ''));
+  let n = 0;
+  ids.forEach(id => {
+    const b = PF.publish.build(H.example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
+    const v = PF.publish.verify(b.folder, b.files), meta = v.map.meta, roles = {}, details = {};
+    meta.context.forEach(k => { details[k] = 'sample-' + k; }); meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
+    const r = R.create(v, { title: meta.title, details, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows }), map = R.mapOf(r);
+    map.phases.forEach(ph => ph.steps.forEach(s => {
+      same(R.evidenceFor(r, s, null, map), R.evidenceFor(r, s), id + ' › ' + s.id);
+      same(R.checkEvidence(r, s, null, {}, false, map), R.checkEvidence(r, s, null, {}, false), id + ' › ' + s.id + ' (empty)');
+      n++;
+    }));
+  });
+  assert.ok(n > 40, 'steps compared: ' + n);
+});
+
+rule('checkFill answers exactly what setFields does, without changing the run', () => {
+  const H = require('./harness'), EX = H.exampleSetup(PF), people = JSON.parse(H.example('people.json'));
+  const ids = fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => /\.md$/.test(f)).map(f => f.replace(/\.md$/, ''));
+  let n = 0, refused = 0;
+  ids.forEach(id => {
+    const b = PF.publish.build(H.example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
+    const v = PF.publish.verify(b.folder, b.files), meta = v.map.meta, roles = {}, details = {};
+    meta.context.forEach(k => { details[k] = 'sample-' + k; }); meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
+    const base = R.create(v, { title: meta.title, details, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows });
+    R.mapOf(base).phases.forEach(ph => ph.steps.forEach(s => {
+      const allowed = PF.types.editable(PF.types.get(s.type, base.types));
+      const tries = allowed.map(f => ({ [f]: '  Filled ' + f + '  ' })).concat([{ notAField: 'x' }]);
+      tries.forEach(fields => {
+        const r = JSON.parse(JSON.stringify(base)), before = JSON.stringify(r), cf = R.checkFill(r, s, fields);
+        assert.strictEqual(JSON.stringify(r), before, 'checkFill changed the run');
+        let err = null;
+        try { R.setFields(r, R.mapOf(r), s.id, fields, null, 'person-casey', NOW); } catch (e) { err = e; }
+        if (cf.error) {
+          refused++;
+          assert.ok(err, id + ' › ' + s.id + ': setFields took what checkFill refused');
+          assert.strictEqual(err.message, cf.error); assert.strictEqual(err.field, cf.field);
+          return;
+        }
+        if (err) return;
+        same((r.fields || {})[s.id] || {}, cf.own, id + ' › ' + s.id);
+        n++;
+      });
+    }));
+  });
+  assert.ok(n > 10 && refused > 40, 'filled ' + n + ', refused ' + refused);
+});
+
 run();
