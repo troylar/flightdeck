@@ -277,30 +277,21 @@ rule('Each screen keeps to its budget of visible words, buttons, boxes and chips
   assert.deepStrictEqual(over, [], 'over budget');
 });
 
-/* ---------- Practice (2.2): the pane's chrome and each step row stay light ---------- */
-function prPane(html) {
-  const i = html.indexOf('<div class="pr" id="pr"'), j = html.indexOf('</div><div class="fpe-tabpanel"', i);
-  assert.ok(i >= 0, 'the pane is drawn');
-  return html.slice(i, j < 0 ? undefined : j);
-}
-rule('Practice: the pane\'s chrome is at most 60 words and 12 controls, each step row at most 3 controls and 1 chip, the selected row\'s extra line at most 3', async () => {
+/* ---------- Practice (2.3): the run screen's practice header and each step row stay light ---------- */
+rule('Practice: the header is at most 60 words and 12 controls; each step row at most 3 controls and 1 chip', async () => {
   for (const [pid, builder] of [['check-in', 'false'], ['release', 'true']]) {
     const app = boot({ localStore: { 'preflight:builder': builder } }); await app.tick(60);
     app.choose('person-casey'); await app.tick();
     app.click('open-process', pid); await app.tick(); app.click('ptab', 'edit'); await app.tick();
-    app.click('pr-open'); await app.tick();
-    const pane = prPane(app.html()), chrome = measure(pane.replace(/<section class="pr-ph"[\s\S]*?<\/section>/g, ''));
-    assert.ok(chrome.words <= 60, pid + ': chrome words ' + chrome.words);
-    assert.ok(chrome.buttons + chrome.inputs <= 12, pid + ': chrome controls ' + (chrome.buttons + chrome.inputs));
-    const rows = pane.match(/<li class="pr-st[\s\S]*?<\/li>/g) || [];
+    app.click('pr-open'); await app.tick(60);
+    const html = app.html(), i = html.indexOf('<header class="fpe-head rw-head pr-head"'), j = html.indexOf('</div></div>', html.indexOf('class="rw-strip pr-strip"'));
+    assert.ok(i >= 0 && j > i, pid + ': the practice header is drawn');
+    const head = measure(html.slice(i, j));
+    assert.ok(head.words <= 60, pid + ': header words ' + head.words);
+    assert.ok(head.buttons + head.inputs <= 12, pid + ': header controls ' + (head.buttons + head.inputs));
+    const rows = html.match(/<li class="step[\s\S]*?<\/li>/g) || [];
     assert.ok(rows.length > 3, pid + ': rows drawn');
     rows.forEach(r => { const m = measure(r); assert.ok(m.buttons + m.inputs <= 3 && m.chips <= 1, pid + ': a row has ' + JSON.stringify(m)); });
-    /* The selected row's extra line (2.2 slice 2): Fill in, Run from here and Edit at most, before a form opens. */
-    const first = /data-pr-step="([^"]+)"/.exec(pane)[1];
-    app.click('pr-sel', first); await app.tick();
-    const more = (prPane(app.html()).match(/<li class="pr-more">[\s\S]*?<\/li>/g) || []);
-    assert.strictEqual(more.length, 1, pid + ': one extra line, on the selected row');
-    const mm = measure(more[0]); assert.ok(mm.buttons + mm.inputs <= 3 && mm.chips === 0, pid + ': the extra line has ' + JSON.stringify(mm));
   }
 });
 

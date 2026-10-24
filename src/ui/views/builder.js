@@ -247,8 +247,10 @@
   /* On a phone the form is a sheet over the outline; Done closes it. */
   /* The selected item's name, Previous / Next through the steps, and on a phone Done to close the sheet. */
   /* crumbs: where it is, as a trail (Verify in production / Product checks / Step 11 of 14). */
+  /* While a practice is open for this draft, the form (a sheet on a phone) also goes straight back to it. */
+  var backToPractice = false;
   function formHead(title, crumbs, prev, next) {
-    return '<div class="ob-form-top"><div class="row between"><h2 id="ob-form-h">' + I('edit') + esc(title) + '</h2><button type="button" class="mini ob-done" data-act="ob-done">Done</button></div>' +
+    return '<div class="ob-form-top"><div class="row between"><h2 id="ob-form-h">' + I('edit') + esc(title) + '</h2><span class="row">' + (backToPractice ? '<button type="button" class="mini ob-practice" data-act="pr-open">Back to practice</button>' : '') + '<button type="button" class="mini ob-done" data-act="ob-done">Done</button></span></div>' +
       (crumbs && crumbs.length ? '<nav aria-label="Where it is"><ol class="ob-crumbs">' + crumbs.map(function (c) { return '<li>' + esc(plain(c)) + '</li>'; }).join('') + '</ol></nav>' : '') +
       (prev !== undefined ? '<div class="row ob-prevnext"><button type="button" class="mini" data-act="ob-sel" data-id="' + esc(prev || '') + '"' + (prev ? '' : ' disabled') + '>Previous step</button><button type="button" class="mini" data-act="ob-sel" data-id="' + esc(next || '') + '"' + (next ? '' : ' disabled') + '>Next step</button></div>' : '') + '</div>';
   }
@@ -275,6 +277,7 @@
      gate. Text boxes apply when you leave them (or press Enter); choices apply at once. */
   function builderForm(ctx, p, text) {
     var sel = selOf(ctx, p); if (!sel) return '';
+    backToPractice = !!(ctx.state.practicing || {})[ctx.fsKey + '\n' + p.id];
     var o = O.parse(text); if (o.unsupported) return '';
     var meta = M.parse(text).meta;
     if (sel.kind === 'details') return detailsForm(ctx, o, meta);

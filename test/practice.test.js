@@ -282,6 +282,39 @@ rule('no run, storage or answer-path code is called from practice, and no rule o
   for (const bad of ['repo.', 'saveRun', 'queued(', 'mutateRun', 'R.done(', 'R.na(', 'R.pass(', 'R.waive(', 'localStorage.', 'sessionStorage.']) assert.ok(src.indexOf(bad) < 0, bad);
 });
 
+rule('renames in a row are followed to the end (a → b → c), as are Run from here and Set by; a rename back is no rename', () => {
+  same(P.compose({ a: 'b', b: 'c' }), { a: 'c', b: 'c' });
+  same(P.compose({ a: 'b', b: 'a' }), {}, 'a cycle ends where it started');
+  const map = admit(MD), st0 = P.setFrom(prep(map), map, 'tell').state;
+  const two = MD.replace('Tell the team {#tell}', 'Tell everyone {#tell3}'), map2 = admit(two);
+  const st = P.settle(st0, map2, { tell: 'tell2', tell2: 'tell3' }, map);
+  assert.strictEqual(st.from, 'tell3', 'Run from here follows the chain');
+  assert.strictEqual(step(P.follow(st, map2, {}), 'tell3').status, 'again', 'the answer follows the chain');
+});
+
+rule('practice Undo after a rename undoes the step as it is named now; Redo brings it back; the old ID keeps its answer for a draft Undo', () => {
+  const map = admit(MD), st0 = P.fresh('rel'), r = P.answer(st0, map, 'notes', 'done', {}, NOW);
+  assert.ok(r.state, r.error);
+  const e = P.undoEntry(st0, r.state, 'Check');
+  const renamed = MD.replace('{#notes}', '{#notes2}'), map2 = admit(renamed);
+  assert.notStrictEqual(renamed, MD, 'the fixture names notes');
+  const st = P.settle(r.state, map2, { notes: 'notes2' }, map), moved = P.compose({ notes: 'notes2' });
+  assert.strictEqual(step(P.follow(st, map2, {}), 'notes2').status, 'done', 'only the ID changed, so the answer holds');
+  const u = P.applyEntry(st, e, moved);
+  assert.strictEqual(step(P.follow(u.state, map2, {}), 'notes2').status, 'open', 'Undo leaves notes2 open');
+  assert.ok(!('notes' in u.state.answers) && !('notes2' in u.state.answers), 'no answer under either ID');
+  const re = P.applyEntry(u.state, u.back, moved);
+  assert.strictEqual(step(P.follow(re.state, map2, {}), 'notes2').status, 'done', 'Redo: as it was after the rename');
+  assert.strictEqual(step(P.follow(re.state, map, {}), 'notes').status, 'done', 'a draft Undo back to notes finds its answer as recorded');
+});
+
+rule('renames are chained in the order they happen: renamed and renamed back, an Undo recorded in between still finds its step', () => {
+  assert.strictEqual(JSON.stringify(P.chain({ a: 'b' }, { b: 'a' })), JSON.stringify({ b: 'a' }), 'b is a again; a is itself');
+  assert.strictEqual(JSON.stringify(P.chain({ a: 'b' }, { b: 'c' })), JSON.stringify({ a: 'c', b: 'c' }));
+  assert.strictEqual(JSON.stringify(P.chain({}, { a: 'b' })), JSON.stringify({ a: 'b' }));
+  assert.strictEqual(JSON.stringify(P.chain({ x: 'y' }, { a: 'b' })), JSON.stringify({ x: 'y', a: 'b' }));
+});
+
 rule('the signature of steps is unchanged by the new gate and phase parts', () => {
   const map = admit(MD), sig = PF.signature.steps(map, null, null, null);
   assert.ok(sig.tell.sig.indexOf('Tell the team') >= 0);
@@ -295,20 +328,15 @@ rule('a 300-step draft: admission, fingerprints and follow well under budget', (
   const md = lines.join('\n');
   let map = admit(md), st = P.fresh('big');
   for (let s = 0; s < 30; s++) st = act(st, map, 's0-' + s);
-  // The pane drawn from the model, as the app draws it (a stand-in ctx: the view only reads ctx.practice and ctx.state).
-  const VP = loadViews(), pane = (m) => VP.views.practicePane({ state: {}, practice: () => ({ model: m, problem: '', paused: '', details: [], sampleErr: null, gone: [], found: '', canUndo: true, canRedo: false, undoLabel: 'Check', hasAnswers: true, saveState: 'Saved' }) }, { id: 'big' }, md);
-  const vmap = VP.practice.admit(md, {}).map; let vst = VP.practice.fresh('big');
-  for (let s = 0; s < 30; s++) vst = VP.practice.answer(vst, vmap, 's0-' + s, 'done', {}, NOW).state;
-  pane(VP.practice.follow(vst, vmap, {}));
+  P.asRun(P.follow(st, map, {}), map, 'casey', true);
   const t0 = process.hrtime.bigint();
-  for (let k = 0; k < 5; k++) { map = admit(md); P.follow(st, map, {}); pane(VP.practice.follow(vst, VP.practice.admit(md, {}).map, {})); }
+  for (let k = 0; k < 5; k++) { map = admit(md); P.asRun(P.follow(st, map, {}), map, 'casey', true); }
   const ms = Number(process.hrtime.bigint() - t0) / 5e6;
-  assert.ok(ms < 80, 'full edit path (admission, fingerprints, follow, the pane) took ' + ms.toFixed(1) + ' ms');
-  // A practice action with the parse cached: the answer, follow and the pane again.
+  assert.ok(ms < 40, 'full edit path (admission, fingerprints, follow, the stand-in run) took ' + ms.toFixed(1) + ' ms');
   const t1 = process.hrtime.bigint();
-  for (let k = 0; k < 10; k++) { const r = VP.practice.answer(vst, vmap, 's0-' + k, 'open', {}, NOW); assert.ok(r.state, r.error); vst = r.state; pane(VP.practice.follow(vst, vmap, {})); }
+  for (let k = 0; k < 10; k++) { const r = P.answer(st, map, 's0-' + k, 'open', {}, NOW); assert.ok(r.state, r.error); st = r.state; P.asRun(P.follow(st, map, {}), map, 'casey', true); }
   const ms1 = Number(process.hrtime.bigint() - t1) / 1e7;
-  assert.ok(ms1 < 30, 'a practice action took ' + ms1.toFixed(1) + ' ms');
+  assert.ok(ms1 < 25, 'a practice action took ' + ms1.toFixed(1) + ' ms');
 });
 
 rule('a team step type changing under an unchanged draft asks again, and its gate needs review', () => {

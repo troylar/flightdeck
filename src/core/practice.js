@@ -146,9 +146,11 @@ PF.practice = (function () {
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
         if (!a) return;
         var same = a.own === now[s.id].own && a.ctx === now[s.id].ctx, via = same ? reads(readsOf(p, s)) : '';
-        if (same && !via) steps[s.id] = { s: a.s, by: 'practice', at: a.at };
+        if (same && !via) { steps[s.id] = { s: a.s, by: 'practice', at: a.at }; if (a.values && !a.skipped) steps[s.id].values = Object.assign({}, a.values); }
         else {
           steps[s.id] = { s: 'recheck', reason: via ? 'setter' : 'changed', detail: via, by: 'practice', at: a.at }; again[s.id] = a;
+          /* What it was checked with is the starting point for trying it again, as a run's Change answer shows. */
+          if (a.values && !a.skipped) steps[s.id].values = Object.assign({}, a.values);
           /* What it set comes from its own answer's values (which follow a new ID, and outlive a changed sets:), matched
              to the checklist's details by their keys; never from setBy. A setter that doesn't apply now sets nothing. */
           if (a.values && !a.skipped && R.applies(r0, map, pi, s).applies !== false) Object.keys(a.values).forEach(function (k) { if (own(keyed, k)) tainted[keyed[k]] = true; });
@@ -384,6 +386,7 @@ PF.practice = (function () {
      longer in the draft are kept, newest 50, so deleting and undoing restores them. */
   function settle(state, map, renames, prev) {
     var st = copy(state), present = {}, changed = false;
+    renames = compose(renames);
     st.from = st.from || '';
     if (st.from && own(renames || {}, st.from)) { st.from = renames[st.from]; changed = true; }
     /* "Set by" follows a new ID too (it only labels the sample box; what flows comes from the answers). */
@@ -413,6 +416,26 @@ PF.practice = (function () {
     var gg = Object.keys(st.gates).filter(function (id) { return !present[id]; });
     gg.slice(GONE_MAX).forEach(function (id) { delete st.gates[id]; changed = true; });
     return changed ? bump(st) : state;
+  }
+
+  /* Renames as they happened (a → b, then b → c) made into where each old ID is now (a → c, b → c). A cycle (a → b → a)
+     ends where it started, so that ID maps to itself and is left out. */
+  function compose(renames) {
+    var out = {};
+    Object.keys(renames || {}).forEach(function (o) {
+      var n = renames[o], seen = {}; seen[o] = true;
+      while (own(renames, n) && !seen[n]) { seen[n] = true; n = renames[n]; }
+      if (n !== o) out[o] = n;
+    });
+    return out;
+  }
+  /* Renames over time: what came before (old → current), then a new set (current → newer). An ID renamed and renamed back
+     is itself again; one that was renamed away and came back points where it is now. */
+  function chain(before, add) {
+    var out = {}, a = add || {};
+    Object.keys(before || {}).forEach(function (o) { var n = own(a, before[o]) ? a[before[o]] : before[o]; if (n !== o) out[o] = n; });
+    Object.keys(a).forEach(function (o) { if (!own(out, o) && !own(before || {}, o) && a[o] !== o) out[o] = a[o]; });
+    return out;
   }
 
   /* ---------- keeping it: sessionStorage, checked when read back, within CAP ---------- */
@@ -491,18 +514,30 @@ PF.practice = (function () {
     if ((before.from || '') !== (after.from || '')) e.from = before.from || '';
     return e;
   }
-  /* Puts back what an entry holds; returns the new state and the entry that undoes this (for Redo). */
-  function applyEntry(state, e) {
-    var st = copy(state), back = { label: e.label };
+  /* Puts back what an entry holds; returns the new state and the entry that undoes this (for Redo). moved: where IDs the
+     entry recorded are now (compose()'s, from the draft's renames since): what it puts back goes under the old ID as
+     recorded and under the current one, so Undo after a rename undoes the step as it's named now. */
+  function applyEntry(state, e, moved) {
+    var st = copy(state), back = { label: e.label }, to = moved || {};
+    var cur = function (id) { return own(to, id) ? to[id] : id; };
     KEYED.forEach(function (k) {
       st[k] = st[k] || {}; back[k] = {};
-      Object.keys(e[k] || {}).forEach(function (x) { back[k][x] = own(st[k], x) ? st[k][x] : null; if (e[k][x] == null) delete st[k][x]; else st[k][x] = e[k][x]; });
+      Object.keys(e[k] || {}).forEach(function (x) {
+        var ids = [x].concat(k !== 'sample' && k !== 'setBy' && cur(x) !== x && !own(e[k], cur(x)) ? [cur(x)] : []);
+        ids.forEach(function (y) {
+          if (own(back[k], y)) return;
+          back[k][y] = own(st[k], y) ? st[k][y] : null;
+          var v = e[k][x];
+          if (k === 'setBy' && typeof v === 'string') v = cur(v);
+          if (v == null) delete st[k][y]; else st[k][y] = v;
+        });
+      });
     });
-    if (typeof e.from === 'string') { back.from = st.from || ''; st.from = e.from; }
+    if (typeof e.from === 'string') { back.from = st.from || ''; st.from = cur(e.from); }
     return { state: bump(st), back: back };
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, VALUES_MAX: VALUES_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
     derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, repin: repin, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
-    undoEntry: undoEntry, applyEntry: applyEntry };
+    undoEntry: undoEntry, applyEntry: applyEntry, compose: compose, chain: chain };
 })();
