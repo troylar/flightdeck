@@ -4,7 +4,7 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
-const { load, rule, run } = require('./harness');
+const { load, loadViews, rule, run } = require('./harness');
 const PF = load(), P = PF.practice, R = PF.run, O = PF.outline;
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const NOW = '2026-10-24T09:00:00.000Z';
@@ -295,10 +295,93 @@ rule('a 300-step draft: admission, fingerprints and follow well under budget', (
   const md = lines.join('\n');
   let map = admit(md), st = P.fresh('big');
   for (let s = 0; s < 30; s++) st = act(st, map, 's0-' + s);
+  // The pane drawn from the model, as the app draws it (a stand-in ctx: the view only reads ctx.practice and ctx.state).
+  const VP = loadViews(), pane = (m) => VP.views.practicePane({ state: {}, practice: () => ({ model: m, problem: '', paused: '', details: [], sampleErr: null, gone: [], found: '', canUndo: true, canRedo: false, undoLabel: 'Check', hasAnswers: true, saveState: 'Saved' }) }, { id: 'big' }, md);
+  const vmap = VP.practice.admit(md, {}).map; let vst = VP.practice.fresh('big');
+  for (let s = 0; s < 30; s++) vst = VP.practice.answer(vst, vmap, 's0-' + s, 'done', {}, NOW).state;
+  pane(VP.practice.follow(vst, vmap, {}));
   const t0 = process.hrtime.bigint();
-  for (let k = 0; k < 5; k++) { map = admit(md); P.follow(st, map, {}); }
+  for (let k = 0; k < 5; k++) { map = admit(md); P.follow(st, map, {}); pane(VP.practice.follow(vst, VP.practice.admit(md, {}).map, {})); }
   const ms = Number(process.hrtime.bigint() - t0) / 5e6;
-  assert.ok(ms < 80, 'full edit path took ' + ms.toFixed(1) + ' ms');
+  assert.ok(ms < 80, 'full edit path (admission, fingerprints, follow, the pane) took ' + ms.toFixed(1) + ' ms');
+  // A practice action with the parse cached: the answer, follow and the pane again.
+  const t1 = process.hrtime.bigint();
+  for (let k = 0; k < 10; k++) { const r = VP.practice.answer(vst, vmap, 's0-' + k, 'open', {}, NOW); assert.ok(r.state, r.error); vst = r.state; pane(VP.practice.follow(vst, vmap, {})); }
+  const ms1 = Number(process.hrtime.bigint() - t1) / 1e7;
+  assert.ok(ms1 < 30, 'a practice action took ' + ms1.toFixed(1) + ' ms');
+});
+
+rule('a team step type changing under an unchanged draft asks again, and its gate needs review', () => {
+  const md = MD.replace('{confirm} Tell the team', '{team.notify} Tell the team');
+  const T1 = { 'team.notify': PF.types.customType({ id: 'team.notify', label: 'Notify', fields: { channel: { kind: 'text' } } }) };
+  const T2 = { 'team.notify': PF.types.customType({ id: 'team.notify', label: 'Notify the team', fields: { channel: { kind: 'text' } } }) };
+  const a = P.admit(md, T1); assert.ok(a.ok, a.why);
+  let st = P.fresh('rel');
+  for (const id of ['notes', 'tag', 'tell']) { const r = P.answer(st, a.map, id, 'done', T1, NOW); assert.ok(r.state, r.error); st = r.state; }
+  const g = P.gateAct(st, a.map, 0, 'pass', '', T1, NOW); assert.ok(g.state, g.error); st = g.state;
+  assert.strictEqual(step(P.follow(st, a.map, T1), 'tell').status, 'done');
+  const v = P.follow(st, P.admit(md, T2).map, T2);
+  assert.strictEqual(step(v, 'tell').status, 'again');
+  assert.strictEqual(phase(v, 'prep').gate.status, 'review');
+});
+
+rule('an approved detail whose kind or options change needs the gate passed again, even with the same sample', () => {
+  const md = MD.replace('context: env:choice(dev|prod), ticket', 'context: env:choice(dev|prod), ticket, amount:number').replace('approves: release of ^ticket', 'approves: release of ^amount');
+  let map = admit(md), st = P.setSample(P.fresh('rel'), map, 'amount', '12').state;
+  st = gate(act(act(act(st, map, 'notes'), map, 'tag'), map, 'tell'), map, 0);
+  assert.strictEqual(phase(P.follow(st, map, {}), 'prep').gate.status, 'passed');
+  const asText = admit(md.replace('amount:number', 'amount'));
+  assert.strictEqual(phase(P.follow(st, asText, {}), 'prep').gate.status, 'review');
+  const choice = md.replace('context: env:choice(dev|prod), ticket, amount:number', 'context: env:choice(dev|prod|test), ticket, amount:number').replace('approves: release of ^amount', 'approves: release of ^amount in ^env');
+  assert.strictEqual(phase(P.follow(st, admit(choice), {}), 'prep').gate.status, 'review', 'what it approves changed');
+});
+
+rule('a kept practice with values that aren\'t text is read without throwing, keeping what is readable', () => {
+  const o = { v: 1, process: 'rel', answers: { a: { s: 'done', own: 'abcdef12', ctx: '12345678', at: { toString: null } }, b: { s: { toString: null }, own: 'abcdef12', ctx: '12345678' } }, gates: { g: { s: 'passed', base: 'abcdef12', reason: { toString: null }, at: 5 } }, sample: { x: { toString: null } }, found: 1 };
+  const st = P.check(o, 'rel');
+  assert.ok(st);
+  same(Object.keys(st.answers), ['a']);
+  assert.strictEqual(st.answers.a.at, '');
+  assert.strictEqual(st.gates.g.reason, '');
+  same(st.sample, {});
+});
+
+rule('one long phase: fingerprints cost one hash per step (3,000 steps well under budget)', () => {
+  const lines = ['---', 'process: long', 'title: Long', '---', '', '## One {#one}'];
+  for (let s = 0; s < 3000; s++) lines.push('- [ ] {confirm} Step ' + s + ' {#s' + s + '}');
+  const map = admit(lines.join('\n'));
+  const t0 = process.hrtime.bigint();
+  P.prints(map, {}, {});
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 150, '3,000 steps in one phase took ' + ms.toFixed(1) + ' ms');
+});
+
+rule('one long conditional phase: still one hash per step', () => {
+  const lines = ['---', 'process: long', 'title: Long', 'context: risk', '---', '', '## One {#one}', '- [ ] {confirm} Only sometimes {#c0}', '  only when ^risk is set'];
+  for (let s = 0; s < 3000; s++) lines.push('- [ ] {confirm} Step ' + s + ' {#s' + s + '}');
+  const map = admit(lines.join('\n'));
+  const t0 = process.hrtime.bigint();
+  P.prints(map, { risk: 'high' }, {});
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 200, '3,000 steps in one conditional phase took ' + ms.toFixed(1) + ' ms');
+});
+
+rule('the compact signature changes nothing for skills: without it, signatures are exactly as before', () => {
+  const md = MD.replace('{#tell}', '{#tell}\n  only when ^env is prod');
+  const map = admit(md), full = PF.signature.steps(map, null, null, null), compact = PF.signature.steps(map, null, null, null, true);
+  assert.ok(full.tell.sig.indexOf('only when') < 0 && full.tell.sig.indexOf('"when"') >= 0 && full.tell.sig.length > compact.tell.sig.length, 'the full signature carries the condition lists');
+  assert.notStrictEqual(full.tell.sig, compact.tell.sig);
+});
+
+rule('over the cap, keeping costs about one pass however many answers there are', () => {
+  const st = P.fresh('big');
+  for (let i = 0; i < 3000; i++) st.answers['step-number-' + i] = { s: 'done', at: '2026-10-24T09:00:' + String(i % 60).padStart(2, '0') + 'Z', own: 'abcdef12', ctx: '12345678' };
+  const t0 = process.hrtime.bigint();
+  let text = null;
+  for (let k = 0; k < 5; k++) text = P.keep(st, {});
+  const ms = Number(process.hrtime.bigint() - t0) / 5e6;
+  assert.ok(text && text.length <= P.CAP, 'it fits');
+  assert.ok(ms < 40, 'keeping 3,000 answers took ' + ms.toFixed(1) + ' ms');
 });
 
 run();

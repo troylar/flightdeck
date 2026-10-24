@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.2.0",
+    "date": "2026-10-24",
+    "headline": "Practice a draft while you edit it",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Editing",
+        "title": "Practice: run the draft on screen while you edit it, recording nothing",
+      "now": "Practice in the draft editor runs what's on screen: check steps, pass gates, try sample details, and keep editing. A step you change says Try it again; a gate whose steps changed asks for a pass again; the rest keeps your place. It has its own Undo, and offers Stage it for a test run at the end. It stays in this browser tab, is never written to the team folder, and never counts as a run.",
+        "before": "The only way to try a change was to stage it and start a test run.",
+        "where": "The draft editor, Practice"
+      }
+    ]
+  },
+  {
     "version": "2.1.1",
     "date": "2026-10-23",
     "headline": "A planned run starts exactly once",

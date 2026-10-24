@@ -60,17 +60,31 @@ PF.practice = (function () {
   function readsOf(phase, step) { return PF.conditions.names(phase, step).concat(step ? step.binds : phase.gate.binds).filter(function (n, k, all) { return all.indexOf(n) === k; }).sort(); }
   function detailsPart(map, names, sample) { return names.map(function (n) { return [n, R.detailValueDef(map, n), own(sample, n) ? sample[n] : '']; }); }
   function before(map, pi) { var out = []; for (var i = 0; i < pi; i++) out.push(map.phases[i].id, map.phases[i].gate.id); return out; }
+  /* The last fingerprints, kept while the map (cached per text by the app), the step types and the sample are the same: a
+     redraw or an action that changes no sample costs nothing here. */
+  var last = null;
   function prints(map, sample, types) {
-    var sig = S.steps(map, types || null, null, null), out = {};
-    map.phases.forEach(function (p, pi) {
-      var seq = before(map, pi), track = {};
+    var sk = JSON.stringify(sample || {});
+    if (last && last.map === map && last.types === types && last.sk === sk) return last.out;
+    var out = printsNow(map, sample, types);
+    last = { map: map, types: types, sk: sk, out: out };
+    return out;
+  }
+  function printsNow(map, sample, types) {
+    var sig = S.steps(map, types || null, null, null, true), out = {};
+    var seq = [];
+    map.phases.forEach(function (p) {
+      var head = fp([seq, S.phaseParts(p)]), track = {}, prefix = '';
       p.tracks.forEach(function (t) { track[t.id] = [t.id, t.roles]; });
-      p.steps.forEach(function (s, si) {
+      /* The steps before this one, as a running fingerprint, so a long phase costs one hash per step. */
+      p.steps.forEach(function (s) {
         out[s.id] = {
           own: fp([sig[s.id] ? sig[s.id].sig : null, s.planned]),
-          ctx: fp([seq, S.phaseParts(p), p.steps.slice(0, si).map(function (x) { return x.id; }), track[s.track] || null, detailsPart(map, readsOf(p, s), sample)])
+          ctx: fp([head, prefix, track[s.track] || null, detailsPart(map, readsOf(p, s), sample)])
         };
+        prefix = fp([prefix, s.id]);
       });
+      seq.push(p.id, p.gate.id);
     });
     return out;
   }
@@ -205,21 +219,29 @@ PF.practice = (function () {
   function check(o, process) {
     if (!o || typeof o !== 'object' || o.v !== V || o.process !== process || typeof o.answers !== 'object' || typeof o.gates !== 'object' || typeof o.sample !== 'object' || !o.answers || !o.gates || !o.sample) return null;
     var st = fresh(process);
-    Object.keys(o.answers).slice(0, 2000).forEach(function (id) { var a = o.answers[id]; if (a && REC.test(a.s) && HEX.test(a.own) && HEX.test(a.ctx) && id.length <= 80) st.answers[id] = { s: a.s, at: String(a.at || '').slice(0, 40), own: a.own, ctx: a.ctx }; });
-    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (g && GREC.test(g.s) && HEX.test(g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: String(g.reason || '').slice(0, 200), at: String(g.at || '').slice(0, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
+    Object.keys(o.answers).slice(0, 2000).forEach(function (id) { var a = o.answers[id]; if (a && typeof a === 'object' && is(REC, a.s) && is(HEX, a.own) && is(HEX, a.ctx) && id.length <= 80) st.answers[id] = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx }; });
+    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
     st.sample = clean(o.sample);
     st.found = typeof o.found === 'string' ? o.found.slice(0, FOUND_MAX) : '';
     st.rev = typeof o.rev === 'number' && isFinite(o.rev) ? o.rev : 0;
     return st;
   }
+  /* Only text is read from a kept record: anything else is dropped, never converted (it could throw). */
+  function is(re, x) { return typeof x === 'string' && re.test(x); }
+  function str(x, n) { return typeof x === 'string' ? x.slice(0, n) : ''; }
   function clean(o) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, 120); }); return out; }
   /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest answers; null when even
      an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now. */
   function keep(state, present) {
     var st = copy(state), text = JSON.stringify(st);
     if (text.length <= CAP) return text;
+    /* Over the cap: the answers to drop are chosen first by their own sizes, then the text is made once (and again only
+       if that estimate was short, a few at a time). */
     var order = Object.keys(st.answers).sort(function (a, b) { var pa = present && present[a] ? 1 : 0, pb = present && present[b] ? 1 : 0; return pa - pb || String(st.answers[a].at).localeCompare(String(st.answers[b].at)); });
-    while (order.length && text.length > CAP) { delete st.answers[order.shift()]; text = JSON.stringify(st); }
+    var size = text.length;
+    while (order.length && size > CAP) { var id = order.shift(); size -= JSON.stringify(id).length + JSON.stringify(st.answers[id]).length + 2; delete st.answers[id]; }
+    text = JSON.stringify(st);
+    while (order.length && text.length > CAP) { for (var n = 0; n < 50 && order.length; n++) delete st.answers[order.shift()]; text = JSON.stringify(st); }
     return text.length <= CAP ? text : null;
   }
 

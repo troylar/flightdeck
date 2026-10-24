@@ -121,17 +121,18 @@ const BUDGETS = {
   finish: { words: 48, buttons: 4, inputs: 0, target: { words: 70, inputs: 0 } },
   'new process': { words: 33, buttons: 6, inputs: 1, target: { inputs: 1 } },
   /* Raised by 3 on purpose: the builder banner now says the whole path (Save draft, then Done to publish). */
-  'builder, a step selected': { words: 281, buttons: 35, target: { words: 350, buttons: 36 } },
+  /* Raised by 1 word and 1 button in 2.2: the editor's Practice button. */
+  'builder, a step selected': { words: 282, buttons: 36, target: { words: 350, buttons: 36 } },
   'folder health': { words: 135, buttons: 6, target: { words: 110 } },
   /* The same screens for a checklist with conditions (2.1), Release with one on a step and one on a phase: each condition is
      one muted line, and the builder's is one closed "Only when…" until it's used. The release builder without them is the
      baseline: a step with a condition adds its open box and hint, and the outline's two condition lines. */
-  'builder, release, a step selected': { words: 467, buttons: 62, inputs: 10 },
+  'builder, release, a step selected': { words: 468, buttons: 63, inputs: 10 },
   'process page with conditions, its owner': { words: 404, buttons: 24, chips: 9 },
   'process page with conditions, a non-owner': { words: 257, buttons: 13, chips: 3 },
   'run with conditions, just started': { words: 349, buttons: 37, chips: 5 },
-  'builder with conditions, a step selected': { words: 487, buttons: 62, inputs: 11 },
-  'builder, a step without conditions selected': { words: 477, buttons: 62, inputs: 10 },
+  'builder with conditions, a step selected': { words: 488, buttons: 63, inputs: 11 },
+  'builder, a step without conditions selected': { words: 478, buttons: 63, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
   'process page with a stage, its owner': { words: 415, buttons: 24, chips: 9 },
@@ -274,6 +275,27 @@ rule('Each screen keeps to its budget of visible words, buttons, boxes and chips
     Object.keys(BUDGETS[name]).filter(k => k !== 'target').forEach(k => { if (got[name][k] > BUDGETS[name][k]) over.push(name + ' ' + k + ' ' + got[name][k] + ' > ' + BUDGETS[name][k]); });
   });
   assert.deepStrictEqual(over, [], 'over budget');
+});
+
+/* ---------- Practice (2.2): the pane's chrome and each step row stay light ---------- */
+function prPane(html) {
+  const i = html.indexOf('<div class="pr" id="pr"'), j = html.indexOf('</div><div class="fpe-tabpanel"', i);
+  assert.ok(i >= 0, 'the pane is drawn');
+  return html.slice(i, j < 0 ? undefined : j);
+}
+rule('Practice: the pane\'s chrome is at most 60 words and 12 controls, and each step row at most 3 controls and 1 chip', async () => {
+  for (const [pid, builder] of [['check-in', 'false'], ['release', 'true']]) {
+    const app = boot({ localStore: { 'preflight:builder': builder } }); await app.tick(60);
+    app.choose('person-casey'); await app.tick();
+    app.click('open-process', pid); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+    app.click('pr-open'); await app.tick();
+    const pane = prPane(app.html()), chrome = measure(pane.replace(/<section class="pr-ph"[\s\S]*?<\/section>/g, ''));
+    assert.ok(chrome.words <= 60, pid + ': chrome words ' + chrome.words);
+    assert.ok(chrome.buttons + chrome.inputs <= 12, pid + ': chrome controls ' + (chrome.buttons + chrome.inputs));
+    const rows = pane.match(/<li class="pr-st[\s\S]*?<\/li>/g) || [];
+    assert.ok(rows.length > 3, pid + ': rows drawn');
+    rows.forEach(r => { const m = measure(r); assert.ok(m.buttons + m.inputs <= 3 && m.chips <= 1, pid + ': a row has ' + JSON.stringify(m)); });
+  }
 });
 
 /* ---------- Folder health: the passing checks fold into one line ---------- */

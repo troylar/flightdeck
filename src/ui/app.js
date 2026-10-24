@@ -1247,6 +1247,9 @@
     var tpl = document.createElement('template');
     if (!tpl.content || !el.firstChild) { el.innerHTML = html; return; }
     tpl.innerHTML = html;
+    /* The phone sheets' temporary inert marks aren't in the markup: off before comparing, so the nodes under them are kept
+       (and the sheet's scroll with them); sheet() puts them back after the redraw. */
+    if (el === app) { obInert.forEach(function (n) { n.removeAttribute('inert'); }); obInert = []; }
     morph(el, tpl.content, 6);
   }
   function sameAttrs(x, y) {
@@ -1546,7 +1549,7 @@
   function savePanes() { var k = { key: state.runKey }; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el) k[id] = el.scrollTop; }); state.paneScroll = k; }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
      closing returns focus to the step it came from. */
-  var sheetWasOpen = false, obSheetOpen = false, obInert = [];
+  var sheetWasOpen = false, obSheetOpen = false, obInert = [], prSheetOpen = false;
   /* The builder's side form too: on a phone it covers the outline, everything else is inert, and Done closes it. */
   function obSheet(narrow) {
     obInert.forEach(function (el) { el.removeAttribute('inert'); }); obInert = [];
@@ -1560,9 +1563,22 @@
     obSheetOpen = open;
     return open;
   }
+  /* Practice (2.2) on a phone: the pane is a sheet over the editor in the same way; Done practicing, Escape or Back closes it
+     and the practice is kept. */
+  function prSheet(narrow) {
+    var cp = narrow && state.view === 'process' && state.ptab === 'edit' && state.insTab === 'practice' ? currentProcess() : null, pane = cp && state.practicing[edKey(cp.id)] ? app.querySelector('#pr') : null, open = !!(pane && !pane.closest('[hidden]') && state.view === 'process' && state.ptab === 'edit' && !state.overlay);
+    if (open) {
+      for (var n = pane; n && n !== app && n.parentNode; n = n.parentNode) Array.prototype.forEach.call(n.parentNode.children, function (sib) { if (sib !== n && !sib.hasAttribute('inert')) { sib.setAttribute('inert', ''); obInert.push(sib); } });
+      /* The view draws role="dialog" and aria-modal on a phone, so a redraw keeps the pane (and its scroll). */
+      topEl.setAttribute('inert', '');
+      if (!pane.contains(document.activeElement)) { var h = pane.querySelector('#pr-h'); if (h) h.focus(); }
+    }
+    prSheetOpen = open;
+    return open;
+  }
   function sheet() {
     var narrow = window.matchMedia && window.matchMedia('(max-width: 800px)').matches, ref = app.querySelector('.rw-ins[data-open="true"]');
-    if (obSheet(narrow)) return;
+    if (obSheet(narrow) || prSheet(narrow)) return;
     var open = !!(narrow && ref && state.view === 'run');
     app.querySelectorAll('.rw-head, .rw-strip, .rw-alerts, .rw-rail, .rw-list').forEach(function (el) { if (open) el.setAttribute('inert', ''); else el.removeAttribute('inert'); });
     if (open) { topEl.setAttribute('inert', ''); ref.setAttribute('role', 'dialog'); ref.setAttribute('aria-modal', 'true'); if (!sheetWasOpen || !ref.contains(document.activeElement)) { var c = ref.querySelector('.close'); if (c) c.focus(); } }
@@ -2405,6 +2421,157 @@
       return Promise.resolve(opts.after ? opts.after(res) : null).then(function () { if (g === gen) return load(true); });
     }, function (err) { done(); if (fsKey() !== key) return; say(err && err.tooBig ? err.message : 'Couldn\'t save the draft of ' + p.title + ': ' + err.message + (opts.failed ? opts.failed(err) || '' : ''), 'bad'); render(); });
   }
+  /* ---------- practice (2.2, docs/design.md section 34): the draft as it's on screen, in this tab only ----------
+     Never a run: its state lives here and in sessionStorage, never in data.runs, the save queues or the folder. Every rule
+     is PF.practice's (which reads PF.run's). Its own Undo, separate from the draft's. */
+  var PR = PF.practice;
+  state.practicing = {};
+  var prs = {};
+  function prStoreKey(pid) { return LS + ':practice:' + fsKey() + ':' + pid; }
+  function prEntry(pid) {
+    var k = edKey(pid), e = prs[k];
+    if (e) return e;
+    var st = null, raw = null, lost = false;
+    try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
+    if (raw) { try { st = PR.check(JSON.parse(raw), pid); } catch (err) { st = null; } lost = !st; }
+    return (prs[k] = { pid: pid, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, rows: [], gateErr: null, refusal: null,
+      note: lost ? 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.' : '' });
+  }
+  function prSave(e) {
+    var present = {};
+    if (e.good) e.good.map.phases.forEach(function (ph) { present[ph.id] = present[ph.gate.id] = true; ph.steps.forEach(function (s) { present[s.id] = true; }); });
+    var text = PR.keep(e.st, present);
+    try { if (text == null) throw new Error('too big'); sessionStorage.setItem(prStoreKey(e.pid), text); }
+    catch (err) { if (!e.mem) { e.mem = true; say('Practice is kept in this window only for now: the browser won\'t store more. Nothing in the draft is affected.', 'warn'); } }
+  }
+  /* A builder edit gave a part a new ID: its practice answer follows (as another try) and stays under the old one. */
+  function prRename(pid, from, to) {
+    if (!from || !to || from === to) return;
+    var e = prs[edKey(pid)]; if (!e) return;
+    e.renames[from] = to; e.renames[from + '-confirm'] = to + '-confirm';
+  }
+  function typesRev() { var t = (data.stepTypes || {}).types || {}; return Object.keys(t).length + ':' + U.hash(JSON.stringify(t)); }
+  /* The admitted map for this text (cached by text and step types); a refused text keeps the last one that was admitted. */
+  function prMap(e, text) {
+    var key = typesRev() + '\n' + text;
+    if (e.cache && e.cache.key === key) return e.cache;
+    var a = PR.admit(text, (data.stepTypes || {}).types || {});
+    if (a.ok) {
+      e.st = PR.settle(e.st, a.map, e.renames); e.renames = {};
+      e.good = { text: text, map: a.map };
+    }
+    e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
+    return e.cache;
+  }
+  /* What the pane draws (views/practice.js). */
+  ctx.practice = function (p, text) {
+    var e = prEntry(p.id), c = prMap(e, text), map = c.map, ed = editorOf(p.id);
+    var pend = state.obPending === p.id && state.obPendingField ? 'Apply or clear what you typed in the box first ' + applyHint(state.obPendingField) + ', then practice it.' : '';
+    var model = map ? PR.follow(e.st, map, (data.stepTypes || {}).types || {}, state.me) : null;
+    var details = map ? (map.meta.context || []).map(function (n) {
+      var d = PF.run.detailValueDef(map, n), hint = d && d.options && d.options.length ? 'one of ' + d.options.join(', ') : d && d.kind && d.kind !== 'text' ? d.kind : '';
+      return { name: n, value: e.st.sample[n] || '', hint: hint };
+    }) : [];
+    var gone = model ? model.gone.filter(function (id) { return !PR.isTemp(id); }) : [];
+    /* The selected step: the last one chosen here or in the builder, for this process. One removed or hidden hands over to
+       the next row that was below it, else the one above. */
+    var rows = [], ids = {}, phs = {}, sel = null, want = state.prSel && state.prSel.k === edKey(p.id) ? state.prSel.id : state.obSel && state.obSel.pid === p.id && state.obSel.kind === 'step' ? state.obSel.key : null;
+    if (model) model.phases.forEach(function (ph) { phs['ph:' + ph.id] = true; ph.steps.forEach(function (s) { if (s.status !== 'hidden') { rows.push({ id: s.id, ph: ph.id }); ids[s.id] = true; } }); });
+    if (want && (ids[want] || phs[want])) sel = want;
+    else if (want && model) {
+      /* Within the phase it was in: the next row, else the one above, else the phase's heading. Kept as the selection. */
+      var at = -1; e.rows.forEach(function (r, k) { if (r.id === want) at = k; });
+      var ph = at >= 0 ? e.rows[at].ph : null, near = function (k) { return k >= 0 && k < e.rows.length && e.rows[k].ph === ph && ids[e.rows[k].id]; };
+      for (var i = at + 1; at >= 0 && i < e.rows.length && !sel; i++) if (near(i)) sel = e.rows[i].id;
+      for (var j = at - 1; at >= 0 && j >= 0 && !sel; j--) if (near(j)) sel = e.rows[j].id;
+      if (!sel && ph && phs['ph:' + ph]) sel = 'ph:' + ph;
+      state.prSel = sel ? { k: edKey(p.id), id: sel } : null;
+    }
+    if (model) e.rows = rows;
+    if (model) model.phases.forEach(function (ph) { var g = map.phases.filter(function (x) { return x.id === ph.id; })[0]; ph.gate.approves = g && g.gate.approves ? 'Approves ' + PF.run.fill(g.gate.approves, Object.assign({}, e.st.sample)) : ''; });
+    return { model: model, sel: sel, narrow: narrow(), typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
+      canUndo: e.undo.length > 0, canRedo: e.redo.length > 0, undoLabel: e.undo.length ? e.undo[e.undo.length - 1].label : '',
+      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0, saveState: V.draftStatus(ctx, p, ed, text) };
+  };
+  /* One practice action: refused ones say why; done ones push one Undo entry. */
+  function prDo(pid, label, fn, focus, at) {
+    var p = currentProcess(); if (!p || p.id !== pid) return;
+    var e = prEntry(pid), ed = editorOf(pid), text = ed ? (ed.text != null ? ed.text : ed.base) : p.draft ? p.draft.md : p.latest ? p.latest.md : '';
+    var c = prMap(e, text);
+    if (!c.map) return false;
+    if (state.obPending === pid && state.obPendingField) { say('Apply or clear what you typed in the box first ' + applyHint(state.obPendingField) + ', then practice it.', 'warn'); render(); return false; }
+    var r = fn(e.st, c.map);
+    /* Refused: said beside the step or gate it was about, inside the pane (also as a phone sheet), and announced. */
+    if (r.error) { e.refusal = { at: at == null ? null : String(at), msg: r.error }; say(r.error, 'warn'); state.msg.quiet = true; render(); return false; }
+    e.refusal = null; e.note = '';
+    if (r.state === e.st) return false;
+    e.undo.push(PR.undoEntry(e.st, r.state, label)); if (e.undo.length > PR.UNDO_MAX) e.undo.shift();
+    e.redo = []; e.st = r.state; prSave(e);
+    if (focus) state.focus = focus;
+    render();
+    return true;
+  }
+  function prMove(pid, back) {
+    var e = prs[edKey(pid)]; if (!e) return;
+    var from = back ? e.undo : e.redo, to = back ? e.redo : e.undo, x = from.pop(); if (!x) return;
+    var r = PR.applyEntry(e.st, x); to.push(r.back); e.st = r.state; e.typed = {}; e.sampleErr = {}; prSave(e);
+    say((back ? 'Undid: ' : 'Redid: ') + x.label + '.', 'good'); state.msg.quiet = true; render();
+  }
+  /* A successful publish or stage of exactly the practiced text ends the practice; anything else keeps it. */
+  function prEnded(pid, text) {
+    var k = edKey(pid), e = prs[k];
+    if (!e || !e.good || e.good.text !== text) return;
+    delete prs[k]; delete state.practicing[k];
+    try { sessionStorage.removeItem(prStoreKey(pid)); } catch (err) { /* this tab only */ }
+  }
+  /* Escape in the pane (not on a phone, where it closes the sheet): back to the outline or the Markdown, practice kept. */
+  function prBack() { var ol = document.getElementById('ob-outline') || document.getElementById('draft-editor'); if (ol) { if (!ol.hasAttribute('tabindex') && ol.tagName !== 'TEXTAREA') ol.setAttribute('tabindex', '-1'); ol.focus(); } }
+  /* The selection is shared: the builder's outline highlights the same step (without opening its form or moving focus). */
+  function prPick(pid, id) {
+    state.prSel = { k: edKey(pid), id: id };
+    if (state.builder !== false && !PR.isTemp(id) && !(state.obPending === pid && state.obPendingField)) state.obSel = { pid: pid, kind: 'step', key: id };
+  }
+  /* A step's status as the pane shows it (done, skipped, again…), not as last answered. */
+  function prStatus(st, map, id) { var s = null; PR.follow(st, map, (data.stepTypes || {}).types || {}, state.me).phases.forEach(function (ph) { ph.steps.forEach(function (x) { if (x.id === id) s = x; }); }); return s ? s.status : null; }
+  function prFocusRow(id) { return '[data-pr-step="' + cssEsc(id) + '"] .pr-check'; }
+  var prActs = {
+    'pr-open': function () { var p = currentProcess(); if (!p) return; state.practicing[edKey(p.id)] = true; prEntry(p.id); state.insTab = 'practice'; state.focus = 'pr-h'; render(); },
+    'pr-close': function () { var p = currentProcess(); if (!p) return; delete state.practicing[edKey(p.id)]; if (state.insTab === 'practice') state.insTab = null; state.focus = '[data-act="pr-open"]'; say('Practice is kept in this tab. Choose Practice to pick it up again.', 'good'); state.msg.quiet = true; render(); },
+    'pr-check': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); var e = prEntry(p.id), done = e.st.answers[id] && e.st.answers[id].s === 'done'; prDo(p.id, done ? 'Uncheck' : 'Check', function (st, map) { var cur = PR.follow(st, map, (data.stepTypes || {}).types || {}, state.me), s = null; cur.phases.forEach(function (ph) { ph.steps.forEach(function (x) { if (x.id === id) s = x; }); }); return PR.answer(st, map, id, s && s.status === 'done' ? 'open' : 'done', (data.stepTypes || {}).types || {}, new Date().toISOString()); }, prFocusRow(id), id); },
+    'pr-na': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); prDo(p.id, 'Not needed', function (st, map) { var on = prStatus(st, map, id) === 'skipped'; return PR.answer(st, map, id, on ? 'open' : 'na', (data.stepTypes || {}).types || {}, new Date().toISOString()); }, '[data-pr-step="' + cssEsc(id) + '"] .pr-na', id); },
+    'pr-gate': function (id, b) {
+      var p = currentProcess(); if (!p) return; var how = b && b.dataset.how, pi = +id, why = (document.getElementById('pr-why-' + pi) || {}).value || '';
+      var e = prEntry(p.id); e.gateErr = null;
+      /* A waiver without its reason says so beside the reason box (inside the pane, also as a phone sheet). */
+      var ok = prDo(p.id, how === 'reopen' ? 'Reopen the phase' : how === 'waive' ? 'Waive the gate' : 'Pass the gate', function (st, map) { var r = PR.gateAct(st, map, pi, how, why, (data.stepTypes || {}).types || {}, new Date().toISOString()); if (r.error && how === 'waive') { e.gateErr = { pi: pi, msg: r.error }; return { state: st }; } return r; }, 'pr-h', 'gate:' + pi);
+      if (!ok && e.gateErr) { state.focus = 'pr-why-' + pi; render(); }
+    },
+    'pr-reset': function () { var p = currentProcess(); if (!p) return; var re = prEntry(p.id); if (!prDo(p.id, 'Reset', function (st) { re.typed = {}; re.sampleErr = {}; return PR.reset(st); }, 'pr-h')) return; say('Practice reset. Undo brings it back.', 'good', { act: 'pr-undo', label: 'Undo' }); render(); },
+    'pr-undo': function () { var p = currentProcess(); if (p) prMove(p.id, true); },
+    'pr-redo': function () { var p = currentProcess(); if (p) prMove(p.id, false); },
+    'pr-goto': function (id) {
+      var p = currentProcess(); if (!p) return; prPick(p.id, id);
+      if (PR.isTemp(id) || state.builder === false) { state.focus = prFocusRow(id); render(); return; }
+      ACTIONS['ob-sel'](id);
+    },
+    /* Copy what I found: the clipboard when the browser allows it; otherwise the text is selected in its box to copy by hand. */
+    'pr-copy': function () {
+      var p = currentProcess(); if (!p) return; var e = prEntry(p.id), text = e.st.found; if (!text) return;
+      var say1 = function (m) { var el = document.getElementById('pr-copy-msg'); if (el) el.textContent = m; };
+      var hand = function () { var ta = document.getElementById('pr-found'); if (ta) { ta.focus(); if (ta.select) ta.select(); } say1('Selected. Press Ctrl+C (Cmd+C on a Mac) to copy it.'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { say1('Copied. Paste it wherever you keep notes, or to your AI assistant.'); }, hand);
+      else hand();
+    },
+    /* From the success notice: unsaved edits are saved first (the notice offers Save draft then); a saved draft goes to its
+       process page with All versions open on the change note, where Stage the draft for testing is. */
+    'pr-stage': function () {
+      var p = currentProcess(); if (!p) return;
+      if (state.obPending === p.id && state.obPendingField) { say('Apply or clear what you typed in the box first ' + applyHint(state.obPendingField) + ', then save the draft and stage it.', 'warn'); render(); return; }
+      if (editorDirty(p)) { say('Save the draft first, then stage it.', 'warn'); state.focus = '[data-act="save-draft"]'; render(); return; }
+      ACTIONS['ed-done'](); state.disc = Object.assign({}, state.disc); state.disc['vers:' + p.id] = true; state.focus = 'change-note';
+      say('Write what changed, then choose Stage the draft for testing.', 'good'); render();
+    }
+  };
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
   function caFind(pid, gid) {
@@ -3094,7 +3261,7 @@
     var refocus = '#' + id, res = null, ed = openEditor(cp), o = PF.outline.parse(edText(cp)), fresh = function (x) { return isFresh(ed, x); };
     var ph = o.phases.filter(function (x) { return x.key === s.key; })[0];
     /* A part added in this window and not saved yet takes its ID from the name it's given (it's in no run or skill). */
-    var reid = function (oldId, r) { if (r && r.id && r.id !== oldId && fresh(oldId)) markFresh(ed, r.id); return r; };
+    var reid = function (oldId, r) { if (r && r.id && r.id !== oldId && fresh(oldId)) markFresh(ed, r.id); if (r && r.id && oldId && r.id !== oldId) prRename(cp.id, oldId, r.id); return r; };
     if (s.kind === 'details') {
       var mk2 = { 'ob-owner': 'owner', 'ob-backup': 'backup', 'ob-add-role': 'roles', 'ob-add-ctx': 'context' }, key = Object.prototype.hasOwnProperty.call(mk2, id) ? mk2[id] : null;
       if (!key) return;
@@ -3581,13 +3748,14 @@
     var om = document.querySelector && document.querySelector('.rw-menu[open]');
     if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; render(); var sm = om.querySelector && om.querySelector('summary'); if (sm) sm.focus(); return true; }
     var tf = state.tfPreview && state.view === 'types';
-    if (!tf && !state.obPlace && !state.obAsk && !obSheetOpen && !(sheetWasOpen && state.view === 'run')) return false;
+    if (!tf && !state.obPlace && !state.obAsk && !obSheetOpen && !prSheetOpen && !(sheetWasOpen && state.view === 'run')) return false;
     var dirty = pendingBox();
     if (dirty) { refuseFor(dirty); return true; }
     if (tf) ACTIONS['tf-preview']();
     else if (state.obPlace) cancelPlacing();
     else if (state.obAsk) ACTIONS['ob-ask-cancel']();
     else if (obSheetOpen) ACTIONS['ob-done']();
+    else if (prSheetOpen) ACTIONS['pr-close']();
     else { state.refOpen = false; render(); }
     return true;
   }
@@ -4035,7 +4203,7 @@
       var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce && ce.tl) TL.close(ce.tl);
       state.focus = '[data-act="ed-mode"][data-id="' + (state.builder ? 'builder' : 'markdown') + '"]'; render();
     },
-    'ob-sel': function (id) { var p = currentProcess(); if (!p || !id) return; if (obHeld(p)) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'step', key: id }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
+    'ob-sel': function (id) { var p = currentProcess(); if (!p || !id) return; if (obHeld(p)) return; obClearErr(); state.insTab = null; state.obSel = { pid: p.id, kind: 'step', key: id }; state.prSel = null; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(id) + '"]'; render(); },
     'ob-sel-track': function (id, b) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); state.insTab = null; var k = b && b.dataset ? +b.dataset.track : 0; state.obSel = { pid: p.id, kind: 'track', key: id, track: k }; state.obAdd = null; state.obAsk = null; state.planFormReset = true; state.focus = '[data-act="ob-sel-track"][data-id="' + cssEsc(id) + '"][data-track="' + k + '"]'; render(); },
     'ob-part': function (id) {
       var pl = state.obPlace, sheet = !!(state.overlay && state.overlay.obParts);
@@ -4046,8 +4214,8 @@
     },
     /* The inspector's tabs; Checks and Preview are remembered in this browser. */
     'ins-tab': function (id) {
-      if (['selected', 'checks', 'preview'].indexOf(id) < 0) return;
-      state.insTab = id; if (id !== 'selected') { state.insTabSaved = id; lsSet('insTab', id); }
+      if (['selected', 'checks', 'preview', 'practice'].indexOf(id) < 0) return;
+      state.insTab = id; if (id !== 'selected' && id !== 'practice') { state.insTabSaved = id; lsSet('insTab', id); }
       state.focus = '#ins-t-' + id; render();
     },
     'ob-rail': function () { state.partsRail = !state.partsRail; lsSet('partsRail', state.partsRail); state.focus = '[data-act="ob-rail"]'; render(); },
@@ -4405,7 +4573,7 @@
         if (pg !== gen) return;
         if (res.changed) { say('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.', 'warn'); return load(true); }
         if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
-        state.clearInputs = 'change-note'; say('Published v' + res.version + '. New runs use it; runs already started keep their version.' + (res.included ? ' It includes ' + res.included + ' correction' + (res.included === 1 ? '' : 's') + '.' : ''), 'good');
+        prEnded(id, shown); state.clearInputs = 'change-note'; say('Published v' + res.version + '. New runs use it; runs already started keep their version.' + (res.included ? ' It includes ' + res.included + ' correction' + (res.included === 1 ? '' : 's') + '.' : ''), 'good');
         return load(true);
       }, function (e) { if (pg !== gen) return; say('Couldn\'t publish: ' + e.message, 'bad'); render(); });
     },
@@ -4434,7 +4602,7 @@
         if (res.dropped) { say('Nothing was staged: the person using this window changed before it could be saved.', 'warn'); render(); return; }
         if (res.changed) { say('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.', 'warn'); return load(true); }
         if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
-        state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
+        prEnded(id, shown); state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
         say('Staged. Only test runs use it until someone makes it the default.', 'good');
         return load(true);
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
@@ -5594,6 +5762,8 @@
   });
 
   document.addEventListener('input', function (e) {
+    if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) prEntry(tpx.id).typed[e.target.dataset.prSample] = e.target.value; return; }
+    if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
@@ -5666,6 +5836,17 @@
     }
   }, true);
   document.addEventListener('change', function (e) {
+    /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
+    var smp = e.target && e.target.dataset && e.target.dataset.prSample;
+    if (smp) {
+      var spx = currentProcess(); if (!spx) return;
+      var se = prEntry(spx.id), sv = e.target.value;
+      se.typed[smp] = sv;
+      var ran = false;
+      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
+      if (se.sampleErr[smp]) { state.focus = '#pr-s-' + cssEsc(smp); render(); }
+      return;
+    }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
     if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
@@ -6075,7 +6256,7 @@
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (prSheetOpen) { ACTIONS['pr-close'](); return; } if (!typing && t && t.closest && t.closest('#pr')) { prBack(); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -6106,6 +6287,8 @@
     if ((e.metaKey || e.ctrlKey) && !e.altKey && (zk === 'z' || (zk === 'y' && e.ctrlKey && !e.metaKey && !e.shiftKey))) {
       /* While an input method is composing, its own keys come first. */
       if (composing || e.isComposing || e.keyCode === 229) return;
+      /* Practice (2.2): its controls have their own Undo; its text boxes keep the browser's; the rest of the editor is the draft's. */
+      if (t && t.closest && t.closest('#pr')) { if (typing) return; var pcp = currentProcess(); if (pcp) { e.preventDefault(); prMove(pcp.id, !(zk === 'y' || e.shiftKey)); } return; }
       var zs = tlScope(); if (!zs) return;
       var zid = (t && t.id) || '';
       /* The step-type editor's Add-a-tag and Add-an-option boxes hold typing not yet applied, like the builder's boxes. */
@@ -6115,10 +6298,22 @@
       if (typing && !(zid === 'draft-editor' || (/^tf-/.test(zid) && !pending) || (pending && (t.tagName === 'SELECT' || t.value === (t.defaultValue || ''))))) return;
       e.preventDefault(); tlMove(zs, zk === 'y' || e.shiftKey, 'key'); return;
     }
+    /* Practice rows: Up and Down move between steps, Space checks, X marks Not needed, E opens it in the builder (Escape: prBack). */
+    var prRow = !typing && !e.altKey && !e.ctrlKey && !e.metaKey && t && t.closest && t.closest('.pr-st');
+    if (prRow) {
+      var rid = prRow.dataset.prStep, rows = Array.prototype.slice.call(document.querySelectorAll('.pr-st')), ri = rows.indexOf(prRow);
+      var prp = currentProcess();
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); var nx = rows[ri + (e.key === 'ArrowDown' ? 1 : -1)]; if (nx) { var nb = nx.querySelector('.pr-check:not([disabled])') ? '.pr-check' : '.pr-text'; if (prp) { prPick(prp.id, nx.dataset.prStep); state.focus = '[data-pr-step="' + cssEsc(nx.dataset.prStep) + '"] ' + nb; render(); } } return; }
+      /* Single-key shortcuts follow the Keyboard setting; Space on a focused button presses that button, except the
+         step's text, where it checks the step. */
+      if (state.keys && (e.key === ' ' || e.key === 'Spacebar') && t.classList && t.classList.contains('pr-text')) { e.preventDefault(); ACTIONS['pr-check'](rid); return; }
+      if (state.keys && (e.key === 'x' || e.key === 'X')) { e.preventDefault(); ACTIONS['pr-na'](rid); return; }
+      if (state.keys && (e.key === 'e' || e.key === 'E')) { e.preventDefault(); ACTIONS['pr-goto'](rid); return; }
+    }
     /* The inspector's tabs: the arrow keys (Home, End) move between them. */
     if (t && t.dataset && t.dataset.act === 'ins-tab' && /^(Arrow(Left|Right)|Home|End)$/.test(e.key) && !e.altKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      var tabs = (state.builder !== false ? ['selected'] : []).concat(['checks', 'preview']), ti = Math.max(0, tabs.indexOf(t.dataset.id));
+      var cpx = currentProcess(), tabs = (cpx && state.practicing[edKey(cpx.id)] ? ['practice'] : []).concat(state.builder !== false ? ['selected'] : [], ['checks', 'preview']), ti = Math.max(0, tabs.indexOf(t.dataset.id));
       ACTIONS['ins-tab'](tabs[e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (ti + (e.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length]);
       return;
     }
@@ -6163,6 +6358,7 @@
     if (e.key === 'm') { if (state.view === 'run') { savePanes(); setView('mission'); } else reenterRun(); render(); }
   });
 
+  Object.keys(prActs).forEach(function (k) { ACTIONS[k] = prActs[k]; });
   navBoot();
   render();
   /* A refresh while editing a draft comes back to the editor (this tab only). Unsaved edits don't survive a refresh, so the
