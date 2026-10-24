@@ -591,4 +591,16 @@ rule('Reset is offered once anything resettable is there: Run from here alone co
   assert.match(app.html(), /data-act="pr-reset" disabled/);
 });
 
+rule('A from step moved by a draft edit is kept at once, so a reload never brings back the old one', async () => {
+  const session = {};
+  const app = await editor({ sessionStore: session });
+  app.click('pr-open'); await app.tick();
+  app.click('pr-sel', 'approved'); await app.tick();
+  app.click('pr-from', 'approved'); await app.tick();
+  app.input('draft-editor', text(app).replace(/\n- \[!\] \{change\.request\}[^\n]*\{#approved\}\n(  [^\n]*\n)*/, '\n')); await app.tick(300);
+  const k = Object.keys(session).filter(x => /:practice:/.test(x))[0];
+  const from = JSON.parse(session[k]).from;
+  assert.ok(from && from !== 'approved', 'kept: ' + from);
+});
+
 run();

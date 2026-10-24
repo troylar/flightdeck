@@ -400,9 +400,10 @@ PF.practice = (function () {
     if (st.from && !present[st.from]) {
       var x = prev ? M.findStep(prev, st.from) : null, to = '';
       if (x) {
-        var was = prev.phases[x.phaseIndex], k = was.steps.indexOf(x.step);
-        for (var i = k + 1; i < was.steps.length && !to; i++) if (present[was.steps[i].id]) to = was.steps[i].id;
-        var now = map.phases.filter(function (p) { return p.id === was.id; })[0];
+        var was = prev.phases[x.phaseIndex], k = was.steps.indexOf(x.step), now = map.phases.filter(function (p) { return p.id === was.id; })[0];
+        /* Only steps still in that phase: one that moved to another phase would skip this one's gate. */
+        var inNow = {}; if (now) now.steps.forEach(function (s) { inNow[s.id] = true; });
+        for (var i = k + 1; i < was.steps.length && !to; i++) if (inNow[was.steps[i].id]) to = was.steps[i].id;
         if (!to && now && now.steps.length) to = now.steps[0].id;
       }
       st.from = to; changed = true;

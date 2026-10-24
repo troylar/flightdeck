@@ -867,4 +867,14 @@ rule('kept evidence that is not a record drops its answer and every gate', () =>
   }
 });
 
+rule('Run from here: a removed from step falls back within its own phase, never to a step that moved to another', () => {
+  const map = admit(FROM), st0 = P.setFrom(P.fresh('f'), map, 'b2').state;
+  const moved = ['- [ ] {confirm} Ship ^tag {#b3}', '- [ ] {confirm} Make tag {#b4}', '  sets: tag', '- [ ] {confirm} Size it ^size {#b5}'];
+  const md = FROM.replace('- [!] {confirm} Start here {#b2}\n' + moved.join('\n') + '\n', '')
+    .replace('  only when ^env is prod\n- [ ] {confirm} Last {#c1}', '  only when ^env is prod\n' + moved.join('\n') + '\n- [ ] {confirm} Last {#c1}');
+  const map2 = admit(md);
+  assert.ok(step(P.follow(P.fresh('f'), map2, {}), 'b3'), 'b3 moved to Three');
+  assert.strictEqual(P.settle(st0, map2, {}, map).from, 'b1', 'its phase\'s first, not b3 in Three');
+});
+
 run();

@@ -1363,6 +1363,8 @@
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
     /* A row that had focus is gone (a change that arrived removed it) and no dialog is open: the editor's heading, never the page. */
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
+    /* A group of radios takes focus on its chosen option, else its first. */
+    if (target && target.tagName === 'FIELDSET') target = target.querySelector('input:checked') || target.querySelector('input') || target;
     state.focus = null;
     /* The caret goes back where it was: from the carried-over value, or for a bound control from the node it had before. */
     var caret = keep[target && target.id] || (ae && target && ae.id && ae.id === target.id && ae.selectionStart != null ? { s: ae.selectionStart, e: ae.selectionEnd } : null);
@@ -2458,13 +2460,15 @@
     if (e.cache && e.cache.key === key) return e.cache;
     var a = PR.admit(text, prEnv());
     if (a.ok) {
-      var wasFrom = e.st.from || '', rn = e.renames;
+      var was = e.st, wasFrom = e.st.from || '', rn = e.renames;
       e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
       if (wasFrom && e.st.from !== wasFrom && rn[wasFrom] !== e.st.from) e.note = e.st.from ? 'The step you practiced from was removed, so practice runs from the next one.' : 'The step you practiced from was removed, so practice starts from the beginning.';
       /* An edit can also make it stop applying: it hands over for good, said once. */
       var pinned = PR.repin(e.st, a.map, prEnv());
       if (pinned.moved) { e.st = pinned.state; e.note = prMovedNote(pinned.moved); }
       e.good = { text: text, map: a.map };
+      /* Kept as soon as it changed (a reload never brings back a from step that moved). */
+      if (e.st !== was) prSave(e);
     }
     e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
     return e.cache;

@@ -13899,9 +13899,10 @@ PF.practice = (function () {
     if (st.from && !present[st.from]) {
       var x = prev ? M.findStep(prev, st.from) : null, to = '';
       if (x) {
-        var was = prev.phases[x.phaseIndex], k = was.steps.indexOf(x.step);
-        for (var i = k + 1; i < was.steps.length && !to; i++) if (present[was.steps[i].id]) to = was.steps[i].id;
-        var now = map.phases.filter(function (p) { return p.id === was.id; })[0];
+        var was = prev.phases[x.phaseIndex], k = was.steps.indexOf(x.step), now = map.phases.filter(function (p) { return p.id === was.id; })[0];
+        /* Only steps still in that phase: one that moved to another phase would skip this one's gate. */
+        var inNow = {}; if (now) now.steps.forEach(function (s) { inNow[s.id] = true; });
+        for (var i = k + 1; i < was.steps.length && !to; i++) if (inNow[was.steps[i].id]) to = was.steps[i].id;
         if (!to && now && now.steps.length) to = now.steps[0].id;
       }
       st.from = to; changed = true;
@@ -23442,6 +23443,8 @@ PF.examples = (function () {
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
     /* A row that had focus is gone (a change that arrived removed it) and no dialog is open: the editor's heading, never the page. */
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
+    /* A group of radios takes focus on its chosen option, else its first. */
+    if (target && target.tagName === 'FIELDSET') target = target.querySelector('input:checked') || target.querySelector('input') || target;
     state.focus = null;
     /* The caret goes back where it was: from the carried-over value, or for a bound control from the node it had before. */
     var caret = keep[target && target.id] || (ae && target && ae.id && ae.id === target.id && ae.selectionStart != null ? { s: ae.selectionStart, e: ae.selectionEnd } : null);
@@ -24537,13 +24540,15 @@ PF.examples = (function () {
     if (e.cache && e.cache.key === key) return e.cache;
     var a = PR.admit(text, prEnv());
     if (a.ok) {
-      var wasFrom = e.st.from || '', rn = e.renames;
+      var was = e.st, wasFrom = e.st.from || '', rn = e.renames;
       e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
       if (wasFrom && e.st.from !== wasFrom && rn[wasFrom] !== e.st.from) e.note = e.st.from ? 'The step you practiced from was removed, so practice runs from the next one.' : 'The step you practiced from was removed, so practice starts from the beginning.';
       /* An edit can also make it stop applying: it hands over for good, said once. */
       var pinned = PR.repin(e.st, a.map, prEnv());
       if (pinned.moved) { e.st = pinned.state; e.note = prMovedNote(pinned.moved); }
       e.good = { text: text, map: a.map };
+      /* Kept as soon as it changed (a reload never brings back a from step that moved). */
+      if (e.st !== was) prSave(e);
     }
     e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
     return e.cache;
