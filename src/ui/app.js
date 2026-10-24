@@ -2514,7 +2514,7 @@
   function prMove(pid, back) {
     var e = prs[edKey(pid)]; if (!e) return;
     var from = back ? e.undo : e.redo, to = back ? e.redo : e.undo, x = from.pop(); if (!x) return;
-    var r = PR.applyEntry(e.st, x); to.push(r.back); e.st = r.state; e.typed = {}; e.sampleErr = {}; prSave(e);
+    var r = PR.applyEntry(e.st, x); to.push(r.back); e.st = r.state; Object.keys(x.sample || {}).forEach(function (n) { delete e.typed[n]; delete e.sampleErr[n]; }); prSave(e);
     say((back ? 'Undid: ' : 'Redid: ') + x.label + '.', 'good'); state.msg.quiet = true; render();
   }
   /* A successful publish or stage of exactly the practiced text ends the practice; anything else keeps it. */

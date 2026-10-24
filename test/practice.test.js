@@ -194,7 +194,7 @@ rule('the stand-in reads as a solo run and is never a run: no id, snapshot or re
 });
 
 rule('every run reader practice uses reads only the stand-in\'s fields (true, false and unresolved conditions; passed, waived and review gates)', () => {
-  const FIELDS = ['format', 'practice', 'state', 'paused', 'ended', 'recorder', 'roles', 'details', 'steps', 'gates', 'fields', 'migrations', 'followUps', 'log', 'marksFrom'];
+  const FIELDS = ['format', 'practice', 'state', 'paused', 'ended', 'recorder', 'roles', 'details', 'steps', 'gates', 'fields', 'migrations', 'followUps', 'log', 'marksFrom', 'memo'];
   const md = MD + '\n## Close · READ-DO {#close}\n  only when ^env is dev\n- [ ] {confirm} Write it up {#writeup}\n';
   const map = admit(md);
   const states = [];
@@ -209,7 +209,7 @@ rule('every run reader practice uses reads only the stand-in\'s fields (true, fa
     const proxy = new Proxy(stand, { get(t, k) { if (typeof k === 'string') reads.add(k); return t[k]; }, has(t, k) { if (typeof k === 'string') reads.add(k); return k in t; } });
     map.phases.forEach((p, pi) => {
       R.applies(proxy, map, pi); p.steps.forEach(x => R.applies(proxy, map, pi, x));
-      R.phaseInfo(proxy, map, pi); R.gateStatus(proxy, map, pi); R.canPass(proxy, map, pi); R.canWaive(proxy, map, pi); R.gateInputs(proxy, map, p.gate);
+      R.phaseInfo(proxy, map, pi); R.phaseOpen(proxy, map, pi); R.gateStatus(proxy, map, pi); R.canPass(proxy, map, pi); R.canWaive(proxy, map, pi); R.gateInputs(proxy, map, p.gate);
       p.steps.forEach(x => R.answerable(proxy, map, x.id, 'done'));
     });
     R.headline(proxy, map); R.nextUp(proxy, map, 'person-avery');
@@ -382,6 +382,26 @@ rule('over the cap, keeping costs about one pass however many answers there are'
   const ms = Number(process.hrtime.bigint() - t0) / 5e6;
   assert.ok(text && text.length <= P.CAP, 'it fits');
   assert.ok(ms < 40, 'keeping 3,000 answers took ' + ms.toFixed(1) + ' ms');
+});
+
+rule('many short phases: reopening the last one and following stays within the action budget', () => {
+  const lines = ['---', 'process: many', 'title: Many', '---', ''];
+  for (let p = 0; p < 300; p++) lines.push('## Phase ' + p + ' {#ph' + p + '}', '- [ ] {confirm} Step ' + p + ' {#s' + p + '}', '');
+  const map = admit(lines.join('\n'));
+  let st = P.fresh('many');
+  for (let p = 0; p < 300; p++) { st = act(st, map, 's' + p); const g = P.gateAct(st, map, p, 'pass', '', {}, NOW); assert.ok(g.state, g.error); st = g.state; }
+  P.follow(st, map, {});
+  const t0 = process.hrtime.bigint();
+  for (let k = 0; k < 3; k++) { const r = P.gateAct(st, map, 299, 'reopen', '', {}, NOW); assert.ok(r.state, r.error); P.follow(r.state, map, {}); }
+  const ms = Number(process.hrtime.bigint() - t0) / 3e6;
+  assert.ok(ms < 30, 'reopen and follow took ' + ms.toFixed(1) + ' ms');
+});
+
+rule('a copy of a stand-in never shares its memo, and a real run has none', () => {
+  const map = admit(MD), r = P.asRun({ sample: {}, steps: {}, gates: {} }, map, null, true);
+  assert.ok(r.memo && !Object.keys(r).includes('memo'));
+  assert.ok(!('memo' in Object.assign({}, r)));
+  assert.ok(!/memo/.test(JSON.stringify(r)));
 });
 
 run();

@@ -59,7 +59,12 @@ PF.practice = (function () {
      options and the sample value. */
   function readsOf(phase, step) { return PF.conditions.names(phase, step).concat(step ? step.binds : phase.gate.binds).filter(function (n, k, all) { return all.indexOf(n) === k; }).sort(); }
   function detailsPart(map, names, sample) { return names.map(function (n) { return [n, R.detailValueDef(map, n), own(sample, n) ? sample[n] : '']; }); }
-  function before(map, pi) { var out = []; for (var i = 0; i < pi; i++) out.push(map.phases[i].id, map.phases[i].gate.id); return out; }
+  /* The phases and gates before phase pi, as one running fingerprint per phase (kept on the map, which never changes once
+     admitted), so a long checklist hashes each ID once. */
+  function before(map, pi) {
+    if (!map._before) { var acc = '', list = []; map.phases.forEach(function (p) { list.push(acc); acc = fp([acc, p.id, p.gate.id]); }); Object.defineProperty(map, '_before', { value: list, enumerable: false }); }
+    return map._before[pi];
+  }
   /* The last fingerprints, kept while the map (cached per text by the app), the step types and the sample are the same: a
      redraw or an action that changes no sample costs nothing here. */
   var last = null;
@@ -72,9 +77,8 @@ PF.practice = (function () {
   }
   function printsNow(map, sample, types) {
     var sig = S.steps(map, types || null, null, null, true), out = {};
-    var seq = [];
-    map.phases.forEach(function (p) {
-      var head = fp([seq, S.phaseParts(p)]), track = {}, prefix = '';
+    map.phases.forEach(function (p, pi) {
+      var head = fp([before(map, pi), S.phaseParts(p)]), track = {}, prefix = '';
       p.tracks.forEach(function (t) { track[t.id] = [t.id, t.roles]; });
       /* The steps before this one, as a running fingerprint, so a long phase costs one hash per step. */
       p.steps.forEach(function (s) {
@@ -84,7 +88,6 @@ PF.practice = (function () {
         };
         prefix = fp([prefix, s.id]);
       });
-      seq.push(p.id, p.gate.id);
     });
     return out;
   }
@@ -92,11 +95,15 @@ PF.practice = (function () {
   /* ---------- the run-shaped stand-in ----------
      Exactly the fields PF.run's readers use (test/practice.test.js checks every read). No id, snapshot, rev or folder: it
      is never a run and never saved. Every role is the person's, so it reads as a solo run. */
-  function asRun(view, map, me) {
+  function asRun(view, map, me, memo) {
     var who = me || 'practice', roles = {};
     (map.meta.roles || []).forEach(function (r) { roles[r] = who; });
-    return { format: R.FORMAT3, practice: true, state: 'running', paused: null, ended: null, recorder: { person: who, session: 'practice' },
+    var r = { format: R.FORMAT3, practice: true, state: 'running', paused: null, ended: null, recorder: { person: who, session: 'practice' },
       roles: roles, details: Object.assign({}, view.sample), steps: view.steps, gates: view.gates, fields: {}, migrations: [], followUps: [], log: [], marksFrom: 'start' };
+    /* memo: for a stand-in that is complete and never changes while it's read (PF.run keeps phase info and gate status in it).
+       Not enumerable, so a copy of the stand-in never shares it. */
+    if (memo) Object.defineProperty(r, 'memo', { value: {}, enumerable: false });
+    return r;
   }
 
   /* ---------- following the draft ----------
@@ -104,7 +111,7 @@ PF.practice = (function () {
      try (the run's own re-check state); a gate whose baseline changed needs review until it's passed again. */
   function gateBase(map, pi, now, applicable, sample) {
     var p = map.phases[pi];
-    return fp([S.gateParts(p.gate), S.phaseParts(p), before(map, pi), applicable.map(function (s) { return [s.id, now[s.id] ? [now[s.id].own, now[s.id].ctx] : null]; }), detailsPart(map, readsOf(p, null), sample)]);
+    return fp([p.gate.id, S.gateParts(p.gate), S.phaseParts(p), before(map, pi), applicable.map(function (s) { return [s.id, now[s.id] ? [now[s.id].own, now[s.id].ctx] : null]; }), detailsPart(map, readsOf(p, null), sample)]);
   }
   function derive(state, map, types) {
     var now = prints(map, state.sample, types), steps = {}, again = {};
@@ -131,7 +138,7 @@ PF.practice = (function () {
   /* The pane's model: every phase and step with its status and why, the gates, Next up, answers kept for parts no longer in
      the draft (gone), and whether everything is through (complete; never for a draft with nothing to do). */
   function follow(state, map, types, me) {
-    var d = derive(state, map, types), r = asRun(d.view, map, me), present = {};
+    var d = derive(state, map, types), r = asRun(d.view, map, me, true), present = {};
     var phases = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
       return { id: p.id, title: p.title, mode: p.mode, gate: { id: p.gate.id, title: p.gate.title, implicit: p.gate.implicit, status: gst, canPass: R.canPass(r, map, pi), canWaive: R.canWaive(r, map, pi), rec: d.view.gates[p.gate.id] || null },
@@ -149,7 +156,7 @@ PF.practice = (function () {
     return { phases: phases, nextUp: { kind: nu.kind, step: nu.step ? nu.step.id : null, gate: nu.gate ? nu.gate.id : null, phaseIndex: nu.phaseIndex, text: nu.hl ? nu.hl.text : '' },
       gone: gone, complete: nu.kind === 'complete' && steps > 0 };
   }
-  function phaseOpenOf(r, map, pi) { return R.answerable(r, map, map.phases[pi].steps[0] ? map.phases[pi].steps[0].id : '', 'open') !== 'That phase isn\'t open.'; }
+  function phaseOpenOf(r, map, pi) { return R.phaseOpen(r, map, pi); }
   /* A step that does something practice can't: a linked run or a skill (only "Mark done for practice"), or evidence it
      would record in a run (checked without it here). */
   function simulated(s, types) {
@@ -162,7 +169,7 @@ PF.practice = (function () {
   function copy(state) { return JSON.parse(JSON.stringify(state)); }
   function bump(st) { st.rev = (st.rev || 0) + 1; return st; }
   function answer(state, map, id, how, types, now) {
-    var d = derive(state, map, types), r = asRun(d.view, map, null);
+    var d = derive(state, map, types), r = asRun(d.view, map, null, true);
     var why = R.answerable(r, map, id, how);
     if (why) return { error: why };
     var st = copy(state);
@@ -171,7 +178,7 @@ PF.practice = (function () {
     return { state: bump(st) };
   }
   function gateAct(state, map, pi, how, reason, types, now) {
-    var d = derive(state, map, types), r = asRun(d.view, map, null), p = map.phases[pi];
+    var d = derive(state, map, types), r = asRun(d.view, map, null, true), p = map.phases[pi];
     if (!p) return { error: 'That phase isn\'t in the draft anymore.' };
     var st = copy(state), gid = p.gate.id;
     if (how === 'reopen') { R.reopenIds(map, pi).forEach(function (id) { delete st.gates[id]; }); return { state: bump(st) }; }

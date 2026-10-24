@@ -377,7 +377,13 @@ PF.run = (function () {
     if (a.s === 'done' && s.type === 'run.process' && a.child && !childCurrent(r, s, a)) return false;
     return a.s === 'done' || (a.s === 'na' && !s.must);
   }
+  /* r.memo (practice's stand-in only, docs/design.md section 34): a run that never changes while it's read keeps each phase's
+     info and gate status, so a long checklist isn't walked again for every earlier gate. A real run has no memo. */
   function phaseInfo(r, map, pi) {
+    if (r.memo) { var mk = 'i' + pi; return own(r.memo, mk) ? r.memo[mk] : (r.memo[mk] = phaseInfoNow(r, map, pi)); }
+    return phaseInfoNow(r, map, pi);
+  }
+  function phaseInfoNow(r, map, pi) {
     var p = map.phases[pi], cond = !!p.when || p.steps.some(function (s) { return !!s.when; });
     var info = { total: cond ? 0 : p.steps.length, done: 0, left: 0, mustLeft: 0, blocked: [], recheck: 0 };
     /* Conditions (2.1): a Not needed step isn't counted at all; a held one (unresolved) counts as left and must-do left,
@@ -411,6 +417,10 @@ PF.run = (function () {
 
   /* passed | waived | failed | review | ready | open | locked, and skipped (2.1): the phase isn't needed in this run. */
   function gateStatus(r, map, pi) {
+    if (r.memo) { var mk = 'g' + pi; return own(r.memo, mk) ? r.memo[mk] : (r.memo[mk] = gateStatusNow(r, map, pi)); }
+    return gateStatusNow(r, map, pi);
+  }
+  function gateStatusNow(r, map, pi) {
     /* An earlier gate that isn't through locks this phase whether or not it's needed: skipping never opens the way past it. */
     if (pi > 0 && !gateOk(gateStatus(r, map, pi - 1))) return 'locked';
     if (map.phases[pi] && phaseSkipped(r, map, pi)) return 'skipped';

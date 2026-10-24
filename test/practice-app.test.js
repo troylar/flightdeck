@@ -365,4 +365,15 @@ rule('Copy what I found without clipboard access selects the text and says how t
   assert.match(app.text('pr-copy-msg') || '', /Selected\. Press Ctrl\+C/);
 });
 
+rule('Undo of a check keeps a refused sample\'s text and error (only the samples Undo changes are reset)', async () => {
+  const app = await editor();
+  app.click('pr-open'); await app.tick();
+  app.input('draft-editor', text(app).replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment:choice(staging|prod), tag')); await app.tick(300);
+  app.click('pr-check', 'approved'); await app.tick();
+  sample(app, 'environment', 'bad', true); await app.tick();
+  app.click('pr-undo'); await app.tick();
+  assert.equal(row(app, 'approved'), 'open');
+  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="bad"[^>]*aria-invalid="true"/);
+});
+
 run();
