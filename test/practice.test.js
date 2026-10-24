@@ -476,13 +476,14 @@ rule('malformed slice 2 fields are dropped, never thrown or converted', () => {
     setBy: { commit: 'missing-step', nosample: 'tag', env: 5 }, from: { toString: 1 } };
   let st;
   assert.doesNotThrow(() => { st = P.check(bad, 'rel'); });
-  assert.ok(!('skipped' in st.answers.tag));
-  same(st.answers.tag.values, { ok: 'fine' });
+  assert.ok(!st.answers.tag, 'evidence that can\'t come back whole drops its answer');
   assert.ok(!('values' in st.answers.other));
   same(st.fields, { tag: { issue: 'ABC-1' } });
   same(st.setBy, {}); assert.strictEqual(st.from, '');
   const good = Object.assign({}, bad, { setBy: { commit: 'tag' } });
-  same(P.check(good, 'rel').setBy, { commit: 'tag' });
+  good.answers = Object.assign({}, bad.answers, { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', skipped: 'yes' } });
+  const g = P.check(good, 'rel');
+  same(g.setBy, { commit: 'tag' }); assert.ok(!('skipped' in g.answers.tag));
 });
 
 rule('keep: over the cap an answer goes with its evidence and Fill in, and takes its gate and every later one', () => {
@@ -754,6 +755,29 @@ rule('a Jira transition the workflow stops allowing goes back, its gate to revie
   const sk = P.answer(P.fresh('j'), map, 'close', 'done', e2, NOW, { skipped: true });
   assert.ok(sk.state && sk.state.answers.close.skipped, 'Check without it still works');
   assert.ok(step(P.follow(P.fresh('j'), map, e2), 'close').ask, 'the row asks first (the form says why)');
+});
+
+rule('evidence comes back whole: 41 values survive a reload; a record past the limit drops its answer and every gate', () => {
+  const vals = {}; for (let i = 0; i < 41; i++) vals['v' + i] = 'x' + i;
+  const st = Object.assign(P.fresh('rel'), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: vals } }, gates: { ready: { s: 'passed', reason: '', at: 't', approved: {}, base: 'ab' } } });
+  const back = P.check(JSON.parse(JSON.stringify(st)), 'rel');
+  same(Object.keys(back.answers.tag.values).length, 41); assert.ok(back.gates.ready);
+  const many = {}; for (let i = 0; i <= P.VALUES_MAX; i++) many['v' + i] = 'x';
+  const over = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: many }, other: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } } }), 'rel');
+  assert.ok(!over.answers.tag && over.answers.other); same(over.gates, {});
+  const long = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: { a: 'y'.repeat(P.VALUE_MAX + 1) } } } }), 'rel');
+  assert.ok(!long.answers.tag); same(long.gates, {});
+});
+
+rule('Needed from here: a setter marked Not needed, or a linked run that would set it, supplies nothing', () => {
+  const md = FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', '').replace('  sets: tag\n', '  sets: tag\n- [ ] {confirm} Ship ^tag {#b3}\n');
+  const map = admit(md);
+  let st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'b2').state;
+  same(P.follow(st, map, {}).from.needed, ['size']);
+  same(P.follow(ans(st, map, 'b4', null, 'na'), map, {}).from.needed, ['tag', 'size'], 'Not needed');
+  const linked = admit(md.replace('- [ ] {confirm} Make tag {#b4}', '- [ ] {run.process} Make tag {#b4}\n  process: tagger'));
+  st = P.setFrom(P.setSample(P.fresh('f'), linked, 'env', 'dev').state, linked, 'b2').state;
+  same(P.follow(st, linked, {}).from.needed, ['tag', 'size'], 'a linked run sets nothing in practice');
 });
 
 run();

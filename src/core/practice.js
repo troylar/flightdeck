@@ -6,7 +6,7 @@
 PF.practice = (function () {
   'use strict';
   var U = PF.util, M = PF.map, R = PF.run, S = PF.signature, T = PF.types;
-  var V = 1, CAP = 64000, GONE_MAX = 50, FOUND_MAX = 4000, UNDO_MAX = 50, VALUE_MAX = 2000;
+  var V = 1, CAP = 64000, GONE_MAX = 50, FOUND_MAX = 4000, UNDO_MAX = 50, VALUE_MAX = 2000, VALUES_MAX = 200;
   var own = function (o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); };
   var fp = function (x) { return U.hash(JSON.stringify(x)); };
 
@@ -33,7 +33,7 @@ PF.practice = (function () {
     for (var i = 0; i < map.phases.length; i++) {
       for (var j = 0; j < map.phases[i].steps.length; j++) {
         var s = map.phases[i].steps[j];
-        if (s.type && !T.get(s.type, types || {})) return { ok: false, why: '"' + s.text + '" uses a step type this copy doesn\'t know ({' + s.type + '}).' };
+        if (s.type && !T.get(s.type, envOf(types).types || {})) return { ok: false, why: '"' + s.text + '" uses a step type this copy doesn\'t know ({' + s.type + '}).' };
       }
     }
     return { ok: true, map: normalize(map) };
@@ -213,8 +213,9 @@ PF.practice = (function () {
         var ev = R.evidenceFor(r, s, null, map).list;
         readsOf(p, s).forEach(use);
         ev.forEach(function (e) { var m = /^detail:(.+)$/.exec(e.source || ''); if (m && !e.detail) use(m[1]); });
+        /* Marked Not needed, checked without evidence, or simulated (a linked run sets nothing in practice): no value. */
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
-        if (!(a && a.skipped)) ev.forEach(function (e) { if (e.detail) supplied[e.detail] = true; });
+        if (!(a && (a.skipped || a.s === 'na')) && simulated(s, envOf(r.types).types) !== 'linked') ev.forEach(function (e) { if (e.detail) supplied[e.detail] = true; });
       }
       readsOf(p, null).forEach(use);
     }
@@ -391,15 +392,23 @@ PF.practice = (function () {
   var REC = /^(done|na)$/, GREC = /^(passed|waived)$/, HEX = /^[0-9a-f]{1,8}$/;
   function check(o, process) {
     if (!o || typeof o !== 'object' || o.v !== V || o.process !== process || typeof o.answers !== 'object' || typeof o.gates !== 'object' || typeof o.sample !== 'object' || !o.answers || !o.gates || !o.sample) return null;
-    var st = fresh(process);
+    var st = fresh(process), cut = false;
     Object.keys(o.answers).slice(0, 2000).forEach(function (id) {
       var a = o.answers[id];
       if (!(a && typeof a === 'object' && is(REC, a.s) && is(HEX, a.own) && is(HEX, a.ctx) && id.length <= 80)) return;
-      var k = st.answers[id] = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx };
+      var k = { s: a.s, at: str(a.at, 40), own: a.own, ctx: a.ctx };
       if (a.skipped === true) k.skipped = true;
-      if (a.values && typeof a.values === 'object') { var vs = clean(a.values, VALUE_MAX); if (Object.keys(vs).length) k.values = vs; }
+      if (a.values && typeof a.values === 'object') {
+        /* Evidence comes back whole or not at all: a record cut short would keep a done answer without what made it done,
+           so that answer is dropped, and with it every gate (which one relied on it isn't known here). */
+        var vk = Object.keys(a.values), vs = clean(a.values, VALUE_MAX, VALUES_MAX);
+        if (vk.length > VALUES_MAX || vk.some(function (n) { return typeof a.values[n] !== 'string' || a.values[n].length > VALUE_MAX; })) { cut = true; return; }
+        if (Object.keys(vs).length) k.values = vs;
+      }
+      st.answers[id] = k;
     });
-    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
+    if (cut) st.gates = {};
+    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
     st.sample = clean(o.sample);
     /* Slice 1 kept none of these; each is optional and anything malformed is dropped. */
     if (o.fields && typeof o.fields === 'object') Object.keys(o.fields).slice(0, 2000).forEach(function (id) { var f = o.fields[id]; if (id.length <= 80 && f && typeof f === 'object' && !(id in Object.prototype)) { var c = clean(f, 300); if (Object.keys(c).length) st.fields[id] = c; } });
@@ -412,7 +421,7 @@ PF.practice = (function () {
   /* Only text is read from a kept record: anything else is dropped, never converted (it could throw). */
   function is(re, x) { return typeof x === 'string' && re.test(x); }
   function str(x, n) { return typeof x === 'string' ? x.slice(0, n) : ''; }
-  function clean(o, max) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max || 120); }); return out; }
+  function clean(o, max, keys) { var out = {}; Object.keys(o || {}).slice(0, keys || 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max || 120); }); return out; }
   /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest; null when even
      an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now; map: the
      admitted draft. An answer goes as a unit with its evidence and Fill in, so a kept answer always keeps what made it
@@ -465,7 +474,7 @@ PF.practice = (function () {
     return { state: bump(st), back: back };
   }
 
-  return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
+  return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, VALUES_MAX: VALUES_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
     derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
     undoEntry: undoEntry, applyEntry: applyEntry };
 })();

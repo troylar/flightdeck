@@ -4,23 +4,56 @@
 (function () {
   'use strict';
   var V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
-  var SAY = { again: 'Changed since you checked it. Try it again.', waiting: '', hidden: '' };
+
+  function againWhy(s) {
+    if (s.again && s.again.reason === 'setter') return '^' + s.again.detail + ' came from a step to try again.';
+    return s.old === 'na' ? 'Changed since you marked it not needed. Look at it again.' : 'Changed since you checked it. Try it again.';
+  }
 
   function stepRow(s, x, sel) {
     var on = s.status === 'done', na = s.status === 'skipped', off = s.status === 'hidden' || x.paused, cls = 'pr-st st-' + s.status + (sel === s.id ? ' sel' : '');
     var mark = x.refusal && x.refusal.at === s.id ? '<span class="pr-why err" role="alert">' + esc(x.refusal.msg) + '</span>'
-      : s.status === 'again' ? '<span class="pr-why">' + SAY.again + (s.old ? ' <span class="pr-old">(it was ' + (s.old === 'na' ? 'not needed' : 'done') + ')</span>' : '') + '</span>'
+      : s.status === 'again' ? '<span class="pr-why">' + esc(againWhy(s)) + '</span>'
       : s.status === 'hidden' ? '<span class="pr-why">Hidden: ' + esc(hiddenWhy(s.why)) + '</span>'
       : s.status === 'waiting' ? '<span class="pr-why">' + esc(s.why) + '</span>'
-      : s.simulated === 'evidence' ? '<span class="pr-why sim">Evidence isn\'t checked in practice.</span>'
+      : s.skipped ? '<span class="pr-why sim">Checked without evidence.</span>'
       : s.simulated === 'linked' ? '<span class="pr-why sim">Simulated: practice doesn\'t start other runs.</span>' : '';
     var check = s.status === 'hidden' ? '' : '<button type="button" class="pr-check' + (on ? ' on' : '') + '" data-act="pr-check" data-id="' + esc(s.id) + '" aria-pressed="' + on + '"' + (off ? ' disabled' : '') +
-      ' aria-label="' + (on ? 'Done: ' : s.simulated === 'linked' ? 'Mark done for practice: ' : 'Check: ') + esc(s.text) + '">' + I('check') + '</button>';
-    var skip = s.status === 'hidden' || s.must ? '' : '<button type="button" class="mini pr-na" data-act="pr-na" data-id="' + esc(s.id) + '" aria-pressed="' + na + '"' + (off ? ' disabled' : '') + '>Not needed</button>';
+      ' aria-label="' + (on ? 'Done: ' : s.simulated === 'linked' ? 'Mark done for practice: ' : s.ask ? 'Check (asks for evidence): ' : 'Check: ') + esc(s.text) + '"' + (s.ask && !on ? ' aria-haspopup="true"' : '') + '>' + I('check') + '</button>';
+    var skip = s.status === 'hidden' || s.must || on ? '' : '<button type="button" class="mini pr-na" data-act="pr-na" data-id="' + esc(s.id) + '" aria-pressed="' + na + '"' + (off ? ' disabled' : '') + '>Not needed</button>';
     return '<li class="' + cls + '" data-pr-step="' + esc(s.id) + '">' + check +
       '<button type="button" class="pr-text linkish" data-act="pr-goto" data-id="' + esc(s.id) + '"' + (s.temp ? ' title="Give this step an ID to keep its answer while you edit."' : '') + '>' + U.mdInline(s.text) + (s.must ? ' <span class="pill must">must</span>' : '') + '</button>' +
-      skip + mark + '</li>';
+      skip + mark + '</li>' + (sel === s.id && s.status !== 'hidden' ? more(s, x) : '');
   }
+  /* The selected row's extra line: Fill in and Run from here, and the inline form when one is open on it. */
+  function more(s, x) {
+    var f = x.form && x.form.id === s.id ? x.form : null, off = x.paused ? ' disabled' : '', h = '';
+    if (!f) {
+      if (s.fill) h += '<button type="button" class="mini" data-act="pr-fill" data-id="' + esc(s.id) + '"' + off + '>Fill in</button>';
+      if (!(x.model.from && x.model.from.id === s.id)) h += '<button type="button" class="mini" data-act="pr-from" data-id="' + esc(s.id) + '"' + off + '>Run from here</button>';
+      return h ? '<li class="pr-more">' + h + '</li>' : '';
+    }
+    return '<li class="pr-more">' + form(f, x) + '</li>';
+  }
+  function form(f, x) {
+    var err = x.formErr || null, eid = function (n) { return err && (err.field === n || (!err.field && n === '')) ? 'pr-fe' : ''; }, h = '';
+    var head = f.kind === 'ev' ? 'Evidence for practice' : 'Fill in for practice';
+    h += '<div class="pr-form" data-pr-form="' + f.kind + '" data-id="' + esc(f.id) + '" role="group" aria-label="' + esc(head + ': ' + f.text) + '">';
+    if (f.kind === 'ev') {
+      if (f.problem) h += '<p class="small pr-why err" id="pr-fe-p">' + esc(f.problem) + '</p>';
+      else h += f.list.map(function (d) { return PF.vk.fieldInput('pr-rec-' + d.name, d, vals(x, d.name, d.value), 'pr-ev-ok', f.id, d.required ? '' : ' (optional)', eid(d.name)); }).join('');
+    } else {
+      h += f.list.map(function (d) { return PF.vk.fieldInput('pr-fld-' + d.name, d.def, vals(x, d.name, d.value), 'pr-fill-ok', f.id, d.value !== d.draft ? ' (draft says: ' + (d.draft || 'nothing') + ')' : '', eid('fld-' + d.name)); }).join('');
+    }
+    if (err) h += '<p class="ferr" id="pr-fe" role="alert">' + esc(err.msg) + '</p>';
+    h += '<span class="row">';
+    if (f.kind === 'ev') {
+      if (!f.problem) h += '<button type="button" class="btn go" data-act="pr-ev-ok" data-id="' + esc(f.id) + '">Check</button>';
+      h += '<button type="button" class="mini" data-act="pr-ev-skip" data-id="' + esc(f.id) + '">Check without it</button>';
+    } else h += '<button type="button" class="btn go" data-act="pr-fill-ok" data-id="' + esc(f.id) + '">Save</button>';
+    return h + '<button type="button" class="mini" data-act="pr-form-close">Cancel</button></span></div>';
+  }
+  function vals(x, n, v) { return x.formVals && Object.prototype.hasOwnProperty.call(x.formVals, n) ? x.formVals[n] : v; }
   function hiddenWhy(why) {
     var m = /^only when (.*) \(([\w-]+) is not set\)$/.exec(why || '');
     return m ? m[2] + ' isn\'t set. Give ' + m[2] + ' a sample to see it.' : why || 'not needed with these samples.';
@@ -28,7 +61,8 @@
   function gateRow(ph, pi, x) {
     var g = ph.gate, st = g.status, off = x.paused;
     if (st === 'skipped') return '<div class="pr-gate st-skipped">' + esc(ph.title) + ' isn\'t needed with these samples.</div>';
-    var word = { passed: 'Passed', waived: 'Waived', review: 'Changed since you passed it. Pass it again.', ready: 'Ready to pass', open: 'Not ready yet', locked: 'After the gate before it', failed: 'Failed' }[st] || st;
+    var review = g.rec && g.rec.reason === 'setter' ? '^' + g.rec.detail + ' came from a step to try again.' + (g.canPass ? ' Pass it again.' : '') : g.canPass ? 'Changed since you passed it. Pass it again.' : 'Changed since you passed it. Finish the steps above, then pass it again.';
+    var word = { passed: 'Passed', waived: 'Waived', review: review, ready: 'Ready to pass', open: 'Not ready yet', locked: 'After the gate before it', failed: 'Failed' }[st] || st;
     var acts = '';
     if (st === 'passed' || st === 'waived') acts = '<button type="button" class="mini" data-act="pr-gate" data-id="' + pi + '" data-how="reopen"' + (off ? ' disabled' : '') + '>Reopen this phase</button>';
     else {
@@ -56,16 +90,25 @@
     if (x.paused) h += '<div class="notice pr-note">' + esc(x.paused) + '</div>';
     if (!m) return h + '<p class="small">Fix the draft to start practicing it.</p></div>';
     h += '<p class="small pr-sub">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</p>';
-    if (x.details.length) h += '<details class="pr-sample" data-disc="pr-sample"' + (!ctx.state.disc || ctx.state.disc['pr-sample'] !== false ? ' open' : '') + '><summary>Sample details</summary><div class="pr-fields">' + x.details.map(function (d) {
+    var need = m.from ? m.from.needed : [];
+    if (x.details.length) h += '<details class="pr-sample" data-disc="pr-sample"' + (need.length || !ctx.state.disc || ctx.state.disc['pr-sample'] !== false ? ' open' : '') + '><summary>Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</summary><div class="pr-fields">' + x.details.map(function (d) {
       var se = x.sampleErr && Object.prototype.hasOwnProperty.call(x.sampleErr, d.name) ? x.sampleErr[d.name] : null, err = se ? se.msg : '';
-      return '<label class="field" for="pr-s-' + esc(d.name) + '">' + esc(d.name) + (d.hint ? ' <span class="small">' + esc(d.hint) + '</span>' : '') + '<input id="pr-s-' + esc(d.name) + '" data-pr-sample="' + esc(d.name) + '" value="' + esc(x.typed && Object.prototype.hasOwnProperty.call(x.typed, d.name) ? x.typed[d.name] : se ? se.value : d.value) + '" data-bound data-draft-kept maxlength="120"' + (err ? ' aria-invalid="true" aria-describedby="pr-s-e-' + esc(d.name) + '"' : '') + '></label>' + (err ? '<span class="err small" id="pr-s-e-' + esc(d.name) + '">' + esc(err) + '</span>' : '');
+      var note = need.indexOf(d.name) >= 0 ? 'Needed from here' : d.setBy ? 'Set by "' + d.setBy + '"' : '';
+      return '<label class="field" for="pr-s-' + esc(d.name) + '">' + esc(d.name) + (d.hint ? ' <span class="small">' + esc(d.hint) + '</span>' : '') + (note ? ' <span class="small pr-set">' + esc(note) + '</span>' : '') + '<input id="pr-s-' + esc(d.name) + '" data-pr-sample="' + esc(d.name) + '" value="' + esc(x.typed && Object.prototype.hasOwnProperty.call(x.typed, d.name) ? x.typed[d.name] : se ? se.value : d.value) + '" data-bound data-draft-kept maxlength="120"' + (err ? ' aria-invalid="true" aria-describedby="pr-s-e-' + esc(d.name) + '"' : '') + '></label>' + (err ? '<span class="err small" id="pr-s-e-' + esc(d.name) + '">' + esc(err) + '</span>' : '');
     }).join('') + '</div></details>';
     if (x.gone.length) h += '<p class="small pr-gone">Removed from the draft: ' + x.gone.map(esc).join(', ') + '</p>';
-    if (m.complete) h += '<div class="notice good pr-done"><span>You got through the whole checklist.' + (x.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
+    if (m.from) h += '<p class="small pr-from">' + (m.from.assumed ? m.from.assumed + (m.from.assumed === 1 ? ' earlier step' : ' earlier steps') + ' assumed for practice · ' : 'Practicing from "' + esc(m.from.text) + '" · ') + '<button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning</button></p>';
+    if (m.from && m.from.through) h += '<div class="notice good pr-done"><span>You got through from "' + esc(m.from.text) + '".</span><button type="button" class="btn" data-act="pr-from-clear">Start from the beginning</button></div>';
+    else if (m.complete) h += '<div class="notice good pr-done"><span>You got through the whole checklist.' + (x.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
       (x.dirty ? '<button type="button" class="btn" data-act="save-draft" data-id="' + esc(p.id) + '">Save draft</button>' : '<button type="button" class="btn" data-act="pr-stage">Stage it for a test run</button>') + '</div>';
     else if (m.nextUp.text) h += '<p class="pr-next"><b>Next up:</b> ' + esc(m.nextUp.text) + '</p>';
     h += m.phases.map(function (ph, pi) {
-      return '<section class="pr-ph" aria-label="' + esc(ph.title) + '"><h3 class="pr-ph-t' + (sel === 'ph:' + ph.id ? ' sel' : '') + '" tabindex="-1" id="pr-ph-' + pi + '">' + esc(ph.title) + (ph.info.total ? ' <span class="small">' + ph.info.done + ' of ' + ph.info.total + '</span>' : '') + '</h3>' +
+      if (ph.gate.assumed) return '';
+      var shown = ph.steps.filter(function (s) { return s.status !== 'assumed'; });
+      ph = Object.assign({}, ph, { steps: shown });
+      /* The from step's phase counts only what's practiced from here; assumed steps aren't progress. */
+      if (shown.length !== m.phases[pi].steps.length) ph.info = { done: shown.filter(function (s) { return s.status === 'done' || s.status === 'skipped'; }).length, total: shown.filter(function (s) { return s.status !== 'hidden'; }).length, here: true };
+      return '<section class="pr-ph" aria-label="' + esc(ph.title) + '"><h3 class="pr-ph-t' + (sel === 'ph:' + ph.id ? ' sel' : '') + '" tabindex="-1" id="pr-ph-' + pi + '">' + esc(ph.title) + (ph.info.total ? ' <span class="small">' + ph.info.done + ' of ' + ph.info.total + (ph.info.here ? ' from here' : '') + '</span>' : '') + '</h3>' +
         (ph.steps.length ? '<ol class="pr-steps">' + ph.steps.map(function (s) { return stepRow(s, x, sel); }).join('') + '</ol>' : '<p class="small">No steps yet.</p>') + gateRow(ph, pi, x) + '</section>';
     }).join('');
     h += '<div class="pr-foot"><span class="small" role="status">Draft: ' + esc(x.saveState) + '</span>' +
