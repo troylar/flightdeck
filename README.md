@@ -570,7 +570,7 @@ A process is one page, with its checklist in the middle.
 | **See its shape** | **Flight plan**: phases as waypoints, gates as checkpoints, tracks as parallel lanes, linked processes as connecting flights. From that version's runs and skills it adds typical times, autopilot (steps skills cover) and turbulence (steps that go off-script most). Each phase's steps open under it, or all at once with **Show all steps** and **Hide all steps**. Choose a phase to jump to it. |
 | **Edit it** | **Edit** opens the draft on a page of its own, with the **Builder** or the **Markdown** beside a live check (what blocks publishing, and what's just a tip) and a preview. |
 | **Look back** | The Versions panel shows the newest, with every version under **All versions**. An older version shows a way back to the current one and **Restore as draft**. |
-| **Try it first** | **Practice** in the editor runs the draft as you edit it, recording nothing. Then, under **All versions**, **Stage the draft for testing**, then **Start a test run** on the staged line. Real runs stay on the current default until someone chooses **Make v3 the default**. See [Staging and test runs](#staging-and-test-runs). |
+| **Try it first** | **Practice** in the editor runs the draft as you edit it, recording nothing. When you get through it, **Stage it for a test run** right there (or under **All versions**, **Stage the draft for testing**), then **Start a test run** on the staged line. Real runs stay on the current default until someone chooses **Make v3 the default**. See [Staging and test runs](#staging-and-test-runs). |
 | **See how runs go** | **How runs go**: typical time per phase, the steps that go off-script most, and who has held each role. |
 | **Plan ahead** | **Plan a run**, next to **Start a run**: a name, the details you know, who does what and an optional time. |
 
@@ -578,7 +578,7 @@ A process is one page, with its checklist in the middle.
 <summary><b>The editor in detail</b></summary>
 
 - **Layout.** Parts, the outline, and an inspector with Selected, Checks and Preview tabs, each scrolling on its own.
-- **Builder.** Phases are cards, steps are rows, parallel lanes sit side by side, and gates are striped bars. The parts box starts with Phase, Gate, Step and Must-do; every other part is under **All parts**. Add a part by dragging it, or by choosing a part and a place with the arrow keys. Drag a step or press Alt+Up / Alt+Down to move it. **Undo** and **Redo** step through builder changes.
+- **Builder.** Phases are cards, steps are rows, parallel lanes sit side by side, and gates are striped bars. The parts box starts with Phase, Gate, Step and Must-do; every other part is under **All parts**. Add a part by dragging it, or by choosing a part and a place with the arrow keys. Drag a step or press Alt+Up / Alt+Down to move it. In **Add a step**, Enter adds the step and keeps the box open for the next one; Enter on an empty box or Escape closes it. **Undo** and **Redo** step through builder changes.
 - **The side form** edits a step's text, type, roles, run details, fields, notes and screenshots, or a lane's name and role. The builder also edits the checklist's own details.
 - **Only when…** In a step's or a phase's form, once the checklist has run details. Write one condition a line, like `^risk is high`; one that can't be read is refused beside the box. Lines written another way are shown, and left to the Markdown view.
 - **Same Markdown.** Both views edit the same file. The builder changes only the lines you touch, never a step ID, and keeps comments and lines it doesn't understand.
@@ -597,7 +597,7 @@ A process is one page, with its checklist in the middle.
 
 </details>
 
-**New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. A blank one opens with its **Add a step** box ready (type a step, press Enter, type the next) and Practice beside it; run detail and role names with spaces become dashes. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
+**New process** on the Processes page asks for a title; the file name is made from it and shown before you create it. The group, tags, run details, roles, owner and file name are under **More options**. A blank one starts with an empty first phase. In the builder it opens with the **Add a step** box ready (type a step, press Enter, type the next), and on a wide screen Practice opens beside it; run detail and role names with spaces become dashes. Start blank, from Code check-in or Weekly review (publish v1 as it is, or open it in the editor), or copy a prompt for your AI assistant.
 
 ### Practice while you edit
 
@@ -607,7 +607,7 @@ A process is one page, with its checklist in the middle.
 
 A stage is a safe rehearsal: the next version, tried by test runs, while every real run stays on the current default.
 
-1. **Stage it.** With a changed draft, open **All versions** on the process page, write the change note, and choose **Stage the draft for testing**. It's written once to `staged/` and never edited.
+1. **Stage it.** With a changed draft, open **All versions** on the process page, write the change note, and choose **Stage the draft for testing**. Or, having practiced the saved draft to the end, write what changed and choose **Stage it for a test run** in Practice. It's written once to `staged/` and never edited.
 2. **Try it.** **Start a test run** on the staged line opens its own start form. A test run is recorded like any run, but it's labeled **Test run** everywhere it shows (Runs, Home, Recent runs, the run header, the receipt, search and evidence) and it's never counted as a real run: **How runs go** says how many it left out, and Home's running number, last-run dates and role rotation skip it. Its follow-ups and corrections are real.
 3. **Prove it.** Once the staged version has test runs, its line says how many are clean ("2 of 3 clean test runs"). With three, its owner (or the backup owner while the owner is away) gets **Sign off staged v3**.
 4. **Make it the default.** **Make v3 the default** publishes exactly what was staged as the next version. If someone published meanwhile, it takes the next number and says so. **Ready for a skill?** then counts those clean test runs and that sign-off for v3, and says they're from while it was staged. Nothing from a test run counts for any other version.

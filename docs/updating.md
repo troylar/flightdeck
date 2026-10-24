@@ -140,6 +140,12 @@ A staged version and its test runs are only for copies on 2.1. Older copies neve
 - **Changed in 2.1.1: a plan that was started or declined can't be started again after someone edits it.** It shows "Decided on an earlier version of this plan", with who decided what and when. Make a new plan instead. Reading for other apps keeps calling it `changed`, and that's final: it never becomes `pending` again.
 - **Known issue: two limits remain.** There's no lock across computers: two computers starting the same plan at the same moment can both start it, and Runs shows the plan's decisions as disagreeing; keep one run and cancel the other. And a decision file that was renamed (so its name doesn't start with the plan's ID) and can't be read holds no plan: Folder health names it, and until it reads, its plan could be started again (see [A plan file with another name can't be read](recovery.md#a-plan-file-with-another-name-cant-be-read)).
 
+### What to know when moving to 2.2
+
+- **Nothing in the team folder changes.** Practice lives in your browser tab only: it's never written to the folder and never counted as a run, so computers on 2.1 and 2.2 can share a folder.
+- **Staging from Practice is the same stage.** **Stage it for a test run** in Practice writes exactly what **Stage the draft for testing** writes, so copies on 2.1 see it and can test it.
+- **A blank new process starts with no steps (2.2.1).** It can't be published or staged until it has one; earlier versions started with a placeholder step to delete.
+
 ## Rolling back
 
 If an update goes wrong, install the older version over it:
