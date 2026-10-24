@@ -10,6 +10,7 @@ node test/readiness-stage.test.js
 node test/pins.test.js
 node test/typed.test.js
 node test/conditions.test.js
+node test/practice.test.js
 node test/reports.test.js
 node test/insights.test.js
 node test/outline.test.js

@@ -54,5 +54,8 @@ PF.signature = (function () {
     if (PF.publish.canonical(x.pins) !== PF.publish.canonical(y.pins)) out.push('The versions it pins changed');
     return out;
   }
-  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges };
+  /* A gate's and a phase's own instruction parts, the same ones steps() uses (practice compares them; docs/design.md, Practice). */
+  function gateParts(g, images) { return JSON.stringify(gate(g, images)); }
+  function phaseParts(p, images) { return JSON.stringify([p.id, p.title, p.mode, p.note || '', shots(p.shots, images), texts(p.when)]); }
+  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges, gateParts: gateParts, phaseParts: phaseParts };
 })();
