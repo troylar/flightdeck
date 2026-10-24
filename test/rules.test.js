@@ -648,6 +648,20 @@ rule('Jira: a transition edited to a status the workflow lacks, or with no issue
   assert.strictEqual(r.steps.close.values[PF.jira.key('Resolution')], 'Done', 'choices match any case and keep the workflow\'s spelling');
 });
 
+rule('Jira: Fill in on a checked step can\'t drop evidence the new status needs, and checkFill refuses it the same way', () => {
+  const W = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done', fields: [{ name: 'Resolution', options: ['Done'] }] }] }, Bug: { statuses: ['Open', 'Done'], transitions: [{ from: '*', to: 'Done' }] } }).workflows;
+  const md = '---\nprocess: x\ntitle: X\n---\n## P · READ-DO {#p}\n- [!] {jira.issue} Close it {#close}\n  action: transition\n  issue: ABC-1\n  issueType: Bug\n  status: Done';
+  const r = start(pubOf(md, { workflows: W }), { workflows: W }), map = R.mapOf(r), step = map.phases[0].steps[0];
+  R.done(r, map, 'close', 'a', NOW);
+  const cf = R.checkFill(r, step, { issueType: 'Story' }, { keep: { values: r.steps.close.values || {}, map } });
+  assert.ok(/Resolution is required/.test(cf.error), cf.error);
+  const before = JSON.stringify(r);
+  assert.throws(() => R.setFields(r, map, 'close', { issueType: 'Story' }, null, 'a', NOW), e => e.message === cf.error && e.field === cf.field);
+  assert.strictEqual(JSON.stringify(r), before, 'a refused correction changes nothing');
+  assert.ok(!R.checkFill(r, step, { issueType: 'Story' }).error, 'without keep (an answer checked without evidence) it is allowed');
+  assert.ok(/no transition to "Dnoe"/.test(R.checkFill(r, step, { status: 'Dnoe' }).error), 'the workflow is checked on the merged fields');
+});
+
 rule('Jira: field keys never collide, and every required value survives a reload', () => {
   assert.notStrictEqual(PF.jira.key('Change management approval alpha'), PF.jira.key('Change management approval beta'));
   const fields = Array.from({ length: 20 }, (_, i) => ({ name: 'Field number ' + i }));

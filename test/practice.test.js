@@ -194,7 +194,7 @@ rule('the stand-in reads as a solo run and is never a run: no id, snapshot or re
 });
 
 rule('every run reader practice uses reads only the stand-in\'s fields (true, false and unresolved conditions; passed, waived and review gates)', () => {
-  const FIELDS = ['format', 'practice', 'state', 'paused', 'ended', 'recorder', 'roles', 'details', 'steps', 'gates', 'fields', 'migrations', 'followUps', 'log', 'marksFrom', 'memo'];
+  const FIELDS = ['format', 'practice', 'state', 'paused', 'ended', 'recorder', 'roles', 'details', 'steps', 'gates', 'fields', 'migrations', 'followUps', 'log', 'marksFrom', 'memo', 'types', 'jira'];
   const md = MD + '\n## Close · READ-DO {#close}\n  only when ^env is dev\n- [ ] {confirm} Write it up {#writeup}\n';
   const map = admit(md);
   const states = [];
@@ -210,7 +210,7 @@ rule('every run reader practice uses reads only the stand-in\'s fields (true, fa
     map.phases.forEach((p, pi) => {
       R.applies(proxy, map, pi); p.steps.forEach(x => R.applies(proxy, map, pi, x));
       R.phaseInfo(proxy, map, pi); R.phaseOpen(proxy, map, pi); R.gateStatus(proxy, map, pi); R.canPass(proxy, map, pi); R.canWaive(proxy, map, pi); R.gateInputs(proxy, map, p.gate);
-      p.steps.forEach(x => R.answerable(proxy, map, x.id, 'done'));
+      p.steps.forEach(x => { R.answerable(proxy, map, x.id, 'done'); R.evidenceFor(proxy, x, null, map); R.checkEvidence(proxy, x, null, {}, false, map); R.jiraProblem(proxy, x); R.checkFill(proxy, x, {}, null); });
     });
     R.headline(proxy, map); R.nextUp(proxy, map, 'person-avery');
     const extra = [...reads].filter(k => FIELDS.indexOf(k) < 0);
@@ -402,6 +402,479 @@ rule('a copy of a stand-in never shares its memo, and a real run has none', () =
   assert.ok(r.memo && !Object.keys(r).includes('memo'));
   assert.ok(!('memo' in Object.assign({}, r)));
   assert.ok(!/memo/.test(JSON.stringify(r)));
+});
+
+rule('evidenceFor and checkEvidence with an explicit map are exactly the run\'s own, for every step of every example checklist', () => {
+  const H = require('./harness'), EX = H.exampleSetup(PF), people = JSON.parse(H.example('people.json'));
+  const ids = fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => /\.md$/.test(f)).map(f => f.replace(/\.md$/, ''));
+  let n = 0;
+  ids.forEach(id => {
+    const b = PF.publish.build(H.example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
+    const v = PF.publish.verify(b.folder, b.files), meta = v.map.meta, roles = {}, details = {};
+    meta.context.forEach(k => { details[k] = 'sample-' + k; }); meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
+    const r = R.create(v, { title: meta.title, details, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows }), map = R.mapOf(r);
+    map.phases.forEach(ph => ph.steps.forEach(s => {
+      same(R.evidenceFor(r, s, null, map), R.evidenceFor(r, s), id + ' › ' + s.id);
+      same(R.checkEvidence(r, s, null, {}, false, map), R.checkEvidence(r, s, null, {}, false), id + ' › ' + s.id + ' (empty)');
+      n++;
+    }));
+  });
+  assert.ok(n > 40, 'steps compared: ' + n);
+});
+
+rule('checkFill answers exactly what setFields does, without changing the run', () => {
+  const H = require('./harness'), EX = H.exampleSetup(PF), people = JSON.parse(H.example('people.json'));
+  const ids = fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => /\.md$/.test(f)).map(f => f.replace(/\.md$/, ''));
+  let n = 0, refused = 0;
+  ids.forEach(id => {
+    const b = PF.publish.build(H.example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
+    const v = PF.publish.verify(b.folder, b.files), meta = v.map.meta, roles = {}, details = {};
+    meta.context.forEach(k => { details[k] = 'sample-' + k; }); meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
+    const base = R.create(v, { title: meta.title, details, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows });
+    R.mapOf(base).phases.forEach(ph => ph.steps.forEach(s => {
+      const allowed = PF.types.editable(PF.types.get(s.type, base.types));
+      const tries = allowed.map(f => ({ [f]: '  Filled ' + f + '  ' })).concat([{ notAField: 'x' }]);
+      tries.forEach(fields => {
+        const r = JSON.parse(JSON.stringify(base)), before = JSON.stringify(r), cf = R.checkFill(r, s, fields);
+        assert.strictEqual(JSON.stringify(r), before, 'checkFill changed the run');
+        let err = null;
+        try { R.setFields(r, R.mapOf(r), s.id, fields, null, 'person-casey', NOW); } catch (e) { err = e; }
+        if (cf.error) {
+          refused++;
+          assert.ok(err, id + ' › ' + s.id + ': setFields took what checkFill refused');
+          assert.strictEqual(err.message, cf.error); assert.strictEqual(err.field, cf.field);
+          return;
+        }
+        if (err) return;
+        same((r.fields || {})[s.id] || {}, cf.own, id + ' › ' + s.id);
+        n++;
+      });
+    }));
+  });
+  assert.ok(n > 10 && refused > 40, 'filled ' + n + ', refused ' + refused);
+});
+
+rule('slice 2 state round-trips through check: evidence values, skipped, Fill in, setBy and from', () => {
+  const st = Object.assign(P.fresh('rel'), {
+    sample: { commit: 'abc123' },
+    answers: { tag: { s: 'done', at: 't1', own: 'a1', ctx: 'b2', values: { link: 'https://x.example/1' } }, notes: { s: 'done', at: 't2', own: 'a2', ctx: 'b3', skipped: true } },
+    fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
+  same(P.check(JSON.parse(JSON.stringify(st)), 'rel'), st);
+});
+
+rule('a slice 1 practice loads with the new fields empty', () => {
+  const old = { v: 1, process: 'rel', sample: { env: 'prod' }, answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } }, gates: {}, found: '', rev: 3 };
+  const st = P.check(old, 'rel');
+  same(st.fields, {}); same(st.setBy, {}); assert.strictEqual(st.from, '');
+  same(st.answers.tag, { s: 'done', at: 't', own: 'a1', ctx: 'b2' });
+});
+
+rule('malformed slice 2 fields are dropped, never thrown or converted', () => {
+  const bad = { v: 1, process: 'rel', sample: { commit: 'x' }, gates: {},
+    answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', skipped: 'yes', values: { link: 5, ok: 'fine', ['__proto__']: 'x' } }, other: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: 'nope' } },
+    fields: { tag: { status: 7, issue: 'ABC-1' }, constructor: { a: 'b' }, bad: 'string', ['x'.repeat(90)]: { a: 'b' } },
+    setBy: { commit: 'missing-step', nosample: 'tag', env: 5 }, from: { toString: 1 } };
+  let st;
+  assert.doesNotThrow(() => { st = P.check(bad, 'rel'); });
+  assert.ok(!st.answers.tag, 'evidence that can\'t come back whole drops its answer');
+  assert.ok(!st.answers.other, 'evidence that isn\'t a record drops its answer too');
+  same(st.fields, { tag: { issue: 'ABC-1' } });
+  same(st.setBy, {}); assert.strictEqual(st.from, '');
+  const good = Object.assign({}, bad, { setBy: { commit: 'tag' } });
+  good.answers = Object.assign({}, bad.answers, { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', skipped: 'yes' } });
+  const g = P.check(good, 'rel');
+  same(g.setBy, { commit: 'tag' }); assert.ok(!('skipped' in g.answers.tag));
+});
+
+rule('keep: over the cap an answer goes with its evidence and Fill in, and takes its gate and every later one', () => {
+  const md = MD.replace('- [ ] {confirm} Write the notes {#notes}', ['- [ ] {confirm} Write the notes {#notes}'].concat(Array.from({ length: 120 }, (_, i) => '- [ ] {confirm} Extra ' + i + ' {#x' + i + '}')).join('\n'));
+  const map = admit(md), present = {}, fat = 'v'.repeat(P.VALUE_MAX);
+  map.phases.forEach(p => { present[p.id] = present[p.gate.id] = true; p.steps.forEach(s => { present[s.id] = true; }); });
+  const st = P.fresh('rel');
+  map.phases[0].steps.forEach((s, i) => { st.answers[s.id] = { s: 'done', at: 't' + String(i).padStart(4, '0'), own: 'a1', ctx: 'b2', values: { a: fat } }; st.fields[s.id] = { x: 'f' }; });
+  st.answers.page = { s: 'done', at: 'z1', own: 'a1', ctx: 'b2', values: { a: fat } };
+  st.gates.ready = { s: 'passed', reason: '', at: 'z', approved: {}, base: 'ab' }; st.gates[map.phases[1].gate.id] = { s: 'passed', reason: '', at: 'z', approved: {}, base: 'ab' };
+  st.sample.ticket = 'ABC-1'; st.setBy.ticket = 'notes';
+  const k = JSON.parse(P.keep(st, present, map));
+  assert.ok(JSON.stringify(k).length <= P.CAP);
+  assert.ok(Object.keys(k.answers).length < Object.keys(st.answers).length, 'some answers went');
+  Object.keys(k.answers).forEach(id => same(k.answers[id].values, { a: fat }, 'a kept answer keeps its evidence'));
+  Object.keys(k.fields).forEach(id => assert.ok(k.answers[id], 'Fill in only beside a kept answer'));
+  same(k.gates, {}, 'an evicted phase 1 answer drops its gate and the later one');
+  Object.keys(k.setBy).forEach(n => assert.ok(k.answers[k.setBy[n]]));
+  if (!k.answers.notes) same(k.setBy, {});
+  const round = P.check(k, 'rel'), v = P.follow(round, map, {});
+  assert.strictEqual(v.complete, false);
+});
+
+rule('Undo and Redo cover Fill in, setBy and from; an entry from slice 1 still applies', () => {
+  const a = P.fresh('rel'), b = Object.assign(P.fresh('rel'), { sample: { commit: 'abc' }, fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
+  const e = P.undoEntry(a, b, 'x');
+  const u = P.applyEntry(b, e);
+  same([u.state.sample, u.state.fields, u.state.setBy, u.state.from], [{}, {}, {}, '']);
+  const r = P.applyEntry(u.state, u.back);
+  same([r.state.sample, r.state.fields, r.state.setBy, r.state.from], [b.sample, b.fields, b.setBy, 'deploy']);
+  const old = { label: 'old', answers: { tag: null }, gates: {}, sample: {} };
+  const s1 = Object.assign(P.fresh('rel'), { answers: { tag: { s: 'done', at: '', own: 'a', ctx: 'b' } } });
+  same(P.applyEntry(s1, old).state.answers, {});
+});
+
+rule('Reset clears answers, gates, Fill in, setBy and from, and keeps the sample', () => {
+  const st = Object.assign(P.fresh('rel'), { sample: { commit: 'abc' }, answers: { tag: { s: 'done', at: '', own: 'a', ctx: 'b' } }, fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
+  const r = P.reset(st).state;
+  same([r.answers, r.gates, r.fields, r.setBy, r.from, r.sample], [{}, {}, {}, {}, '', { commit: 'abc' }]);
+});
+
+rule('a step goes back when the evidence it asks for changes, even where its own text and signature don\'t', () => {
+  const md = k => ['---', 'process: cap', 'title: Cap', 'context: capacity' + k, '---', '## P · READ-DO {#p}', '- [!] {confirm} Choose capacity {#choose}', '  sets: capacity', '- [ ] {confirm} Tell the team {#tell}', ''].join('\n');
+  const a = admit(md(''));
+  const r0 = P.answer(P.fresh('cap'), a, 'choose', 'done', {}, NOW, { values: { [R.detailKey('capacity')]: '12' } }); assert.ok(r0.state, r0.error);
+  const st = r0.state;
+  assert.strictEqual(step(P.follow(st, a, {}), 'choose').status, 'done');
+  assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'choose').status, 'again', 'the detail it sets is now a number');
+  assert.strictEqual(step(P.follow(st, admit(md(':number')), {}), 'tell').status, 'open');
+});
+
+rule('a Jira step goes back when the team workflow requires more, for the draft\'s status or a filled-in one', () => {
+  const W1 = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done' }] } }).workflows;
+  const W2 = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done', fields: [{ name: 'Resolution', options: ['Done'] }] }] } }).workflows;
+  const md = ['---', 'process: j', 'title: J', '---', '## P · READ-DO {#p}', '- [!] {jira.issue} Close it {#close}', '  action: transition', '  issue: ABC-1', '  issueType: Story', '  status: Done', ''].join('\n');
+  const types = PF.types.builtIn ? PF.types.builtIn() : {};
+  const a = P.admit(md, types); assert.ok(a.ok, a.why);
+  const e1 = P.env(types, W1), e2 = P.env(types, W2);
+  const r = P.answer(P.fresh('j'), a.map, 'close', 'done', e1, NOW); assert.ok(r.state, r.error);
+  assert.strictEqual(step(P.follow(r.state, a.map, e1), 'close').status, 'done');
+  assert.strictEqual(step(P.follow(r.state, a.map, e2), 'close').status, 'again');
+  const filled = Object.assign({}, r.state, { fields: { close: { status: 'To Do' } } });
+  const md2 = md.replace('status: Done', 'status: To Do'), a2 = P.admit(md2, types).map;
+  const st2 = Object.assign(P.fresh('j'), { fields: { close: { status: 'Done' } } });
+  const r2 = P.answer(st2, a2, 'close', 'done', e1, NOW); assert.ok(r2.state, r2.error);
+  assert.strictEqual(step(P.follow(r2.state, a2, e1), 'close').status, 'done');
+  assert.strictEqual(step(P.follow(r2.state, a2, e2), 'close').status, 'again', 'the filled-in status now needs Resolution');
+});
+
+const SETS = ['---', 'process: s', 'title: S', 'context: commit, size:number', '---', '## Build · READ-DO {#build}',
+  '- [!] {confirm} Make the commit {#make}', '  sets: commit', '- [ ] {confirm} Note the size {#size}', '  sets: size', '- [ ] {confirm} Review ^commit {#review}', '',
+  '## Gate: Built {#built}', '  approves: build of ^commit', '',
+  '## Ship · DO-CONFIRM {#ship}', '- [!] {confirm} Deploy ^commit {#deploy}', ''].join('\n');
+const CK = R.detailKey('commit'), SK = R.detailKey('size');
+function ans(st, map, id, o, how) { const r = P.answer(st, map, id, how || 'done', {}, NOW, o); assert.ok(r.state, r.error); return r.state; }
+
+rule('evidence: required values are checked as a run checks them, beside their box', () => {
+  const map = admit(SETS);
+  const e1 = P.answer(P.fresh('s'), map, 'make', 'done', {}, NOW, {});
+  assert.ok(/commit is needed/.test(e1.error)); assert.strictEqual(e1.field, CK);
+  const e2 = P.answer(P.fresh('s'), map, 'size', 'done', {}, NOW, { values: { [SK]: 'lots' } });
+  assert.ok(e2.error && e2.field === SK, 'a number is checked as a number');
+  const st = ans(P.fresh('s'), map, 'size', { values: { [SK]: '1200' } });
+  assert.strictEqual(st.sample.size, PF.values.parse({ kind: 'number' }, '1200').canonical, 'kept canonical');
+  same(st.setBy, { size: 'size' });
+});
+
+rule('Check without it: done, marked skipped, and it never sets a detail', () => {
+  const map = admit(SETS), st = ans(P.fresh('s'), map, 'make', { skipped: true });
+  assert.strictEqual(st.answers.make.skipped, true);
+  same(st.sample, {}); same(st.setBy, {});
+  assert.strictEqual(step(P.follow(st, map, {}), 'make').status, 'done');
+  const plain = ans(st, map, 'review', { skipped: true });
+  assert.ok(!plain.answers.review.skipped, 'a step with no evidence is simply done');
+});
+
+rule('a setter sets the sample and stays done even when it reads what it sets', () => {
+  const md = SETS.replace('- [!] {confirm} Make the commit {#make}', '- [!] {confirm} Make the commit ^commit {#make}');
+  const map = admit(md), st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc123' } });
+  same(st.sample, { commit: 'abc123' });
+  assert.strictEqual(step(P.follow(st, map, {}), 'make').status, 'done');
+  const e = P.undoEntry(P.fresh('s'), st, 'Check');
+  const back = P.applyEntry(st, e).state;
+  same([back.sample, back.setBy, back.answers], [{}, {}, {}], 'one Undo takes back the answer and what it set');
+});
+
+rule('a setter in Try it again takes its consumers and gates with it; the same value brings them back', () => {
+  const map = admit(SETS);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc' } });
+  st = ans(ans(st, map, 'size', { skipped: true }), map, 'review');
+  st = gate(st, map, 0);
+  const edited = admit(SETS.replace('Make the commit {#make}', 'Make the release commit {#make}'));
+  const v = P.follow(st, edited, {});
+  same([step(v, 'make').status, step(v, 'size').status, step(v, 'review').status, phase(v, 'build').gate.status.state || phase(v, 'build').gate.rec.s], ['again', 'done', 'again', phase(v, 'build').gate.rec.s]);
+  assert.strictEqual(phase(v, 'build').gate.rec.s, 'review');
+  assert.strictEqual(phase(v, 'build').gate.rec.reason, 'setter');
+  let st2 = ans(st, edited, 'make', { values: { [CK]: 'abc' } });
+  const v2 = P.follow(st2, edited, {});
+  same([step(v2, 'make').status, step(v2, 'review').status], ['done', 'done'], 'same value: consumers return');
+  assert.strictEqual(phase(v2, 'build').gate.rec.reason, 'changed', 'the gate still asks again: the setter\'s own text is in its baseline');
+  const st3 = ans(st, edited, 'make', { values: { [CK]: 'def' } });
+  assert.strictEqual(step(P.follow(st3, edited, {}), 'review').status, 'again', 'new value: the fingerprint rule');
+  const both = admit(SETS.replace('Make the commit {#make}', 'Make the release commit {#make}').replace('Review ^commit {#review}', 'Review ^commit closely {#review}'));
+  const st4 = ans(st, both, 'make', { values: { [CK]: 'abc' } });
+  assert.strictEqual(step(P.follow(st4, both, {}), 'review').status, 'again', 'a consumer edited meanwhile stays');
+});
+
+rule('Fill in: checked as a run checks it, rebases a current answer, never rescues one already to try again', () => {
+  const md = ['---', 'process: c', 'title: C', '---', '## P · READ-DO {#p}', '- [!] {run.command} Deploy {#dep}', '  command: deploy', ''].join('\n');
+  const map = admit(md), editable = PF.types.editable(PF.types.get('run.command', {}));
+  assert.ok(editable.length, 'run.command has fields a run may fill in');
+  const f = editable[0];
+  assert.ok(/can't be changed during a run/.test(P.fillIn(P.fresh('c'), map, 'dep', { nope: 'x' }, {}).error));
+  let st = ans(P.fresh('c'), map, 'dep', { skipped: true });
+  const r = P.fillIn(st, map, 'dep', { [f]: 'filled' }, {});
+  assert.ok(r.state, r.error);
+  assert.strictEqual(r.state.fields.dep[f], 'filled');
+  assert.strictEqual(step(P.follow(r.state, map, {}), 'dep').status, 'done', 'a Fill in never sends a step back by itself');
+  same(P.fillIn(r.state, map, 'dep', { [f]: 'filled' }, {}).state, r.state, 'no change, same state');
+});
+
+rule('a later phase\'s gate that approves a detail goes to review only while its setter is to try again', () => {
+  const md = SETS + '\n## Gate: Shipped {#shipped}\n  approves: ship of ^commit\n';
+  const map = admit(md);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc' } });
+  st = ans(ans(st, map, 'size', { skipped: true }), map, 'review');
+  st = gate(st, map, 0); st = ans(st, map, 'deploy'); st = gate(st, map, 1);
+  const edited = admit(md.replace('Make the commit {#make}', 'Make the release commit {#make}'));
+  const g = v => phase(v, 'ship').gate.rec;
+  same([g(P.follow(st, edited, {})).s, g(P.follow(st, edited, {})).reason], ['review', 'setter']);
+  const back = ans(st, edited, 'make', { values: { [CK]: 'abc' } });
+  assert.strictEqual(g(P.follow(back, edited, {})).s, 'passed', 'same value: the later gate is passed again as it was');
+});
+
+rule('Fill in keeps a current gate as it was (passed or waived), leaves a stale one in review, and undoes as one', () => {
+  const md = ['---', 'process: c', 'title: C', '---', '## P · READ-DO {#p}', '- [!] {decide} Pick a path {#dec}', '  options: A, B', '  require: decision', '- [ ] {confirm} Tell {#tell}', '',
+    '## Gate: Out {#out}', '', '## Q · READ-DO {#q}', '- [ ] {confirm} After {#after}', ''].join('\n');
+  const map = admit(md);
+  let st = ans(P.fresh('c'), map, 'dec', { values: { decision: 'A' } }); st = ans(st, map, 'tell');
+  const own0 = P.prints(map, st.sample, {}, st.fields).dec.own, own1 = P.prints(map, st.sample, {}, { dec: { options: 'A, B, C' } }).dec.own;
+  assert.notStrictEqual(own0, own1, 'the Fill in changes what the evidence asks for (so this test means something)');
+  for (const how of ['pass', 'waive']) {
+    const g = gate(st, map, 0, how, 'later');
+    const r = P.fillIn(g, map, 'dec', { options: 'A, B, C' }, {}); assert.ok(r.state, r.error);
+    const v = P.follow(r.state, map, {});
+    assert.strictEqual(step(v, 'dec').status, 'done');
+    assert.strictEqual(phase(v, 'p').gate.rec.s, how === 'pass' ? 'passed' : 'waived', how);
+    assert.ok(phase(v, 'q').open, 'the next phase stays open');
+    const e = P.undoEntry(g, r.state, 'Fill in'), u = P.applyEntry(r.state, e);
+    same([u.state.fields, u.state.answers, u.state.gates], [g.fields, g.answers, g.gates], 'one Undo puts back the answer and the gate');
+    same(P.applyEntry(u.state, u.back).state.gates, r.state.gates, 'Redo too');
+  }
+  const passed = gate(st, map, 0), stale = admit(md.replace('Tell {#tell}', 'Tell everyone {#tell}'));
+  const r2 = P.fillIn(passed, stale, 'dec', { options: 'A, B, C' }, {}); assert.ok(r2.state, r2.error);
+  assert.strictEqual(phase(P.follow(r2.state, stale, {}), 'p').gate.rec.s, 'review', 'a gate stale for another reason stays in review');
+  const opt = admit(md.replace('- [!] {decide}', '- [ ] {decide}'));
+  const open = gate(ans(P.fresh('c'), opt, 'tell'), opt, 0, 'waive', 'later');
+  assert.ok(!open.answers.dec, 'the optional decision is unanswered');
+  const r3 = P.fillIn(open, opt, 'dec', { options: 'A, B, C' }, {}); assert.ok(r3.state, r3.error);
+  const v3 = P.follow(r3.state, opt, {});
+  assert.strictEqual(phase(v3, 'p').gate.rec.s, 'waived', 'an unanswered step\'s Fill in keeps the waiver');
+  assert.ok(phase(v3, 'q').open);
+  const e3 = P.undoEntry(open, r3.state, 'Fill in'), u3 = P.applyEntry(r3.state, e3);
+  same([u3.state.fields, u3.state.gates], [open.fields, open.gates]);
+  same(P.applyEntry(u3.state, u3.back).state.gates, r3.state.gates);
+});
+
+const FROM = ['---', 'process: f', 'title: F', 'context: env:choice(dev|prod), size:number, tag', '---',
+  '## One · READ-DO {#one}', '- [!] {confirm} First {#a1}', '- [ ] {confirm} Only in prod {#a2}', '  only when ^env is prod', '',
+  '## Gate: One done {#g1}', '  approves: env ^env', '',
+  '## Two · READ-DO {#two}', '- [ ] {confirm} Early {#b1}', '- [!] {confirm} Start here {#b2}', '- [ ] {confirm} Ship ^tag {#b3}', '- [ ] {confirm} Make tag {#b4}', '  sets: tag', '- [ ] {confirm} Size it ^size {#b5}', '',
+  '## Three · READ-DO {#three}', '  only when ^env is prod', '- [ ] {confirm} Last {#c1}', ''].join('\n');
+
+rule('Run from here: earlier steps and gates are assumed, never answers, and the walk starts at the step', () => {
+  const map = admit(FROM), st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'prod').state, map, 'b2').state;
+  const v = P.follow(st, map, {});
+  same(['a1', 'a2', 'b1', 'b2'].map(id => step(v, id).status), ['assumed', 'assumed', 'assumed', 'open']);
+  assert.strictEqual(phase(v, 'one').gate.rec.by, 'assumed'); assert.ok(phase(v, 'one').gate.assumed);
+  assert.ok(phase(v, 'two').open);
+  same(v.from.id, 'b2'); assert.strictEqual(v.from.assumed, 3);
+  same(st.answers, {}); same(st.gates, {});
+  assert.strictEqual(v.nextUp.step, 'b2');
+  assert.ok(/assumed/.test(P.answer(st, map, 'a1', 'done', {}, NOW).error));
+  assert.ok(/assumed/.test(P.gateAct(st, map, 0, 'pass', '', {}, NOW).error));
+});
+
+rule('Run from here: an unresolved or invalid earlier condition never locks the way; the live part keeps its conditions', () => {
+  const md = FROM.replace('## One · READ-DO {#one}', '## One · READ-DO {#one}\n  only when ^size is 3');
+  const map = admit(md);
+  for (const sample of [{}, { env: 'staging' }]) {
+    const st = P.setFrom(Object.assign(P.fresh('f'), { sample }), map, 'b2').state, v = P.follow(st, map, {});
+    assert.ok(phase(v, 'two').open, JSON.stringify(sample) + ': the destination phase is open');
+    assert.strictEqual(step(v, 'b2').status, 'open');
+    assert.strictEqual(v.nextUp.step, 'b2');
+    assert.notStrictEqual(phase(v, 'three').info && step(v, 'c1').status, 'assumed', 'live conditions stay');
+  }
+  const partial = P.setFrom(Object.assign(P.fresh('f'), { sample: { env: 'staging' } }), admit(FROM), 'a2').state, v2 = P.follow(partial, admit(FROM), {});
+  same([step(v2, 'a1').status, step(v2, 'a2').status], ['assumed', 'waiting'], 'the from step\'s own condition is live: it waits for a valid env');
+});
+
+rule('Run from here: needed samples in walk order, set by a producer only when it comes first, applies and has its evidence', () => {
+  const map = admit(FROM);
+  let st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'b2').state;
+  same(P.follow(st, map, {}).from.needed, ['tag', 'size'], 'tag is read before Make tag sets it; size is never set');
+  const after = admit(FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', '').replace('  sets: tag\n', '  sets: tag\n- [ ] {confirm} Ship ^tag {#b3}\n'));
+  st = P.setFrom(P.setSample(P.fresh('f'), after, 'env', 'dev').state, after, 'b2').state;
+  same(P.follow(st, after, {}).from.needed, ['size'], 'a producer before the use supplies it');
+  const skipped = ans(st, after, 'b4', { skipped: true });
+  same(P.follow(skipped, after, {}).from.needed, ['tag', 'size'], 'checked without evidence: it supplies nothing');
+  const hidden = admit(FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', '').replace('  sets: tag\n', '  sets: tag\n  only when ^env is prod\n- [ ] {confirm} Ship ^tag {#b3}\n'));
+  st = P.setFrom(P.setSample(P.fresh('f'), hidden, 'env', 'dev').state, hidden, 'b2').state;
+  same(P.follow(st, hidden, {}).from.needed, ['tag', 'size'], 'a hidden producer supplies nothing');
+  const fromStart = P.setFrom(P.fresh('f'), map, 'a1').state;
+  assert.ok(P.follow(fromStart, map, {}).from.needed.indexOf('env') >= 0, 'a gate approval counts');
+});
+
+rule('Run from here: no success moment; through says so; Undo and Reset clear it; removal moves it', () => {
+  const map = admit(FROM);
+  let st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'b5').state;
+  st = ans(st, map, 'b5');
+  st = gate(st, map, 1);
+  const v = P.follow(st, map, {});
+  assert.strictEqual(v.complete, false); assert.strictEqual(v.from.through, true);
+  const e = P.undoEntry(P.fresh('f'), P.setFrom(P.fresh('f'), map, 'b5').state, 'Run from here');
+  assert.strictEqual(P.applyEntry(P.setFrom(P.fresh('f'), map, 'b5').state, e).state.from, '');
+  assert.strictEqual(P.reset(st).state.from, '');
+  const s2 = P.setFrom(P.fresh('f'), map, 'b3').state;
+  const gone = admit(FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', ''));
+  assert.strictEqual(P.settle(s2, gone, {}, map).from, 'b4', 'the next step after it in its phase');
+  const lastGone = admit(FROM.replace('- [ ] {confirm} Last {#c1}', '- [ ] {confirm} Other {#c2}'));
+  assert.strictEqual(P.settle(P.setFrom(P.fresh('f'), map, 'c1').state, lastGone, {}, map).from, 'c2', 'else the phase\'s first');
+  assert.strictEqual(P.settle(P.setFrom(P.fresh('f'), map, 'c1').state, admit(FROM.split('## Three')[0]), {}, map).from, '', 'else the beginning');
+  assert.strictEqual(P.settle(s2, admit(FROM.replace('{#b3}', '{#b3x}')), { b3: 'b3x' }, map).from, 'b3x', 'a rename follows');
+  const hid = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'a2').state;
+  assert.strictEqual(P.follow(hid, map, {}).from.id, 'a1', 'a hidden from step hands over (here to the phase\'s first)');
+});
+
+rule('a Jira transition the workflow stops allowing goes back, its gate to review; checking it is refused, Check without it isn\'t', () => {
+  const ok = PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done' }] } }).workflows;
+  const none = PF.jira.check({ Story: { statuses: ['To Do', 'Review'], transitions: [{ from: '*', to: 'Review' }] } }).workflows;
+  const md = ['---', 'process: j', 'title: J', '---', '## P · READ-DO {#p}', '- [!] {jira.issue} Close it {#close}', '  action: transition', '  issue: ABC-1', '  issueType: Story', '  status: Done', '',
+    '## Gate: Closed {#closed}', ''].join('\n');
+  const map = P.admit(md, {}).map, e1 = P.env({}, ok), e2 = P.env({}, none);
+  let st = P.answer(P.fresh('j'), map, 'close', 'done', e1, NOW).state;
+  st = P.gateAct(st, map, 0, 'pass', '', e1, NOW).state;
+  const v = P.follow(st, map, e2);
+  same([step(v, 'close').status, phase(v, 'p').gate.rec.s, v.complete], ['again', 'review', false]);
+  assert.ok(/no transition to "Done"/.test(P.answer(P.fresh('j'), map, 'close', 'done', e2, NOW).error), 'a plain check is refused');
+  const sk = P.answer(P.fresh('j'), map, 'close', 'done', e2, NOW, { skipped: true });
+  assert.ok(sk.state && sk.state.answers.close.skipped, 'Check without it still works');
+  assert.ok(step(P.follow(P.fresh('j'), map, e2), 'close').ask, 'the row asks first (the form says why)');
+});
+
+rule('evidence comes back whole: 41 values survive a reload; a record past the limit drops its answer and every gate', () => {
+  const vals = {}; for (let i = 0; i < 41; i++) vals['v' + i] = 'x' + i;
+  const st = Object.assign(P.fresh('rel'), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: vals } }, gates: { ready: { s: 'passed', reason: '', at: 't', approved: {}, base: 'ab' } } });
+  const back = P.check(JSON.parse(JSON.stringify(st)), 'rel');
+  same(Object.keys(back.answers.tag.values).length, 41); assert.ok(back.gates.ready);
+  const many = {}; for (let i = 0; i <= P.VALUES_MAX; i++) many['v' + i] = 'x';
+  const over = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: many }, other: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } } }), 'rel');
+  assert.ok(!over.answers.tag && over.answers.other); same(over.gates, {});
+  const long = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: { a: 'y'.repeat(P.VALUE_MAX + 1) } } } }), 'rel');
+  assert.ok(!long.answers.tag); same(long.gates, {});
+});
+
+rule('Needed from here: a setter marked Not needed, or a linked run that would set it, supplies nothing', () => {
+  const md = FROM.replace('- [ ] {confirm} Ship ^tag {#b3}\n', '').replace('  sets: tag\n', '  sets: tag\n- [ ] {confirm} Ship ^tag {#b3}\n');
+  const map = admit(md);
+  let st = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'dev').state, map, 'b2').state;
+  same(P.follow(st, map, {}).from.needed, ['size']);
+  same(P.follow(ans(st, map, 'b4', null, 'na'), map, {}).from.needed, ['tag', 'size'], 'Not needed');
+  const linked = admit(md.replace('- [ ] {confirm} Make tag {#b4}', '- [ ] {run.process} Make tag {#b4}\n  process: tagger'));
+  st = P.setFrom(P.setSample(P.fresh('f'), linked, 'env', 'dev').state, linked, 'b2').state;
+  same(P.follow(st, linked, {}).from.needed, ['tag', 'size'], 'a linked run sets nothing in practice');
+});
+
+rule('Needed from here: a skipped phase\'s gate asks for nothing', () => {
+  const md = ['---', 'process: k', 'title: K', 'context: env:choice(dev|prod), sig', '---', '## One · READ-DO {#one}', '- [ ] {confirm} Start {#s1}', '',
+    '## Two · READ-DO {#two}', '  only when ^env is prod', '- [ ] {confirm} Prod only {#s2}', '', '## Gate: Signed {#signed}', '  approves: sign-off ^sig', ''].join('\n');
+  const map = admit(md);
+  const dev = P.setFrom(P.setSample(P.fresh('k'), map, 'env', 'dev').state, map, 's1').state;
+  same(P.follow(dev, map, {}).from.needed, []);
+  const prod = P.setFrom(P.setSample(P.fresh('k'), map, 'env', 'prod').state, map, 's1').state;
+  same(P.follow(prod, map, {}).from.needed, ['sig'], 'the same gate asks once its phase applies');
+});
+
+rule('a setter given a new ID by the builder still takes its consumers and later gates with it, and back on the same value', () => {
+  const md = SETS + '\n## Gate: Shipped {#shipped}\n  approves: ship of ^commit\n';
+  const map = admit(md);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc' } });
+  st = ans(ans(st, map, 'size', { skipped: true }), map, 'review');
+  st = gate(st, map, 0); st = ans(st, map, 'deploy'); st = gate(st, map, 1);
+  const moved = admit(md.replace('Make the commit {#make}', 'Make the release commit {#make2}'));
+  const settled = P.settle(st, moved, { make: 'make2' }, map);
+  same(settled.setBy, { commit: 'make2' }, 'Set by follows the new ID');
+  const v = P.follow(settled, moved, {});
+  same([step(v, 'make2').status, step(v, 'deploy').status, phase(v, 'ship').gate.rec.s], ['again', 'again', 'review']);
+  const re = ans(settled, moved, 'make2', { values: { [CK]: 'abc' } }), v2 = P.follow(re, moved, {});
+  same([step(v2, 'make2').status, step(v2, 'deploy').status, phase(v2, 'ship').gate.rec.s], ['done', 'done', 'passed'], 'same value: back as they were');
+  const e = P.undoEntry(settled, re, 'Check'), u = P.applyEntry(re, e);
+  same(step(P.follow(u.state, moved, {}), 'deploy').status, 'again', 'Undo of the re-check sends the consumer back again');
+  same(step(P.follow(P.applyEntry(u.state, u.back).state, moved, {}), 'deploy').status, 'done', 'and Redo returns it');
+  const skipped = P.settle(ans(P.fresh('s'), map, 'make', { skipped: true }), moved, { make: 'make2' }, map);
+  same(P.follow(skipped, moved, {}).phases[0].steps.map(x => x.status).slice(0, 1), ['again']);
+});
+
+rule('a setter whose sets: changed or went away still takes what it had set with it (replace, remove, partial), with Undo/Redo', () => {
+  const md = SETS.replace('  sets: commit\n', '  sets: commit, size\n').replace('- [ ] {confirm} Note the size {#size}\n  sets: size\n', '- [ ] {confirm} Note the size {#size}\n') + '\n## Gate: Shipped {#shipped}\n  approves: ship of ^commit\n';
+  const map = admit(md);
+  let st = ans(P.fresh('s'), map, 'make', { values: { [CK]: 'abc', [SK]: '3' } });
+  st = ans(ans(st, map, 'size'), map, 'review'); st = gate(st, map, 0); st = ans(st, map, 'deploy'); st = gate(st, map, 1);
+  for (const [why, to] of [['replaced', '  sets: size\n'], ['removed', ''], ['partly removed', '  sets: size\n']]) {
+    const m2 = admit(md.replace('  sets: commit, size\n', to)), v = P.follow(st, m2, {});
+    same([step(v, 'make').status, step(v, 'deploy').status, phase(v, 'ship').gate.rec.s, v.complete], ['again', 'again', 'review', false], why);
+  }
+  const m3 = admit(md.replace('  sets: commit, size\n', ''));
+  const re = ans(st, m3, 'make'), e = P.undoEntry(st, re, 'Check');
+  assert.strictEqual(step(P.follow(re, m3, {}), 'make').status, 'done');
+  const u = P.applyEntry(re, e);
+  assert.strictEqual(step(P.follow(u.state, m3, {}), 'deploy').status, 'again', 'Undo brings back the old answer and its pull');
+  assert.strictEqual(step(P.follow(P.applyEntry(u.state, u.back).state, m3, {}), 'make').status, 'done');
+});
+
+rule('a setter that stops applying sets nothing: what read it stays done', () => {
+  const md = ['---', 'process: h', 'title: H', 'context: env:choice(dev|prod), commit', '---', '## Build · READ-DO {#build}',
+    '- [ ] {confirm} Make the commit {#make}', '  only when ^env is prod', '  sets: commit', '- [ ] {confirm} Review ^commit {#review}', ''].join('\n');
+  const map = admit(md), key = R.detailKey('commit');
+  let st = P.setSample(P.fresh('h'), map, 'env', 'prod').state;
+  st = ans(st, map, 'make', { values: { [key]: 'abc' } }); st = ans(st, map, 'review');
+  st = P.setSample(st, map, 'env', 'dev').state;
+  const v = P.follow(st, map, {});
+  assert.strictEqual(step(v, 'review').status, 'done', 'the hidden setter pulls nothing back');
+});
+
+rule('a renamed step keeps what was filled in (and the old ID keeps it too, for the draft Undo)', () => {
+  const map = admit(SETS), st0 = Object.assign(P.fresh('s'), { fields: { old: { command: 'npm test' } } });
+  const st = P.settle(st0, map, { old: 'review' });
+  same(st.fields.review, { command: 'npm test' }); same(st.fields.old, { command: 'npm test' });
+});
+
+rule('Run from here: a from step that stops applying hands over for good, said, and Undo brings it back', () => {
+  const map = admit(FROM);
+  const st0 = P.setFrom(P.setSample(P.fresh('f'), map, 'env', 'prod').state, map, 'a2').state;
+  const r = P.setSample(st0, map, 'env', 'dev', {});
+  assert.strictEqual(r.moved, 'next'); assert.strictEqual(r.state.from, 'a1');
+  const back = P.setSample(r.state, map, 'env', 'prod', {});
+  assert.ok(!back.moved); assert.strictEqual(back.state.from, 'a1', 'it never moves back on its own');
+  const u = P.applyEntry(r.state, P.undoEntry(st0, r.state, 'Sample env'));
+  assert.strictEqual(u.state.from, 'a2', 'Undo brings the old from step back');
+  assert.strictEqual(P.check(JSON.parse(P.keep(r.state)), 'f').from, 'a1', 'kept');
+  const e = P.repin(Object.assign({}, st0, { sample: { env: 'dev' } }), map, {});
+  assert.strictEqual(e.moved, 'next', 'a draft edit or reload hands over the same way');
+});
+
+rule('kept evidence that is not a record drops its answer and every gate', () => {
+  const map = admit(MD), st = gate(prep(map), map, 0);
+  for (const bad of [null, 3, 'x', ['a']]) {
+    const o = JSON.parse(JSON.stringify(st)); o.answers.notes.values = bad;
+    const back = P.check(o, 'rel');
+    assert.ok(!back.answers.notes, JSON.stringify(bad) + ': answer dropped'); same(back.gates, {});
+  }
+});
+
+rule('Run from here: a removed from step falls back within its own phase, never to a step that moved to another', () => {
+  const map = admit(FROM), st0 = P.setFrom(P.fresh('f'), map, 'b2').state;
+  const moved = ['- [ ] {confirm} Ship ^tag {#b3}', '- [ ] {confirm} Make tag {#b4}', '  sets: tag', '- [ ] {confirm} Size it ^size {#b5}'];
+  const md = FROM.replace('- [!] {confirm} Start here {#b2}\n' + moved.join('\n') + '\n', '')
+    .replace('  only when ^env is prod\n- [ ] {confirm} Last {#c1}', '  only when ^env is prod\n' + moved.join('\n') + '\n- [ ] {confirm} Last {#c1}');
+  const map2 = admit(md);
+  assert.ok(step(P.follow(P.fresh('f'), map2, {}), 'b3'), 'b3 moved to Three');
+  assert.strictEqual(P.settle(st0, map2, {}, map).from, 'b1', 'its phase\'s first, not b3 in Three');
 });
 
 run();

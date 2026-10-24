@@ -601,7 +601,7 @@ A process is one page, with its checklist in the middle.
 
 ### Practice while you edit
 
-**Practice** in the draft editor runs what's on screen without recording anything: check steps, pass gates, give run details sample values, and keep editing as you go. A step you change shows **Try it again**; a gate whose steps or details changed asks to be passed again. It's kept in this browser tab only, never written to the team folder, and never counted as a run. Links and commands you follow still act on real systems. When you get through the whole checklist, **Stage it for a test run**. See docs/design.md, section 34.
+**Practice** in the draft editor runs what's on screen without recording anything: check steps, pass gates, give run details sample values, and keep editing as you go. A step you change shows **Try it again**; a gate whose steps or details changed asks to be passed again. Evidence opens under the step as it would in a run (or **Check without it**), **Fill in** works as in a run, a step's `sets:` value flows to the steps after it, and **Run from here** starts partway, assuming the steps before it and asking for the sample details it needs. It's kept in this browser tab only, never written to the team folder, and never counted as a run. Links and commands you follow still act on real systems. When you get through the whole checklist, **Stage it for a test run**. See docs/design.md, section 34.
 
 ### Staging and test runs
 

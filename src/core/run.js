@@ -248,7 +248,9 @@ PF.run = (function () {
     return out;
   }
   /* A step's evidence: what its type asks for, plus, for a Jira transition, the fields the team's workflow requires. */
-  function evidenceFor(r, step, fields) {
+  /* map: the checklist to read a sets: detail's kind from; left out, it's the run's own (mapOf). Practice passes the draft's
+     admitted map, since its stand-in has no snapshot (docs/design.md section 34). */
+  function evidenceFor(r, step, fields, map) {
     var t = PF.types.get(step.type, r.types), f = fields || fieldsOf(r, step), extra = [];
     if (step.type === 'jira.issue' && String(f.action || '').toLowerCase() === 'transition' && f.status && r.jira) {
       var w = PF.jira.forType(r.jira, f.issueType);
@@ -260,7 +262,7 @@ PF.run = (function () {
     }
     String(f.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (d) {
       /* A typed run detail (2.0) is asked for with its kind, so the step stores it canonical. */
-      var dt = detailDef(mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: 120, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
+      var dt = detailDef(map || mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: 120, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
       if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); }
       extra.push(e);
     });
@@ -292,7 +294,7 @@ PF.run = (function () {
     if (w.workflow.statuses.indexOf(f.status) < 0 || !PF.jira.into(w.workflow, f.status).length) return 'Jira\'s ' + w.type + ' workflow has no transition to "' + f.status + '". Statuses: ' + w.workflow.statuses.join(', ') + '.';
     return null;
   }
-  function checkEvidence(r, step, fields, values, partial) { var e = evidenceFor(r, step, fields); return PF.types.checkRecord(e.type, e.fields, values, partial, e.extra); }
+  function checkEvidence(r, step, fields, values, partial, map) { var e = evidenceFor(r, step, fields, map); return PF.types.checkRecord(e.type, e.fields, values, partial, e.extra); }
   /* run.json keeps the latest LOG_MAX log entries and HISTORY_MAX earlier answers per step, so it stays small to read and save.
      Older ones aren't dropped: they go to r._overflow, which the save appends to the run's history file (see repo.saveRun). */
   function archive(r, rec) { rec.id = rec.id || U.randomId(10); (r._overflow = r._overflow || []).push(rec); }
@@ -591,27 +593,19 @@ PF.run = (function () {
     if (nw) throw new Error(nw);
     if (r.state !== 'running') throw new Error('This run has ended.');
     notPaused(r);
-    var t = PF.types.get(x.step.type, r.types), allowed = PF.types.editable(t), changed = [], checked = r.steps[id] && r.steps[id].s === 'done';
+    var changed = [], checked = r.steps[id] && r.steps[id].s === 'done';
     var prior = { fields: Object.assign({}, fieldsOf(r, x.step)), values: Object.assign({}, (r.steps[id] && r.steps[id].values) || {}) };
     function fail(msg, field) { var e = new Error(msg); e.field = field; return e; }
     function shown(v) { return v ? '"' + String(v).slice(0, 60) + '"' : 'empty'; }
-    var own = Object.assign({}, (r.fields || {})[id] || {});
-    Object.keys(fields || {}).forEach(function (f) {
-      if (allowed.indexOf(f) < 0) throw fail('"' + f + '" can\'t be changed during a run.', 'fld-' + f);
-      var v = String(fields[f] == null ? '' : fields[f]).trim().slice(0, 300), before = fieldsOf(r, x.step)[f] || '';
-      if (v === before) return;
-      var def = PF.types.fieldDef(t, f);
-      if (v && def.kind === 'choice' && PF.types.hasOption(def, fieldsOf(r, x.step), v)) v = PF.types.canonical(def, fieldsOf(r, x.step), v);
-      if (v && def.kind === 'choice' && !PF.types.hasOption(def, fieldsOf(r, x.step), v)) throw fail(def.label + ' should be one of: ' + PF.types.options(def, fieldsOf(r, x.step)).join(', ') + '.', 'fld-' + f);
-      if (v === (x.step.fields[f] || '')) delete own[f]; else own[f] = v;
-      changed.push(def.label + ': ' + shown(before) + ' → ' + shown(v));
-    });
+    var cf = checkFill(r, x.step, fields);
+    if (cf.error) throw fail(cf.error, cf.field);
+    var own = cf.own;
+    changed.push.apply(changed, cf.changed);
     /* A refused correction must leave the run exactly as it was, so keep copies to put back. */
     var keepF = r.fields && r.fields[id] ? JSON.parse(JSON.stringify(r.fields[id])) : null, keepS = r.steps[id] ? JSON.parse(JSON.stringify(r.steps[id])) : null, keepG = JSON.parse(JSON.stringify(r.gates || {})), keepLog = r.log.length, keepO = (r._overflow || []).length;
     function undo() { if (r._overflow) r._overflow.length = Math.min(r._overflow.length, keepO); if (keepF) r.fields[id] = keepF; else delete r.fields[id]; if (keepS) r.steps[id] = keepS; else delete r.steps[id]; r.gates = keepG; r.log.length = Math.min(r.log.length, keepLog); }
     r.fields = r.fields || {};
     if (Object.keys(own).length) r.fields[id] = own; else delete r.fields[id];
-    if (changed.length) { var jp = jiraProblem(r, x.step); if (jp) { undo(); throw fail(jp, ''); } }
     var ca = r.steps[id];
     if (changed.length && x.step.type === 'run.process' && ca && ca.child && ca.s === 'done' && !childCurrent(r, x.step, ca)) {
       answer(r, id, { s: 'recheck', reason: 'The step changed: its ' + ca.child.process + ' run no longer matches', by: who, at: now });
@@ -645,6 +639,34 @@ PF.run = (function () {
     if (changed.length) addLog(r, who, now, 'Filled in ' + changed.join(', ') + ' on "' + x.step.text + '"' + (r.steps[id] && r.steps[id].s === 'done' ? ' (after it was checked)' : ''));
     if (typeof producedChanged !== 'undefined' && producedChanged.length) applySets(r, map, x.step, who, now, producedChanged);
     return changed;
+  }
+  /* Fill in's own checks, without changing anything: which map fields a run may fill in (PF.types.editable), each value
+     trimmed, a choice made canonical or refused. Returns { own, changed } (the step's filled-in fields after it, and what
+     changed in words) or { error, field }. Checked on the merged fields: the Jira workflow, and with o.keep ({ values, map })
+     the evidence a checked answer must keep. setFields and practice (docs/design.md section 34) both use it. */
+  function checkFill(r, step, fields, o) {
+    var t = PF.types.get(step.type, r.types), allowed = PF.types.editable(t), own = Object.assign({}, (r.fields || {})[step.id] || {}), changed = [], keys = Object.keys(fields || {});
+    function shown(v) { return v ? '"' + String(v).slice(0, 60) + '"' : 'empty'; }
+    for (var i = 0; i < keys.length; i++) {
+      var f = keys[i];
+      if (allowed.indexOf(f) < 0) return { error: '"' + f + '" can\'t be changed during a run.', field: 'fld-' + f };
+      var v = String(fields[f] == null ? '' : fields[f]).trim().slice(0, 300), before = fieldsOf(r, step)[f] || '';
+      if (v === before) continue;
+      var def = PF.types.fieldDef(t, f);
+      if (v && def.kind === 'choice' && PF.types.hasOption(def, fieldsOf(r, step), v)) v = PF.types.canonical(def, fieldsOf(r, step), v);
+      if (v && def.kind === 'choice' && !PF.types.hasOption(def, fieldsOf(r, step), v)) return { error: def.label + ' should be one of: ' + PF.types.options(def, fieldsOf(r, step)).join(', ') + '.', field: 'fld-' + f };
+      if (v === (step.fields[f] || '')) delete own[f]; else own[f] = v;
+      changed.push(def.label + ': ' + shown(before) + ' → ' + shown(v));
+    }
+    if (!changed.length) return { own: own, changed: changed };
+    var merged = Object.assign({}, step.fields, own), jp = jiraProblem(r, step, merged);
+    if (jp) return { error: jp, field: '' };
+    var keep = o && o.keep;
+    if (keep) {
+      var missing = evidenceFor(r, step, merged, keep.map).list.filter(function (d) { return d.required && !((keep.values || {})[d.name]); })[0];
+      if (missing) return { error: missing.label + ' is required for this step, so it can\'t be removed while the step is checked. Undo the check first if it really wasn\'t done.', field: 'rec-' + missing.name };
+    }
+    return { own: own, changed: changed };
   }
   function na(r, map, id, who, now) { var x = guardStep(r, map, id, 'na'); answer(r, id, { s: 'na', by: who, at: now }); return x; }
   function block(r, map, id, reason, who, now) { var x = guardStep(r, map, id); answer(r, id, { s: 'blocked', reason: String(reason || 'Blocked').slice(0, 120), by: who, at: now }); addLog(r, who, now, 'Blocked "' + x.step.text + '": ' + r.steps[id].reason); return x; }
@@ -1728,8 +1750,8 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
-    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
+    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

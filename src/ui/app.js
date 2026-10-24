@@ -1363,6 +1363,8 @@
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
     /* A row that had focus is gone (a change that arrived removed it) and no dialog is open: the editor's heading, never the page. */
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
+    /* A group of radios takes focus on its chosen option, else its first. */
+    if (target && target.tagName === 'FIELDSET') target = target.querySelector('input:checked') || target.querySelector('input') || target;
     state.focus = null;
     /* The caret goes back where it was: from the carried-over value, or for a bound control from the node it had before. */
     var caret = keep[target && target.id] || (ae && target && ae.id && ae.id === target.id && ae.selectionStart != null ? { s: ae.selectionStart, e: ae.selectionEnd } : null);
@@ -2435,12 +2437,13 @@
     try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
     if (raw) { try { st = PR.check(JSON.parse(raw), pid); } catch (err) { st = null; } lost = !st; }
     return (prs[k] = { pid: pid, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, rows: [], gateErr: null, refusal: null,
+      form: null, formErr: null, formVals: null,
       note: lost ? 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.' : '' });
   }
   function prSave(e) {
     var present = {};
     if (e.good) e.good.map.phases.forEach(function (ph) { present[ph.id] = present[ph.gate.id] = true; ph.steps.forEach(function (s) { present[s.id] = true; }); });
-    var text = PR.keep(e.st, present);
+    var text = PR.keep(e.st, present, e.good ? e.good.map : null);
     try { if (text == null) throw new Error('too big'); sessionStorage.setItem(prStoreKey(e.pid), text); }
     catch (err) { if (!e.mem) { e.mem = true; say('Practice is kept in this window only for now: the browser won\'t store more. Nothing in the draft is affected.', 'warn'); } }
   }
@@ -2455,22 +2458,31 @@
   function prMap(e, text) {
     var key = typesRev() + '\n' + text;
     if (e.cache && e.cache.key === key) return e.cache;
-    var a = PR.admit(text, (data.stepTypes || {}).types || {});
+    var a = PR.admit(text, prEnv());
     if (a.ok) {
-      e.st = PR.settle(e.st, a.map, e.renames); e.renames = {};
+      var was = e.st, wasFrom = e.st.from || '', rn = e.renames;
+      e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
+      if (wasFrom && e.st.from !== wasFrom && rn[wasFrom] !== e.st.from) e.note = e.st.from ? 'The step you practiced from was removed, so practice runs from the next one.' : 'The step you practiced from was removed, so practice starts from the beginning.';
+      /* An edit can also make it stop applying: it hands over for good, said once. */
+      var pinned = PR.repin(e.st, a.map, prEnv());
+      if (pinned.moved) { e.st = pinned.state; e.note = prMovedNote(pinned.moved); }
       e.good = { text: text, map: a.map };
+      /* Kept as soon as it changed (a reload never brings back a from step that moved). */
+      if (e.st !== was) prSave(e);
     }
     e.cache = { key: key, problem: a.ok ? '' : a.why, map: e.good ? e.good.map : null };
     return e.cache;
   }
+  function prMovedNote(m) { return m === 'next' ? 'The step you practiced from doesn\'t apply now, so practice runs from the next one that does.' : 'The step you practiced from doesn\'t apply now, so practice starts from the beginning.'; }
   /* What the pane draws (views/practice.js). */
   ctx.practice = function (p, text) {
     var e = prEntry(p.id), c = prMap(e, text), map = c.map, ed = editorOf(p.id);
     var pend = state.obPending === p.id && state.obPendingField ? 'Apply or clear what you typed in the box first ' + applyHint(state.obPendingField) + ', then practice it.' : '';
-    var model = map ? PR.follow(e.st, map, (data.stepTypes || {}).types || {}, state.me) : null;
+    var model = map ? PR.follow(e.st, map, prEnv(), state.me) : null;
     var details = map ? (map.meta.context || []).map(function (n) {
       var d = PF.run.detailValueDef(map, n), hint = d && d.options && d.options.length ? 'one of ' + d.options.join(', ') : d && d.kind && d.kind !== 'text' ? d.kind : '';
-      return { name: n, value: e.st.sample[n] || '', hint: hint };
+      var by = model && model.setBy[n] ? M.findStep(map, model.setBy[n]) : null;
+      return { name: n, value: e.st.sample[n] || '', hint: hint, setBy: by ? by.step.text : '' };
     }) : [];
     var gone = model ? model.gone.filter(function (id) { return !PR.isTemp(id); }) : [];
     /* The selected step: the last one chosen here or in the builder, for this process. One removed or hidden hands over to
@@ -2489,9 +2501,11 @@
     }
     if (model) e.rows = rows;
     if (model) model.phases.forEach(function (ph) { var g = map.phases.filter(function (x) { return x.id === ph.id; })[0]; ph.gate.approves = g && g.gate.approves ? 'Approves ' + PF.run.fill(g.gate.approves, Object.assign({}, e.st.sample)) : ''; });
-    return { model: model, sel: sel, narrow: narrow(), typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
+    var form = model && e.form ? PR.formFor(e.st, map, prEnv(), e.form.id, e.form.kind) : null;
+    if (e.form && !form) e.form = null;
+    return { model: model, sel: sel, narrow: narrow(), builder: state.builder !== false, form: form, formErr: form ? e.formErr : null, formVals: form ? e.formVals : null, typed: e.typed, gateErr: e.gateErr, refusal: e.refusal, note: e.note, dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, problem: c.problem, paused: pend, details: details, sampleErr: e.sampleErr, gone: gone.slice(0, 5), found: e.st.found,
       canUndo: e.undo.length > 0, canRedo: e.redo.length > 0, undoLabel: e.undo.length ? e.undo[e.undo.length - 1].label : '',
-      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0, saveState: V.draftStatus(ctx, p, ed, text) };
+      hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0 || Object.keys(e.st.fields || {}).length > 0 || !!e.st.from, saveState: V.draftStatus(ctx, p, ed, text) };
   };
   /* One practice action: refused ones say why; done ones push one Undo entry. */
   function prDo(pid, label, fn, focus, at) {
@@ -2503,8 +2517,8 @@
     var r = fn(e.st, c.map);
     /* Refused: said beside the step or gate it was about, inside the pane (also as a phone sheet), and announced. */
     if (r.error) { e.refusal = { at: at == null ? null : String(at), msg: r.error }; say(r.error, 'warn'); state.msg.quiet = true; render(); return false; }
-    e.refusal = null; e.note = '';
-    if (r.state === e.st) return false;
+    e.refusal = null; e.note = r.moved ? prMovedNote(r.moved) : '';
+    if (r.state === e.st) return null;
     e.undo.push(PR.undoEntry(e.st, r.state, label)); if (e.undo.length > PR.UNDO_MAX) e.undo.shift();
     e.redo = []; e.st = r.state; prSave(e);
     if (focus) state.focus = focus;
@@ -2532,23 +2546,70 @@
     if (state.builder !== false && !PR.isTemp(id) && !(state.obPending === pid && state.obPendingField)) state.obSel = { pid: pid, kind: 'step', key: id };
   }
   /* A step's status as the pane shows it (done, skipped, again…), not as last answered. */
-  function prStatus(st, map, id) { var s = null; PR.follow(st, map, (data.stepTypes || {}).types || {}, state.me).phases.forEach(function (ph) { ph.steps.forEach(function (x) { if (x.id === id) s = x; }); }); return s ? s.status : null; }
+  function prStatus(st, map, id) { var s = null; PR.follow(st, map, prEnv(), state.me).phases.forEach(function (ph) { ph.steps.forEach(function (x) { if (x.id === id) s = x; }); }); return s ? s.status : null; }
+  /* The team's step types and Jira workflows, as practice reads them (a run copies the same when it starts). */
+  function prEnv() { return PR.env((data.stepTypes || {}).types || {}, data.jira && data.jira.workflows); }
+  function prStep(pid, id) { var p = currentProcess(), e = prEntry(pid), c = p ? prMap(e, prText(p)) : null, s = null; if (c && c.map) PR.follow(e.st, c.map, prEnv(), state.me).phases.forEach(function (ph) { ph.steps.forEach(function (x) { if (x.id === id) s = x; }); }); return s; }
+  function prText(p) { var ed = editorOf(p.id); return ed ? (ed.text != null ? ed.text : ed.base) : p.draft ? p.draft.md : p.latest ? p.latest.md : ''; }
+  /* Check or uncheck a step with nothing to ask first. */
+  function prPlain(p, e, id) {
+    var done = prStatus(e.st, prMap(e, prText(p)).map, id) === 'done';
+    prDo(p.id, done ? 'Uncheck' : 'Check', function (st, map) { return PR.answer(st, map, id, prStatus(st, map, id) === 'done' ? 'open' : 'done', prEnv(), new Date().toISOString()); }, prFocusRow(id), id);
+  }
+  /* The inline form under a row: opened with focus on its first box; closing it returns focus to the row. */
+  function prForm(e, kind, id) {
+    if (state.obPending === e.pid && state.obPendingField) { say('Apply or clear what you typed in the box first ' + applyHint(state.obPendingField) + ', then practice it.', 'warn'); render(); return; }
+    e.form = { kind: kind, id: id }; e.formErr = null; e.formVals = null; e.refusal = null;
+    state.focus = '[data-pr-form] input, [data-pr-form] select, [data-pr-form] textarea, [data-pr-form] button'; render();
+  }
+  function prFormNow(p, e) { var c = prMap(e, prText(p)); return e.form && c.map ? PR.formFor(e.st, c.map, prEnv(), e.form.id, e.form.kind) : null; }
+  function prFormDone(e, id, msg) { e.form = null; e.formErr = null; e.formVals = null; if (id) state.focus = prFocusRow(id); if (msg) { say(msg, 'good'); state.msg.quiet = true; } render(); }
+  function prSubmit(id, skip) {
+    var p = currentProcess(); if (!p) return; var e = prEntry(p.id), f = prFormNow(p, e); if (!f || f.id !== id) return;
+    var values = {}; if (!skip) f.list.forEach(function (d) { var el = document.getElementById('pr-rec-' + d.name); if (el) values[d.name] = inputValue(el); });
+    var err = null, ok = prDo(p.id, skip ? 'Check without evidence' : 'Check', function (st, map) { var r = PR.answer(st, map, id, 'done', prEnv(), new Date().toISOString(), skip ? { skipped: true } : { values: values }); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
+    if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = values; state.focus = err.field ? 'pr-rec-' + err.field : 'pr-fe'; render(); return; }
+    /* Refused before it was tried (a name still pending in the builder): the form stays, with what was typed. */
+    if (ok === false) { e.formVals = values; render(); return; }
+    if (ok) prFormDone(e, id, '');
+  }
   function prFocusRow(id) { return '[data-pr-step="' + cssEsc(id) + '"] .pr-check'; }
   var prActs = {
     'pr-open': function () { var p = currentProcess(); if (!p) return; state.practicing[edKey(p.id)] = true; prEntry(p.id); state.insTab = 'practice'; state.focus = 'pr-h'; render(); },
     'pr-close': function () { var p = currentProcess(); if (!p) return; delete state.practicing[edKey(p.id)]; if (state.insTab === 'practice') state.insTab = null; state.focus = '[data-act="pr-open"]'; say('Practice is kept in this tab. Choose Practice to pick it up again.', 'good'); state.msg.quiet = true; render(); },
-    'pr-check': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); var e = prEntry(p.id), done = e.st.answers[id] && e.st.answers[id].s === 'done'; prDo(p.id, done ? 'Uncheck' : 'Check', function (st, map) { var cur = PR.follow(st, map, (data.stepTypes || {}).types || {}, state.me), s = null; cur.phases.forEach(function (ph) { ph.steps.forEach(function (x) { if (x.id === id) s = x; }); }); return PR.answer(st, map, id, s && s.status === 'done' ? 'open' : 'done', (data.stepTypes || {}).types || {}, new Date().toISOString()); }, prFocusRow(id), id); },
-    'pr-na': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); prDo(p.id, 'Not needed', function (st, map) { var on = prStatus(st, map, id) === 'skipped'; return PR.answer(st, map, id, on ? 'open' : 'na', (data.stepTypes || {}).types || {}, new Date().toISOString()); }, '[data-pr-step="' + cssEsc(id) + '"] .pr-na', id); },
+    'pr-check': function (id) {
+      var p = currentProcess(); if (!p) return; prPick(p.id, id); var e = prEntry(p.id), cur = prStep(p.id, id);
+      /* A step that asks for evidence opens its boxes under the row first (Check, or Check without it). */
+      if (cur && cur.ask && cur.status !== 'done') { prForm(e, 'ev', id); return; }
+      prPlain(p, e, id);
+    },
+    'pr-ev-ok': function (id) { prSubmit(id, false); },
+    'pr-ev-skip': function (id) { prSubmit(id, true); },
+    'pr-fill': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); prForm(prEntry(p.id), 'fill', id); },
+    'pr-fill-ok': function (id) {
+      var p = currentProcess(); if (!p) return; var e = prEntry(p.id), f = prFormNow(p, e); if (!f || f.id !== id) return;
+      var fields = {}; f.list.forEach(function (d) { var el = document.getElementById('pr-fld-' + d.name); if (el) fields[d.name] = inputValue(el); });
+      var err = null, ok = prDo(p.id, 'Fill in', function (st, map) { var r = PR.fillIn(st, map, id, fields, prEnv()); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
+      if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = fields; state.focus = err.field ? 'pr-' + err.field : 'pr-fe'; render(); return; }
+      if (ok === false) { e.formVals = fields; render(); return; }
+      prFormDone(e, id, ok ? 'Filled in for practice.' : '');
+    },
+    'pr-form-close': function () { var p = currentProcess(); if (!p) return; var e = prEntry(p.id), id = e.form && e.form.id; prFormDone(e, id, ''); },
+    'pr-from': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); prDo(p.id, 'Run from here', function (st, map) { return PR.setFrom(st, map, id); }, prFocusRow(id), id); },
+    'pr-from-clear': function () { var p = currentProcess(); if (!p) return; prDo(p.id, 'Start from the beginning', function (st, map) { return PR.setFrom(st, map, ''); }, 'pr-h'); },
+    'pr-check-plain': function (id) { var p = currentProcess(); if (!p) return; prPlain(p, prEntry(p.id), id); },     'pr-na': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); prDo(p.id, 'Not needed', function (st, map) { var on = prStatus(st, map, id) === 'skipped'; return PR.answer(st, map, id, on ? 'open' : 'na', prEnv(), new Date().toISOString()); }, '[data-pr-step="' + cssEsc(id) + '"] .pr-na', id); },
     'pr-gate': function (id, b) {
       var p = currentProcess(); if (!p) return; var how = b && b.dataset.how, pi = +id, why = (document.getElementById('pr-why-' + pi) || {}).value || '';
       var e = prEntry(p.id); e.gateErr = null;
       /* A waiver without its reason says so beside the reason box (inside the pane, also as a phone sheet). */
-      var ok = prDo(p.id, how === 'reopen' ? 'Reopen the phase' : how === 'waive' ? 'Waive the gate' : 'Pass the gate', function (st, map) { var r = PR.gateAct(st, map, pi, how, why, (data.stepTypes || {}).types || {}, new Date().toISOString()); if (r.error && how === 'waive') { e.gateErr = { pi: pi, msg: r.error }; return { state: st }; } return r; }, 'pr-h', 'gate:' + pi);
+      var ok = prDo(p.id, how === 'reopen' ? 'Reopen the phase' : how === 'waive' ? 'Waive the gate' : 'Pass the gate', function (st, map) { var r = PR.gateAct(st, map, pi, how, why, prEnv(), new Date().toISOString()); if (r.error && how === 'waive') { e.gateErr = { pi: pi, msg: r.error }; return { state: st }; } return r; }, 'pr-h', 'gate:' + pi);
       if (!ok && e.gateErr) { state.focus = 'pr-why-' + pi; render(); }
     },
     'pr-reset': function () { var p = currentProcess(); if (!p) return; var re = prEntry(p.id); if (!prDo(p.id, 'Reset', function (st) { re.typed = {}; re.sampleErr = {}; return PR.reset(st); }, 'pr-h')) return; say('Practice reset. Undo brings it back.', 'good', { act: 'pr-undo', label: 'Undo' }); render(); },
     'pr-undo': function () { var p = currentProcess(); if (p) prMove(p.id, true); },
     'pr-redo': function () { var p = currentProcess(); if (p) prMove(p.id, false); },
+    /* The step's text selects it here (and in the builder's outline, without opening its form); Edit opens it there. */
+    'pr-sel': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); state.focus = '[data-pr-step="' + cssEsc(id) + '"] .pr-text'; render(); },
     'pr-goto': function (id) {
       var p = currentProcess(); if (!p) return; prPick(p.id, id);
       if (PR.isTemp(id) || state.builder === false) { state.focus = prFocusRow(id); render(); return; }
@@ -5843,7 +5904,7 @@
       var se = prEntry(spx.id), sv = e.target.value;
       se.typed[smp] = sv;
       var ran = false;
-      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
+      prDo(spx.id, 'Sample ' + smp, function (st, map) { ran = true; delete se.typed[smp]; var r = PF.practice.setSample(st, map, smp, sv, prEnv()); if (r.error) se.sampleErr[smp] = { msg: r.error, value: sv }; else delete se.sampleErr[smp]; return r.error ? { state: st } : r; }, '#pr-s-' + cssEsc(smp));
       if (se.sampleErr[smp]) { state.focus = '#pr-s-' + cssEsc(smp); render(); }
       return;
     }
@@ -6256,7 +6317,7 @@
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (prSheetOpen) { ACTIONS['pr-close'](); return; } if (!typing && t && t.closest && t.closest('#pr')) { prBack(); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (t && t.closest && t.closest('[data-pr-form]')) { ACTIONS['pr-form-close'](); return; } if (prSheetOpen) { ACTIONS['pr-close'](); return; } if (!typing && t && t.closest && t.closest('#pr')) { prBack(); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -6274,6 +6335,10 @@
     if (state.overlay && state.overlay.list && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.altKey && !e.ctrlKey && !e.metaKey) { ACTIONS['lb-step'](e.key === 'ArrowLeft' ? '-1' : '1'); return; }
     /* A comma ends a tag: it's added at once (a tag can't hold a comma). */
     if (typing && e.key === ',' && t.id === 'tf-tagadd') { e.preventDefault(); ACTIONS['tf-tag-add'](); return; }
+    /* A practice form: Ctrl/Cmd+Enter submits from any box (a select, or a multiline box where Enter is a new line). */
+    var prf = t && t.closest && t.closest('[data-pr-form]');
+    if (prf && e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !composing && !e.isComposing) { e.preventDefault(); ACTIONS[prf.dataset.prForm === 'ev' ? 'pr-ev-ok' : 'pr-fill-ok'](prf.dataset.id); return; }
+    if (typing && e.key === 'Enter' && t.dataset.enter && (composing || e.isComposing) && /^pr-/.test(t.dataset.enter)) return;
     if (typing && e.key === 'Enter' && t.dataset.enter) {
       e.preventDefault();
       var act = t.dataset.enter;
@@ -6309,6 +6374,7 @@
       if (state.keys && (e.key === ' ' || e.key === 'Spacebar') && t.classList && t.classList.contains('pr-text')) { e.preventDefault(); ACTIONS['pr-check'](rid); return; }
       if (state.keys && (e.key === 'x' || e.key === 'X')) { e.preventDefault(); ACTIONS['pr-na'](rid); return; }
       if (state.keys && (e.key === 'e' || e.key === 'E')) { e.preventDefault(); ACTIONS['pr-goto'](rid); return; }
+      if (state.keys && (e.key === 'f' || e.key === 'F') ) { var fst = prp ? prStep(prp.id, rid) : null; if (fst && fst.fill) { e.preventDefault(); ACTIONS['pr-fill'](rid); } return; }
     }
     /* The inspector's tabs: the arrow keys (Home, End) move between them. */
     if (t && t.dataset && t.dataset.act === 'ins-tab' && /^(Arrow(Left|Right)|Home|End)$/.test(e.key) && !e.altKey && !e.metaKey && !e.ctrlKey) {
