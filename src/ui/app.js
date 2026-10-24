@@ -2640,11 +2640,12 @@
       if (editorDirty(p)) { say('Save the draft first, then stage it.', 'warn'); state.focus = '[data-act="save-draft"]'; render(); return; }
       var e = prEntry(p.id), note = String(e.stageNote != null ? e.stageNote : p.latest ? '' : 'First version').trim();
       if (!note) { e.noteErr = 'Write what changed (one line), then stage it.'; state.focus = 'pr-note'; render(); return; }
-      stageDraft(p.id, note, { e: e, act: e.act || 0, text: edText(p), note: e.stageNote, look: edLook() });
+      stageDraft(p.id, note, { e: e, act: e.act || 0, text: edText(p), note: e.stageNote, ui: uiActs });
     }
   };
-  /* What the editor shows besides its text: a step picked, a box opened or another tab since the click is someone moving on. */
-  function edLook() { return JSON.stringify([state.obSel || null, state.obAdd || null, state.obAsk || null, state.obPlace || null, state.insTab || null, state.builder !== false, state.ptab]); }
+  /* Every click on a control, key pressed, or box typed in or changed counts here: anything done after Stage is someone
+     moving on, even when it ends where it began. */
+  var uiActs = 0;
   /* Stage the saved draft for test runs (the overview's Stage button, or Practice's: origin). Same checks and write either way. */
   function stageDraft(id, note, origin) {
       var p = processes().filter(function (x) { return x.id === id; })[0];
@@ -2679,13 +2680,13 @@
         var calm = function () {
           var cp = currentProcess(), oe = prs[edKey(id)], ae = document.activeElement;
           return pg === gen && state.fs === sfs && state.me === by && cp && cp.id === id && state.view === 'process' && state.ptab === 'edit' &&
-            oe === origin.e && (oe.act || 0) === origin.act && edText(cp) === origin.text && edLook() === origin.look && !(state.obPending === id && state.obPendingField) &&
+            oe === origin.e && (oe.act || 0) === origin.act && edText(cp) === origin.text && uiActs === origin.ui && !(state.obPending === id && state.obPendingField) &&
             !(ae && ae.id !== 'pr-note' && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || ''));
         };
         /* A note typed since the click is the person's next one: only the note that was staged is cleared. */
         /* Cleared now, before the folder is read again, so nothing typed after this point is touched; '' (not the "First
            version" prefill) so an empty box is refused like any other. */
-        if (origin.e.stageNote === origin.note) { origin.e.stageNote = ''; origin.e.noteErr = null; var nb = document.getElementById('pr-note'); if (nb) nb.value = ''; }
+        if (origin.e.stageNote === origin.note) { origin.e.stageNote = ''; origin.e.noteErr = null; var nb = document.getElementById('pr-note'), np = currentProcess(); if (nb && np && np.id === id && prs[edKey(id)] === origin.e) nb.value = ''; }
         /* The stage must be in what the folder read says, ready to start a test run from, before practice ends for it. */
         var shown1 = function () {
           var procs = (data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, id) ? procs[id] : null, cp = processes().filter(function (x) { return x.id === id; })[0];
@@ -4083,6 +4084,7 @@
     var handler = ACTIONS[act];
     if (!handler) return;
     e.preventDefault();
+    uiActs++;
     harvest();
     handler(id, b);
   });
@@ -5911,7 +5913,7 @@
   });
 
   /* Anything typed or chosen in the practice pane counts as practice activity (Stage from Practice ends it only if none). */
-  function prActivity(t) { var cp = t && t.closest && t.closest('#pr') && currentProcess(); if (cp) prTouch(prEntry(cp.id)); }
+  function prActivity(t) { uiActs++; var cp = t && t.closest && t.closest('#pr') && currentProcess(); if (cp) prTouch(prEntry(cp.id)); }
   document.addEventListener('change', function (e) { prActivity(e.target); }, true);
   document.addEventListener('input', function (e) {
     prActivity(e.target);
@@ -6400,6 +6402,7 @@
   });
 
   document.addEventListener('keydown', function (e) {
+    uiActs++;
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);

@@ -365,6 +365,42 @@ rule('Stage from Practice: picking another step in the builder while the stage s
   assert.match(app.live(), /Staged\. Your practice is still open\./, app.live());
 });
 
+rule('Stage from Practice: switching to the builder and back while the stage saves still keeps practice', async () => {
+  const app = await finished();
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+  app.click('ed-mode', 'builder'); await app.tick(); app.click('ed-mode', 'markdown'); await app.tick();
+  go(); await app.tick(300); app.fs.write = orig;
+  assert.strictEqual(stageFiles(app).length, 1);
+  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.match(app.live(), /Staged\. Your practice is still open\./, app.live());
+});
+
+rule('Stage from Practice: another process\'s What changed is never emptied when this one\'s stage finishes', async () => {
+  const app = await finished();
+  app.click('open-process', 'check-in'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.input('draft-editor', SMALL.replace('process: release', 'process: check-in')); await app.tick(300);
+  app.click('save-draft'); await app.tick(150);
+  app.click('pr-open'); await app.tick();
+  await check(app, 'one'); app.click('pr-gate', '0', { how: 'pass' }); await app.tick();
+  await check(app, 'ship-it'); if (/data-act="pr-gate" data-id="1" data-how="pass"/.test(app.html())) { app.click('pr-gate', '1', { how: 'pass' }); await app.tick(); }
+  assert.match(app.html(), /<input id="pr-note"/, 'set-up: the other process practiced to the end');
+  note(app, 'Other process note');
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  assert.match(app.html(), /<input id="pr-note"/, 'set-up: back on the first one, still practiced to the end');
+  let go; const gate = new Promise(r => { go = r; });
+  const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+  app.click('open-process', 'check-in'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  assert.strictEqual(app.el('pr-note').value, 'Other process note', 'set-up: its note is drawn');
+  go(); await app.tick(300); app.fs.write = orig;
+  assert.strictEqual(stageFiles(app).length, 1, 'the first process staged');
+  assert.strictEqual(app.el('pr-note').value, 'Other process note');
+});
+
 rule('Stage from Practice: a refresh that read the folder before the stage was written never hides the new stage', async () => {
   const app = await finished();
   let go, first = true; const gate = new Promise(r => { go = r; });
