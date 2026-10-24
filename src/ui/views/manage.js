@@ -44,9 +44,8 @@
 
   /* Which inspector tab shows: the one chosen (selecting something clears that choice), else Selected while something is
      selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. */
-  function insTabOf(st, sel, blockers, builder, practicing) {
+  function insTabOf(st, sel, blockers, builder) {
     var t = st.insTab;
-    if (t === 'practice' && practicing) return t;
     if (t === 'selected' && builder) return t;
     if (t === 'checks' || t === 'preview') return t;
     if (builder && sel) return 'selected';
@@ -63,7 +62,7 @@
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
-    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder, practicing);
+    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
     var status = draftStatus(ctx, p, ed, text);
     /* Only problems make a number; tips are listed under Checks without one. */
     var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
@@ -75,7 +74,8 @@
       '<div class="fpe-tools"><div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
       /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
       V.undoBar('draft', ed && ed.tl) +
-      '<button type="button" class="chipbtn fpe-practice" data-act="' + (practicing ? 'ins-tab" data-id="practice' : 'pr-open') + '" aria-pressed="' + practicing + '" title="Run what\'s on screen, in this window only. Nothing is recorded.">' + I('play') + 'Practice</button>' +
+      /* Practice opens the run screen for what's on screen; while one is open for this draft, it goes back to it. */
+      '<button type="button" class="chipbtn fpe-practice" data-act="pr-open" title="Run what\'s on screen, in this window only. Nothing is recorded.">' + I('play') + (practicing ? 'Back to practice' : 'Practice') + '</button>' +
       '<button type="button" class="chipbtn fpe-checks' + (nb ? ' bad' : '') + '" data-act="ins-tab" data-id="checks" aria-label="Checks: ' + checksLabel + '">' + (count ? '<span class="fpe-checks-t">Checks </span><span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : I('check') + '<span class="fpe-checks-t">Checks</span>') + '</button></div>' +
       '<div class="fpe-save"><span class="fpe-savestate"><span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (just ? I('check') : '') + status + '</span>' +
       '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button></span>' +
@@ -104,8 +104,7 @@
         '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Done to publish it.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
-    if (practicing) panes.practice = V.practicePane(ctx, p, text);
-    var tabs = (practicing ? [['practice', 'Practice']] : []).concat(builder ? [['selected', practicing ? 'Step details' : 'Selected']] : [], [['checks', 'Checks'], ['preview', 'Preview']]);
+    var tabs = (builder ? [['selected', 'Selected']] : []).concat([['checks', 'Checks'], ['preview', 'Preview']]);
     var ins = V.splitter(ctx, 'ins') + '<aside class="fpe-pane fpe-ins" id="fpe-ins" aria-label="Inspector"><div class="fpe-tabs" role="tablist" aria-label="Inspector">' + tabs.map(function (t) {
       var on = t[0] === tab;
       return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
@@ -115,7 +114,7 @@
     return h + '</div>';
   }
 
-  /* The draft's save state in words, shared by the editor's header and the practice pane. */
+  /* The draft's save state in words, shared by the editor's header and the practice run screen. */
   function draftStatus(ctx, p, ed, text) {
     var st = ctx.state, dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     return saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved: Save draft before you publish' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');

@@ -1772,26 +1772,27 @@ rule('New process: a name that still breaks the rule, or one listed twice, is re
   }
 });
 
-rule('New process: a blank one starts with no placeholder step, the Add a step box open and focused, and Practice open beside it', async () => {
+rule('New process: a blank one starts with no placeholder step, the Add a step box open and focused, and says how to practice it', async () => {
   const app = await newBlank();
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   const md = app.fs.files['maps/drafts/weekly-server-patching.md'].t;
   assert.ok(/^## First phase · READ-DO \{#first\}$/m.test(md) && !/first-step|The first thing to do/.test(md), md);
   assert.ok(/id="ob-new-text"/.test(app.html()), 'the add box is open');
   assert.strictEqual(app.focused(), 'ob-new-text');
-  assert.ok(/id="pr"/.test(app.html()) && /Add a step to practice it\./.test(app.html()), 'practice open, empty');
-  assert.ok(/Type a step and press Enter for the next one/.test(app.live()), app.live());
+  assert.ok(/data-act="pr-open"/.test(app.html()) && !/Practice · not recorded/.test(app.html()), 'Practice offered, not opened');
+  assert.ok(/Type a step and press Enter for the next one/.test(app.live()) && /Choose Practice to run it as you go/.test(app.live()), app.live());
   addEnter(app, 'Patch the servers'); await app.tick();
-  assert.ok(/data-pr-step="patch-the-servers"/.test(app.html()), 'practice follows what was typed');
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(/id="step-patch-the-servers"/.test(app.html()), 'practice runs what was typed, on the run screen');
 });
 
-rule('New process: on a phone the blank one opens with the add box only; in Markdown mode the editor and Practice', async () => {
+rule('New process: on a phone the blank one opens with the add box only; in Markdown mode the editor, Practice one press away', async () => {
   const phone = await newBlank({ narrow: true });
   phone.set('np-title', 'Weekly server patching'); phone.submit('new-process-form'); await phone.tick(120);
-  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/id="pr"/.test(phone.html()), 'no practice sheet on its own');
+  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/Practice · not recorded/.test(phone.html()), 'no practice on its own');
   const md = await newBlank({ localStore: { 'preflight:builder': 'false' } });
   md.set('np-title', 'Weekly server patching'); md.submit('new-process-form'); await md.tick(120);
-  assert.ok(/id="draft-editor"/.test(md.html()) && /id="pr"/.test(md.html()), 'the Markdown editor, with Practice');
+  assert.ok(/id="draft-editor"/.test(md.html()) && /data-act="pr-open"/.test(md.html()), 'the Markdown editor, with Practice');
 });
 
 rule('New process: a refresh that read the folder before the draft was written never strands the new draft', async () => {
@@ -1811,8 +1812,9 @@ rule('New process: a blank one practiced to the end offers Stage with What chang
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('save-draft'); await app.tick(150);
-  app.click('pr-check', 'patch-the-servers'); await app.tick();
-  if (/data-act="pr-gate" data-id="0" data-how="pass"/.test(app.html())) { app.click('pr-gate', '0', { how: 'pass' }); await app.tick(); }
+  app.click('pr-open'); await app.tick(60);
+  app.click('toggle', 'patch-the-servers'); await app.tick();
+  if (/data-act="pass" data-id="0"/.test(app.html())) { app.click('pass', '0'); await app.tick(); }
   assert.ok(/<input id="pr-note"[^>]*value="First version"/.test(app.html()), 'prefilled');
   app.click('pr-stage'); await app.tick(300);
   assert.ok(Object.keys(app.fs.files).some(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)), 'staged');
@@ -1823,13 +1825,14 @@ rule('New process: once "First version" is staged and practice stays open, the e
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('save-draft'); await app.tick(150);
-  app.click('pr-check', 'patch-the-servers'); await app.tick();
-  if (/data-act="pr-gate" data-id="0" data-how="pass"/.test(app.html())) { app.click('pr-gate', '0', { how: 'pass' }); await app.tick(); }
+  app.click('pr-open'); await app.tick(60);
+  app.click('toggle', 'patch-the-servers'); await app.tick();
+  if (/data-act="pass" data-id="0"/.test(app.html())) { app.click('pass', '0'); await app.tick(); }
   let go; const gate = new Promise(r => { go = r; });
   const orig = app.fs.write.bind(app.fs);
   app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
   app.click('pr-stage'); await app.tick(30);
-  app.click('pr-sel', 'patch-the-servers'); await app.tick();
+  app.click('select', 'patch-the-servers'); await app.tick();
   go(); await app.tick(300); app.fs.write = orig;
   const staged = () => Object.keys(app.fs.files).filter(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)).length;
   assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
@@ -7989,8 +7992,8 @@ rule('Back and Forward: every promise callback in the app that changes a route f
   };
   const ROUTE = /state\.(view|processId|runKey|ptab|mapVer|planId|skillFile|recoveryAt|typeForm)\s*=[^=]|setView\(|openRun\(|\bhome\(\)/;
   // Held (holdNav), replacing (H.mode), opening a folder (useFs replaces), or the person's own save, start or decline
-  // landing, which pushes like the click it finishes (docs/design.md section 29).
-  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file', 'Published \' + f.title'];
+  // landing, which pushes like the click it finishes (docs/design.md section 29); Stage from Practice's too (2.3).
+  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file', 'Published \' + f.title', 'Staged. Start a test run from it'];
   const re = /\.then\(function\s*\([^)]*\)\s*\{/g; let m; const found = [];
   while ((m = re.exec(src))) { const b = bodyAt(m.index + m[0].length - 1); if (ROUTE.test(b)) found.push(b); }
   assert.ok(found.length >= 10, 'the scan finds the callbacks: ' + found.length);

@@ -384,6 +384,7 @@ PF.practice = (function () {
      longer in the draft are kept, newest 50, so deleting and undoing restores them. */
   function settle(state, map, renames, prev) {
     var st = copy(state), present = {}, changed = false;
+    renames = compose(renames);
     st.from = st.from || '';
     if (st.from && own(renames || {}, st.from)) { st.from = renames[st.from]; changed = true; }
     /* "Set by" follows a new ID too (it only labels the sample box; what flows comes from the answers). */
@@ -413,6 +414,18 @@ PF.practice = (function () {
     var gg = Object.keys(st.gates).filter(function (id) { return !present[id]; });
     gg.slice(GONE_MAX).forEach(function (id) { delete st.gates[id]; changed = true; });
     return changed ? bump(st) : state;
+  }
+
+  /* Renames as they happened (a → b, then b → c) made into where each old ID is now (a → c, b → c). A cycle (a → b → a)
+     ends where it started, so that ID maps to itself and is left out. */
+  function compose(renames) {
+    var out = {};
+    Object.keys(renames || {}).forEach(function (o) {
+      var n = renames[o], seen = {}; seen[o] = true;
+      while (own(renames, n) && !seen[n]) { seen[n] = true; n = renames[n]; }
+      if (n !== o) out[o] = n;
+    });
+    return out;
   }
 
   /* ---------- keeping it: sessionStorage, checked when read back, within CAP ---------- */
@@ -491,18 +504,30 @@ PF.practice = (function () {
     if ((before.from || '') !== (after.from || '')) e.from = before.from || '';
     return e;
   }
-  /* Puts back what an entry holds; returns the new state and the entry that undoes this (for Redo). */
-  function applyEntry(state, e) {
-    var st = copy(state), back = { label: e.label };
+  /* Puts back what an entry holds; returns the new state and the entry that undoes this (for Redo). moved: where IDs the
+     entry recorded are now (compose()'s, from the draft's renames since): what it puts back goes under the old ID as
+     recorded and under the current one, so Undo after a rename undoes the step as it's named now. */
+  function applyEntry(state, e, moved) {
+    var st = copy(state), back = { label: e.label }, to = moved || {};
+    var cur = function (id) { return own(to, id) ? to[id] : id; };
     KEYED.forEach(function (k) {
       st[k] = st[k] || {}; back[k] = {};
-      Object.keys(e[k] || {}).forEach(function (x) { back[k][x] = own(st[k], x) ? st[k][x] : null; if (e[k][x] == null) delete st[k][x]; else st[k][x] = e[k][x]; });
+      Object.keys(e[k] || {}).forEach(function (x) {
+        var ids = [x].concat(k !== 'sample' && k !== 'setBy' && cur(x) !== x && !own(e[k], cur(x)) ? [cur(x)] : []);
+        ids.forEach(function (y) {
+          if (own(back[k], y)) return;
+          back[k][y] = own(st[k], y) ? st[k][y] : null;
+          var v = e[k][x];
+          if (k === 'setBy' && typeof v === 'string') v = cur(v);
+          if (v == null) delete st[k][y]; else st[k][y] = v;
+        });
+      });
     });
-    if (typeof e.from === 'string') { back.from = st.from || ''; st.from = e.from; }
+    if (typeof e.from === 'string') { back.from = st.from || ''; st.from = cur(e.from); }
     return { state: bump(st), back: back };
   }
 
   return { env: env, V: V, CAP: CAP, GONE_MAX: GONE_MAX, FOUND_MAX: FOUND_MAX, UNDO_MAX: UNDO_MAX, VALUE_MAX: VALUE_MAX, VALUES_MAX: VALUES_MAX, fresh: fresh, admit: admit, normalize: normalize, isTemp: isTemp, prints: prints, asRun: asRun,
     derive: derive, follow: follow, answer: answer, gateAct: gateAct, fillIn: fillIn, setFrom: setFrom, repin: repin, formFor: formFor, setSample: setSample, setFound: setFound, reset: reset, settle: settle, check: check, keep: keep,
-    undoEntry: undoEntry, applyEntry: applyEntry };
+    undoEntry: undoEntry, applyEntry: applyEntry, compose: compose };
 })();

@@ -40,6 +40,7 @@ PF.nav = (function () {
       else if (isVersion(loc.version)) p.push('v', loc.version);
       return join(p);
     }
+    if (v === 'practice') return isProcess(loc.process) ? join(['practice', loc.process]) : join(['processes']);
     if (v === 'plan') return isHex(loc.plan) ? join(['plan', loc.plan]) : join(['runs']);
     if (v === 'run') {
       if (!isProcess(loc.process) || !isRun(loc.run)) return join(['runs']);
@@ -65,6 +66,7 @@ PF.nav = (function () {
       if (s.ptab === 'edit' || s.ptab === 'insights') loc.tab = s.ptab; else if (s.mapVer != null) loc.version = s.mapVer;
       return loc;
     }
+    if (v === 'practice') return { view: 'practice', process: s.processId };
     if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : isStage(s.testStage) ? { view: 'process', process: s.processId, sub: 'start', stage: s.testStage } : { view: 'process', process: s.processId, sub: 'start' };
     if (Object.prototype.hasOwnProperty.call(RUN_VIEWS, v)) {
       var k = String(s.runKey || ''), i = k.indexOf('/'), r = { view: 'run', process: k.slice(0, i), run: k.slice(i + 1) };
@@ -110,6 +112,7 @@ PF.nav = (function () {
       if (n === 4 && s[2] === 'v' && isVersion(s[3])) { loc.version = s[3]; return loc; }
       return null;
     }
+    if (w === 'practice') return n === 2 && isProcess(s[1]) ? { view: 'practice', process: s[1] } : null;
     if (w === 'plan') return n === 2 && isHex(s[1]) ? { view: 'plan', plan: s[1] } : null;
     if (w === 'run' && (n === 3 || n === 4) && isProcess(s[1]) && isRun(s[2])) {
       var r = { view: 'run', process: s[1], run: s[2] };

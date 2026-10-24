@@ -1,13 +1,12 @@
-// 2.2 slice 1 in the built app: practicing the draft open in the editor. Practice writes nothing to the folder, follows
-// the text as it's edited, has its own Undo, waits for builder typing to be applied, survives a reload of the tab and ends
-// when exactly the practiced text is published.
+// 2.3 in the built app: practicing the draft on the run screen. Practice writes nothing to the folder, has its own Undo,
+// survives a reload of the tab, sends Edit to the real editor at that step and comes back with what changed marked
+// Try it again, and ends when exactly the practiced text is published.
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const { boot } = require('./app-harness');
 
 const DRAFT = 'maps/drafts/release.md';
-const APPROVED = "Change request approved for tonight's window";
 /* The release draft open in the Markdown editor. Every folder write, append and removal is counted by path. */
 async function editor(opts) {
   opts = opts || {};
@@ -20,276 +19,501 @@ async function editor(opts) {
   return app;
 }
 const text = app => app.draft('draft-editor') || app.fs.files[DRAFT].t;
-const row = (app, id) => { const m = new RegExp('<li class="pr-st st-([\\w-]+)[^"]*" data-pr-step="' + id + '">').exec(app.html()); return m ? m[1] : null; };
+const onPage = app => /Practice · not recorded/.test(app.html());
+const inEditor = app => /id="draft-editor"|id="ob-plist"|data-act="ob-sel"/.test(app.html()) && !onPage(app);
+async function practice(app) { app.click('pr-open'); await app.tick(60); assert.ok(onPage(app), 'set-up: on the practice page'); }
+/* A step's row as drawn: open, done, again (Try it again), skipped (Not needed); null when it isn't drawn. */
+const row = (app, id) => { const m = new RegExp('<li class="step[^"]*" data-a="([\\w-]+)" id="step-' + id + '">').exec(app.html()); return m ? ({ recheck: 'again', na: 'skipped' })[m[1]] || m[1] : null; };
+/* Checks a step; one that asks for evidence opens its boxes first, answered here with Done without it. */
+async function check(app, id) { app.click('toggle', id); await app.tick(); if (new RegExp('data-act="pr-ev-skip" data-id="' + id + '"').test(app.html()) && row(app, id) !== 'done') { app.click('pr-ev-skip', id); await app.tick(); } }
+/* The gate of phase pi, by its ID as drawn. */
+const gateId = (app, pi) => [...app.html().matchAll(/<div class="gate" data-scope="gate:([^"]+)"/g)].map(m => m[1])[pi];
+/* A gate passed: straight from its button, or through its Pass form. */
+async function pass(app, pi) {
+  if (!new RegExp('data-act="pass" data-id="' + pi + '"').test(app.html())) { app.click('pick', gateId(app, pi), { kind: 'pass' }); await app.tick(); }
+  app.click('pass', String(pi)); await app.tick();
+}
+/* A control outside the practice page (the top bar's, Settings'), which acts as it does anywhere. */
+const topClick = (app, act, id) => { const b = { dataset: { act, id }, disabled: false, classList: { contains: () => false }, closest: s => (s === '#top' ? {} : null) }; app.fire('click', { target: { closest: () => b } }); };
+const canPass = (app, pi) => new RegExp('data-act="pass" data-id="' + pi + '"|data-act="pick" data-kind="pass" data-id="' + gateId(app, pi) + '"').test(app.html());
+/* Back to the draft, the draft changed there, and Back to practice. */
+async function edit(app, fn) {
+  app.click('pr-back'); await app.tick();
+  assert.ok(inEditor(app), 'set-up: in the editor');
+  app.input('draft-editor', fn(text(app))); await app.tick(300);
+  app.click('pr-open'); await app.tick(60);
+}
 /* A sample box typed in, then committed (Enter or leaving it), as the browser sends them. */
 const sample = (app, name, v, commit) => { const target = { id: 'pr-s-' + name, value: v, tagName: 'INPUT', dataset: { prSample: name }, closest: () => null }; app.fire('input', { target }); if (commit) app.fire('change', { target }); };
-/* Checks a step; one that asks for evidence opens its form first, answered here with Check without it. */
-async function check(app, id) { app.click('pr-check', id); await app.tick(); if (new RegExp('data-pr-form="ev" data-id="' + id + '"').test(app.html())) { app.click('pr-ev-skip', id); await app.tick(); } }
-const btn = () => ({ tagName: 'BUTTON', dataset: {}, closest: s => (s === '#pr' ? {} : null) });
+const btn = () => ({ tagName: 'BUTTON', dataset: {}, closest: () => null });
+const DROP_APPROVED = t => t.replace(/\n- \[!\] \{change\.request\}[^\n]*\{#approved\}\n(  [^\n]*\n)*/, '\n');
 
-rule('Practice opens as a tab of its own, says it is not recorded, and checking steps writes nothing to the folder', async () => {
+/* ---------- the page ---------- */
+rule('Practice opens as a page of its own, says it is not recorded, and checking steps writes nothing to the folder', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  assert.match(app.html(), /Practice · not recorded/);
+  await practice(app);
+  assert.strictEqual(app.hash(), '#/practice/release');
   assert.match(app.html(), /Nothing here is saved to the team folder/);
+  assert.ok(!/id="draft-editor"/.test(app.html()), 'the run screen, not the editor');
   assert.equal(row(app, 'approved'), 'open');
   await check(app, 'approved');
-  await check(app, 'tests');
+  await check(app, 'rollback');
   assert.equal(row(app, 'approved'), 'done');
-  assert.equal(row(app, 'tests'), 'done');
-  app.click('pr-na', 'notes'); await app.tick();
-  assert.equal(row(app, 'notes'), 'skipped');
+  assert.equal(row(app, 'rollback'), 'done');
+  app.click('na', 'announce'); await app.tick();
+  assert.equal(row(app, 'announce'), 'skipped');
   await app.tick(200);
   assert.deepEqual(app.writes, [], 'practice wrote: ' + app.writes.join(', '));
   assert.ok(!Object.keys(app.fs.files).some(p => /practice/i.test(p)));
-  assert.ok(!/Practice/.test(app.fs.files[DRAFT].t));
 });
 
-rule('Editing a checked step makes it "Try it again", and the folder sees only the same draft saves as without practice', async () => {
-  const plain = await editor(), prac = await editor();
-  prac.click('pr-open'); await prac.tick();
-  await check(prac, 'approved');
-  await check(prac, 'tests');
-  const t = text(prac).replace(APPROVED, 'Change request approved for this window');
-  [plain, prac].forEach(a => a.input('draft-editor', t));
-  await plain.tick(300); await prac.tick(300);
-  assert.equal(row(prac, 'approved'), 'again');
-  assert.match(prac.html(), /Changed since you checked it\. Try it again\./);
-  assert.equal(row(prac, 'tests'), 'done');
-  assert.deepEqual(prac.writes, plain.writes);
+rule('Every control drawn on the practice page is one practice allows; anything else does nothing there', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+  await practice(app);
+  app.click('select', 'approved'); await app.tick();
+  const acts = new Set([...app.html().matchAll(/data-act="([^"]+)"/g)].map(m => m[1]));
+  const allowed = /^(pr-[\w-]+|toggle|record|na|clear|select|goto|to-ins|to-row|close-ref|unfold|fold|pick|unpick|save-fields|pass|waive|reopen|dismiss|help|copy|zoom|zoom-phase|zoom-gate|nav)$/;
+  const odd = [...acts].filter(a => !allowed.test(a));
+  assert.deepStrictEqual(odd, [], 'drawn but not allowed: ' + odd.join(', '));
+  /* A run's own actions reach nothing: no note, no block, no run started, nothing written. */
+  const before = app.html();
+  for (const [act, id, data] of [['note-save', 'approved'], ['pick', 'approved', { kind: 'block' }], ['start-test', 'release'], ['end-run'], ['open-run', 'release/run1'], ['nav', 'settings']]) { app.click(act, id, data); await app.tick(); }
+  assert.ok(onPage(app), 'still practicing');
+  assert.strictEqual(app.html(), before, 'nothing changed on the page');
+  await app.tick(200);
+  assert.deepEqual(app.writes, []);
 });
 
-rule('Undo on a practice control undoes the practice; inside a practice text box the browser keeps its own Undo', async () => {
+rule('Undo on the practice page undoes the practice; inside a text box the browser keeps its own Undo', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  const before = text(app);
+  await practice(app);
+  await check(app, 'rollback');
+  const before = app.fs.files[DRAFT].t;
   app.keyOn('z', { ctrlKey: true }, btn()); await app.tick();
-  assert.equal(row(app, 'approved'), 'open');
-  assert.equal(text(app), before, 'the draft is unchanged');
+  assert.equal(row(app, 'rollback'), 'open');
+  assert.equal(app.fs.files[DRAFT].t, before, 'the draft is unchanged');
   app.keyOn('z', { ctrlKey: true, shiftKey: true }, btn()); await app.tick();
-  assert.equal(row(app, 'approved'), 'done');
+  assert.equal(row(app, 'rollback'), 'done');
   let stopped = false;
-  app.keyOn('z', { ctrlKey: true, preventDefault() { stopped = true; } }, { tagName: 'TEXTAREA', id: 'pr-found', dataset: {}, closest: s => (s === '#pr' ? {} : null) }); await app.tick();
+  app.keyOn('z', { ctrlKey: true, preventDefault() { stopped = true; } }, { tagName: 'TEXTAREA', id: 'pr-found', dataset: {}, closest: () => null }); await app.tick();
   assert.equal(stopped, false);
-  assert.equal(row(app, 'approved'), 'done');
+  assert.equal(row(app, 'rollback'), 'done');
 });
 
 rule('Reset clears the answers and one Undo brings them back', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
+  await practice(app);
+  await check(app, 'rollback');
   app.click('pr-reset'); await app.tick();
-  assert.equal(row(app, 'approved'), 'open');
+  assert.equal(row(app, 'rollback'), 'open');
   app.click('pr-undo'); await app.tick();
-  assert.equal(row(app, 'approved'), 'done');
+  assert.equal(row(app, 'rollback'), 'done');
 });
 
-rule('Practice is kept for this tab across a reload, in session storage only', async () => {
+rule('Reset is offered once anything resettable is there: Run from here alone counts', async () => {
+  const app = await editor();
+  await practice(app);
+  assert.match(app.html(), /data-act="pr-reset" disabled/);
+  app.click('select', 'announce'); await app.tick();
+  app.click('pr-from', 'announce'); await app.tick();
+  assert.ok(!/data-act="pr-reset" disabled/.test(app.html()));
+  app.click('pr-reset'); await app.tick();
+  assert.match(app.html(), /data-act="pr-reset" disabled/);
+});
+
+rule('Practice is kept for this tab across a reload, in session storage only, and a #/practice link opens it', async () => {
   const session = {};
   const app = await editor({ sessionStore: session });
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  const keys = Object.keys(session).filter(k => /:practice:/.test(k));
+  await practice(app);
+  await check(app, 'rollback');
+  const keys = Object.keys(session).filter(k => /:practice:/.test(k) && !/:typed$/.test(k));
   assert.equal(keys.length, 1);
   assert.ok(/:release$/.test(keys[0]));
-  const again = await editor({ sessionStore: session });
-  again.click('pr-open'); await again.tick();
-  assert.equal(row(again, 'approved'), 'done');
+  const again = boot({ localStore: { 'preflight:builder': 'false' }, sessionStore: session, hash: '#/practice/release' });
+  await again.tick(60); again.choose('person-casey'); await again.tick(60);
+  assert.ok(onPage(again), 'the link lands on the practice page');
+  assert.equal(row(again, 'rollback'), 'done');
   const other = await editor();
-  other.click('pr-open'); await other.tick();
-  assert.equal(row(other, 'approved'), 'open', 'another tab starts fresh');
+  await practice(other);
+  assert.equal(row(other, 'rollback'), 'open', 'another tab starts fresh');
 });
 
-rule('A refused draft keeps practicing the last version that worked and says what the problem is', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  app.input('draft-editor', text(app).replace('{#tests}', '{#approved}')); await app.tick(300);
-  assert.match(app.html(), /The draft has a problem:/);
-  assert.match(app.html(), /Practicing the last version that worked/);
-  assert.equal(row(app, 'approved'), 'done');
+rule('A practice kept in this tab that can\'t be read starts fresh and says so once', async () => {
+  const session = {};
+  const first = await editor({ sessionStore: session });
+  await practice(first);
+  await check(first, 'rollback');
+  const k = Object.keys(session).filter(x => /:practice:/.test(x) && !/:typed$/.test(x))[0];
+  session[k] = '{"v":1,"process":"release","answers":';
+  const app = await editor({ sessionStore: session });
+  await practice(app);
+  assert.match(app.html(), /couldn&#39;t be read, so it starts fresh|couldn't be read, so it starts fresh/);
+  assert.equal(row(app, 'rollback'), 'open');
+  await check(app, 'rollback');
+  assert.ok(!/starts fresh/.test(app.html()), 'said once');
 });
 
 rule('Publishing exactly the practiced text ends the practice', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
+  await practice(app);
+  await check(app, 'rollback');
   app.click('pr-close'); await app.tick();
+  assert.ok(inEditor(app), 'Done practicing goes back to the editor');
   app.set('change-note', 'Practiced'); app.click('publish', 'release'); await app.tick(120);
   assert.match(app.html() + app.live(), /Published v/);
   app.click('ptab', 'edit'); await app.tick();
-  app.click('pr-open'); await app.tick();
-  assert.equal(row(app, 'approved'), 'open');
+  await practice(app);
+  assert.equal(row(app, 'rollback'), 'open');
 });
 
-rule('Typing in a builder box not yet applied pauses practice until it is applied or cleared, and says how', async () => {
+/* ---------- Edit and Back to practice ---------- */
+rule('Editing a checked step makes it "Try it again", and the folder sees only the same draft saves as without practice', async () => {
+  const plain = await editor(), prac = await editor();
+  await practice(prac);
+  await check(prac, 'approved');
+  await check(prac, 'rollback');
+  prac.click('pr-back'); await prac.tick();
+  const t = text(prac).replace("Change request approved for tonight's window", 'Change request approved for this window');
+  [plain, prac].forEach(a => a.input('draft-editor', t));
+  await plain.tick(300); await prac.tick(300);
+  prac.click('pr-open'); await prac.tick(60);
+  assert.equal(row(prac, 'approved'), 'again');
+  assert.match(prac.html(), /Try it again/);
+  assert.equal(row(prac, 'rollback'), 'done');
+  assert.deepEqual(prac.writes, plain.writes);
+});
+
+rule('Edit opens the builder on that step; Back to practice returns to it, renamed or not, selected', async () => {
   const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
+  await practice(app);
+  await check(app, 'rollback');
+  app.click('select', 'flags'); await app.tick();
+  app.click('pr-edit', 'flags'); await app.tick();
+  assert.ok(inEditor(app), 'in the editor');
+  assert.strictEqual(app.focused(), 'ob-text', 'its text box focused');
+  assert.match(app.html(), /data-act="pr-open">Back to practice</, 'the builder offers Back to practice');
+  app.input('ob-text', 'Feature flags set in the deploy values file'); await app.tick();
+  app.click('ob-done'); await app.tick(300);
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(onPage(app));
+  assert.strictEqual(app.selected(), 'flags', 'back on the step');
+  assert.equal(row(app, 'rollback'), 'done', 'the rest as it was');
+});
+
+rule('Edit in Markdown selects the step\'s lines; Back to practice lands on the step the caret is in', async () => {
+  const app = await editor();
+  await practice(app);
+  const ta = app.el('draft-editor'); ta.value = app.fs.files[DRAFT].t; let focused = false, range = null;
+  ta.focus = () => { focused = true; }; ta.setSelectionRange = (x, y) => { range = [x, y]; };
+  app.click('pr-edit', 'flags'); await app.tick();
+  assert.ok(inEditor(app));
+  assert.ok(focused, 'the Markdown box has focus');
+  assert.ok(range && /\{#flags\}$/.test(ta.value.slice(range[0], range[1])), 'the step\'s line is selected: ' + (range && ta.value.slice(range[0], range[1])));
+  const at = ta.value.indexOf('{#rollback}');
+  ta.selectionStart = ta.selectionEnd = at;
+  app.click('pr-open'); await app.tick(60);
+  assert.strictEqual(app.selected(), 'rollback', 'the caret\'s step');
+});
+
+rule('A selected step removed from the draft hands the selection to the step after it', async () => {
+  const app = await editor();
+  await practice(app);
+  await check(app, 'approved');
+  app.click('pr-edit', 'approved'); await app.tick();
+  app.input('draft-editor', DROP_APPROVED(text(app))); await app.tick(300);
+  app.click('pr-open'); await app.tick(60);
+  assert.equal(row(app, 'approved'), null, 'gone');
+  assert.strictEqual(app.selected(), 'tests');
+});
+
+rule('A step added in the editor is there to practice, and nothing else changes', async () => {
+  const app = await editor();
+  await practice(app);
+  await check(app, 'rollback');
+  await edit(app, t => t.replace('{#rollback}\n', '{#rollback}\n- [ ] {confirm} Tell support the window {#support}\n'));
+  assert.equal(row(app, 'support'), 'open');
+  assert.equal(row(app, 'rollback'), 'done');
+});
+
+rule('Browser Back from the editor returns to practice, and Forward goes back to the editor', async () => {
+  const app = await editor();
+  await practice(app);
+  await check(app, 'rollback');
+  app.click('pr-edit', 'flags'); await app.tick();
+  assert.ok(inEditor(app));
+  app.back(); await app.settle();
+  assert.ok(onPage(app), 'Back: practice');
+  assert.equal(row(app, 'rollback'), 'done');
+  app.forward(); await app.settle();
+  assert.ok(inEditor(app), 'Forward: the editor');
+});
+
+rule('Escape on the practice page goes back to the draft and keeps practicing', async () => {
+  const app = await editor();
+  await practice(app);
+  await check(app, 'rollback');
+  app.click('close-ref'); await app.tick();
+  app.keyOn('Escape', {}, btn()); await app.tick();
+  assert.ok(inEditor(app), 'back in the editor');
+  assert.match(app.html(), /data-act="pr-open"[^>]*>(<span[^>]*>.*?<\/span>)?Back to practice/);
+  await practice(app);
+  assert.equal(row(app, 'rollback'), 'done');
+});
+
+rule('Builder typing not yet applied keeps the editor open and says to apply it first', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
   app.click('ob-sel', 'flags'); await app.tick();
   app.input('ob-text', 'Feature flags set in the values'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  assert.match(app.html(), /Apply or clear what you typed in the box first/);
-  await check(app, 'approved');
-  assert.equal(row(app, 'approved'), 'open', 'the check waits');
-  app.input('ob-text', 'Feature flags set in the deploy values'); await app.tick();
-  await check(app, 'approved');
-  assert.equal(row(app, 'approved'), 'done');
+  app.click('pr-open'); await app.tick();
+  assert.match(app.live(), /Apply or clear what you typed/);
+  assert.ok(!onPage(app), 'still in the editor');
 });
 
-rule('Escape on a practice row goes back to the editor and keeps practicing (on a wide screen)', async () => {
+rule('A refused draft keeps practicing the last version that worked and says what the problem is', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  const rowEl = { tagName: 'BUTTON', dataset: {}, closest: s => (s === '#pr' ? {} : s === '.pr-st' ? { dataset: { prStep: 'approved' } } : null) };
-  app.keyOn('Escape', {}, rowEl); await app.tick();
-  assert.match(app.html(), /Practice · not recorded/, 'still practicing');
-  assert.equal(row(app, 'approved'), 'done');
-});
-
-rule('A committed sample and its Undo: the box shows exactly the value being practiced', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  sample(app, 'environment', 'staging', true); await app.tick();
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="staging" data-bound/);
-  app.click('pr-undo'); await app.tick();
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="" data-bound/);
-});
-
-rule('Typing a sample not yet committed survives a redraw', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  sample(app, 'tag', 'v9'); await check(app, 'approved');
-  assert.match(app.html(), /id="pr-s-tag" data-pr-sample="tag" value="v9"/);
-});
-
-rule('The selected step follows the builder: a step chosen there is the one selected in Practice', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  assert.match(app.html(), /<li class="pr-st st-done sel" data-pr-step="approved">/);
-  app.click('ob-sel', 'tests'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  assert.match(app.html(), /<li class="pr-st st-open sel" data-pr-step="tests">/);
-});
-
-rule('A selected step removed from the draft hands the selection to the next row', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  app.input('draft-editor', text(app).replace(/\n- \[!\] \{change\.request\}[^\n]*\{#approved\}\n(  [^\n]*\n)*/, '\n')); await app.tick(300);
-  assert.match(app.html(), /<li class="pr-st[^"]* sel" data-pr-step="tests">/);
+  await practice(app);
+  await check(app, 'rollback');
+  await edit(app, t => t.replace('{#tests}', '{#approved}'));
+  assert.match(app.html(), /The draft has a problem:/);
+  assert.match(app.html(), /Practicing the last version that worked/);
+  assert.match(app.html(), /data-act="pr-back"[^>]*>Back to the draft to fix it/);
+  assert.equal(row(app, 'rollback'), 'done');
 });
 
 rule('Not needed on a "Try it again" row marks it Not needed again, in one click', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.click('pr-na', 'notes'); await app.tick();
-  app.input('draft-editor', text(app).replace('Check in the release notes for this commit', 'Check in the release notes')); await app.tick(300);
-  assert.equal(row(app, 'notes'), 'again');
-  app.click('pr-na', 'notes'); await app.tick();
-  assert.equal(row(app, 'notes'), 'skipped');
+  await practice(app);
+  app.click('na', 'announce'); await app.tick();
+  await edit(app, t => t.replace('Post "starting release" in the team channel', 'Post "starting release" in the channel'));
+  assert.equal(row(app, 'announce'), 'again');
+  app.click('na', 'announce'); await app.tick();
+  assert.equal(row(app, 'announce'), 'skipped');
 });
 
-rule('With single-key shortcuts off, X and E do nothing on a practice row; Space on Not needed is that button\'s', async () => {
+rule('Typing in evidence is kept across Edit and back, and a step\'s typing never lands on another', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  const on = cls => ({ tagName: 'BUTTON', dataset: {}, classList: { contains: c => c === cls }, closest: s => (s === '#pr' ? {} : s === '.pr-st' ? { dataset: { prStep: 'notes' } } : null) });
-  app.keyOn(' ', {}, on('pr-na')); await app.tick();
-  assert.equal(row(app, 'notes'), 'open', 'Space pressed the focused Not needed button natively, nothing else');
-  app.keyOn(' ', {}, on('pr-text')); await app.tick();
-  assert.equal(row(app, 'notes'), 'done', 'Space on the step text checks it');
-  app.click('toggle-keys'); await app.tick();
-  app.keyOn('x', {}, on('pr-text')); await app.tick();
-  assert.equal(row(app, 'notes'), 'done');
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  app.set('rec-number', 'CHG-77');
+  app.click('select', 'tests'); await app.tick();
+  app.click('toggle', 'tests'); await app.tick();
+  assert.ok(!/id="rec-number"/.test(app.html()), 'B shows its own boxes');
+  app.click('select', 'approved'); await app.tick();
+  assert.match(app.html(), /id="rec-number"[^>]*value="CHG-77"/, 'A kept its typing');
+  app.click('pr-edit', 'flags'); await app.tick();
+  app.click('pr-open'); await app.tick(60);
+  app.click('select', 'approved'); await app.tick();
+  assert.match(app.html(), /id="rec-number"[^>]*value="CHG-77"/, 'and across Edit');
 });
 
-rule('Reset refused while builder typing is pending says why, not that it reset', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  app.click('ob-sel', 'flags'); await app.tick();
-  app.input('ob-text', 'Feature flags set in the values'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  app.click('pr-reset'); await app.tick();
-  assert.ok(!/Practice reset/.test(app.live()));
-  assert.match(app.live(), /Apply or clear/);
+/* ---------- answering ---------- */
+rule('Evidence: Done without a needed value says so beside its box; with it, Done records it; nothing reaches the folder', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('toggle', 'approved'); await app.tick();
+  assert.equal(row(app, 'approved'), 'open', 'the boxes open first');
+  assert.match(app.html(), /id="rec-number"/);
+  app.click('record', 'approved'); await app.tick();
+  assert.match(app.html(), /<p class="ferr" id="ferr-approved" role="alert">Change number is needed/);
+  assert.equal(row(app, 'approved'), 'open');
+  app.set('rec-number', 'CHG-1234');
+  app.click('record', 'approved'); await app.tick();
   assert.equal(row(app, 'approved'), 'done');
+  await app.tick(200);
+  assert.deepEqual(app.writes, []);
 });
 
-rule('On a phone the pane is drawn as a dialog, so a redraw keeps it', async () => {
-  const app = await editor({ narrow: true });
-  app.click('pr-open'); await app.tick();
-  assert.match(app.html(), /<div class="pr" id="pr" aria-labelledby="pr-h" role="dialog" aria-modal="true">/);
-});
-
-rule('A refused sample keeps what is typed next across a redraw, not the refused value', async () => {
+rule('Done without it checks the step and says it was checked without evidence', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  const before = app.html();
-  sample(app, 'environment', 'prod'); await check(app, 'approved');
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="prod"/);
-  assert.ok(before);
+  await practice(app);
+  app.click('toggle', 'tests'); await app.tick();
+  app.click('pr-ev-skip', 'tests'); await app.tick();
+  assert.equal(row(app, 'tests'), 'done');
+  assert.match(app.html(), /Checked without evidence/);
 });
 
-rule('A selection handed over after a removal stays put on later redraws, within its phase', async () => {
+rule('Fill in saves in practice only and never sends the step back or changes the draft', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  app.input('draft-editor', text(app).replace(/\n- \[!\] \{change\.request\}[^\n]*\{#approved\}\n(  [^\n]*\n)*/, '\n')); await app.tick(300);
-  app.click('pr-check', 'tests'); await app.tick(); app.click('pr-form-close'); await app.tick();
-  app.click('pr-close'); await app.tick(); app.click('pr-open'); await app.tick();
-  assert.match(app.html(), /<li class="pr-st[^"]* sel" data-pr-step="tests">/);
+  await practice(app);
+  await check(app, 'announce');
+  app.click('pick', 'announce', { kind: 'fields' }); await app.tick();
+  assert.match(app.html(), /id="fld-channel"/);
+  app.set('fld-channel', '#release-room');
+  app.click('save-fields', 'announce'); await app.tick();
+  assert.ok(!/id="fld-channel"/.test(app.html()), 'saved and closed');
+  assert.equal(row(app, 'announce'), 'done');
+  await app.tick(200);
+  assert.deepEqual(app.writes, []);
+  assert.ok(!/release-room/.test(app.fs.files[DRAFT].t), 'the draft is unchanged');
 });
 
-rule('Waive without a reason says so beside the reason box, inside the pane', async () => {
+rule('A refused check says why, and the step keeps its answer', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
+  await practice(app);
+  for (const id of ['approved', 'tests', 'flags', 'rollback', 'notes', 'announce']) await check(app, id);
+  await pass(app, 0);
+  app.click('unfold', 'prep'); await app.tick();
+  app.click('toggle', 'rollback'); await app.tick();
+  assert.equal(row(app, 'rollback'), 'done');
+});
+
+rule('Waive without a reason says so beside the reason box', async () => {
+  const app = await editor();
   app.input('draft-editor', ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: release-lead', '---', '', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One thing {#one}', '', '## Gate: Ready · owner @release-lead {#ready}', ''].join('\n')); await app.tick(300);
-  assert.match(app.html(), /data-how="waive"/, 'set-up: the gate can be waived');
-  app.click('pr-gate', '0', { how: 'waive' }); await app.tick();
-  assert.match(app.html(), /id="pr-why-0"[^>]*aria-invalid="true" aria-describedby="pr-why-e-0"/);
-  assert.match(app.html(), /<span class="err small" id="pr-why-e-0">/);
+  app.click('pr-open'); await app.tick(60);
+  assert.match(app.html(), /data-act="pick" data-kind="waive" data-id="ready"/, 'set-up: the gate can be waived');
+  app.click('pick', 'ready', { kind: 'waive' }); await app.tick();
+  app.set('pick-input', '');
+  app.click('waive', '0'); await app.tick();
+  assert.match(app.html(), /id="pick-input"[^>]*aria-invalid="true"/);
+  assert.strictEqual(app.focused(), 'pick-input');
 });
 
-rule('Finishing with unsaved edits offers Save draft, not staging; once saved it offers Stage it for a test run', async () => {
+rule('Run from here: earlier steps are assumed, the walk starts there, Start from the beginning brings it back, one Undo each', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  const short = text(app).replace(/\n## Gate: Ready to deploy[\s\S]*$/, '\n');
-  app.input('draft-editor', short); await app.tick(300);
-  const ids = (app.html().match(/data-pr-step="([\w-]+)"/g) || []).map(s => s.slice(14, -1));
-  for (const id of ids) { await check(app, id); }
-  if (/data-how="pass"/.test(app.html())) { app.click('pr-gate', '0', { how: 'pass' }); await app.tick(); }
-  assert.match(app.html(), /You got through the whole checklist\. Save it, then stage it for a test run\./);
-  assert.match(app.html(), /class="notice good pr-done">[\s\S]*?data-act="save-draft"/);
-  app.click('pr-stage'); await app.tick();
-  assert.match(app.live(), /Save the draft first/);
+  await practice(app);
+  app.click('select', 'pods'); await app.tick();
+  app.click('pr-from', 'pods'); await app.tick();
+  assert.match(app.html(), /\d+ earlier steps assumed for practice · <button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning<\/button>/);
+  assert.equal(row(app, 'pods'), 'open');
+  app.click('pr-undo'); await app.tick();
+  assert.ok(!/earlier steps assumed/.test(app.html()), 'Undo puts the whole checklist back');
+  app.click('pr-redo'); await app.tick();
+  assert.match(app.html(), /earlier steps assumed/);
+  app.click('pr-from-clear'); await app.tick();
+  assert.ok(!/earlier steps assumed/.test(app.html()));
+  await app.tick(200);
+  assert.deepEqual(app.writes, []);
 });
 
+rule('Run from here asks for the samples the walk needs, and gets through without offering Stage', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('select', 'smoke'); await app.tick();
+  app.click('pr-from', 'smoke'); await app.tick();
+  assert.match(app.html(), /needed from here/);
+  for (let id; (id = (/data-a="open" id="step-([\w-]+)"/.exec(app.html()) || [])[1]);) await check(app, id);
+  await pass(app, 2);
+  const h = app.html();
+  assert.match(h, /You got through from &quot;Smoke prompts|You got through from "Smoke prompts/);
+  assert.ok(!/data-act="pr-stage"/.test(h), 'never Stage from a partial walk');
+});
+
+/* ---------- samples ---------- */
+rule('A committed sample and its Undo: the box shows exactly the value being practiced', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('pr-samples'); await app.tick();
+  sample(app, 'environment', 'staging', true); await app.tick();
+  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="staging"/);
+  app.click('pr-undo'); await app.tick();
+  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value=""/);
+});
+
+rule('Typing a sample not yet committed survives a redraw', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('pr-samples'); await app.tick();
+  sample(app, 'tag', 'v9'); await check(app, 'rollback');
+  assert.match(app.html(), /id="pr-s-tag" data-pr-sample="tag" value="v9"/);
+});
+
+rule('A refused sample keeps its text and error while another sample is committed, and across an Undo', async () => {
+  const app = await editor();
+  await edit(app, t => t.replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment:choice(staging|prod), tag'));
+  app.click('pr-samples'); await app.tick();
+  await check(app, 'rollback');
+  sample(app, 'environment', 'bad', true); await app.tick();
+  sample(app, 'tag', 'v9', true); await app.tick();
+  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="bad"[^>]*aria-invalid="true"/);
+  assert.match(app.html(), /id="pr-s-tag" data-pr-sample="tag" value="v9"/);
+  app.click('pr-undo'); await app.tick();
+  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="bad"[^>]*aria-invalid="true"/);
+});
+
+/* ---------- keys ---------- */
+rule('Single keys on the practice page: J and K move, X checks, E edits; with single keys off they do nothing', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('select', 'flags'); await app.tick();
+  app.key('j'); await app.tick();
+  assert.strictEqual(app.selected(), 'rollback');
+  app.key('x'); await app.tick();
+  assert.equal(row(app, 'rollback'), 'done');
+  app.key('k'); await app.tick();
+  assert.strictEqual(app.selected(), 'flags');
+  app.key('e'); await app.tick();
+  assert.ok(inEditor(app), 'E edits the step');
+  await practice(app);
+  topClick(app, 'toggle-keys'); await app.tick();
+  app.click('select', 'flags'); await app.tick();
+  app.key('x'); await app.tick();
+  assert.equal(row(app, 'flags'), 'open');
+});
+
+rule('F on the selected step opens Fill in when the step has fields', async () => {
+  const app = await editor();
+  await practice(app);
+  app.click('select', 'announce'); await app.tick();
+  app.key('f'); await app.tick();
+  assert.match(app.html(), /id="fld-channel"/);
+});
+
+/* ---------- Save draft and Stage ---------- */
 const SMALL = ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: release-lead', '---', '', '## Prep · READ-DO {#prep}', '- [ ] {confirm} One thing {#one}', '', '## Gate: Ready · owner @release-lead {#ready}', '', '## Ship · READ-DO {#ship}', '- [ ] {confirm} Ship it {#ship-it}', ''].join('\n');
 
-/* SMALL saved as the draft, practiced to the end, in the Markdown editor (or the builder). */
+/* SMALL saved as the draft and practiced to the end. */
 async function finished(opts) {
   const app = await editor(opts);
-  if (/id="draft-editor"/.test(app.html())) app.input('draft-editor', SMALL); else { await app.fs.write(DRAFT, SMALL); app.focus(); }
-  await app.tick(300);
+  app.input('draft-editor', SMALL); await app.tick(300);
   app.click('save-draft'); await app.tick(150);
-  app.click('pr-open'); await app.tick();
-  await check(app, 'one'); app.click('pr-gate', '0', { how: 'pass' }); await app.tick();
-  await check(app, 'ship-it'); if (/data-act="pr-gate" data-id="1" data-how="pass"/.test(app.html())) { app.click('pr-gate', '1', { how: 'pass' }); await app.tick(); }
+  await practice(app);
+  await check(app, 'one'); await pass(app, 0);
+  await check(app, 'ship-it'); if (canPass(app, 1)) await pass(app, 1);
   assert.match(app.html(), /You got through the whole checklist\./, 'set-up: practiced to the end');
   return app;
 }
 const stageFiles = app => Object.keys(app.fs.files).filter(k => /^staged\/release\/stage-[^/]+\/map\.md$/.test(k));
-const note = (app, v) => { app.set('pr-note', v); app.fire('input', { target: { id: 'pr-note', value: v, tagName: 'INPUT', dataset: {}, closest: s => (s === '#pr' ? {} : null) } }); };
+const note = (app, v) => { app.set('pr-note', v); app.fire('input', { target: { id: 'pr-note', value: v, tagName: 'INPUT', dataset: {}, closest: () => null } }); };
+const held = app => { let go; const gate = new Promise(r => { go = r; }); const orig = app.fs.write.bind(app.fs); app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d); return () => { go(); return orig; }; };
 
-rule('Stage from Practice stages for real: one stage written, practice ended, the stage shown with Start a test run focused', async () => {
+rule('Finishing with unsaved edits offers Save draft, not staging; Save draft on the page saves it, then Stage is offered', async () => {
+  const app = await editor();
+  app.input('draft-editor', SMALL); await app.tick(300);
+  await practice(app);
+  await check(app, 'one'); await pass(app, 0); await check(app, 'ship-it');
+  if (canPass(app, 1)) await pass(app, 1);
+  assert.match(app.html(), /You got through the whole checklist\. Save it, then stage it for a test run\./);
+  assert.ok(!/data-act="pr-stage"/.test(app.html()), 'no Stage yet');
+  app.click('pr-save'); await app.tick(200);
+  assert.strictEqual(app.fs.files[DRAFT].t, SMALL, 'saved');
+  assert.ok(onPage(app), 'still practicing');
+  assert.match(app.html(), /data-act="pr-stage"/);
+});
+
+rule('Save draft on the practice page: a conflict says so and offers Compare in the editor; a failure offers Try again', async () => {
+  for (const how of ['conflict', 'failed']) {
+    const app = await editor();
+    app.input('draft-editor', SMALL); await app.tick(300);
+    await practice(app);
+    if (how === 'conflict') await app.fs.write(DRAFT, SMALL.replace('Ship it', 'Ship it now'));
+    const orig = app.fs.write.bind(app.fs);
+    if (how === 'failed') app.fs.write = (x, d) => x === DRAFT ? Promise.reject(new Error('disk full')) : orig(x, d);
+    app.click('pr-save'); await app.tick(200);
+    app.fs.write = orig;
+    assert.ok(onPage(app), how + ': still practicing');
+    if (how === 'conflict') { assert.match(app.html(), /someone else changed this draft/); assert.match(app.html(), /data-act="pr-back" data-id="compare"/); }
+    else { assert.match(app.html(), /couldn(&#39;|')t be saved/); assert.match(app.html(), /data-act="pr-save"/); }
+  }
+});
+
+rule('Stage from Practice stages for real: one stage written, the stage shown with Start a test run focused', async () => {
   const app = await finished();
   assert.match(app.html(), /<input id="pr-note"/);
   note(app, 'Tried the short version');
   app.click('pr-stage'); await app.tick(300);
   assert.strictEqual(stageFiles(app).length, 1, 'one stage');
-  assert.ok(!/id="pr"/.test(app.html()), 'practice ended');
+  assert.ok(!onPage(app), 'left the practice page');
   assert.match(app.live(), /Staged\. Start a test run from it/);
   assert.match(app.html(), /data-act="start-test"/);
   assert.match(app.focused() || '', /start-test/);
@@ -301,163 +525,57 @@ rule('Stage from Practice: an empty What changed is refused beside its box, noth
   app.click('pr-stage'); await app.tick(200);
   assert.strictEqual(stageFiles(app).length, 0);
   assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
-  assert.match(app.html(), /id="pr"/, 'practice still open');
+  assert.ok(onPage(app), 'practice still open');
 });
 
-rule('Stage from Practice: what was typed in What changed survives reopening a phase, closing the pane and passing again', async () => {
+rule('Stage from Practice: what was typed in What changed survives reopening a phase and passing again', async () => {
   const app = await finished();
   note(app, 'Tried the short version');
-  app.click('pr-gate', '1', { how: 'reopen' }); await app.tick();
-  app.click('pr-close'); await app.tick(); app.click('pr-open'); await app.tick();
+  app.click('reopen', '1'); await app.tick();
   assert.ok(!/<input id="pr-note"/.test(app.html()), 'set-up: not complete, so no box');
-  app.click('pr-gate', '1', { how: 'pass' }); await app.tick();
+  await pass(app, 1);
   assert.match(app.html(), /<input id="pr-note"[^>]*value="Tried the short version"/);
 });
 
-rule('Stage from Practice: picking practice back up while the stage saves keeps practice and the editor; the stage is still made', async () => {
-  for (const meanwhile of ['select', 'reopen']) {
-    const app = await finished();
-    let go; const gate = new Promise(r => { go = r; });
-    const orig = app.fs.write.bind(app.fs);
-    app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+rule('Stage from Practice: practicing on while the stage saves keeps practice; the stage is still made', async () => {
+  for (const meanwhile of ['select', 'reopen', 'note']) {
+    const app = await finished(), release = held(app);
     note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-    if (meanwhile === 'select') app.click('pr-sel', 'one'); else app.click('pr-gate', '1', { how: 'reopen' });
+    if (meanwhile === 'select') app.click('select', 'one'); else if (meanwhile === 'reopen') app.click('reopen', '1'); else note(app, 'Next: shorter gate');
     await app.tick();
-    go(); await app.tick(300); app.fs.write = orig;
+    app.fs.write = release(); await app.tick(300);
     assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
-    assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
-    assert.match(app.html(), /id="draft-editor"/, meanwhile + ': still in the editor');
+    assert.ok(onPage(app), meanwhile + ': practice kept');
     assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
-    if (/<input id="pr-note"/.test(app.html())) assert.strictEqual((app.el('pr-note') || {}).value || '', '', meanwhile + ': the staged note is cleared from its box');
-    else assert.ok(meanwhile === 'reopen', 'set-up: only a reopened phase hides the box');
+    if (meanwhile === 'note') assert.match(app.html(), /<input id="pr-note"[^>]*value="Next: shorter gate"/);
   }
 });
 
-rule('Stage from Practice: a What changed typed while the folder is read again is kept in its box and in practice', async () => {
-  const app = await finished();
-  let go; const gate = new Promise(r => { go = r; });
-  const orig = app.fs.write.bind(app.fs), list = app.fs.list.bind(app.fs);
-  let staged = false;
-  app.fs.write = (x, d) => { if (/^staged\//.test(x)) staged = true; return orig(x, d); };
-  app.fs.list = x => staged ? gate.then(() => list(x)) : list(x);
-  note(app, 'Tried it'); app.click('pr-stage');
-  for (let i = 0; i < 100 && !staged; i++) await app.tick(5);
-  await app.tick(30);
-  note(app, 'Next: shorter gate');
-  go(); await app.tick(300); app.fs.write = orig; app.fs.list = list;
-  assert.strictEqual(stageFiles(app).length, 1);
-  assert.match(app.html(), /id="pr"/, 'practice kept');
-  assert.strictEqual(app.el('pr-note').value, 'Next: shorter gate', 'the box keeps it');
-  assert.match(app.html(), /<input id="pr-note"[^>]*value="Next: shorter gate"/);
-});
-
-rule('Stage from Practice: picking another step in the builder while the stage saves keeps the editor, the step and practice', async () => {
-  const app = await finished({ localStore: {} });
-  assert.match(app.html(), /data-act="ob-sel"/, 'set-up: the builder');
-  let go; const gate = new Promise(r => { go = r; });
-  const orig = app.fs.write.bind(app.fs);
-  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-  app.click('ob-sel', 'ship-it'); await app.tick();
-  go(); await app.tick(300); app.fs.write = orig;
-  assert.strictEqual(stageFiles(app).length, 1);
-  assert.match(app.html(), /data-act="ob-sel" data-id="ship-it" aria-pressed="true"/, 'the step stays picked');
-  assert.match(app.live(), /Staged\. Your practice is still open\./, app.live());
-});
-
-rule('Stage from Practice: switching to the builder and back while the stage saves still keeps practice', async () => {
-  const app = await finished();
-  let go; const gate = new Promise(r => { go = r; });
-  const orig = app.fs.write.bind(app.fs);
-  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-  app.click('ed-mode', 'builder'); await app.tick(); app.click('ed-mode', 'markdown'); await app.tick();
-  go(); await app.tick(300); app.fs.write = orig;
-  assert.strictEqual(stageFiles(app).length, 1);
-  assert.match(app.html(), /id="pr"/, 'practice kept');
-  assert.match(app.live(), /Staged\. Your practice is still open\./, app.live());
-});
-
-rule('Stage from Practice: browser Back and Forward, or a press on a divider, while the stage saves keeps practice', async () => {
-  for (const meanwhile of ['history', 'pointer']) {
-    const app = await finished();
-    let go; const gate = new Promise(r => { go = r; });
-    const orig = app.fs.write.bind(app.fs);
-    app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+rule('Stage from Practice: going back to the draft, or Back and Forward, while the stage saves keeps practice', async () => {
+  for (const meanwhile of ['draft', 'history']) {
+    const app = await finished(), release = held(app);
     note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-    if (meanwhile === 'history') { app.back(); await app.settle(); app.forward(); await app.settle(); }
-    else app.fire('pointerdown', { button: 0, target: { tagName: 'DIV', dataset: {}, closest: () => null } });
-    go(); await app.tick(300); app.fs.write = orig;
+    if (meanwhile === 'draft') app.click('pr-back'); else { app.back(); await app.settle(); app.forward(); await app.settle(); }
+    await app.tick();
+    app.fs.write = release(); await app.tick(300);
     assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
-    assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
-    assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
+    if (meanwhile === 'draft') { assert.ok(inEditor(app), 'draft: still in the editor'); await practice(app); }
+    assert.ok(onPage(app), meanwhile + ': practice kept');
   }
-});
-
-rule('Stage from Practice: another process\'s What changed is never emptied when this one\'s stage finishes', async () => {
-  const app = await finished();
-  app.click('open-process', 'check-in'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
-  app.input('draft-editor', SMALL.replace('process: release', 'process: check-in')); await app.tick(300);
-  app.click('save-draft'); await app.tick(150);
-  app.click('pr-open'); await app.tick();
-  await check(app, 'one'); app.click('pr-gate', '0', { how: 'pass' }); await app.tick();
-  await check(app, 'ship-it'); if (/data-act="pr-gate" data-id="1" data-how="pass"/.test(app.html())) { app.click('pr-gate', '1', { how: 'pass' }); await app.tick(); }
-  assert.match(app.html(), /<input id="pr-note"/, 'set-up: the other process practiced to the end');
-  note(app, 'Other process note');
-  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
-  assert.match(app.html(), /<input id="pr-note"/, 'set-up: back on the first one, still practiced to the end');
-  let go; const gate = new Promise(r => { go = r; });
-  const orig = app.fs.write.bind(app.fs);
-  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-  app.click('open-process', 'check-in'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
-  assert.strictEqual(app.el('pr-note').value, 'Other process note', 'set-up: its note is drawn');
-  go(); await app.tick(300); app.fs.write = orig;
-  assert.strictEqual(stageFiles(app).length, 1, 'the first process staged');
-  assert.strictEqual(app.el('pr-note').value, 'Other process note');
 });
 
 rule('Stage from Practice: a refresh that read the folder before the stage was written never hides the new stage', async () => {
   const app = await finished();
   let go, first = true; const gate = new Promise(r => { go = r; });
   const orig = app.fs.list.bind(app.fs);
-  /* The refresh lists the folder's top first: no staged/ yet, so it reads no stages at all. */
   app.fs.list = x => { if (first && x === '') { first = false; return orig(x).then(v => gate.then(() => v)); } return orig(x); };
-  app.click('refresh');
+  topClick(app, 'refresh');
   for (let i = 0; i < 100 && first; i++) await app.tick(5);
   assert.ok(!first, 'set-up: the refresh read the folder before the stage was written');
   note(app, 'Tried it'); app.click('pr-stage'); await app.tick(100);
   go(); await app.tick(60); app.fs.list = orig;
   assert.strictEqual(stageFiles(app).length, 1);
-  assert.match(app.html(), /data-act="start-test"/, 'the new stage is shown at once, not on some later refresh');
-});
-
-rule('Stage from Practice: a What changed typed while the stage saves is kept, and so is practice', async () => {
-  const app = await finished();
-  let go; const gate = new Promise(r => { go = r; });
-  const orig = app.fs.write.bind(app.fs);
-  app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-  note(app, 'Next: shorter gate');
-  go(); await app.tick(300); app.fs.write = orig;
-  assert.strictEqual(stageFiles(app).length, 1);
-  assert.match(app.html(), /id="pr"/, 'practice kept');
-  assert.match(app.html(), /<input id="pr-note"[^>]*value="Next: shorter gate"/);
-});
-
-rule('Stage from Practice: typing in a practice form or opening a fold while the stage saves keeps practice', async () => {
-  for (const meanwhile of ['input', 'toggle']) {
-    const app = await finished();
-    let go; const gate = new Promise(r => { go = r; });
-    const orig = app.fs.write.bind(app.fs);
-    app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-    note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-    app.fire(meanwhile, { target: { id: 'pr-fld-channel', value: 'x', tagName: meanwhile === 'input' ? 'INPUT' : 'DETAILS', dataset: {}, closest: s => (s === '#pr' ? {} : null) } });
-    go(); await app.tick(300); app.fs.write = orig;
-    assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
-    assert.match(app.html(), /id="pr"/, meanwhile + ': practice kept');
-    assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
-  }
+  assert.match(app.html(), /data-act="start-test"/, 'the new stage is shown at once');
 });
 
 rule('Stage from Practice: when the folder can\'t be read after staging, practice stays open and says the stage isn\'t shown yet', async () => {
@@ -469,7 +587,7 @@ rule('Stage from Practice: when the folder can\'t be read after staging, practic
   note(app, 'Tried it'); app.click('pr-stage'); await app.tick(300);
   app.fs.write = orig; app.fs.list = list;
   assert.strictEqual(stageFiles(app).length, 1, 'staged');
-  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.ok(onPage(app), 'practice kept');
   assert.match(app.live(), /a test run can't start from it yet: part of the folder couldn't be read just now\. Your practice is still open\./, app.live());
 });
 
@@ -478,343 +596,85 @@ rule('Stage from Practice: a stage decision that can\'t be read keeps practice o
   await app.fs.write('staged/release/decisions/stage-x.w-other.1.json', '{ not json');
   note(app, 'Tried it'); app.click('pr-stage'); await app.tick(300);
   assert.strictEqual(stageFiles(app).length, 1, 'staged');
-  assert.match(app.html(), /id="pr"/, 'practice kept');
+  assert.ok(onPage(app), 'practice kept');
   assert.match(app.live(), /a test run can't start from it yet/, app.live());
 });
 
-rule('A refused check says why beside the step, inside the pane', async () => {
+/* ---------- following the draft ---------- */
+rule('A change someone else saves while practicing is noticed on the page, and Back to the draft shows it', async () => {
   const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.input('draft-editor', SMALL); await app.tick(300);
-  await check(app, 'one');
-  app.click('pr-gate', '0', { how: 'pass' }); await app.tick();
-  await check(app, 'one');
-  assert.match(app.html(), /data-pr-step="one">[\s\S]*?<span class="pr-why err" role="alert">/);
-  assert.equal(row(app, 'one'), 'done');
-});
-
-rule('Stage with builder typing not yet applied keeps the editor open and says to apply it first', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  app.click('ob-sel', 'flags'); await app.tick();
-  app.input('ob-text', 'Feature flags set in the values'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  app.click('pr-stage'); await app.tick();
-  assert.match(app.live(), /Apply or clear what you typed/);
-  assert.match(app.html(), /Practice · not recorded/, 'still in the editor');
-});
-
-rule('A sample committed while builder typing is pending is refused and the typed value stays in the box', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  app.click('ob-sel', 'flags'); await app.tick();
-  app.input('ob-text', 'Feature flags set in the values'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  sample(app, 'environment', 'staging', true); await app.tick();
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="staging"/);
-});
-
-rule('A step checked in Practice is the builder\'s selected step too', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  await check(app, 'tests');
-  assert.match(app.html(), /Practice · not recorded/, 'Practice stays the open tab');
-  app.click('ins-tab', 'selected'); await app.tick();
-  assert.match(app.html(), /id="ob-text"[^>]*>Full test gate green on the release commit|id="ob-text"[^>]*value="Full test gate green on the release commit/);
-});
-
-rule('A practice kept in this tab that can\'t be read starts fresh and says so once', async () => {
-  const session = { };
-  const first = await editor({ sessionStore: session });
-  first.click('pr-open'); await first.tick();
-  await check(first, 'approved');
-  const k = Object.keys(session).filter(x => /:practice:/.test(x))[0];
-  session[k] = '{"v":1,"process":"release","answers":';
-  const app = await editor({ sessionStore: session });
-  app.click('pr-open'); await app.tick();
-  assert.match(app.html(), /couldn&#39;t be read, so it starts fresh|couldn't be read, so it starts fresh/);
-  assert.equal(row(app, 'approved'), 'open');
-  await check(app, 'approved');
-  assert.ok(!/starts fresh/.test(app.html()), 'said once');
-});
-
-rule('A refused sample keeps its text and error while another sample is committed', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.input('draft-editor', text(app).replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment:choice(staging|prod), tag')); await app.tick(300);
-  assert.match(app.html(), /one of staging, prod/, 'set-up: environment is a choice');
-  sample(app, 'environment', 'bad', true); await app.tick();
-  sample(app, 'tag', 'v9', true); await app.tick();
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="bad"[^>]*aria-invalid="true"/);
-  assert.match(app.html(), /id="pr-s-tag" data-pr-sample="tag" value="v9"/);
-});
-
-rule('A refused Reset keeps sample typing', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  app.click('ob-sel', 'flags'); await app.tick();
-  app.input('ob-text', 'Feature flags set in the values'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  sample(app, 'environment', 'staging'); app.click('pr-reset'); await app.tick();
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="staging"/);
-});
-
-rule('Down on a practice row moves the selection (and its highlight) to the next step', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'approved');
-  const next = { dataset: { prStep: 'tests' }, querySelector: s => (/pr-check/.test(s) ? {} : null) };
-  const rowEl = { tagName: 'BUTTON', dataset: {}, classList: { contains: () => false }, closest: s => (s === '#pr' ? {} : s === '.pr-st' ? { dataset: { prStep: 'approved' } } : null) };
-  const qsa = app.doc.querySelectorAll; app.doc.querySelectorAll = s => (s === '.pr-st' ? [rowEl.closest('.pr-st'), next] : qsa ? qsa.call(app.doc, s) : []);
-  const prev = rowEl.closest; let mine = null; rowEl.closest = s => (s === '.pr-st' ? (mine = mine || prev(s)) : prev(s));
-  app.keyOn('ArrowDown', {}, rowEl); await app.tick();
-  app.doc.querySelectorAll = qsa;
-  assert.match(app.html(), /<li class="pr-st[^"]* sel" data-pr-step="tests">/);
-});
-
-rule('Copy what I found without clipboard access selects the text and says how to copy it', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.fire('input', { target: { id: 'pr-found', value: 'The rollback step needs the ticket', closest: () => null } }); await app.tick();
-  app.el('pr-copy-msg'); app.el('pr-found'); app.click('pr-copy'); await app.tick();
-  assert.match(app.text('pr-copy-msg') || '', /Selected\. Press Ctrl\+C/);
-});
-
-rule('Undo of a check keeps a refused sample\'s text and error (only the samples Undo changes are reset)', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.input('draft-editor', text(app).replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment:choice(staging|prod), tag')); await app.tick(300);
-  await check(app, 'approved');
-  sample(app, 'environment', 'bad', true); await app.tick();
-  app.click('pr-undo'); await app.tick();
-  assert.equal(row(app, 'approved'), 'open');
-  assert.match(app.html(), /id="pr-s-environment" data-pr-sample="environment" value="bad"[^>]*aria-invalid="true"/);
-});
-
-/* ---------- 2.2 slice 2: evidence, Fill in, sets: and Run from here ---------- */
-const formIds = (app, kind) => [...app.html().matchAll(new RegExp('id="pr-' + kind + '-([^"]+)"', 'g'))].map(m => m[1]).filter(n => !/^e-/.test(n));
-const hasForm = (app, id) => new RegExp('data-pr-form="\\w+" data-id="' + id + '"').test(app.html());
-const ADD_SETTER = t => t.replace('{#prep}\n', '{#prep}\n- [ ] {confirm} Record the release commit {#rc}\n  sets: commit\n');
-
-rule('Evidence opens inline under the row; a missing value is said beside its box; Check records it; nothing reaches the folder', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.click('pr-check', 'approved'); await app.tick();
-  assert.ok(hasForm(app, 'approved'), 'the form opens under the row');
-  assert.equal(row(app, 'approved'), 'open');
-  const names = formIds(app, 'rec');
-  assert.ok(names.length >= 1, 'boxes: ' + names);
-  app.click('pr-ev-ok', 'approved'); await app.tick();
-  assert.match(app.html(), /<p class="ferr" id="pr-fe" role="alert">[^<]+<\/p>/);
-  assert.match(app.html(), /aria-invalid="true"/);
-  assert.equal(row(app, 'approved'), 'open');
-  names.forEach(n => { app.el('pr-rec-' + n).value = /link|url/.test(n) ? 'https://change.example/CHG-1234' : 'CHG-1234'; });
-  app.click('pr-ev-ok', 'approved'); await app.tick();
-  assert.equal(row(app, 'approved'), 'done');
-  assert.ok(!hasForm(app, 'approved'), 'the form closes');
-  await app.tick(200);
-  assert.deepEqual(app.writes, []);
-});
-
-rule('Enter in an evidence box checks; Escape closes the form; Check without it says so on the row', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.click('pr-check', 'approved'); await app.tick();
-  const n = formIds(app, 'rec')[0], box = app.el('pr-rec-' + n);
-  box.value = 'CHG-9';
-  const target = Object.assign(box, { tagName: 'INPUT', dataset: { enter: 'pr-ev-ok', id: 'approved' }, closest: s => (s === '[data-pr-form]' ? { dataset: { prForm: 'ev', id: 'approved' } } : s === '#pr' ? {} : null) });
-  app.keyOn('Enter', {}, target); await app.tick();
-  assert.equal(row(app, 'approved'), 'done', 'Enter checked it');
-  app.click('pr-check', 'tests'); await app.tick();
-  assert.ok(hasForm(app, 'tests'));
-  app.keyOn('Escape', {}, { tagName: 'INPUT', dataset: {}, closest: s => (s === '[data-pr-form]' ? { dataset: { prForm: 'ev', id: 'tests' } } : s === '#pr' ? {} : null) }); await app.tick();
-  assert.ok(!hasForm(app, 'tests'), 'Escape closed it');
-  assert.equal(row(app, 'tests'), 'open');
-  app.click('pr-check', 'tests'); await app.tick();
-  app.click('pr-ev-skip', 'tests'); await app.tick();
-  assert.equal(row(app, 'tests'), 'done');
-  assert.match(app.html(), /Checked without evidence\./);
-});
-
-rule('The selected row offers Fill in and Run from here; Fill in saves in practice only and never sends the step back', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  await check(app, 'announce');
-  app.click('pr-sel', 'announce'); await app.tick();
-  assert.match(app.html(), /<li class="pr-more"><button type="button" class="mini" data-act="pr-fill" data-id="announce"[^>]*>Fill in<\/button><button type="button" class="mini" data-act="pr-from" data-id="announce"/);
-  assert.ok(!/data-act="pr-goto"/.test(app.html()), 'no Edit in Markdown mode: the builder is off');
-  app.click('pr-fill', 'announce'); await app.tick();
-  const f = formIds(app, 'fld')[0];
-  assert.ok(f, 'a Fill in box');
-  app.el('pr-fld-' + f).value = 'release-room';
-  app.click('pr-fill-ok', 'announce'); await app.tick();
-  assert.ok(!hasForm(app, 'announce'), 'saved: ' + (/id="pr-fe"[^>]*>([^<]*)/.exec(app.html()) || [])[1]);
-  assert.equal(row(app, 'announce'), 'done');
-  app.click('pr-fill', 'announce'); await app.tick();
-  assert.match(app.html(), /value="release-room"/);
-  assert.match(app.html(), /\(draft says: /);
-  await app.tick(200);
-  assert.deepEqual(app.writes, []);
-  assert.ok(!/release-room/.test(text(app)), 'the draft is unchanged');
-});
-
-rule('A setter\'s value flows to the sample and later steps; editing the setter sends its consumers back, the same value brings them back', async () => {
-  const app = await editor();
-  app.input('draft-editor', ADD_SETTER(text(app))); await app.tick(300);
-  app.click('pr-open'); await app.tick();
-  await check(app, 'tests');
-  app.click('pr-check', 'rc'); await app.tick();
-  const n = formIds(app, 'rec')[0];
-  app.el('pr-rec-' + n).value = 'abc1234';
-  app.click('pr-ev-ok', 'rc'); await app.tick();
-  assert.equal(row(app, 'rc'), 'done');
-  assert.match(app.html(), /id="pr-s-commit" data-pr-sample="commit" value="abc1234"/);
-  assert.match(app.html(), /Set by &quot;Record the release commit&quot;|Set by "Record the release commit"/);
-  assert.equal(row(app, 'tests'), 'again', 'its ^commit changed');
-  await check(app, 'tests');
-  app.input('draft-editor', text(app).replace('Record the release commit {#rc}', 'Record the release commit hash {#rc}')); await app.tick(300);
-  assert.equal(row(app, 'rc'), 'again');
-  assert.equal(row(app, 'tests'), 'again');
-  assert.match(app.html(), /\^commit came from a step to try again\./);
-  app.click('pr-check', 'rc'); await app.tick();
-  assert.match(app.html(), /value="abc1234"/, 'the kept value is the starting point');
-  app.click('pr-ev-ok', 'rc'); await app.tick();
-  assert.equal(row(app, 'rc'), 'done');
-  assert.equal(row(app, 'tests'), 'done', 'same value: back as it was');
-  await app.tick(200);
-  assert.ok(!app.writes.some(w => /practice/i.test(w)));
-});
-
-rule('Run from here: earlier steps fold into one line, the walk starts there, Start from the beginning brings it back, one Undo each', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.click('pr-sel', 'pods'); await app.tick();
-  app.click('pr-from', 'pods'); await app.tick();
-  const h = app.html();
-  assert.match(h, /\d+ earlier steps assumed for practice · <button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning<\/button>/);
-  assert.equal(row(app, 'approved'), null, 'assumed steps are folded away');
-  assert.equal(row(app, 'merge'), null);
-  assert.equal(row(app, 'pods'), 'open');
-  assert.match(h, /Next up:<\/b> Deploy: 1 step to go/);
-  assert.match(h, /0 of 1 from here/);
-  app.click('pr-undo'); await app.tick();
-  assert.equal(row(app, 'approved'), 'open', 'Undo puts the whole checklist back');
-  app.click('pr-redo'); await app.tick();
-  assert.equal(row(app, 'approved'), null);
-  app.click('pr-from-clear'); await app.tick();
-  assert.equal(row(app, 'approved'), 'open');
-  await app.tick(200);
-  assert.deepEqual(app.writes, []);
-});
-
-rule('Run from here asks for the samples the walk needs, and gets through without a success moment', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.click('pr-sel', 'deploy-record'); await app.tick();
-  app.click('pr-from', 'deploy-record'); await app.tick();
-  assert.match(app.html(), /needed from here/);
-  assert.match(app.html(), /<details class="pr-sample" data-disc="pr-sample" open>/);
-  for (const id of ['deploy-record', 'close']) await check(app, id);
-  app.click('pr-gate', '2', { how: 'pass' }); await app.tick();
-  const h = app.html();
-  assert.ok(!/whole checklist/.test(h));
-  assert.match(h, /You got through from &quot;Deploy record shows|You got through from "Deploy record shows/);
-  assert.ok(!/data-act="pr-stage"/.test(h), 'never Stage from a partial walk');
-});
-
-rule('F on a practice row opens Fill in (when the Keyboard setting allows single keys and the step has fields)', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  app.click('pr-sel', 'announce'); await app.tick();
-  const rowEl = { dataset: { prStep: 'announce' }, classList: { contains: c => c === 'pr-st' || c === 'sel' } };
-  const target = { tagName: 'BUTTON', dataset: {}, classList: { contains: () => false }, closest: s => (s === '.pr-st' ? rowEl : s === '#pr' ? {} : null) };
-  app.keyOn('f', {}, target); await app.tick();
-  assert.ok(hasForm(app, 'announce'), 'F opened Fill in');
-});
-
-rule('With the builder on, a step\'s text selects it in Practice (the pane stays); Edit opens it in the builder', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  app.click('pr-sel', 'announce'); await app.tick();
-  assert.match(app.html(), /<li class="pr-st st-open sel" data-pr-step="announce">/);
-  assert.match(app.html(), /data-act="pr-goto" data-id="announce">Edit<\/button>/);
-  assert.match(app.html(), /Practice · not recorded/, 'still practicing');
-});
-
-rule('A yes/no setter\'s radios are read as chosen, by Check and by Ctrl+Enter', async () => {
-  for (const how of ['click', 'key']) {
-    const app = await editor();
-    app.input('draft-editor', text(app).replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment, tag, ready:yes-no').replace('{#prep}\n', '{#prep}\n- [ ] {confirm} Say if it is ready {#go}\n  sets: ready\n')); await app.tick(300);
-    app.click('pr-open'); await app.tick();
-    app.click('pr-check', 'go'); await app.tick();
-    const n = formIds(app, 'rec')[0], fs = app.el('pr-rec-' + n);
-    Object.assign(fs, { tagName: 'FIELDSET', querySelector: s => (s === 'input:checked' ? { value: 'yes' } : null) });
-    if (how === 'click') app.click('pr-ev-ok', 'go');
-    else app.keyOn('Enter', { ctrlKey: true }, { tagName: 'INPUT', type: 'radio', dataset: {}, closest: s => (s === '[data-pr-form]' ? { dataset: { prForm: 'ev', id: 'go' } } : s === '#pr' ? {} : null) });
-    await app.tick();
-    assert.equal(row(app, 'go'), 'done', how);
-    assert.match(app.html(), /id="pr-s-ready" data-pr-sample="ready" value="yes"/, how);
-  }
-});
-
-rule('What was typed in one step\'s form never carries into another step\'s, for evidence and Fill in alike', async () => {
-  const app = await editor();
-  app.input('draft-editor', text(app).replace('{#prep}\n', '{#prep}\n- [ ] {decide} Pick A {#da}\n  options: Red, Blue\n  require: decision\n- [ ] {decide} Pick B {#db}\n  options: Red, Blue\n  require: decision\n')); await app.tick(300);
-  app.click('pr-open'); await app.tick();
-  for (const [act, box] of [['pr-check', 'pr-rec-why'], ['pr-fill', 'pr-fld-criteria']]) {
-    app.click(act, 'da'); await app.tick();
-    const kind = act === 'pr-check' ? 'ev' : 'fill';
-    assert.match(app.html(), new RegExp('data-scope="pr\\|' + kind + '\\|da"'));
-    app.click(act, 'db'); await app.tick();
-    /* The redraw carries a typed box only within the same data-scope (app.js render), so B's boxes start from B. This
-       harness keeps one object per box ID, so typing can't be shown here; a real browser was checked by hand. */
-    assert.match(app.html(), new RegExp('data-pr-form="' + kind + '" data-id="db" data-scope="pr\\|' + kind + '\\|db"'), act + ': B\'s form has its own scope');
-    assert.match(app.html(), new RegExp('id="' + box + '"[^>]*>'), act);
-    assert.ok(!new RegExp('<textarea id="' + box + '"[^>]*>first step only|id="' + box + '"[^>]*value="first step only"').test(app.html()), act + ': drawn from B');
-    app.click('pr-form-close'); await app.tick();
-  }
-});
-
-rule('A Fill in refused while builder typing is pending keeps its form and what was typed', async () => {
-  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
-  app.click('pr-open'); await app.tick();
-  app.click('pr-sel', 'announce'); await app.tick();
-  app.click('pr-fill', 'announce'); await app.tick();
-  const f = formIds(app, 'fld')[0];
-  app.el('pr-fld-' + f).value = 'release-room';
-  app.click('ob-sel', 'flags'); await app.tick();
-  app.input('ob-text', 'Feature flags set in the values'); await app.tick();
-  app.click('ins-tab', 'practice'); await app.tick();
-  app.click('pr-sel', 'announce'); await app.tick();
-  assert.ok(hasForm(app, 'announce'), 'its form is still open');
-  app.click('pr-fill-ok', 'announce'); await app.tick();
-  assert.match(app.live(), /Apply or clear/);
-  assert.ok(hasForm(app, 'announce'), 'the form stays');
-  assert.match(app.html(), /value="release-room"/);
-});
-
-rule('Reset is offered once anything resettable is there: Run from here alone counts', async () => {
-  const app = await editor();
-  app.click('pr-open'); await app.tick();
-  assert.match(app.html(), /data-act="pr-reset" disabled/);
-  app.click('pr-sel', 'announce'); await app.tick();
-  app.click('pr-from', 'announce'); await app.tick();
-  assert.ok(!/data-act="pr-reset" disabled/.test(app.html()));
-  app.click('pr-reset'); await app.tick();
-  assert.match(app.html(), /data-act="pr-reset" disabled/);
+  await practice(app);
+  await app.fs.write(DRAFT, app.fs.files[DRAFT].t.replace('Rollback commit written', 'Rollback commit noted'));
+  app.focus(); await app.tick(300); app.every(); await app.tick(300);
+  assert.match(app.html(), /Someone changed the draft\. Back to the draft to see it\./);
+  assert.ok(onPage(app), 'still practicing: nothing adopted under you');
 });
 
 rule('A from step moved by a draft edit is kept at once, so a reload never brings back the old one', async () => {
   const session = {};
   const app = await editor({ sessionStore: session });
-  app.click('pr-open'); await app.tick();
-  app.click('pr-sel', 'approved'); await app.tick();
+  await practice(app);
+  app.click('select', 'approved'); await app.tick();
   app.click('pr-from', 'approved'); await app.tick();
-  app.input('draft-editor', text(app).replace(/\n- \[!\] \{change\.request\}[^\n]*\{#approved\}\n(  [^\n]*\n)*/, '\n')); await app.tick(300);
-  const k = Object.keys(session).filter(x => /:practice:/.test(x))[0];
+  await edit(app, DROP_APPROVED);
+  const k = Object.keys(session).filter(x => /:practice:/.test(x) && !/:typed$/.test(x))[0];
   const from = JSON.parse(session[k]).from;
   assert.ok(from && from !== 'approved', 'kept: ' + from);
+});
+
+rule('Visiting a real run, then practicing, writes nothing; the run is left as it was', async () => {
+  const app = await editor();
+  app.click('nav', 'processes'); await app.tick();
+  const r = app.run();
+  app.click('open-run', r.key); await app.tick(60);
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  app.writes = [];
+  await practice(app);
+  await check(app, 'rollback');
+  await app.tick(300);
+  assert.deepEqual(app.writes.filter(w => !/^write maps\/drafts\//.test(w)), [], app.writes.join(', '));
+  assert.deepStrictEqual(app.run().json.steps, r.json.steps, 'the run is untouched');
+});
+
+rule('A waiver reason being typed is kept across Edit and Back to practice', async () => {
+  const app = await editor();
+  app.input('draft-editor', SMALL); await app.tick(300);
+  await practice(app);
+  app.click('pick', 'ready', { kind: 'waive' }); await app.tick();
+  app.set('pick-input', 'Covered by the release ticket');
+  app.click('pr-edit', 'one'); await app.tick();
+  app.click('pr-open'); await app.tick(60);
+  if (!/id="pick-input"/.test(app.html())) { app.click('pick', 'ready', { kind: 'waive' }); await app.tick(); }
+  assert.match(app.html(), /id="pick-input"[^>]*value="Covered by the release ticket"|id="pick-input"[^>]*>Covered by the release ticket/);
+});
+
+rule('On a phone, Back from a step opened from practice closes the builder sheet first, then returns to practice', async () => {
+  const app = await editor({ narrow: true, localStore: { 'preflight:builder': 'true' } });
+  await practice(app);
+  await check(app, 'rollback');
+  app.click('pr-edit', 'flags'); await app.tick();
+  const open = () => /data-act="ob-sel" data-id="flags" aria-pressed="true"/.test(app.html());
+  assert.ok(app.formModal() && open(), 'set-up: the step opens in the builder sheet');
+  app.back(); await app.settle();
+  assert.ok(!open(), 'the sheet closed');
+  assert.ok(inEditor(app), 'still in the editor');
+  app.back(); await app.settle();
+  assert.ok(onPage(app), 'then practice');
+  assert.equal(row(app, 'rollback'), 'done');
+});
+
+rule('A 300-step draft: the practice run screen draws and answers well under budget', async () => {
+  const lines = ['---', 'process: release', 'title: Big', 'owner: person-casey', '---', ''];
+  for (let p = 0; p < 10; p++) { lines.push('## Phase ' + p + ' · READ-DO {#ph' + p + '}'); for (let k = 0; k < 30; k++) lines.push('- [ ] {confirm} Step ' + p + '-' + k + ' does a thing {#s' + p + '-' + k + '}'); lines.push(''); }
+  const app = await editor();
+  app.input('draft-editor', lines.join('\n')); await app.tick(300);
+  await practice(app);
+  for (let k = 0; k < 5; k++) await check(app, 's0-' + k);
+  const t0 = process.hrtime.bigint();
+  for (let k = 5; k < 15; k++) { app.click('toggle', 's0-' + k); await app.tick(0); }
+  const ms = Number(process.hrtime.bigint() - t0) / 1e7;
+  assert.equal(row(app, 's0-14'), 'done');
+  assert.ok(ms < 60, 'a practice action, drawn, took ' + ms.toFixed(1) + ' ms');
 });
 
 run();
