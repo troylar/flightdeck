@@ -2558,7 +2558,7 @@
   function prFormDone(e, id, msg) { e.form = null; e.formErr = null; e.formVals = null; if (id) state.focus = prFocusRow(id); if (msg) { say(msg, 'good'); state.msg.quiet = true; } render(); }
   function prSubmit(id, skip) {
     var p = currentProcess(); if (!p) return; var e = prEntry(p.id), f = prFormNow(p, e); if (!f || f.id !== id) return;
-    var values = {}; if (!skip) f.list.forEach(function (d) { var el = document.getElementById('pr-rec-' + d.name); if (el) values[d.name] = el.value; });
+    var values = {}; if (!skip) f.list.forEach(function (d) { var el = document.getElementById('pr-rec-' + d.name); if (el) values[d.name] = inputValue(el); });
     var err = null, ok = prDo(p.id, skip ? 'Check without evidence' : 'Check', function (st, map) { var r = PR.answer(st, map, id, 'done', prEnv(), new Date().toISOString(), skip ? { skipped: true } : { values: values }); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
     if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = values; state.focus = err.field ? 'pr-rec-' + err.field : 'pr-fe'; render(); return; }
     if (ok) prFormDone(e, id, '');
@@ -2578,7 +2578,7 @@
     'pr-fill': function (id) { var p = currentProcess(); if (!p) return; prPick(p.id, id); prForm(prEntry(p.id), 'fill', id); },
     'pr-fill-ok': function (id) {
       var p = currentProcess(); if (!p) return; var e = prEntry(p.id), f = prFormNow(p, e); if (!f || f.id !== id) return;
-      var fields = {}; f.list.forEach(function (d) { var el = document.getElementById('pr-fld-' + d.name); if (el) fields[d.name] = el.value; });
+      var fields = {}; f.list.forEach(function (d) { var el = document.getElementById('pr-fld-' + d.name); if (el) fields[d.name] = inputValue(el); });
       var err = null, ok = prDo(p.id, 'Fill in', function (st, map) { var r = PR.fillIn(st, map, id, fields, prEnv()); if (r.error) { err = r; return { state: st }; } return r; }, prFocusRow(id));
       if (err) { e.formErr = { field: err.field || '', msg: err.error }; e.formVals = fields; state.focus = err.field ? 'pr-' + err.field : 'pr-fe'; render(); return; }
       prFormDone(e, id, ok ? 'Filled in for practice.' : '');

@@ -217,7 +217,8 @@ PF.practice = (function () {
         var a = own(state.answers, s.id) ? state.answers[s.id] : null;
         if (!(a && (a.skipped || a.s === 'na')) && simulated(s, envOf(r.types).types) !== 'linked') ev.forEach(function (e) { if (e.detail) supplied[e.detail] = true; });
       }
-      readsOf(p, null).forEach(use);
+      /* A skipped phase's gate approves nothing. */
+      if (R.applies(r, pmap, pi).applies !== false) readsOf(p, null).forEach(use);
     }
     return out;
   }

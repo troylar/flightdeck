@@ -780,4 +780,14 @@ rule('Needed from here: a setter marked Not needed, or a linked run that would s
   same(P.follow(st, linked, {}).from.needed, ['tag', 'size'], 'a linked run sets nothing in practice');
 });
 
+rule('Needed from here: a skipped phase\'s gate asks for nothing', () => {
+  const md = ['---', 'process: k', 'title: K', 'context: env:choice(dev|prod), sig', '---', '## One · READ-DO {#one}', '- [ ] {confirm} Start {#s1}', '',
+    '## Two · READ-DO {#two}', '  only when ^env is prod', '- [ ] {confirm} Prod only {#s2}', '', '## Gate: Signed {#signed}', '  approves: sign-off ^sig', ''].join('\n');
+  const map = admit(md);
+  const dev = P.setFrom(P.setSample(P.fresh('k'), map, 'env', 'dev').state, map, 's1').state;
+  same(P.follow(dev, map, {}).from.needed, []);
+  const prod = P.setFrom(P.setSample(P.fresh('k'), map, 'env', 'prod').state, map, 's1').state;
+  same(P.follow(prod, map, {}).from.needed, ['sig'], 'the same gate asks once its phase applies');
+});
+
 run();

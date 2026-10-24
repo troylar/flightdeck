@@ -528,4 +528,20 @@ rule('With the builder on, a step\'s text selects it in Practice (the pane stays
   assert.match(app.html(), /Practice · not recorded/, 'still practicing');
 });
 
+rule('A yes/no setter\'s radios are read as chosen, by Check and by Ctrl+Enter', async () => {
+  for (const how of ['click', 'key']) {
+    const app = await editor();
+    app.input('draft-editor', text(app).replace('context: ticket, commit, environment, tag', 'context: ticket, commit, environment, tag, ready:yes-no').replace('{#prep}\n', '{#prep}\n- [ ] {confirm} Say if it is ready {#go}\n  sets: ready\n')); await app.tick(300);
+    app.click('pr-open'); await app.tick();
+    app.click('pr-check', 'go'); await app.tick();
+    const n = formIds(app, 'rec')[0], fs = app.el('pr-rec-' + n);
+    Object.assign(fs, { tagName: 'FIELDSET', querySelector: s => (s === 'input:checked' ? { value: 'yes' } : null) });
+    if (how === 'click') app.click('pr-ev-ok', 'go');
+    else app.keyOn('Enter', { ctrlKey: true }, { tagName: 'INPUT', type: 'radio', dataset: {}, closest: s => (s === '[data-pr-form]' ? { dataset: { prForm: 'ev', id: 'go' } } : s === '#pr' ? {} : null) });
+    await app.tick();
+    assert.equal(row(app, 'go'), 'done', how);
+    assert.match(app.html(), /id="pr-s-ready" data-pr-sample="ready" value="yes"/, how);
+  }
+});
+
 run();
