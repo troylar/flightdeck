@@ -20787,7 +20787,8 @@ PF.vk = (function () {
     var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
     var rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 2);
     var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
-    var unused = Object.keys(f).filter(function (n) { return apply.indexOf(n) < 0 && common.indexOf(n) < 0; });
+    /* A box the step doesn't use stays while it holds a value, or was just cleared and still has focus (it's in shown). */
+    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return apply.indexOf(n) < 0 && common.indexOf(n) < 0; });
     var flag = function (n) {
       var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
       if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';
@@ -24200,6 +24201,8 @@ PF.examples = (function () {
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
+    if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
     var fill = fillShown();
     try { renderNow(); } finally { rendering = false; }
     fillAfter(fill);

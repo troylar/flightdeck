@@ -1405,6 +1405,8 @@
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
+    if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
     var fill = fillShown();
     try { renderNow(); } finally { rendering = false; }
     fillAfter(fill);

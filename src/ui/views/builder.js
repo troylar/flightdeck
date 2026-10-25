@@ -353,7 +353,8 @@
     var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
     var rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 2);
     var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
-    var unused = Object.keys(f).filter(function (n) { return apply.indexOf(n) < 0 && common.indexOf(n) < 0; });
+    /* A box the step doesn't use stays while it holds a value, or was just cleared and still has focus (it's in shown). */
+    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return apply.indexOf(n) < 0 && common.indexOf(n) < 0; });
     var flag = function (n) {
       var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
       if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';

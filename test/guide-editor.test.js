@@ -30,11 +30,11 @@ const formOf = app => {
   return h.slice(at);
 };
 const labelOf = (h, id) => { const m = new RegExp('<label[^>]*for="' + id + '"[^>]*>([\\s\\S]*?)(?:<input|<textarea|<select|</label>)').exec(h); return m ? un(m[1].replace(/<[^>]+>/g, '')).trim() : null; };
-const tagOf = (h, id) => (new RegExp('<(?:input|textarea|select|button)\\b[^>]*\\bid="' + id + '"[^>]*>').exec(h) || [''])[0];
+const tagOf = (h, id) => (new RegExp('<(?:input|textarea|select|button)\\b[^>]*\\sid="' + id + '"[^>]*>').exec(h) || [''])[0];
 const whyOf = (h, id) => { const m = new RegExp('<span class="small hint ob-why" id="why-' + id + '">([\\s\\S]*?)</span>').exec(h); return m ? un(m[1]) : null; };
 const flagOf = (h, id) => { const m = new RegExp('<span class="small ob-flag" id="flag-' + id + '">([\\s\\S]*?)</span>').exec(h); return m ? un(m[1]) : null; };
 const chips = h => [...h.matchAll(/data-act="ob-show" data-id="([\w-]+)"[^>]*>([^<]*)</g)].map(m => m[1] + '=' + un(m[2]));
-const boxes = h => [...h.matchAll(/id="ob-fld-([\w-]+)"/g)].map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i);
+const boxes = h => [...h.matchAll(/\sid="ob-fld-([\w-]+)"/g)].map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i);
 const choiceRow = (h, id) => [...h.matchAll(new RegExp('<button type="button" role="radio"[^>]*data-act="ob-choice" data-id="' + id + '" data-val="([^"]*)"[^>]*aria-checked="(true|false)"[^>]*tabindex="(-1|0)"[^>]*>([^<]*)</button>', 'g'))].map(m => [un(m[1]), m[2] === 'true', m[3] === '0', un(m[4])]);
 const enter = (app, id, value) => { app.set(id, value); app.input(id, value); app.keyOn('Enter', {}, { tagName: 'INPUT', id, value, dataset: { enter: 'ob-commit' }, closest: () => null }); };
 const choose = (app, id, val) => app.click('ob-choice', id, { val });
@@ -235,7 +235,7 @@ rule('Editor: "When it\'s checked, they record" lists exactly what the run asks 
 });
 
 rule('Editor: the other forms ask their questions: phase, gate, lane, checklist details, Questions and screenshots', async () => {
-  const text = HEAD + '## Build · READ-DO {#build}\n- [ ] {confirm} Do c {#c}\n\n### Track: Lane one {#lane}\n- [ ] {confirm} In the lane {#inlane}\n\n## Gate: Ready {#ready}\n';
+  const text = HEAD + '## Build · READ-DO {#build}\n- [ ] {confirm} Do c {#c}\n  ![The deploy button](images/a.png)\n\n### Track: Lane one {#lane}\n- [ ] {confirm} In the lane {#inlane}\n\n## Gate: Ready {#ready}\n\n## Questions for the owner\n\n- Who signs off?\n';
   const app = await editorOn(text);
   app.click('ob-sel-phase', 'build'); await app.tick();
   let h = formOf(app);
@@ -249,6 +249,14 @@ rule('Editor: the other forms ask their questions: phase, gate, lane, checklist 
   app.click('ob-sel-details'); await app.tick(); h = formOf(app);
   assert.strictEqual(labelOf(h, 'ob-owner'), G.form('owner').q); assert.strictEqual(labelOf(h, 'ob-backup'), G.form('backup').q);
   assert.ok(/placeholder="release-manager"/.test(tagOf(h, 'ob-add-role')) && /placeholder="tag"/.test(tagOf(h, 'ob-add-ctx')));
+  app.click('ob-sel-questions'); await app.tick(); h = formOf(app);
+  assert.strictEqual(labelOf(h, 'ob-q-text'), G.form('questions').q); assert.strictEqual(whyOf(h, 'ob-q-text'), G.form('questions').why);
+  app.click('ob-sel', 'c'); await app.tick(); h = formOf(app);
+  for (const id of ['ob-shot-cap-0', 'ob-shot-new']) {
+    assert.strictEqual(labelOf(h, id), G.form('caption').q + (id === 'ob-shot-new' ? ' (the next screenshot)' : ' (screenshot 1 of 1)'), id);
+    assert.strictEqual(whyOf(h, id), G.form('caption').why, id + ' why');
+  }
+  assert.ok(tagOf(h, 'ob-shot-new').includes('placeholder="' + G.form('caption').eg + '"'), 'its example');
 });
 
 rule('Pull request: one entry in the picker and the parts box; a new one takes the checklist\'s usual host', async () => {
@@ -347,21 +355,61 @@ rule('Editor: the add forms ask too: a new step\'s and a new phase\'s question, 
   assert.ok(/## Watch · DO-CONFIRM/.test(await textOf(app)), 'applied with the phase');
 });
 
-rule('Editor: Space and Enter on a choice button choose it; Not set clears an optional value and keeps its buttons, focused, until focus leaves', async () => {
+rule('Editor: Space and Enter on a choice button are left to the browser, whose click chooses it once (one Undo step, focus on it); Not set clears an optional value and keeps its buttons, focused, until focus leaves', async () => {
   const app = await editorOn(md(step('confirm', 'c', 'evidence: note')), 'c', { replace: true, domFocus: true });
-  const press = (key, val) => app.keyOn(key, {}, { tagName: 'BUTTON', id: '', dataset: { act: 'ob-choice', id: 'ob-fld-evidence', val }, closest: sel => (/data-act/.test(sel) ? { dataset: { act: 'ob-choice', id: 'ob-fld-evidence', val } } : null) });
-  /* A button's Space or Enter is the browser's click; the app handles it as one. */
-  app.click('ob-choice', 'ob-fld-evidence', { val: 'link' }); await app.tick();
-  assert.ok(/evidence: link/.test(await textOf(app)));
-  press(' ', 'date'); press('Enter', 'date'); await app.tick();
-  assert.ok(/evidence: link/.test(await textOf(app)), 'no key handler chooses twice: Space and Enter are clicks');
+  /* A key on a drawn choice button; true when the app let the browser's default (the button's click) happen. */
+  const press = (key, val) => {
+    let prevented = false;
+    const node = { tagName: 'BUTTON', id: '', dataset: { act: 'ob-choice', id: 'ob-fld-evidence', val }, closest: sel => (/data-act/.test(sel) ? node : null) };
+    app.keyOn(key, { preventDefault() { prevented = true; } }, node);
+    return !prevented;
+  };
+  for (const [key, val] of [[' ', 'link'], ['Enter', 'date']]) {
+    const before = app.fs.files['maps/drafts/release.md'].t;
+    assert.strictEqual(press(key, val), true, JSON.stringify(key) + ': not canceled');
+    await app.tick();
+    assert.strictEqual(app.fs.files['maps/drafts/release.md'].t, before, JSON.stringify(key) + ': the key itself changes nothing');
+    app.click('ob-choice', 'ob-fld-evidence', { val }); await app.tick();
+    assert.strictEqual(app.activeId(), 'ob-fld-evidence', JSON.stringify(key) + ': focus on the chosen button');
+    assert.ok(new RegExp('evidence: ' + val).test(await textOf(app)), JSON.stringify(key) + ': chosen');
+  }
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/evidence: link/.test(await textOf(app)), 'one Undo step takes back one choice');
+  app.click('ob-sel', 'c'); await app.tick();
   choose(app, 'ob-fld-evidence', ''); await app.tick();
   assert.strictEqual(app.activeId(), 'ob-fld-evidence', 'focus on Not set, which carries the control');
-  assert.ok(!/evidence:/.test(await textOf(app)), 'cleared');
   assert.ok(boxes(formOf(app)).includes('evidence') && choiceRow(formOf(app), 'ob-fld-evidence')[0][1], 'still shown, Not set checked');
   app.doc.activeElement = app.doc.body; app.fire('focusout', { target: { id: 'ob-fld-evidence', tagName: 'BUTTON' } }); await app.tick(20);
-  app.click('ob-sel', 'c'); await app.tick();
-  assert.ok(!boxes(formOf(app)).includes('evidence'), 'gone once focus left');
+  /* Redrawn by another change, not by selecting the step again (which forgets reveals itself). */
+  app.click('ob-show', 'link'); await app.tick();
+  assert.ok(!boxes(formOf(app)).includes('evidence') && chips(formOf(app)).some(c => /^evidence=/.test(c)), 'gone once focus left');
+  assert.ok(!/evidence:/.test(await textOf(app)), 'cleared');
+});
+
+rule('Editor: clearing a value the step doesn\'t use (another action\'s field, an unknown field) keeps its box, focused, until focus leaves', async () => {
+  const app = await editorOn(md(step('jira.issue', 'j', 'action: transition', 'issue: PAY-1', 'status: Done', 'project: PAY', 'nope: x')), 'j', { replace: true, domFocus: true });
+  for (const n of ['project', 'nope']) {
+    assert.ok(flagOf(formOf(app), 'ob-fld-' + n), n + ': flagged');
+    app.fire('focusin', { target: { id: 'ob-fld-' + n } });
+    enter(app, 'ob-fld-' + n, ''); await app.tick();
+    assert.strictEqual(app.activeId(), 'ob-fld-' + n, n + ': focus stays on its box');
+    assert.ok(boxes(formOf(app)).includes(n), n + ': still shown');
+    assert.ok(!new RegExp('\n  ' + n + ':').test(await textOf(app)), n + ': the value is gone');
+    app.doc.activeElement = app.doc.body; app.fire('focusout', { target: { id: 'ob-fld-' + n, value: '' } }); await app.tick(20);
+    enter(app, 'ob-fld-issue', 'PAY-2'); await app.tick();
+    assert.ok(!boxes(formOf(app)).includes(n), n + ': gone once focus left');
+  }
+});
+
+rule('Editor: what was revealed is forgotten on leaving the checklist, and coming back', async () => {
+  const app = await editorOn(md(step('jenkins.job', 'b', 'job: release/build-and-test')), 'b', { replace: true, domFocus: true });
+  app.click('ob-show', 'stage'); await app.tick();
+  assert.ok(boxes(formOf(app)).includes('stage'));
+  app.click('nav', 'processes'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  /* The step is still selected (selecting it again would forget reveals by itself). */
+  assert.ok(boxes(formOf(app)).includes('job'), 'back on the step\'s form');
+  assert.ok(!boxes(formOf(app)).includes('stage') && chips(formOf(app)).includes('stage=+ Watch for'), 'behind its chip again');
 });
 
 rule('Editor: phase mode waits while a box holds typing: the checked mode stays, and focus goes to that box', async () => {
@@ -391,7 +439,7 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
         if (d.kind === 'choice') { const o = d.options[0]; choose(app, 'ob-fld-' + n, o); await app.tick(); want[n] = o; continue; }
         await fill(n, String(G.field(t, n, want).eg || (d.kind === 'pin' ? '1' : 'x')));
       }
-      for (const n of ['link', 'expect', 'deadline', 'at']) await fill(n, String(G.COMMON[n].eg));
+      for (const n of ['link', 'expect', 'deadline', 'at', 'due', 'after']) await fill(n, String(G.COMMON[n].eg));
       choose(app, 'ob-fld-evidence', 'note'); await app.tick(); want.evidence = 'note';
       if (!boxes(formOf(app)).includes('require')) { app.click('ob-show', 'require'); await app.tick(); }
       app.click('ob-req', 'all'); await app.tick(); want.require = 'all';
