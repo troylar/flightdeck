@@ -157,6 +157,25 @@ rule('A planned start\'s run: said only as surely as it\'s known', () => {
 const stageFiles = (app) => app.files('staged/release/').filter(f => /^staged\/release\/stage-[a-z0-9]{8}\/publication\.json$/.test(f));
 const runFiles = (app) => app.files('runs/release/').filter(f => /\/run\.json$/.test(f));
 
+rule('Test run: a run.json write that lands and then fails says Flightdeck couldn\'t confirm it started', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const path = 'maps/drafts/release.md', md = app.fs.files[path].t;
+  await app.fs.write(path, md.replace(/\n(## [^\n]*\n)/, '\n$1- [ ] {confirm} Tell the on-call channel {#tell-oncall}\n'));
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
+  const folder = JSON.parse(app.fs.files[stageFiles(app)[0]].t).folder;
+  app.click('start-test', folder); await app.tick();
+  const write = app.fs.write;
+  app.fs.write = function (p) { return /^runs\/release\/[^/]+\/run\.json$/.test(p) ? write.apply(this, arguments).then(() => { throw new Error('OneDrive is offline'); }) : write.apply(this, arguments); };
+  app.submitForm('start-form', {}); await app.tick(200);
+  app.fs.write = write;
+  const text = app.html() + app.live();
+  assert.ok(/couldn(&#39;|')t confirm whether the test run started/.test(text), 'honest');
+  assert.ok(!/Couldn(&#39;|')t start the test run/.test(text), 'never says it didn\'t start');
+});
+
 rule('Test run: Casey to Morgan and back to Casey while the stage is read again writes nothing and goes nowhere', async () => {
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick();
@@ -272,8 +291,6 @@ rule('A known failure, then a Try again that may have written: "couldn\'t confir
   app.submitForm('start-form'); await app.tick(120);
   app.fs.read = read;
   assert.ok(wrong.test(app.html()) && !unsure.test(app.html()), 'set-up: a known failure says didn\'t save');
-  if (/data-act="dismiss"/.test(app.html())) { app.click('dismiss'); await app.tick(); }
-  assert.ok(wrong.test(app.html()), 'set-up: the banner says so too');
   const write = app.fs.write; let release, seen = null; const gate = new Promise(r => { release = r; });
   app.fs.write = function (p) {
     if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { seen = app.html(); return gate.then(() => { throw new Error('OneDrive is offline'); }); }
@@ -281,7 +298,7 @@ rule('A known failure, then a Try again that may have written: "couldn\'t confir
   };
   app.click('plan-resume', PLAN); await app.tick(120);
   assert.ok(seen !== null, 'set-up: Try again reached the write');
-  await app.tick(); assert.ok(!wrong.test(app.html()), 'while it writes, the banner no longer says didn\'t save');
+  await app.tick(); assert.ok(!wrong.test(app.html()), 'while it writes, nothing on the page says didn\'t save');
   release(); await app.tick(120);
   app.fs.write = write;
   assert.ok(/Flightdeck couldn(&#39;|')t confirm whether the run saved: OneDrive is offline/.test(app.html() + app.live()), 'Try again\'s own message');

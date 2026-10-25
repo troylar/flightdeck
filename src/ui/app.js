@@ -4985,7 +4985,7 @@
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, writing: function () { k.certain = false; render(); } });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
@@ -5141,7 +5141,8 @@
       if (new Date(iso) < Date.now() - 12 * 3600000) iso = new Date(new Date(iso).getTime() + 86400000).toISOString();
       mutate(function (r, map, me, now) { R.setDeadline(r, map, id, iso, me, now); });
     },
-    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; afterPass(R.nextUp(r, map, me), map, false); }); },
+    /* Passing closes only the gate's own forms: the step it moves to keeps its Fill in, as selecting it does (2.3.1). */
+    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; afterPass(R.nextUp(r, map, me), map, false); }, { only: String(pi) }); },
     waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
@@ -6181,7 +6182,7 @@
       state.testStage = null;
       return load(true).then(function () { return true; });
     }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
-      function (err) { done(); releaseNav(held); say(aboutWhat(still, sg, sfs, skey, who) + 'Couldn\'t start the test run: ' + err.message, 'bad'); render(); });
+      function (err) { done(); releaseNav(held); say(aboutWhat(still, sg, sfs, skey, who) + (err && err.maybeWritten ? 'Flightdeck couldn\'t confirm whether the test run started (' + err.message + '). Check Runs before starting another.' : 'Couldn\'t start the test run: ' + err.message), 'bad'); if (err && err.maybeWritten) load(true).then(render); else render(); });
   }
 
   /* Getting started's people, and Settings' Add a person. */

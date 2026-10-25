@@ -15252,11 +15252,13 @@ PF.repo = (function () {
        landed; cand the save receipt that may be left. Only that window writes those bytes again (resumeStart). */
     var made = opts.keep ? make() : null, wrote = false;
     var kept = function (e) { if (e && typeof e === 'object') e.pending = { path: path, text: made.text, certain: !wrote, cand: wrote ? made.cand : null }; throw e; };
+    /* Any save that got as far as writing may have landed whatever the write answered (2.3.1): its error says so. */
+    var marked = function (e) { if (wrote && e && typeof e === 'object') e.maybeWritten = true; throw e; };
     if (run._unrunnable) return made ? Promise.reject(readOnly(run._unrunnable)).then(null, kept) : Promise.reject(readOnly(run._unrunnable));
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
     var go = opts.lock ? opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); }) : checkAndWrite();
-    return made ? go.then(null, kept) : go;
+    return made ? go.then(null, kept).then(null, marked) : go.then(null, marked);
     function make() {
       var copy = stripMeta(run); copy.rev = (run.rev || 0) + 1; copy.savedAt = new Date().toISOString(); copy.savedBy = session;
       /* Every save is first written to its own uniquely named candidate file, and run.json lists the saves it includes.
@@ -27157,7 +27159,7 @@ PF.examples = (function () {
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, writing: function () { k.certain = false; render(); } });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
@@ -27313,7 +27315,8 @@ PF.examples = (function () {
       if (new Date(iso) < Date.now() - 12 * 3600000) iso = new Date(new Date(iso).getTime() + 86400000).toISOString();
       mutate(function (r, map, me, now) { R.setDeadline(r, map, id, iso, me, now); });
     },
-    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; afterPass(R.nextUp(r, map, me), map, false); }); },
+    /* Passing closes only the gate's own forms: the step it moves to keeps its Fill in, as selecting it does (2.3.1). */
+    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; afterPass(R.nextUp(r, map, me), map, false); }, { only: String(pi) }); },
     waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
@@ -28353,7 +28356,7 @@ PF.examples = (function () {
       state.testStage = null;
       return load(true).then(function () { return true; });
     }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
-      function (err) { done(); releaseNav(held); say(aboutWhat(still, sg, sfs, skey, who) + 'Couldn\'t start the test run: ' + err.message, 'bad'); render(); });
+      function (err) { done(); releaseNav(held); say(aboutWhat(still, sg, sfs, skey, who) + (err && err.maybeWritten ? 'Flightdeck couldn\'t confirm whether the test run started (' + err.message + '). Check Runs before starting another.' : 'Couldn\'t start the test run: ' + err.message), 'bad'); if (err && err.maybeWritten) load(true).then(render); else render(); });
   }
 
   /* Getting started's people, and Settings' Add a person. */

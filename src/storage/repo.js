@@ -1199,11 +1199,13 @@ PF.repo = (function () {
        landed; cand the save receipt that may be left. Only that window writes those bytes again (resumeStart). */
     var made = opts.keep ? make() : null, wrote = false;
     var kept = function (e) { if (e && typeof e === 'object') e.pending = { path: path, text: made.text, certain: !wrote, cand: wrote ? made.cand : null }; throw e; };
+    /* Any save that got as far as writing may have landed whatever the write answered (2.3.1): its error says so. */
+    var marked = function (e) { if (wrote && e && typeof e === 'object') e.maybeWritten = true; throw e; };
     if (run._unrunnable) return made ? Promise.reject(readOnly(run._unrunnable)).then(null, kept) : Promise.reject(readOnly(run._unrunnable));
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
     var go = opts.lock ? opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); }) : checkAndWrite();
-    return made ? go.then(null, kept) : go;
+    return made ? go.then(null, kept).then(null, marked) : go.then(null, marked);
     function make() {
       var copy = stripMeta(run); copy.rev = (run.rev || 0) + 1; copy.savedAt = new Date().toISOString(); copy.savedBy = session;
       /* Every save is first written to its own uniquely named candidate file, and run.json lists the saves it includes.
