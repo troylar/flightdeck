@@ -231,10 +231,13 @@ PF.health = (function () {
     if (!handoffs && !abandoned) ok('runs', runs.some(function (r) { return !r.ended && r.state === 'running'; }) ? 'Every running run has a recorder on the team, and no hand-off is waiting.' : 'No runs are waiting on anyone.');
     if (scan) {
       var tmp = scan.list.filter(function (f) { return /\.tmp$/i.test(f.p) && f.m != null && now - f.m > LIMITS.tmpMs; });
-      var cands = [];
+      /* Each run's own files (directly in its folder), found once by folder rather than by looking at every file per run. */
+      var cands = [], inDir = Object.create(null);
+      scan.list.forEach(function (f) { PF.perf.add('health.receiptPaths'); var cut = f.p.lastIndexOf('/') + 1; (inDir[f.p.slice(0, cut)] = inDir[f.p.slice(0, cut)] || []).push(f); });
       runs.forEach(function (r) {
         var dir = 'runs/' + r.process + '/' + r.id + '/', lin = r.lineage || [], newest = lin[lin.length - 1];
-        scan.list.forEach(function (f) { if (f.p.indexOf(dir) !== 0 || f.p.slice(dir.length).indexOf('/') >= 0) return; var m = /^candidate-(.+)-([a-z0-9]{8})\.json$/.exec(f.p.slice(dir.length)); if (m && lin.indexOf(m[1] + '.' + m[2]) >= 0 && m[1] + '.' + m[2] !== newest && f.m != null && now - f.m > LIMITS.tmpMs) cands.push(f.p); });
+        PF.perf.add('health.receiptPaths');
+        (inDir[dir] || []).forEach(function (f) { var m = /^candidate-(.+)-([a-z0-9]{8})\.json$/.exec(f.p.slice(dir.length)); if (m && lin.indexOf(m[1] + '.' + m[2]) >= 0 && m[1] + '.' + m[2] !== newest && f.m != null && now - f.m > LIMITS.tmpMs) cands.push(f.p); });
       });
       if (tmp.length) add({ id: 'tmp', severity: 'warn', area: 'Files', title: plural(tmp.length, 'leftover temporary file'), detail: 'A save or a copy stopped partway. If nobody is saving right now, they can be deleted.', paths: tmp.map(function (f) { return f.p; }), action: help(HELP.leftover), help: HELP.leftover });
       if (cands.length) add({ id: 'candidates', severity: 'info', area: 'Runs', title: plural(cands.length, 'old save receipt') + ' left in run folders', detail: 'Their saves are already in the run, so nothing is lost. The next save of each run tidies them away.', paths: cands, action: help(HELP.leftover), help: HELP.leftover });

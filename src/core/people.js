@@ -94,26 +94,44 @@ PF.people = (function () {
   }
   /* Whether me may do act ("add", "inactive", "active", "backup", "owner") to person id: '' when allowed, else why not. The
      backup owner takes over the folder only once the owner is inactive or gone (succession). */
-  function allowed(people, me, act, id) {
-    if (!canManage(people, me)) return 'Only the folder owner and backup owner change the people list.';
-    if (act === 'add') return '';
-    var p = people.filter(function (x) { return x.id === id; })[0], r = roles(people), ownerHere = r.owner && !r.owner.inactive;
-    if (!p) return 'That person isn\'t in people.json any more.';
-    if (act === 'active') return p.inactive ? '' : p.name + ' is active already.';
-    if (act === 'inactive') return p.inactive ? p.name + ' is inactive already.' : id === me ? 'You can\'t mark yourself inactive. Make someone else folder owner or backup first.' : '';
-    if (p.inactive) return p.name + ' is marked inactive. Mark them active first.';
-    if (act === 'backup') return p.folderRole === 'owner' ? p.name + ' is the folder owner.' : '';
-    if (act === 'owner') {
-      if (p.folderRole === 'owner') return p.name + ' is the folder owner already.';
-      if (r.owner && r.owner.id === me) return '';
-      return id === me && !ownerHere ? '' : 'Only the folder owner hands the folder to someone else, or the backup owner once the owner is inactive.';
-    }
-    return 'Unknown change.';
+  function allowed(people, me, act, id) { return permits(people, me)(act, id); }
+  /* allowed() for many people at once (Settings › People): one pass over the list, then each answer looks its person up. The
+     first row for an ID is the one that counts, as everywhere. */
+  function permits(people, me) {
+    var byId = Object.create(null), owner = null;
+    people.forEach(function (x) { PF.perf.add('people.rows'); if (!(x.id in byId)) byId[x.id] = x; if (!owner && x.folderRole === 'owner') owner = x; });
+    var mine = me ? byId[me] : null, manage = !!mine && !mine.inactive && (mine.folderRole === 'owner' || mine.folderRole === 'backup'), ownerHere = owner && !owner.inactive;
+    return function (act, id) {
+      if (!manage) return 'Only the folder owner and backup owner change the people list.';
+      if (act === 'add') return '';
+      var p = id in byId ? byId[id] : null;
+      if (!p) return 'That person isn\'t in people.json any more.';
+      if (act === 'active') return p.inactive ? '' : p.name + ' is active already.';
+      if (act === 'inactive') return p.inactive ? p.name + ' is inactive already.' : id === me ? 'You can\'t mark yourself inactive. Make someone else folder owner or backup first.' : '';
+      if (p.inactive) return p.name + ' is marked inactive. Mark them active first.';
+      if (act === 'backup') return p.folderRole === 'owner' ? p.name + ' is the folder owner.' : '';
+      if (act === 'owner') {
+        if (p.folderRole === 'owner') return p.name + ' is the folder owner already.';
+        if (owner && owner.id === me) return '';
+        return id === me && !ownerHere ? '' : 'Only the folder owner hands the folder to someone else, or the backup owner once the owner is inactive.';
+      }
+      return 'Unknown change.';
+    };
   }
   /* How a person is named where someone is chosen: a name two people share gets their email, else their ID. */
   function label(p, all) {
     var n = String(p.name || '').trim().toLowerCase(), twin = (all || []).some(function (x) { return x !== p && x.id !== p.id && String(x.name || '').trim().toLowerCase() === n; });
     return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
+  }
+  /* label() for everyone a picker lists, built once from that list: twins are a name two different IDs share. */
+  function labeler(all) {
+    var ids = Object.create(null);
+    (all || []).forEach(function (x) { PF.perf.add('people.names'); var n = String(x.name || '').trim().toLowerCase(); (ids[n] = ids[n] || Object.create(null))[x.id] = true; });
+    return function (p) {
+      var set = ids[String(p.name || '').trim().toLowerCase()], twin = false;
+      if (set) for (var k in set) if (k !== String(p.id)) { twin = true; break; }
+      return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
+    };
   }
   function text(doc) { return JSON.stringify(doc, null, 2) + '\n'; }
 
@@ -125,5 +143,5 @@ PF.people = (function () {
       'In Flightdeck: Settings, People, Add a person. Then I can choose my name when I open the folder.', '', 'Thanks!'].join('\n');
   }
 
-  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, label: label, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
+  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, permits: permits, label: label, labeler: labeler, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
 })();
