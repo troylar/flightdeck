@@ -291,6 +291,8 @@ rule('A known failure, then a Try again that may have written: "couldn\'t confir
   app.submitForm('start-form'); await app.tick(120);
   app.fs.read = read;
   assert.ok(wrong.test(app.html()) && !unsure.test(app.html()), 'set-up: a known failure says didn\'t save');
+  app.click('review-plan', PLAN); await app.tick(); app.submitForm('start-form'); await app.tick(120);
+  assert.ok(/Use Try again to save that run/.test(app.html()), 'set-up: a second start is refused with the same words');
   const write = app.fs.write; let release, seen = null; const gate = new Promise(r => { release = r; });
   app.fs.write = function (p) {
     if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { seen = app.html(); return gate.then(() => { throw new Error('OneDrive is offline'); }); }
@@ -362,6 +364,36 @@ rule('A correction\'s label shows the run\'s details in its step text', () => {
   r._notes = [{ id: 'c1', kind: 'correction', step: 'jenkins', at: NOW, by: 'person-casey', change: { op: 'describe' }, why: 'Queue', happened: 'x' }];
   const c = R.corrections(r, map);
   assert.strictEqual(c[0].stepText, 'Start the production deploy job v5');
+});
+
+/* A recorded run of the small checklist, published. */
+async function recordedSmall() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  await app.fs.write('maps/drafts/release.md', SMALL.split('- [ ] ').join('- [ ] {confirm} '));
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick();
+  app.set('change-note', 'Small'); app.click('publish', 'release'); await app.tick(120);
+  app.click('start', 'release'); await app.tick();
+  app.submitForm('start-form', {}); await app.tick(200);
+  assert.ok(/data-act="toggle" data-id="w"/.test(app.html()), 'set-up: recording the small run');
+  return app;
+}
+
+rule('In a run, passing a gate through its confirmation closes that confirmation, the last gate too, and moves on', async () => {
+  const app = await recordedSmall();
+  app.click('toggle', 'w'); await app.tick(60);
+  app.click('pick', 'g1', { kind: 'pass' }); await app.tick();
+  assert.ok(/Yes, pass it/.test(app.html()), 'set-up: the confirmation');
+  app.click('pass', '0'); await app.tick(60);
+  assert.ok(!/Yes, pass it/.test(app.html()) && /data-act="reopen" data-id="0"/.test(app.html()), 'closed, and Reopen offered');
+  assert.strictEqual(app.selected(), 't', 'on to the next phase');
+  app.click('toggle', 't'); await app.tick(60); app.click('toggle', 'b'); await app.tick(60);
+  app.click('pick', 'g2', { kind: 'pass' }); await app.tick();
+  const n = app.asked().length;
+  app.click('pass', '1'); await app.tick(60);
+  assert.ok(!/Yes, pass it/.test(app.html()) && /data-act="reopen" data-id="1"/.test(app.html()), 'the last gate\'s closes too');
+  assert.ok(app.asked().slice(n).includes('[data-act="finish"]'), 'Finish is next');
 });
 
 run();

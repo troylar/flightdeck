@@ -5142,7 +5142,7 @@
       mutate(function (r, map, me, now) { R.setDeadline(r, map, id, iso, me, now); });
     },
     /* Passing closes only the gate's own forms: the step it moves to keeps its Fill in, as selecting it does (2.3.1). */
-    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; afterPass(R.nextUp(r, map, me), map, false); }, { only: String(pi) }); },
+    pass: function (pi) { var o = { only: null }; mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); o.only = state.justPassed = map.phases[+pi].gate.id; state.edit = null; afterPass(R.nextUp(r, map, me), map, false); }, o); },
     waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
@@ -6107,7 +6107,7 @@
     /* A decision on the plan that can't be read could say it was started already: nothing starts until it reads. */
     if (plan && planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
     /* A plan whose run is waiting on Try again here is decided: it's never started again. */
-    if (plan && Object.prototype.hasOwnProperty.call(state.pendingStarts, plan.id)) { say('This plan is marked started, but ' + PF.vk.unsavedWords(state.pendingStarts[plan.id]) + '. Use Try again to save that run; nothing else starts it.', 'warn'); render(); return; }
+    if (plan && Object.prototype.hasOwnProperty.call(state.pendingStarts, plan.id)) { say('This plan is marked started, but ' + PF.vk.unsavedWords(state.pendingStarts[plan.id]) + '. Use Try again to save that run; nothing else starts it.', 'warn'); state.msg.pendingStart = true; render(); return; }
     /* Two different copies of the plan (OneDrive kept both): nothing starts until a person deletes one. */
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
