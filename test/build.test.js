@@ -182,9 +182,17 @@ rule('2.3.0 has its own release entry above 2.2.1: Practice on the run screen, E
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 
-rule('2.5.0 has its own release entry above 2.4.0: Big folders, said as what it\'s like with thousands of runs', () => {
+rule('2.6.0 has its own release entry above 2.5.0: Boxes that explain themselves, in plain words', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '2.5.0'); assert.strictEqual(rel[1].version, '2.4.0');
+  assert.strictEqual(r.version, '2.6.0'); assert.strictEqual(rel[1].version, '2.5.0');
+  const text = JSON.stringify(r);
+  assert.ok(/Boxes that explain themselves/.test(text) && /Which job\?/.test(text) && /\+ add/.test(text) && /Where is the pull request\?/.test(text) && /a yes or no/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM|guide\.js|PF\.|aria-|obShown/i.test(text), 'US English, plain words: no code names');
+});
+
+rule('2.5.0 has its own release entry above 2.4.0: Big folders, said as what it\'s like with thousands of runs', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), i = rel.findIndex(x => x.version === '2.5.0'), r = rel[i];
+  assert.ok(r, '2.5.0 is listed'); assert.strictEqual(rel[i + 1].version, '2.4.0');
   const text = JSON.stringify(r);
   assert.ok(/Big folders/.test(text) && /thousands of runs/.test(text) && /quarter second/.test(text) && /person picker/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM|index|memo|O\(/i.test(text), 'US English, plain words: no index, memo or O()');

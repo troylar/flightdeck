@@ -1225,6 +1225,18 @@ p.pv-when { margin: 0 0 4px; }
 .ob-form h3 { font-family: var(--body); font-size: 14px; font-weight: 600; }
 .ob-form .field { font-size: 14px; }
 .ob-sec { padding-top: 16px; border-top: 1px solid var(--line); }
+/* Entry boxes (2.6.0): why lines, flags, choice buttons, "+ add" chips, requirement chips, what checking asks for. */
+.ob-why { margin: 2px 0 6px; }
+.ob-flag { display: block; color: var(--stop); font-size: 13px; margin: 0 0 6px; }
+.ob-choices { flex-wrap: wrap; max-width: 100%; }
+.ob-adds, .ob-more .row { flex-wrap: wrap; gap: 6px; }
+.ob-add-chip { color: var(--muted); }
+.ob-form .chipbtn.ob-req.bad { border-color: var(--stop); color: var(--stop); background: var(--stop-soft); }
+.ob-form .chipbtn.ob-req.bad[aria-pressed="true"] { background: var(--stop-soft); color: var(--stop); border-color: var(--stop); }
+.ob-form .chipbtn .small { opacity: .85; }
+.ob-needed { border-style: dashed; color: var(--muted); }
+.ob-records ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 10px; }
+.ob-records li .hint { margin: 2px 0 0; }
 .ob-crumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
 .ob-crumbs li { overflow-wrap: anywhere; }
 .ob-crumbs li + li::before { content: "/"; margin: 0 6px; color: var(--field); }

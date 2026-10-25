@@ -41,7 +41,7 @@ const BOX = {
   'ob-shot-new': ['form', 'caption'], 'ob-shot-cap-': ['form', 'caption'], 'ob-ph-title': ['form', 'ph-title'], 'ob-new-title': ['form', 'ph-title'], 'ob-ph-mode': ['form', 'ph-mode'],
   'ob-new-mode': ['form', 'ph-mode'], 'ob-ph-note': ['form', 'ph-note'], 'ob-g-title': ['form', 'g-title'], 'ob-g-owner': ['form', 'g-owner'], 'ob-g-approves': ['form', 'g-approves'],
   'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'],
-  'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null]
+  'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host']
 };
 /* Not entry boxes: finding a part, choosing a type or a kind (radios with their own descriptions), choosing files. */
 const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-mark-': 1 };
@@ -50,7 +50,10 @@ rule('Guide: every input, textarea and select the editor draws has its guide ent
   const ids = new Set();
   for (const m of src.matchAll(/<(?:input|textarea|select)\b[^>]*?\bid="([^"]*?)(?:"|' \+)/g)) ids.add(m[1]);
   for (const m of src.matchAll(/<(?:input|textarea|select)\b[^>]*?\bid="' \+ (\w+) \+/g)) ids.add('var:' + m[1]);
-  assert.ok(ids.has('ob-q-text'), 'set-up: the Questions box is found');
+  /* 2.6.0: the other forms draw their boxes through formBox, formSelect, personSelect and choices, each naming its entry. */
+  const named = [...src.matchAll(/(?:formBox|formSelect|personSelect)\(ctx, '([\w-]+)', '([\w-]+)'/g), ...src.matchAll(/choices\(ctx, '([\w-]+)', G\.form\('([\w-]+)'\)/g)];
+  named.forEach(m => { ids.add(m[1]); entry(G.form(m[2])); });
+  assert.ok(ids.has('ob-q-text') && ids.has('ob-ph-mode') && ids.has('ob-owner'), 'set-up: the Questions box, phase mode and owner are found');
   ids.delete('');
   const left = [...ids].filter(id => {
     if (/^var:/.test(id)) return !['var:id', 'var:addId'].includes(id);

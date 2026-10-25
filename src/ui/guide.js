@@ -124,6 +124,7 @@ PF.guide = (function () {
     backup: e('Who stands in for them?', '', 'Signs off only while the owner is away. Left empty, no one stands in.', true),
     role: e('Add a role', 'release-manager', 'Steps and gates can be given to a role. One at a time; an empty name adds nothing.', true),
     context: e('Add a run detail each run needs', 'tag', 'Asked when a run starts; steps can use it as ^name. One at a time; an empty name adds nothing.', true),
+    'pr-host': e('Where is the pull request?', '', 'Changes the step between a GitHub and a Bitbucket pull request. Every value is kept; what the other one doesn\'t use is flagged.', true),
     questions: e('What\'s still to be answered?', 'Who approves a hotfix?', 'Questions for the owner, written while drafting. Left in, the checklist can\'t be published; answer them in the steps, then remove the section.', true)
   };
 
@@ -157,10 +158,15 @@ PF.guide = (function () {
     if (x) return out(x, x.why, tail);
     return out({ q: d.label || d.name, eg: '' }, '', tail);
   }
+  /* The "+ add" chip that shows a waiting box: the fields every type accepts by these short names, a type's own fields
+     and pins by their labels. */
+  var CHIPS = { link: 'Link', expect: 'How long it takes', deadline: 'Deadline', evidence: 'Ask for proof', require: 'What must be recorded',
+    at: 'At', due: 'Done by', after: 'Due after', sets: 'Sets a run detail' };
+  function chip(type, name) { var d = T.fieldDef(type, name); return own(CHIPS, name) || (d && d.label) || name; }
   function step(name) { var x = own(STEP, name); return x ? out(x, x.why) : null; }
   function form(name) { var x = own(FORMS, name); return x ? out(x, x.why) : null; }
 
-  return { field: field, record: record, step: step, form: form, usual: usual,
+  return { field: field, record: record, step: step, form: form, usual: usual, chip: chip,
     /* The tables as written, for the tests that check every box is covered and every example is accepted. */
     FIELDS: FIELDS, RECORD: RECORD, COMMON: COMMON, EVIDENCE: EVIDENCE, STEP: STEP, FORMS: FORMS,
     TAILS: { usual: USUAL, optional: OPTIONAL, needed: NEEDED, maybe: MAYBE } };

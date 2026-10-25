@@ -341,7 +341,7 @@ rule('App: the builder\'s side form shows the step as the folder has it now, and
   /* A change to this step replaces the box's old value with the new text. */
   await app.fs.write(path, original.replace('title: Production release', 'title: Theirs').replace('Feature flags set in the deploy values', 'Flags set by them'));
   app.focus(); await app.tick(80);
-  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit">Flags set by them<\/textarea>/.test(app.html()), 'drawn from the new text');
+  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit"[^>]*>Flags set by them<\/textarea>/.test(app.html()), 'drawn from the new text (2.6.0: with its example and why)');
   assert.notStrictEqual(app.draft('ob-text'), 'Half typed', 'the old value isn\'t carried over');
 });
 

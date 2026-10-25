@@ -28,6 +28,8 @@ t test/folder.test.js
 t test/failed-reads.test.js
 t test/sync.test.js
 t test/views.test.js
+t test/guide.test.js
+t test/guide-editor.test.js
 t test/checker.test.js
 t test/app.test.js
 t test/app-reports.test.js

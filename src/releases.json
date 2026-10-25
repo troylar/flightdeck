@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.6.0",
+    "date": "2026-10-25",
+    "headline": "Boxes that explain themselves",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "Every box asks a question, with an example and why it matters",
+        "now": "Each box in the step form asks what to put there (\"Which job?\", \"What do you run?\"), shows an example in gray and says what it's used for and what happens when it's left empty. Phases, gates, lanes, checklist details, screenshots and Questions ask too.",
+        "before": "Boxes were named by short labels (\"Job\", \"Command\"), and some were marked \"usually filled in\" without saying why.",
+        "where": "Editing a checklist, the step form and the other forms"
+      },
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "Only the boxes a step usually needs are shown; the rest are one click away",
+        "now": "A step shows the boxes its type usually needs and any that hold a value. The others wait behind \"+ add\" buttons, and the fields every step accepts (a link, how long it takes, a deadline, proof, a time) are under More about this step. A value the step doesn't use, such as another action's field, is kept and says why.",
+        "before": "Every field of the type was shown at once, including ones that didn't apply to the chosen action.",
+        "where": "The step form"
+      },
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "Short choices are buttons, and the step says what checking it will ask for",
+        "now": "A choice of five or fewer (an action, Ask for proof, how a phase is worked) is a row of buttons you can also move through with the arrow keys. What must be recorded offers only names the step can record, and When it's checked, they record lists exactly what the run will ask for.",
+        "before": "Choices were drop-down lists, and what a run would ask for when the step is checked wasn't shown.",
+        "where": "The step form and the phase form"
+      },
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "One Pull request step, with GitHub or Bitbucket as its first question",
+        "now": "The parts box and the type picker have one Pull request. Its first question is Where is the pull request?, GitHub or Bitbucket; switching keeps every value and points out what the other one doesn't use. A new one uses the host the checklist already uses most.",
+        "before": "GitHub and Bitbucket pull requests were two separate step types.",
+        "where": "The parts box, the type picker and the step form"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Fill in and the record form ask the same questions",
+        "now": "Filling in a step or recording what you did asks the box's question, shows an example and says why under the box. The step's What to do now names every kind of proof: a link, a note, a number, a yes or no, or a date.",
+        "before": "Those boxes used the short labels, and proof asked for as a number, a yes or no, or a date was shown as \"a note\".",
+        "where": "The run screen and practice"
+      }
+    ]
+  },
+  {
     "version": "2.5.0",
     "date": "2026-10-25",
     "headline": "Big folders",
